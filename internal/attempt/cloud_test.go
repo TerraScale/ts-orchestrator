@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"io"
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -145,61 +143,6 @@ func TestControllerObjectGrantsRefuseAnUnconditionalPolicyUpdate(t *testing.T) {
 	}
 }
 
-func TestContinuityMarkerReadRetriesThenWritesExactBytes(t *testing.T) {
-	a := smallAttempt(t)
-	a.Out, a.ErrOut = io.Discard, io.Discard
-	cloud := &policyCloud{objects: map[string][]byte{}}
-	a.Cloud = cloud
-	var slept int
-	a.Sleep = func(context.Context, time.Duration) error {
-		slept++
-		// Publish every marker after the first failed read.
-		for _, slot := range Slots {
-			cloud.objects[a.markerObject(slot)] = []byte(`{"slot":"` + slot + `"}`)
-		}
-		return nil
-	}
-	a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
-	a.Runner = func(context.Context, Command) (string, error) { return "", errors.New("stop after markers") }
-	a.PhaseContinuity()
-	for _, slot := range Slots {
-		b, err := os.ReadFile(a.Path("continuity", slot+".marker.json"))
-		if err != nil || !strings.Contains(string(b), slot) {
-			t.Fatal(slot, string(b), err)
-		}
-	}
-	if slept != 1 {
-		t.Fatal("slept", slept)
-	}
-}
-
-func TestContinuityMarkerPollAnnouncesOncePerSlot(t *testing.T) {
-	a := smallAttempt(t)
-	var out strings.Builder
-	a.Out, a.ErrOut = &out, io.Discard
-	cloud := &policyCloud{objects: map[string][]byte{}}
-	a.Cloud = cloud
-	slept := 0
-	a.Sleep = func(context.Context, time.Duration) error {
-		// Publish every marker only after several empty polls.
-		if slept++; slept == 3 {
-			for _, slot := range Slots {
-				cloud.objects[a.markerObject(slot)] = []byte(`{"slot":"` + slot + `"}`)
-			}
-		}
-		return nil
-	}
-	a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
-	a.Runner = func(context.Context, Command) (string, error) { return "", errors.New("stop after markers") }
-	a.PhaseContinuity()
-	if cloud.reads < 3 {
-		t.Fatalf("polled %d times, want several", cloud.reads)
-	}
-	if banners := strings.Count(out.String(), "accepted-install marker"); banners != len(Slots) {
-		t.Fatalf("%d poll banners for %d slots:\n%s", banners, len(Slots), out.String())
-	}
-}
-
 // The launch input writer and this strict reader live in different packages;
 // a member added to or dropped from the writer must fail here, not at the
 // next real launch.
@@ -271,38 +214,9 @@ func TestSlotRecordPrefixesScopeToTheDeployment(t *testing.T) {
 	}
 }
 
-// An attempt whose installs adopted material generations renders their
-// continuity from the chain it holds, not from its bootstrap material.
-func TestContinuityRendersFromAdoptedGenerations(t *testing.T) {
-	for _, adopted := range []bool{false, true} {
-		a := smallAttempt(t)
-		a.Out, a.ErrOut = io.Discard, io.Discard
-		cloud := &policyCloud{objects: map[string][]byte{}}
-		for _, slot := range Slots {
-			cloud.objects[a.markerObject(slot)] = []byte(`{"slot":"` + slot + `"}`)
-		}
-		a.Cloud = cloud
-		a.Sleep = func(context.Context, time.Duration) error { return nil }
-		a.writeJSON(a.Plan(), Object{"cell": "GRU", "foundation_buckets": Object{"head": "head"}})
-		chain := a.Path("material-generations.json")
-		if adopted {
-			a.WriteNew(chain, []byte("[]"))
-		}
-		var render []string
-		a.Runner = func(_ context.Context, c Command) (string, error) {
-			if render == nil {
-				render = c.Args
-			}
-			return "", errors.New("stop after the first render")
-		}
-		a.PhaseContinuity()
-		joined := strings.Join(render, " ")
-		if !strings.Contains(joined, "render-founder-continuity") {
-			t.Fatalf("first command = %q", joined)
-		}
-		if got := strings.Contains(joined, "--material-generations "+chain); got != adopted ||
-			strings.Contains(joined, "--material-directory") == adopted {
-			t.Fatalf("adopted=%v rendered with %q", adopted, joined)
-		}
+func TestAttemptRejectsRetiredContinuityPhase(t *testing.T) {
+	a := smallAttempt(t)
+	if err := a.Phase("continuity"); err == nil || !strings.Contains(err.Error(), "unknown attempt phase") {
+		t.Fatalf("retired continuity phase admitted: %v", err)
 	}
 }

@@ -20,6 +20,38 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
+func TestFounderSelectionRejectsNonV1AndRetiredContinuityShape(t *testing.T) {
+	fixture := newFounderSelectionFixture(t)
+	reader := fixture.reader(t)
+	expected := trust.Scope{DeploymentID: fixture.selection.DeploymentID, Cell: fixture.selection.Cell,
+		Environment: fixture.selection.Environment}
+	for _, version := range []int{-1, 0, 2, 3} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			selection := fixture.selection
+			selection.SchemaVersion = version
+			wire := fixture.signSelection(t, selection, fixture.now.Add(time.Hour))
+			if _, _, _, err := reader.verifySelection(wire, fixture.now); !errors.Is(err, ErrFounderSelection) {
+				t.Fatalf("root-signed version %d selector: %v", version, err)
+			}
+		})
+	}
+	payload, err := protocol.EncodeJSON(struct {
+		SchemaVersion int                  `json:"schemaVersion"`
+		DeploymentID  string               `json:"deploymentId"`
+		Cell          string               `json:"cell"`
+		Environment   string               `json:"environment"`
+		Generation    uint64               `json:"generation"`
+		Continuities  []FounderManifestPin `json:"continuities"`
+	}{SchemaVersion: 1, DeploymentID: expected.DeploymentID, Cell: expected.Cell,
+		Environment: expected.Environment, Generation: 2, Continuities: fixture.selection.Manifests})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFounderSelectionPayload(payload, expected); !errors.Is(err, ErrFounderSelection) {
+		t.Fatalf("retired continuity shape was reinterpreted as v1: %v", err)
+	}
+}
+
 type founderSelectionObjects struct {
 	items map[string][]byte
 	reads map[string]int

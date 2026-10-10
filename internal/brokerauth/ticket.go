@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const (
@@ -71,6 +72,7 @@ func NewRequest(cell, broker, account string) (TicketRequest, error) {
 
 type Ticket struct {
 	TicketRequest
+	DeploymentID          string    `json:"deployment_id"`
 	Epoch                 uint64    `json:"epoch"`
 	LeaseRevision         uint64    `json:"leaseRevision"`
 	ClaimSequence         uint64    `json:"claimSequence"`
@@ -132,7 +134,7 @@ func (i *Issuer) Issue(ctx context.Context, request TicketRequest) (SignedTicket
 		return SignedTicket{}, authority.ErrFenced
 	}
 	observed, err := authority.Observe(ctx, i.Store.js, request.Cell)
-	if err != nil || !observed.Ready || observed.Epoch != snapshot.Epoch ||
+	if err != nil || !observed.Ready || observed.DeploymentID != snapshot.DeploymentID || observed.Epoch != snapshot.Epoch ||
 		observed.CandidateID != snapshot.CandidateID || observed.OwnerID != snapshot.OwnerID ||
 		observed.Revision < snapshot.Revision {
 		return SignedTicket{}, authority.ErrFenced
@@ -156,7 +158,7 @@ func (i *Issuer) Issue(ctx context.Context, request TicketRequest) (SignedTicket
 	if err != nil || current.Sequence != claim.Sequence || current.Hash != claim.Hash {
 		return SignedTicket{}, ErrClaimChanged
 	}
-	ticket := Ticket{TicketRequest: request, Epoch: snapshot.Epoch, LeaseRevision: snapshot.Revision,
+	ticket := Ticket{TicketRequest: request, DeploymentID: snapshot.DeploymentID, Epoch: snapshot.Epoch, LeaseRevision: snapshot.Revision,
 		ClaimSequence: claim.Sequence, ClaimHash: claim.Hash, ClaimJWT: claim.JWT,
 		IssuedAt: issued.UTC(), ExpiresAt: expires.UTC(), LeaseExpiresAt: snapshot.ExpiresAt.UTC(),
 		IssuerClockErrorNanos: int64(bound.MaxError)}
@@ -187,6 +189,7 @@ func VerifyTicket(signed SignedTicket, public ed25519.PublicKey, request TicketR
 		ticket.ClaimSequence == 0 || ticket.ClaimSequence != claim.Sequence ||
 		ticket.ClaimHash != claim.Hash || ticket.ClaimJWT != claim.JWT ||
 		claim.Cell != request.Cell || claim.Account != request.Account ||
+		!entityid.Valid(ticket.DeploymentID) || ticket.DeploymentID != lease.DeploymentID ||
 		!lease.Ready || lease.Scope != request.Cell || lease.Epoch != ticket.Epoch ||
 		lease.Revision < ticket.LeaseRevision || claim.Epoch > ticket.Epoch ||
 		claim.Sequence >= ticket.LeaseRevision ||

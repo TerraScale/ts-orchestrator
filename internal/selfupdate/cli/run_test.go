@@ -65,7 +65,7 @@ func TestPrepareActivateWatchdogRestart(t *testing.T) {
 	if _, err := invoke("watchdog", "--root", root, "--owner", owner, "--unit", unit, "--proof-file", "x"); err == nil {
 		t.Fatal("half-configured proof accepted")
 	}
-	if output, err := invoke(append([]string{"watchdog", "--root", root, "--owner", owner, "--unit", unit, "--restart"}, proof...)...); err != nil ||
+	if output, err := invoke(append([]string{"watchdog", "--root", root, "--owner", owner, "--unit", unit}, proof...)...); err != nil ||
 		!strings.Contains(output, "outcome=idle") || len(restarted) != 0 {
 		t.Fatalf("idle watchdog = %q %v %v", output, err, restarted)
 	}
@@ -123,22 +123,22 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 		confirmed bool
 	}{
 		{"controller-default-proof", controller, func(key, proof, _ string) (string, string) {
-			return `{"nats":{"cell":"gru"},"controller":{"response_key_file":"` + key + `","added_later":true},"future":{}}`, proof
+			return `{"version":1,"nats":{"cell":"gru"},"controller":{"response_key_file":"` + key + `","added_later":true},"future":{}}`, proof
 		}, false, true},
 		{"host-configured-proof", host, func(key, _, dir string) (string, string) {
 			proof := filepath.Join(dir, "custom-proof.json")
-			return `{"host":{"identity_key_file":"` + key + `","self_update_proof_file":"` + proof + `"}}`, proof
+			return `{"version":1,"host":{"identity_key_file":"` + key + `","self_update_proof_file":"` + proof + `"}}`, proof
 		}, false, true},
 		{"proof-signed-by-another-key", controller, func(key, proof, _ string) (string, string) {
-			return `{"controller":{"response_key_file":"` + key + `"}}`, proof
+			return `{"version":1,"controller":{"response_key_file":"` + key + `"}}`, proof
 		}, true, false},
 		{"key-of-the-other-role", controller, func(key, proof, _ string) (string, string) {
-			return `{"host":{"identity_key_file":"` + key + `"}}`, proof
+			return `{"version":1,"host":{"identity_key_file":"` + key + `"}}`, proof
 		}, false, false},
 		{"role-not-configured", host, func(_, proof, _ string) (string, string) { return "", proof }, false, false},
-		{"unreadable-config", host, func(_, proof, _ string) (string, string) { return `{"host":`, proof }, false, false},
+		{"unreadable-config", host, func(_, proof, _ string) (string, string) { return `{"version":1,"host":`, proof }, false, false},
 		{"other-release-root", host, func(key, proof, dir string) (string, string) {
-			return `{"host":{"identity_key_file":"` + key + `","self_update_root":"` + filepath.Join(dir, "elsewhere") + `"}}`, proof
+			return `{"version":1,"host":{"identity_key_file":"` + key + `","self_update_root":"` + filepath.Join(dir, "elsewhere") + `"}}`, proof
 		}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -221,7 +221,7 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 			if err := os.WriteFile(proofFile, wire, 0o644); err != nil {
 				t.Fatal(err)
 			}
-			watchdog := []string{"watchdog", "--root", root, "--owner", owner, "--unit", tc.unit, "--config", configFile, "--restart"}
+			watchdog := []string{"watchdog", "--root", root, "--owner", owner, "--unit", tc.unit, "--config", configFile}
 			if _, err := invoke(append(watchdog, "--proof-file", proofFile)...); err == nil {
 				t.Fatal("--config combined with --proof-file was accepted")
 			}
@@ -233,7 +233,7 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 				if !strings.Contains(output, "outcome=confirmed") {
 					t.Fatalf("watchdog = %q", output)
 				}
-				if current, err := layout.Current(); err != nil || current != digest || len(restarted) != 0 {
+				if current, err := layout.Current(); err != nil || current != digest || len(restarted) != 1 || restarted[0] != tc.unit {
 					t.Fatalf("confirmed current = %s %v, restarted %v", current, err, restarted)
 				}
 				return
@@ -245,7 +245,7 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 			if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=rolled-back") {
 				t.Fatalf("watchdog after the deadline = %q %v", output, err)
 			}
-			if current, err := layout.Current(); err != nil || current != previous || len(restarted) != 1 || restarted[0] != tc.unit {
+			if current, err := layout.Current(); err != nil || current != previous || len(restarted) != 2 || restarted[0] != tc.unit || restarted[1] != tc.unit {
 				t.Fatalf("rolled back current = %s %v (want %s), restarted %v", current, err, previous, restarted)
 			}
 			if knownBad, err := layout.KnownBad(); err != nil || !knownBad[digest] {
@@ -318,7 +318,7 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 		}
 		return strings.Split(strings.TrimSpace(string(data)), "\n")
 	}
-	watchdog := []string{"watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", filepath.Join(dir, "host.json"), "--restart"}
+	watchdog := []string{"watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", filepath.Join(dir, "host.json")}
 	knownGood()
 	for _, step := range [][]string{watchdog, prepare} {
 		output, err := invoke(step...)
@@ -374,7 +374,7 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	}
 	now = now.Add(time.Minute + selfupdate.OrphanedActivationGrace)
 	output, err := invoke(watchdog...)
-	if err != nil || !strings.Contains(output, "outcome=rolled-back") || len(calls()) != 5 || len(restarted) != 1 {
+	if err != nil || !strings.Contains(output, "outcome=rolled-back") || len(calls()) != 5 || len(restarted) != 2 || restarted[0] != unit || restarted[1] != unit {
 		t.Fatalf("backstop after a delegate ignored the deadline = %q %v, calls %q, restarted %v", output, err, calls(), restarted)
 	}
 	if current, err := layout.Current(); err != nil || current == unproven {

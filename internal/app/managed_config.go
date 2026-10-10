@@ -1,19 +1,16 @@
 package app
 
 import (
-	"bytes"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
 type managedPlacementSettings struct {
@@ -57,36 +54,22 @@ func loadManagedControllerConfig(cfg Config) (*managedControllerConfig, error) {
 	if controller.OciRegionIntentFile == "" || controller.OciRegionConfig == "" || controller.PlacementConfig == "" {
 		return nil, errors.New("managed controller requires OCI region intent, fleet config, and placement config together")
 	}
-	present, err := controllerBakedInputsPresent()
+	intent, region, settings, err := loadSignedManagedControllerConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
-	var intent oci.RegionIntent
-	var region oci.RegionConfig
-	var settings managedPlacementSettings
-	if present {
-		intent, region, settings, err = loadSignedManagedControllerConfig(cfg)
-	} else {
-		intent, region, err = loadManagedRegion(cfg)
-		if err == nil {
-			settings, err = loadManagedPlacementSettings(controller.PlacementConfig)
-		}
-	}
-	if err != nil {
+	managed := &managedControllerConfig{intent: intent, region: region, placement: settings}
+	if err := managed.validateWorkloads(controller.Workloads); err != nil {
 		return nil, err
 	}
-	if _, exists := controller.Workloads[settings.MemberRole]; exists {
-		return nil, fmt.Errorf("placement member role %q overlaps a generic delivery workload profile", settings.MemberRole)
-	}
-	return &managedControllerConfig{intent: intent, region: region, placement: settings}, nil
+	return managed, nil
 }
 
-func loadManagedPlacementSettings(path string) (managedPlacementSettings, error) {
-	data, err := readBoundedConfigFile(path)
-	if err != nil {
-		return managedPlacementSettings{}, fmt.Errorf("read TerraBase placement config: %w", err)
+func (m managedControllerConfig) validateWorkloads(workloads map[string]WorkloadProfile) error {
+	if _, exists := workloads[m.placement.MemberRole]; exists {
+		return fmt.Errorf("placement member role %q overlaps a generic delivery workload profile", m.placement.MemberRole)
 	}
-	return parseManagedPlacementSettings(data)
+	return nil
 }
 
 func parseManagedPlacementSettings(data []byte) (managedPlacementSettings, error) {
@@ -97,80 +80,60 @@ func parseManagedPlacementSettings(data []byte) (managedPlacementSettings, error
 	return settings, nil
 }
 
-// loadSignedManagedControllerConfig parses only bytes that were checked in the
-// same open against the root-owned installed manifest and accepted ledger hash.
+// loadSignedManagedControllerConfig reads the accepted installation and its
+// exact pinned sidecars before any regional provider or store is opened.
 func loadSignedManagedControllerConfig(cfg Config) (oci.RegionIntent, oci.RegionConfig, managedPlacementSettings, error) {
-	marker, err := bootstrapstart.NewMarkerStore().Read()
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	wire, err := readInstalledControllerFile(controllerConfigDirectory, controllerManifestFilename,
-		0, 0, 0o644, bootstrapstart.MaxControllerManifestMetadataBytes)
-	if err != nil || controllerSHA256(wire) != marker.ManifestSHA256 {
-		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("installed signed controller manifest differs from accepted ledger")
-	}
-	envelope, err := trust.DecodeEnvelope(wire)
-	if err != nil {
+	if err := bootstrapstart.CheckIdentityRekeyPrestart(accepted); err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	manifest, err := bootstrap.ManifestPayload(envelope.Payload)
-	if err != nil || manifest.Slot != marker.Slot {
-		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("installed controller manifest slot is invalid")
+	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
+	if err != nil {
+		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
 	uid, gid, err := controllerServiceIdentity()
 	if err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	want, err := expectedControllerConfigSHA256(manifest, marker.ManifestSHA256, uid, gid)
+	material, err := bootstrapstart.NewMaterialStore(nil, uid, gid)
+	if err != nil {
+		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
+	}
+	want, err := material.ControllerConfigSHA256(accepted, inputs.Roots.Historical)
 	if err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
 	configWire, err := cfg.signedWire()
 	if err != nil || controllerSHA256(configWire) != want {
-		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("loaded controller config differs from installed signed manifest")
+		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("loaded controller config differs from accepted installation")
 	}
-	if _, err := ValidateLoadedControllerConfig(manifest, configWire, want, marker.PrimaryPrivateIP); err != nil {
+	files := make([]bootstrap.ControllerConfigFile, len(bootstrap.ControllerConfigFileNames))
+	for index, name := range bootstrap.ControllerConfigFileNames {
+		wire, err := readInstalledControllerFile(controllerConfigDirectory, name, 0, 0, 0o444, bootstrap.MaxControllerSidecarBytes)
+		if err != nil {
+			return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, fmt.Errorf("read installed sidecar %s: %w", name, err)
+		}
+		if controllerSHA256(wire) != accepted.ConfigSHA256[name] {
+			return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, fmt.Errorf("installed sidecar %s differs from accepted identity", name)
+		}
+		files[index] = bootstrap.ControllerConfigFile{Name: name, Bytes: wire, SHA256: accepted.ConfigSHA256[name]}
+	}
+	if _, err := ValidateAcceptedControllerConfig(accepted, configWire, want, files); err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	var sidecars [3][]byte
-	for index, file := range manifest.ControllerFiles {
-		ownerUID, ownerGID, mode := uint32(0), uint32(0), uint32(0o644)
-		if index == 0 {
-			ownerUID, ownerGID, mode = 0, gid, 0o440
-		}
-		sidecars[index], err = readInstalledControllerFile(controllerConfigDirectory,
-			file.Name, ownerUID, ownerGID, mode, bootstrap.MaxControllerSidecarBytes)
-		if err != nil || controllerSHA256(sidecars[index]) != file.SHA256 ||
-			!bytes.Equal(sidecars[index], file.Bytes) {
-			return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{},
-				fmt.Errorf("installed controller sidecar %s differs from signed bytes", file.Name)
-		}
-	}
-	intent, err := oci.ParseRegionIntent(sidecars[0])
+	intent, err := oci.ParseRegionIntent(files[0].Bytes)
 	if err != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, err
 	}
-	region, err := oci.ParseRegionConfig(sidecars[1])
+	region, err := oci.ParseRegionConfig(files[1].Bytes)
 	if err != nil || region.Validate(intent) != nil {
 		return oci.RegionIntent{}, oci.RegionConfig{}, managedPlacementSettings{}, errors.New("signed OCI region config is invalid")
 	}
-	settings, err := parseManagedPlacementSettings(sidecars[2])
+	settings, err := parseManagedPlacementSettings(files[2].Bytes)
 	return intent, region, settings, err
-}
-
-// expectedControllerConfigSHA256 is the config digest the accepted install
-// expects, as restart admission reads it: an adopted material generation's
-// for the slot, else the manifest's (TS-668).
-func expectedControllerConfigSHA256(manifest bootstrap.Manifest, manifestSHA256 string, uid, gid uint32) (string, error) {
-	baked, err := bootstrapstart.LoadBakedInputs()
-	if err != nil {
-		return "", err
-	}
-	material, err := bootstrapstart.NewMaterialStore(nil, uid, gid)
-	if err != nil {
-		return "", err
-	}
-	return material.ControllerConfigSHA256(manifest, manifestSHA256, baked.Roots)
 }
 
 func readBoundedConfigFile(path string) ([]byte, error) {
@@ -197,26 +160,4 @@ func readBoundedConfigFile(path string) ([]byte, error) {
 		return nil, errors.New("managed regional configuration exceeds size limit")
 	}
 	return data, nil
-}
-
-func loadManagedRegion(cfg Config) (oci.RegionIntent, oci.RegionConfig, error) {
-	intent, err := oci.LoadRegionIntentFile(cfg.Controller.OciRegionIntentFile)
-	if err != nil {
-		return oci.RegionIntent{}, oci.RegionConfig{}, fmt.Errorf("read OCI region intent: %w", err)
-	}
-	configBytes, err := readBoundedConfigFile(cfg.Controller.OciRegionConfig)
-	if err != nil {
-		return oci.RegionIntent{}, oci.RegionConfig{}, fmt.Errorf("read OCI fleet config: %w", err)
-	}
-	region, err := oci.ParseRegionConfig(configBytes)
-	if err != nil {
-		return oci.RegionIntent{}, oci.RegionConfig{}, fmt.Errorf("parse OCI fleet config: %w", err)
-	}
-	if err := region.Validate(intent); err != nil {
-		return oci.RegionIntent{}, oci.RegionConfig{}, err
-	}
-	if strings.ToLower(string(region.Region)) != cfg.NATS.Cell {
-		return oci.RegionIntent{}, oci.RegionConfig{}, errors.New("OCI fleet region does not match NATS cell")
-	}
-	return intent, region, nil
 }

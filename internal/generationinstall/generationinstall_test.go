@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -26,7 +27,7 @@ import (
 var expected = bootstrap.MaterialGenerationExpectation{DeploymentID: "0000000000YY15F5R431V5JPJ9", Environment: "production",
 	ClusterID: "00000000006GRRF84JEVN9TX7M", Cell: "GRU", ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}}
 
-// cell is gru-1's schema-2 material (TS-668) under one root, and its bucket.
+// cell is gru-1's v1 material (TS-668) under one root, and its bucket.
 type cell struct {
 	t        *testing.T
 	kv       jetstream.KeyValue
@@ -63,7 +64,7 @@ func newCell(t *testing.T) *cell {
 	public, private, _ := ed25519.GenerateKey(rand.Reader)
 	roots, _ := trust.ParseKeyring(public)
 	now := time.Now()
-	material := generationtest.New(t, now).SchemaTwo(t).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots)
+	material := generationtest.New(t, now).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots)
 	return &cell{t: t, kv: kv, material: material, roots: roots, key: private}
 }
 
@@ -98,6 +99,143 @@ func (c *cell) leader() Leader {
 
 func (c *cell) config(slot string) []byte {
 	return c.material.Files[bootstrapstart.GenerationConfigFile(slot)]
+}
+
+func TestDisarmWithdrawsStaleAuthorizationButRetainsLeaderFence(t *testing.T) {
+	for _, fault := range []string{"expired", "retired root", "fenced", "CAS conflict"} {
+		t.Run(fault, func(t *testing.T) {
+			c := newCell(t)
+			leader := c.leader()
+			chain := wire(t, c.sign(1, nil, time.Now().Add(-time.Minute)))
+			if _, err := leader.Publish(t.Context(), chain); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.SetConfig(t.Context(), "controller-a", c.config("controller-a")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.Arm(t.Context(), "controller-a", true); err != nil {
+				t.Fatal(err)
+			}
+			before, err := c.kv.Get(t.Context(), RecordKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch fault {
+			case "expired":
+				leader.Now = func() time.Time { return time.Now().AddDate(1, 0, 0) }
+			case "retired root":
+				other := newCell(t)
+				leader.Roots = func() trust.Keyring { return other.roots }
+			case "fenced":
+				leader.Guard = func(context.Context) error { return errors.New("fenced") }
+			case "CAS conflict":
+				leader.Guard = func(ctx context.Context) error {
+					_, err := c.kv.Put(ctx, RecordKey, before.Value())
+					return err
+				}
+			}
+			status, err := leader.Arm(t.Context(), "controller-a", false)
+			refused := fault == "fenced" || fault == "CAS conflict"
+			if refused && err == nil || !refused && (err != nil || status != "disarmed") {
+				t.Fatalf("disarm %s: %s, %v", fault, status, err)
+			}
+			after, err := c.kv.Get(t.Context(), RecordKey)
+			var record Record
+			if err != nil || protocol.DecodeStrict(after.Value(), &record, MaxRecordBytes) != nil ||
+				string(record.Chain) != string(chain) || string(record.Configs["controller-a"]) != string(c.config("controller-a")) ||
+				slices.Contains(record.Armed, "controller-a") != refused {
+				t.Fatalf("disarm changed more than authorization: %v", err)
+			}
+			if !refused {
+				if _, err := leader.Arm(t.Context(), "controller-a", true); err == nil {
+					t.Fatal("stale chain gained new authorization")
+				}
+			}
+		})
+	}
+}
+
+func TestReportInspectsExpiredAndRetiredMaterialWithoutAuthorizingChanges(t *testing.T) {
+	for _, fault := range []string{"expired", "retired root", "untrusted root", "tampered signature"} {
+		t.Run(fault, func(t *testing.T) {
+			c := newCell(t)
+			leader, ctx := c.leader(), t.Context()
+			chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+			if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+				t.Fatal(err)
+			}
+			stager := c.stager()
+			fingerprint, err := trust.Fingerprint(chain[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			status := Status{Slot: stager.Target.Slot, DeploymentID: expected.DeploymentID, AcceptanceSHA256: stager.Target.AcceptanceSHA256,
+				Fingerprint: fingerprint, Staged: 1, Installed: 1, Armed: true}
+			if err := stager.report(ctx, status); err != nil {
+				t.Fatal(err)
+			}
+			historical := c.roots
+			switch fault {
+			case "expired":
+				leader.Now = func() time.Time { return chain[0].ExpiresAt }
+			case "retired root", "untrusted root":
+				other := newCell(t)
+				leader.Roots = func() trust.Keyring { return other.roots }
+				if fault == "untrusted root" {
+					historical = other.roots
+				}
+			case "tampered signature":
+				chain[0].Signature = strings.Repeat("A", 86)
+				record, err := protocol.EncodeJSON(Record{Chain: wire(t, chain)})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := c.kv.Put(ctx, RecordKey, record); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := c.kv.Get(ctx, RecordKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := leader.Report(ctx, historical)
+			if fault == "untrusted root" || fault == "tampered signature" {
+				if err == nil {
+					t.Fatal("unverified material was reported")
+				}
+				return
+			}
+			if err != nil || report.Generation != 1 || report.Fingerprint != fingerprint || !report.ExpiresAt.Equal(chain[0].ExpiresAt) ||
+				report.Expired != (fault == "expired") || len(report.Slots) == 0 || report.Slots[0] != status {
+				t.Fatalf("historically verified status is not inspectable: %+v, %v", report, err)
+			}
+			after, err := c.kv.Get(ctx, RecordKey)
+			if err != nil || after.Revision() != before.Revision() {
+				t.Fatal("inspection mutated the generation record")
+			}
+			if _, err := leader.Publish(ctx, wire(t, chain)); err == nil {
+				t.Fatal("stale generation was republished")
+			}
+			if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err == nil {
+				t.Fatal("stale generation authorized config")
+			}
+			if _, err := leader.Arm(ctx, "controller-a", true); err == nil {
+				t.Fatal("stale generation was armed")
+			}
+			if outcome, err := leader.Arm(ctx, "controller-a", false); err != nil || outcome != "disarmed" {
+				t.Fatalf("disarm: %s, %v", outcome, err)
+			}
+			if report, err := leader.Report(ctx, historical); err != nil || len(report.Armed) != 0 {
+				t.Fatalf("successful disarm cannot be reported: %+v, %v", report, err)
+			}
+		})
+	}
 }
 
 // The record only moves forward, under CAS and the leader's term: an older
@@ -137,7 +275,7 @@ func TestLeaderKeepsTheRecordExtensionOnly(t *testing.T) {
 	if status := must(leader.Publish(ctx, wire(t, second))); status != "published" {
 		t.Fatal(status)
 	}
-	report, err := leader.Report(ctx)
+	report, err := leader.Report(ctx, c.roots)
 	if err != nil || report.Generation != 2 || len(report.Armed) != 0 || len(report.Configs) != 0 {
 		t.Fatalf("a new chain must clear configs and arms: %+v", report)
 	}
@@ -192,7 +330,9 @@ func (c *cell) stager() *stager {
 	s := &stager{base: base}
 	s.Stager = &Stager{KV: c.kv, Roots: func() trust.Keyring { return c.roots },
 		Target: bootstrapstart.GenerationTarget{Slot: "controller-a",
-			ManifestSHA256: digest([]byte("manifest of controller-a")), Expected: expected},
+			AcceptanceSHA256: digest([]byte("manifest of controller-a")), Expected: expected,
+			Broker: identityrekey.BrokerIdentity{Operator: c.material.OperatorID, SystemAccount: c.material.SystemID,
+				CellAccount: c.material.CellID, HostSigner: c.material.HostSignerID, RoleSigner: c.material.RoleSignerID}},
 		Read: func(_ context.Context, reference bootstrap.SecretReference) ([]byte, error) {
 			s.asked = append(s.asked, reference)
 			return slices.Clone(c.material.Files[reference.TargetFile]), nil
@@ -268,8 +408,8 @@ func TestStagerStagesOnlyItsSlot(t *testing.T) {
 	if err := s.report(ctx, s.Pass(ctx)); err != nil {
 		t.Fatal(err)
 	}
-	report, err := leader.Report(ctx)
-	if err != nil || report.Slots[0] != (Status{Slot: "controller-a", Staged: 1, Armed: true}) {
+	report, err := leader.Report(ctx, c.roots)
+	if err != nil || report.Slots[0] != (Status{Slot: "controller-a", Staged: 1, Armed: true, DeploymentID: expected.DeploymentID, AcceptanceSHA256: s.Target.AcceptanceSHA256, Fingerprint: fingerprint}) {
 		t.Fatalf("report %+v, %v", report, err)
 	}
 	if _, err := leader.Arm(ctx, "controller-a", false); err != nil {
@@ -293,11 +433,342 @@ func TestStagerStagesOnlyItsSlot(t *testing.T) {
 	}
 
 	other := c.stager()
-	other.Target.ManifestSHA256 = digest([]byte("another manifest"))
+	other.Target.AcceptanceSHA256 = digest([]byte("another manifest"))
 	if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
 		t.Fatal(err)
 	}
 	if status := other.Pass(ctx); status.Error == "" || status.Armed || len(other.spooled(t)) != 0 {
 		t.Fatalf("staged a generation for another manifest: %+v %v", status, other.spooled(t))
+	}
+}
+
+func TestEqualInstalledChainStillRequiresRootsAndAcceptance(t *testing.T) {
+	for _, fault := range []string{"roots", "acceptance", "baseline"} {
+		t.Run(fault, func(t *testing.T) {
+			c := newCell(t)
+			chain := wire(t, c.sign(1, nil, time.Now().Add(-time.Minute)))
+			if _, err := c.leader().Publish(t.Context(), chain); err != nil {
+				t.Fatal(err)
+			}
+			s := c.stager()
+			if err := os.MkdirAll(filepath.Dir(s.Installed), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(s.Installed, chain, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			switch fault {
+			case "roots":
+				public, _, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				c.roots, err = trust.ParseKeyring(public)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "acceptance":
+				s.Target.AcceptanceSHA256 = digest([]byte("another acceptance"))
+			case "baseline":
+				s.Target.MaterialGenerationSHA256 = digest([]byte("missing accepted baseline"))
+			}
+			status := s.Pass(t.Context())
+			if status.Error == "" || status.Installed != 0 || status.Armed {
+				t.Fatalf("equal-wire shortcut accepted invalid %s: %+v", fault, status)
+			}
+		})
+	}
+}
+
+func TestSpoolCleanupKeepsUnrelatedAndForeignSlotFiles(t *testing.T) {
+	c := newCell(t)
+	s := c.stager()
+	if err := os.MkdirAll(s.Spool, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keep := []string{"unrelated.txt", "ca.pem.tmp", ".ca.pem", "controller-b.creds", bootstrapstart.GenerationConfigFile("controller-b")}
+	remove := []string{"ca.pem", ".ca.pem.tmp", bootstrapstart.GenerationArmedFile}
+	for _, names := range [][]string{keep, remove} {
+		for _, name := range names {
+			if err := os.WriteFile(filepath.Join(s.Spool, name), []byte("observed"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if status := s.Pass(t.Context()); status.Error != "" {
+		t.Fatal(status.Error)
+	}
+	for _, name := range keep {
+		if _, err := os.Stat(filepath.Join(s.Spool, name)); err != nil {
+			t.Fatalf("cleanup changed unrelated %s: %v", name, err)
+		}
+	}
+	for _, name := range remove {
+		if _, err := os.Stat(filepath.Join(s.Spool, name)); !os.IsNotExist(err) {
+			t.Fatalf("cleanup kept local stage %s: %v", name, err)
+		}
+	}
+}
+
+func TestReadinessReportRejectsStaleDeploymentAcceptanceAndGeneration(t *testing.T) {
+	c := newCell(t)
+	chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+	if _, err := c.leader().Publish(t.Context(), wire(t, chain)); err != nil {
+		t.Fatal(err)
+	}
+	s := c.stager()
+	fingerprint, err := trust.Fingerprint(chain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := Status{Slot: s.Target.Slot, DeploymentID: expected.DeploymentID, AcceptanceSHA256: s.Target.AcceptanceSHA256, Fingerprint: fingerprint, Staged: 1, Installed: 1, Armed: true}
+	for _, fault := range []string{"deployment", "acceptance", "generation", "current"} {
+		status := valid
+		switch fault {
+		case "deployment":
+			status.DeploymentID = "00000000000ZGTG9F4ZD9XG0T1"
+		case "acceptance":
+			status.AcceptanceSHA256 = digest([]byte("another acceptance"))
+		case "generation":
+			status.Fingerprint = digest([]byte("another generation"))
+		}
+		if err := s.report(t.Context(), status); err != nil {
+			t.Fatal(err)
+		}
+		report, err := c.leader().Report(t.Context(), c.roots)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fault == "current" {
+			if report.Slots[0] != valid {
+				t.Fatalf("current report refused: %+v", report.Slots[0])
+			}
+		} else if report.Slots[0].Error == "" || report.Slots[0].Staged != 0 || report.Slots[0].Installed != 0 || report.Slots[0].Armed {
+			t.Fatalf("stale %s report admitted readiness: %+v", fault, report.Slots[0])
+		}
+	}
+}
+
+func TestReadinessReportAcceptsGenerationWithoutControllerConfigs(t *testing.T) {
+	c := newCell(t)
+	c.material = generationtest.New(t, time.Now()).WithoutIssuers(t)
+	generation := c.material.Generation(expected, 1, "")
+	generation.ControllerConfigs = nil
+	now := time.Now()
+	envelope, err := bootstrap.SignMaterialGeneration(generation, now.Add(-time.Minute), now.Add(time.Hour), c.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.leader().Publish(t.Context(), wire(t, []trust.Envelope{envelope})); err != nil {
+		t.Fatal(err)
+	}
+	s := c.stager()
+	fingerprint, err := trust.Fingerprint(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := Status{Slot: s.Target.Slot, DeploymentID: expected.DeploymentID, AcceptanceSHA256: s.Target.AcceptanceSHA256, Fingerprint: fingerprint, Staged: 1, Installed: 1, Armed: true}
+	if err := s.report(t.Context(), status); err != nil {
+		t.Fatal(err)
+	}
+	report, err := c.leader().Report(t.Context(), c.roots)
+	if err != nil || report.Slots[0] != status {
+		t.Fatalf("valid configless report refused: %+v, %v", report, err)
+	}
+}
+
+func TestVerifiedArmedStageSurvivesVaultOutageAndShutdown(t *testing.T) {
+	c := newCell(t)
+	leader, ctx := c.leader(), t.Context()
+	chain := c.sign(1, nil, time.Now().Add(-time.Minute))
+	if _, err := leader.Publish(ctx, wire(t, chain)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+		t.Fatal(err)
+	}
+	s := c.stager()
+	if status := s.Pass(ctx); status.Error != "" || !status.Armed {
+		t.Fatalf("initial stage: %+v", status)
+	}
+	path := filepath.Join(s.Spool, "ca.pem")
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := len(s.asked)
+	s.Read = func(context.Context, bootstrap.SecretReference) ([]byte, error) {
+		t.Fatal("verified stage read Vault again")
+		return nil, errors.New("Vault unavailable")
+	}
+	for range 2 {
+		if status := s.Pass(ctx); status.Error != "" || !status.Armed {
+			t.Fatalf("unchanged stage: %+v", status)
+		}
+	}
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(before, after) || len(s.asked) != asked {
+		t.Fatal("verified spool was replaced")
+	}
+	armed, err := os.ReadFile(filepath.Join(s.Spool, bootstrapstart.GenerationArmedFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phase := range []string{"before pass", "during verification"} {
+		t.Run(phase, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			roots := s.Roots
+			defer func() { s.Roots = roots }()
+			if phase == "before pass" {
+				cancel()
+			} else {
+				s.Roots = func() trust.Keyring { cancel(); return c.roots }
+			}
+			if status := s.Pass(ctx); status.Error == "" {
+				t.Fatal("canceled stage reported success")
+			}
+			got, err := os.ReadFile(filepath.Join(s.Spool, bootstrapstart.GenerationArmedFile))
+			after, statErr := os.Stat(path)
+			if err != nil || statErr != nil || string(got) != string(armed) || !os.SameFile(before, after) {
+				t.Fatal("shutdown disarmed or replaced verified stage")
+			}
+		})
+	}
+}
+
+type replacementCancellation struct {
+	context.Context
+	beforeReplacement func()
+}
+
+func (ctx replacementCancellation) Err() error {
+	err := ctx.Context.Err()
+	if err == nil {
+		ctx.beforeReplacement()
+	}
+	return err
+}
+
+func TestShutdownDuringSpoolReplacementPublishesArmedSuccessor(t *testing.T) {
+	c := newCell(t)
+	leader := c.leader()
+	first := c.sign(1, nil, time.Now().Add(-time.Minute))
+	stage := func(chain []trust.Envelope) {
+		t.Helper()
+		if _, err := leader.Publish(t.Context(), wire(t, chain)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := leader.SetConfig(t.Context(), "controller-a", c.config("controller-a")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := leader.Arm(t.Context(), "controller-a", true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stage(first)
+	s := c.stager()
+	if status := s.Pass(t.Context()); status.Error != "" || !status.Armed {
+		t.Fatalf("initial stage: %+v", status)
+	}
+	second := c.sign(2, first, time.Now().Add(-time.Minute))
+	stage(second)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	reads := len(s.asked)
+	// Cancel immediately after the last pre-replacement context check succeeds.
+	replacement := replacementCancellation{Context: ctx, beforeReplacement: func() {
+		if len(s.asked) > reads {
+			cancel()
+		}
+	}}
+	status := s.Pass(replacement)
+	if ctx.Err() == nil || status.Error != "" || !status.Armed || status.Staged != 2 {
+		t.Fatalf("shutdown left incomplete replacement: %+v, %v", status, ctx.Err())
+	}
+	actual, err := os.ReadFile(filepath.Join(s.Spool, bootstrapstart.MaterialGenerationsFile))
+	if err != nil || !slices.Equal(actual, wire(t, second)) {
+		t.Fatalf("successor chain missing after shutdown: %v", err)
+	}
+	fingerprint, err := trust.Fingerprint(second[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	armed, err := os.ReadFile(filepath.Join(s.Spool, bootstrapstart.GenerationArmedFile))
+	if err != nil || string(armed) != fingerprint {
+		t.Fatalf("successor armed marker missing after shutdown: %q %v", armed, err)
+	}
+}
+
+func TestUnverifiedSpoolRefetchesOrDisarms(t *testing.T) {
+	for _, fault := range []string{"corrupt", "missing", "changed chain", "changed config", "expired", "roots", "acceptance"} {
+		t.Run(fault, func(t *testing.T) {
+			c := newCell(t)
+			leader, ctx := c.leader(), t.Context()
+			first := c.sign(1, nil, time.Now().Add(-time.Minute))
+			if _, err := leader.Publish(ctx, wire(t, first)); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.SetConfig(ctx, "controller-a", c.config("controller-a")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := leader.Arm(ctx, "controller-a", true); err != nil {
+				t.Fatal(err)
+			}
+			s := c.stager()
+			if status := s.Pass(ctx); status.Error != "" || !status.Armed {
+				t.Fatalf("initial stage: %+v", status)
+			}
+			switch fault {
+			case "corrupt":
+				if err := os.WriteFile(filepath.Join(s.Spool, "ca.pem"), []byte("damaged"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "missing":
+				if err := os.Remove(filepath.Join(s.Spool, "ca.pem")); err != nil {
+					t.Fatal(err)
+				}
+			case "changed chain":
+				if _, err := leader.Publish(ctx, wire(t, c.sign(2, first, time.Now()))); err != nil {
+					t.Fatal(err)
+				}
+			case "changed config":
+				if err := os.WriteFile(filepath.Join(s.Spool, bootstrapstart.GenerationConfigFile("controller-a")), []byte(`{}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "expired":
+				s.Now = func() time.Time { return time.Now().AddDate(1, 0, 0) }
+			case "roots":
+				public, _, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				roots, err := trust.ParseKeyring(public)
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.Roots = func() trust.Keyring { return roots }
+			case "acceptance":
+				s.Target.AcceptanceSHA256 = digest([]byte("foreign acceptance"))
+			}
+			reads := 0
+			s.Read = func(context.Context, bootstrap.SecretReference) ([]byte, error) {
+				reads++
+				return nil, errors.New("Vault unavailable")
+			}
+			status := s.Pass(ctx)
+			if status.Error == "" || status.Armed {
+				t.Fatalf("invalid stage kept authority: %+v", status)
+			}
+			if _, err := os.Stat(filepath.Join(s.Spool, bootstrapstart.GenerationArmedFile)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatal("invalid stage remained armed")
+			}
+			if (fault == "corrupt" || fault == "missing" || fault == "changed config") && reads == 0 {
+				t.Fatal("invalid local files skipped exact Vault recovery")
+			}
+		})
 	}
 }

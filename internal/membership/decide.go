@@ -116,6 +116,8 @@ func Decide(cfg Config, topology Topology, previous State, observation Observati
 		switch {
 		case slot == topology.SeedSlot:
 			status.Reason = ReasonSeedSlot
+		case ledger.Complete && ledger.Attempt == 0 && ledger.InstanceOCID != "":
+			status.Reason = "accepted controller has no current replacement launch authority"
 		case !ledger.Complete || ledger.Attempt == 0 || ledger.InstanceOCID == "":
 			status.Reason = ReasonLedgerIncomplete
 		case lifecycle == "":

@@ -37,22 +37,6 @@ func signPeerReceiptDelegationAt(args []string, now time.Time) error {
 	return (command{ctx: context.Background(), output: os.Stdout}).signPeerReceiptDelegationAt(args, now)
 }
 
-func publishFounderSelectionAt(args []string, now time.Time) error {
-	return (command{ctx: context.Background(), output: os.Stdout}).publishFounderSelectionAt(args, now)
-}
-
-func signFounderSelectionAt(args []string, now time.Time) error {
-	return (command{ctx: context.Background(), output: os.Stdout}).signFounderSelectionAt(args, now)
-}
-
-func signFounderContinuityAt(args []string, now time.Time) error {
-	return (command{ctx: context.Background(), output: os.Stdout}).signFounderContinuityAt(args, now)
-}
-
-func renderFounderContinuityAt(args []string) error {
-	return (command{ctx: context.Background(), output: os.Stdout}).renderFounderContinuityAt(args)
-}
-
 func publishInitialFounderSelectionAt(args []string, now time.Time) error {
 	return (command{ctx: context.Background(), output: os.Stdout}).publishInitialFounderSelectionAt(args, now)
 }

@@ -71,12 +71,12 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 	}
 	id := trust.ChainIdentity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"}
 	path := filepath.Join(t.TempDir(), "trust", "root-chain.json")
-	registry, err := newRootRegistry(genesis, id, trust.RootChain{}, path)
+	registry, err := newRootRegistry(genesis, id, trust.RootChain{Version: 1}, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	start := registry.verified
-	rotated := trust.RootChain{Rotations: []trust.SignedRotation{signTestRotation(t, id, start, rootKeys(r1), r0, r1)}}
+	rotated := trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{signTestRotation(t, id, start, rootKeys(r1), r0, r1)}}
 	if err := registry.adopt(rotated); err != nil {
 		t.Fatal(err)
 	}
@@ -96,11 +96,11 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 		t.Fatalf("persisted chain %v", err)
 	}
 
-	rival := trust.RootChain{Rotations: []trust.SignedRotation{signTestRotation(t, id, start, rootKeys(attacker), r0, attacker)}}
-	extended := trust.RootChain{Rotations: append(rotated.Rotations,
+	rival := trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{signTestRotation(t, id, start, rootKeys(attacker), r0, attacker)}}
+	extended := trust.RootChain{Version: 1, Rotations: append(rotated.Rotations,
 		signTestRotation(t, id, registry.verified, rootKeys(attacker), r0, attacker))}
-	stripped := trust.RootChain{Rotations: []trust.SignedRotation{{Signatures: rotated.Rotations[0].Signatures[1:]}}}
-	for name, chain := range map[string]trust.RootChain{"rollback": {}, "fork by the replaced root": rival,
+	stripped := trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{{Signatures: rotated.Rotations[0].Signatures[1:]}}}
+	for name, chain := range map[string]trust.RootChain{"rollback": {Version: 1}, "fork by the replaced root": rival,
 		"extension by the replaced root": extended, "the adopted statement without the old root's signature": stripped} {
 		if err := registry.adopt(chain); err == nil {
 			t.Errorf("%s adopted", name)
@@ -147,7 +147,7 @@ func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
 	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	registry, err := newRootRegistry(genesis, id, trust.RootChain{}, filepath.Join(blocked, "root-chain.json"))
+	registry, err := newRootRegistry(genesis, id, trust.RootChain{Version: 1}, filepath.Join(blocked, "root-chain.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
 	if err := registry.open(t.Context(), js, 1); err != nil {
 		t.Fatal(err)
 	}
-	newer, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{
+	newer, err := trust.EncodeRootChain(trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{
 		signTestRotation(t, id, registry.verified, rootKeys(r1), r0, r1)}})
 	if err != nil {
 		t.Fatal(err)
@@ -176,7 +176,7 @@ func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
 	if err := registry.repair(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if entry, err := registry.kv.Get(t.Context(), rootChainKey); err != nil || string(entry.Value()) != `{"rotations":[]}` {
+	if entry, err := registry.kv.Get(t.Context(), rootChainKey); err != nil || string(entry.Value()) != `{"version":1,"rotations":[]}` {
 		t.Fatalf("the invalid record was not repaired: %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
-				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"},
+				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
 		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
@@ -362,7 +362,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	// chain, or move the controller with records written straight into the
 	// store by a holder of controller credentials.
 	fork := writeRotation("fork.json", signTestRotation(t, id, base, rootKeys(attacker), genesisTrust.root, attacker))
-	after, err := trust.VerifyRootChain(genesisTrust.roots, id, trust.RootChain{
+	after, err := trust.VerifyRootChain(genesisTrust.roots, id, trust.RootChain{Version: 1,
 		Rotations: []trust.SignedRotation{signTestRotation(t, id, base, rootKeys(r1), genesisTrust.root, r1)}})
 	if err != nil {
 		t.Fatal(err)
@@ -377,7 +377,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	forkWire, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{
+	forkWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{
 		signTestRotation(t, id, base, rootKeys(attacker), genesisTrust.root, attacker)}})
 	if err != nil {
 		t.Fatal(err)
@@ -386,7 +386,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, value := range [][]byte{forkWire, []byte(`{"rotations":[]}`), []byte("{")} {
+	for _, value := range [][]byte{forkWire, []byte(`{"version":1,"rotations":[]}`), []byte("{")} {
 		if _, err := store.Put(ctx, rootChainKey, value); err != nil {
 			t.Fatal(err)
 		}

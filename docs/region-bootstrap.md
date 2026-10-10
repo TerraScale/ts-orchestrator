@@ -1139,7 +1139,7 @@ drift until the plans carry them.
    The inspector performs live reads for the plan-bound compartments, Vault
    and KMS key, network and rules, buckets and retention, controller dynamic
    group and policy, including ledger and HEAD grants for both `bootstrap/v1/*`
-   and `bootstrap/v2/*` beneath the plan prefix. It also checks the
+   and `bootstrap/v1/*` beneath the plan prefix. It also checks the
    workload-host dynamic group, and the Rust-era `LiveS3Credential` secret
    policy and public API resources only when the plan binds them; a C# cell
    leaves both unbound, and a partial binding fails. It writes

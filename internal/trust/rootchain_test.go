@@ -70,19 +70,19 @@ func mustVerifyChain(t *testing.T, genesis Keyring, chain RootChain) VerifiedRoo
 func TestRootChainRotatesAndRevokesTheReplacedRoot(t *testing.T) {
 	r0, r1, r2 := testRootKey(t), testRootKey(t), testRootKey(t)
 	genesis := testRoots(t, r0)
-	start := mustVerifyChain(t, genesis, RootChain{})
+	start := mustVerifyChain(t, genesis, RootChain{Version: 1})
 	if start.Sequence != 0 || start.Head != RootSetDigest(genesis) || len(start.Current) != 1 {
 		t.Fatalf("genesis = %+v", start)
 	}
-	first := RootChain{Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)}}
+	first := RootChain{Version: 1, Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)}}
 	afterFirst := mustVerifyChain(t, genesis, first)
-	second := RootChain{Rotations: append(first.Rotations, rotate(t, testChainID, afterFirst, []ed25519.PrivateKey{r2}, r1, r2))}
+	second := RootChain{Version: 1, Rotations: append(first.Rotations, rotate(t, testChainID, afterFirst, []ed25519.PrivateKey{r2}, r1, r2))}
 	head := mustVerifyChain(t, genesis, second)
 	r2ID, _ := KeyID(r2.Public().(ed25519.PublicKey))
 	if head.Sequence != 2 || len(head.Current) != 1 || head.Current[r2ID] == nil || len(head.Historical) != 3 {
 		t.Fatalf("head = %+v", head)
 	}
-	if !second.Extends(first) || !second.Extends(RootChain{}) || first.Extends(second) {
+	if !second.Extends(first) || !second.Extends(RootChain{Version: 1}) || first.Extends(second) {
 		t.Fatal("chain prefix order is wrong")
 	}
 
@@ -125,12 +125,12 @@ func TestRootChainRotatesAndRevokesTheReplacedRoot(t *testing.T) {
 func TestRootChainCompromisedOldRoot(t *testing.T) {
 	r0, r1, attacker := testRootKey(t), testRootKey(t), testRootKey(t)
 	genesis := testRoots(t, r0)
-	start := mustVerifyChain(t, genesis, RootChain{})
-	adopted := RootChain{Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)}}
+	start := mustVerifyChain(t, genesis, RootChain{Version: 1})
+	adopted := RootChain{Version: 1, Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)}}
 	afterRotation := mustVerifyChain(t, genesis, adopted)
 
 	// The leaked root cannot extend the chain after it was replaced.
-	extended := RootChain{Rotations: append(adopted.Rotations,
+	extended := RootChain{Version: 1, Rotations: append(adopted.Rotations,
 		rotate(t, testChainID, afterRotation, []ed25519.PrivateKey{attacker}, r0, attacker))}
 	if _, err := VerifyRootChain(genesis, testChainID, extended); !errors.Is(err, ErrUntrustedKey) {
 		t.Fatalf("replaced root extended the chain: %v", err)
@@ -138,9 +138,9 @@ func TestRootChainCompromisedOldRoot(t *testing.T) {
 	// A rival first rotation signed by the leaked root verifies on its own,
 	// as anything that root signed did before, but it does not extend the
 	// adopted chain, and neither does the bare genesis (a rollback).
-	rival := RootChain{Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{attacker}, r0, attacker)}}
+	rival := RootChain{Version: 1, Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{attacker}, r0, attacker)}}
 	mustVerifyChain(t, genesis, rival)
-	if rival.Extends(adopted) || (RootChain{}).Extends(adopted) {
+	if rival.Extends(adopted) || (RootChain{Version: 1}).Extends(adopted) {
 		t.Fatal("a fork or rollback extends the adopted chain")
 	}
 
@@ -163,7 +163,7 @@ func TestRootChainCompromisedOldRoot(t *testing.T) {
 func TestRootChainRequiresMajorityAndEveryNewRoot(t *testing.T) {
 	a, b, c, next := testRootKey(t), testRootKey(t), testRootKey(t), testRootKey(t)
 	genesis := testRoots(t, a, b, c)
-	start := mustVerifyChain(t, genesis, RootChain{})
+	start := mustVerifyChain(t, genesis, RootChain{Version: 1})
 	for name, signers := range map[string][]ed25519.PrivateKey{
 		"one of three old roots":   {a, next},
 		"old roots without new":    {a, b},
@@ -171,12 +171,12 @@ func TestRootChainRequiresMajorityAndEveryNewRoot(t *testing.T) {
 		"same old root twice":      {a, a, next},
 		"stranger instead of root": {a, testRootKey(t), next},
 	} {
-		chain := RootChain{Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{next}, signers...)}}
+		chain := RootChain{Version: 1, Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{next}, signers...)}}
 		if _, err := VerifyRootChain(genesis, testChainID, chain); err == nil {
 			t.Errorf("%s: rotation accepted", name)
 		}
 	}
-	majority := RootChain{Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{next}, c, a, next)}}
+	majority := RootChain{Version: 1, Rotations: []SignedRotation{rotate(t, testChainID, start, []ed25519.PrivateKey{next}, c, a, next)}}
 	if verified := mustVerifyChain(t, genesis, majority); len(verified.Current) != 1 {
 		t.Fatalf("majority rotation = %+v", verified)
 	}
@@ -185,9 +185,9 @@ func TestRootChainRequiresMajorityAndEveryNewRoot(t *testing.T) {
 func TestRootChainRejectsTampering(t *testing.T) {
 	r0, r1, r2 := testRootKey(t), testRootKey(t), testRootKey(t)
 	genesis := testRoots(t, r0)
-	start := mustVerifyChain(t, genesis, RootChain{})
+	start := mustVerifyChain(t, genesis, RootChain{Version: 1})
 	good := rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)
-	afterFirst := mustVerifyChain(t, genesis, RootChain{Rotations: []SignedRotation{good}})
+	afterFirst := mustVerifyChain(t, genesis, RootChain{Version: 1, Rotations: []SignedRotation{good}})
 
 	// Skipping a sequence or naming another predecessor breaks the link.
 	skipped := afterFirst
@@ -196,7 +196,7 @@ func TestRootChainRejectsTampering(t *testing.T) {
 	unlinked.Head = start.Head
 	for name, base := range map[string]VerifiedRoots{"sequence gap": skipped, "wrong predecessor": unlinked} {
 		bad := rotate(t, testChainID, base, []ed25519.PrivateKey{r2}, r1, r2)
-		if _, err := VerifyRootChain(genesis, testChainID, RootChain{Rotations: []SignedRotation{good, bad}}); !errors.Is(err, ErrInvalid) {
+		if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{good, bad}}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -204,22 +204,22 @@ func TestRootChainRejectsTampering(t *testing.T) {
 	other := testChainID
 	other.Cell = "sfo"
 	foreign := rotate(t, other, start, []ed25519.PrivateKey{r1}, r0, r1)
-	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Rotations: []SignedRotation{foreign}}); !errors.Is(err, ErrScopeMismatch) {
+	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{foreign}}); !errors.Is(err, ErrScopeMismatch) {
 		t.Errorf("foreign cell: %v", err)
 	}
 	// Signatures over two different statements.
 	mixed := rotate(t, testChainID, start, []ed25519.PrivateKey{r2}, r2)
 	mixed.Signatures = append(mixed.Signatures, good.Signatures[0])
-	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Rotations: []SignedRotation{mixed}}); !errors.Is(err, ErrInvalid) {
+	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{mixed}}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("mixed statements: %v", err)
 	}
 	// A flipped signature.
 	flipped := rotate(t, testChainID, start, []ed25519.PrivateKey{r1}, r0, r1)
 	flipped.Signatures[0].Signature = good.Signatures[1].Signature
-	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Rotations: []SignedRotation{flipped}}); !errors.Is(err, ErrBadSignature) {
+	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{flipped}}); !errors.Is(err, ErrBadSignature) {
 		t.Errorf("flipped signature: %v", err)
 	}
-	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Rotations: []SignedRotation{{}}}); err == nil {
+	if _, err := VerifyRootChain(genesis, testChainID, RootChain{Version: 1, Rotations: []SignedRotation{{}}}); err == nil {
 		t.Error("accepted an unsigned rotation")
 	}
 	// A statement is applied only inside its validity window.
@@ -247,4 +247,25 @@ func mustPublic(t *testing.T, key ed25519.PublicKey) string {
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func TestRootChainRequiresVersionOne(t *testing.T) {
+	for _, wire := range []string{`{"rotations":[]}`, `{"rotations":[],"version":0}`, `{"rotations":[],"version":2}`, `{"rotations":[],"version":null}`} {
+		if _, err := DecodeRootChain([]byte(wire)); err == nil {
+			t.Fatalf("accepted unsupported root chain format: %s", wire)
+		}
+	}
+	for _, version := range []int{0, 2} {
+		if _, err := EncodeRootChain(RootChain{Version: version}); err == nil {
+			t.Fatalf("encoded root chain version %d", version)
+		}
+	}
+	wire, err := EncodeRootChain(RootChain{Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain, err := DecodeRootChain(wire)
+	if err != nil || chain.Version != 1 || len(chain.Rotations) != 0 {
+		t.Fatalf("version one genesis chain: %+v, %v", chain, err)
+	}
 }

@@ -13,12 +13,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// GlobalControlConfig enables the global control plane. It is off by default;
-// a disabled controller never starts the global-scope lease or opens
-// TS_GLOBAL_CONTROL. Home names the region that owns global state (GRU).
+// GlobalControlConfig optionally pins the home derived from the signed topology.
 type GlobalControlConfig struct {
-	Enabled bool   `json:"enabled"`
-	Home    string `json:"home"`
+	Home string `json:"home"`
 }
 
 // globalControl is this controller's view of global state: the fenced writer
@@ -33,36 +30,27 @@ type globalControl struct {
 }
 
 func (g *globalControl) close() {
-	if g == nil || g.authority == nil {
+	if g.authority == nil {
 		return
 	}
 	_ = g.authority.Close()
 	g.stop()
 }
 
-func validateGlobalControlConfig(global *GlobalControlConfig, nats natscell.Config) error {
-	if global == nil || !global.Enabled {
-		return nil
+func globalControlHome(global *GlobalControlConfig, nats natscell.Config) (string, error) {
+	home, err := interRegionLink(nats).GlobalControlHome(nats.Cell)
+	if err != nil {
+		return "", err
 	}
-	if token, err := protocol.RegionToken(global.Home); err != nil || token != global.Home || token == protocol.GlobalScope {
-		return errors.New("global control home must be a lowercase regional cell")
+	if global != nil && global.Home != "" && global.Home != home {
+		return "", errors.New("global control home must agree with the interregion topology")
 	}
-	link := interRegionLink(nats)
-	if global.Home == nats.Cell {
-		if link != nil && link.GlobalHome != global.Home {
-			return errors.New("the global home's interregion leafnodes must name it as global home")
-		}
-		return nil
-	}
-	if link == nil || link.GlobalHome != global.Home {
-		return errors.New("a global control mirror requires interregion leafnodes with the same global home")
-	}
-	return nil
+	return home, nil
 }
 
-// interRegionLink returns the enabled interregion block, or nil.
+// interRegionLink returns the region's leaf topology material, or nil.
 func interRegionLink(nats natscell.Config) *natscell.InterRegion {
-	if nats.Embedded == nil || nats.Embedded.InterRegion == nil || !nats.Embedded.InterRegion.Enabled {
+	if nats.Embedded == nil {
 		return nil
 	}
 	return nats.Embedded.InterRegion
@@ -78,21 +66,18 @@ func globalMirrorPeers(nats natscell.Config) []string {
 }
 
 // startGlobalControl starts the global-scope lease and writable stream in the
-// home region, or the read-only mirror elsewhere. It returns nil when disabled.
-func startGlobalControl(ctx context.Context, cfg Config, js jetstream.JetStream, candidateID string,
+// home region, or the read-only mirror elsewhere.
+func startGlobalControl(ctx context.Context, cfg Config, js jetstream.JetStream, deploymentID, candidateID string,
 	clockCheck func() error, fullClusterReady func() bool,
 ) (*globalControl, error) {
-	global := cfg.Controller.Global
-	if global == nil || !global.Enabled {
-		return nil, nil
-	}
-	if err := validateGlobalControlConfig(global, cfg.NATS); err != nil {
+	home, err := globalControlHome(cfg.Controller.Global, cfg.NATS)
+	if err != nil {
 		return nil, err
 	}
-	if global.Home != cfg.NATS.Cell {
+	if home != cfg.NATS.Cell {
 		reader, _, err := retryControllerOpen(ctx, "open global control mirror", fullClusterReady, false,
 			func(attempt context.Context) (*globalcontrol.Reader, error) {
-				return globalcontrol.OpenMirror(attempt, js, global.Home, cfg.NATS.Cell, cfg.NATS.Replicas)
+				return globalcontrol.OpenMirror(attempt, js, home, cfg.NATS.Cell, cfg.NATS.Replicas)
 			}, nil)
 		if err != nil {
 			return nil, err
@@ -107,7 +92,7 @@ func startGlobalControl(ctx context.Context, cfg Config, js jetstream.JetStream,
 	control, stop, err := retryControllerOpen(ctx, "start global authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, js, authority.Config{
-				Scope: protocol.GlobalScope, CandidateID: candidateID,
+				Scope: protocol.GlobalScope, DeploymentID: deploymentID, CandidateID: candidateID,
 				LeaseDuration: time.Duration(cfg.Controller.LeaseSeconds) * time.Second,
 				RenewInterval: time.Duration(cfg.Controller.RenewSeconds) * time.Second,
 				Replicas:      cfg.NATS.Replicas,

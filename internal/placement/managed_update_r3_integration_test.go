@@ -33,7 +33,7 @@ func TestManagedUpdateR3PrepareHeldRestartReconciliation(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 
-	runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{
+	runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000ZWGEDFHNGTFMNM86", Replicas: 1,
 	})
 	if err != nil {

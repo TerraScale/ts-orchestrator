@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
@@ -34,6 +35,7 @@ func TestControllerBootstrapRetriesOnlyTransientErrors(t *testing.T) {
 		{context.DeadlineExceeded, true},
 		{nats.ErrNoResponders, true},
 		{fmt.Errorf("%w: %w", delivery.ErrStoreNotReady, jetstream.ErrStreamNotFound), true},
+		{fmt.Errorf("%w: %w", host.ErrStateNotReady, jetstream.ErrStreamNotFound), true},
 		{jetstream.ErrStreamNotFound, false},
 		{&jetstream.APIError{Code: 400, ErrorCode: 10005, Description: "no suitable peers for placement"}, true},
 		{jetstream.ErrJetStreamNotEnabled, false},
@@ -72,6 +74,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 	for index, port := range routePorts {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
 	}
+	specTrust := authorityTestSpecTrust(t, root, "lab")
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
@@ -80,7 +83,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
 					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}},
-			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "response.key"),
+			Controller: ControllerConfig{SpecTrust: specTrust, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "response.key"),
 				ArtifactStoreMaxBytes: 64 << 20,
 				TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),
 					Roles: []string{"terrabase"}, Environments: []string{"test"}}},

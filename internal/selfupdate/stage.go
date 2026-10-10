@@ -16,14 +16,13 @@ import (
 
 // ReceiptPolicy verifies a release receipt for this node. Per-source
 // receipts use the existing root-delegated release path. Update receipts
-// signed automatically under a scoped binary update delegation are accepted
-// only when AllowScopedAutoSign is set; it defaults to off.
+// signed automatically under a scoped binary update delegation use the same
+// mandatory scope and current-root verification.
 type ReceiptPolicy struct {
-	Roots               trust.Keyring
-	Environment         string
-	Cell                string
-	Architecture        string
-	AllowScopedAutoSign bool
+	Roots        trust.Keyring
+	Environment  string
+	Cell         string
+	Architecture string
 }
 
 // Verify returns the verified binary receipt for receiptWire.
@@ -41,9 +40,6 @@ func (policy ReceiptPolicy) Verify(receiptWire, delegationWire []byte, now time.
 		verified, err = release.VerifyBinaryCurrent(receiptWire, delegationWire, policy.Roots,
 			release.BinaryExpectation{Environment: policy.Environment}, now)
 	case release.UpdateReceiptDomain:
-		if !policy.AllowScopedAutoSign {
-			return release.VerifiedBinary{}, errors.New("automatically signed update receipts are disabled on this node")
-		}
 		verified, err = release.VerifyBinaryUpdateCurrent(receiptWire, delegationWire, policy.Roots,
 			release.UpdateExpectation{Environment: policy.Environment, Cell: policy.Cell, Architecture: policy.Architecture}, now)
 	default:

@@ -314,13 +314,12 @@ func (ledger *Ledger) decodeHead(scope BootstrapScope, body []byte, current bool
 	if err := decodeCanonicalPayload(payload, &head); err != nil || !head.matches(scope, ledger.config.Environment) {
 		return SlotHead{}, fmt.Errorf("%w: HEAD payload does not match signed scope", ErrInvalidRecord)
 	}
-	if head.SchemaVersion != 1 && head.SchemaVersion != 2 || head.Attempt == 0 || head.Generation == 0 || !validDigest(head.IntentDigest) ||
+	if head.SchemaVersion != 1 || head.Attempt == 0 || head.Generation == 0 || !validDigest(head.IntentDigest) ||
 		(head.ResultDigest != "" && !validDigest(head.ResultDigest)) {
 		return SlotHead{}, fmt.Errorf("%w: malformed slot HEAD", ErrInvalidRecord)
 	}
-	if head.SchemaVersion == 1 && (head.CandidateDigest != "" || head.PreviousCandidateDigest != "") ||
-		head.SchemaVersion == 2 && (head.CandidateDigest != "" && !validDigest(head.CandidateDigest) ||
-			head.PreviousCandidateDigest != "" && !validDigest(head.PreviousCandidateDigest)) {
+	if head.CandidateDigest != "" && !validDigest(head.CandidateDigest) ||
+		head.PreviousCandidateDigest != "" && !validDigest(head.PreviousCandidateDigest) {
 		return SlotHead{}, fmt.Errorf("%w: malformed candidate binding in slot HEAD", ErrInvalidRecord)
 	}
 	if head.Attempt == 1 {
@@ -363,7 +362,7 @@ func (candidate ManagedPeerCandidate) matches(scope BootstrapScope, environment 
 func validateManagedPeerCandidateForIntent(candidate ManagedPeerCandidate, intent Intent, intentDigest,
 	founderPlanDigest, peerRowDigest, manifestDigest string,
 ) error {
-	if intent.Mode != IntentModeManaged || intent.SchemaVersion != 2 || candidate.DeploymentID != intent.DeploymentID ||
+	if intent.Mode != IntentModeManaged || intent.SchemaVersion != 1 || candidate.DeploymentID != intent.DeploymentID ||
 		candidate.Cell != intent.Cell || candidate.Environment != intent.Environment || candidate.Role != intent.Role ||
 		candidate.Slot != intent.Slot || candidate.Attempt != intent.Attempt || candidate.Generation != intent.Generation ||
 		candidate.IntentDigest != intentDigest || candidate.CreateKey != intent.CreateKey ||
@@ -459,7 +458,7 @@ func decodeCanonicalPayload(data []byte, destination any) error {
 }
 
 func validateIntent(intent Intent) error {
-	if intent.SchemaVersion != 1 && intent.SchemaVersion != 2 || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
+	if intent.SchemaVersion != 1 || intent.Attempt == 0 || intent.Generation == 0 || intent.RegionIntentGeneration == 0 ||
 		!validDigest(intent.ManifestDigest) || !validDigest(intent.ReleaseReceiptDigest) || !isOCID(intent.ImageOCID, "image") ||
 		!validDigest(intent.RegionIntentDigest) || !validDigest(intent.LaunchRequestDigest) || !createTokenPattern.MatchString(intent.CreateKey) ||
 		intent.CreatedAt.IsZero() || intent.CreatedAt.Location() != time.UTC ||
@@ -476,12 +475,11 @@ func validateIntent(intent Intent) error {
 	switch intent.Mode {
 	case IntentModeManaged:
 		if !createTokenPattern.MatchString(intent.RetryToken) || intent.ReviewedPlanDigest != "" ||
-			intent.SchemaVersion == 1 && (intent.FounderPlanSHA256 != "" || intent.PeerRowDigest != "") ||
-			intent.SchemaVersion == 2 && (!validDigest(intent.FounderPlanSHA256) || !validDigest(intent.PeerRowDigest)) {
-			return fmt.Errorf("%w: managed intent requires a retry token and schema-v2 founder-plan/peer-row pins", ErrInvalidRecord)
+			!validDigest(intent.FounderPlanSHA256) || !validDigest(intent.PeerRowDigest) {
+			return fmt.Errorf("%w: managed intent requires a retry token and founder-plan/peer-row pins", ErrInvalidRecord)
 		}
 	case IntentModeExternalSeed:
-		if intent.SchemaVersion != 1 || intent.RetryToken != "" || !validDigest(intent.ReviewedPlanDigest) ||
+		if intent.RetryToken != "" || !validDigest(intent.ReviewedPlanDigest) ||
 			intent.FounderPlanSHA256 != "" || intent.PeerRowDigest != "" {
 			return fmt.Errorf("%w: external seed intent requires a reviewed plan digest and omits the OCI retry token", ErrInvalidRecord)
 		}

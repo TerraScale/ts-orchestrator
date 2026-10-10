@@ -22,7 +22,7 @@ type switchableFencer struct {
 func (f *switchableFencer) Current() authority.Snapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return authority.Snapshot{Scope: protocol.GlobalScope, Epoch: f.epoch, Leader: true}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: protocol.GlobalScope, Epoch: f.epoch, Leader: true}
 }
 
 func (f *switchableFencer) Guard(_ context.Context, epoch uint64) error {

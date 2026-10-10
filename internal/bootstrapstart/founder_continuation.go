@@ -72,27 +72,6 @@ func (checker *FounderPeerContinuation) Initialize(ctx context.Context, marker A
 	return nil
 }
 
-func (checker *FounderPeerContinuation) VerifyCurrentContinuation(ctx context.Context,
-	marker AcceptedInstall, observed InstanceObservation, state bootstrap.SlotState,
-) error {
-	if checker == nil || checker.reader == nil || checker.floor == nil || checker.now == nil ||
-		observed.InstanceOCID != marker.InstanceOCID {
-		return ErrFounderPeerContinuation
-	}
-	now := checker.now().Round(0).UTC()
-	selected, err := checker.reader.readCurrentPeerContinuation(ctx, now)
-	if err != nil {
-		return fmt.Errorf("%w: read floor-checked current selection: %v", ErrFounderPeerContinuation, err)
-	}
-	if err := checker.checkBindings(marker, state, selected, now); err != nil {
-		return err
-	}
-	if err := checker.reader.confirmCurrentPeerSelection(ctx, selected, checker.now); err != nil {
-		return fmt.Errorf("%w: selected founder proof changed: %v", ErrFounderPeerContinuation, err)
-	}
-	return nil
-}
-
 func (checker *FounderPeerContinuation) checkBindings(marker AcceptedInstall, state bootstrap.SlotState,
 	selected currentFounderPeerSelection, now time.Time,
 ) error {
@@ -104,8 +83,8 @@ func (checker *FounderPeerContinuation) checkBindings(marker AcceptedInstall, st
 		!selected.Anchor.IsVerified() || !selected.Plan.IsVerified() ||
 		selected.Anchor.Digest() != marker.AnchorSHA256 ||
 		selected.Plan.Digest() != state.Intent.FounderPlanSHA256 ||
-		state.Intent.SchemaVersion != 2 || state.Intent.Mode != bootstrap.IntentModeManaged ||
-		state.Head.SchemaVersion != 2 || state.Head.ResultDigest != marker.ResultSHA256 ||
+		state.Intent.SchemaVersion != 1 || state.Intent.Mode != bootstrap.IntentModeManaged ||
+		state.Head.SchemaVersion != 1 || state.Head.ResultDigest != marker.ResultSHA256 ||
 		state.Result == nil || state.ResultRecord == nil || state.Candidate == nil || state.CandidateRecord == nil ||
 		state.ManifestRecord == nil || state.PeerReceiptRecord == nil ||
 		state.ResultRecord.SHA256 != marker.ResultSHA256 ||

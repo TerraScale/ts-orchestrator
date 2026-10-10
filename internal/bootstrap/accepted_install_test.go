@@ -25,3 +25,22 @@ func TestPublishAcceptedInstallIsWriteOnceAndReadable(t *testing.T) {
 		t.Fatalf("a different marker replaced the published one: %v", err)
 	}
 }
+
+func TestAcceptedExportSupportsTheFullIdentityBound(t *testing.T) {
+	fixture := newLedgerFixture(t)
+	scope := BootstrapScope{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Cell: "GRU", Slot: "controller-a"}
+	marker := make([]byte, MaxAcceptedInstallBytes)
+	for i := range marker {
+		marker[i] = 'x'
+	}
+	if err := fixture.ledger.PublishAcceptedInstall(t.Context(), scope, marker); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := fixture.ledger.ReadAcceptedInstall(t.Context(), scope)
+	if err != nil || string(stored) != string(marker) {
+		t.Fatalf("full accepted export: %v", err)
+	}
+	if err := fixture.ledger.PublishAcceptedInstall(t.Context(), scope, append(marker, 'x')); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("oversized export: %v", err)
+	}
+}

@@ -45,7 +45,7 @@ func TestRestoreIsNotProofGatedAndAnInterruptedOneIsFinishedByWatch(t *testing.T
 	if err := f.layout.flipCurrent(other); err != nil {
 		t.Fatal(err)
 	}
-	intent, err := protocol.EncodeJSON(restoreIntent{Schema: restoreIntentSchema, Unit: testUnit, Target: baked, Rejected: other})
+	intent, err := protocol.EncodeJSON(RestoreIntent{Schema: restoreIntentSchema, Unit: testUnit, Target: baked, Rejected: other})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestActivateFinishesAnInterruptedRestoreFirst(t *testing.T) {
 	if err := f.layout.flipCurrent(rejected); err != nil {
 		t.Fatal(err)
 	}
-	intent, err := protocol.EncodeJSON(restoreIntent{Schema: restoreIntentSchema, Unit: testUnit, Target: baked, Rejected: rejected})
+	intent, err := protocol.EncodeJSON(RestoreIntent{Schema: restoreIntentSchema, Unit: testUnit, Target: baked, Rejected: rejected})
 	if err != nil {
 		t.Fatal(err)
 	}

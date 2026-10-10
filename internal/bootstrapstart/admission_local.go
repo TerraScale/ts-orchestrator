@@ -1,119 +1,123 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
-	"slices"
-	"strings"
+	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// AdmitRestartLocal is the offline subset of AdmitRestart. It uses only the
-// root-owned accepted-install marker, the baked roots, the root-installed
-// signed manifest, the link-local IMDS identity, and installed files. It reads
-// no OCI API, writes no ledger record, and does not consult NTP.
-//
-// It proves that this VM is the exact accepted install running the signed
-// controller config with unmodified materials, which is enough to rejoin
-// broker routes. It never replaces AdmitRestart: the caller must still pass
-// full restart admission (ledger, VNIC observation, current continuation and
-// clock) before any authority, broker-gate, or mutation path starts.
-func (gate Gate) AdmitRestartLocal(ctx context.Context, installedManifest []byte) (AcceptedInstall, error) {
-	if len(gate.Roots) == 0 || len(gate.AnchorWire) == 0 || gate.Descriptor == nil ||
-		gate.Material == nil || gate.Credentials == nil || gate.Markers.directory == "" ||
-		!markerDigestRE.MatchString(gate.LoadedControllerConfigSHA256) {
-		return AcceptedInstall{}, fmt.Errorf("%w: trusted input or required local verifier is absent", ErrAdmission)
-	}
-	marker, err := gate.Markers.Read()
-	if err != nil {
-		return AcceptedInstall{}, fmt.Errorf("read accepted-install marker: %w", err)
-	}
-	anchorEnvelope, err := proofEnvelope(gate.AnchorWire)
-	if err != nil {
-		return AcceptedInstall{}, err
-	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, gate.Roots, gate.Expected,
-		marker.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil || anchor.Digest() != marker.AnchorSHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted anchor differs from baked root proof: %v", ErrAdmission, err)
-	}
-	scope, instanceID, err := gate.locate(ctx)
-	if err != nil {
-		return AcceptedInstall{}, err
-	}
-	if scope.DeploymentID != marker.DeploymentID || scope.Cell != marker.Cell ||
-		scope.Slot != marker.Slot || instanceID != marker.InstanceOCID {
-		return AcceptedInstall{}, fmt.Errorf("%w: local locator differs from accepted install", ErrAdmission)
-	}
-	if digest(installedManifest) != marker.ManifestSHA256 {
-		return AcceptedInstall{}, fmt.Errorf("%w: installed controller manifest differs from accepted install", ErrAdmission)
-	}
-	anchored := anchor.Anchor()
-	expected := bootstrap.ManifestExpectation{
-		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
-		ClusterID: anchored.ClusterID, Cell: anchored.Cell, Slot: scope.Slot,
-		ImageOCID: marker.ImageOCID, StorageDomain: anchored.StorageDomain,
-		ControllerSlots:  slices.Clone(anchored.ControllerSlots),
-		IntentGeneration: anchored.InitialRegionIntentGeneration,
-		IntentSHA256:     anchored.InitialRegionIntentSHA256,
-	}
-	manifestEnvelope, err := proofEnvelope(installedManifest)
-	if err != nil {
-		return AcceptedInstall{}, err
-	}
-	manifest, err := bootstrap.VerifyHistoricalManifest(manifestEnvelope, gate.Roots, expected, bootstrap.ManifestTrustPolicy())
-	if err != nil || manifest.Digest() != marker.ManifestSHA256 ||
-		!coveredAt(manifestEnvelope.IssuedAt, manifestEnvelope.ExpiresAt, marker.AcceptedAt) {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical manifest is invalid: %v", ErrAdmission, err)
-	}
-	payload := manifest.Manifest()
-	pins, err := gate.Material.RestartPins(manifest, gate.Roots, marker.PrimaryPrivateIP)
-	if err != nil {
-		return AcceptedInstall{}, fmt.Errorf("read installed controller material generation: %w", err)
-	}
-	if err := gate.restartConfig(&pins, payload, marker.ManifestSHA256); err != nil {
-		return AcceptedInstall{}, err
-	}
-	if marker.SeedSlot != payload.SeedSlot {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted seed role differs from signed manifest", ErrAdmission)
-	}
-	if payload.ReleaseReceiptSHA256 != marker.ImageReceiptSHA256 ||
-		digest(payload.ReleaseImageReceiptWire) != marker.ImageReceiptSHA256 ||
-		payload.ImageOCID != marker.ImageOCID {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted release image differs", ErrAdmission)
-	}
-	image, err := release.VerifyImageHistorical(payload.ReleaseImageReceiptWire, payload.ReleaseDelegationWire,
-		gate.Roots, release.ImageExpectation{Environment: payload.Environment, LogicalRegion: string(payload.Cell),
-			OCIImageOCID: payload.ImageOCID, Architecture: strings.TrimPrefix(payload.ImageArchitecture, "linux-")})
-	if err != nil || !coveredAt(image.IssuedAt(), image.ExpiresAt(), marker.AcceptedAt) {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted historical release image is invalid: %v", ErrAdmission, err)
-	}
-	if err := gate.verifyRestartBinary(image, payload, marker); err != nil {
-		return AcceptedInstall{}, err
-	}
-	materials := expectedMaterials(payload, scope.Slot)
-	if len(materials) == 0 || len(materials) != len(marker.MaterialSHA256) {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted material inventory differs", ErrAdmission)
-	}
-	for name, want := range materials {
-		if marker.MaterialSHA256[name] != want {
-			return AcceptedInstall{}, fmt.Errorf("%w: accepted material digest differs", ErrAdmission)
+// AdmitRestartLocal verifies root-owned accepted state and installed identity
+// before joining internal broker routes. Ordinary runtime also needs full OCI
+// and clock admission plus the shared reset gate.
+func (gate Gate) AdmitRestartLocal(ctx context.Context) (AcceptedIdentity, error) {
+	return gate.admitRestartLocal(ctx, gate.verifyRestartBinary)
+}
+
+// AdmitIdentityRekeyCompletion admits only the read-only shared-completion probe.
+// An owned transition may use its authenticated predecessor without admitting runtime.
+func (gate Gate) AdmitIdentityRekeyCompletion(ctx context.Context) (AcceptedIdentity, error) {
+	return gate.admitRestartLocal(ctx, func(accepted AcceptedIdentity, roots trust.Keyring) error {
+		if err := gate.verifyRestartBinary(accepted, roots); err == nil {
+			return nil
 		}
+		_, err := verifyRecoveryPredecessor("/proc/self/exe", gate.SelfUpdate, roots, accepted)
+		return err
+	})
+}
+
+func (gate Gate) admitRestartLocal(ctx context.Context, verifyBinary func(AcceptedIdentity, trust.Keyring) error) (AcceptedIdentity, error) {
+	if gate.Descriptor == nil || gate.Material == nil || gate.Credentials == nil || gate.ObserveIdentity == nil ||
+		gate.Markers.directory == "" || !markerDigestRE.MatchString(gate.LoadedControllerConfigSHA256) {
+		return AcceptedIdentity{}, fmt.Errorf("%w: required local verifier is absent", ErrAdmission)
 	}
-	if (payload.ManagedMaterial == nil) != (marker.ManagedMaterial == nil) ||
-		payload.ManagedMaterial != nil && *payload.ManagedMaterial != *marker.ManagedMaterial {
-		return AcceptedInstall{}, fmt.Errorf("%w: accepted managed material domain differs", ErrAdmission)
+	accepted, err := gate.Markers.ReadIdentity()
+	if err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("read root-owned accepted installation: %w", err)
 	}
-	if err := gate.Material.VerifyRestart(ctx, manifest, pins); err != nil {
-		return AcceptedInstall{}, fmt.Errorf("verify installed controller materials: %w", err)
+	inputs, err := gate.acceptedTrustInputs(accepted)
+	if err != nil {
+		return AcceptedIdentity{}, err
 	}
-	if err := gate.Credentials.VerifyLiveCredentials(ctx, pins, payload); err != nil {
-		return AcceptedInstall{}, fmt.Errorf("verify live controller credentials: %w", err)
+	if err := gate.checkRestartJournal(accepted, inputs); err != nil {
+		return AcceptedIdentity{}, err
+	}
+	descriptor, err := gate.Descriptor.FetchDescriptor(ctx)
+	if err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("read accepted local slot: %w", err)
+	}
+	instance, err := gate.Descriptor.FetchInstanceID(ctx)
+	if err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("read accepted local instance ID: %w", err)
+	}
+	if descriptor.SchemaVersion != 1 || descriptor.Slot != accepted.Slot || instance != accepted.InstanceOCID {
+		return AcceptedIdentity{}, fmt.Errorf("%w: IMDS slot or instance differs from accepted installation", ErrAdmission)
+	}
+	if err := verifyBinary(accepted, inputs.Roots.Historical); err != nil {
+		return AcceptedIdentity{}, err
+	}
+	if err := VerifyAcceptedLocalIdentity(accepted, gate.ObserveIdentity); err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("verify accepted broker/store identity: %w", err)
+	}
+	pins, err := gate.Material.RestartPins(accepted, inputs.Roots.Historical)
+	if err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("read accepted material generation: %w", err)
+	}
+	if err := gate.restartConfig(&pins, accepted); err != nil {
+		return AcceptedIdentity{}, err
+	}
+	if err := gate.Material.VerifyRestart(ctx, accepted, pins); err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("verify installed controller material: %w", err)
+	}
+	if err := gate.Credentials.VerifyLiveCredentials(ctx, pins, accepted); err != nil {
+		return AcceptedIdentity{}, fmt.Errorf("verify live controller credentials: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return AcceptedInstall{}, fmt.Errorf("%w: local restart admission ended: %w", ErrAdmission, err)
+		return AcceptedIdentity{}, err
 	}
-	return marker, nil
+	if err := gate.checkAcceptedUnchanged(accepted); err != nil {
+		return AcceptedIdentity{}, err
+	}
+	if err := verifyBinary(accepted, inputs.Roots.Historical); err != nil {
+		return AcceptedIdentity{}, err
+	}
+	return accepted, nil
+}
+
+func (gate Gate) acceptedTrustInputs(accepted AcceptedIdentity) (TrustInputs, error) {
+	if gate.trustStore != nil {
+		return gate.trustStore.loadTrustInputs(accepted)
+	}
+	return LoadTrustInputs(accepted)
+}
+
+func (gate Gate) checkRestartJournal(accepted AcceptedIdentity, inputs TrustInputs) error {
+	_, err := gate.Markers.verifiedIdentityRekey(accepted, inputs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+func (gate Gate) checkAcceptedUnchanged(accepted AcceptedIdentity) error {
+	current, err := gate.Markers.ReadIdentity()
+	if err != nil {
+		return err
+	}
+	before, err := EncodeAcceptedIdentity(accepted)
+	if err != nil {
+		return err
+	}
+	after, err := EncodeAcceptedIdentity(current)
+	if err != nil || !bytes.Equal(before, after) {
+		return fmt.Errorf("%w: root-owned accepted installation changed during admission", ErrAdmission)
+	}
+	inputs, err := gate.acceptedTrustInputs(current)
+	if err != nil {
+		return err
+	}
+	return gate.checkRestartJournal(current, inputs)
 }

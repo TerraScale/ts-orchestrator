@@ -97,7 +97,9 @@ verified anchor. It creates every object with `If-None-Match: *` and reads its
 exact bytes back. Retrying the same signed bytes is safe after an uncertain
 response; a conflicting existing object or selector fails without replacement.
 The later `sign-founder-selection` and `publish-founder-selection` commands
-remain the separate schema-two continuity path after all three installs.
+publish subsequent explicit-v1 founder selections during initial formation.
+Accepted controllers restart from their root-owned accepted identity; these
+commands do not authorize restart or in-place identity re-key.
 
 ## First external seed transaction
 

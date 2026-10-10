@@ -238,7 +238,7 @@ type fenceLease struct {
 func (l *fenceLease) Current() authority.Snapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return authority.Snapshot{Ready: true, Leader: !l.lost, Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: !l.lost, Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 
 func (l *fenceLease) Guard(_ context.Context, epoch uint64) error {

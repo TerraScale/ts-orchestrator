@@ -33,6 +33,9 @@ type Agent struct {
 	Fetch   Fetcher
 	Restart func(ctx context.Context, unit string) error
 	Now     func() time.Time
+	// Guard checks local installation trust under Layout.Lock before effects,
+	// and again after a missing release has been fetched.
+	Guard func(context.Context, StepCommand) error
 
 	// mu serializes this agent's steps; Layout.Lock serializes them with
 	// the watchdog and unit starts.
@@ -81,7 +84,14 @@ func (a *Agent) handle(ctx context.Context, command StepCommand, expires time.Ti
 // and cleared only by the unit's next start, so any interruption leaves the
 // watchdog (and a retry by a new agent) a restart to finish.
 func (a *Agent) apply(ctx context.Context, command StepCommand, expires time.Time, window time.Duration) (StepOutcome, string) {
-	if outcome, reason := a.locked(func() (StepOutcome, string) { return a.admit(command) }); outcome != "" {
+	if outcome, reason := a.locked(func() (StepOutcome, string) {
+		if a.Guard != nil {
+			if err := a.Guard(ctx, command); err != nil {
+				return OutcomeRefused, err.Error()
+			}
+		}
+		return a.admit(command)
+	}); outcome != "" {
 		return outcome, reason
 	}
 	if outcome, reason := a.ensureStaged(ctx, command); outcome != "" {
@@ -93,6 +103,11 @@ func (a *Agent) apply(ctx context.Context, command StepCommand, expires time.Tim
 		// let an expired command act.
 		if !a.now().Before(expires) {
 			return OutcomeRetry, "step command expired before it could be applied"
+		}
+		if a.Guard != nil {
+			if err := a.Guard(ctx, command); err != nil {
+				return OutcomeRefused, err.Error()
+			}
 		}
 		if outcome, reason := a.admit(command); outcome != "" {
 			return outcome, reason

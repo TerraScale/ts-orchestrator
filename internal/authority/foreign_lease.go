@@ -42,7 +42,7 @@ func (r *Runtime) VerifyLeaseHolder(ctx context.Context, epoch uint64, candidate
 	if err != nil {
 		return stageFailure("foreign_lease_decode", ErrLeaseCorrupt)
 	}
-	if lease.Scope != r.config.Scope || lease.CandidateID != candidateID || lease.OwnerID != ownerID ||
+	if lease.Scope != r.config.Scope || lease.DeploymentID != r.config.DeploymentID || lease.CandidateID != candidateID || lease.OwnerID != ownerID ||
 		lease.Epoch != epoch || lease.Released ||
 		!time.Now().Before(entry.Time.Add(time.Duration(lease.LeaseDuration))) {
 		return ErrFenced

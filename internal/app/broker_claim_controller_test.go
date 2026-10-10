@@ -17,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -81,6 +82,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	controllerClaim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
 	controllerClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + controllerNKey + ".>",
 		"ts.broker.gru.ticket.>", "ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",
 		"ts.orch.v1.gru.agent.*.observation.*", "ts.orch.v1.gru.delivery.artifact.admit", "ts.orch.v1.gru.host.register", "ts.orch.v1.gru.placement.apply",
@@ -134,27 +136,38 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},
 			}}}
 	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
-	previousPresence := controllerBakedInputsPresent
+	previousRuntime := controllerRuntimeProduction
+	previousMarker := controllerMarkerPresent
+	previousBaked := controllerBakedInputsPresent
 	previousAdmission := controllerBootstrapProduction
 	previousFounder := controllerFounderProduction
 	previousProbe := controllerBrokerClockProbe
-	previousServiceTrust := specBakedInputs
-	specBakedInputs = func() (bootstrapstart.BakedInputs, error) {
-		return bootstrapstart.BakedInputs{Identity: bootstrapstart.BakedIdentity{SchemaVersion: 1,
-			DeploymentID: "000000000073E652YS073VHPZY", Environment: "test", Cell: "GRU"}, Genesis: testSpecRoots(t)}, nil
+	previousServiceTrust := specAcceptedInputs
+	previousSeed := rolloutSeedSlot
+	rolloutSeedSlot = func(Config) (string, error) { return "broker-a", nil }
+	specAcceptedInputs = func() (bootstrapstart.AcceptedIdentity, bootstrapstart.TrustInputs, error) {
+		return bootstrapstart.AcceptedIdentity{DeploymentID: "000000000073E652YS073VHPZY", Environment: "test", Cell: "GRU"},
+			bootstrapstart.TrustInputs{Genesis: testSpecRoots(t), Chain: trust.RootChain{Version: 1}}, nil
 	}
 	clock := &testBrokerClock{}
 	clock.healthy.Store(true)
+	controllerMarkerPresent = func() (bool, error) { return false, nil }
 	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
+	controllerRuntimeProduction = func(ctx context.Context, cfg Config, _ func() error) (*natscell.Runtime, error) {
+		return natscell.Start(ctx, cfg.NATS)
+	}
 	controllerBootstrapProduction = func(context.Context, Config) error { return nil }
 	controllerFounderProduction = func(context.Context) error { return nil }
 	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
 	t.Cleanup(func() {
-		controllerBakedInputsPresent = previousPresence
+		controllerRuntimeProduction = previousRuntime
+		controllerMarkerPresent = previousMarker
+		controllerBakedInputsPresent = previousBaked
 		controllerBootstrapProduction = previousAdmission
 		controllerFounderProduction = previousFounder
 		controllerBrokerClockProbe = previousProbe
-		specBakedInputs = previousServiceTrust
+		specAcceptedInputs = previousServiceTrust
+		rolloutSeedSlot = previousSeed
 	})
 	if err := os.WriteFile(ticketFile, []byte(base64.StdEncoding.EncodeToString(wrongPublic)), 0o600); err != nil {
 		t.Fatal(err)

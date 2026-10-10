@@ -25,8 +25,7 @@ import (
 // The watchdog is the node's root step agent: with the production default
 // (no rollouts block, a host that is not a lab) it applies the step the
 // unit's process spooled and restarts the unit the step owes a restart; a
-// lab, or a controller whose config turns the executor off, never applies
-// one.
+// A lab host never applies production rollout steps.
 func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 	controller, host := selfupdate.ControllerUnit, selfupdate.HostUnit
 	for _, tc := range []struct {
@@ -37,27 +36,16 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 		applied bool
 	}{
 		{"production default", controller, "ctl-a", func(key, _ string) string {
-			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key + `"}}`
+			return `{"version":1,"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key + `"}}`
 		}, true},
-		{"explicit executor", controller, "ctl-a", func(key, _ string) string {
-			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key +
-				`","rollouts":{"enabled":true,"executor":true}}}`
-		}, true},
-		{"executor off", controller, "ctl-a", func(key, _ string) string {
-			return `{"nats":{"cell":"gru","instance":"ctl-a"},"controller":{"response_key_file":"` + key +
-				`","rollouts":{"enabled":true}}}`
-		}, false},
-		{"lab", controller, "ctl-a", func(key, _ string) string {
-			return `{"nats":{"cell":"gru","instance":"ctl-a","lab":true},"controller":{"response_key_file":"` + key + `"}}`
-		}, false},
 		{"production host", host, "gru-1-db-1", func(_, public string) string {
-			return `{"nats":{"cell":"gru"},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
+			return `{"version":1,"nats":{"cell":"gru"},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
 		}, true},
 		{"host on a controller's VM", host, "gru-1-ctl-1", func(_, public string) string {
-			return `{"nats":{"cell":"gru"},"host":{"node":"gru-1-ctl-1","controller_public_key":"` + public + `"}}`
+			return `{"version":1,"nats":{"cell":"gru"},"host":{"node":"gru-1-ctl-1","controller_public_key":"` + public + `"}}`
 		}, false},
 		{"lab host", host, "gru-1-db-1", func(_, public string) string {
-			return `{"nats":{"cell":"gru","lab":true},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
+			return `{"version":1,"nats":{"cell":"gru","lab":true},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
 		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -135,7 +123,7 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 			}
 			previousSpool, previousHostSpool, previousBaked := rolloutSpoolDir, hostSpoolDir, bakedInputs
 			rolloutSpoolDir, hostSpoolDir = spool, spool
-			rootPublic, _, err := ed25519.GenerateKey(rand.Reader)
+			rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -144,12 +132,21 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 				t.Fatal(err)
 			}
 			bakedInputs = func() (bootstrapstart.BakedInputs, error) {
-				return bootstrapstart.BakedInputs{Genesis: genesis, Identity: bootstrapstart.BakedIdentity{
+				return bootstrapstart.BakedInputs{Genesis: genesis, Chain: trust.RootChain{Version: 1}, Identity: bootstrapstart.BakedIdentity{
 					DeploymentID: "0000000000FBPQEED3YHZXX2AS", Environment: "canary", Cell: "GRU"}}, nil
+			}
+			if unit == controller {
+				useAcceptedController(t, controllerAcceptedFixture(t, []byte("baked build")), genesis)
+				receipt, delegation := signAcceptedSuccessor(t, target, now, rootPrivate, genesis)
+				for name, wire := range map[string][]byte{"receipt.json": receipt, "delegation.json": delegation} {
+					if err := os.WriteFile(filepath.Join(layout.ReleaseDir(digest), name), wire, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
 			}
 			t.Cleanup(func() { rolloutSpoolDir, hostSpoolDir, bakedInputs = previousSpool, previousHostSpool, previousBaked })
 
-			if _, err := invoke("watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", config, "--restart"); err != nil {
+			if _, err := invoke("watchdog", "--root", root, "--owner", owner, "--unit", unit, "--config", config); err != nil {
 				t.Fatal(err)
 			}
 			activation, pending, err := layout.Pending()

@@ -220,7 +220,7 @@ func TestBootstrapAnchorRequiresCanonicalBoundedIntentAndExactPins(t *testing.T)
 		name   string
 		mutate func(*BootstrapAnchor)
 	}{
-		{name: "legacy anchor version", mutate: func(anchor *BootstrapAnchor) { anchor.SchemaVersion = 1 }},
+		{name: "legacy anchor version", mutate: func(anchor *BootstrapAnchor) { anchor.SchemaVersion = 2 }},
 		{name: "removed intent bytes", mutate: func(anchor *BootstrapAnchor) { anchor.InitialRegionIntentWire = nil }},
 		{name: "oversized intent bytes", mutate: func(anchor *BootstrapAnchor) {
 			anchor.InitialRegionIntentWire = bytes.Repeat([]byte{'x'}, MaxInitialRegionIntentBytes+1)

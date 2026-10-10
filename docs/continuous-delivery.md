@@ -44,8 +44,9 @@ binary-only self-update below replaces the executable, not the image):
 
 - `ts-orch oci-region attempt` signs new deployment manifests, founder plans and selections;
   it is a bootstrap tool, not an upgrade tool.
-- Founder install continuity authorizes read-only restart of an **exact
-  accepted install**. It cannot authorize another image, instance or manifest.
+- The root-owned v1 accepted identity authorizes restart of the exact
+  installed broker/store, config and qualified binary. Root-signed identity
+  re-key is a separate [in-place transaction](identity-rekey.md).
 - Managed TerraBase placement holds a lost host without replacing it
   (`internal/placement/controller.go`). Image promotion or changing the
   image for future launches cannot upgrade existing hosts.
@@ -58,9 +59,9 @@ binary-only self-update below replaces the executable, not the image):
 | TerraBase automation grants | Human authorizes new root-bound signed controller config: update actor with `can_place_terrabase`, `can_update_terrabase_runtime`, repository/role/environment limits; separate compatibility actor with `can_certify_terrabase_compatibility`. Installing this config is a separately reviewed operation. |
 | TerraBase per-seat Prepare | Online update key and independent compatibility key on the operator host, only after the approved compatibility policy has been satisfied. Existing `terrabase-update` signs both statements. |
 | Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-orch release sign-binary`. |
-| Orchestrator binary update receipt (current trust inventory) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes accept these receipts only with `--allow-scoped-auto-sign`. |
+| Orchestrator binary update receipt (current trust inventory) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes automatically verify these receipts against the current root and the exact delegated scope. |
 | Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
-| Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Existing continuity does not supply this authority. Root private keys stay offline. |
+| Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Accepted restart does not supply this authority. Root private keys stay offline. |
 
 Forgejo has no authenticated protected-environment reviewer gate here
 ([releases.md](releases.md)). Retain independent review evidence externally.
@@ -155,8 +156,8 @@ transfer the seed's founder selection floor explicitly, never reset it. Admit
 the successor through the new root-signed plan, wait for route/TLS/clock health,
 all replicated authority/delivery state caught up and a fresh signed version
 proof, and only then advance. Retain the old boot volume and install evidence
-for the rollback window. A successor install needs its own root-signed restart
-continuity; the predecessor's proof must never be reused.
+for the rollback window. A successor install needs its own root-verified accepted identity; the
+predecessor's proof must never be reused.
 
 Next replace managed hosts one seat per TerraBase partition at a time, with
 the peer serving. Preserve volume/member/incarnation/material identities;
@@ -209,8 +210,8 @@ executable on a running node with an A/B layout:
    and not group- or world-writable; the unprivileged controller can execute
    but never replace its binary.
 3. **Activate.** `ts-orch selfupdate activate --release <sha256> --unit <unit>
-   --proof-window 5m --restart` writes `activation.json` (target, previous,
-   deadline) and only then flips `current` with an atomic rename.
+   --proof-window 5m` writes `activation.json` (target, previous,
+   deadline), flips `current` with an atomic rename, and restarts the unit.
 4. **Prove.** The new process signs a version proof after it is ready
    (controller: after host-controller readiness, with its response key; host:
    after start-up checks, with its identity key) and writes it to
@@ -227,8 +228,7 @@ executable on a running node with an A/B layout:
    checks it only historically, as it does the image receipt: a staged
    release keeps restarting after its delegation expires, and the
    known-bad list is how a release is withdrawn. A tampered release, or one
-   staged under a per-source receipt (stage controller releases with
-   `--allow-scoped-auto-sign`), fails admission, signs no proof and is
+   staged under a per-source receipt, fails admission, signs no proof and is
    rolled back; the baked release is admitted by the image receipt as
    before.
 5. **Confirm or roll back.** `selfupdate prepare` (root `ExecStartPre=+`) and
@@ -329,9 +329,7 @@ delegation has less than an hour left, and the CLI prints the effective
 expiry. Consumers
 verify the root signature, expiry, their own environment/cell/architecture,
 the lineage fields and the exact delegation digest the receipt names. The
-per-source verifier never accepts an update receipt. Nodes accept update
-receipts only with `selfupdate stage --allow-scoped-auto-sign`; the default is
-off. Rollout remains gated by version and health proofs.
+per-source verifier never accepts an update receipt. Nodes automatically admit update receipts only after all of those checks pass. Rollout remains gated by version and health proofs.
 
 ### Staged rollout state machine
 
@@ -799,7 +797,7 @@ Limits of this part:
 
 - A node gains the step agent with its first confirmed release that has it.
   A cell founded on an older image needs that release once by hand
-  (`ts-orch selfupdate stage` and `activate --restart` on each controller,
+  (`ts-orch selfupdate stage` and `activate` on each controller,
   as root); from then on CI moves it.
 - Hosts join the same way: the first release with host self-update reaches
   a host by hand, or with a rebuilt image.
@@ -1203,8 +1201,7 @@ launched from the previous image in the fleet while the cell spec's
    implementation PR before any running-cell orchestrator replacement.
 6. The scoped auto-sign policy is approved in principle. Before use, choose
    the online leaf key owner and host, the reviewed `lineage_base`, the cells,
-   architectures and expiry of the first binary update delegation, and which
-   nodes stage releases with `--allow-scoped-auto-sign`.
+   architectures and expiry of the first binary update delegation.
    Binary-only self-update requires the new release to read the persistent
    NATS and authority state of its predecessor; halt for a reviewed migration
    otherwise.

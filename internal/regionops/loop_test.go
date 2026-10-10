@@ -370,7 +370,7 @@ func mustProposed(t *testing.T, machine regionlifecycle.Machine, proposal region
 
 func startGlobalAuthority(ctx context.Context, t *testing.T, js jetstream.JetStream) *authority.Runtime {
 	t.Helper()
-	runtime, err := authority.Start(ctx, js, authority.Config{
+	runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})

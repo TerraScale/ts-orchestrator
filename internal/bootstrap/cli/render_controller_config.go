@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
@@ -262,8 +263,9 @@ func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmat
 				OperatorJWTFile: path("operator.jwt"), SystemJWTFile: path("system.jwt"),
 				CellJWTFile: path("cell.jwt"), SystemCredentialsFile: path("system.creds"),
 				TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: slices.Clone(manifest.ControllerSlots)}},
-		Controller: app.ControllerConfig{CandidateID: manifest.Slot, ArtifactStoreMaxBytes: 512 << 20,
-			ResponseKeyFile: path(manifest.Slot + "-response.key"), BrokerTicketKeyFile: path("ticket.key"),
+		Controller: app.ControllerConfig{CandidateID: entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot),
+			ArtifactStoreMaxBytes: 512 << 20,
+			ResponseKeyFile:       path(manifest.Slot + "-response.key"), BrokerTicketKeyFile: path("ticket.key"),
 			HostNATSIssuerSeedFile:      path("host-nats-issuer.seed"),
 			HostTLSIssuerKeyFile:        path("host-tls-issuer-key.pem"),
 			HostTLSIssuerCertFile:       path("host-tls-issuer-cert.pem"),

@@ -715,7 +715,7 @@ func (fixture founderPlanFixture) launchAuthorization(
 		rowDigestPin = rowDigest
 	}
 	intent := Intent{
-		SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: anchor.DeploymentID,
+		SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: anchor.DeploymentID,
 		Cell: string(anchor.Cell), Environment: anchor.Environment, Role: roleController, Slot: row.Slot,
 		Attempt: 1, Generation: 1, ManifestDigest: row.ManifestSHA256,
 		ReleaseReceiptDigest: digestBytes([]byte("release")), RegionIntentGeneration: anchor.InitialRegionIntentGeneration,
@@ -743,7 +743,7 @@ func (fixture founderPlanFixture) launchAuthorization(
 		t.Fatal(err)
 	}
 	head := SlotHead{
-		SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: anchor.Environment,
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: anchor.Environment,
 		Role: roleController, Slot: row.Slot, Attempt: 1, Generation: 1, IntentDigest: digestBytes(intentWire),
 	}
 	headPayload, err := trust.EncodePayload(head)

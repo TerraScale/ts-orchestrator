@@ -22,7 +22,7 @@ const credentialChildTimeout = 15 * time.Second
 
 var ErrLiveCredentials = errors.New("live controller credentials are invalid")
 
-// LiveCredentials checks only manifest-pinned material at the fixed service
+// LiveCredentials checks the accepted material inventory at the fixed service
 // directory. The root first-install process validates through the same binary
 // under the dedicated service UID; restarts validate in the service process.
 type LiveCredentials struct {
@@ -43,7 +43,7 @@ type LiveCredentials struct {
 	allowUnsafeAncestors   bool
 	runChild               func(context.Context, []byte, uint32, uint32) error
 	// ControllerConfig is the loaded controller config's exact bytes, which an
-	// adopted schema-2 generation pins (TS-668); continuity checks them.
+	// adopted v1 generation pins; accepted restart checks them.
 	ControllerConfig []byte
 }
 
@@ -63,15 +63,31 @@ func NewLiveCredentialChecker(cfg natscell.Config, serviceUID, serviceGID uint32
 		ValidateControllerKeys: validateControllerKeys, directory: MaterialDirectory}, nil
 }
 
-func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected MaterialPins,
-	manifest bootstrap.Manifest,
-) error {
+func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected MaterialPins, accepted AcceptedIdentity) error {
+	acceptance, err := accepted.AcceptanceSHA256()
+	if err != nil || expected.acceptance != acceptance || !expected.matchesAccepted(accepted) {
+		return ErrLiveCredentials
+	}
+	return check.verifyLiveCredentials(ctx, expected, accepted.Slot, accepted.SeedSlot, accepted.MaterialReferences)
+}
+
+// VerifyInitialLiveCredentials is limited to current, independently verified first formation.
+func (check LiveCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins, manifest bootstrap.VerifiedManifest) error {
+	payload := manifest.Manifest()
+	if !sameMaterials(expectedMaterials(payload, payload.Slot), expected.Digests) {
+		return ErrLiveCredentials
+	}
+	expected.references = slotReferences(payload, payload.Slot)
+	return check.verifyLiveCredentials(ctx, expected, payload.Slot, payload.SeedSlot, payload.Secrets)
+}
+
+func (check LiveCredentials) verifyLiveCredentials(ctx context.Context, expected MaterialPins, slot, seedSlot string, references []bootstrap.SecretReference) error {
 	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Lab || check.Config.Embedded == nil ||
 		check.ValidateControllerKeys == nil ||
 		len(expected.Digests) == 0 {
 		return ErrLiveCredentials
 	}
-	if err := check.verifyPaths(expected, manifest); err != nil {
+	if err := check.verifyPaths(expected, slot, seedSlot, references); err != nil {
 		return err
 	}
 	if err := check.verifyInventory(expected); err != nil {
@@ -105,8 +121,8 @@ func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected
 	return check.verifyInventory(expected)
 }
 
-func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstrap.Manifest) error {
-	if manifest.Slot == "" || manifest.SeedSlot == "" {
+func (check LiveCredentials) verifyPaths(expected MaterialPins, slot, seedSlot string, references []bootstrap.SecretReference) error {
+	if slot == "" || seedSlot == "" {
 		return ErrLiveCredentials
 	}
 	e := check.Config.Embedded
@@ -143,7 +159,7 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstr
 		}
 		paths = append(paths, check.TerraBaseCACertFile, check.TerraBaseCAKeyFile)
 	}
-	// Only an adopted generation pins interregion files (TS-668).
+	// Interregion files must belong to the accepted baseline or adopted generation.
 	for _, path := range e.InterRegion.Files() {
 		if !expected.interRegion(filepath.Base(path)) {
 			return fmt.Errorf("%w: interregion credential path is not pinned by the adopted generation", ErrLiveCredentials)
@@ -158,15 +174,15 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstr
 		}
 		seen[name] = true
 	}
-	if manifest.Slot == manifest.SeedSlot {
+	if slot == seedSlot {
 		purposes := make(map[bootstrap.SecretPurpose]bool, 2)
-		for _, reference := range manifest.Secrets {
+		for _, reference := range references {
 			if reference.Purpose != bootstrap.SecretSeedFounder &&
 				reference.Purpose != bootstrap.SecretSeedLedgerSigner {
 				continue
 			}
 			name := reference.TargetFile
-			if reference.Slot != manifest.SeedSlot || name == "" ||
+			if reference.Slot != seedSlot || name == "" ||
 				filepath.Base(name) != name || expected.Digests[name] == "" ||
 				expected.Digests[name] != reference.SHA256 || seen[name] || purposes[reference.Purpose] {
 				return fmt.Errorf("%w: seed signer is not pinned to its signed role and slot", ErrLiveCredentials)
@@ -174,14 +190,14 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstr
 			seen[name] = true
 			purposes[reference.Purpose] = true
 		}
-		if !purposes[bootstrap.SecretSeedFounder] || !purposes[bootstrap.SecretSeedLedgerSigner] {
+		if len(purposes) != 0 && (!purposes[bootstrap.SecretSeedFounder] || !purposes[bootstrap.SecretSeedLedgerSigner]) {
 			return fmt.Errorf("%w: signed seed signer roles are incomplete", ErrLiveCredentials)
 		}
 	}
 	// A generation's own files have their role in the generation: the chain,
 	// and the controller issuers the renewal loop reads by fixed name.
 	for name := range expected.Digests {
-		if !seen[name] && (expected.Generation == nil || !generationOwnFile(name)) {
+		if !seen[name] && (!generationOwnFile(name)) {
 			return fmt.Errorf("%w: signed credential material has no configured role", ErrLiveCredentials)
 		}
 	}
@@ -191,6 +207,11 @@ func (check LiveCredentials) verifyPaths(expected MaterialPins, manifest bootstr
 		}
 	}
 	return nil
+}
+
+func (check LiveCredentials) verifyInitialPaths(expected MaterialPins, manifest bootstrap.Manifest) error {
+	expected.references = slotReferences(manifest, manifest.Slot)
+	return check.verifyPaths(expected, manifest.Slot, manifest.SeedSlot, manifest.Secrets)
 }
 
 func generationOwnFile(name string) bool {

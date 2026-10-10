@@ -20,7 +20,7 @@ import (
 type backupPruneAuthority struct{ epoch uint64 }
 
 func (fencer backupPruneAuthority) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: true, Ready: true, Epoch: cmp.Or(fencer.epoch, 1), Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: entityid.Derive("test", "backup-prune-deployment"), Leader: true, Ready: true, Epoch: cmp.Or(fencer.epoch, 1), Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func (backupPruneAuthority) Guard(context.Context, uint64) error { return nil }

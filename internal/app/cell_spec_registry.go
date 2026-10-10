@@ -105,9 +105,18 @@ type specRegistry struct {
 	revision uint64
 }
 
-// specBakedInputs reads the image roots; tests of production-mode
-// controllers replace it.
-var specBakedInputs = bootstrapstart.LoadBakedInputs
+// specAcceptedInputs loads the accepted installation and its fixed trust tree.
+var specAcceptedInputs = func() (bootstrapstart.AcceptedIdentity, bootstrapstart.TrustInputs, error) {
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return bootstrapstart.AcceptedIdentity{}, bootstrapstart.TrustInputs{}, err
+	}
+	if err := bootstrapstart.CheckIdentityRekeyPrestart(accepted); err != nil {
+		return bootstrapstart.AcceptedIdentity{}, bootstrapstart.TrustInputs{}, err
+	}
+	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
+	return accepted, inputs, err
+}
 
 type specReply struct {
 	Spec   cellspec.Spec  `json:"spec"`
@@ -197,25 +206,25 @@ func (r *specRegistry) loadTrust(cfg Config) error {
 		if err := r.identity.Validate(); err != nil {
 			return err
 		}
-		return r.openRoots(genesis, trust.RootChain{}, "")
+		return r.openRoots(genesis, trust.RootChain{Version: 1}, "")
 	}
 	if cfg.NATS.Lab {
 		return nil
 	}
-	baked, err := specBakedInputs()
+	accepted, inputs, err := specAcceptedInputs()
 	if err != nil {
-		return fmt.Errorf("load image trust roots for cell specs: %w", err)
+		return fmt.Errorf("load accepted trust roots for cell specs: %w", err)
 	}
-	identity := cellspec.Identity{DeploymentID: baked.Identity.DeploymentID,
-		Cell: strings.ToLower(string(baked.Identity.Cell)), Environment: baked.Identity.Environment}
+	identity := cellspec.Identity{DeploymentID: accepted.DeploymentID,
+		Cell: strings.ToLower(accepted.Cell), Environment: accepted.Environment}
 	if identity.Cell != cfg.NATS.Cell {
-		return errors.New("image trust cell differs from the controller cell")
+		return errors.New("accepted trust cell differs from the controller cell")
 	}
 	if err := identity.Validate(); err != nil {
 		return err
 	}
 	r.identity = identity
-	return r.openRoots(baked.Genesis, baked.Chain, bootstrapstart.RootChainFile)
+	return r.openRoots(inputs.Genesis, inputs.Chain, bootstrapstart.RootChainFile)
 }
 
 // openRoots builds the cell's root chain from genesis and the adopted chain.

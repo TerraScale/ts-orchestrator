@@ -119,7 +119,7 @@ func (f *fakeFencer) Guard(context.Context, uint64) error {
 }
 
 func leader() authority.Snapshot {
-	return authority.Snapshot{Leader: true, Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 type fakeProvider struct {
@@ -237,7 +237,7 @@ func TestRunnerSkipsBackupThatChangedOwnershipBeforeDelete(t *testing.T) {
 
 func TestRunnerRefusesFollowersAndFencedAuthority(t *testing.T) {
 	provider := newFakeProvider()
-	follower := &fakeFencer{snapshot: authority.Snapshot{Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}}
+	follower := &fakeFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Epoch: 3, Revision: 5, ExpiresAt: time.Now().Add(time.Minute)}}
 	if _, err := runner(provider, follower).RunOnce(t.Context()); !errors.Is(err, authority.ErrNotLeader) {
 		t.Fatalf("follower ran: %v", err)
 	}

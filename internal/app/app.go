@@ -69,6 +69,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if command == "install-controller-config" {
 		return runInstallControllerConfig(ctx, args[1:])
 	}
+	if command == "identity-rekey" {
+		return runIdentityRekey(ctx, args[1:], output)
+	}
 	if command == "host-setup" {
 		return runHostSetup(ctx, args[1:], output)
 	}
@@ -115,6 +118,8 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return runHost(ctx, cfg, *configPath, output)
 	case "check":
 		return check(ctx, cfg, output)
+	case "identity-rekey-completion-check":
+		return checkControllerIdentityRekeyCompletion(ctx, cfg)
 	default:
 		return fmt.Errorf("unknown command %q", command)
 	}

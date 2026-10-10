@@ -82,7 +82,7 @@ func newReleaseSigner(t *testing.T) releaseSigner {
 func (s releaseSigner) services(t *testing.T) *specRegistry {
 	t.Helper()
 	roots, err := newRootRegistry(s.roots, trust.ChainIdentity{DeploymentID: "0000000000FBPQEED3YHZXX2AS", Cell: "gru",
-		Environment: "production"}, trust.RootChain{}, "")
+		Environment: "production"}, trust.RootChain{Version: 1}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,8 +235,7 @@ func newChannelFixture(t *testing.T) *channelFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{Rollouts: &RolloutsConfig{
-		Enabled: true, Executor: true, AllowScopedAutoSign: true, Channel: true}}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
 	control, err := newRolloutControl(cfg, signer.services(t), "")
 	if err != nil {
 		t.Fatal(err)

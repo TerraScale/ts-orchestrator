@@ -130,44 +130,44 @@ func TestBootstrapControllerCommandDispatchesSameBinary(t *testing.T) {
 
 func TestRootBootstrapExistingMarkerDelegatesToControllerRestartAdmission(t *testing.T) {
 	called := 0
-	present, err := acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
+	present, err := acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedIdentity, error) {
 		called++
-		return bootstrapstart.AcceptedInstall{}, nil
+		return bootstrapstart.AcceptedIdentity{}, nil
 	})
 	if err != nil || !present || called != 1 {
 		t.Fatalf("existing accepted marker: present=%t calls=%d err=%v", present, called, err)
 	}
-	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
-		return bootstrapstart.AcceptedInstall{}, os.ErrNotExist
+	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedIdentity, error) {
+		return bootstrapstart.AcceptedIdentity{}, os.ErrNotExist
 	})
 	if err != nil || present {
 		t.Fatalf("first install marker absence: present=%t err=%v", present, err)
 	}
-	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedInstall, error) {
-		return bootstrapstart.AcceptedInstall{}, errors.New("invalid accepted marker")
+	present, err = acceptedControllerInstallPresent(func() (bootstrapstart.AcceptedIdentity, error) {
+		return bootstrapstart.AcceptedIdentity{}, errors.New("invalid accepted marker")
 	})
 	if err == nil || present {
 		t.Fatalf("invalid accepted marker was treated as an initial install: present=%t err=%v", present, err)
 	}
 }
 
-func TestDirectControllerRunChecksBakedAdmissionBeforeNATS(t *testing.T) {
-	priorPresent := controllerBakedInputsPresent
-	priorProduction := controllerBootstrapProduction
+func TestDirectControllerRunChecksAcceptedAdmissionBeforeNATS(t *testing.T) {
+	priorProduction, priorMarker, priorBaked := controllerBootstrapProduction, controllerMarkerPresent, controllerBakedInputsPresent
 	priorClock := controllerBrokerClockProbe
 	t.Cleanup(func() {
-		controllerBakedInputsPresent = priorPresent
-		controllerBootstrapProduction = priorProduction
+		controllerBootstrapProduction, controllerMarkerPresent, controllerBakedInputsPresent = priorProduction, priorMarker, priorBaked
 		controllerBrokerClockProbe = priorClock
 	})
-	clock := &fixedControllerClock{bound: brokerauth.ClockBound{SampledAt: time.Now(), MaxError: time.Millisecond}}
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
 	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
+	controllerMarkerPresent = func() (bool, error) { return false, nil }
+	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
 	sentinel := errors.New("production admission stopped startup")
 	called := false
-	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
-	controllerBootstrapProduction = func(context.Context, Config) error {
-		called = true
-		return sentinel
+	controllerBootstrapProduction = func(context.Context, Config) error { called = true; return sentinel }
+	if err := admitControllerBootstrap(t.Context(), Config{}, func() error { return nil }); !errors.Is(err, sentinel) || !called {
+		t.Fatalf("production skipped pre-NATS gate: %v", err)
 	}
 	for _, lab := range []bool{false, true} {
 		called = false
@@ -188,14 +188,17 @@ func TestDirectControllerRunChecksBakedAdmissionBeforeNATS(t *testing.T) {
 }
 
 func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) {
-	priorPresent := controllerBakedInputsPresent
+	priorMarker := controllerMarkerPresent
+	priorBaked := controllerBakedInputsPresent
 	priorProduction := controllerBootstrapProduction
 	priorClock := controllerBrokerClockProbe
 	t.Cleanup(func() {
-		controllerBakedInputsPresent = priorPresent
+		controllerMarkerPresent = priorMarker
+		controllerBakedInputsPresent = priorBaked
 		controllerBootstrapProduction = priorProduction
 		controllerBrokerClockProbe = priorClock
 	})
+	controllerMarkerPresent = func() (bool, error) { return false, nil }
 	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
 	admissionCalls := 0
 	controllerBootstrapProduction = func(context.Context, Config) error {
@@ -223,8 +226,12 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 					test.name, admissionCalls, test.clock.calls)
 			}
 			for _, initial := range []bool{true, false} {
+				want := "NTP clock health"
+				if !initial {
+					want = "read accepted controller identity"
+				}
 				if err := admitProductionController(t.Context(), Config{Version: ConfigVersion}, bootstrapstart.MarkerStore{}, initial); err == nil ||
-					!strings.Contains(err.Error(), "NTP clock health") {
+					!strings.Contains(err.Error(), want) {
 					t.Fatalf("hidden child body initial=%t with %s clock = %v", initial, test.name, err)
 				}
 			}
@@ -245,5 +252,14 @@ func TestControllerBakedPresenceErrorCannotFallBackToLab(t *testing.T) {
 	if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("baked path inspection error fell through to lab: %v", err)
+	}
+}
+
+func TestDamagedAcceptedIdentityCannotEnterInitialFormation(t *testing.T) {
+	priorMarker := controllerMarkerPresent
+	t.Cleanup(func() { controllerMarkerPresent = priorMarker })
+	controllerMarkerPresent = func() (bool, error) { return false, errors.New("permission denied") }
+	if _, err := startControllerAdmission(t.Context(), Config{}, nil); err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("accepted identity inspection error entered initial formation: %v", err)
 	}
 }

@@ -1,10 +1,8 @@
 package bootstrapstart
 
 import (
-	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -14,44 +12,53 @@ import (
 )
 
 func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
-	fixture := newFounderSignerFixture(t)
-	founderFixtureWithAdmissibleRelease(t, fixture)
-	anchor := fixture.current.Anchor
-	manifestWire := fixture.manifests["seed-a"]
+	fixture := newAdmissionFlowFixture(t)
+	anchorEnvelope, err := trust.DecodeEnvelope(fixture.gate.AnchorWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, fixture.gate.Roots, fixture.gate.Expected,
+		*fixture.now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := BakedIdentity{SchemaVersion: 1, DeploymentID: fixture.gate.Expected.DeploymentID,
+		Environment: fixture.gate.Expected.Environment, Cell: fixture.gate.Expected.Cell}
+	manifestWire := fixture.ledger.state.ManifestRecord.Bytes
 	manifestEnvelope, err := trust.DecodeEnvelope(manifestWire)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := anchor.ManifestExpectation("seed-a", fixture.plan.Peers[0].ImageOCID)
+	expected, err := anchor.ManifestExpectation("controller-b", fixture.ledger.state.Intent.ImageOCID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := bootstrap.VerifyManifest(manifestEnvelope, fixture.baked.Roots, expected,
-		fixture.now, bootstrap.ManifestTrustPolicy())
+	manifest, err := bootstrap.VerifyManifest(manifestEnvelope, fixture.gate.Roots, expected,
+		*fixture.now, bootstrap.ManifestTrustPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	profile, ok := manifest.Profile("seed-a")
+	profile, ok := manifest.Profile("controller-b")
 	if !ok {
 		t.Fatal("signed seed manifest lacks launch profile")
 	}
 	anchored := anchor.Anchor()
-	scope := bootstrap.BootstrapScope{DeploymentID: anchored.DeploymentID, Cell: string(anchored.Cell), Slot: "seed-a"}
+	scope := bootstrap.BootstrapScope{DeploymentID: anchored.DeploymentID, Cell: string(anchored.Cell), Slot: "controller-b"}
 	createKey := "reviewed-seed-create"
 	reservation, err := BuildExternalSeedReservation(ExternalSeedReservationRequest{
-		Identity: fixture.baked.Identity, Anchor: anchor, Manifest: manifest,
+		Identity: identity, Anchor: anchor, Manifest: manifest,
 		ReviewedPlanSHA256: digestWire([]byte("reviewed plan")), CreateIdentity: createKey,
-		LedgerPrivate: fixture.ledgerKey, Now: fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
+		LedgerPrivate: fixture.ledgerPrivate, Now: *fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("build CLI reservation records: %v", err)
 	}
 	intentWire, headWire := reservation.IntentWire, reservation.InitialHeadWire
-	objects := &founderLedgerObjects{objects: make(map[string]founderStoredObject), now: fixture.now}
-	config, err := currentLedgerConfig(anchor, fixture.baked.Roots)
+	objects := &founderLedgerObjects{objects: make(map[string]founderStoredObject), now: *fixture.now}
+	config, err := currentLedgerConfig(anchor, fixture.gate.Roots)
 	if err != nil {
 		t.Fatal(err)
 	}
-	config.VerificationNow = func() time.Time { return fixture.now }
+	config.VerificationNow = func() time.Time { return *fixture.now }
 	ledger, err := bootstrap.NewLedger(objects, config)
 	if err != nil {
 		t.Fatal(err)
@@ -70,9 +77,9 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 			objects.writes, reservationWrites, err)
 	}
 	conflicting, err := BuildExternalSeedReservation(ExternalSeedReservationRequest{
-		Identity: fixture.baked.Identity, Anchor: anchor, Manifest: manifest,
+		Identity: identity, Anchor: anchor, Manifest: manifest,
 		ReviewedPlanSHA256: digestWire([]byte("reviewed plan")), CreateIdentity: "another-seed-create",
-		LedgerPrivate: fixture.ledgerKey, Now: fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
+		LedgerPrivate: fixture.ledgerPrivate, Now: *fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("build valid conflicting reservation: %v", err)
 	}
@@ -87,56 +94,37 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 		AvailabilityDomain: profile.AvailabilityDomain, FaultDomain: profile.FaultDomain,
 		Shape: profile.Shape, SubnetOCID: profile.SubnetOCID,
 		NSGOCIDs:        slices.Clone(profile.NetworkSecurityGroupOCIDs),
-		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.seed-a", PrimaryPrivateIP: fixture.plan.SeedPrivateIP,
+		PrimaryVNICOCID: "ocid1.vnic.oc1.sa-saopaulo-1.seed-a", PrimaryPrivateIP: "10.0.0.3",
 		PrimaryVNIC: true, LifecycleState: "RUNNING"}
 	if len(observed.NSGOCIDs) != 2 {
 		t.Fatalf("fixture must exercise the two-NSG OCI ordering case: %v", observed.NSGOCIDs)
 	}
 	slices.Reverse(observed.NSGOCIDs)
 	reader := &founderAdmissionLedger{ledger: ledger}
-	markerDirectory := filepath.Join(t.TempDir(), "marker")
-	if err := os.Mkdir(markerDirectory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(markerDirectory, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	material := new(countingMaterialChecker)
-	credentials := new(founderAdmissionCredentials)
-	gate := Gate{Roots: fixture.baked.Roots, AnchorWire: fixture.baked.AnchorWire,
-		Expected:                     fixture.baked.Identity.AnchorExpectation(),
-		LoadedControllerConfigSHA256: manifest.Manifest().ControllerConfigSHA256,
-		Descriptor:                   fixedDescriptor{slot: scope.Slot, instance: instanceID},
-		Instances:                    fakeInstanceObserver{observed}, Ledgers: reader, Binary: fixedBinaryChecker{},
-		Material: material, Credentials: credentials,
-		Markers:    MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
-		ClockCheck: func() error { return nil }, Now: func() time.Time { return fixture.now },
-		InitialFounderFloor: func(_ context.Context, marker AcceptedInstall, _ time.Time) error {
-			if marker.InstanceOCID != instanceID || marker.ResultSHA256 == "" {
-				t.Fatal("seed floor received another instance or no result")
-			}
-			return nil
-		}}
+	material, credentials := fixture.material, fixture.credentials
+	gate := fixture.gate
+	gate.Instances, gate.Ledgers = fakeInstanceObserver{observed}, reader
+	gate.Descriptor = fixedDescriptor{slot: scope.Slot, instance: instanceID}
 	if _, err := gate.AdmitInitial(t.Context()); err == nil || material.initialCalls != 0 {
 		t.Fatalf("uncommitted seed reached initial admission: err=%v material=%d", err, material.initialCalls)
 	}
-	facts, err := VerifyExternalSeedObservation(anchor, manifest, reserved, observed, fixture.plan.SeedPrivateIP)
+	facts, err := VerifyExternalSeedObservation(anchor, manifest, reserved, observed, "10.0.0.3")
 	if err != nil {
 		t.Fatalf("exact OCI readback differs from signed reservation: %v", err)
 	}
 	completion, err := BuildExternalSeedCompletion(ExternalSeedCompletionRequest{
-		Identity: fixture.baked.Identity, Anchor: anchor, Manifest: manifest, Roots: fixture.baked.Roots,
-		State: reserved, Observation: observed, ObservedAt: fixture.now,
-		ExpectedPrivateIP: fixture.plan.SeedPrivateIP, RootPrivate: fixture.root,
-		LedgerPrivate: fixture.ledgerKey, Now: fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
+		Identity: identity, Anchor: anchor, Manifest: manifest, Roots: fixture.gate.Roots,
+		State: reserved, Observation: observed, ObservedAt: *fixture.now,
+		ExpectedPrivateIP: "10.0.0.3", RootPrivate: fixture.rootPrivate,
+		LedgerPrivate: fixture.ledgerPrivate, Now: *fixture.now, ExpiresAt: fixture.now.Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("build CLI completion records: %v", err)
 	}
 	reused, err := BuildExternalSeedCompletion(ExternalSeedCompletionRequest{
-		Identity: fixture.baked.Identity, Anchor: anchor, Manifest: manifest, Roots: fixture.baked.Roots,
+		Identity: identity, Anchor: anchor, Manifest: manifest, Roots: fixture.gate.Roots,
 		State: reserved, Observation: observed, ObservedAt: fixture.now.Add(10 * time.Minute),
-		ExpectedPrivateIP: fixture.plan.SeedPrivateIP, RootPrivate: fixture.root,
-		LedgerPrivate: fixture.ledgerKey, ReuseReceiptWire: completion.ReceiptWire,
+		ExpectedPrivateIP: "10.0.0.3", RootPrivate: fixture.rootPrivate,
+		LedgerPrivate: fixture.ledgerPrivate, ReuseReceiptWire: completion.ReceiptWire,
 		Now: fixture.now.Add(10 * time.Minute), ExpiresAt: fixture.now.Add(2 * time.Hour)})
 	if err != nil || !slices.Equal(reused.ReceiptWire, completion.ReceiptWire) {
 		t.Fatalf("reuse exact root receipt: %v", err)
@@ -196,7 +184,7 @@ func TestExternalSeedProducedLedgerHistoryAdmitsInitial(t *testing.T) {
 				t.Fatalf("changed OCI NSG set reached side effects: material=%d credentials=%d",
 					material.initialCalls, credentials.calls)
 			}
-			if _, err := badGate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+			if _, err := badGate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("changed OCI NSG set left an accepted marker: %v", err)
 			}
 		})

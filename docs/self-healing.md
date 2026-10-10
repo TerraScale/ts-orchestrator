@@ -60,13 +60,13 @@ and what is still missing.
    with the ranked insights, the unavailable inputs and the health checks of
    each member. The command prints a table and exits non-zero on a critical
    insight. CI and humans can use the same command.
-3. **In-place material renewal (top priority).** Today one `expires` covers
-   the NATS CA, the host issuer, every leaf and the operator and account JWTs
-   (`bootstrapmaterial/material.go`). Restart admission pins each file's
-   digest, install continuity ends at the first credential expiry, and hosts
-   pin the CA from launch metadata. The cell therefore has to be re-founded
-   before its material expires. TS-550 raises `MaxValidity` to 365 days as a
-   bridge. Renewal ships in these steps:
+3. **In-place material renewal.** Root-signed material generations renew
+   controller credentials under the accepted deployment and broker identity.
+   Restart uses the root-owned accepted identity and current generation, not
+   initial manifest expiry or a founder continuity proof. Existing cells are
+   preserved. [In-place identity re-key](identity-rekey.md) separately replaces
+   retired deployment/cluster identities and installs current grants.
+   Renewal uses these steps:
    1. **NATS TLS hot reload (done).** `natscell.ReloadingTLS` serves the
       broker bridge, the NATS routes and the host-enrollment listener. At
       most every 5 seconds, one handshake reads the certificate, key and CA
@@ -90,12 +90,12 @@ and what is still missing.
       signing key's public key and Vault reference, the operator and account
       JWTs, and the maximum leaf lifetime. It is published in KV and kept on
       every controller next to the root chain (#185).
-   3. **Admission pins the generation.** Restart admission and install
-      continuity accept renewable files (leaves and their keys, user creds,
+   3. **Admission pins the generation.** Accepted restart admission accepts renewable files (leaves and their keys, user creds,
       the CA bundle, account JWTs, the host issuer) when they are valid under
       the newest root-verified generation the controller holds, instead of
       matching the manifest digests. Founder, response, ticket and route
-      secrets keep their digest pins. Generation 0 is the manifest.
+      secrets keep their digest pins. Initial formation pins its original material; accepted restart uses the
+      verified installed generation.
    4. **Leader-coordinated renewal.** The leader publishes the current
       generation and rollover phase under its authority epoch. Each
       controller issues its own TLS leaf and NATS user JWT with the

@@ -31,12 +31,10 @@ import (
 // rest; so a chain stays valid when the roots that signed older generations
 // are rotated, and a retired root cannot extend it.
 //
-// Schema 2 (TS-668) adds each controller slot's new controller config, by
-// digest, the cell account's role signer and the interregion files, and pins
-// the controller issuers all or none. A chain may move from schema 1 to 2,
-// never back.
+// The v1 contract pins slot configurations, the role signer and interregion
+// files, with controller issuers all or none.
 const (
-	MaterialGenerationSchemaVersion = 2
+	MaterialGenerationSchemaVersion = 1
 	MaxMaterialGenerationBytes      = 64 << 10
 	// MaxMaterialGenerationLifetime covers a yearly CA with overlap.
 	MaxMaterialGenerationLifetime = 400 * 24 * time.Hour
@@ -49,7 +47,7 @@ const (
 	// SecretControllerIssuer is the online controller issuers' purpose: every
 	// controller holds them, since any controller can lead.
 	SecretControllerIssuer SecretPurpose = "controller-issuer"
-	// SecretInterRegion is the leaf fabric's purpose (schema 2): the
+	// SecretInterRegion is the leaf fabric's purpose (v1): the
 	// interregion account JWT and CA, a child's leaf-<parent>.creds, and each
 	// slot's leaf TLS, bound to that slot. interregion-ca.key and
 	// child-<cell>.seed stay offline with the owner and are never pinned.
@@ -58,12 +56,12 @@ const (
 
 var ErrMaterialGenerationInvalid = errors.New("material generation is invalid")
 
-// MaterialGenerationFiles returns the files a schema-1 generation pins, each
-// exactly once, with the purpose its Vault secret carries. Leaves and user
-// credentials are issued by the cell and never pinned; founder, response,
+// MaterialGenerationFiles returns the files a v1 generation pins, each
+// exactly once, with the purpose its Vault secret carries. In v1, leaves
+// and user credentials are issued by the cell; founder, response,
 // ticket and route secrets and the host NATS issuer seed do not expire and
-// keep their manifest pins. Schema 2 pins the controller-issuer files all or
-// none, and may add the interregion files.
+// keep their manifest pins. The v1 contract pins the controller-issuer files all or
+// none, and may add the interregion files or offline-issued slot credentials.
 func MaterialGenerationFiles() map[string]SecretPurpose {
 	return map[string]SecretPurpose{
 		"ca.pem": SecretRegionalShared, "operator.jwt": SecretRegionalShared, "system.jwt": SecretRegionalShared,
@@ -96,16 +94,16 @@ type MaterialGeneration struct {
 	HostSigner    string `json:"hostSigner"`
 	// AccountSigner is the public key of controller-account-signer.seed, an
 	// unscoped signing key of the cell account: controller user JWTs carry
-	// their own grants, which a scoped key cannot sign. In schema 2 it and
+	// their own grants, which a scoped key cannot sign. In v1 it and
 	// IssuedLifetimeHours are zero when the controller issuers are not
 	// pinned: the cell then issues nothing under the generation.
 	AccountSigner       string `json:"accountSigner"`
 	IssuedLifetimeHours int    `json:"issuedLifetimeHours"`
-	// RoleSigner (schema 2) is the role signer's public key (TS-651), whose
+	// RoleSigner (v1) is the role signer's public key (TS-651), whose
 	// scope cell.jwt carries. It derives from the host NATS issuer, so it
 	// never changes either.
 	RoleSigner string `json:"roleSigner,omitempty"`
-	// ControllerConfigs (schema 2) pins every controller slot's new
+	// ControllerConfigs (v1) pins every controller slot's new
 	// controller config, in ControllerSlots order. Once a chain carries
 	// them, every later generation does.
 	ControllerConfigs []GenerationControllerConfig `json:"controllerConfigs,omitempty"`
@@ -114,14 +112,14 @@ type MaterialGeneration struct {
 // GenerationControllerConfig pins one slot's new controller config, bound to
 // the slot's accepted manifest. The bytes travel beside the chain.
 type GenerationControllerConfig struct {
-	Slot           string `json:"slot"`
-	ManifestSHA256 string `json:"manifestSha256"`
-	SHA256         string `json:"sha256"`
-	Size           int64  `json:"size"`
+	Slot             string `json:"slot"`
+	AcceptanceSHA256 string `json:"acceptanceSha256"`
+	SHA256           string `json:"sha256"`
+	Size             int64  `json:"size"`
 }
 
 // InterRegionTLSFiles names a controller slot's interregion leaf certificate
-// and key in a schema-2 generation.
+// and key in a v1 generation.
 func InterRegionTLSFiles(slot string) (cert, key string) {
 	return "interregion-tls-" + slot + "-cert.pem", "interregion-tls-" + slot + "-key.pem"
 }
@@ -164,10 +162,7 @@ func MaterialGenerationPolicy() trust.Policy {
 // Validate checks the payload's shape; bootstrapmaterial.CheckGenerationFiles
 // checks the files it pins.
 func (generation MaterialGeneration) Validate() error {
-	v1 := generation.SchemaVersion == 1
-	if _, err := generation.Cell.OCIRegion(); err != nil || generation.SchemaVersion < 1 ||
-		generation.SchemaVersion > MaterialGenerationSchemaVersion ||
-		v1 && (generation.RoleSigner != "" || len(generation.ControllerConfigs) != 0) ||
+	if _, err := generation.Cell.OCIRegion(); err != nil || generation.SchemaVersion != MaterialGenerationSchemaVersion ||
 		!entityid.Valid(generation.DeploymentID) || !entityid.Valid(generation.ClusterID) ||
 		generation.Environment != "production" && generation.Environment != "canary" ||
 		len(generation.ControllerSlots) == 0 || len(generation.ControllerSlots) > 64 || generation.Generation == 0 ||
@@ -177,12 +172,9 @@ func (generation MaterialGeneration) Validate() error {
 		!nkeys.IsValidPublicOperatorKey(generation.Operator) {
 		return fmt.Errorf("%w: identity, schema or chain field", ErrMaterialGenerationInvalid)
 	}
-	accounts := []string{generation.SystemAccount, generation.CellAccount, generation.HostSigner}
-	if v1 || generation.AccountSigner != "" {
+	accounts := []string{generation.SystemAccount, generation.CellAccount, generation.HostSigner, generation.RoleSigner}
+	if generation.AccountSigner != "" {
 		accounts = append(accounts, generation.AccountSigner)
-	}
-	if !v1 {
-		accounts = append(accounts, generation.RoleSigner)
 	}
 	for index, account := range accounts {
 		if !nkeys.IsValidPublicAccountKey(account) || slices.Contains(accounts[:index], account) {
@@ -195,17 +187,19 @@ func (generation MaterialGeneration) Validate() error {
 		}
 	}
 	seen := map[string]bool{}
-	interregion, leaves := 0, 0
+	interregion, leaves, credentials := 0, 0, 0
 	for _, secret := range generation.Secrets {
 		purpose, slot, pinnable := generation.pinnable(secret.TargetFile)
 		if !pinnable || seen[secret.TargetFile] || secret.Purpose != purpose || secret.Slot != slot ||
-			!isOCID(secret.SecretOCID, "vaultsecret") || secret.VersionNumber <= 0 || !sha256RE.MatchString(secret.SHA256) ||
-			secret.MaxBytes <= 0 || secret.MaxBytes > MaxSecretBytes {
+			secret.ValidateIdentity() != nil {
 			return fmt.Errorf("%w: secret reference for %q", ErrMaterialGenerationInvalid, secret.TargetFile)
 		}
 		seen[secret.TargetFile] = true
 		if purpose == SecretInterRegion {
 			interregion++
+		}
+		if purpose == SecretController {
+			credentials++
 		}
 		if strings.HasPrefix(secret.TargetFile, "leaf-") {
 			leaves++
@@ -215,7 +209,7 @@ func (generation MaterialGeneration) Validate() error {
 	for name, purpose := range MaterialGenerationFiles() {
 		if purpose == SecretControllerIssuer && seen[name] {
 			issuers++
-		} else if !seen[name] && (v1 || purpose != SecretControllerIssuer) {
+		} else if !seen[name] && purpose != SecretControllerIssuer {
 			return fmt.Errorf("%w: a generation pins every renewable file", ErrMaterialGenerationInvalid)
 		}
 	}
@@ -225,6 +219,10 @@ func (generation MaterialGeneration) Validate() error {
 		issuing != (generation.IssuedLifetimeHours != 0) || generation.IssuedLifetimeHours < 0 ||
 		generation.IssuedLifetimeHours > int(MaxIssuedLifetime.Hours()) {
 		return fmt.Errorf("%w: the controller issuers, account signer and issued lifetime come all or none",
+			ErrMaterialGenerationInvalid)
+	}
+	if credentials != 0 && (credentials != len(generation.ControllerSlots) || issuing || len(generation.ControllerConfigs) == 0) {
+		return fmt.Errorf("%w: pinned controller credentials need every slot's config and credentials, without online issuers",
 			ErrMaterialGenerationInvalid)
 	}
 	if interregion != 0 {
@@ -243,7 +241,7 @@ func (generation MaterialGeneration) Validate() error {
 		return fmt.Errorf("%w: controller configs must pin every controller slot", ErrMaterialGenerationInvalid)
 	}
 	for index, config := range generation.ControllerConfigs {
-		if config.Slot != generation.ControllerSlots[index] || !sha256RE.MatchString(config.ManifestSHA256) ||
+		if config.Slot != generation.ControllerSlots[index] || !sha256RE.MatchString(config.AcceptanceSHA256) ||
 			!sha256RE.MatchString(config.SHA256) || config.Size < 1 || config.Size > MaxControllerConfigBytes {
 			return fmt.Errorf("%w: controller config %d must pin slot %s's config once, in slot order",
 				ErrMaterialGenerationInvalid, index, generation.ControllerSlots[index])
@@ -253,14 +251,11 @@ func (generation MaterialGeneration) Validate() error {
 }
 
 // pinnable returns the purpose and slot under which a generation may pin
-// name. Schema 2 adds the interregion files; interregion-ca.key and
+// name. The v1 contract adds the interregion files and slot credentials; interregion-ca.key and
 // child-<cell>.seed are never pinnable.
 func (generation MaterialGeneration) pinnable(name string) (SecretPurpose, string, bool) {
 	if purpose, renewable := MaterialGenerationFiles()[name]; renewable {
 		return purpose, "", true
-	}
-	if generation.SchemaVersion < 2 {
-		return "", "", false
 	}
 	parent, leaf := strings.CutPrefix(name, "leaf-")
 	parent, creds := strings.CutSuffix(parent, ".creds")
@@ -269,6 +264,9 @@ func (generation MaterialGeneration) pinnable(name string) (SecretPurpose, strin
 		return SecretInterRegion, "", true
 	}
 	for _, slot := range generation.ControllerSlots {
+		if name == slot+".creds" {
+			return SecretController, slot, true
+		}
 		if cert, key := InterRegionTLSFiles(slot); name == cert || name == key {
 			return SecretInterRegion, slot, true
 		}
@@ -359,16 +357,16 @@ func verifyMaterialGenerationChain(chain []trust.Envelope, expected MaterialGene
 		}
 		if index > 0 {
 			previous := verified[index-1]
-			// Never back to schema 1, never without the role signer or the
-			// configs once a generation carried them: controllers would
+			// Never drop a pinned config: controllers would
 			// restart on configs the effective manifest no longer pins.
 			if generation.Previous != previous.fingerprint || generation.Operator != previous.generation.Operator ||
 				generation.SystemAccount != previous.generation.SystemAccount ||
 				generation.CellAccount != previous.generation.CellAccount ||
 				generation.HostSigner != previous.generation.HostSigner ||
-				generation.SchemaVersion < previous.generation.SchemaVersion ||
-				previous.generation.RoleSigner != "" && generation.RoleSigner != previous.generation.RoleSigner ||
-				len(previous.generation.ControllerConfigs) != 0 && len(generation.ControllerConfigs) == 0 {
+				generation.RoleSigner != previous.generation.RoleSigner ||
+				len(previous.generation.ControllerConfigs) != 0 && len(generation.ControllerConfigs) == 0 ||
+				slices.ContainsFunc(previous.generation.Secrets, func(ref SecretReference) bool { return ref.Purpose == SecretController }) &&
+					!slices.ContainsFunc(generation.Secrets, func(ref SecretReference) bool { return ref.Purpose == SecretController }) {
 				return nil, fmt.Errorf("%w: generation %d does not extend generation %d", ErrMaterialGenerationInvalid,
 					generation.Generation, previous.generation.Generation)
 			}

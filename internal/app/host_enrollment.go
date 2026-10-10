@@ -200,7 +200,7 @@ func serveHostEnrollment(ctx context.Context, conn *nats.Conn, cell string, poli
 				return
 			}
 			if err != nil {
-				reply = rootChainReply{Error: err.Error()}
+				reply = rootChainReply{Version: 1, Error: err.Error()}
 			}
 			if wire, marshalErr := json.Marshal(reply); marshalErr == nil {
 				_ = message.Respond(wire)

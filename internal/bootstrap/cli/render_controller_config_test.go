@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -423,10 +424,9 @@ func TestSignedControllerConfigRejectsMisplacedCAAndOverlappingPlacementRole(t *
 	}
 }
 
-// A controller restarts on a config another binary signed: it checks the
-// signed digest of the bytes, not a re-encoding. Unknown and removed members
-// are rejected at every version. Signing needs this binary's canonical config.
-func TestInstalledControllerConfigRejectsUnknownMembersAtEveryVersion(t *testing.T) {
+// Restart admission checks the signed bytes and rejects unknown schema
+// versions and members. Signing also requires canonical encoding.
+func TestInstalledControllerConfigRequiresCurrentSchema(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	args, manifest := renderInputs(t, now, keepEverySecret)
 	output := filepath.Join(t.TempDir(), "controller.json")
@@ -439,6 +439,15 @@ func TestInstalledControllerConfigRejectsUnknownMembersAtEveryVersion(t *testing
 	}
 	if !strings.HasPrefix(string(wire), fmt.Sprintf(`{"version":%d,`, app.ConfigVersion)) {
 		t.Fatalf("rendered config does not name its version: %.40s", wire)
+	}
+	var cfg app.Config
+	if err := protocol.DecodeStrict(wire, &cfg, bootstrap.MaxControllerConfigBytes); err != nil {
+		t.Fatal(err)
+	}
+	candidate := entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot)
+	if cfg.Controller.CandidateID != candidate || !entityid.Valid(candidate) || cfg.NATS.Instance != manifest.Slot ||
+		natscell.ServerName(cfg.NATS.Cell, cfg.NATS.Instance) != natscell.ServerName(strings.ToLower(string(manifest.Cell)), manifest.Slot) {
+		t.Fatalf("rendered controller identity or physical broker slot changed: candidate=%s instance=%s", cfg.Controller.CandidateID, cfg.NATS.Instance)
 	}
 	for index, flag := range []string{"--oci-region-intent", "--oci-region-config", "--placement-config"} {
 		body, err := os.ReadFile(args[slices.Index(args, flag)+1])
@@ -454,18 +463,21 @@ func TestInstalledControllerConfigRejectsUnknownMembersAtEveryVersion(t *testing
 		return modified
 	}
 	rendered := string(wire)
-	newer := strings.Replace(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
-		fmt.Sprintf(`{"version":%d, "added_by_newer_binary":{"setting":true},`, app.ConfigVersion+1), 1),
+	unknown := strings.Replace(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
+		fmt.Sprintf(`{"version":%d, "unknown":{"setting":true},`, app.ConfigVersion), 1),
 		`"controller":{`, `"controller":{"added_setting":"on",`, 1)
-	if _, err := app.ValidateInstalledControllerConfig(signed(newer), ""); err == nil {
-		t.Fatal("installed config accepted unknown members from a newer binary")
+	if _, err := app.ValidateInstalledControllerConfig(signed(unknown), ""); err == nil {
+		t.Fatal("restart admission accepted unknown members")
 	}
-	if _, err := app.ValidateSignedControllerConfig(signed(newer), ""); err == nil {
+	if _, err := app.ValidateSignedControllerConfig(signed(unknown), ""); err == nil {
 		t.Fatal("signing accepted members this binary does not know")
 	}
-	spaced := strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion), "{ \"version\":1, ", 1)
+	spaced := strings.Replace(rendered, "{", "{ ", 1)
 	if _, err := app.ValidateInstalledControllerConfig(signed(spaced), ""); err != nil {
-		t.Fatalf("non-canonical version-1 signed config: %v", err)
+		t.Fatalf("current schema with signed whitespace: %v", err)
+	}
+	if _, err := app.ValidateSignedControllerConfig(signed(spaced), ""); err == nil || !strings.Contains(err.Error(), "canonical") {
+		t.Fatalf("signing accepted noncanonical current-schema bytes: %v", err)
 	}
 	for name, manifest := range map[string]bootstrap.Manifest{
 		"version missing":    signed(strings.Replace(rendered, `"version":1,`, "", 1)),
@@ -478,16 +490,41 @@ func TestInstalledControllerConfigRejectsUnknownMembersAtEveryVersion(t *testing
 		"newer dashboard switch": signed(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
 			fmt.Sprintf(`{"version":%d,"observability":{"dashboard":false},`, app.ConfigVersion+1), 1)),
 		"bytes differ from the signed digest": func() bootstrap.Manifest {
-			tampered := signed(newer)
-			tampered.ControllerConfig = []byte(strings.Replace(newer, `"setting":true`, `"setting":false`, 1))
+			tampered := signed(spaced)
+			tampered.ControllerConfig = wire
 			return tampered
 		}(),
+		"obsolete config version": signed(strings.Replace(rendered, `"version":1`, `"version":6`, 1)),
+		"missing config version":  signed(strings.Replace(rendered, `"version":1,`, "", 1)),
+		"zero config version":     signed(strings.Replace(rendered, `"version":1`, `"version":0`, 1)),
+		"obsolete restart opt-in": signed(strings.Replace(rendered, `"controller":{`,
+			`"controller":{"offline_restart_admission":false,`, 1)),
+		"obsolete aggregation switch": signed(strings.Replace(rendered, `"controller":{`,
+			`"observability":{"cluster_aggregation":false},"controller":{`, 1)),
+		"obsolete dashboard switch": signed(strings.Replace(rendered, `"controller":{`,
+			`"observability":{"dashboard":true},"controller":{`, 1)),
 		"typo at this version": signed(strings.Replace(rendered, `"controller":{`, `"controller":{"candidate_idd":"x",`, 1)),
-		"newer config breaks the role": signed(strings.Replace(newer, `"candidate_id":"`+manifest.Slot+`"`,
+		"config breaks the role": signed(strings.Replace(rendered, `"candidate_id":"`+candidate+`"`,
 			`"candidate_id":"other-slot"`, 1)),
 	} {
 		if _, err := app.ValidateInstalledControllerConfig(manifest, ""); err == nil {
 			t.Errorf("%s: installed config accepted", name)
+		}
+	}
+	for name, other := range map[string]string{
+		"physical slot":    manifest.Slot,
+		"other domain":     entityid.Derive("host", manifest.DeploymentID, string(manifest.Cell), manifest.Slot),
+		"other deployment": entityid.Derive("controller", entityid.Derive("other-deployment"), string(manifest.Cell), manifest.Slot),
+		"other cell":       entityid.Derive("controller", manifest.DeploymentID, "SFO", manifest.Slot),
+		"lowercase cell":   entityid.Derive("controller", manifest.DeploymentID, strings.ToLower(string(manifest.Cell)), manifest.Slot),
+		"other slot":       entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), "controller-b"),
+	} {
+		mismatched := signed(strings.Replace(rendered, `"candidate_id":"`+candidate+`"`, `"candidate_id":"`+other+`"`, 1))
+		if _, err := app.ValidateInstalledControllerConfig(mismatched, ""); err == nil {
+			t.Errorf("%s: restart admission accepted a mismatched controller identity", name)
+		}
+		if _, err := app.ValidateSignedControllerConfig(mismatched, ""); err == nil {
+			t.Errorf("%s: signing accepted a mismatched controller identity", name)
 		}
 	}
 }
@@ -516,7 +553,7 @@ func TestLoadedControllerConfigFromAGeneration(t *testing.T) {
 			Name: bootstrap.ControllerConfigFileNames[index], SHA256: digest(body), Bytes: body})
 	}
 	manifest.ControllerConfig, manifest.ControllerConfigSHA256 = wire, digest(wire)
-	material := generationtest.New(t, now).SchemaTwo(t).WithoutIssuers(t).InterRegion(t, now, manifest.ControllerSlots)
+	material := generationtest.New(t, now).WithoutIssuers(t).InterRegion(t, now, manifest.ControllerSlots)
 	var generated struct {
 		NATS natscell.Config `json:"nats"`
 	}
@@ -549,7 +586,9 @@ func TestLoadedControllerConfigFromAGeneration(t *testing.T) {
 	if _, err := app.ValidateLoadedControllerConfig(manifest, outside, digest(outside), ""); err == nil {
 		t.Error("accepted an interregion file outside the credential directory")
 	}
-	other := []byte(strings.Replace(string(config), `"candidate_id":"controller-a"`, `"candidate_id":"controller-b"`, 1))
+	candidate := entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot)
+	otherCandidate := entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), "controller-b")
+	other := []byte(strings.Replace(string(config), `"candidate_id":"`+candidate+`"`, `"candidate_id":"`+otherCandidate+`"`, 1))
 	if bytes.Equal(other, config) {
 		t.Fatal("the config names no candidate")
 	}

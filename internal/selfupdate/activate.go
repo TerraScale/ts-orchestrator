@@ -1,6 +1,7 @@
 package selfupdate
 
 import (
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"os"
@@ -23,9 +24,9 @@ const (
 	maxKnownBad    = 256
 )
 
-// errUnreadableActivation marks an owned activation record that does not
+// ErrUnreadableActivation marks an owned activation record that does not
 // decode or validate, for example one written by a newer binary.
-var errUnreadableActivation = errors.New("self-update activation record is unreadable")
+var ErrUnreadableActivation = errors.New("self-update activation record is unreadable")
 
 var (
 	unitRE = regexp.MustCompile(`^[a-z0-9][a-z0-9@_.-]{0,127}\.service$`)
@@ -68,6 +69,29 @@ func (layout Layout) Pending() (Activation, bool, error) {
 	return activation, true, nil
 }
 
+// RecoveryActivation reads only rollback destinations from an owned unreadable
+// record. The caller must authenticate the predecessor before any root effect.
+func (layout Layout) RecoveryActivation() (Activation, error) {
+	data, exists, err := layout.pendingRecord()
+	if err != nil || !exists {
+		return Activation{}, errors.Join(ErrInvalid, err)
+	}
+	if _, err := decodeActivation(data); !errors.Is(err, ErrUnreadableActivation) {
+		return Activation{}, ErrInvalid
+	}
+	var pins struct {
+		Target   string `json:"target"`
+		Previous string `json:"previous"`
+		Unit     string `json:"unit"`
+	}
+	if err := json.Unmarshal(data, &pins); err != nil ||
+		!digestRE.MatchString(pins.Target) || !digestRE.MatchString(pins.Previous) ||
+		pins.Target == pins.Previous || !unitRE.MatchString(pins.Unit) {
+		return Activation{}, errors.Join(ErrUnreadableActivation, err)
+	}
+	return Activation{Target: pins.Target, Previous: pins.Previous, Unit: pins.Unit}, nil
+}
+
 // pendingRecord reads the owned activation record without decoding it.
 func (layout Layout) pendingRecord() ([]byte, bool, error) {
 	if err := layout.checkOwned(layout.activationPath(), false); errors.Is(err, os.ErrNotExist) {
@@ -85,10 +109,10 @@ func (layout Layout) pendingRecord() ([]byte, bool, error) {
 func decodeActivation(data []byte) (Activation, error) {
 	var activation Activation
 	if err := protocol.DecodeStrict(data, &activation, maxStateBytes); err != nil {
-		return Activation{}, fmt.Errorf("%w: activation record: %w", errUnreadableActivation, err)
+		return Activation{}, fmt.Errorf("%w: activation record: %w", ErrUnreadableActivation, err)
 	}
 	if err := activation.validate(); err != nil {
-		return Activation{}, fmt.Errorf("%w: %w", errUnreadableActivation, err)
+		return Activation{}, fmt.Errorf("%w: %w", ErrUnreadableActivation, err)
 	}
 	return activation, nil
 }

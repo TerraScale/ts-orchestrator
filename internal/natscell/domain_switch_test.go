@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"testing"
 	"time"
 
@@ -15,13 +14,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// TestRollingJetStreamDomainSwitchKeepsData enables interregion, and with it
-// the JetStream domain "sfo", on a running production R3 cell one broker at a
-// time, as a rollout does (TS-668), then rolls one broker back. After every
-// restart the metadata group, an R3 stream, KV bucket and object store, and a
-// durable pull consumer keep serving clients on the restarted broker and on
-// another one, and a new R3 stream can still be placed.
-func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
+// TestRollingInterRegionMaterialKeepsRegionalDomainAndData replaces link
+// material on a production R3 cell one broker at a time. The regional domain,
+// stream, KV bucket, object store and durable consumer keep serving through
+// every restart, including a return to isolated topology.
+func TestRollingInterRegionMaterialKeepsRegionalDomainAndData(t *testing.T) {
 	tier.Integration(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
@@ -29,15 +26,14 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 	root := t.TempDir()
 	region := newTestRegion(t, filepath.Join(root, domain), domain, HubAndSpoke("gru", []string{domain}))
 	// The parent never runs: the remote dials a closed port, so only the
-	// domain changes, not the link.
+	// regional material changes without requiring a reachable peer.
 	gru := &testRegion{testRegionKeys: newTestRegionKeys(t)}
 	region.cfg.Embedded.InterRegion.Remotes = []LeafRemote{{Peer: "gru", ServerName: testLeafServerName,
 		URLs:            []string{fmt.Sprintf("nats-leaf://127.0.0.1:%d", freeClientPort(t))},
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", domain), PeerAccount: gru.interregionID,
 		TLS: region.cfg.TLS}}
-	// Without interregion a broker runs the plain cell and system claims; the
-	// switch moves it onto the contract-bearing reissues, so the rollout mixes
-	// both, like generate-interregion-material's cell- and system-interregion.jwt.
+	// Isolated topology uses plain cell and system claims; linked topology
+	// uses the contract-bearing reissues. Both keep the same regional domain.
 	writeClaim := func(name string, claim *jwt.AccountClaims) string {
 		t.Helper()
 		raw, err := claim.Encode(region.operator)
@@ -65,7 +61,7 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 	for index := range brokers {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", routePorts[index])
 	}
-	config := func(index int, withDomain bool) Config {
+	config := func(index int, withLinks bool) Config {
 		cfg := region.cfg
 		embedded := *region.cfg.Embedded
 		cfg.Embedded, cfg.Instance, cfg.Replicas = &embedded, brokers[index], 3
@@ -74,38 +70,27 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 		embedded.StoreDir = filepath.Join(root, brokers[index])
 		embedded.BrokerIDs = brokers
 		embedded.RouteUser, embedded.RoutePasswordFile = "domain-switch", routeSecret
-		if !withDomain {
+		if !withLinks {
 			embedded.InterRegion = nil
 			embedded.CellJWTFile, embedded.SystemJWTFile = plainCellFile, plainSystemFile
 		}
 		return cfg
 	}
-	runtimes, domains := make([]*Runtime, 3), make([]string, 3)
+	runtimes := make([]*Runtime, 3)
 	t.Cleanup(func() {
 		for _, runtime := range runtimes {
 			_ = runtime.Close()
 		}
 	})
-	start := func(index int, withDomain bool) {
+	start := func(index int, withLinks bool) {
 		t.Helper()
 		_ = runtimes[index].Close()
 		runtimes[index] = nil
-		runtime, err := Start(ctx, config(index, withDomain))
+		runtime, err := Start(ctx, config(index, withLinks))
 		if err != nil {
-			t.Fatalf("start %s (domain %v): %v", brokers[index], withDomain, err)
+			t.Fatalf("start %s (link material %v): %v", brokers[index], withLinks, err)
 		}
-		runtimes[index], domains[index] = runtime, ""
-		if withDomain {
-			domains[index] = domain
-		}
-	}
-	domainOf := func(server string) string {
-		t.Helper()
-		index := slices.IndexFunc(runtimes, func(runtime *Runtime) bool { return runtime.serverName == server })
-		if index < 0 {
-			t.Fatalf("%q is not a broker of the cell", server)
-		}
-		return domains[index]
+		runtimes[index] = runtime
 	}
 	js := func(index int) jetstream.JetStream { return runtimes[index].JetStream() }
 
@@ -114,7 +99,6 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 		t.Helper()
 		data := fmt.Appendf(nil, "m%d", len(payloads)+1)
 		var ack *jetstream.PubAck
-		before := streamLeader(ctx, t, js(index))
 		eventually(ctx, t, "publish "+string(data), func(ctx context.Context) (err error) {
 			ack, err = js(index).Publish(ctx, "domain.msg", data, jetstream.WithMsgID(string(data)))
 			return err
@@ -123,13 +107,8 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 		if ack.Stream != "DOMAIN" || ack.Sequence != uint64(len(payloads)) {
 			t.Fatalf("%s via %s acked as %+v", data, brokers[index], ack)
 		}
-		// The stream leader builds the acknowledgement, so it carries the
-		// leader's domain, not that of the client's broker.
-		leader := streamLeader(ctx, t, js(index))
-		t.Logf("%s via %s (domain %q): ack domain %q, stream leader %s", data, brokers[index], domains[index], ack.Domain, leader)
-		if leader == before && ack.Domain != domainOf(leader) {
-			t.Errorf("%s via %s (domain %q) acked with domain %q by leader %s (domain %q)",
-				data, brokers[index], domains[index], ack.Domain, leader, domainOf(leader))
+		if ack.Domain != domain {
+			t.Fatalf("%s via %s acked with domain %q, want %q", data, brokers[index], ack.Domain, domain)
 		}
 	}
 	keys := map[string]string{}
@@ -300,8 +279,6 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 			}
 			return err
 		})
-		// $JS.<domain>.API is a mapping on the brokers with the domain; the
-		// metadata leader answers INFO wherever it runs, with its own domain.
 		for index, runtime := range runtimes {
 			domainJS, err := jetstream.NewWithDomain(runtime.Conn(), domain)
 			if err != nil {
@@ -310,46 +287,20 @@ func TestRollingJetStreamDomainSwitchKeepsData(t *testing.T) {
 			probe, probeCancel := context.WithTimeout(ctx, 2*time.Second)
 			info, err := domainJS.AccountInfo(probe)
 			probeCancel()
-			current, _ := runtime.ObserveCluster()
-			switch {
-			case domains[index] == domain && err != nil:
-				t.Errorf("%s: $JS.%s.API.INFO via %s: %v", phase, domain, brokers[index], err)
-			case domains[index] == domain && current.MetaLeader == leader && info.Domain != domainOf(leader):
-				t.Errorf("%s: $JS.%s.API.INFO via %s reports domain %q, metadata leader %s has %q",
-					phase, domain, brokers[index], info.Domain, leader, domainOf(leader))
-			case domains[index] == "":
-				t.Logf("%s: $JS.%s.API.INFO via %s without the domain: %v", phase, domain, brokers[index], err)
+			if err != nil || info.Domain != domain {
+				t.Errorf("%s: $JS.%s.API.INFO via %s = %+v, %v", phase, domain, brokers[index], info, err)
 			}
 		}
-		t.Logf("%s: domains %q, metadata leader %s, checked in %s", phase, domains, leader, time.Since(began).Round(time.Millisecond))
+		t.Logf("%s: metadata leader %s, checked in %s", phase, leader, time.Since(began).Round(time.Millisecond))
 	}
 
 	check("baseline", 0, 1)
 	for index := range brokers {
 		start(index, true)
-		check(fmt.Sprintf("switch-%d", index), index, (index+1)%3)
+		check(fmt.Sprintf("linked-%d", index), index, (index+1)%3)
 	}
 	start(0, false)
-	check("rollback", 0, 1)
-}
-
-// streamLeader returns the DOMAIN stream's current leader.
-func streamLeader(ctx context.Context, t *testing.T, js jetstream.JetStream) string {
-	t.Helper()
-	var leader string
-	eventually(ctx, t, "DOMAIN stream leader", func(ctx context.Context) error {
-		stream, err := js.Stream(ctx, "DOMAIN")
-		if err != nil {
-			return err
-		}
-		info := stream.CachedInfo()
-		if info.Cluster == nil || info.Cluster.Leader == "" {
-			return fmt.Errorf("no leader: %+v", info.Cluster)
-		}
-		leader = info.Cluster.Leader
-		return nil
-	})
-	return leader
+	check("isolated", 0, 1)
 }
 
 // eventually retries try, each attempt bounded, until it succeeds; when ctx

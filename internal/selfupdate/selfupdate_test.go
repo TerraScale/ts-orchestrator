@@ -348,16 +348,10 @@ func TestStageRejectsMismatchedBytesAndUnauthorizedReceipts(t *testing.T) {
 	}
 
 	auto, autoDelegation := f.autoSigned(data)
-	if _, err := Stage(f.layout, bytes.NewReader(data), auto, autoDelegation, f.policy(), f.now); err == nil ||
-		!strings.Contains(err.Error(), "disabled") {
-		t.Fatalf("auto-signed receipt staged with the flag off: %v", err)
+	if digest, err := Stage(f.layout, bytes.NewReader(data), auto, autoDelegation, f.policy(), f.now); err != nil || digest != digestOf(data) {
+		t.Fatalf("scoped automatic receipt: %s %v", digest, err)
 	}
-	enabled := f.policy()
-	enabled.AllowScopedAutoSign = true
-	if digest, err := Stage(f.layout, bytes.NewReader(data), auto, autoDelegation, enabled, f.now); err != nil || digest != digestOf(data) {
-		t.Fatalf("auto-signed receipt with the flag on: %s %v", digest, err)
-	}
-	otherCell := enabled
+	otherCell := f.policy()
 	otherCell.Cell = "FRA"
 	if _, err := otherCell.Verify(auto, autoDelegation, f.now); err == nil {
 		t.Fatal("auto-signed receipt accepted outside its cell")

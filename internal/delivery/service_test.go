@@ -78,7 +78,7 @@ func (c testCodec) VerifyArchivedArtifact(ctx context.Context, wire []byte) (Art
 type testFence struct{}
 
 func (testFence) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 
 func (testFence) Guard(_ context.Context, epoch uint64) error {
@@ -157,7 +157,7 @@ func (m failingAckMsg) Ack() error {
 }
 
 func (f *testStandbyFence) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: f.leader.Load(), Leader: f.leader.Load(), Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: f.leader.Load(), Leader: f.leader.Load(), Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 
 func (f *testStandbyFence) Guard(_ context.Context, epoch uint64) error {
@@ -1250,7 +1250,7 @@ func TestPreConsumerConflictingPublishCannotImpersonateReceipt(t *testing.T) {
 
 func TestRealHostDesiredCallerRejectsEpochHandoff(t *testing.T) {
 	s, r, ctx := testServiceWithRuntime(t, &testWriter{})
-	control, err := authority.Start(ctx, r.JetStream(), authority.Config{Scope: "lab", CandidateID: "0000000000A8ZV3QT0H276P43A", Replicas: 1, RenewInterval: 3 * time.Second})
+	control, err := authority.Start(ctx, r.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "lab", CandidateID: "0000000000A8ZV3QT0H276P43A", Replicas: 1, RenewInterval: 3 * time.Second})
 	if err != nil {
 		t.Fatal(err)
 	}

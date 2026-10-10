@@ -90,14 +90,14 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 			Embedded: &natscell.Embedded{
 				Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{
-					{PublicKey: controllerNKey, Role: "controller"},
+					{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"},
 					{PublicKey: hostNKey, Role: "host", Node: "node-a"},
 				},
 			},
 		},
 		Controller: ControllerConfig{
-			CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+			SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{
 				"terrabase": {Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}},

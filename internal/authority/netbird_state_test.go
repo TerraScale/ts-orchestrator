@@ -16,7 +16,7 @@ import (
 
 func TestNetBirdStateRejectsStaleTransitionAndReadsThroughFollower(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
-	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "25N2M1ND48SN1GD1DNCM8BTJFP", Replicas: 1})
+	runtime, err := Start(t.Context(), js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "25N2M1ND48SN1GD1DNCM8BTJFP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 	wrapped := &netbirdHandoffPublisher{JetStream: js}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	old, err := Start(ctx, wrapped, Config{Scope: "gru", CandidateID: "052RQX6EM5DPGHCHJ230S9DCA0", Replicas: 1})
+	old, err := Start(ctx, wrapped, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "052RQX6EM5DPGHCHJ230S9DCA0", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor(t 
 			jetstream.WithExpectLastSequenceForSubject(entry.Sequence, old.leaseSub)); err != nil {
 			return err
 		}
-		successor, err = Start(ctx, js, Config{Scope: "gru", CandidateID: "5TE7PMMH4P1Q7NWYEWTAFK8SPH", Replicas: 1})
+		successor, err = Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "5TE7PMMH4P1Q7NWYEWTAFK8SPH", Replicas: 1})
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (s *netbirdExpiryStateRead) GetLastMsgForSubject(ctx context.Context, subje
 
 func TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
-	runtime, err := Start(t.Context(), js, Config{Scope: "gru", CandidateID: "7E0H8E1QQ6RX2WA68FZ892GDKP", Replicas: 1,
+	runtime, err := Start(t.Context(), js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "7E0H8E1QQ6RX2WA68FZ892GDKP", Replicas: 1,
 		LeaseDuration: time.Second, RenewInterval: 100 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)

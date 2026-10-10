@@ -192,7 +192,7 @@ func operatorBrokerClaimApply(ctx context.Context, cfg Config, runtime *natscell
 				if err == nil {
 					var lease authority.Snapshot
 					lease, err = authority.Observe(ctx, active.JetStream(), cfg.NATS.Cell)
-					if err == nil && (!lease.Ready || lease.Epoch != reply.Proof.Epoch || !time.Now().Before(lease.ExpiresAt)) {
+					if err == nil && (!lease.Ready || lease.DeploymentID != snapshot.DeploymentID || lease.Epoch != reply.Proof.Epoch || !time.Now().Before(lease.ExpiresAt)) {
 						err = errors.New("regional authority changed after the signed broker receipt")
 					}
 				}
@@ -263,7 +263,7 @@ func serveBrokerClaimAdmission(ctx context.Context, conn *nats.Conn, cell string
 		}
 		local := gate.control.Current()
 		observed, err := authority.Observe(requestCtx, gate.runtime.JetStream(), cell)
-		if err != nil || !observed.Ready || observed.Epoch != envelope.Epoch ||
+		if err != nil || !observed.Ready || observed.DeploymentID != gate.deploymentID || local.DeploymentID != gate.deploymentID || observed.Epoch != envelope.Epoch ||
 			observed.CandidateID != local.CandidateID || observed.OwnerID != local.OwnerID ||
 			!time.Now().Before(observed.ExpiresAt) {
 			return

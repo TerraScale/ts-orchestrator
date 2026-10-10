@@ -18,17 +18,16 @@ type acceptedMaterialConfig struct {
 	nativeVerifierSHA256 string
 }
 
-// The startup gate has already verified the marker against the signed
-// bootstrap manifest. Read its root-owned copy again before opening OCI.
+// Read the root-owned accepted material domain again before opening OCI.
 func loadAcceptedMaterialConfig(cell string, region oci.RegionConfig) (acceptedMaterialConfig, error) {
-	marker, err := bootstrapstart.NewMarkerStore().Read()
+	marker, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return acceptedMaterialConfig{}, fmt.Errorf("read accepted material domain: %w", err)
 	}
 	return acceptedMaterialConfigFromMarker(marker, cell, region)
 }
 
-func acceptedMaterialConfigFromMarker(marker bootstrapstart.AcceptedInstall, cell string,
+func acceptedMaterialConfigFromMarker(marker bootstrapstart.AcceptedIdentity, cell string,
 	region oci.RegionConfig,
 ) (acceptedMaterialConfig, error) {
 	domain := marker.ManagedMaterial

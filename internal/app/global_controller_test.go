@@ -1,20 +1,24 @@
 package app
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
-func TestGlobalControlConfigDefaultsOffAndRequiresAMirrorLink(t *testing.T) {
+func TestGlobalControlHomeComesFromTopology(t *testing.T) {
 	t.Parallel()
-
 	home := natscell.Config{Cell: "gru"}
 	spoke := natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{
-		InterRegion: &natscell.InterRegion{Enabled: true, GlobalHome: "gru"},
+		InterRegion: &natscell.InterRegion{Peers: []string{"gru"}, GlobalHome: "gru"},
 	}}
 	linkedHome := natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{
-		InterRegion: &natscell.InterRegion{Enabled: true, Peers: []string{"fra", "sfo"}, GlobalHome: "gru"},
+		InterRegion: &natscell.InterRegion{Peers: []string{"fra", "sfo"}, GlobalHome: "gru"},
 	}}
 	if peers := globalMirrorPeers(linkedHome); len(peers) != 2 || peers[0] != "fra" || peers[1] != "sfo" {
 		t.Fatalf("home mirror peers = %v", peers)
@@ -22,33 +26,71 @@ func TestGlobalControlConfigDefaultsOffAndRequiresAMirrorLink(t *testing.T) {
 	if peers := globalMirrorPeers(home); peers != nil {
 		t.Fatalf("standalone home mirror peers = %v", peers)
 	}
-	global, err := startGlobalControl(t.Context(), Config{NATS: home}, nil, "a", nil, nil)
-	if err != nil || global != nil {
-		t.Fatalf("disabled global control started: %v, %v", global, err)
-	}
-	global.close()
 	for name, tc := range map[string]struct {
 		global *GlobalControlConfig
 		nats   natscell.Config
-		ok     bool
+		want   string
 	}{
-		"nil":             {nil, home, true},
-		"disabled":        {&GlobalControlConfig{Home: "bad home"}, home, true},
-		"home region":     {&GlobalControlConfig{Enabled: true, Home: "gru"}, home, true},
-		"linked spoke":    {&GlobalControlConfig{Enabled: true, Home: "gru"}, spoke, true},
-		"uppercase home":  {&GlobalControlConfig{Enabled: true, Home: "GRU"}, home, false},
-		"global home":     {&GlobalControlConfig{Enabled: true, Home: "global"}, home, false},
-		"unlinked spoke":  {&GlobalControlConfig{Enabled: true, Home: "gru"}, natscell.Config{Cell: "sfo"}, false},
-		"mismatched home": {&GlobalControlConfig{Enabled: true, Home: "fra"}, spoke, false},
-		"disabled link":   {&GlobalControlConfig{Enabled: true, Home: "gru"}, natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{InterRegion: &natscell.InterRegion{GlobalHome: "gru"}}}, false},
-		"linked home":     {&GlobalControlConfig{Enabled: true, Home: "gru"}, linkedHome, true},
-		"home link elsewhere": {&GlobalControlConfig{Enabled: true, Home: "gru"}, natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{
-			InterRegion: &natscell.InterRegion{Enabled: true, Peers: []string{"sfo"}, GlobalHome: "sfo"},
-		}}, false},
+		"absent block":    {nil, home, "gru"},
+		"empty block":     {&GlobalControlConfig{}, home, "gru"},
+		"explicit home":   {&GlobalControlConfig{Home: "gru"}, home, "gru"},
+		"derived spoke":   {nil, spoke, "gru"},
+		"explicit spoke":  {&GlobalControlConfig{Home: "gru"}, spoke, "gru"},
+		"linked home":     {nil, linkedHome, "gru"},
+		"uppercase home":  {&GlobalControlConfig{Home: "GRU"}, home, ""},
+		"reserved home":   {&GlobalControlConfig{Home: "global"}, home, ""},
+		"unlinked spoke":  {&GlobalControlConfig{Home: "gru"}, natscell.Config{Cell: "sfo"}, ""},
+		"mismatched home": {&GlobalControlConfig{Home: "fra"}, spoke, ""},
+		"missing topology home": {nil, natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{
+			InterRegion: &natscell.InterRegion{Peers: []string{"gru"}},
+		}}, ""},
 	} {
-		err := validateGlobalControlConfig(tc.global, tc.nats)
-		if (err == nil) != tc.ok {
-			t.Errorf("%s: validate = %v, want ok=%v", name, err, tc.ok)
+		got, err := globalControlHome(tc.global, tc.nats)
+		if got != tc.want || (err == nil) != (tc.want != "") {
+			t.Errorf("%s: home = %q, %v; want %q", name, got, err, tc.want)
 		}
+	}
+}
+
+func TestGlobalAndInterRegionRejectRemovedEnabledFields(t *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		for _, block := range []string{
+			`"controller":{"global":{"enabled":` + value + `}}`,
+			`"nats":{"embedded":{"interregion":{"enabled":` + value + `}}}`,
+		} {
+			if _, err := decodeConfig([]byte(`{"version":1,` + block + `}`)); err == nil {
+				t.Fatalf("removed field accepted: %s", block)
+			}
+		}
+	}
+}
+
+func TestGlobalControlAlwaysStartsWithHomeDeployment(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "home", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(dir, "nats")}},
+		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, dir, "gru")}}
+	services, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker, err := natscell.Start(ctx, cfg.NATS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = broker.Close() })
+	global, err := startGlobalControl(ctx, cfg, broker.JetStream(), services.identity.DeploymentID,
+		"0000000000C66H81REBS854264", nil, func() bool { return broker.FullClusterReady(1) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(global.close)
+	local := global.authority.Current()
+	observed, err := authority.Observe(ctx, broker.JetStream(), protocol.GlobalScope)
+	if err != nil || !local.CanMutate() || local.Scope != protocol.GlobalScope ||
+		local.DeploymentID != services.identity.DeploymentID || observed.DeploymentID != local.DeploymentID {
+		t.Fatalf("global authority lost the home deployment: local=%+v observed=%+v err=%v", local, observed, err)
 	}
 }

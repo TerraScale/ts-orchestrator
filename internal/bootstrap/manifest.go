@@ -22,7 +22,9 @@ import (
 )
 
 const (
-	ManifestSchemaVersion     = 2
+	// MaterialDirectory is the fixed production controller credential directory.
+	MaterialDirectory         = "/var/lib/terrascale-orchestrator-secrets"
+	ManifestSchemaVersion     = 1
 	ReceiptSchemaVersion      = 1
 	MaxManifestBytes          = 64 << 10
 	MaxControllerConfigBytes  = 16 << 10
@@ -464,10 +466,8 @@ func (profile LaunchProfile) validate() error {
 }
 
 func (secret SecretReference) validate(manifest Manifest) error {
-	if !isOCID(secret.SecretOCID, "vaultsecret") || secret.VersionNumber <= 0 || !sha256RE.MatchString(secret.SHA256) ||
-		secret.MaxBytes <= 0 || secret.MaxBytes > MaxSecretBytes || !fileNameRE.MatchString(secret.TargetFile) ||
-		strings.Contains(secret.TargetFile, "..") {
-		return fmt.Errorf("%w: secret reference identity or bound", ErrManifestInvalid)
+	if err := secret.ValidateIdentity(); err != nil {
+		return err
 	}
 	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
 		"terrabase-member-ca.pem", "terrabase-member-ca.key"}
@@ -499,6 +499,17 @@ func (secret SecretReference) validate(manifest Manifest) error {
 		}
 	default:
 		return fmt.Errorf("%w: unknown secret purpose", ErrManifestInvalid)
+	}
+	return nil
+}
+
+// ValidateIdentity checks an exact immutable Vault reference. Callers must
+// separately authorize its material role and the controller slot.
+func (secret SecretReference) ValidateIdentity() error {
+	if !isOCID(secret.SecretOCID, "vaultsecret") || secret.VersionNumber <= 0 || !sha256RE.MatchString(secret.SHA256) ||
+		secret.MaxBytes <= 0 || secret.MaxBytes > MaxSecretBytes || !fileNameRE.MatchString(secret.TargetFile) ||
+		strings.Contains(secret.TargetFile, "..") {
+		return fmt.Errorf("%w: secret reference identity or bound", ErrManifestInvalid)
 	}
 	return nil
 }

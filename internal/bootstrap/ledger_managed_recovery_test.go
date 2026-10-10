@@ -76,8 +76,8 @@ func TestManagedPeerCandidatePinStopsLaunchAndAuthorizesObservation(t *testing.T
 		t.Fatalf("candidate pin did not preserve the exact signed candidate: %+v", state.CandidateRecord)
 	}
 	candidateDigest := digestBytes(candidateWire)
-	if state.Head.SchemaVersion != 2 || state.Head.CandidateDigest != "" || state.Head.ResultDigest != "" {
-		t.Fatalf("candidate-only HEAD = %+v, want incomplete v2 HEAD without candidate/result digest", state.Head)
+	if state.Head.SchemaVersion != 1 || state.Head.CandidateDigest != "" || state.Head.ResultDigest != "" {
+		t.Fatalf("candidate-only HEAD = %+v, want incomplete v1 HEAD without candidate/result digest", state.Head)
 	}
 	progress, ok := pinned.recovery.Progress()
 	if !ok || progress.Phase != ManagedPeerProgressCandidate || progress.CandidateDigest != candidateDigest ||
@@ -891,8 +891,8 @@ func assertManagedPeerRecoveryBytes(
 	t.Helper()
 	candidateDigest := digestBytes(candidateWire)
 	if state.Candidate == nil || state.CandidateRecord == nil ||
-		!bytes.Equal(state.CandidateRecord.Bytes, candidateWire) || state.Head.SchemaVersion != 2 {
-		t.Fatalf("%s phase lost the exact candidate/v2 HEAD identity: head=%+v candidate=%+v", phase, state.Head, state.Candidate)
+		!bytes.Equal(state.CandidateRecord.Bytes, candidateWire) || state.Head.SchemaVersion != 1 {
+		t.Fatalf("%s phase lost the exact candidate/v1 HEAD identity: head=%+v candidate=%+v", phase, state.Head, state.Candidate)
 	}
 	if phase == ManagedPeerRecoveryComplete {
 		if state.Head.CandidateDigest != candidateDigest {
@@ -1153,7 +1153,7 @@ func managedPeerCompletedHeadAt(
 ) []byte {
 	t.Helper()
 	head := fixture.launch.head
-	head.SchemaVersion = 2
+	head.SchemaVersion = 1
 	head.CandidateDigest = digestBytes(candidateWire)
 	head.ResultDigest = digestBytes(resultWire)
 	return signManagedRecoveryWire(t, fixture.scope, fixture.launch.intent.Environment, domainBootstrapHead,

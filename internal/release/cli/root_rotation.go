@@ -138,7 +138,7 @@ func (c command) signRootRotationAt(args []string, now time.Time) error {
 	if err := trust.RotationCurrent(signed, now); err != nil {
 		return fmt.Errorf("a signature in --signed is no longer current; collect them again: %w", err)
 	}
-	_, completeErr := trust.VerifyRootChain(genesis, id, trust.RootChain{Rotations: append(chain.Rotations, signed)})
+	_, completeErr := trust.VerifyRootChain(genesis, id, trust.RootChain{Version: 1, Rotations: append(chain.Rotations, signed)})
 	if completeErr != nil && !errors.Is(completeErr, trust.ErrRotationSigners) {
 		return completeErr
 	}

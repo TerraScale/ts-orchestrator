@@ -34,27 +34,25 @@ under the zero-configuration rule.
 - Every mutable setting is a section of the [cell spec](cell-spec.md), which
   `ts-orch apply` changes on running controllers. A section that widens
   authority needs a root's signature; the rest need the release leaf's.
-- The config digest covers the signed bytes, and role-config readers reject
-  fields they do not understand at every version.
+- The config digest covers the signed bytes, and admission strictly checks
+  the current controller config schema.
 
-## Slice 1: restarts and rollbacks survive new members
+## Slice 1: restart admission checks signed bytes and the current schema
 
 **Raw digest.** `app.Config` keeps the exact bytes it was loaded from.
 Restart admission (full, local and the admission child, which now receives
 those bytes on stdin) and the managed config check digest the bytes, not a
 re-encoding. Guest installation and every restart re-check the config with
-`ValidateInstalledControllerConfig`: the signed digest, a strict decode
+`ValidateInstalledControllerConfig`: the signed digest, a strict schema decode
 and the role's rules. Only signing (`bootstrap render-controller-config` and
 `sign-manifest`) still requires this binary's canonical encoding.
 
-**Version-1 configs.** `app.ConfigVersion` is fixed at 1; the renderers and
-`host-setup` stamp it as `version`. Loading requires explicit version 1 and
-decodes strictly. A version label cannot allow removed switches or unknown
-settings to be silently discarded. Rollback must use a signed config whose
-fields the target binary understands.
+**Controller config schema.** `app.ConfigVersion` is 1; the renderers and
+`host-setup` stamp it as `version`. Schema changes edit version 1 in place.
+Unknown members and unsupported versions are refused; admission has no
+compatibility or migration path.
 `TestConfigVersionCoversEveryMember` fails when `app.Config`'s members differ
-from `internal/app/testdata/config-members.txt`, which names the version it
-records: review the changed contract, then rewrite the file.
+from `internal/app/testdata/config-members.txt`: rewrite that fixture in place.
 
 **Tolerant records.** `protocol.DecodeTolerant` is `DecodeStrict` without the
 unknown-member check: duplicate names, invalid UTF-8, the size limit and the
@@ -71,18 +69,13 @@ omitted while it is unset, so strict decoding already reads it then; setting
 it is a new schema version. Signed envelopes stay strict too: every member is
 signed scope.
 
-Rules for every config and record member from now on:
+Rules for controller config members:
 
-1. Remove obsolete settings from code and signed configs; do not preserve
-   compatibility shims for them.
-2. A new member is `omitzero` or `omitempty`, with a safe zero value: an
-   older writer omits it, an older binary that rewrites a record drops it,
-   and a digest of a re-encoding stays the same while it is unset.
-3. A member an older reader must not skip (one under a digest or signature,
-   or one that narrows authority) is a new schema version. A config has no
-   such version: a narrowing setting belongs in the cell spec, whose binary
-   level an older binary cannot skip.
-4. Config changes retain version 1 and update the reviewed member snapshot.
+1. Edit schema 1 in place and update its member fixture.
+2. Keep feature behavior active by default; config fields set values, not
+   on/off switches.
+3. Preserve strict decoding and trust-boundary validation. A narrowing
+   setting belongs in the cell spec, whose binary level a reader cannot skip.
 
 ## Next slices: one cell spec section per setting
 
@@ -104,7 +97,7 @@ every controller when it adopts the spec, without a restart.
 
 These stay in the signed config, because they are read before KV exists or
 bind the running process: identity, broker addresses and routes, material
-paths, the sidecars (with placement's member role), `offline_restart_admission`,
+paths, the sidecars (with placement's member role),
 `membership`, `lease_seconds` and `renew_seconds`,
 the observability listener and the `kv_snapshot` location. Other mutable
 settings (`autoscale` intervals and node pools, `oci_reconcile` intervals and

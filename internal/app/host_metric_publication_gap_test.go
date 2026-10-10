@@ -20,7 +20,7 @@ import (
 func publicationGapLoad(t *testing.T, now *time.Time) (*hostTelemetry, *metricTestFence) {
 	t.Helper()
 	fence := &metricTestFence{}
-	fence.set(authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
+	fence.set(authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
 	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{
 		Now: func() time.Time { return *now },
 	})}

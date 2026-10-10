@@ -18,7 +18,7 @@ func TestControllerCredentialFilesListOnlyPublicMaterial(t *testing.T) {
 		Embedded: &natscell.Embedded{TLS: tls("server"), RouteTLS: tls("route"), OperatorJWTFile: "operator.jwt",
 			SystemJWTFile: "system.jwt", CellJWTFile: "cell.jwt", SystemCredentialsFile: "system.creds",
 			MembershipCredentialsFile: "membership.creds", RoutePasswordFile: "route-password",
-			InterRegion: &natscell.InterRegion{Enabled: true, AccountJWTFile: "interregion.jwt",
+			InterRegion: &natscell.InterRegion{AccountJWTFile: "interregion.jwt",
 				Listen:  &natscell.LeafListen{TLS: tls("leaf")},
 				Remotes: []natscell.LeafRemote{{Peer: "iad", CredentialsFile: "iad.creds", TLS: tls("iad")}}}}},
 		Controller: ControllerConfig{HostTLSIssuerCertFile: "host-issuer-cert.pem", HostTLSIssuerKeyFile: "host-issuer-key.pem",

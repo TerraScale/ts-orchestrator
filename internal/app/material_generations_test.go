@@ -11,6 +11,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/generationinstall"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -29,7 +30,7 @@ func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
 	rootPublic, rootKey, _ := ed25519.GenerateKey(rand.Reader)
 	genesis, _ := trust.ParseKeyring(rootPublic)
 	roots, err := newRootRegistry(genesis, trust.ChainIdentity{DeploymentID: "0000000000YY15F5R431V5JPJ9", Cell: "gru",
-		Environment: "production"}, trust.RootChain{}, "")
+		Environment: "production"}, trust.RootChain{Version: 1}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +49,7 @@ func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	material := generationtest.New(t, now).SchemaTwo(t).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots)
+	material := generationtest.New(t, now).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots)
 	signed, err := bootstrap.SignMaterialGeneration(material.Generation(expected, 1, ""), now.Add(-time.Minute),
 		now.AddDate(0, 6, 0), rootKey)
 	if err != nil {
@@ -90,5 +91,29 @@ func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
 	if status, _, err := request("ops", materialGenerationArmKind,
 		materialGenerationRequest{Slot: "controller-a", Armed: true}); err != nil || status != "armed" {
 		t.Fatalf("arm = %q %v", status, err)
+	}
+	expired, err := bootstrap.SignMaterialGeneration(material.Generation(expected, 1, ""), now.Add(-time.Hour), now.Add(-time.Minute), rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredChain, err := bootstrap.EncodeMaterialGenerationChain([]trust.Envelope{expired})
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := protocol.EncodeJSON(generationinstall.Record{Chain: expiredChain, Configs: map[string][]byte{"controller-a": config}, Armed: []string{"controller-a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := roots.kv.Put(t.Context(), generationinstall.RecordKey, record); err != nil {
+		t.Fatal(err)
+	}
+	if _, generation, err := request("ci", materialGenerationStatusKind, materialGenerationRequest{}); err != nil || generation != 1 {
+		t.Fatalf("expired material status = %d, %v", generation, err)
+	}
+	if status, _, err := request("ops", materialGenerationArmKind, materialGenerationRequest{Slot: "controller-a"}); err != nil || status != "disarmed" {
+		t.Fatalf("expired material disarm reported failure = %q, %v", status, err)
+	}
+	if _, _, err := request("ops", materialGenerationArmKind, materialGenerationRequest{Slot: "controller-a", Armed: true}); err == nil {
+		t.Fatal("inspection restored expired installation authority")
 	}
 }

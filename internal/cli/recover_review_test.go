@@ -40,8 +40,8 @@ func TestRecoverQuorumSubcommandHelpAndIrrelevantFlags(t *testing.T) {
 
 func TestRecoverQuorumBindsConfigToTheAdmittedController(t *testing.T) {
 	config, retirement, root := recoveryFixture(t)
-	localAdmittedInstall = func() (bootstrapstart.AcceptedInstall, error) {
-		return bootstrapstart.AcceptedInstall{Cell: "GRU", Slot: "controller-c", SeedSlot: "controller-c",
+	localAdmittedInstall = func() (bootstrapstart.AcceptedIdentity, error) {
+		return bootstrapstart.AcceptedIdentity{Cell: "GRU", Slot: "controller-c", SeedSlot: "controller-c",
 			PrimaryPrivateIP: "10.0.0.9"}, nil
 	}
 	recoveryInput = strings.NewReader("back up gru/controller-a\n")

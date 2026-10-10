@@ -108,9 +108,9 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
-				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"},
+				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"},
 					{PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
-		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads:           map[string]WorkloadProfile{"terrabase": profile},
 			TerraBaseCACertFile: filepath.Join(root, "ca", "member-ca.pem"), TerraBaseCAKeyFile: filepath.Join(root, "ca", "member-ca.key")},
@@ -293,8 +293,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	kv, err := leader.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: releasechannel.Bucket,
-		Storage: jetstream.MemoryStorage, Replicas: 1, History: 4, MaxBytes: 8 << 20})
+	kv, err := openChannelBucket(ctx, leader.JetStream(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

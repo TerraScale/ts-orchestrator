@@ -304,6 +304,9 @@ func TestInterRegionLeafnodeCarriesOnlyContractSubjects(t *testing.T) {
 		Peer: "gru", URLs: []string{"nats-leaf://" + proxy.Addr()}, ServerName: testLeafServerName,
 		CredentialsFile: gru.childLeafCredentials(t, "sfo-leaf.creds", "sfo"), PeerAccount: gru.interregionID, TLS: leafTLS,
 	}}
+	gru.cfg.Embedded.InterRegion.Topology = &topology
+	sfo.cfg.Embedded.InterRegion.Topology = &topology
+	sfo.cfg.Embedded.InterRegion.GlobalHome = ""
 
 	gruRuntime, err := Start(ctx, gru.cfg)
 	if err != nil {
@@ -779,7 +782,7 @@ func newTestRegion(t *testing.T, root, cell string, topology LeafTopology) *test
 			TicketPublicKeyFile: write("ticket.pub", "unused"),
 			BrokerIDs:           []string{"broker-a"},
 			InterRegion: &InterRegion{
-				Enabled: true, Peers: peers, AccountJWTFile: encode("interregion.jwt", interregion),
+				Peers: peers, AccountJWTFile: encode("interregion.jwt", interregion),
 				GlobalHome: topology.Hub, Subtrees: subtrees,
 			},
 		},

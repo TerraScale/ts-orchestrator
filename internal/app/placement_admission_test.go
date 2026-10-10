@@ -390,7 +390,7 @@ type placementAdmissionTestControl struct {
 
 func newPlacementAdmissionControl() *placementAdmissionTestControl {
 	return &placementAdmissionTestControl{
-		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "0000000000GR3712FB1A87M2H7", Leader: true, Ready: true,
+		snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000GR3712FB1A87M2H7", Leader: true, Ready: true,
 			Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)},
 		entries:  make(map[string]authority.LogEntry),
 		terminal: make(map[string]authority.LogEntry),

@@ -149,12 +149,12 @@ func (store bakedStore) load() (BakedInputs, error) {
 // falling back to the genesis roots.
 func readRootChain(path string) (trust.RootChain, error) {
 	if path == "" {
-		return trust.RootChain{}, nil
+		return trust.RootChain{Version: 1}, nil
 	}
 	// O_NONBLOCK keeps a FIFO from hanging the open; it is refused below.
 	file, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if errors.Is(err, os.ErrNotExist) {
-		return trust.RootChain{}, nil
+		return trust.RootChain{Version: 1}, nil
 	}
 	if err != nil {
 		return trust.RootChain{}, fmt.Errorf("open adopted root chain: %w", err)
@@ -281,7 +281,7 @@ func (store bakedStore) readFile(dir int, name string, maximum int64) ([]byte, e
 	if strings.Contains(name, "/") || name == "" || maximum <= 0 {
 		return nil, ErrBakedInputs
 	}
-	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +290,7 @@ func (store bakedStore) readFile(dir int, name string, maximum int64) ([]byte, e
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
 		stat.Uid != store.ownerUID || stat.Gid != store.ownerGID ||
-		stat.Mode&0o777 != 0o444 || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > maximum {
+		stat.Mode&0o7777 != 0o444 || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > maximum {
 		return nil, ErrBakedInputs
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, maximum+1))

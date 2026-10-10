@@ -40,8 +40,8 @@ func TestReserveSlotRecoversLostAcknowledgementAndSurvivesRestart(t *testing.T) 
 	if got := fixture.client.putCalls.Load(); got != 2 {
 		t.Fatalf("PUT calls = %d, want immutable intent and initial HEAD", got)
 	}
-	if got := fixture.client.getCalls.Load(); got != 8 {
-		t.Fatalf("exact-key readbacks = %d, want intent/HEAD confirmations, final intent refresh, and verified-slot reads", got)
+	if got := fixture.client.getCalls.Load(); got != 9 {
+		t.Fatalf("exact-key readbacks = %d, want intent/HEAD confirmations, final intent refresh, seed-receipt absence, and verified-slot reads", got)
 	}
 
 	restarted := fixture.newLedger(t)
@@ -62,29 +62,84 @@ func TestReserveSlotRecoversLostAcknowledgementAndSurvivesRestart(t *testing.T) 
 	}
 }
 
-func TestLegacyManagedIntentCannotReserveOrAuthorizeLaunch(t *testing.T) {
+type seedReceiptReadErrorClient struct {
+	ObjectStorageClient
+	objectName string
+	err        error
+}
+
+func (client seedReceiptReadErrorClient) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
+	if request.ObjectName != nil && *request.ObjectName == client.objectName {
+		return objectstorage.GetObjectResponse{}, client.err
+	}
+	return client.ObjectStorageClient.GetObject(ctx, request)
+}
+
+func TestManagedAttemptRejectsSeedReceiptAndPropagatesStorageErrors(t *testing.T) {
+	for _, phase := range []string{"reserved", "completed"} {
+		for _, fault := range []string{"receipt exists", "storage error"} {
+			t.Run(phase+"/"+fault, func(t *testing.T) {
+				fixture, scope := newLedgerFixture(t), testBootstrapScope()
+				if phase == "completed" {
+					completeFirstManagedAttempt(t, fixture, scope)
+				} else {
+					intent, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
+					if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intent, fixture.headBytes(t, scope, intent, 1)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := fixture.ledger.ReadSlot(t.Context(), scope); err != nil {
+					t.Fatal(err)
+				}
+				expected := ErrSlotNotReserved
+				if fault == "receipt exists" {
+					storeFakeObjectForTimestampTest(fixture.client, fixture.ledger.config.Namespace, fixture.ledger.config.Bucket,
+						fixture.ledger.objectName(scope, 1, ledgerSeedReceipt), []byte("incompatible seed evidence"), fixture.now, fixture.now)
+				} else {
+					expected = errors.New("seed-receipt storage unavailable")
+					fixture.ledger.client = seedReceiptReadErrorClient{ObjectStorageClient: fixture.client,
+						objectName: fixture.ledger.objectName(scope, 1, ledgerSeedReceipt), err: expected}
+				}
+				puts := fixture.client.putCalls.Load()
+				if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, expected) {
+					t.Fatalf("ReadSlot: %v, want %v", err, expected)
+				}
+				if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, expected) {
+					t.Fatalf("ReadForLaunch: %v, want %v", err, expected)
+				}
+				if _, err := fixture.ledger.ReadForManagedPeerRecovery(t.Context(), scope); !errors.Is(err, expected) {
+					t.Fatalf("ReadForManagedPeerRecovery: %v, want %v", err, expected)
+				}
+				if fixture.client.putCalls.Load() != puts {
+					t.Fatal("refused state wrote ledger objects")
+				}
+			})
+		}
+	}
+}
+
+func TestManagedIntentRequiresFounderPinsForEveryReadAndWrite(t *testing.T) {
 	scope := testBootstrapScope()
 	fixture := newLedgerFixture(t)
-	intentBytes, intent := fixture.intentBytes(t, scope, 1, "legacy-create-key", "legacy-retry-token")
+	intentBytes, intent := fixture.intentBytes(t, scope, 1, "unpinned-create-key", "unpinned-retry-token")
 	intent.SchemaVersion = 1
 	intent.FounderPlanSHA256 = ""
 	intent.PeerRowDigest = ""
 	intentBytes = fixture.sign(t, scope, domainBootstrapIntent, intent, fixture.now)
 	headBytes := fixture.headBytes(t, scope, intentBytes, 1)
-	if err := validateIntent(intent); err != nil {
-		t.Fatalf("historical schema-v1 intent should remain readable: %v", err)
+	if err := validateIntent(intent); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("unpinned managed intent validation = %v, want ErrInvalidRecord", err)
 	}
-	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrFounderPlanRequired) {
-		t.Fatalf("ReserveSlot() error = %v, want ErrFounderPlanRequired", err)
+	if _, err := fixture.ledger.ReserveSlot(t.Context(), scope, intentBytes, headBytes); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("ReserveSlot() error = %v, want ErrInvalidRecord", err)
 	}
 	if got := fixture.client.objectCount(); got != 0 {
-		t.Fatalf("legacy reservation wrote %d ledger objects before rejection", got)
+		t.Fatalf("unpinned reservation wrote %d ledger objects before rejection", got)
 	}
 
-	// Model an already durable legacy slot. Historical reads remain available,
-	// but a current launch token cannot be minted from its schema-v1 intent.
+	// Invalid proof bytes remain invalid even if they were already stored.
 	fixture = newLedgerFixture(t)
-	intentBytes, intent = fixture.intentBytes(t, scope, 1, "legacy-create-key", "legacy-retry-token")
+	intentBytes, intent = fixture.intentBytes(t, scope, 1, "unpinned-create-key", "unpinned-retry-token")
 	intent.SchemaVersion = 1
 	intent.FounderPlanSHA256 = ""
 	intent.PeerRowDigest = ""
@@ -95,17 +150,20 @@ func TestLegacyManagedIntentCannotReserveOrAuthorizeLaunch(t *testing.T) {
 	}
 	head, err := fixture.ledger.decodeHead(scope, headBytes, true)
 	if err != nil {
-		t.Fatalf("decode legacy HEAD fixture: %v", err)
+		t.Fatalf("decode unpinned HEAD fixture: %v", err)
 	}
 	if _, _, err := fixture.ledger.writeInitialHead(t.Context(), scope, head, headBytes, true); err != nil {
 		t.Fatalf("store historical HEAD fixture: %v", err)
 	}
-	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrFounderPlanRequired) {
-		t.Fatalf("ReadForLaunch() error = %v, want ErrFounderPlanRequired", err)
+	if _, err := fixture.ledger.ReadSlot(t.Context(), scope); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("ReadSlot() error = %v, want ErrInvalidRecord", err)
+	}
+	if _, err := fixture.ledger.ReadForLaunch(t.Context(), scope); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("ReadForLaunch() error = %v, want ErrInvalidRecord", err)
 	}
 	if _, err := fixture.ledger.RecordManagedPeer(t.Context(), scope, nil, nil, InstanceFacts{}, nil, nil,
-		fixture.managedPeerProgressSigner(scope), nil); !errors.Is(err, ErrFounderPlanRequired) {
-		t.Fatalf("RecordManagedPeer() error = %v, want ErrFounderPlanRequired for a historical intent", err)
+		fixture.managedPeerProgressSigner(scope), nil); !errors.Is(err, ErrInvalidRecord) {
+		t.Fatalf("RecordManagedPeer() error = %v, want ErrInvalidRecord for an unpinned intent", err)
 	}
 }
 
@@ -163,7 +221,7 @@ func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
 	fixture := newLedgerFixture(t)
 	scope := testBootstrapScope()
 	intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
-	initialHead := SlotHead{SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+	initialHead := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 		Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
 		Generation: 1, IntentDigest: bodyDigest(intentBytes)}
 	initialHeadBytes := fixture.sign(t, scope, domainBootstrapHead, initialHead, fixture.now)
@@ -206,7 +264,7 @@ func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
 	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 	nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
 	validNextHead := SlotHead{
-		SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
 		PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
@@ -259,7 +317,7 @@ func TestRecordResultCASAndAdvanceRequireBoundRetirementEvidence(t *testing.T) {
 	}
 }
 
-func TestSuccessorHEADRequiresImmutableManagedV2PredecessorProofs(t *testing.T) {
+func TestSuccessorHEADRequiresImmutableManagedPredecessorProofs(t *testing.T) {
 	for _, proof := range []string{"candidate", "result", "receipt"} {
 		t.Run(proof, func(t *testing.T) {
 			fixture := newLedgerFixture(t)
@@ -309,7 +367,7 @@ func TestAdvanceSlotRequiresCurrentRetirementAndSuccessorIntent(t *testing.T) {
 		nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
 		nextHead := SlotHead{
-			SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
 			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
@@ -354,7 +412,7 @@ func TestAdvanceSlotRequiresCurrentRetirementAndSuccessorIntent(t *testing.T) {
 		nextIntent.CreatedAt = fixture.client.currentTime()
 		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, nextIntent.CreatedAt)
 		nextHead := SlotHead{
-			SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
 			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
@@ -677,7 +735,7 @@ func TestAuthorizationHeadsStayInsideOriginalRetryWindow(t *testing.T) {
 		nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 		nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
 		nextHead := SlotHead{
-			SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+			SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 			Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 			IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
 			PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
@@ -859,7 +917,7 @@ func TestSuccessorHeadCommittedAfterIntentOrEvidenceExpiryIsRejectedOnRead(t *te
 	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 	nextIntentBytes = fixture.signInterval(t, scope, domainBootstrapIntent, nextIntent, fixture.now, evidenceExpiry)
 	nextHead := SlotHead{
-		SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: state.Head.Attempt,
 		PreviousGeneration: state.Head.Generation, PreviousIntentDigest: state.Head.IntentDigest,
@@ -972,7 +1030,7 @@ func TestReadForLaunchRejectsUncommittedResultAndExpiredRetryWindow(t *testing.T
 		fixture := newLedgerFixture(t)
 		scope := testBootstrapScope()
 		intentBytes, intent := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
-		head := SlotHead{SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 			Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
 			Generation: 1, IntentDigest: bodyDigest(intentBytes)}
 		headBytes := fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)
@@ -995,7 +1053,7 @@ func TestReadForLaunchRejectsUncommittedResultAndExpiredRetryWindow(t *testing.T
 		fixture := newLedgerFixture(t)
 		scope := testBootstrapScope()
 		intentBytes, _ := fixture.intentBytes(t, scope, 1, "create-key-1", "retry-token-1")
-		head := SlotHead{SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+		head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 			Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: 1,
 			Generation: 1, IntentDigest: bodyDigest(intentBytes)}
 		headBytes := fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)
@@ -1392,21 +1450,21 @@ func newPlanBackedManagedPeerFixture(t *testing.T, slot string) planBackedManage
 	}
 	scope := BootstrapScope{DeploymentID: anchor.DeploymentID, Cell: string(anchor.Cell), Slot: row.Slot}
 	seedHead := seedLaunch.head
-	seedHead.SchemaVersion = 2
+	seedHead.SchemaVersion = 1
 	seedHeadPayload, err := trust.EncodePayload(seedHead)
 	if err != nil {
-		t.Fatalf("encode schema-v2 founder HEAD: %v", err)
+		t.Fatalf("encode schema-v1 founder HEAD: %v", err)
 	}
 	seedHeadEnvelope, err := trust.Sign(seedHeadPayload, trust.Scope{
 		Domain: domainBootstrapHead, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 		Environment: anchor.Environment, Role: roleController, Slot: scope.Slot,
 	}, selected.now, selected.now.Add(23*time.Hour), selected.authority.peerPrivate)
 	if err != nil {
-		t.Fatalf("sign schema-v2 founder HEAD: %v", err)
+		t.Fatalf("sign schema-v1 founder HEAD: %v", err)
 	}
 	seedHeadWire, err := trust.EncodeEnvelope(seedHeadEnvelope)
 	if err != nil {
-		t.Fatalf("encode signed schema-v2 founder HEAD: %v", err)
+		t.Fatalf("encode signed schema-v1 founder HEAD: %v", err)
 	}
 	if _, err := ledger.ReserveSlot(t.Context(), scope, seedLaunch.intentRecord.Bytes, seedHeadWire); err != nil {
 		t.Fatalf("reserve plan-pinned slot in integrated ledger: %v", err)
@@ -1649,7 +1707,7 @@ func advanceManagedAttemptForTest(t *testing.T, fixture *ledgerFixture, scope Bo
 	nextIntent.RetirementDigest = bodyDigest(retirementBytes)
 	nextIntentBytes = fixture.sign(t, scope, domainBootstrapIntent, nextIntent, fixture.now)
 	nextHead := SlotHead{
-		SchemaVersion: 2, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: 2, Generation: 2,
 		IntentDigest: bodyDigest(nextIntentBytes), PreviousAttempt: completed.Head.Attempt,
 		PreviousGeneration: completed.Head.Generation, PreviousIntentDigest: completed.Head.IntentDigest,
@@ -1749,7 +1807,7 @@ func (fixture *ledgerFixture) intentBytes(t *testing.T, scope BootstrapScope, at
 		t.Fatal(err)
 	}
 	intent := Intent{
-		SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
+		SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: fixture.environment,
 		Role: roleController, Slot: scope.Slot, Attempt: attempt, Generation: attempt,
 		ReleaseReceiptDigest: bodyDigest([]byte("release")), RegionIntentGeneration: 4,
 		ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.image-a", RegionIntentDigest: bodyDigest([]byte("region-intent")),
@@ -1902,19 +1960,7 @@ func (fixture *ledgerFixture) seedProof(t *testing.T, scope BootstrapScope, inte
 
 func (fixture *ledgerFixture) headBytes(t *testing.T, scope BootstrapScope, intentBytes []byte, attempt uint64) []byte {
 	t.Helper()
-	intentEnvelope, err := trust.DecodeEnvelope(intentBytes)
-	if err != nil {
-		t.Fatalf("decode test intent envelope for HEAD schema: %v", err)
-	}
-	var intent Intent
-	if err := decodeCanonicalPayload(intentEnvelope.Payload, &intent); err != nil {
-		t.Fatalf("decode test intent payload for HEAD schema: %v", err)
-	}
-	schemaVersion := 1
-	if intent.Mode == IntentModeManaged && intent.SchemaVersion == 2 {
-		schemaVersion = 2
-	}
-	head := SlotHead{SchemaVersion: schemaVersion, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+	head := SlotHead{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
 		Environment: fixture.environment, Role: roleController, Slot: scope.Slot, Attempt: attempt,
 		Generation: attempt, IntentDigest: bodyDigest(intentBytes)}
 	return fixture.sign(t, scope, domainBootstrapHead, head, fixture.now)

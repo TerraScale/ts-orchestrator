@@ -51,8 +51,9 @@ printf '%%s\n%%s\n%%s\n' "$PATH" "$LANG" "${OCI_CONFIG_FILE-unset}" > %s
 `, shellQuote(startedPath), shellQuote(cat), shellQuote(wirePath), shellQuote(environmentPath)))
 
 	t.Setenv("OCI_CONFIG_FILE", "must-not-be-inherited")
-	want := Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 3, CredentialsFile: "/var/lib/example/controller.creds"},
+	want := Config{
+		Version: ConfigVersion,
+		NATS:    natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 3, CredentialsFile: "/var/lib/example/controller.creds"},
 		Controller: ControllerConfig{CandidateID: "0000000000RTDFYAHDCP6Y401P", ArtifactStoreMaxBytes: 64 << 20,
 			TrustedSigners: []TrustedSignerConfig{{Actor: "operator", PublicKey: "public-key", Roles: []string{"terrabase"}}},
 			Workloads:      map[string]WorkloadProfile{"terrabase": {Args: []string{"-region", "gru"}, Env: map[string]string{"LOG_LEVEL": "debug"}}}},
@@ -316,9 +317,9 @@ run_case() {
 run_case 1000 1000 bootstrap-admit-initial 'requires root'
 run_case 0 0 bootstrap-admit-initial 'load fixed baked controller bootstrap inputs'
 run_case 1001 1001 bootstrap-admit-restart 'requires the dedicated service account'
-run_case 1000 1000 bootstrap-admit-restart 'load fixed baked controller bootstrap inputs'
+run_case 1000 1000 bootstrap-admit-restart 'read accepted controller identity'
 run_case 0 0 bootstrap-admit-initial 'NTP clock health' unhealthy
-run_case 1000 1000 bootstrap-admit-restart 'NTP clock health' unhealthy
+run_case 1000 1000 bootstrap-admit-restart 'read accepted controller identity' unhealthy
 `
 	command := exec.CommandContext(t.Context(), unshare, "--mount", "--fork", "--", "/bin/sh", "-c", script,
 		"ts-admission-namespace", helper, configPath, mount, setpriv, mkdir, chmod, env)

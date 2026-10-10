@@ -12,7 +12,7 @@ Type=oneshot
 # config names the unit's key and, optionally, its proof file. The baked
 # binary hands the check to the node's known-good release, so these
 # arguments must stay valid for every release.
-ExecStart=/usr/local/bin/terrascale-orchestrator selfupdate watchdog --root /var/lib/terrascale-orchestrator --unit terrascale-orchestrator-%i.service --config /etc/terrascale-orchestrator/%i.json --restart
+ExecStart=/usr/local/bin/terrascale-orchestrator selfupdate watchdog --root /var/lib/terrascale-orchestrator --unit terrascale-orchestrator-%i.service --config /etc/terrascale-orchestrator/%i.json
 # A hung check would stop the timer, which only fires after a run ends.
 TimeoutStartSec=60s
 UMask=0077

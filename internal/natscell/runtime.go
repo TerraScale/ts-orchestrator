@@ -92,8 +92,8 @@ type Embedded struct {
 	MembershipCredentialsFile string   `json:"membership_credentials_file,omitempty"`
 	TicketPublicKeyFile       string   `json:"ticket_public_key_file,omitempty"`
 	BrokerIDs                 []string `json:"broker_ids,omitempty"`
-	// InterRegion links this region to peers by leafnode. Nil or disabled
-	// keeps the region fully standalone.
+	// InterRegion describes this region's reviewed leaf topology and credentials.
+	// An absent block describes an isolated cell.
 	InterRegion *InterRegion `json:"interregion,omitempty"`
 }
 
@@ -346,6 +346,20 @@ func serverReady(ctx context.Context, embedded *server.Server) bool {
 // Start starts the embedded server when requested and establishes an authenticated
 // client connection. Multi-node callers must call WaitForCluster before mutations.
 func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
+	return start(ctx, cfg, false)
+}
+
+// StartIdentityRekey joins only the existing regional quorum. The caller must
+// verify its root checkpoint before opening it and close it after shared reset
+// completion before starting normal external transports on the same store.
+func StartIdentityRekey(ctx context.Context, cfg Config) (*Runtime, error) {
+	if cfg.Lab || cfg.Embedded == nil {
+		return nil, errors.New("identity rekey requires an installed production broker")
+	}
+	return start(ctx, cfg, true)
+}
+
+func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -356,7 +370,7 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		}
 	}()
 	if cfg.Embedded != nil {
-		options, optionsErr := serverOptions(cfg)
+		options, optionsErr := serverOptionsForStart(cfg, identityRekey)
 		if optionsErr != nil {
 			return nil, optionsErr
 		}
@@ -466,10 +480,12 @@ func Start(ctx context.Context, cfg Config) (_ *Runtime, err error) {
 		if err != nil {
 			return nil, err
 		}
-		r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),
-			r.brokerTLS.ServerConfig(), r.resolver.cell)
-		if err != nil {
-			return nil, err
+		if !identityRekey {
+			r.bridge, err = startBridge(r.server, net.JoinHostPort(cfg.Embedded.Host, fmt.Sprint(cfg.Embedded.Port)),
+				r.brokerTLS.ServerConfig(), r.resolver.cell)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if cfg.ClientRole == "host" {
@@ -641,6 +657,10 @@ func (cfg Config) validate() error {
 }
 
 func serverOptions(cfg Config) (*server.Options, error) {
+	return serverOptionsForStart(cfg, false)
+}
+
+func serverOptionsForStart(cfg Config, identityRekey bool) (*server.Options, error) {
 	e := cfg.Embedded
 	if err := os.MkdirAll(e.StoreDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create regional JetStream store: %w", err)
@@ -688,11 +708,15 @@ func serverOptions(cfg Config) (*server.Options, error) {
 		options.SystemAccount = systemID
 		options.Accounts = nil
 		options.AccountResolver = resolver
+		options.JetStreamDomain = cfg.Cell
 		options.DontListen = true
 		options.Cluster.NoAdvertise = true
-		if e.InterRegion.active() {
+		if e.InterRegion != nil {
 			if err := interRegionServerOptions(cfg, options, resolver, operator); err != nil {
 				return nil, err
+			}
+			if identityRekey {
+				options.LeafNode = server.LeafNodeOpts{}
 			}
 		}
 	}

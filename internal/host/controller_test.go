@@ -2216,7 +2216,7 @@ func TestOrderedHostMutationAndSignedNATSReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	authorityRuntime, err := authority.Start(t.Context(), js, authority.Config{Scope: "gru", CandidateID: "0000000000GR3712FB1A87M2H7", Replicas: 1})
+	authorityRuntime, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000GR3712FB1A87M2H7", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

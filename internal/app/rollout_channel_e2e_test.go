@@ -67,9 +67,8 @@ func TestReleaseChannelRollsCIReleasesOutRegionByRegion(t *testing.T) {
 			services: signer.services(t),
 			binaries: binaries, starts: starts,
 			verifier: selfupdate.ReceiptPolicy{Roots: signer.roots, Environment: "production",
-				Cell: strings.ToUpper(region), Architecture: goruntime.GOARCH, AllowScopedAutoSign: true},
+				Cell: strings.ToUpper(region), Architecture: goruntime.GOARCH},
 			configure: func(c *rolloutControl) {
-				c.follow = true
 				c.channel = &channelSource{location: &location}
 				c.channelInterval = 300 * time.Millisecond
 			}})

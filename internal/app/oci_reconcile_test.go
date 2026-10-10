@@ -58,7 +58,7 @@ func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {
 type reconcileTestFencer struct{ fenced bool }
 
 func (f reconcileTestFencer) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: true, Ready: true, Epoch: 1}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 1}
 }
 
 func (f reconcileTestFencer) Guard(context.Context, uint64) error {

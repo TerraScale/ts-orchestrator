@@ -43,7 +43,7 @@ func newFence(epoch uint64) *epochFence {
 }
 
 func (fence *epochFence) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: fence.leader.Load(), Epoch: fence.epoch.Load(), Revision: 1,
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: fence.leader.Load(), Epoch: fence.epoch.Load(), Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}
 }
 

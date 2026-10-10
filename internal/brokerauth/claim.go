@@ -187,7 +187,7 @@ func (s *Store) Commit(ctx context.Context, epoch uint64, account, raw string, e
 			return Claim{}, err
 		}
 		observed, err := authority.Observe(ctx, s.js, s.cell)
-		if err != nil || !observed.Ready || observed.Epoch != epoch ||
+		if err != nil || !observed.Ready || observed.DeploymentID != snapshot.DeploymentID || observed.Epoch != epoch ||
 			observed.CandidateID != snapshot.CandidateID || observed.OwnerID != snapshot.OwnerID ||
 			observed.Revision > info.State.LastSeq {
 			return Claim{}, authority.ErrFenced

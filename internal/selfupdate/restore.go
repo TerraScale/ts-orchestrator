@@ -17,10 +17,10 @@ const (
 	restoreIntentSchema = "terrascale.orchestrator.restore-intent.v1"
 )
 
-// restoreIntent is written before Restore changes anything and removed once
+// RestoreIntent is written before Restore changes anything and removed once
 // the link has moved, so an interrupted restore is finished from it by the
 // next Watch (the watchdog timer or the unit's prepare step).
-type restoreIntent struct {
+type RestoreIntent struct {
 	Schema   string `json:"schema"`
 	Unit     string `json:"unit"`
 	Target   string `json:"target"`
@@ -89,7 +89,7 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 	// There is no activation record to recover an interrupted restore
 	// from, so a durable intent names the target first; finishRestore
 	// completes the switch from it at any later point.
-	intent, err := protocol.EncodeJSON(restoreIntent{Schema: restoreIntentSchema, Unit: unit, Target: digest, Rejected: rejected})
+	intent, err := protocol.EncodeJSON(RestoreIntent{Schema: restoreIntentSchema, Unit: unit, Target: digest, Rejected: rejected})
 	if err != nil {
 		return false, err
 	}
@@ -118,33 +118,91 @@ func Restore(layout Layout, digest, rejected, unit string) (bool, error) {
 // selection. An intent next to a pending activation cannot be produced by
 // these paths; it is refused rather than guessed at. The caller holds Lock.
 func (layout Layout) finishRestores() error {
-	entries, err := os.ReadDir(layout.Root)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	intents, err := layout.PendingRestores()
 	if err != nil {
 		return err
 	}
+	for _, intent := range intents {
+		if err := layout.finishRestore(intent.Unit); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// PendingRestores reads owned, strictly validated restore intents without effects.
+func (layout Layout) PendingRestores() ([]RestoreIntent, error) {
+	if err := layout.validate(); err != nil {
+		return nil, err
+	}
+	if err := layout.checkOwned(layout.Root, true); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(layout.Root)
+	if err != nil {
+		return nil, err
+	}
+	var intents []RestoreIntent
 	for _, entry := range entries {
-		name := entry.Name()
-		unit, ok := strings.CutPrefix(name, restoreIntentPrefix)
+		unit, ok := strings.CutPrefix(entry.Name(), restoreIntentPrefix)
 		if !ok {
 			continue
 		}
 		unit, ok = strings.CutSuffix(unit, ".json")
 		if !ok || !unitRE.MatchString(unit) {
-			return fmt.Errorf("%w: restore intent %q", ErrUnsafe, name)
+			return nil, fmt.Errorf("%w: restore intent %q", ErrUnsafe, entry.Name())
 		}
 		if _, pending, err := layout.Pending(); err != nil {
-			return err
+			return nil, err
 		} else if pending {
-			return fmt.Errorf("%w: restore intent of %s next to a pending activation", ErrUnsafe, unit)
+			return nil, fmt.Errorf("%w: restore intent of %s next to a pending activation", ErrUnsafe, unit)
 		}
-		if err := layout.finishRestore(unit); err != nil {
-			return err
+		intent, err := layout.readRestoreIntent(unit)
+		if err != nil {
+			return nil, err
 		}
+		intents = append(intents, intent)
 	}
-	return nil
+	return intents, nil
+}
+
+func (layout Layout) readRestoreIntent(unit string) (RestoreIntent, error) {
+	path := layout.restoreIntentPath(unit)
+	if err := layout.checkOwned(path, false); err != nil {
+		return RestoreIntent{}, err
+	}
+	data, err := readBounded(path, maxStateBytes)
+	if err != nil {
+		return RestoreIntent{}, err
+	}
+	var intent RestoreIntent
+	if err := protocol.DecodeStrict(data, &intent, maxStateBytes); err != nil {
+		return RestoreIntent{}, err
+	}
+	if intent.Schema != restoreIntentSchema || intent.Unit != unit || !digestRE.MatchString(intent.Target) ||
+		!digestRE.MatchString(intent.Rejected) || intent.Target == intent.Rejected {
+		return RestoreIntent{}, fmt.Errorf("%w: restore intent", ErrInvalid)
+	}
+	current, err := layout.Current()
+	if err != nil {
+		return RestoreIntent{}, err
+	}
+	if current != intent.Target && current != intent.Rejected {
+		return RestoreIntent{}, fmt.Errorf("%w: current differs from recorded restore", ErrUnsafe)
+	}
+	bad, err := layout.KnownBad()
+	if err != nil {
+		return RestoreIntent{}, err
+	}
+	if bad[intent.Target] {
+		return RestoreIntent{}, ErrKnownBad
+	}
+	if err := layout.VerifyRelease(intent.Target); err != nil {
+		return RestoreIntent{}, fmt.Errorf("restore target cannot be restored: %w", err)
+	}
+	return intent, nil
 }
 
 // finishRestore completes a restore of unit whose intent is recorded: the
@@ -159,20 +217,9 @@ func (layout Layout) finishRestore(unit string) error {
 	} else if err != nil {
 		return err
 	}
-	data, err := readBounded(path, maxStateBytes)
+	intent, err := layout.readRestoreIntent(unit)
 	if err != nil {
 		return err
-	}
-	var intent restoreIntent
-	if err := protocol.DecodeStrict(data, &intent, maxStateBytes); err != nil {
-		return err
-	}
-	if intent.Schema != restoreIntentSchema || intent.Unit != unit || !digestRE.MatchString(intent.Target) ||
-		!digestRE.MatchString(intent.Rejected) || intent.Target == intent.Rejected {
-		return fmt.Errorf("%w: restore intent", ErrInvalid)
-	}
-	if err := layout.VerifyRelease(intent.Target); err != nil {
-		return fmt.Errorf("restore target cannot be restored: %w", err)
 	}
 	if err := layout.markKnownBad(intent.Rejected); err != nil {
 		return err

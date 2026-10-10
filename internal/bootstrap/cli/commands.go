@@ -36,7 +36,7 @@ func (c command) run(args []string) error {
 
 func (c command) runAt(args []string, now time.Time) error {
 	if len(args) == 0 {
-		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | sign-material-generation | generate-controller-material | generate-interregion-material | render-interregion-config | role-claim | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New(usage)
 	}
 	switch args[0] {
 	case "verify-anchor":
@@ -51,6 +51,12 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.signManifestAt(args[1:], now)
 	case "sign-material-generation":
 		return c.signMaterialGenerationAt(args[1:], now)
+	case "sign-accepted-identity-checkpoint":
+		return c.signAcceptedIdentityCheckpointAt(args[1:], now)
+	case "sign-host-state-handoff-plan":
+		return c.signHostStateHandoffPlanAt(args[1:], now)
+	case "sign-identity-reset":
+		return c.signIdentityResetAt(args[1:], now)
 	case "render-controller-config":
 		return c.renderControllerConfigAt(args[1:], now)
 	case "render-operator-config":
@@ -67,6 +73,8 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.runGenerateControllerMaterial(args[1:])
 	case "generate-interregion-material":
 		return c.runGenerateInterRegionMaterial(args[1:])
+	case "issue-observability-credentials":
+		return c.issueObservabilityCredentialsAt(args[1:], now)
 	case "render-interregion-config":
 		return c.runRenderInterRegionConfig(args[1:])
 	case "role-claim":
@@ -75,10 +83,6 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.runProvisionControllerMaterial(args[1:])
 	case "sign-peer-receipt-delegation":
 		return c.signPeerReceiptDelegationAt(args[1:], now)
-	case "render-founder-continuity":
-		return c.renderFounderContinuityAt(args[1:])
-	case "sign-founder-continuity":
-		return c.signFounderContinuityAt(args[1:], now)
 	case "sign-slot-retirement":
 		return c.signSlotRetirementAt(args[1:], now)
 	case "sign-founder-plan":
@@ -97,12 +101,8 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.signSeedCompletionAt(args[1:], now)
 	case "publish-external-seed-completion":
 		return c.publishSeedCompletionAt(args[1:], now)
-	case "sign-founder-selection":
-		return c.signFounderSelectionAt(args[1:], now)
-	case "publish-founder-selection":
-		return c.publishFounderSelectionAt(args[1:], now)
 	default:
-		return errors.New("usage: ts-orch bootstrap verify-anchor | verify-manifest | sign-ledger-delegation | sign-anchor | render-controller-config | render-operator-config | render-host-enrollment-public | install-operator-material | open-customer-material | open-rotated-customer-material | sign-manifest | generate-controller-material | generate-interregion-material | render-interregion-config | role-claim | provision-controller-material | sign-peer-receipt-delegation | sign-founder-plan | sign-initial-founder-selection | publish-initial-founder-selection | sign-external-seed-reservation | publish-external-seed-reservation | observe-external-seed | sign-external-seed-completion | publish-external-seed-completion | render-founder-continuity | sign-founder-continuity | sign-founder-selection | publish-founder-selection [flags]")
+		return errors.New(usage)
 	}
 }
 

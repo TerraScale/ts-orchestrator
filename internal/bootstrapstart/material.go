@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	MaterialDirectory = "/var/lib/terrascale-orchestrator-secrets"
+	MaterialDirectory = bootstrap.MaterialDirectory
 	StagingDirectory  = "/run/terrascale-orchestrator-bootstrap"
 )
 
@@ -80,6 +80,9 @@ func (store MaterialStore) PrepareInitial(ctx context.Context, manifest bootstra
 		return fmt.Errorf("open service-owned credential directory: %w", err)
 	}
 	defer unix.Close(installed)
+	if !memoryFilesystem(installed) {
+		return fmt.Errorf("%w: initial credentials require a memory filesystem", ErrMaterial)
+	}
 	var nonce [16]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
@@ -128,37 +131,39 @@ func (store MaterialStore) PrepareInitial(ctx context.Context, manifest bootstra
 
 // RestartPins reads the install's adopted material generation, if any, from
 // the credential directory and returns what the directory must hold.
-func (store MaterialStore) RestartPins(manifest bootstrap.HistoricalManifest, roots trust.Keyring, privateIP string,
+func (store MaterialStore) RestartPins(accepted AcceptedIdentity, roots trust.Keyring,
 ) (MaterialPins, error) {
 	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
 	if err != nil {
 		return MaterialPins{}, fmt.Errorf("open service-owned credential directory: %w", err)
 	}
 	defer unix.Close(installed)
-	return restartPins(installed, store.serviceUID, store.serviceGID, manifest.Manifest(), roots, privateIP)
+	return restartPins(installed, store.serviceUID, store.serviceGID, accepted, roots)
 }
 
 // ControllerConfigSHA256 reads the install's adopted material generation, if
 // any, and returns the controller config digest restart admission expects
-// for the slot of manifest, whose digest is manifestSHA256 (TS-668).
-func (store MaterialStore) ControllerConfigSHA256(manifest bootstrap.Manifest, manifestSHA256 string, roots trust.Keyring,
+// for the accepted slot.
+func (store MaterialStore) ControllerConfigSHA256(accepted AcceptedIdentity, roots trust.Keyring,
 ) (string, error) {
 	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
 	if err != nil {
 		return "", fmt.Errorf("open service-owned credential directory: %w", err)
 	}
 	defer unix.Close(installed)
-	pins, err := restartPins(installed, store.serviceUID, store.serviceGID, manifest, roots, "")
+	pins, err := restartPins(installed, store.serviceUID, store.serviceGID, accepted, roots)
 	if err != nil {
 		return "", err
 	}
-	return pins.controllerConfigSHA256(manifest, manifestSHA256)
+	return pins.controllerConfigSHA256(accepted)
 }
 
-func (store MaterialStore) VerifyRestart(ctx context.Context, manifest bootstrap.HistoricalManifest,
+func (store MaterialStore) VerifyRestart(ctx context.Context, accepted AcceptedIdentity,
 	pins MaterialPins,
 ) error {
-	if pins.Generation == nil && !sameMaterials(expectedMaterials(manifest.Manifest(), manifest.Manifest().Slot), pins.Digests) {
+	acceptance, err := accepted.AcceptanceSHA256()
+	if err != nil || pins.acceptance != acceptance || !pins.matchesAccepted(accepted) ||
+		pins.Generation == nil && !sameMaterials(acceptedMaterialDigests(accepted), pins.Digests) {
 		return ErrMaterial
 	}
 	installed, err := openMaterialDirectory(store.installedDirectory, store.serviceUID, store.serviceGID, 0o700, store.allowUnsafeAncestors)
@@ -252,7 +257,7 @@ func readMaterial(dir int, name string, uid, gid uint32, want string, maximum in
 	if !markerNameRE.MatchString(name) || !markerDigestRE.MatchString(want) || maximum <= 0 || maximum > bootstrap.MaxSecretBytes {
 		return nil, ErrMaterial
 	}
-	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}

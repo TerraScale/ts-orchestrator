@@ -65,7 +65,7 @@ func TestRegionalAuthorityFailoverAndQuorum(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	leaseConfig := authority.Config{
+	leaseConfig := authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope:         "r3-integration",
 		LeaseDuration: 4 * time.Second,
 		RenewInterval: 250 * time.Millisecond,

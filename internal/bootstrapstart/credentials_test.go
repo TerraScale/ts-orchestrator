@@ -45,7 +45,7 @@ func credentialPathFixture(t *testing.T) (LiveCredentials, map[string]string) {
 
 func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	check, expected := credentialPathFixture(t)
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
@@ -57,16 +57,16 @@ func TestCredentialCheckerBindsPathsAndExactInventory(t *testing.T) {
 	wrongConfig.Embedded = &wrongEmbedded
 	wrongEmbedded.SystemJWTFile = filepath.Join(t.TempDir(), "system.jwt")
 	wrongPath.Config = wrongConfig
-	if err := wrongPath.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := wrongPath.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unbound path = %v, want refusal", err)
 	}
 	delete(expected, "system.jwt")
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("missing signed credential = %v, want refusal", err)
 	}
 	expected["system.jwt"] = digest([]byte("signed fixture system.jwt"))
 	expected["unreferenced.key"] = digest([]byte("unreferenced"))
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unassigned signed material = %v, want refusal", err)
 	}
 }
@@ -77,16 +77,16 @@ func TestCredentialCheckerBindsTerraBaseMemberCA(t *testing.T) {
 	check, expected := credentialPathFixture(t)
 	expected["terrabase-member-ca.pem"] = digest([]byte("ca"))
 	expected["terrabase-member-ca.key"] = digest([]byte("key"))
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("signed member CA without a role = %v, want refusal", err)
 	}
 	check.TerraBaseCACertFile = filepath.Join(check.directory, "terrabase-member-ca.pem")
 	check.TerraBaseCAKeyFile = filepath.Join(check.directory, "terrabase-member-ca.key")
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
 		t.Fatal(err)
 	}
 	check.TerraBaseCAKeyFile = filepath.Join(t.TempDir(), "terrabase-member-ca.key")
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("member CA key outside material = %v, want refusal", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 		}
 		expected[name] = fixture.accepted.MaterialSHA256[name]
 	}
-	if err := check.verifyPaths(ManifestPins(expected), manifest); err != nil {
+	if err := check.verifyInitialPaths(ManifestPins(expected), manifest); err != nil {
 		t.Fatalf("selected seed signer paths: %v", err)
 	}
 	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
@@ -143,7 +143,7 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 
 	assertRejected := func(label string, changed bootstrap.Manifest) {
 		t.Helper()
-		if err := check.verifyPaths(ManifestPins(expected), changed); !errors.Is(err, ErrLiveCredentials) {
+		if err := check.verifyInitialPaths(ManifestPins(expected), changed); !errors.Is(err, ErrLiveCredentials) {
 			t.Fatalf("%s: got %v, want signer path refusal", label, err)
 		}
 	}
@@ -164,7 +164,7 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 	assertRejected("missing signer purpose", wrongPurpose)
 
 	expected["unassigned.key"] = digest([]byte("signed but unassigned"))
-	if err := check.verifyPaths(ManifestPins(expected), manifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), manifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("unassigned material: got %v, want refusal", err)
 	}
 	delete(expected, "unassigned.key")
@@ -176,24 +176,22 @@ func TestSeedSignerCredentialPathsFollowSelectedSignedManifest(t *testing.T) {
 	}
 }
 
-func TestContinuationSignerRolesRequireExactAcceptedManifestBytes(t *testing.T) {
-	fixture := newFounderSignerFixture(t)
-	wire := fixture.current.ManifestWires[fixture.accepted.Slot]
-	state := bootstrap.SlotState{ManifestRecord: &bootstrap.StoredRecord{
-		SHA256: fixture.accepted.ManifestSHA256, Bytes: wire,
-	}}
-	manifest, err := pinnedCredentialManifest(fixture.accepted, state)
-	if err != nil || manifest.Slot != fixture.accepted.Slot {
-		t.Fatalf("accepted signer manifest: manifest=%+v err=%v", manifest, err)
+func TestFreshInterregionCredentialPathsUseManifestRoleReferences(t *testing.T) {
+	check, expected := credentialPathFixture(t)
+	manifest := peerCredentialManifest
+	manifest.Secrets = nil
+	dir := check.directory
+	tls := natscell.TLSFiles{CAFile: filepath.Join(dir, "interregion-ca.pem"), CertFile: filepath.Join(dir, "interregion-cert.pem"), KeyFile: filepath.Join(dir, "interregion-key.pem")}
+	check.Config.Embedded.InterRegion = &natscell.InterRegion{AccountJWTFile: filepath.Join(dir, "interregion.jwt"), Listen: &natscell.LeafListen{TLS: tls}}
+	for _, name := range []string{"interregion.jwt", "interregion-ca.pem", "interregion-cert.pem", "interregion-key.pem"} {
+		expected[name] = digest([]byte(name))
+		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: bootstrap.SecretInterRegion, Slot: manifest.Slot, TargetFile: name, SHA256: expected[name]})
 	}
-	state.ManifestRecord.Bytes = append(slices.Clone(wire), 'x')
-	if _, err := pinnedCredentialManifest(fixture.accepted, state); !errors.Is(err, ErrFounderInstallContinuation) {
-		t.Fatalf("changed envelope bytes: got %v, want refusal", err)
+	if err := check.verifyInitialPaths(ManifestPins(expected), manifest); err != nil {
+		t.Fatalf("signed fresh interregion paths: %v", err)
 	}
-	state.ManifestRecord.Bytes = wire
-	wrongRole := fixture.accepted
-	wrongRole.SeedSlot = "controller-a"
-	if _, err := pinnedCredentialManifest(wrongRole, state); !errors.Is(err, ErrFounderInstallContinuation) {
-		t.Fatalf("changed accepted seed slot: got %v, want refusal", err)
+	manifest.Secrets[0].Purpose = bootstrap.SecretController
+	if err := check.verifyInitialPaths(ManifestPins(expected), manifest); !errors.Is(err, ErrLiveCredentials) {
+		t.Fatalf("foreign interregion role: %v", err)
 	}
 }

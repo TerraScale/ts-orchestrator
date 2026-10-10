@@ -37,7 +37,7 @@ func TestFounderFloorArtifactsMatchInitializedPeerFloor(t *testing.T) {
 	if err != nil || len(artifacts) != 3 {
 		t.Fatalf("verified peer floor artifacts: count=%d err=%v", len(artifacts), err)
 	}
-	actual, err := os.ReadFile(filepath.Join(gate.Continuation.(*FounderPeerContinuation).floor.directory,
+	actual, err := os.ReadFile(filepath.Join(fixture.peerFloor.directory,
 		founderSelectionFloorName))
 	if err != nil || !bytes.Equal(actual, artifacts[2].Bytes) ||
 		artifacts[0].Path != FounderSelectionFloorDirectory || !artifacts[0].Directory ||

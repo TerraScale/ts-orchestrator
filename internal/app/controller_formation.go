@@ -7,8 +7,6 @@ import (
 	"log"
 	"log/slog"
 	"math/rand/v2"
-	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 // Backoff bounds for the supervised seed founder and for repeated full
@@ -35,13 +32,13 @@ var (
 var controllerLocalAdmissionProduction = admitProductionControllerRestartLocal
 
 var controllerMarkerPresent = func() (bool, error) {
-	return acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().Read)
+	return acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().ReadIdentity)
 }
 
-// controllerAdmission is the full restart-admission gate. In the default mode
-// it has already passed when runController sees it. In offline-first mode it
-// runs in the background after local admission, and wait blocks every
-// authority, broker-gate, founder, and mutation path until it passes.
+// controllerAdmission is the full admission gate. Production restarts run it
+// in the background after local admission; wait blocks every authority,
+// broker-gate, founder, and mutation path until it passes. Initial and lab
+// admission finish before runtime starts.
 type controllerAdmission struct {
 	offline bool
 	done    chan struct{}
@@ -68,30 +65,20 @@ func (admission *controllerAdmission) stop() {
 }
 
 // offlineRestartAdmission reports whether this start may use local admission
-// for route formation: only a production restart (accepted marker present)
-// whose signed config explicitly opts in. Initial admission never does.
+// for route formation: only a production restart with an accepted marker.
+// Initial admission never does.
 func offlineRestartAdmission(cfg Config) (bool, error) {
-	if cfg.NATS.Lab || !cfg.Controller.OfflineRestartAdmission {
-		return false, nil
-	}
-	present, err := controllerBakedInputsPresent()
-	if err != nil {
-		return false, fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
-	}
-	if !present {
+	if cfg.NATS.Lab {
 		return false, nil
 	}
 	return controllerMarkerPresent()
 }
 
-// startControllerAdmission runs restart admission. By default it is a
-// synchronous gate before NATS starts, exactly as before. With
-// offline_restart_admission it first passes the local, OCI-free subset, then
-// repeats full admission in the background with backoff; the same checks
-// still gate everything except broker route formation. An interrupted
-// material generation install was finished before this process started, by
-// selfupdate prepare (bootstrapstart.InstallGeneration): this process cannot
-// write its credential directory.
+// startControllerAdmission admits initial and lab starts before NATS starts.
+// Accepted production restarts first pass local proof, then repeat full
+// admission in the background; it gates everything except route formation.
+// An interrupted material install was finished before this process started
+// by selfupdate prepare: this process cannot write its credential directory.
 func startControllerAdmission(ctx context.Context, cfg Config, clockCheck func() error) (*controllerAdmission, error) {
 	offline, err := offlineRestartAdmission(cfg)
 	if err != nil {
@@ -141,58 +128,11 @@ func startControllerAdmission(ctx context.Context, cfg Config, clockCheck func()
 // admitProductionControllerRestartLocal runs in the service-account
 // controller itself: it makes no OCI SDK call, so it needs no child process.
 func admitProductionControllerRestartLocal(ctx context.Context, cfg Config) error {
-	loadedWire, err := cfg.signedWire()
-	if err != nil || len(loadedWire) == 0 || len(loadedWire) > maxConfigBytes {
-		return errors.New("loaded controller config is not bounded JSON")
-	}
-	baked, err := bootstrapstart.LoadBakedInputs()
-	if err != nil {
-		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
-	}
-	// Same cell and mode check as full admission, before routes can form.
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
-		return errors.New("controller config does not match baked production cell and mode")
-	}
-	serviceUID, serviceGID, err := controllerServiceIdentity()
+	gate, _, err := acceptedControllerAdmissionGate(cfg, bootstrapstart.NewMarkerStore(), nil)
 	if err != nil {
 		return err
 	}
-	if os.Geteuid() != int(serviceUID) || os.Getegid() != int(serviceGID) {
-		return errors.New("local controller restart admission requires the dedicated service account")
-	}
-	checker, err := bootstrapstart.NewLiveCredentialChecker(cfg.NATS, serviceUID, serviceGID,
-		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile,
-		cfg.Controller.HostNATSIssuerSeedFile, cfg.Controller.HostTLSIssuerKeyFile,
-		cfg.Controller.HostTLSIssuerCertFile, func() error {
-			if _, err := readPrivateKey(cfg.Controller.ResponseKeyFile); err != nil {
-				return fmt.Errorf("controller response key: %w", err)
-			}
-			_, _, err := brokerTicketKeys(cfg)
-			return err
-		})
-	if err != nil {
-		return err
-	}
-	checker.TerraBaseCACertFile = cfg.Controller.TerraBaseCACertFile
-	checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCAKeyFile
-	material, err := bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
-	if err != nil {
-		return err
-	}
-	manifest, err := readInstalledControllerFile(controllerConfigDirectory, controllerManifestFilename,
-		0, 0, 0o644, bootstrapstart.MaxControllerManifestMetadataBytes)
-	if err != nil {
-		return fmt.Errorf("read installed signed controller manifest: %w", err)
-	}
-	gate := bootstrapstart.Gate{
-		Roots: baked.Roots, AnchorWire: baked.AnchorWire, Expected: baked.Identity.AnchorExpectation(),
-		LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
-		Descriptor:                   bootstrapstart.NewIMDSClient(),
-		Credentials:                  checker, Material: material, Markers: bootstrapstart.NewMarkerStore(),
-		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
-	}
-	gate.LoadedControllerConfig = loadedWire
-	_, err = gate.AdmitRestartLocal(ctx, manifest)
+	_, err = gate.AdmitRestartLocal(ctx)
 	return err
 }
 

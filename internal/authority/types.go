@@ -41,10 +41,12 @@ var (
 )
 
 // Config identifies this candidate within one regional or global control log.
-// Scope is a lowercase NATS token and CandidateID is a canonical ULID. A fresh
-// owner ULID prevents a restarted or duplicated candidate adopting its old lease.
+// Scope is a lowercase NATS token; DeploymentID and CandidateID are canonical
+// ULIDs. A fresh owner ULID prevents a restarted or duplicated candidate
+// adopting its old lease.
 type Config struct {
 	Scope         string
+	DeploymentID  string
 	CandidateID   string
 	LeaseDuration time.Duration
 	RenewInterval time.Duration
@@ -55,22 +57,23 @@ type Config struct {
 
 // Snapshot is the latest lease observation made by this runtime.
 type Snapshot struct {
-	Scope       string
-	CandidateID string
-	OwnerID     string
-	Leader      bool
-	Ready       bool
-	Epoch       uint64
-	Revision    uint64
-	ExpiresAt   time.Time
-	ObservedAt  time.Time
-	Reason      string
+	Scope        string
+	DeploymentID string
+	CandidateID  string
+	OwnerID      string
+	Leader       bool
+	Ready        bool
+	Epoch        uint64
+	Revision     uint64
+	ExpiresAt    time.Time
+	ObservedAt   time.Time
+	Reason       string
 }
 
 // CanMutate reports whether this snapshot grants the local candidate a live
 // lease. Mutating consumers must still call Guard immediately before effects.
 func (s Snapshot) CanMutate() bool {
-	return s.Ready && s.Leader && s.Epoch > 0 && s.Revision > 0 &&
+	return entityid.Valid(s.DeploymentID) && s.Ready && s.Leader && s.Epoch > 0 && s.Revision > 0 &&
 		!s.ExpiresAt.IsZero() && time.Now().Before(s.ExpiresAt)
 }
 

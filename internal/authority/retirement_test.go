@@ -11,7 +11,7 @@ func TestHostRetirementIsTimestampedAndFencedInControlLog(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

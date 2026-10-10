@@ -29,7 +29,7 @@ func TestSignRootRotationCollectsOldAndNewRootSignatures(t *testing.T) {
 	strangerKey := filepath.Join(dir, "stranger.key")
 	writePrivateKey(t, strangerKey, fixture.leafPrivate)
 	chainPath := filepath.Join(dir, "chain.json")
-	writeFixtureFile(t, chainPath, []byte(`{"rotations":[]}`), 0o644)
+	writeFixtureFile(t, chainPath, []byte(`{"version":1,"rotations":[]}`), 0o644)
 	id := trust.ChainIdentity{DeploymentID: "0000000000VVK5ZNRRNEED4PH3", Cell: "gru", Environment: "production"}
 	sign := func(key, signed, out string, newRoots ...string) (string, error) {
 		args := []string{"--genesis-root", fixture.rootPath, "--chain", chainPath, "--deployment-id", id.DeploymentID,
@@ -86,7 +86,7 @@ func TestSignRootRotationCollectsOldAndNewRootSignatures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verified, err := trust.VerifyRootChain(genesis, id, trust.RootChain{Rotations: []trust.SignedRotation{signed}})
+	verified, err := trust.VerifyRootChain(genesis, id, trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{signed}})
 	newID, _ := trust.KeyID(newPublic)
 	if err != nil || verified.Sequence != 1 || len(verified.Current) != 1 || verified.Current[newID] == nil {
 		t.Fatalf("signed rotation verifies to %+v, %v", verified, err)

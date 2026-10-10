@@ -21,9 +21,10 @@ import (
 )
 
 const (
-	MarkerDirectory = "/var/lib/terrascale-orchestrator-bootstrap"
-	markerName      = "accepted-install.json"
-	maxMarkerBytes  = 16 << 10
+	MarkerDirectory      = "/var/lib/terrascale-orchestrator-bootstrap"
+	markerName           = "accepted-install.json"
+	initialFormationName = "initial-formation.json"
+	maxMarkerBytes       = 16 << 10
 )
 
 var (
@@ -104,17 +105,17 @@ func NewMarkerStore() MarkerStore {
 // Read returns a canonical, root-owned accepted-install marker. A missing or
 // invalid marker always fails closed; first-install admission decides whether
 // the missing case is eligible for current-proof bootstrap.
-func (store MarkerStore) Read() (AcceptedInstall, error) {
+func (store MarkerStore) ReadInitialFormation() (AcceptedInstall, error) {
 	dir, err := store.openDirectory()
 	if err != nil {
 		return AcceptedInstall{}, err
 	}
 	defer unix.Close(dir)
-	fd, err := unix.Openat(dir, markerName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Openat(dir, initialFormationName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return AcceptedInstall{}, fmt.Errorf("open accepted-install marker: %w", err)
 	}
-	file := os.NewFile(uintptr(fd), markerName)
+	file := os.NewFile(uintptr(fd), initialFormationName)
 	defer file.Close()
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG ||
@@ -139,7 +140,7 @@ func (store MarkerStore) Read() (AcceptedInstall, error) {
 
 // WriteNew atomically installs a new marker after the caller has completed all
 // current-proof and material checks. It never replaces an accepted marker.
-func (store MarkerStore) WriteNew(marker AcceptedInstall) error {
+func (store MarkerStore) WriteInitialFormation(marker AcceptedInstall) error {
 	if err := marker.validate(); err != nil {
 		return err
 	}
@@ -156,7 +157,7 @@ func (store MarkerStore) WriteNew(marker AcceptedInstall) error {
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return err
 	}
-	temporary := ".accepted-install." + hex.EncodeToString(nonce[:])
+	temporary := ".initial-formation." + hex.EncodeToString(nonce[:])
 	fd, err := unix.Openat(dir, temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o644)
 	if err != nil {
 		return fmt.Errorf("create temporary accepted-install marker: %w", err)
@@ -192,7 +193,7 @@ func (store MarkerStore) WriteNew(marker AcceptedInstall) error {
 	if err := file.Close(); err != nil {
 		return err
 	}
-	if err := unix.Renameat2(dir, temporary, dir, markerName, unix.RENAME_NOREPLACE); err != nil {
+	if err := unix.Renameat2(dir, temporary, dir, initialFormationName, unix.RENAME_NOREPLACE); err != nil {
 		return fmt.Errorf("install accepted-install marker without replacement: %w", err)
 	}
 	removeTemporary = false

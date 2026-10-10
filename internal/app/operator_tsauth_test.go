@@ -191,7 +191,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	profile, spec := tsAuthGRUConfig(t)
 	spec.Environment = "test"
 	nodes := []string{"ctl-1", "ctl-2", "ctl-3"}
-	users := []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"}}
+	users := []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}}
 	hostKeys := map[string][2]string{}
 	for _, node := range nodes {
 		public, seed := testNKey(t)
@@ -205,7 +205,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: users}},
-		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{tsauth.Role: profile},
 			Autoscale: &AutoscaleConfig{Enabled: true, IntervalSeconds: 1, Services: []workload.ServiceSpec{spec}}},

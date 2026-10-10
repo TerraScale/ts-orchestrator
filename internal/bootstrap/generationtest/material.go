@@ -3,6 +3,7 @@
 package generationtest
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -42,7 +43,7 @@ type Material struct {
 	OperatorID, SystemID, CellID, HostSignerID, SignerID string
 	Operator, System, Cell, HostSigner, Signer           nkeys.KeyPair
 	CA, ControllerIssuer                                 Authority
-	// RoleSignerID makes Generation write schema 2 (TS-668).
+	// RoleSignerID is the role-scoped account signer.
 	RoleSignerID string
 }
 
@@ -157,28 +158,24 @@ func Rollover(t testing.TB, now time.Time, previous Material) Material {
 		"controller-account-signer.seed": append(signerSeed, '\n'),
 	}, OperatorID: operatorID, SystemID: systemID, CellID: cellID, HostSignerID: hostSignerID, SignerID: signerID,
 		Operator: operator, System: system, Cell: cell, HostSigner: hostSigner, Signer: signer,
-		CA: ca, ControllerIssuer: controllerIssuer}
+		CA: ca, ControllerIssuer: controllerIssuer}.withRoleSigner(t)
 }
 
-// Generation pins every file of the material for expected: schema 1, or
-// schema 2 once the material has a role signer.
+// Generation pins every file of the material under the v1 contract.
 func (material Material) Generation(expected bootstrap.MaterialGenerationExpectation, number uint64, previous string,
 ) bootstrap.MaterialGeneration {
-	generation := bootstrap.MaterialGeneration{SchemaVersion: 1,
+	generation := bootstrap.MaterialGeneration{SchemaVersion: bootstrap.MaterialGenerationSchemaVersion,
 		DeploymentID: expected.DeploymentID, Environment: expected.Environment, ClusterID: expected.ClusterID,
 		Cell: expected.Cell, ControllerSlots: expected.ControllerSlots, Generation: number, Previous: previous,
 		Operator: material.OperatorID, SystemAccount: material.SystemID, CellAccount: material.CellID,
 		HostSigner: material.HostSignerID, AccountSigner: material.SignerID, RoleSigner: material.RoleSignerID}
-	if material.RoleSignerID != "" {
-		generation.SchemaVersion = 2
-	}
 	if material.SignerID != "" {
 		generation.IssuedLifetimeHours = 24 * 7
 	}
 	for _, slot := range expected.ControllerSlots {
 		if data, ok := material.Files["controller-"+slot+".json"]; ok {
 			generation.ControllerConfigs = append(generation.ControllerConfigs, bootstrap.GenerationControllerConfig{
-				Slot: slot, ManifestSHA256: digest([]byte("manifest of " + slot)), SHA256: digest(data), Size: int64(len(data))})
+				Slot: slot, AcceptanceSHA256: digest([]byte("manifest of " + slot)), SHA256: digest(data), Size: int64(len(data))})
 		}
 	}
 	for name, data := range material.Files {
@@ -189,6 +186,9 @@ func (material Material) Generation(expected bootstrap.MaterialGenerationExpecta
 		if purpose == "" {
 			purpose = bootstrap.SecretInterRegion
 			for _, candidate := range expected.ControllerSlots {
+				if name == candidate+".creds" {
+					purpose, slot = bootstrap.SecretController, candidate
+				}
 				if cert, key := bootstrap.InterRegionTLSFiles(candidate); name == cert || name == key {
 					slot = candidate
 				}
@@ -202,14 +202,85 @@ func (material Material) Generation(expected bootstrap.MaterialGenerationExpecta
 	return generation
 }
 
+// WithControllerCredentials adds offline-issued, slot-bound controller users
+// and points each supplied config at its own credentials.
+func (material Material) WithControllerCredentials(t testing.TB, slots []string) Material {
+	t.Helper()
+	files := map[string][]byte{}
+	signerSeed, _ := material.Cell.Seed()
+	// Seed returns the fixture key's backing storage.
+	signerSeed = bytes.Clone(signerSeed)
+	defer clear(signerSeed)
+	for _, slot := range slots {
+		name := "controller-" + slot + ".json"
+		var config struct {
+			Version    int             `json:"version"`
+			Controller map[string]any  `json:"controller"`
+			NATS       natscell.Config `json:"nats"`
+		}
+		data, exists := material.Files[name]
+		if !exists {
+			t.Fatalf("WithControllerCredentials: slot %s has no %s", slot, name)
+		}
+		if err := json.Unmarshal(data, &config); err != nil {
+			t.Fatalf("WithControllerCredentials: decode %s: %v", name, err)
+		}
+		config.NATS.CredentialsFile = bootstrap.MaterialDirectory + "/" + slot + ".creds"
+		var peers []string
+		var ir *natscell.InterRegion
+		if embedded := config.NATS.Embedded; embedded != nil {
+			ir = embedded.InterRegion
+		}
+		if ir != nil {
+			peers = ir.Peers
+		}
+		home, err := ir.GlobalControlHome(config.NATS.Cell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		globalHome := home == config.NATS.Cell
+		user, _ := nkeys.CreateUser()
+		public, _ := user.PublicKey()
+		seed, _ := user.Seed()
+		claim := jwt.NewUserClaims(public)
+		claim.Expires = material.CA.Certificate.NotAfter.Unix()
+		claim.Pub.Allow = natscell.ControllerPublishes("gru")
+		if globalHome {
+			claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		}
+		claim.Sub.Allow = jwt.StringList{protocol.InboxGrant("gru", public), protocol.Broker("gru", "ticket", ">"),
+			protocol.Broker("gru", "fence", slot)}
+		claim.Sub.Allow.Add(natscell.ControllerSubscriptions("gru")...)
+		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
+		raw, err := claim.Encode(material.Cell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, _ := jwt.FormatUserConfig(raw, seed)
+		creds, err := bootstrapmaterial.IssueControllerObservabilityCredentials(current, signerSeed, "gru", slot,
+			material.CellID, peers, globalHome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[slot+".creds"] = creds
+		files[name], err = json.Marshal(config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		clear(current)
+		clear(seed)
+		user.Wipe()
+	}
+	return material.With(files)
+}
+
 func digest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
 }
 
-// SchemaTwo adds the role signer (TS-651), derived from the host signer, to
-// cell.jwt, so Generation writes schema 2.
-func (material Material) SchemaTwo(t testing.TB) Material {
+// withRoleSigner pins the host-derived role signer in cell.jwt.
+func (material Material) withRoleSigner(t testing.TB) Material {
 	t.Helper()
 	signer, err := roleidentity.Signer(material.HostSigner)
 	if err != nil {
@@ -281,7 +352,7 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 		}),
 		"interregion.jwt": []byte(interregionJWT + "\n"), "interregion-ca.pem": caPEM, "leaf-sfo.creds": leafCreds,
 	}
-	const directory = "/var/lib/terrascale-orchestrator-secrets/"
+	const directory = bootstrap.MaterialDirectory + "/"
 	for _, slot := range slots {
 		certName, keyName := bootstrap.InterRegionTLSFiles(slot)
 		_, files[certName], files[keyName] = Certificate(t, &x509.Certificate{Subject: pkix.Name{CommonName: "gru-" + slot},
@@ -293,7 +364,7 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 		config, err := json.Marshal(map[string]any{"version": 1, "controller": map[string]any{"candidate_id": slot},
 			"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: &natscell.Embedded{
 				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
-				InterRegion: &natscell.InterRegion{Enabled: true, Peers: contract.Peers, GlobalHome: "sfo",
+				InterRegion: &natscell.InterRegion{Peers: contract.Peers, GlobalHome: "sfo",
 					AccountJWTFile: directory + "interregion.jwt", Subtrees: contract.Subtrees, Topology: &topology,
 					Listen: &natscell.LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS},
 					Remotes: []natscell.LeafRemote{{Peer: "sfo", URLs: []string{"nats-leaf://10.1.0.10:7422"},

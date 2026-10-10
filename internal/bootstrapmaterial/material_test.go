@@ -24,6 +24,8 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
@@ -210,103 +212,77 @@ func TestGeneratedTerminalCredentialGrants(t *testing.T) {
 	}
 }
 
-// Only global home material grants the controller the global authority and
-// global state publishes; regional material keeps today's grants, and the
-// controller preflight tells the two apart before the global lease starts.
-func TestGlobalHomeMaterialGrantsGlobalPublishes(t *testing.T) {
+// Every standalone cell is its own global home and always receives telemetry.
+func TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
-	for name, globalHome := range map[string]bool{"regional": false, "home": true} {
-		cfg := testConfig()
-		cfg.GlobalHome = globalHome
-		directory := filepath.Join(t.TempDir(), name)
-		record, err := Generate(directory, cfg, now)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if record.Config.GlobalHome != globalHome {
-			t.Fatalf("%s record lost globalHome", name)
-		}
-		if again, err := Generate(directory, cfg, now); err != nil || again.Config.GlobalHome != globalHome {
-			t.Fatalf("%s regenerate = %v", name, err)
-		}
-		flipped := cfg
-		flipped.GlobalHome = !globalHome
-		if _, err := Generate(directory, flipped, now); err == nil {
-			t.Fatalf("%s material reused for a different global home role", name)
-		}
-		for _, slot := range cfg.Slots {
-			path := filepath.Join(directory, slot.Name+".creds")
-			if err := natscell.ValidateBrokerControllerCredentials(path, "gru", slot.Name); err != nil {
-				t.Fatalf("%s %s controller credentials rejected: %v", name, slot.Name, err)
+	for _, cell := range catalog.Entries() {
+		t.Run(cell.Name(), func(t *testing.T) {
+			cfg := testConfig()
+			cfg.Cell, cfg.Region = cell.Name(), cell.OCIRegion
+			directory := filepath.Join(t.TempDir(), "material")
+			record, err := Generate(directory, cfg, now)
+			if err != nil {
+				t.Fatal(err)
 			}
-			err := natscell.ValidateGlobalControllerPermissions(natscell.Config{Cell: "gru", CredentialsFile: path})
-			if globalHome && err != nil {
-				t.Fatalf("home %s lacks global grants: %v", slot.Name, err)
+			if err := ValidateLive(directory, record); err != nil {
+				t.Fatal(err)
 			}
-			if !globalHome && !errors.Is(err, natscell.ErrMissingGlobalGrants) {
-				t.Fatalf("regional %s preflight = %v, want missing global grants", slot.Name, err)
+			if again, err := Generate(directory, cfg, now); err != nil || !reflect.DeepEqual(again, record) {
+				t.Fatalf("immutable source reuse: %v", err)
 			}
-		}
+			for _, slot := range cfg.Slots {
+				path := filepath.Join(directory, slot.Name+".creds")
+				if err := natscell.ValidateBrokerControllerCredentials(path, cfg.Cell, slot.Name); err != nil {
+					t.Fatal(err)
+				}
+				wire, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				raw, err := nkeys.ParseDecoratedJWT(wire)
+				if err != nil {
+					t.Fatal(err)
+				}
+				claim, err := jwt.DecodeUserClaims(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Contains(claim.Sub.Allow, protocol.ObservabilityGrant(cfg.Cell)) {
+					t.Fatalf("%s lacks telemetry grants", slot.Name)
+				}
+				err = natscell.ValidateGlobalControllerPermissions(natscell.Config{Cell: cfg.Cell, CredentialsFile: path})
+				if err != nil {
+					t.Fatalf("home %s lacks global grants: %v", slot.Name, err)
+				}
+			}
+		})
 	}
 }
 
-// TestObservabilityGrantFollowsTheGrantVersion pins that only material of
-// grant version 2 lets controllers subscribe to the read-only telemetry
-// subjects, that the production validator accepts both versions, and that
-// material is never reused across a grant version change.
-func TestObservabilityGrantFollowsTheGrantVersion(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	for name, version := range map[string]int{"default": 0, "base": GrantVersionBase,
-		"observability": GrantVersionObservability} {
-		cfg := testConfig()
-		cfg.GrantVersion = version
-		directory := filepath.Join(t.TempDir(), name)
-		record, err := Generate(directory, cfg, now)
+func TestControllerMaterialRejectsRetiredGrantSwitches(t *testing.T) {
+	for _, field := range []string{`"globalHome":true`, `"globalHome":false`, `"grantVersion":1`, `"grantVersion":2`} {
+		directory := filepath.Join(t.TempDir(), "material")
+		if _, err := Generate(directory, testConfig(), time.Now().UTC()); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(directory, metadataName)
+		wire, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ValidateLive(directory, record); err != nil {
-			t.Fatalf("%s material failed live validation: %v", name, err)
+		changed := bytes.Replace(wire, []byte(`"config":{`), []byte(`"config":{`+field+`,`), 1)
+		if bytes.Equal(changed, wire) {
+			t.Fatal("fixture config was not changed")
 		}
-		if loaded, err := Load(directory); err != nil || loaded.Config.GrantVersion != version {
-			t.Fatalf("%s record = %+v, %v", name, loaded.Config, err)
+		wire = changed
+		if err := os.WriteFile(path, wire, 0o600); err != nil {
+			t.Fatal(err)
 		}
-		flipped := cfg
-		flipped.GrantVersion = GrantVersionObservability
-		if version == GrantVersionObservability {
-			flipped.GrantVersion = GrantVersionBase
+		if err := os.WriteFile(filepath.Join(directory, readyName), []byte(digest(wire)+"\n"), 0o600); err != nil {
+			t.Fatal(err)
 		}
-		if _, err := Generate(directory, flipped, now); err == nil {
-			t.Fatalf("%s material reused for another grant version", name)
-		}
-		for _, slot := range cfg.Slots {
-			path := filepath.Join(directory, slot.Name+".creds")
-			if err := natscell.ValidateBrokerControllerCredentials(path, "gru", slot.Name); err != nil {
-				t.Fatalf("%s %s controller credentials rejected: %v", name, slot.Name, err)
-			}
-			wire, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			raw, err := nkeys.ParseDecoratedJWT(wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			claim, err := jwt.DecodeUserClaims(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			granted := slices.Contains(claim.Sub.Allow, "ts.orch.v1.gru.obs.>")
-			if granted != (version == GrantVersionObservability) {
-				t.Fatalf("%s %s observability grant = %v", name, slot.Name, granted)
-			}
-		}
-	}
-	cfg := testConfig()
-	for _, invalid := range []int{-1, GrantVersionObservability + 1} {
-		cfg.GrantVersion = invalid
-		if _, err := Generate(filepath.Join(t.TempDir(), "invalid"), cfg, now); err == nil {
-			t.Fatalf("grant version %d accepted", invalid)
+		if _, err := Load(directory); !errors.Is(err, ErrMaterial) {
+			t.Fatalf("retired %s accepted: %v", field, err)
 		}
 	}
 }

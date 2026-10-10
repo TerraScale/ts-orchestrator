@@ -41,7 +41,7 @@ import (
 const OperatorCLI = "terrascale-orchestrator-linux-amd64"
 
 var Slots = []string{"controller-a", "controller-b", "controller-c"}
-var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "continuity", "operator", "services", "members", "terrabase"}
+var Phases = []string{"material", "release", "image", "sign", "launch", "complete", "operator", "services", "members", "terrabase"}
 
 type Object = map[string]any
 type Command struct {
@@ -171,19 +171,10 @@ func (a *Attempt) Path(parts ...string) string {
 	return filepath.Join(append([]string{a.Work}, parts...)...)
 }
 func exists(path string) bool { _, e := os.Stat(path); return e == nil }
-func (a *Attempt) LegacyTools() bool {
-	return exists(a.Path("source", "cmd", "ts-bootstrap", "main.go"))
-}
 func (a *Attempt) BootstrapTool() string {
-	if a.LegacyTools() {
-		return a.Path("tools", "ts-bootstrap")
-	}
 	return a.Path("tools", "ts-orch")
 }
 func (a *Attempt) ReleaseTool() string {
-	if a.LegacyTools() {
-		return a.Path("tools", "ts-release")
-	}
 	return a.BootstrapTool()
 }
 func (a *Attempt) Plan() string { return a.Path("plan.json") }
@@ -235,10 +226,7 @@ func (a *Attempt) sudo(capture bool, args ...string) string {
 	return a.execute(Command{Args: append([]string{"sudo", "--preserve-env=PATH,LIBGUESTFS_PATH"}, args...), Capture: capture})
 }
 func (a *Attempt) bootstrapCommand(args []string) []string {
-	c := []string{a.BootstrapTool()}
-	if !a.LegacyTools() {
-		c = append(c, "bootstrap")
-	}
+	c := []string{a.BootstrapTool(), "bootstrap"}
 	return append(c, args...)
 }
 func (a *Attempt) RunBootstrap(args ...string) string { return a.run(a.bootstrapCommand(args)...) }
@@ -249,10 +237,7 @@ func (a *Attempt) bootstrapSudo(args ...string) string {
 	return a.sudo(false, a.bootstrapCommand(args)...)
 }
 func (a *Attempt) release(args ...string) string {
-	c := []string{a.ReleaseTool()}
-	if !a.LegacyTools() {
-		c = append(c, "release")
-	}
+	c := []string{a.ReleaseTool(), "release"}
 	return a.run(append(c, args...)...)
 }
 func (a *Attempt) preview(args ...string) string {
@@ -455,17 +440,11 @@ func (a *Attempt) BuildTools() {
 	if !exists(source) {
 		a.run("git", "-C", str(orch, "repository"), "worktree", "add", "--detach", source, str(orch, "source_revision"))
 	}
-	if exists(a.BootstrapTool()) && exists(a.ReleaseTool()) {
+	if exists(a.BootstrapTool()) {
 		return
 	}
 	a.mkdir(a.Path("tools"))
-	targets := [][2]string{{a.BootstrapTool(), "./cmd/terrascale-orchestrator"}}
-	if a.LegacyTools() {
-		targets = [][2]string{{a.BootstrapTool(), "./cmd/ts-bootstrap"}, {a.ReleaseTool(), "./cmd/ts-release"}}
-	}
-	for _, p := range targets {
-		a.execute(Command{Args: []string{"go", "build", "-trimpath", "-buildvcs=true", "-o", p[0], p[1]}, Dir: source})
-	}
+	a.execute(Command{Args: []string{"go", "build", "-trimpath", "-buildvcs=true", "-o", a.BootstrapTool(), "./cmd/terrascale-orchestrator"}, Dir: source})
 }
 func (a *Attempt) controllerObjectGrants(plan Object) {
 	ids := object(plan["resource_ids"])
@@ -548,7 +527,7 @@ func (a *Attempt) PhaseMaterial() {
 	if !exists(anchor) {
 		ids, buckets := object(base["resource_ids"]), object(base["foundation_buckets"])
 		candidate := a.Path("anchor.candidate.json")
-		a.writeJSON(candidate, Object{"schemaVersion": 3, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "storageDomain": Object{"namespace": a.Config["namespace"], "ledgerBucket": buckets["ledger"], "ledgerKmsKeyOcid": ids["key"], "headBucket": buckets["head"], "headKmsKeyOcid": ids["key"], "prefix": a.Prefix}, "controllerSlots": Slots})
+		a.writeJSON(candidate, Object{"schemaVersion": bootstrap.BootstrapAnchorSchemaVersion, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "storageDomain": Object{"namespace": a.Config["namespace"], "ledgerBucket": buckets["ledger"], "ledgerKmsKeyOcid": ids["key"], "headBucket": buckets["head"], "headKmsKeyOcid": ids["key"], "prefix": a.Prefix}, "controllerSlots": Slots})
 		expiry, e := time.Parse(time.RFC3339, expires)
 		a.fail(e)
 		validFor := int64(expiry.Sub(a.Now()).Seconds()) - 60
@@ -769,7 +748,7 @@ func (a *Attempt) PhaseSign() {
 			}
 		}
 		candidate, config := a.Path("signed", slot+".candidate.json"), a.Path("signed", slot+".config.json")
-		a.writeJSON(candidate, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
+		a.writeJSON(candidate, Object{"schemaVersion": bootstrap.ManifestSchemaVersion, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
 		if !exists(config) {
 			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
 			// The snapshot location is boot configuration: a rebuilt cell
@@ -915,9 +894,6 @@ func (a *Attempt) PhaseLaunch() {
 	reviewed := filepath.Join(launch, "reviewed-seed-plan.json")
 	a.remove(reviewed)
 	args := []string{"seed-preflight", "--plan", a.Plan(), "--inventory", inventory, "--admission", admission, "--bootstrap-tool", a.BootstrapTool(), "--anchor", a.Path("anchor.signed.json"), "--manifest", a.Manifest("controller-a"), "--identity", a.Path("identity.json"), "--bootstrap-root", a.trust("root_public"), "--image-ocid", a.ImageID(), "--release-tool", a.ReleaseTool()}
-	if a.LegacyTools() {
-		args = append(args, "--legacy-bootstrap-tool", "--legacy-release-tool")
-	}
 	args = append(args, "--image-receipt", a.ImageReceipt(), "--release-delegation", a.Path("image", "image-delegation.signed.json"), "--release-root", a.trust("root_public"), "--image-file", a.Path("image", "terrascale-arm64.qcow2"), "--base-image-file", str(image, "base_qcow2"), "--kernel-file", a.Kernel(), "--out", reviewed)
 	a.preview(args...)
 	launchInput := filepath.Join(launch, "controller-a-launch.json")
@@ -1043,91 +1019,6 @@ func (a *Attempt) PhaseComplete() {
 func (a *Attempt) markerObject(slot string) string {
 	key := sha256.Sum256([]byte(a.Cell().Cell + "\x00controller\x00" + slot))
 	return a.Prefix + "/bootstrap/v1/" + a.Deployment + "/" + hex.EncodeToString(key[:]) + "/accepted-install.json"
-}
-func (a *Attempt) PhaseContinuity() {
-	continuity := a.Path("continuity")
-	a.mkdir(continuity)
-	plan := a.read(a.Plan())
-	anchor := a.Path("anchor.signed.json")
-	for _, slot := range Slots {
-		marker := filepath.Join(continuity, slot+".marker.json")
-		name := a.markerObject(slot)
-		deadline := a.Now().Add(20 * time.Minute)
-		if exists(marker) {
-			continue
-		}
-		// Announce the poll once per slot; the seam is reused for every read.
-		cloud := a.cloud("GetObject " + slot + " accepted-install marker (polling)")
-		if cloud == nil {
-			return
-		}
-		for !exists(marker) {
-			if a.err != nil {
-				return
-			}
-			// A read error is retried like an absent marker until the
-			// deadline: the controller may still be publishing it.
-			data, found, e := cloud.GetObject(a.ctx, str(a.Config, "namespace"), str(object(plan["foundation_buckets"]), "head"), name)
-			if e != nil {
-				fmt.Fprintln(a.ErrOut, e)
-			}
-			if a.ctx.Err() != nil {
-				a.fail(a.ctx.Err())
-				return
-			}
-			if e == nil && found && len(data) > 0 {
-				a.WriteNew(marker, data)
-				break
-			}
-			if a.Now().After(deadline) {
-				a.fail(fmt.Errorf("%s did not publish its accepted-install marker", slot))
-				return
-			}
-			a.fail(a.Sleep(a.ctx, 20*time.Second))
-		}
-	}
-	record := filepath.Join(continuity, "generation")
-	generation := 2
-	if exists(record) {
-		b, e := os.ReadFile(record)
-		a.fail(e)
-		previous, e := strconv.Atoi(strings.TrimSpace(string(b)))
-		a.fail(e)
-		generation = previous + 1
-	}
-	work := filepath.Join(continuity, fmt.Sprintf("g%d", generation))
-	a.mkdir(work)
-	var proofs []string
-	for _, slot := range Slots {
-		candidate, proof := filepath.Join(work, slot+".candidate.json"), filepath.Join(work, slot+".signed.json")
-		if !exists(proof) {
-			a.remove(candidate)
-			// An install that adopted material generations is bound to the
-			// chain the attempt holds, not to its bootstrap material.
-			material, signing := []string{"--material-directory", a.Path("material")}, []string(nil)
-			if chain := a.Path("material-generations.json"); exists(chain) {
-				material, signing = []string{"--material-generations", chain}, []string{"--material-generations", chain}
-			}
-			a.RunBootstrap(append(append([]string{"render-founder-continuity", "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor}, material...), "--selector-generation", strconv.Itoa(generation), "--out", candidate)...)
-			a.RunBootstrap(append([]string{"sign-founder-continuity", "--candidate", candidate, "--marker", filepath.Join(continuity, slot+".marker.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", proof, "--valid-for", a.validFor()}, signing...)...)
-		}
-		proofs = append(proofs, "--proof", proof)
-	}
-	selection := filepath.Join(work, "selection.signed.json")
-	if !exists(selection) {
-		candidate := filepath.Join(work, "selection.candidate.json")
-		var refs []any
-		for _, slot := range Slots {
-			refs = append(refs, Object{"slot": slot, "sha256": a.sha(filepath.Join(work, slot+".signed.json"))})
-		}
-		// The selector signers require FounderSelection's canonical field order.
-		a.writeJSON(candidate, typed(a, Object{"schemaVersion": 2, "deploymentId": a.Deployment, "cell": a.Cell().Cell, "environment": "canary", "generation": generation, "continuities": refs}, &bootstrapstart.FounderSelection{}))
-		a.RunBootstrap(join([]string{"sign-founder-selection", "--candidate", candidate, "--identity", a.Path("identity.json"), "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", selection, "--valid-for", a.validFor()}, proofs)...)
-	}
-	a.RunBootstrap(join([]string{"publish-founder-selection", "--selection", selection, "--identity", a.Path("identity.json"), "--anchor", anchor, "--root-key", a.trust("root_public"), "--oci-config", a.ociConfig(), "--oci-profile", "DEFAULT"}, proofs)...)
-	if a.err == nil {
-		a.fail(os.WriteFile(record, []byte(strconv.Itoa(generation)), 0600))
-	}
 }
 func (a *Attempt) PhaseOperator() {
 	record, grant := a.Path("controller-material.json"), str(a.Config, "operator_grant")
@@ -1522,8 +1413,6 @@ func (a *Attempt) Phase(phase string) error {
 		a.PhaseLaunch()
 	case "complete":
 		a.PhaseComplete()
-	case "continuity":
-		a.PhaseContinuity()
 	case "operator":
 		a.PhaseOperator()
 	case "services":

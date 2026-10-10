@@ -64,7 +64,7 @@ func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 	t.Cleanup(func() { _ = broker.Close() })
 	var healthy atomic.Bool
 	healthy.Store(true)
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000999SG7965GCYC9GD", Replicas: 1,
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000999SG7965GCYC9GD", Replicas: 1,
 		ClockCheck: func() error {
 			if !healthy.Load() {
 				return authority.ErrClockUnhealthy

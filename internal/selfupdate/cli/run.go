@@ -18,13 +18,17 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -93,6 +97,8 @@ func run(ctx context.Context, args []string, output io.Writer, now func() time.T
 	c := command{ctx: ctx, output: writer, now: now, restart: restart}
 	var err error
 	switch args[0] {
+	case "check-accepted-identity":
+		err = checkAcceptedIdentity(os.Stdin, args[1:])
 	case "prepare":
 		err = c.prepare(args[1:])
 	case "watchdog":
@@ -195,13 +201,42 @@ func (c command) prepare(args []string) error {
 	if err := parse(flags, args); err != nil {
 		return err
 	}
+	accepted, inputs, err := controllerTrust(*unit)
+	if err != nil {
+		return err
+	}
+	rollbackOnly := false
+	if accepted != nil {
+		rollbackOnly, err = c.checkControllerRecovery(layout.layout(), *accepted, inputs, true, *baked)
+		if err != nil {
+			return err
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			if rollbackOnly {
+				return err
+			}
+			current, currentErr := layout.layout().Current()
+			good, goodErr := layout.layout().KnownGood()
+			if currentErr != nil || goodErr != nil || current == "" || good == "" {
+				return errors.Join(err, currentErr, goodErr)
+			}
+			if err := c.checkControllerRelease(layout.layout(), current, *accepted, inputs); err != nil {
+				return err
+			}
+			if err := c.checkControllerRelease(layout.layout(), good, *accepted, inputs); err != nil {
+				return err
+			}
+			_, printErr := fmt.Fprintf(c.output, "selfupdate prepare unit=%s held: compatible current and known-good; no effects\n", *unit)
+			return printErr
+		}
+	}
 	// The runtime secret mounts below belong to the host (TS-745).
 	if layout.layout().Root == selfupdate.DefaultRoot {
 		if moved, err := selfupdate.RunInHostMounts(c.ctx, c.output, os.Stderr); moved || err != nil {
 			return err
 		}
 	}
-	if c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
+	if !rollbackOnly && c.delegate(layout.layout(), append([]string{"prepare"}, args...)) {
 		if err := c.backstopPrepare(layout.layout(), *unit); err != nil {
 			return err
 		}
@@ -224,6 +259,21 @@ func (c command) prepare(args []string) error {
 		return err
 	}
 	defer unlock()
+	accepted, inputs, err = controllerTrust(*unit)
+	if err != nil {
+		return err
+	}
+	if accepted != nil {
+		if _, err := c.checkControllerRecovery(layout.layout(), *accepted, inputs, true, *baked); err != nil {
+			return err
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			return err
+		}
+		if _, err := c.recoverControllerActivation(layout.layout(), *accepted, inputs); err != nil {
+			return err
+		}
+	}
 	outcome, err := selfupdate.Prepare(layout.layout(), *unit, *baked, check, c.now())
 	if err != nil {
 		return err
@@ -351,11 +401,24 @@ func (c command) watchdog(args []string) error {
 	layout := addLayout(flags)
 	proof := addProof(flags)
 	unit := flags.String("unit", "", "systemd unit that executes the current release")
-	restart := flags.Bool("restart", false, "restart the unit after a rollback")
 	if err := parse(flags, args); err != nil {
 		return err
 	}
-	delegated := c.delegate(layout.layout(), append([]string{"watchdog"}, args...))
+	accepted, inputs, err := controllerTrust(*unit)
+	if err != nil {
+		return err
+	}
+	rollbackOnly := false
+	if accepted != nil {
+		rollbackOnly, err = c.checkControllerRecovery(layout.layout(), *accepted, inputs, false, "")
+		if err != nil {
+			return err
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			return err
+		}
+	}
+	delegated := !rollbackOnly && c.delegate(layout.layout(), append([]string{"watchdog"}, args...))
 	var check selfupdate.ProofCheck
 	if !delegated {
 		var err error
@@ -366,6 +429,25 @@ func (c command) watchdog(args []string) error {
 	unlock, err := layout.layout().Lock()
 	if err != nil {
 		return err
+	}
+	accepted, inputs, err = controllerTrust(*unit)
+	if err != nil {
+		unlock()
+		return err
+	}
+	if accepted != nil {
+		if _, err := c.checkControllerRecovery(layout.layout(), *accepted, inputs, false, ""); err != nil {
+			unlock()
+			return err
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			unlock()
+			return err
+		}
+		if _, err := c.recoverControllerActivation(layout.layout(), *accepted, inputs); err != nil {
+			unlock()
+			return err
+		}
 	}
 	var outcome selfupdate.Outcome
 	var activation selfupdate.Activation
@@ -380,7 +462,7 @@ func (c command) watchdog(args []string) error {
 	}
 	// The rollout step runs after the check, so a slow or stuck step never
 	// delays a rollback, and before the restart below serves what it owes.
-	if !delegated && *restart && (*unit == selfupdate.ControllerUnit || *unit == selfupdate.HostUnit) && *proof.config != "" {
+	if !delegated && (*unit == selfupdate.ControllerUnit || *unit == selfupdate.HostUnit) && *proof.config != "" {
 		unlock()
 		c.rolloutStep(layout.layout(), *unit, *proof.config)
 		if unlock, err = layout.layout().Lock(); err != nil {
@@ -400,7 +482,7 @@ func (c command) watchdog(args []string) error {
 		_, printErr = fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
 			*unit, outcome, activation.ActivationID, activation.Target)
 	}
-	if owed && *restart {
+	if owed {
 		if err := c.restart(c.ctx, *unit); err != nil {
 			return errors.Join(err, printErr)
 		}
@@ -424,7 +506,6 @@ func (c command) stage(args []string) error {
 	environment := flags.String("environment", "", "this node's release environment")
 	cell := flags.String("cell", "", "this node's logical cell: GRU, SFO or FRA")
 	architecture := flags.String("arch", runtime.GOARCH, "this node's architecture")
-	allowAuto := flags.Bool("allow-scoped-auto-sign", false, "accept update receipts signed under a scoped binary update delegation")
 	if err := parse(flags, args); err != nil {
 		return err
 	}
@@ -448,13 +529,42 @@ func (c command) stage(args []string) error {
 		return err
 	}
 	defer source.Close()
+	accepted, inputs, err := controllerTrust(selfupdate.ControllerUnit)
+	if err != nil {
+		return err
+	}
+	if accepted != nil {
+		if *environment != accepted.Environment || *cell != accepted.Cell || *architecture != accepted.Binary.Architecture {
+			return errors.New("release scope differs from accepted controller identity")
+		}
+		roots = inputs.Roots.Current
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			return err
+		}
+	}
 	policy := selfupdate.ReceiptPolicy{Roots: roots, Environment: *environment, Cell: *cell,
-		Architecture: *architecture, AllowScopedAutoSign: *allowAuto}
+		Architecture: *architecture}
 	unlock, err := layout.layout().Lock()
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	fresh, freshInputs, err := controllerTrust(selfupdate.ControllerUnit)
+	if err != nil {
+		return err
+	}
+	if accepted != nil && fresh == nil {
+		return errors.New("accepted controller identity disappeared during staging")
+	}
+	if fresh != nil {
+		if *environment != fresh.Environment || *cell != fresh.Cell || *architecture != fresh.Binary.Architecture {
+			return errors.New("release scope differs from accepted controller identity")
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *fresh, freshInputs); err != nil {
+			return err
+		}
+		policy.Roots = freshInputs.Roots.Current
+	}
 	digest, err := selfupdate.Stage(layout.layout(), source, receiptWire, delegationWire, policy, c.now().UTC())
 	if err != nil {
 		return err
@@ -469,13 +579,40 @@ func (c command) activate(args []string) error {
 	digest := flags.String("release", "", "staged release SHA-256")
 	unit := flags.String("unit", "", "systemd unit that executes the current release")
 	window := flags.Duration("proof-window", 5*time.Minute, "deadline for the new process's signed version proof")
-	restart := flags.Bool("restart", false, "restart the unit after flipping the current link")
 	if err := parse(flags, args); err != nil {
 		return err
+	}
+	accepted, inputs, gateErr := controllerTrust(*unit)
+	if gateErr != nil {
+		return gateErr
+	}
+	if accepted != nil {
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			return err
+		}
 	}
 	unlock, err := layout.layout().Lock()
 	if err != nil {
 		return err
+	}
+	accepted, inputs, gateErr = controllerTrust(*unit)
+	if gateErr != nil {
+		unlock()
+		return gateErr
+	}
+	if accepted != nil {
+		if err := c.checkControllerRelease(layout.layout(), *digest, *accepted, inputs); err != nil {
+			unlock()
+			return err
+		}
+		if err := c.requireControllerCompletion(layout.layout(), *accepted, inputs); err != nil {
+			unlock()
+			return err
+		}
+		if err := c.checkControllerTransitions(layout.layout(), *accepted, inputs, true, ""); err != nil {
+			unlock()
+			return err
+		}
 	}
 	activation, err := selfupdate.Activate(layout.layout(), *digest, *unit, c.now(), *window)
 	unlock()
@@ -486,10 +623,7 @@ func (c command) activate(args []string) error {
 		activation.Target, activation.Previous, activation.ActivationID, activation.Deadline.Format(time.RFC3339)); err != nil {
 		return err
 	}
-	if *restart {
-		return c.restart(c.ctx, *unit)
-	}
-	return nil
+	return c.restart(c.ctx, *unit)
 }
 
 func (c command) status(args []string) error {
@@ -569,6 +703,24 @@ func (c command) delegate(layout selfupdate.Layout, args []string) bool {
 	if err != nil || digest == "" {
 		return false
 	}
+	unit := ""
+	for index, arg := range args {
+		if arg == "--unit" && index+1 < len(args) {
+			unit = args[index+1]
+		}
+		if value, ok := strings.CutPrefix(arg, "--unit="); ok {
+			unit = value
+		}
+	}
+	if unit == selfupdate.ControllerUnit {
+		accepted, inputs, err := controllerTrust(unit)
+		if err != nil {
+			return false
+		}
+		if accepted != nil && c.checkControllerRelease(layout, digest, *accepted, inputs) != nil {
+			return false
+		}
+	}
 	ctx, cancel := context.WithTimeout(c.ctx, delegateTimeout)
 	defer cancel()
 	step := exec.CommandContext(ctx, layout.BinaryPath(digest), append([]string{"selfupdate"}, args...)...)
@@ -591,12 +743,29 @@ func (c command) backstopPrepare(layout selfupdate.Layout, unit string) error {
 		return err
 	}
 	defer unlock()
+	accepted, inputs, err := controllerTrust(unit)
+	if err != nil {
+		return err
+	}
+	recovered := false
+	if accepted != nil {
+		if _, err := c.checkControllerRecovery(layout, *accepted, inputs, true, ""); err != nil {
+			return err
+		}
+		if err := c.requireControllerCompletion(layout, *accepted, inputs); err != nil {
+			return err
+		}
+		recovered, err = c.recoverControllerActivation(layout, *accepted, inputs)
+		if err != nil {
+			return err
+		}
+	}
 	outcome, activation, err := selfupdate.Backstop(layout, c.now())
 	if err != nil {
 		return err
 	}
 	// This start serves the restart the rollback owes the unit.
-	if outcome == selfupdate.OutcomeRolledBack && activation.Unit == unit {
+	if recovered || outcome == selfupdate.OutcomeRolledBack && activation.Unit == unit {
 		if err := layout.ClearRestartPending(unit); err != nil {
 			return err
 		}
@@ -614,20 +783,348 @@ func (c command) backstopPrepare(layout selfupdate.Layout, unit string) error {
 // The step spools of the controller and the host, and the image's trust
 // roots; tests replace them.
 var (
-	rolloutSpoolDir = rolloutexec.DefaultSpoolDir
-	hostSpoolDir    = rolloutexec.HostSpoolDir
-	bakedInputs     = bootstrapstart.LoadBakedInputs
+	rolloutSpoolDir        = rolloutexec.DefaultSpoolDir
+	hostSpoolDir           = rolloutexec.HostSpoolDir
+	bakedInputs            = bootstrapstart.LoadBakedInputs
+	acceptedIdentity       = func() (bootstrapstart.AcceptedIdentity, error) { return bootstrapstart.NewMarkerStore().ReadIdentity() }
+	acceptedTrustInputs    = bootstrapstart.LoadTrustInputs
+	acceptedPrestart       = bootstrapstart.CheckIdentityRekeyPrestart
+	acceptedJournalPresent = bootstrapstart.IdentityRekeyJournalPresent
+	completionProbe        = runIdentityRekeyCompletionProbe
+	checkAcceptedBinary    = checkAcceptedBinaryContract
 	// installGeneration is prepare's material step for the controller unit.
 	installGeneration = bootstrapstart.InstallGeneration
 )
+
+// controllerTrust loads root-owned acceptance before a controller root effect.
+func controllerTrust(unit string) (*bootstrapstart.AcceptedIdentity, bootstrapstart.TrustInputs, error) {
+	if unit != selfupdate.ControllerUnit {
+		return nil, bootstrapstart.TrustInputs{}, nil
+	}
+	accepted, err := acceptedIdentity()
+	if errors.Is(err, os.ErrNotExist) {
+		present, journalErr := acceptedJournalPresent()
+		if journalErr != nil {
+			return nil, bootstrapstart.TrustInputs{}, journalErr
+		}
+		if present {
+			return nil, bootstrapstart.TrustInputs{}, errors.New("identity rekey journal exists without accepted controller identity")
+		}
+		return nil, bootstrapstart.TrustInputs{}, nil
+	}
+	if err != nil {
+		return nil, bootstrapstart.TrustInputs{}, err
+	}
+	if err := accepted.Validate(); err != nil {
+		return nil, bootstrapstart.TrustInputs{}, err
+	}
+	if err := acceptedPrestart(accepted); err != nil {
+		return nil, bootstrapstart.TrustInputs{}, err
+	}
+	inputs, err := acceptedTrustInputs(accepted)
+	return new(accepted), inputs, err
+}
+
+func (c command) requireControllerCompletion(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) error {
+	present, err := acceptedJournalPresent()
+	if err != nil || !present {
+		return err
+	}
+	current, err := layout.Current()
+	if err != nil || current == "" {
+		return errors.New("identity rekey completion requires a trusted current binary")
+	}
+	rollback, err := c.controllerRollback(layout, accepted, inputs)
+	if err != nil {
+		return err
+	}
+	if current == rollback.Target {
+		current = rollback.Previous
+	}
+	if err := c.checkControllerRelease(layout, current, accepted, inputs); err != nil {
+		return err
+	}
+	return completionProbe(c.ctx, layout.BinaryPath(current))
+}
+
+func runIdentityRekeyCompletionProbe(ctx context.Context, binary string) error {
+	account, err := user.Lookup("terrascale-orchestrator")
+	if err != nil {
+		return err
+	}
+	uid, uidErr := strconv.ParseUint(account.Uid, 10, 32)
+	gid, gidErr := strconv.ParseUint(account.Gid, 10, 32)
+	if uidErr != nil || gidErr != nil || uid == 0 || gid == 0 {
+		return errors.New("controller service UID/GID is invalid")
+	}
+	return runCompletionProbeAs(ctx, binary, uint32(uid), uint32(gid))
+}
+
+func runCompletionProbeAs(ctx context.Context, binary string, uid, gid uint32) error {
+	if uid == 0 || gid == 0 || !filepath.IsAbs(binary) {
+		return errors.New("completion probe requires service ownership and an absolute binary")
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	command := exec.CommandContext(probeCtx, binary, "identity-rekey-completion-check", "--config", "/etc/terrascale-orchestrator/controller.json")
+	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid}}
+	command.Stdout, command.Stderr = io.Discard, io.Discard
+	command.WaitDelay = time.Second
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("read-only identity rekey completion probe refused: %w", err)
+	}
+	return nil
+}
+
+func checkAcceptedIdentity(input io.Reader, args []string) error {
+	if len(args) != 0 {
+		return errors.New("check-accepted-identity takes canonical accepted identity on stdin")
+	}
+	wire, err := io.ReadAll(io.LimitReader(input, bootstrapstart.MaxAcceptedIdentityBytes+1))
+	if err != nil {
+		return err
+	}
+	_, err = bootstrapstart.DecodeAcceptedIdentity(wire)
+	return err
+}
+
+func checkAcceptedBinaryContract(ctx context.Context, binary string, accepted bootstrapstart.AcceptedIdentity) error {
+	wire, err := bootstrapstart.EncodeAcceptedIdentity(accepted)
+	if err != nil {
+		return err
+	}
+	probe := func(wire []byte) error {
+		probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		command := exec.CommandContext(probeCtx, binary, "selfupdate", "check-accepted-identity")
+		command.Stdin = bytes.NewReader(wire)
+		command.Stdout, command.Stderr = io.Discard, io.Discard
+		command.WaitDelay = time.Second
+		return command.Run()
+	}
+	if err := probe(wire); err != nil {
+		return fmt.Errorf("release cannot read the accepted identity contract: %w", err)
+	}
+	if err := probe([]byte(`{}`)); err == nil {
+		return errors.New("release accepted an invalid identity contract")
+	}
+	return nil
+}
+
+// VerifyIdentityRekeyBinaries checks every fixed-layout release a proposed
+// acceptance can run, before publication and without shared-completion authority.
+func VerifyIdentityRekeyBinaries(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) error {
+	return verifyIdentityRekeyBinaries(ctx, accepted, inputs, selfupdate.NewLayout(selfupdate.DefaultRoot))
+}
+
+func verifyIdentityRekeyBinaries(ctx context.Context, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs, layout selfupdate.Layout) error {
+	if err := accepted.Validate(); err != nil {
+		return err
+	}
+	identity := trust.ChainIdentity{DeploymentID: accepted.DeploymentID, Environment: accepted.Environment, Cell: strings.ToLower(accepted.Cell)}
+	if inputs.ChainIdentity != identity {
+		return errors.New("identity rekey binary roots belong to another accepted identity")
+	}
+	roots, err := trust.VerifyRootChain(inputs.Genesis, identity, inputs.Chain)
+	if err != nil {
+		return err
+	}
+	inputs.Roots = roots
+	c := command{ctx: ctx}
+	for _, read := range []func() (string, error){layout.Current, layout.KnownGood} {
+		digest, err := read()
+		if err != nil {
+			return err
+		}
+		if digest == "" {
+			return errors.New("identity rekey requires compatible current and known-good releases")
+		}
+		if err := c.checkControllerRelease(layout, digest, accepted, inputs); err != nil {
+			return err
+		}
+	}
+	return c.checkControllerTransitions(layout, accepted, inputs, false, "")
+}
+
+func (c command) checkControllerRelease(layout selfupdate.Layout, digest string, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) error {
+	bad, err := layout.KnownBad()
+	if err != nil {
+		return err
+	}
+	if bad[digest] {
+		return selfupdate.ErrKnownBad
+	}
+	if err := layout.VerifyRelease(digest); err != nil {
+		return err
+	}
+	if digest == accepted.Binary.SHA256 {
+		info, err := os.Stat(layout.BinaryPath(digest))
+		if err != nil || info.Size() != accepted.Binary.Size {
+			return selfupdate.ErrInvalid
+		}
+	} else {
+		receipt, delegation, err := layout.ReleaseReceipt(digest)
+		if err != nil {
+			return err
+		}
+		envelope, err := trust.DecodeEnvelope(receipt)
+		if err != nil {
+			return err
+		}
+		var verified release.HistoricalBinary
+		switch envelope.Scope.Domain {
+		case release.BinaryDomain:
+			verified, err = release.VerifyBinaryHistorical(receipt, delegation, inputs.Roots.Historical, release.BinaryExpectation{Environment: accepted.Environment})
+		case release.UpdateReceiptDomain:
+			verified, err = release.VerifyBinaryUpdateHistorical(receipt, delegation, inputs.Roots.Historical,
+				release.UpdateExpectation{Environment: accepted.Environment, Cell: accepted.Cell, Architecture: accepted.Binary.Architecture})
+		default:
+			return errors.New("controller release has an unsupported receipt domain")
+		}
+		if err != nil {
+			return err
+		}
+		if !verified.IsVerified() || verified.Receipt().SHA256 != digest || verified.Receipt().GOARCH != accepted.Binary.Architecture {
+			return selfupdate.ErrInvalid
+		}
+	}
+	return checkAcceptedBinary(c.ctx, layout.BinaryPath(digest), accepted)
+}
+
+// checkControllerTransitions checks every release this root step could select;
+// a valid successor need not equal the accepted executable baseline.
+func (c command) checkControllerTransitions(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs, starting bool, baked string) error {
+	return c.checkControllerSelections(layout, accepted, inputs, starting, baked, "")
+}
+
+func (c command) checkControllerRecovery(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs, starting bool, baked string) (bool, error) {
+	rollback, err := c.controllerRollback(layout, accepted, inputs)
+	if err != nil {
+		return false, err
+	}
+	return rollback.Target != "", c.checkControllerSelections(layout, accepted, inputs, starting, baked, rollback.Target)
+}
+
+func (c command) controllerRollback(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) (selfupdate.Activation, error) {
+	activation, pending, err := layout.Pending()
+	if errors.Is(err, selfupdate.ErrUnreadableActivation) {
+		activation, err = layout.RecoveryActivation()
+		if err != nil {
+			return selfupdate.Activation{}, err
+		}
+		if activation.Unit == selfupdate.ControllerUnit {
+			return activation, nil
+		}
+		return selfupdate.Activation{}, nil
+	}
+	if err != nil {
+		return selfupdate.Activation{}, err
+	}
+	if pending && activation.Unit == selfupdate.ControllerUnit && c.checkControllerRelease(layout, activation.Target, accepted, inputs) != nil {
+		return activation, c.ctx.Err()
+	}
+	intents, err := layout.PendingRestores()
+	if err != nil {
+		return selfupdate.Activation{}, err
+	}
+	for _, intent := range intents {
+		if intent.Unit == selfupdate.ControllerUnit {
+			return selfupdate.Activation{Target: intent.Rejected, Previous: intent.Target, Unit: intent.Unit}, nil
+		}
+	}
+	return selfupdate.Activation{}, nil
+}
+
+// The caller holds Lock and has checked shared completion before rollback effects.
+func (c command) recoverControllerActivation(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs) (bool, error) {
+	activation, err := c.controllerRollback(layout, accepted, inputs)
+	if err != nil || activation.Target == "" {
+		return false, err
+	}
+	if err := c.checkControllerSelections(layout, accepted, inputs, false, "", activation.Target); err != nil {
+		return false, err
+	}
+	_, pending, err := layout.Pending()
+	if errors.Is(err, selfupdate.ErrUnreadableActivation) {
+		outcome, _, err := selfupdate.Watch(layout, activation.Unit, selfupdate.ProofCheck{}, c.now())
+		return outcome == selfupdate.OutcomeRolledBack, err
+	} else if err != nil {
+		return false, err
+	}
+	if !pending {
+		_, _, err := selfupdate.Watch(layout, activation.Unit, selfupdate.ProofCheck{}, c.now())
+		return err == nil, err
+	}
+	return selfupdate.Restore(layout, activation.Previous, activation.Target, activation.Unit)
+}
+
+func (c command) checkControllerSelections(layout selfupdate.Layout, accepted bootstrapstart.AcceptedIdentity, inputs bootstrapstart.TrustInputs, starting bool, baked, unverified string) error {
+	activation, pending, err := layout.Pending()
+	if errors.Is(err, selfupdate.ErrUnreadableActivation) && unverified != "" {
+		activation, err = layout.RecoveryActivation()
+		pending = err == nil && activation.Unit == selfupdate.ControllerUnit && activation.Target == unverified
+		if err == nil && !pending {
+			return selfupdate.ErrInvalid
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if pending {
+		if err := c.checkControllerRelease(layout, activation.Previous, accepted, inputs); err != nil {
+			return fmt.Errorf("controller rollback predecessor: %w", err)
+		}
+		if activation.Target != unverified {
+			if err := c.checkControllerRelease(layout, activation.Target, accepted, inputs); err != nil {
+				return err
+			}
+		}
+	}
+	{
+		current, err := layout.Current()
+		if err != nil {
+			return err
+		}
+		if current != "" && current != unverified {
+			if err := c.checkControllerRelease(layout, current, accepted, inputs); err != nil {
+				return err
+			}
+		} else if current == "" {
+			if !starting || baked == "" {
+				return errors.New("accepted controller has no current release")
+			}
+			if err := checkAcceptedBinary(c.ctx, baked, accepted); err != nil {
+				return err
+			}
+		}
+	}
+	delegate, err := layout.Delegate()
+	if err != nil {
+		return err
+	}
+	if delegate != "" {
+		if err := c.checkControllerRelease(layout, delegate, accepted, inputs); err != nil {
+			return err
+		}
+	}
+	intents, err := layout.PendingRestores()
+	if err != nil {
+		return err
+	}
+	for _, intent := range intents {
+		if err := c.checkControllerRelease(layout, intent.Target, accepted, inputs); err != nil {
+			return fmt.Errorf("controller restore target: %w", err)
+		}
+	}
+	return nil
+}
 
 // rolloutStep is the node's root step agent for unit: it applies the
 // rollout step the unit's process spooled (rolloutexec.ApplySpooled),
 // verifying the leader's signature and staging a release only from a
 // receipt this node's baked roots verify. It runs where the unit takes part
 // in rollouts, with the same production defaults as the unit's process
-// (app.rolloutSettings, app.hostRolloutSpool): a controller config without
-// a rollouts block or with the executor on, and a host that is not a lab.
+// (app.hostRolloutSpool): every controller and production host.
 // A problem is logged, never returned, so the watchdog's own check always
 // runs.
 func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) {
@@ -638,15 +1135,10 @@ func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) 
 		}
 		return
 	}
-	node, spool, allowScoped := role.Host.Node, hostSpoolDir, true
+	node, spool := role.Host.Node, hostSpoolDir
 	var public ed25519.PublicKey
 	if unit == selfupdate.ControllerUnit {
-		defaults := role.Controller.Rollouts == nil && !role.NATS.Lab
-		if !defaults && (role.Controller.Rollouts == nil || !role.Controller.Rollouts.Executor) {
-			return
-		}
 		node, spool = role.NATS.Instance, rolloutSpoolDir
-		allowScoped = defaults || role.Controller.Rollouts.AllowScopedAutoSign
 		public, err = readIdentityPublicKey(role.Controller.ResponseKeyFile)
 	} else {
 		// A host on a controller's VM shares its release root and moves with
@@ -673,40 +1165,89 @@ func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) 
 		slog.Warn("rollout step agent: the leaders' key is unusable", "error", err)
 		return
 	}
-	baked, err := bakedInputs()
-	if err != nil {
-		slog.Warn("rollout step agent: image trust roots are unusable", "error", err)
-		return
+	var receiptRoots trust.Keyring
+	var environment, cell string
+	var acceptedWire []byte
+	if unit == selfupdate.ControllerUnit {
+		accepted, inputs, err := controllerTrust(unit)
+		if err != nil || accepted == nil {
+			slog.Warn("rollout step agent: accepted controller trust is unavailable", "error", err)
+			return
+		}
+		if role.NATS.Cell != strings.ToLower(accepted.Cell) {
+			slog.Warn("rollout step agent: configured cell differs from accepted cell")
+			return
+		}
+		if err := c.checkControllerTransitions(layout, *accepted, inputs, true, ""); err != nil {
+			slog.Warn("rollout step agent: controller release is incompatible", "error", err)
+			return
+		}
+		acceptedWire, err = bootstrapstart.EncodeAcceptedIdentity(*accepted)
+		if err != nil {
+			return
+		}
+		receiptRoots, environment, cell = inputs.Roots.Current, accepted.Environment, accepted.Cell
+	} else {
+		baked, err := bakedInputs()
+		if err != nil {
+			slog.Warn("rollout step agent: image trust roots are unusable", "error", err)
+			return
+		}
+		roots, err := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), baked.Chain)
+		if err != nil {
+			slog.Warn("rollout step agent: adopted root chain does not verify", "error", err)
+			return
+		}
+		receiptRoots, environment, cell = roots.Current, baked.Identity.Environment, strings.ToUpper(role.NATS.Cell)
 	}
-	// Only the chain's current roots admit a release, as on the leader.
-	roots, err := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), baked.Chain)
-	if err != nil {
-		slog.Warn("rollout step agent: the adopted root chain does not verify", "error", err)
-		return
-	}
-	verifier := selfupdate.ReceiptPolicy{Roots: roots.Current, Environment: baked.Identity.Environment,
-		Cell: strings.ToUpper(role.NATS.Cell), Architecture: runtime.GOARCH, AllowScopedAutoSign: allowScoped}
+	verifier := selfupdate.ReceiptPolicy{Roots: receiptRoots, Environment: environment,
+		Cell: cell, Architecture: runtime.GOARCH}
 	agent := &rolloutexec.Agent{Cell: role.NATS.Cell, Unit: node, SystemdUnit: unit, Layout: layout, Leaders: leaders,
 		Now: c.now, Restart: func(context.Context, string) error { return nil }}
+	if unit == selfupdate.ControllerUnit {
+		agent.Guard = func(ctx context.Context, step rolloutexec.StepCommand) error {
+			accepted, inputs, err := controllerTrust(unit)
+			if err != nil {
+				return err
+			}
+			if accepted == nil {
+				return errors.New("accepted controller identity is missing")
+			}
+			fresh, err := bootstrapstart.EncodeAcceptedIdentity(*accepted)
+			if err != nil || !bytes.Equal(fresh, acceptedWire) {
+				return errors.New("accepted controller identity changed during rollout")
+			}
+			if err := c.checkControllerTransitions(layout, *accepted, inputs, true, ""); err != nil {
+				return err
+			}
+			if err := c.requireControllerCompletion(layout, *accepted, inputs); err != nil {
+				return err
+			}
+			if _, err := os.Stat(layout.BinaryPath(step.Digest)); errors.Is(err, os.ErrNotExist) {
+				return nil
+			} else if err != nil {
+				return err
+			}
+			return (command{ctx: ctx}).checkControllerRelease(layout, step.Digest, *accepted, inputs)
+		}
+	}
 	if err := rolloutexec.ApplySpooled(c.ctx, agent, spool, verifier); err != nil {
 		slog.Warn("rollout step agent", "error", err)
 	}
 }
 
 // rolloutRole is the part of a controller or host config the step agent
-// reads, decoded leniently like roleProof.
+// reads, with the same required version as the admitted role config.
 type rolloutRole struct {
-	NATS struct {
+	Version int `json:"version"`
+	NATS    struct {
 		Cell     string `json:"cell"`
 		Instance string `json:"instance"`
 		Lab      bool   `json:"lab"`
 	} `json:"nats"`
 	Controller struct {
-		ResponseKeyFile string `json:"response_key_file"`
-		Rollouts        *struct {
-			Executor            bool `json:"executor"`
-			AllowScopedAutoSign bool `json:"allow_scoped_auto_sign"`
-		} `json:"rollouts"`
+		ResponseKeyFile string         `json:"response_key_file"`
+		Rollouts        map[string]any `json:"rollouts"`
 	} `json:"controller"`
 	Host struct {
 		Node                string `json:"node"`
@@ -728,13 +1269,20 @@ func readRolloutRole(path string) (rolloutRole, error) {
 	if len(data) > maxRoleConfigBytes {
 		return role, errors.New("role config is too large")
 	}
-	return role, json.Unmarshal(data, &role)
+	if err := json.Unmarshal(data, &role); err != nil {
+		return role, err
+	}
+	if role.Version != 1 {
+		return role, errors.New("rollout role config requires version 1")
+	}
+	if len(role.Controller.Rollouts) != 0 {
+		return role, errors.New("rollout role config contains a retired rollout control")
+	}
+	return role, nil
 }
 
 // roleProof returns the proof file and identity key that a controller or
-// host config names for unit. The watchdog runs the image-baked binary, so
-// the config is decoded leniently: a self-updated release may have added
-// fields this binary does not know.
+// host config names for unit, requiring the admitted version-1 contract.
 func roleProof(path, root, unit string) (string, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -749,6 +1297,7 @@ func roleProof(path, root, unit string) (string, string, error) {
 		return "", "", errors.New("role config is too large")
 	}
 	var config struct {
+		Version    int `json:"version"`
 		Controller struct {
 			ResponseKeyFile     string `json:"response_key_file"`
 			SelfUpdateProofFile string `json:"self_update_proof_file"`
@@ -762,6 +1311,9 @@ func roleProof(path, root, unit string) (string, string, error) {
 	}
 	if err := json.Unmarshal(data, &config); err != nil {
 		return "", "", err
+	}
+	if config.Version != 1 {
+		return "", "", errors.New("self-update role config requires version 1")
 	}
 	var proof, key, configured string
 	switch unit {

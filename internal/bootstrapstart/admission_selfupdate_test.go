@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -43,8 +45,8 @@ func (checker fileBinaryChecker) VerifyCurrent(image release.VerifiedImage) (Run
 	return verifyBinaryFile(checker.path, image.Receipt())
 }
 
-func (checker fileBinaryChecker) VerifyHistorical(image release.HistoricalImage) (RunningBinary, error) {
-	return verifyBinaryFile(checker.path, image.Receipt())
+func (checker fileBinaryChecker) VerifyAccepted(pin identityrekey.BinaryPin) (RunningBinary, error) {
+	return verifyAcceptedBinaryFile(checker.path, pin)
 }
 
 func (checker fileBinaryChecker) VerifySelfUpdated(layout selfupdate.Layout, roots trust.Keyring,
@@ -166,8 +168,7 @@ func (f *selfUpdateFixture) perSourceReceipt(data []byte) ([]byte, []byte) {
 // activate stages data the way a rollout does and makes it current.
 func (f *selfUpdateFixture) activate(data, receipt, delegation []byte) string {
 	f.t.Helper()
-	policy := selfupdate.ReceiptPolicy{Roots: f.roots, Environment: "production", Cell: "GRU", Architecture: "amd64",
-		AllowScopedAutoSign: true}
+	policy := selfupdate.ReceiptPolicy{Roots: f.roots, Environment: "production", Cell: "GRU", Architecture: "amd64"}
 	release, err := selfupdate.Stage(f.layout, bytes.NewReader(data), receipt, delegation, policy, f.now)
 	if err != nil {
 		f.t.Fatal(err)
@@ -297,14 +298,12 @@ func TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt(t *testing.T) {
 	receipt, delegation = perSource.perSourceReceipt(unsigned)
 	perSource.activate(unsigned, receipt, delegation)
 	if _, err := verifySelfUpdatedBinary(perSource.layout.CurrentExecutable(), perSource.layout, roots,
-		expected); !errors.Is(err, trust.ErrScopeMismatch) {
-		t.Fatalf("release without a binary-update receipt = %v, want scope mismatch", err)
+		expected); err != nil {
+		t.Fatalf("qualified per-source successor: %v", err)
 	}
 }
 
-// TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked follows
-// the controller unit: the restarted process runs current/terrascale-orchestrator.
-func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked(t *testing.T) {
+func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline(t *testing.T) {
 	fixture := newAdmissionFlowFixture(t)
 	fixture.gate.Binary = fileBinaryChecker{path: fixture.bakedBinary}
 	marker, err := fixture.gate.AdmitInitial(t.Context())
@@ -314,13 +313,12 @@ func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked(t *testing
 	if marker.BinarySHA256 != digest(elfFixture("baked orchestrator")) {
 		t.Fatalf("marker binary = %s, want the image receipt binary", marker.BinarySHA256)
 	}
-	manifestWire := fixture.ledger.state.ManifestRecord.Bytes
 	now := *fixture.now
 	admit := func(gate Gate) error {
 		if _, err := gate.AdmitRestart(t.Context()); err != nil {
 			return err
 		}
-		_, err := gate.AdmitRestartLocal(t.Context(), manifestWire)
+		_, err := gate.AdmitRestartLocal(t.Context())
 		return err
 	}
 
@@ -344,8 +342,7 @@ func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked(t *testing
 	}
 
 	// A tampered release fails restart admission, so it never signs a
-	// version proof; the watchdog then restores the baked release, which
-	// the image receipt admits again.
+	// version proof; the watchdog restores the accepted binary baseline.
 	f.replace(digest(updated), selfupdate.BinaryName, elfFixture("release B, tampered"), 0o555)
 	if err := admit(gate); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("restart on tampered release B = %v, want admission failure", err)
@@ -363,16 +360,15 @@ func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked(t *testing
 		t.Fatalf("restart after rollback to the baked release: %v", err)
 	}
 
-	// A release staged without a binary-update receipt is refused the same
-	// way and rolled back at its proof deadline.
+	// Qualified per-source receipts accepted by root activation also admit restart.
 	unsigned := newSelfUpdateFixture(t, fixture.gate.Roots, fixture.rootPrivate, fixture.bakedBinary, now)
 	gate.SelfUpdate = unsigned.layout
 	gate.Binary = fileBinaryChecker{path: unsigned.layout.CurrentExecutable()}
 	other := elfFixture("release C")
 	receipt, delegation = unsigned.perSourceReceipt(other)
 	unsigned.activate(other, receipt, delegation)
-	if err := admit(gate); !errors.Is(err, ErrAdmission) {
-		t.Fatalf("restart on release C without a binary-update receipt = %v, want admission failure", err)
+	if err := admit(gate); err != nil {
+		t.Fatalf("restart on qualified per-source release C: %v", err)
 	}
 	outcome, _, err = selfupdate.Watch(unsigned.layout, selfUpdateUnit, selfupdate.ProofCheck{},
 		now.Add(selfupdate.MinProofWindow))
@@ -381,5 +377,218 @@ func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndFallsBackToBaked(t *testing
 	}
 	if err := admit(gate); err != nil {
 		t.Fatalf("restart after rollback to the baked release: %v", err)
+	}
+}
+
+func TestAcceptedBinaryUsesExactSharedFileMeasurement(t *testing.T) {
+	wire := elfFixture("accepted binary")
+	path := filepath.Join(t.TempDir(), "orchestrator")
+	if err := os.WriteFile(path, wire, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	pin := identityrekey.BinaryPin{SHA256: digest(wire), Size: int64(len(wire)), Architecture: "amd64"}
+	got, err := verifyAcceptedBinaryFile(path, pin)
+	if err != nil || got.SHA256 != pin.SHA256 || got.Bytes != pin.Size || got.Architecture != pin.Architecture {
+		t.Fatalf("accepted file measurement = %+v, %v", got, err)
+	}
+	for name, mutate := range map[string]func(*identityrekey.BinaryPin){
+		"zero pin":     func(p *identityrekey.BinaryPin) { *p = identityrekey.BinaryPin{} },
+		"hash":         func(p *identityrekey.BinaryPin) { p.SHA256 = digest([]byte("another executable")) },
+		"size":         func(p *identityrekey.BinaryPin) { p.Size++ },
+		"architecture": func(p *identityrekey.BinaryPin) { p.Architecture = "arm64" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			changed := pin
+			mutate(&changed)
+			if _, err := verifyAcceptedBinaryFile(path, changed); !errors.Is(err, ErrRunningBinaryMismatch) {
+				t.Fatalf("invalid pin admitted: %v", err)
+			}
+		})
+	}
+}
+
+func TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly(t *testing.T) {
+	fixture := newAdmissionFlowFixture(t)
+	if _, err := fixture.gate.AdmitInitial(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := fixture.gate.Markers.ReadIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newSelfUpdateFixture(t, fixture.gate.Roots, fixture.rootPrivate, fixture.bakedBinary, *fixture.now)
+	predecessor := elfFixture("confirmed successor predecessor")
+	receipt, delegation := f.updateReceipt(predecessor, accepted.Environment, accepted.Cell)
+	previous := f.activate(predecessor, receipt, delegation)
+	// Commit the same native known-good link that confirmation publishes.
+	if err := os.Symlink("releases/"+previous, filepath.Join(f.layout.Root, "known-good")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(f.layout.Root, "activation.json")); err != nil {
+		t.Fatal(err)
+	}
+	targetBytes := elfFixture("damaged pending target")
+	receipt, delegation = f.updateReceipt(targetBytes, accepted.Environment, accepted.Cell)
+	target := f.activate(targetBytes, receipt, delegation)
+	path := f.layout.BinaryPath(previous)
+	if _, err := verifyRecoveryPredecessor(path, f.layout, f.roots, accepted); err != nil {
+		t.Fatalf("recorded predecessor cannot run read-only completion for an incompatible decoder: %v", err)
+	}
+	if _, err := verifySelfUpdatedBinary(path, f.layout, f.roots, release.UpdateExpectation{Environment: accepted.Environment, Cell: accepted.Cell, Architecture: accepted.Binary.Architecture}); err == nil {
+		t.Fatal("ordinary restart admitted noncurrent predecessor")
+	}
+	if err := os.WriteFile(filepath.Join(f.layout.Root, "known-bad.json"), []byte(`{"digests":["`+target+`"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyRecoveryPredecessor(path, f.layout, f.roots, accepted); err != nil {
+		t.Fatalf("intact rejected target prevented predecessor recovery: %v", err)
+	}
+	if err := os.Remove(filepath.Join(f.layout.Root, "known-bad.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, damage := range []string{"receipt", "delegation", "unreadable", "restore", "restore moved", "unsafe activation", "missing rollback pins"} {
+		t.Run(damage, func(t *testing.T) {
+			activationFile := filepath.Join(f.layout.Root, "activation.json")
+			original, err := os.ReadFile(activationFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch damage {
+			case "receipt":
+				if err := os.Remove(filepath.Join(f.layout.ReleaseDir(target), "receipt.json")); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.WriteFile(filepath.Join(f.layout.ReleaseDir(target), "receipt.json"), receipt, 0o444); err != nil {
+						t.Fatal(err)
+					}
+				})
+			case "delegation":
+				f.replace(target, "delegation.json", []byte(`{}`), 0o444)
+				t.Cleanup(func() { f.replace(target, "delegation.json", delegation, 0o444) })
+			case "unreadable":
+				if err := os.WriteFile(activationFile, bytes.Replace(original, []byte(`"schema"`), []byte(`"unexpected":true,"schema"`), 1), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.WriteFile(activationFile, original, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				})
+			case "restore", "restore moved":
+				if err := os.Remove(activationFile); err != nil {
+					t.Fatal(err)
+				}
+				if damage == "restore moved" {
+					if err := os.Remove(filepath.Join(f.layout.Root, "current")); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink("releases/"+previous, filepath.Join(f.layout.Root, "current")); err != nil {
+						t.Fatal(err)
+					}
+					t.Cleanup(func() {
+						if err := os.Remove(filepath.Join(f.layout.Root, "current")); err != nil {
+							t.Fatal(err)
+						}
+						if err := os.Symlink("releases/"+target, filepath.Join(f.layout.Root, "current")); err != nil {
+							t.Fatal(err)
+						}
+					})
+				}
+				intentPath := filepath.Join(f.layout.Root, "restore-"+selfupdate.ControllerUnit+".json")
+				intent, err := protocol.EncodeJSON(selfupdate.RestoreIntent{Schema: "terrascale.orchestrator.restore-intent.v1", Unit: selfupdate.ControllerUnit, Target: previous, Rejected: target})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(intentPath, intent, 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(f.layout.Root, "known-bad.json"), []byte(`{"digests":["`+target+`"]}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Remove(intentPath); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Remove(filepath.Join(f.layout.Root, "known-bad.json")); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.WriteFile(activationFile, original, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				})
+			case "unsafe activation":
+				if err := os.Chmod(activationFile, 0o666); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.Chmod(activationFile, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				})
+			case "missing rollback pins":
+				if err := os.WriteFile(activationFile, []byte(`{"target":"`+target+`"}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() {
+					if err := os.WriteFile(activationFile, original, 0o644); err != nil {
+						t.Fatal(err)
+					}
+				})
+			}
+			_, err = verifyRecoveryPredecessor(path, f.layout, f.roots, accepted)
+			refusal := damage == "unsafe activation" || damage == "missing rollback pins"
+			if (err != nil) != refusal {
+				t.Fatalf("recovery predecessor: %v, refusal=%v", err, refusal)
+			}
+			expectedCurrent := target
+			if damage == "restore moved" {
+				expectedCurrent = previous
+			}
+			if current, err := f.layout.Current(); err != nil || current != expectedCurrent {
+				t.Fatal("read-only admission changed current")
+			}
+		})
+	}
+	f.replace(target, selfupdate.BinaryName, elfFixture("corrupt bytes"), 0o555)
+	if _, err := verifySelfUpdatedBinary(path, f.layout, f.roots, release.UpdateExpectation{Environment: accepted.Environment, Cell: accepted.Cell, Architecture: accepted.Binary.Architecture}); err == nil {
+		t.Fatal("ordinary restart admitted rollback predecessor")
+	}
+	measured, err := verifyRecoveryPredecessor(path, f.layout, f.roots, accepted)
+	if err != nil || measured.SHA256 != previous {
+		t.Fatalf("trusted predecessor = %+v, %v", measured, err)
+	}
+	for _, fault := range []string{"wrong executable", "wrong environment", "wrong cell", "wrong root", "known bad", "bad predecessor"} {
+		t.Run(fault, func(t *testing.T) {
+			record, roots, running := accepted.Clone(), f.roots, path
+			switch fault {
+			case "wrong executable":
+				running = fixture.bakedBinary
+			case "wrong environment":
+				record.Environment = "canary"
+			case "wrong cell":
+				record.Cell = "SFO"
+			case "wrong root":
+				public, _, err := ed25519.GenerateKey(rand.Reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				roots, err = trust.ParseKeyring(public)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "known bad":
+				if err := os.WriteFile(filepath.Join(f.layout.Root, "known-bad.json"), []byte(`{"digests":["`+previous+`"]}`), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Remove(filepath.Join(f.layout.Root, "known-bad.json")) })
+			case "bad predecessor":
+				f.replace(previous, selfupdate.BinaryName, elfFixture("corrupt predecessor"), 0o555)
+			}
+			if _, err := verifyRecoveryPredecessor(running, f.layout, roots, record); err == nil {
+				t.Fatal("untrusted recovery predecessor admitted")
+			}
+		})
 	}
 }

@@ -117,7 +117,7 @@ func TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials(t *testing.T) {
 	t.Cleanup(func() { _ = regional.Close() })
 
 	js := server.JetStream()
-	global, err := authority.Start(ctx, js, authority.Config{
+	global, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: protocol.GlobalScope, CandidateID: "0000000000RD0JZ6JW4K5EHN9F", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})

@@ -20,7 +20,7 @@ func TestStartReobservesCommittedLeaseAfterAmbiguousPublish(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	runtime, err := Start(ctx, wrapped, Config{
+	runtime, err := Start(ctx, wrapped, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 		RenewInterval: 2 * time.Second, Replicas: 1,
 	})
@@ -34,7 +34,7 @@ func TestStartReobservesCommittedLeaseAfterAmbiguousPublish(t *testing.T) {
 	})
 
 	snapshot := runtime.Current()
-	if !snapshot.CanMutate() || snapshot.OwnerID != runtime.ownerID || snapshot.Epoch != 1 {
+	if !snapshot.CanMutate() || snapshot.DeploymentID != runtime.config.DeploymentID || snapshot.OwnerID != runtime.ownerID || snapshot.Epoch != 1 {
 		t.Fatalf("runtime did not reobserve its committed lease under the same owner and epoch: %+v", snapshot)
 	}
 	if got := wrapped.leasePublishCalls.Load(); got != 2 {
@@ -61,7 +61,7 @@ func TestStartReobservesCommittedLeaseAfterAmbiguousPublish(t *testing.T) {
 		if err != nil {
 			t.Fatalf("decode lease barrier %d: %v", sequence, err)
 		}
-		if lease.OwnerID != snapshot.OwnerID || lease.CandidateID != snapshot.CandidateID || lease.Epoch != snapshot.Epoch {
+		if lease.DeploymentID != snapshot.DeploymentID || lease.OwnerID != snapshot.OwnerID || lease.CandidateID != snapshot.CandidateID || lease.Epoch != snapshot.Epoch {
 			t.Fatalf("lease barrier %d changed owner or epoch during retry: %+v", sequence, lease)
 		}
 	}
@@ -73,7 +73,7 @@ func TestClockHealthFencesGuardAndDurableMutations(t *testing.T) {
 	defer cancel()
 	var healthy atomic.Bool
 	healthy.Store(true)
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "000000000082B6JM3GHXKNG2CR", Replicas: 1,
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "000000000082B6JM3GHXKNG2CR", Replicas: 1,
 		ClockCheck: func() error {
 			if !healthy.Load() {
 				return ErrClockUnhealthy
@@ -108,7 +108,7 @@ func TestStartDoesNotRetryPermanentOrCanceledLeasePublish(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		runtime, err := Start(ctx, wrapped, Config{
+		runtime, err := Start(ctx, wrapped, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 			Scope: "mia", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 			RenewInterval: 2 * time.Second, Replicas: 1,
 		})
@@ -129,7 +129,7 @@ func TestStartDoesNotRetryPermanentOrCanceledLeasePublish(t *testing.T) {
 		wrapped := &startupRetryJetStream{JetStream: js, fault: cancelLeasePublish, cancel: cancel}
 		defer cancel()
 
-		runtime, err := Start(ctx, wrapped, Config{
+		runtime, err := Start(ctx, wrapped, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 			Scope: "scl", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second,
 			RenewInterval: 2 * time.Second, Replicas: 1,
 		})
@@ -294,7 +294,7 @@ func TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent(t *testing.T) {
 	runtime := &Runtime{
 		publisher: publisher, stream: &failedOutcomeProbeStream{},
 		leaseSub: "ts.control.gru.lease", ownerID: "00000000004AS2NC5H2SW57SZG",
-		config: Config{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second},
+		config: Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: 5 * time.Second},
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -327,7 +327,7 @@ func TestStartRejectsExistingControlStreamWithExtraSubject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", Replicas: 1})
 	if runtime != nil || err == nil {
 		t.Fatalf("Start accepted a control stream with an extra subject: runtime=%v err=%v", runtime, err)
 	}

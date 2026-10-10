@@ -14,7 +14,7 @@ import (
 )
 
 // MaxAcceptedInstallBytes bounds a published accepted-install marker.
-const MaxAcceptedInstallBytes = 16 << 10
+const MaxAcceptedInstallBytes = 128 << 10
 
 // PublishAcceptedInstall stores a controller's canonical accepted-install
 // marker once, beside its slot HEAD. The marker holds only public identities
@@ -28,7 +28,7 @@ func (ledger *Ledger) PublishAcceptedInstall(ctx context.Context, scope Bootstra
 		return fmt.Errorf("%w: accepted-install marker is empty or oversized", ErrInvalidRecord)
 	}
 	name := ledger.acceptedInstallObjectName(scope)
-	if existing, err := ledger.readObject(ctx, ledger.config.HeadBucket, name); err == nil {
+	if existing, err := ledger.readObjectLimit(ctx, ledger.config.HeadBucket, name, MaxAcceptedInstallBytes); err == nil {
 		if !bytes.Equal(existing.Bytes, marker) {
 			return fmt.Errorf("%w: a different accepted-install marker is already published", ErrRecordAuthorization)
 		}
@@ -54,7 +54,7 @@ func (ledger *Ledger) PublishAcceptedInstall(ctx context.Context, scope Bootstra
 	if putErr != nil && !shouldReadAfterPutError(putErr) {
 		return fmt.Errorf("publish accepted-install marker: %w", putErr)
 	}
-	stored, err := ledger.readObject(ctx, ledger.config.HeadBucket, name)
+	stored, err := ledger.readObjectLimit(ctx, ledger.config.HeadBucket, name, MaxAcceptedInstallBytes)
 	if err != nil {
 		return fmt.Errorf("%w: publish accepted-install marker: %v; exact-key read: %w", ErrOutcomeUnknown, putErr, err)
 	}
@@ -69,9 +69,12 @@ func (ledger *Ledger) ReadAcceptedInstall(ctx context.Context, scope BootstrapSc
 	if err := validateLedgerScope(scope); err != nil {
 		return nil, err
 	}
-	stored, err := ledger.readObject(ctx, ledger.config.HeadBucket, ledger.acceptedInstallObjectName(scope))
+	stored, err := ledger.readObjectLimit(ctx, ledger.config.HeadBucket, ledger.acceptedInstallObjectName(scope), MaxAcceptedInstallBytes)
 	if err != nil {
 		return nil, err
+	}
+	if len(stored.Bytes) > MaxAcceptedInstallBytes {
+		return nil, ErrInvalidRecord
 	}
 	return stored.Bytes, nil
 }

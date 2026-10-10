@@ -45,7 +45,7 @@ type SignedHistoryRecipe struct {
 	Observed               map[string]ObservedController
 }
 
-// Prepare signs one external seed and two schema-v2 managed peer histories
+// Prepare signs one external seed and two schema-v1 managed peer histories
 // through public trust, bootstrap, receipt, and founder-plan APIs. It leaves
 // all Object Storage writes to BuildCompletedHistories and its public Ledger.
 func (recipe SignedHistoryRecipe) Prepare(ledger *bootstrap.Ledger) (SeedHistory, []ManagedHistory, error) {
@@ -165,7 +165,6 @@ func (recipe SignedHistoryRecipe) signSlot(anchor bootstrap.BootstrapAnchor,
 		if err != nil {
 			return signedSlotHistory{}, err
 		}
-		intent.SchemaVersion = 2
 		intent.Mode = bootstrap.IntentModeManaged
 		intent.ReviewedPlanDigest = ""
 		intent.FounderPlanSHA256 = plan.Digest()

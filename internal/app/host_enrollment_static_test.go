@@ -3,6 +3,9 @@ package app
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"maps"
@@ -17,6 +20,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -28,6 +32,65 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestStaticHostSetupRenewsResetGrantUnderRotatedResponseAuthority(t *testing.T) {
+	ctx := t.Context()
+	lab := startStaticEnrollmentLab(t, ctx, staticTerraBaseWorkloads())
+	metadata := lab.launch(t, "ocid1.instance.oc1.sa-saopaulo-1.db1", "gru-1-db-1", "10.251.0.21")
+	root := t.TempDir()
+	if err := lab.setup(ctx, root, metadata, "10.251.0.21"); err != nil {
+		t.Fatal(err)
+	}
+	previous := lab.registration(t, ctx, metadata.Descriptor.Node)
+	grant, revision, err := lab.enrollment.grants.Read(ctx, metadata.InstanceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant.Response, grant.OwnerToken, grant.LeaseUntil = nil, "", time.Time{}
+	grant.IdentityResetOperationID = entityid.Derive("test-rekey", "static-host")
+	wire, err := protocol.EncodeJSON(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := lab.js.KeyValue(ctx, hostenroll.GrantBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kv.Update(ctx, entityid.Derive("host-enrollment", metadata.InstanceID), wire, revision); err != nil {
+		t.Fatal(err)
+	}
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab.bundle.ControllerResponsePublicKey = base64.StdEncoding.EncodeToString(public)
+	lab.enrollment.responseKey = private
+	artifacts, err := lab.js.ObjectStore(ctx, "STATIC_ENROLLMENT_ARTIFACTS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller, err := host.NewController(ctx, host.ControllerConfig{Cell: "gru", Conn: lab.js.Conn(), JS: lab.js,
+		Artifacts: artifacts, StateReplicas: 1, ResponseKey: private, HostMutations: lab.enrollment.fencer.(*authority.Runtime),
+		AuthorityEpoch: func() uint64 { return lab.epoch }, AuthorityGuard: lab.enrollment.fencer.Guard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lab.enrollment.controller = controller
+	if err := lab.setup(ctx, root, metadata, "10.251.0.21"); err != nil {
+		t.Fatalf("installed host cannot renew after response-key rotation and grant reset: %v", err)
+	}
+	renewed, _, err := lab.enrollment.grants.Read(ctx, metadata.InstanceID)
+	if err != nil || len(renewed.RenewalResponse) == 0 {
+		t.Fatalf("replacement response was not durably completed: %v", err)
+	}
+	if err := lab.setup(ctx, root, metadata, "10.251.0.21"); err != nil {
+		t.Fatalf("renewed host cannot repeat setup: %v", err)
+	}
+	if current := lab.registration(t, ctx, metadata.Descriptor.Node); current.PublicKey != previous.PublicKey ||
+		current.NATSUserPublicKey != previous.NATSUserPublicKey || current.Generation != previous.Generation {
+		t.Fatal("renewal changed host identity")
+	}
+}
 
 // staticHostFleet is the regional fleet as the static enrollment path sees
 // it: only ObserveStaticHost is reachable.
@@ -82,7 +145,7 @@ func startStaticEnrollmentLab(t *testing.T, ctx context.Context, workloads map[s
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000F8TA328PVB21XWJY", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000F8TA328PVB21XWJY", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

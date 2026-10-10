@@ -34,19 +34,6 @@ const (
 	defaultChannelInterval = releasechannel.PinRefreshInterval
 )
 
-// rolloutSettings returns the controller's rollout settings. A production
-// controller without a rollouts block follows its region's release channel
-// (TS-557): CI publishes every main merge there, and the authority leader
-// rolls it out to the controllers. The self-update watchdog applies the
-// same default (selfupdate/cli), so the node's step agent accepts exactly
-// what the leader admits. Lab controllers keep everything off.
-func rolloutSettings(cfg Config) *RolloutsConfig {
-	if cfg.Controller.Rollouts != nil || cfg.NATS.Lab {
-		return cfg.Controller.Rollouts
-	}
-	return &RolloutsConfig{Enabled: true, Executor: true, AllowScopedAutoSign: true, Channel: true}
-}
-
 // channelSource opens the region's head bucket once, from the controller's
 // instance principal; a failure (the metadata service, the namespace call)
 // is retried on the next use.

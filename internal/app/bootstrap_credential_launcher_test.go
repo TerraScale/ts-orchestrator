@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -22,7 +24,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // TestMain gives the test executable the same hidden-command dispatch as the
@@ -85,8 +89,8 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest := bootstrap.Manifest{Slot: "controller-a", SeedSlot: "seed-a"}
-	if err := check.VerifyLiveCredentials(t.Context(), bootstrapstart.ManifestPins(expected), manifest); err != nil {
+	manifest := credentialLauncherManifest(t, expected)
+	if err := check.VerifyInitialLiveCredentials(t.Context(), bootstrapstart.ManifestPins(expected), manifest); err != nil {
 		t.Fatalf("default /proc/self/exe service child rejected valid credentials: %v", err)
 	}
 
@@ -101,7 +105,7 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Second)
 	defer cancel()
 	start := time.Now()
-	err = check.VerifyLiveCredentials(ctx, bootstrapstart.ManifestPins(expected), manifest)
+	err = check.VerifyInitialLiveCredentials(ctx, bootstrapstart.ManifestPins(expected), manifest)
 	elapsed := time.Since(start)
 	if !errors.Is(err, bootstrapstart.ErrLiveCredentials) || elapsed < 14*time.Second || elapsed > 22*time.Second {
 		t.Fatalf("default service child deadline = %v after %s, want 15-second refusal", err, elapsed)
@@ -117,6 +121,64 @@ func TestDefaultLiveCredentialLauncherAndDeadline(t *testing.T) {
 	if _, err := os.Stat(filepath.Join("/proc", strconv.Itoa(childPID))); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("timed service child PID %d remains after launcher return: %v", childPID, err)
 	}
+}
+
+func credentialLauncherManifest(t *testing.T, expected map[string]string) bootstrap.VerifiedManifest {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := trust.ParseKeyring(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	const deployment = "000000000073E652YS073VHPZY"
+	proof, err := trust.Sign([]byte(`{}`), trust.Scope{Domain: "terrascale.release.image", DeploymentID: deployment,
+		Cell: "gru", Environment: "canary", Role: "oci-image", Slot: "controller-a"}, now, now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := bootstrap.Manifest{SchemaVersion: bootstrap.ManifestSchemaVersion, DeploymentID: deployment,
+		ClusterID: "0000000000DMC7WFP9VHV640EP", Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", Environment: "canary",
+		ControllerRole: "controller", Slot: "controller-a", SeedSlot: "controller-a", ControllerSlots: []string{"controller-a"},
+		IntentGeneration: 1, IntentSHA256: strings.Repeat("a", 64), ImageOCID: "ocid1.image.oc1.sa-saopaulo-1.fixture",
+		ImageArchitecture: "linux-amd64", ReleaseReceiptSHA256: controllerSHA256(proofWire),
+		ReleaseImageReceiptWire: proofWire, ReleaseDelegationWire: proofWire,
+		StorageDomain: bootstrap.StorageDomain{Namespace: "fixture", LedgerBucket: "ledger", HeadBucket: "heads",
+			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.heads"},
+		Profiles: []bootstrap.LaunchProfile{{Slot: "controller-a", CompartmentOCID: "ocid1.compartment.oc1..fixture",
+			AvailabilityDomain: "fixture:SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1",
+			SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.fixture", Shape: "VM.Standard.E4.Flex"}},
+		ControllerConfig: []byte(`{"version":1,"nats":{},"controller":{}}`)}
+	manifest.ControllerConfigSHA256 = controllerSHA256(manifest.ControllerConfig)
+	for _, name := range bootstrap.ControllerConfigFileNames {
+		manifest.ControllerFiles = append(manifest.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: []byte(`{}`), SHA256: controllerSHA256([]byte(`{}`))})
+	}
+	for name, hash := range expected {
+		purpose := bootstrap.SecretRegionalShared
+		if strings.HasPrefix(name, "host-") {
+			purpose = bootstrap.SecretHostIssuer
+		}
+		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: purpose, TargetFile: name,
+			SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.fixture", VersionNumber: 1, SHA256: hash, MaxBytes: bootstrap.MaxSecretBytes})
+	}
+	envelope, err := bootstrap.SignManifest(manifest, now, now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := bootstrap.VerifyManifest(envelope, roots, bootstrap.ManifestExpectation{DeploymentID: deployment,
+		ClusterID: manifest.ClusterID, Environment: manifest.Environment, Cell: manifest.Cell, Slot: manifest.Slot,
+		ImageOCID: manifest.ImageOCID, StorageDomain: manifest.StorageDomain, ControllerSlots: manifest.ControllerSlots}, now, bootstrap.ManifestTrustPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return verified
 }
 
 func writeHostIssuerFixture(t *testing.T, source string, uid, gid uint32) {
@@ -255,7 +317,7 @@ func TestPublicControllerRunRejectsBeforeNATSThroughSameBinaryAdmission(t *testi
 			t.Fatalf("public controller run bypassed pre-NATS admission: %v", err)
 		}
 		proof, err := os.ReadFile(marker)
-		if err != nil || !strings.Contains(string(proof), "load fixed baked controller bootstrap inputs") {
+		if err != nil || !strings.Contains(string(proof), "read accepted controller identity") {
 			t.Fatalf("same-binary hidden admission was not reached: proof %q, %v", proof, err)
 		}
 		return

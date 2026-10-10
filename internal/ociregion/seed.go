@@ -11,6 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 )
 
@@ -43,7 +45,7 @@ func validateManifest(path, cell string) []byte {
 	wire := readBytes(path, 30*1024, "signed seed manifest")
 	envelope := readJSON(path, 30*1024, "signed seed manifest")
 	scope, payload := obj(envelope["scope"]), obj(envelope["payload"])
-	if !eq(envelope["schemaVersion"], 1) || text(envelope["keyId"]) == "" || text(envelope["signature"]) == "" || scope["domain"] != "terrascale.bootstrap.manifest" || scope["role"] != "controller" || scope["slot"] != "controller-a" || scope["cell"] != cell || payload["cell"] != cell || !eq(payload["schemaVersion"], 2) || payload["slot"] != "controller-a" || payload["seedSlot"] != "controller-a" {
+	if !eq(envelope["schemaVersion"], 1) || text(envelope["keyId"]) == "" || text(envelope["signature"]) == "" || scope["domain"] != "terrascale.bootstrap.manifest" || scope["role"] != "controller" || scope["slot"] != "controller-a" || scope["cell"] != cell || payload["cell"] != cell || !eq(payload["schemaVersion"], bootstrap.ManifestSchemaVersion) || payload["slot"] != "controller-a" || payload["seedSlot"] != "controller-a" {
 		fail("signed manifest is not a controller-a seed envelope")
 	}
 	if !utf8.Valid(wire) {
@@ -114,7 +116,7 @@ func (e *Engine) seedLaunch(plan Object, reviewedPath, manifestPath, identityPat
 	identity := launchMaterial(identityPath, "bootstrap identity")
 	var id Object
 	must(true, json.Unmarshal([]byte(identity), &id))
-	if !safeMatch(`[A-Za-z0-9][A-Za-z0-9._:-]{0,127}`, id["deploymentId"]) {
+	if !entityid.Valid(text(id["deploymentId"])) {
 		fail("bootstrap identity has an invalid deployment ID")
 	}
 	var host Object
@@ -161,7 +163,7 @@ func verifiedPrefix(plan, ids, anchor, manifest Object, namespace string) string
 	}
 	prefix := canonicalPrefix(domain["prefix"])
 	buckets := obj(plan["foundation_buckets"])
-	if !eq(anchor["schemaVersion"], 3) || anchor["anchorSha256"] != manifest["anchorSha256"] || anchor["cell"] != plan["cell"] || anchor["ociRegion"] != plan["region"] || prefix != requiredPrefix(plan) || domain["namespace"] != namespace || domain["ledgerBucket"] != buckets["ledger"] || domain["headBucket"] != buckets["head"] || domain["ledgerKmsKeyOcid"] != ids["key"] || domain["headKmsKeyOcid"] != ids["key"] {
+	if !eq(anchor["schemaVersion"], bootstrap.BootstrapAnchorSchemaVersion) || anchor["anchorSha256"] != manifest["anchorSha256"] || anchor["cell"] != plan["cell"] || anchor["ociRegion"] != plan["region"] || prefix != requiredPrefix(plan) || domain["namespace"] != namespace || domain["ledgerBucket"] != buckets["ledger"] || domain["headBucket"] != buckets["head"] || domain["ledgerKmsKeyOcid"] != ids["key"] || domain["headKmsKeyOcid"] != ids["key"] {
 		fail("verified bootstrap anchor storage domain differs from the reviewed plan")
 	}
 	return prefix
@@ -239,7 +241,7 @@ func (e *Engine) verifySeed(plan Object, inventoryPath, admissionPath string, an
 	}
 	profile := obj(manifest["profile"])
 	nsgIDs := []string{str(ids["network_security_group"])}
-	if !eq(manifest["schemaVersion"], 2) || manifest["cell"] != plan["cell"] || manifest["ociRegion"] != plan["region"] || manifest["slot"] != seed["slot"] || manifest["imageArchitecture"] != "linux-arm64" || profile["slot"] != seed["slot"] || profile["compartmentOcid"] != ids["control_compartment"] || profile["availabilityDomain"] != plan["availability_domain"] || profile["faultDomain"] != seed["fault_domain"] || profile["subnetOcid"] != ids["subnet"] || !eq(profile["networkSecurityGroupOcids"], nsgIDs) || profile["shape"] != seed["shape"] || !safeMatch(`[0-9a-f]{64}`, manifest["anchorSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["manifestSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["releaseReceiptSha256"]) {
+	if !eq(manifest["schemaVersion"], bootstrap.ManifestSchemaVersion) || manifest["cell"] != plan["cell"] || manifest["ociRegion"] != plan["region"] || manifest["slot"] != seed["slot"] || manifest["imageArchitecture"] != "linux-arm64" || profile["slot"] != seed["slot"] || profile["compartmentOcid"] != ids["control_compartment"] || profile["availabilityDomain"] != plan["availability_domain"] || profile["faultDomain"] != seed["fault_domain"] || profile["subnetOcid"] != ids["subnet"] || !eq(profile["networkSecurityGroupOcids"], nsgIDs) || profile["shape"] != seed["shape"] || !safeMatch(`[0-9a-f]{64}`, manifest["anchorSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["manifestSha256"]) || !safeMatch(`[0-9a-f]{64}`, manifest["releaseReceiptSha256"]) {
 		fail("verified seed manifest differs from the recorded controller-a profile")
 	}
 	if fileSHA(receiptPath) != manifest["releaseReceiptSha256"] {
@@ -282,14 +284,7 @@ func (e *Engine) seedPreflight(args, plan Object, path string) Object {
 		fail("seed preflight requires at least one bootstrap trust root")
 	}
 	requiredPrefix(plan)
-	bp, rp := []string{"bootstrap"}, []string{"release"}
-	if truth(args["legacy_bootstrap_tool"]) {
-		bp = nil
-	}
-	if truth(args["legacy_release_tool"]) {
-		rp = nil
-	}
-	base := append([]string{pathValue(args["bootstrap_tool"])}, bp...)
+	base := []string{pathValue(args["bootstrap_tool"]), "bootstrap"}
 	rootArgs := []string{}
 	for _, v := range roots {
 		rootArgs = append(rootArgs, "--root-key", pathValue(v))
@@ -299,7 +294,7 @@ func (e *Engine) seedPreflight(args, plan Object, path string) Object {
 	var anchor, manifest Object
 	must(true, json.Unmarshal([]byte(e.checkedTool(anchorCmd...)), &anchor))
 	must(true, json.Unmarshal([]byte(e.checkedTool(manifestCmd...)), &manifest))
-	releaseCmd := append(append([]string{pathValue(args["release_tool"])}, rp...), "verify-image", "--receipt", pathValue(args["image_receipt"]), "--delegation", pathValue(args["release_delegation"]), "--root-key", pathValue(args["release_root"]), "--image-file", pathValue(args["image_file"]), "--base-image-file", pathValue(args["base_image_file"]), "--kernel-file", pathValue(args["kernel_file"]), "--region", str(plan["cell"]), "--environment", str(manifest["environment"]))
+	releaseCmd := []string{pathValue(args["release_tool"]), "release", "verify-image", "--receipt", pathValue(args["image_receipt"]), "--delegation", pathValue(args["release_delegation"]), "--root-key", pathValue(args["release_root"]), "--image-file", pathValue(args["image_file"]), "--base-image-file", pathValue(args["base_image_file"]), "--kernel-file", pathValue(args["kernel_file"]), "--region", str(plan["cell"]), "--environment", str(manifest["environment"])}
 	verification := e.checkedTool(releaseCmd...)
 	reviewed := obj(e.call("verify_seed_preflight", []any{plan, args["inventory"], args["admission"], anchor, manifest, args["image_receipt"], verification, Path(path)}, Object{}))
 	reviewed["create_identity"] = e.call("create_identity", []any{plan, Path(path), manifest}, Object{})

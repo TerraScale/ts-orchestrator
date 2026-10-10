@@ -65,7 +65,7 @@ func TestSelfUpdateUnitsMatchLayout(t *testing.T) {
 	}
 	watchdog := filepath.Join(dir, "terrascale-orchestrator-selfupdate-watchdog@.service")
 	want := selfupdate.DefaultBakedBinary + " selfupdate watchdog --root " + selfupdate.DefaultRoot +
-		" --unit terrascale-orchestrator-%i.service --config /etc/terrascale-orchestrator/%i.json --restart"
+		" --unit terrascale-orchestrator-%i.service --config /etc/terrascale-orchestrator/%i.json"
 	if got := execLines(t, watchdog, "ExecStart"); len(got) != 1 || got[0] != want {
 		t.Fatalf("watchdog ExecStart = %q, want %q", got, want)
 	}

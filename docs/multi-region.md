@@ -145,6 +145,15 @@ block is merged into the controller config the material generation pins.
 
 ## Subject contract
 
+The dashboard link checks a version-1 remote `obs.region` response, with a
+1.5-second timeout. A connected leaf alone does not make that check green.
+Controllers need the local `obs.>` subscription and exact configured-peer
+`obs.region`/`obs.decisions` publishes. For existing cells, rotate them with
+the offline credential command and a [signed material generation](material-generation.md#sign-a-generation).
+This leaves remote snapshots, raw journals and mutations unexported. Verify
+TerraBase replication separately; dashboard summary success proves control
+plane request/reply traffic, not database catch-up.
+
 `natscell.InterRegionContract` lists every subject that may cross, as explicit
 exports and imports between the cell and interregion accounts:
 
@@ -259,18 +268,15 @@ The current global control plane still consumes `controller.global`
 
 Only the home region's controllers may publish the global subjects
 (`natscell.GlobalControllerPublishes`: `ts.control.global.>` and
-`ts.global.v1.>`). Bootstrap material issues them when its config sets
-`globalHome: true`; Lab NKey controller grants use `global: true`. Every other
-region's controller keeps its regional grants and reads the mirror through the
-JetStream API it already has.
+`ts.global.v1.>`). Fresh bootstrap material derives this role from
+`catalog.Bootstrap`; all other regions retain regional authority and read the
+home mirror through the JetStream API. Linked credential issuance checks the
+home in the signed topology.
 
 Before the global lease starts, the home controller checks its credentials
 (`natscell.ValidateGlobalControllerPermissions`) and refuses to start with
-`ErrMissingGlobalGrants` instead of retrying a denied publish forever.
-Material is immutable, so making a region the global home (or rotating an
-existing home onto the new grants) means generating new material with
-`globalHome: true`, rolling the controllers onto it, and only then enabling
-`controller.global`. Turning `globalHome` off again needs the same rotation.
+`ErrMissingGlobalGrants`. Existing controllers require a current-root signed
+credential rotation to acquire these grants. Global control runs automatically.
 
 ## Region lifecycle
 

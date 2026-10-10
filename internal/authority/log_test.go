@@ -27,7 +27,7 @@ func TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement(t *testing
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestNestedWorkloadEffectUnderAnotherEpochIsFenced(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000BJN5J56B8SDAH30Y", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000BJN5J56B8SDAH30Y", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +138,7 @@ func TestEnrollmentEffectIsDurableTerminalAdmissionHold(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000T7KCT1BGERPKVWJZ", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000T7KCT1BGERPKVWJZ", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestPendingEnrollmentEffectsSurviveLargeSettledHistory(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000BM058BHA26MBFW1K", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000BM058BHA26MBFW1K", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	old, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000CMQ0HAMXDC0MJCQK", Replicas: 1})
+	old, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000CMQ0HAMXDC0MJCQK", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestPriorEpochEnrollmentEffectRequiresExactFenceProof(t *testing.T) {
 	if err := old.Close(); err != nil {
 		t.Fatal(err)
 	}
-	current, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000QQE9RSJGEQCGXJ08", Replicas: 1})
+	current, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000QQE9RSJGEQCGXJ08", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T)
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	first, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000NJ1B8Y3D64AHBVBH", Replicas: 1})
+	first, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000NJ1B8Y3D64AHBVBH", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -327,7 +327,7 @@ func TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs(t *testing.T)
 	}
 	firstClosed = true
 
-	second, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000002Y5BFHHZ2P4ABRTQ", Replicas: 1})
+	second, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "00000000002Y5BFHHZ2P4ABRTQ", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000S8X456Y9E7MJXSNB", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000S8X456Y9E7MJXSNB", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict(t *testing
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000002ZYG3Z5ABHQBABYP", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "00000000002ZYG3Z5ABHQBABYP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -558,13 +558,13 @@ func TestAuthorityDiagnosticsAreSafeAndRateLimited(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&output, nil))
 	runtime := &Runtime{
-		config: Config{Scope: "gru"}, logger: logger, diagTimes: make(map[string]time.Time),
+		config: Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru"}, logger: logger, diagTimes: make(map[string]time.Time),
 	}
 	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Reason: "not-observed"})
 	runtime.logSnapshotTransition()
-	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Reason: "leader"})
+	runtime.publishSnapshot(Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Reason: "leader"})
 	runtime.logSnapshotTransition()
-	runtime.publishSnapshot(Snapshot{Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Revision: 8, Reason: "leader"})
+	runtime.publishSnapshot(Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C66H81REBS854264", OwnerID: "0000000000DXKPTGJCKZVQAP63", Leader: true, Ready: true, Epoch: 1, Revision: 8, Reason: "leader"})
 	runtime.logSnapshotTransition()
 
 	apiErr := &jetstream.APIError{Code: 503, ErrorCode: 10164, Description: "private-server-description"}
@@ -617,7 +617,7 @@ func TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory(t *testi
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000C66H81REBS854264", LeaseDuration: time.Second,
 		RenewInterval: 10 * time.Millisecond, Replicas: 1,
 	})

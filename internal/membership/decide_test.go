@@ -15,6 +15,23 @@ func testTopology() Topology {
 
 func testConfig() Config { return Config{Enabled: true, Replace: true} }
 
+func TestAcceptedControllerWithoutLaunchHistoryRemainsObservedAndHeld(t *testing.T) {
+	observation := healthyObservation(testEpoch)
+	observation.Ledger["controller-b"] = LedgerSlot{InstanceOCID: instanceB, Complete: true}
+	state, actions := Decide(testConfig(), testTopology(), State{}, observation)
+	if state.Slots["controller-b"].Phase != PhaseHealthy || len(actions) != 0 {
+		t.Fatal("accepted online controller was not observed as healthy")
+	}
+	observation = withPeer(observation, "gru-1-ctl-2", false)
+	observation.Lifecycle["controller-b"] = LifecycleTerminated
+	observation.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceB)
+	state, actions = Decide(testConfig(), testTopology(), state, observation)
+	if state.Slots["controller-b"].Phase != PhaseHeld ||
+		state.Slots["controller-b"].Reason != "accepted controller has no current replacement launch authority" || len(actions) != 0 {
+		t.Fatalf("accepted installation invented launch history: %+v, %+v", state.Slots["controller-b"], actions)
+	}
+}
+
 const (
 	instanceB  = "ocid1.instance.oc1.sa-saopaulo-1.controller-b"
 	instanceC  = "ocid1.instance.oc1.sa-saopaulo-1.controller-c"

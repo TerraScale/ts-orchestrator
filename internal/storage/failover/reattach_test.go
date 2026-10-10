@@ -127,7 +127,7 @@ func (fencer *fakeFencer) Current() authority.Snapshot         { return fencer.s
 func (fencer *fakeFencer) Guard(context.Context, uint64) error { return fencer.guardErr }
 
 func leader() authority.Snapshot {
-	return authority.Snapshot{Leader: true, Ready: true, Epoch: 2, Revision: 3, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 2, Revision: 3, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func TestReattacherDrivesTerminatedHostToMountedReplacement(t *testing.T) {
@@ -182,7 +182,7 @@ func TestReattacherRefusesFollowerFencedAndForeignAttachments(t *testing.T) {
 		Instances: fakeInstances{"old": "TERMINATED"}, Volumes: volumes, Permits: &fakePermits{granted: map[string]bool{}}}
 
 	follower := base
-	follower.Fencer = &fakeFencer{snapshot: authority.Snapshot{Ready: true}}
+	follower.Fencer = &fakeFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true}}
 	if _, err := follower.Step(t.Context(), request); !errors.Is(err, authority.ErrNotLeader) {
 		t.Fatalf("follower reattached: %v", err)
 	}

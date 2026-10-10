@@ -20,8 +20,8 @@ func GlobalControllerPublishes() []string {
 }
 
 // ErrMissingGlobalGrants means the controller's NATS credentials predate the
-// global home grants. Re-issue them (bootstrap material with globalHome, or
-// a controller NKey grant with global) before enabling controller.global.
+// global home grants. Re-issue their signed material before starting the
+// global home controller.
 var ErrMissingGlobalGrants = errors.New("controller NATS credentials lack the global home publish grants")
 
 // ValidateGlobalControllerPermissions checks, before the global authority
@@ -63,6 +63,16 @@ func ValidateGlobalControllerPermissions(cfg Config) error {
 		return ErrMissingGlobalGrants
 	}
 	return nil
+}
+
+// ValidateGlobalControllerCredentialBytes checks the home grants before
+// offline credentials are admitted into a signed material generation.
+func ValidateGlobalControllerCredentialBytes(data []byte) error {
+	claim, _, err := credentialUserBytes(data)
+	if err != nil {
+		return err
+	}
+	return globalPublishGranted(claim.Pub.Allow, claim.Pub.Deny)
 }
 
 // globalPublishGranted checks JWT publish permissions against every global

@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
@@ -83,6 +84,7 @@ type brokerGate struct {
 	public                            ed25519.PublicKey
 	clock                             brokerauth.ClockProbe
 	cell, broker, account, initialJWT string
+	deploymentID                      string
 	applied                           uint64
 	brokers                           []string
 	ackedSequence                     uint64
@@ -91,12 +93,12 @@ type brokerGate struct {
 }
 
 func startBrokerGate(ctx context.Context, cfg Config, runtime *natscell.Runtime,
-	control *authority.Runtime, candidateID string, private ed25519.PrivateKey,
+	control *authority.Runtime, deploymentID, candidateID string, private ed25519.PrivateKey,
 	public ed25519.PublicKey, clock brokerauth.ClockProbe) (*brokerGate, error) {
 	if cfg.NATS.Lab {
 		return nil, nil
 	}
-	if runtime.Bridge() == nil || clock == nil || len(private) != ed25519.PrivateKeySize || len(public) != ed25519.PublicKeySize {
+	if runtime.Bridge() == nil || clock == nil || len(private) != ed25519.PrivateKeySize || len(public) != ed25519.PublicKeySize || !entityid.Valid(deploymentID) {
 		return nil, errors.New("production broker gate prerequisites are unavailable")
 	}
 	if err := natscell.ValidateBrokerControllerCredentials(cfg.NATS.CredentialsFile, cfg.NATS.Cell, cfg.NATS.Instance); err != nil {
@@ -111,7 +113,8 @@ func startBrokerGate(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 		allowed[broker] = struct{}{}
 	}
 	gate := &brokerGate{runtime: runtime, store: store, control: control, public: public, clock: clock,
-		cell: cfg.NATS.Cell, broker: cfg.NATS.Instance, account: runtime.CellAccount(), initialJWT: runtime.InitialCellJWT(),
+		deploymentID: deploymentID,
+		cell:         cfg.NATS.Cell, broker: cfg.NATS.Instance, account: runtime.CellAccount(), initialJWT: runtime.InitialCellJWT(),
 		brokers: append([]string(nil), cfg.NATS.Embedded.BrokerIDs...)}
 	gate.issuer = &brokerauth.Issuer{Store: store, Account: gate.account, Brokers: allowed, Key: private, Clock: clock}
 	subject := brokerRPCSubject(gate.cell, "ticket", candidateID)
@@ -196,6 +199,10 @@ func (g *brokerGate) renew(ctx context.Context) error {
 	if _, err := g.clock.Measure(); err != nil {
 		return err
 	}
+	lease, err := authority.Observe(ctx, g.runtime.JetStream(), g.cell)
+	if err != nil || !lease.Ready || lease.DeploymentID != g.deploymentID || lease.CandidateID == "" {
+		return authority.ErrNotLeader
+	}
 	claim, err := g.store.Read(ctx, g.account)
 	if errors.Is(err, brokerauth.ErrNoClaim) && g.control.Current().CanMutate() {
 		claim, err = g.store.Commit(ctx, g.control.Current().Epoch, g.account, g.initialJWT, 0)
@@ -208,10 +215,6 @@ func (g *brokerGate) renew(ctx context.Context) error {
 			return err
 		}
 		g.applied = claim.Sequence
-	}
-	lease, err := authority.Observe(ctx, g.runtime.JetStream(), g.cell)
-	if err != nil || !lease.Ready || lease.CandidateID == "" {
-		return authority.ErrNotLeader
 	}
 	request, err := brokerauth.NewRequest(g.cell, g.broker, g.account)
 	if err != nil {
@@ -245,6 +248,9 @@ func (g *brokerGate) renew(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if lease.DeploymentID != g.deploymentID {
+		return authority.ErrFenced
+	}
 	bound, err := g.clock.Measure()
 	if err != nil {
 		return err
@@ -266,6 +272,9 @@ func (g *brokerGate) commitAndFence(ctx context.Context, raw string, expectedSeq
 	result := fenceResult{Acks: make(map[string]fenceAck)}
 	if g == nil {
 		return result, authority.ErrNotLeader
+	}
+	if current := g.control.Current(); !current.CanMutate() || current.DeploymentID != g.deploymentID {
+		return result, authority.ErrFenced
 	}
 	g.commitMu.Lock()
 	defer g.commitMu.Unlock()

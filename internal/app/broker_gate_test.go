@@ -189,7 +189,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		broker := runtimes[index]
 		control, stopAuthority, err := retryControllerOpen(ctx, "start "+id+" authority", func() bool { return broker.FullClusterReady(3) }, true,
 			func(attempt context.Context) (*authority.Runtime, error) {
-				return authority.Start(attempt, broker.JetStream(), authority.Config{
+				return authority.Start(attempt, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 					Scope: "gru", CandidateID: entityid.Derive("test-controller", id), Replicas: 3, LeaseDuration: 12 * time.Second, RenewInterval: 2 * time.Second,
 					ClockCheck: func() error { _, err := clock.Measure(); return err }})
 			}, func(control *authority.Runtime) { _ = control.Close() })
@@ -200,7 +200,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		t.Cleanup(func() { stopAuthority(); _ = control.Close() })
 		var gateCtx context.Context
 		gateCtx, gateCancel[index] = context.WithCancel(ctx)
-		gates[index], err = startBrokerGate(gateCtx, Config{Version: ConfigVersion, NATS: configs[index]}, runtimes[index], controls[index], entityid.Derive("test-controller", id), ticketPrivate, ticketPub, clock)
+		gates[index], err = startBrokerGate(gateCtx, Config{Version: ConfigVersion, NATS: configs[index]}, runtimes[index], controls[index], "01ARZ3NDEKTSV4RRFFQ69G5FAV", entityid.Derive("test-controller", id), ticketPrivate, ticketPub, clock)
 		if err != nil {
 			t.Fatalf("start %s gate: %v", id, err)
 		}
@@ -231,6 +231,11 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	operatorConfig.NATS.URL = fmt.Sprintf("tls://127.0.0.1:%d", clientPorts[0])
 	operatorConfigPath := testJSONFile(t, root, "claim-operator.json", operatorConfig)
 	waitBrokerGateStatus(t, ctx, runtimes, func(status natscell.BridgeStatus) bool { return status.Open && status.ClaimSequence > 0 })
+	foreignGate := &brokerGate{runtime: runtimes[0], control: controls[0], clock: clock, cell: "gru",
+		deploymentID: entityid.Derive("test-deployment", "foreign")}
+	if err := foreignGate.renew(ctx); !errors.Is(err, authority.ErrNotLeader) {
+		t.Fatalf("broker gate accepted a lease outside its trusted deployment: %v", err)
+	}
 	_, hostCreds := testBrokerJWTUser(t, root, "host.creds", cellKey, cellID, nil, nil)
 	_, hostID, err := brokerJWTUser(hostCreds)
 	if err != nil {

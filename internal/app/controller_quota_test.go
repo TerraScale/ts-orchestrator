@@ -1,18 +1,17 @@
 package app
 
 import (
+	"encoding/base64"
 	"io"
 	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
 
 func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
-	previousPresence := controllerBakedInputsPresent
-	controllerBakedInputsPresent = func() (bool, error) { return false, nil }
-	t.Cleanup(func() { controllerBakedInputsPresent = previousPresence })
 	for _, test := range []struct {
 		name          string
 		artifactBytes int64
@@ -36,5 +35,20 @@ func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
 				t.Fatalf("startup error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestControllerRejectsLabWithoutTrustedDeployment(t *testing.T) {
+	public, _ := testEd25519(t, t.TempDir(), "operator.key")
+	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "lab", Instance: "controller", Lab: true,
+		Embedded: &natscell.Embedded{StoreMaxBytes: 4 << 30}},
+		Controller: ControllerConfig{ArtifactStoreMaxBytes: 64 << 20,
+			TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),
+				Roles: []string{"terrabase"}, Environments: []string{"test"}}},
+			Workloads: map[string]WorkloadProfile{"terrabase": {
+				Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20},
+			}}}}
+	if err := runController(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "spec_trust") {
+		t.Fatalf("lab authority without trusted deployment error = %v", err)
 	}
 }

@@ -25,7 +25,7 @@ const (
 	// minTerraBaseLoadTTL keeps recent member status through fast host polls.
 	minTerraBaseLoadTTL = 5 * time.Second
 	// maxLoadBackoff caps the retry spacing after failed publications, for
-	// example while the controller has host telemetry disabled.
+	// example when a controller cannot accept telemetry.
 	maxLoadBackoff = 10 * time.Minute
 	// terraBaseLoadTTL drops a TerraBase load block that no verified
 	// member status refreshed recently.

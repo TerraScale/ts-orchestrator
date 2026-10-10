@@ -352,7 +352,7 @@ func (material FounderTLSMaterialDigests) digests() [6]string {
 }
 
 // FounderPeerRowDigest hashes the deterministic JSON representation of one
-// row. Managed intent v2 pins this digest together with the enclosing plan.
+// row. Managed intent pins this digest together with the enclosing plan.
 func FounderPeerRowDigest(row FounderPeerRow) (string, error) {
 	wire, err := protocol.EncodeJSON(row)
 	if err != nil {
@@ -644,7 +644,7 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 		return VerifiedFounderPeer{}, fmt.Errorf("%w: hash peer row: %v", ErrFounderPeerAuthorization, err)
 	}
 	intent := launch.intent
-	if intent.SchemaVersion != 2 {
+	if intent.SchemaVersion != 1 {
 		return VerifiedFounderPeer{}, ErrFounderPlanRequired
 	}
 	if !launch.ServerDate().IsZero() && now.Before(launch.ServerDate()) {
@@ -705,7 +705,7 @@ func (verified VerifiedFounderPlan) InitialManagedPeerIntent(slot string, create
 	}
 	anchor := verified.anchor.Anchor()
 	token := "founder-" + slot + "-" + verified.digest[:24]
-	return Intent{SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: verified.plan.DeploymentID,
+	return Intent{SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: verified.plan.DeploymentID,
 		Cell: string(verified.plan.Cell), Environment: verified.plan.Environment, Role: roleController, Slot: slot,
 		Attempt: 1, Generation: 1, ManifestDigest: row.ManifestSHA256,
 		ReleaseReceiptDigest: manifest.Manifest().ReleaseReceiptSHA256, ImageOCID: row.ImageOCID,
@@ -771,7 +771,7 @@ func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
 	state := recovery.state
 	intent := state.Intent
 	if recovery.scope != (BootstrapScope{DeploymentID: current.plan.DeploymentID, Cell: string(current.plan.Cell), Slot: slot}) ||
-		intent.Mode != IntentModeManaged || intent.SchemaVersion != 2 || intent.Attempt != state.Head.Attempt ||
+		intent.Mode != IntentModeManaged || intent.SchemaVersion != 1 || state.Head.SchemaVersion != 1 || intent.Attempt != state.Head.Attempt ||
 		intent.Generation != state.Head.Generation || state.IntentRecord.SHA256 != state.Head.IntentDigest ||
 		objectDigest(state.IntentRecord.Bytes) != state.IntentRecord.SHA256 ||
 		state.Head.ResultDigest != "" && recovery.phase != ManagedPeerRecoveryComplete && recovery.phase != ManagedPeerRecoveryQuarantined ||
@@ -914,7 +914,7 @@ func validateLaunchTokenBinding(launch LaunchAuthorization, plan VerifiedFounder
 		intentEnvelopeErr != nil || headEnvelopeErr != nil || !sameIntent(recordIntent, intent) || !sameHead(recordHead, launch.head) ||
 		launch.intentRecord.SHA256 == "" || digestBytes(launch.intentRecord.Bytes) != launch.intentRecord.SHA256 ||
 		launch.headRecord.SHA256 == "" || digestBytes(launch.headRecord.Bytes) != launch.headRecord.SHA256 ||
-		launch.head.ResultDigest != "" || launch.head.IntentDigest != launch.intentRecord.SHA256 ||
+		launch.head.SchemaVersion != 1 || launch.head.ResultDigest != "" || launch.head.IntentDigest != launch.intentRecord.SHA256 ||
 		launch.head.Attempt != intent.Attempt || launch.head.Generation != intent.Generation ||
 		intentScope != (trust.Scope{
 			Domain: domainBootstrapIntent, DeploymentID: plan.plan.DeploymentID, Cell: string(plan.plan.Cell),
@@ -922,7 +922,7 @@ func validateLaunchTokenBinding(launch LaunchAuthorization, plan VerifiedFounder
 		}) || headEnvelope.Scope != (trust.Scope{
 		Domain: domainBootstrapHead, DeploymentID: plan.plan.DeploymentID, Cell: string(plan.plan.Cell),
 		Environment: plan.plan.Environment, Role: roleController, Slot: row.Slot,
-	}) || intent.SchemaVersion != 2 || intent.Mode != IntentModeManaged ||
+	}) || intent.SchemaVersion != 1 || intent.Mode != IntentModeManaged ||
 		intent.FounderPlanSHA256 != plan.digest || intent.PeerRowDigest != rowDigest ||
 		intent.ManifestDigest != row.ManifestSHA256 || intent.ImageOCID != row.ImageOCID ||
 		!sameProfile(launchProfileForIntent(intent), LaunchProfile{

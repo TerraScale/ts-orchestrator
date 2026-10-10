@@ -74,7 +74,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	for index := range controllerSeeds {
 		public, seed := testNKey(t)
 		controllerSeeds[index] = seed
-		grants = append(grants, natscell.NKeyGrant{PublicKey: public, Role: "controller"})
+		grants = append(grants, natscell.NKeyGrant{PublicKey: public, Role: "controller", Global: true})
 	}
 	operatorNKey, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
@@ -91,6 +91,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true}
+	specTrust := authorityTestSpecTrust(t, root, "lab")
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
@@ -100,7 +101,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
 					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants,
 					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
-			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
+			Controller: ControllerConfig{SpecTrust: specTrust, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": {Resources: placement.Resources{
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}}},

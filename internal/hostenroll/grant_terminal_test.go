@@ -60,6 +60,45 @@ func terminalTestGrant(instanceID string) Grant {
 	}
 }
 
+func TestResetGrantRenewalRefusesOrdinaryIncompleteAndForgedProvenance(t *testing.T) {
+	store := terminalTestStore(t)
+	for _, fault := range []string{"ordinary incomplete", "invalid operation", "initial owner", "retired"} {
+		t.Run(fault, func(t *testing.T) {
+			grant := terminalTestGrant("ocid1.instance." + strings.ReplaceAll(fault, " ", "-"))
+			grant.IdentityResetOperationID = entityid.Derive("test-reset", "operation")
+			switch fault {
+			case "ordinary incomplete":
+				grant.IdentityResetOperationID = ""
+			case "invalid operation":
+				grant.IdentityResetOperationID = "not-an-operation"
+			case "initial owner":
+				grant.OwnerToken = "initial-enrollment-still-active"
+			case "retired":
+				grant.Disabled = true
+			}
+			wire, err := json.Marshal(grant)
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := store.kv.Create(t.Context(), grantKey(grant.InstanceID), wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := store.ClaimRenew(t.Context(), grant.InstanceID, []byte("verified renewal request"), time.Now()); err == nil {
+				t.Fatal("incomplete grant acquired renewal authority")
+			}
+			entry, err := store.kv.Get(t.Context(), grantKey(grant.InstanceID))
+			if err != nil || entry.Revision() != revision || !bytes.Equal(entry.Value(), wire) {
+				t.Fatal("refusal changed grant")
+			}
+		})
+	}
+	if _, _, err := store.Claim(t.Context(), Grant{SchemaVersion: 1, InstanceID: "ocid1.instance.unreviewed", CreateKey: entityid.New(),
+		DescriptorSHA256: terminalTestDigest, Request: []byte("request"), IdentityResetOperationID: entityid.New()}); err == nil {
+		t.Fatal("ordinary enrollment fabricated root reset provenance")
+	}
+}
+
 func TestGrantStoreTerminalFenceCreatesDurableTombstone(t *testing.T) {
 	store := terminalTestStore(t)
 	candidate := terminalTestGrant("ocid1.instance.terminal-missing")

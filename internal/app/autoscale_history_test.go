@@ -99,7 +99,7 @@ func TestHostCapacityAndFilesystemCollectorArchiveReplay(t *testing.T) {
 		t.Fatalf("serialized filesystem identity lost: %+v", report.Host)
 	}
 	fence := &metricTestFence{}
-	fence.set(authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
+	fence.set(authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)})
 	receivedAt := now.Add(39 * time.Second)
 	controllerNow := receivedAt
 	load := &hostTelemetry{fencer: fence, load: hostload.NewAggregator(hostload.AggregatorConfig{

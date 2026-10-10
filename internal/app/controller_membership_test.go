@@ -191,7 +191,7 @@ func waitMembership(t *testing.T, ctx context.Context, what string, ready func()
 type staticLeadership struct{ epoch uint64 }
 
 func (leader staticLeadership) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: true, Epoch: leader.epoch, Revision: 1,
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: leader.epoch, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}
 }
 

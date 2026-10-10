@@ -27,6 +27,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )
@@ -63,7 +64,7 @@ import (
 // purpose owner-only (the CA key, child seeds) are never published.
 const (
 	interRegionMetadataName = "interregion.json"
-	interRegionSchema       = 2
+	interRegionSchema       = 1
 	maxInterRegionFile      = 64 << 10
 	interRegionDomain       = "interregion.terrascale.internal"
 )
@@ -130,8 +131,8 @@ func (cfg InterRegionConfig) contract(cell string) (natscell.InterRegionContract
 	if err := topology.Validate(); err != nil {
 		return natscell.InterRegionContract{}, 0, err
 	}
-	if !slices.Contains(topology.Regions(), cell) || len(topology.Regions()) < 2 || len(topology.Regions()) > 64 {
-		return natscell.InterRegionContract{}, 0, errors.New("interregion topology must contain this region and a peer")
+	if !slices.Contains(topology.Regions(), cell) || len(topology.Regions()) > 64 {
+		return natscell.InterRegionContract{}, 0, errors.New("interregion topology must contain this region and at most 63 peers")
 	}
 	subtrees := topology.Subtrees(cell)
 	if (len(subtrees) != 0) != (cfg.ListenPort > 0) || cfg.ListenPort < 0 || cfg.ListenPort > 65535 {
@@ -581,7 +582,7 @@ func LoadInterRegion(directory string) (InterRegionRecord, error) {
 		return InterRegionRecord{}, ErrMaterial
 	}
 	var record InterRegionRecord
-	if err := json.Unmarshal(metadata, &record); err != nil || record.SchemaVersion != interRegionSchema {
+	if err := protocol.DecodeStrict(metadata, &record, 1<<20); err != nil || record.SchemaVersion != interRegionSchema {
 		return InterRegionRecord{}, ErrMaterial
 	}
 	contract, _, err := record.Config.contract(record.Cell)
@@ -666,7 +667,7 @@ func (readback Readback) reviewed() bool {
 func LeafRemote(parent InterRegionRecord, child string, rotation int, receipt, netbird Readback,
 	credentialsFile string, tls natscell.TLSFiles, now time.Time,
 ) (natscell.LeafRemote, error) {
-	if parent.Topology().Hub == "" || len(parent.Slots) == 0 || rotation < 0 {
+	if parent.SchemaVersion != interRegionSchema || parent.Topology().Hub == "" || len(parent.Slots) == 0 || rotation < 0 {
 		return natscell.LeafRemote{}, ErrMaterial
 	}
 	// An edited inventory (a slot address or account changed after issue)
@@ -826,8 +827,9 @@ type ParentLink struct {
 // cell-interregion.jwt and system-interregion.jwt.
 func RenderInterRegion(record InterRegionRecord, slot, directory string, link *ParentLink, now time.Time,
 ) (natscell.InterRegion, error) {
-	if ledger, err := record.ledgerDigest(); err != nil || ledger != record.LedgerDigest || !now.Before(record.ExpiresAt) {
-		return natscell.InterRegion{}, fmt.Errorf("%w: interregion record is expired or does not match its ledger digest", ErrMaterial)
+	if ledger, err := record.ledgerDigest(); err != nil || record.SchemaVersion != interRegionSchema ||
+		ledger != record.LedgerDigest || !now.Before(record.ExpiresAt) {
+		return natscell.InterRegion{}, fmt.Errorf("%w: interregion record must use schema 1, be unexpired and match its ledger digest", ErrMaterial)
 	}
 	index := slices.IndexFunc(record.Slots, func(candidate Slot) bool { return candidate.Name == slot })
 	if index < 0 || !filepath.IsAbs(directory) {
@@ -837,7 +839,7 @@ func RenderInterRegion(record InterRegionRecord, slot, directory string, link *P
 	tls := natscell.TLSFiles{CAFile: path("interregion-ca.pem"), CertFile: path("interregion-tls-" + slot + "-cert.pem"),
 		KeyFile: path("interregion-tls-" + slot + "-key.pem")}
 	topology := record.Topology()
-	block := natscell.InterRegion{Enabled: true, Peers: topology.Peers(record.Cell), AccountJWTFile: path("interregion.jwt"),
+	block := natscell.InterRegion{Peers: topology.Peers(record.Cell), AccountJWTFile: path("interregion.jwt"),
 		GlobalHome: topology.Hub, Topology: &topology}
 	if record.Config.ListenPort > 0 {
 		block.Listen = &natscell.LeafListen{Host: "0.0.0.0", Port: record.Config.ListenPort, TLS: tls}

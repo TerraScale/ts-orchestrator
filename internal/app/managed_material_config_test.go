@@ -26,7 +26,7 @@ func TestAcceptedMaterialConfigPinsMemberCompartmentAndSubnet(t *testing.T) {
 		RecipientSignerPublicKey: base64.StdEncoding.EncodeToString(public),
 		NativeVerifierSHA256:     strings.Repeat("a", 64),
 	}
-	marker := bootstrapstart.AcceptedInstall{Cell: "GRU", ManagedMaterial: domain}
+	marker := bootstrapstart.AcceptedIdentity{Cell: "GRU", ManagedMaterial: domain}
 	region := oci.RegionConfig{Region: oci.RegionGRU,
 		CompartmentID: domain.MemberCompartmentOCID, SubnetID: domain.MemberSubnetOCID}
 	config, err := acceptedMaterialConfigFromMarker(marker, "gru", region)

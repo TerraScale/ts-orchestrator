@@ -1,12 +1,54 @@
 package natscell
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestSingleRegionTopologyKeepsProductionDomain(t *testing.T) {
+	for _, withMaterial := range []bool{false, true} {
+		t.Run(map[bool]string{false: "without link material", true: "single region material"}[withMaterial], func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			topology := HubAndSpoke("gru", nil)
+			region := newTestRegion(t, t.TempDir(), "gru", topology)
+			if withMaterial {
+				region.cfg.Embedded.InterRegion.Topology = &topology
+				region.cfg.Embedded.InterRegion.GlobalHome = ""
+			} else {
+				region.cfg.Embedded.InterRegion = nil
+			}
+			runtime, err := Start(ctx, region.cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = runtime.Close() })
+			js, err := jetstream.NewWithDomain(runtime.Conn(), "gru")
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := js.AccountInfo(ctx)
+			if err != nil || info.Domain != "gru" {
+				t.Fatalf("isolated production domain = %+v, %v", info, err)
+			}
+		})
+	}
+}
+
+func TestInterRegionRejectsRemovedEnabledField(t *testing.T) {
+	for _, value := range []string{"true", "false"} {
+		var ir InterRegion
+		if err := protocol.DecodeStrict([]byte(`{"enabled":`+value+`}`), &ir, 1024); err == nil {
+			t.Fatalf("enabled=%s accepted", value)
+		}
+	}
+}
 
 func TestInterRegionConfigFailsClosed(t *testing.T) {
 	t.Parallel()
@@ -18,12 +60,12 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	if err := region.cfg.validate(); err != nil {
 		t.Fatalf("valid interregion config rejected: %v", err)
 	}
-	disabled := region.cfg
-	embedded := *disabled.Embedded
-	embedded.InterRegion = &InterRegion{Enabled: false}
-	disabled.Embedded = &embedded
-	if err := disabled.validate(); err != nil {
-		t.Fatalf("disabled interregion block must be inert: %v", err)
+	empty := region.cfg
+	embedded := *empty.Embedded
+	embedded.InterRegion = &InterRegion{}
+	empty.Embedded = &embedded
+	if err := empty.validate(); err == nil {
+		t.Fatal("empty interregion material silently admitted")
 	}
 	remote := LeafRemote{Peer: "sfo", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
 		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
@@ -47,6 +89,7 @@ func TestInterRegionConfigFailsClosed(t *testing.T) {
 	cases := map[string]func(ir *InterRegion, cfg *Config){
 		"lab":                     func(_ *InterRegion, cfg *Config) { cfg.Lab = true },
 		"missing account":         func(ir *InterRegion, _ *Config) { ir.AccountJWTFile = "" },
+		"missing home":            func(ir *InterRegion, _ *Config) { ir.GlobalHome = "" },
 		"no peers":                func(ir *InterRegion, _ *Config) { ir.Peers = nil },
 		"self peer":               func(ir *InterRegion, _ *Config) { ir.Peers = []string{"gru"} },
 		"global peer":             func(ir *InterRegion, _ *Config) { ir.Peers = []string{"global"} },

@@ -88,7 +88,7 @@ func TestOperatorMetadataRecovery(t *testing.T) {
 			if calls == 1 {
 				return authority.Snapshot{}, fmt.Errorf("read authority lease: %w", temporary)
 			}
-			return authority.Snapshot{Ready: true, Reason: "observed", Epoch: 7, ExpiresAt: time.Now().Add(time.Minute)}, nil
+			return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Reason: "observed", Epoch: 7, ExpiresAt: time.Now().Add(time.Minute)}, nil
 		})
 		if err != nil || epoch != 7 || calls != 2 {
 			t.Fatalf("authority recovery: epoch=%d calls=%d err=%v", epoch, calls, err)
@@ -117,7 +117,7 @@ func TestOperatorMetadataRecovery(t *testing.T) {
 		observeCalls = 0
 		_, err = observeOperatorAuthority(t.Context(), func(context.Context) (authority.Snapshot, error) {
 			observeCalls++
-			return authority.Snapshot{Ready: true, Reason: "observed", Epoch: 7, ExpiresAt: time.Now().Add(-time.Second)}, nil
+			return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Reason: "observed", Epoch: 7, ExpiresAt: time.Now().Add(-time.Second)}, nil
 		})
 		if err == nil || observeCalls != 1 {
 			t.Fatalf("expired authority lease retried: calls=%d err=%v", observeCalls, err)

@@ -119,7 +119,7 @@ type terminalFenceRetryFencer struct {
 }
 
 func (fencer *terminalFenceRetryFencer) Current() authority.Snapshot {
-	return authority.Snapshot{Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", OwnerID: "0000000000G2MMHNF41VCKD3JR",
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000G2MMHNF41VCKD3JR", OwnerID: "0000000000G2MMHNF41VCKD3JR",
 		Leader: true, Ready: true, Epoch: fencer.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -48,9 +49,9 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 	}
 	previousInstall := localAdmittedInstall
 	t.Cleanup(func() { localAdmittedInstall = previousInstall })
-	localAdmittedInstall = func() (bootstrapstart.AcceptedInstall, error) {
-		return bootstrapstart.AcceptedInstall{Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-a",
-			PrimaryPrivateIP: "127.0.0.1"}, nil
+	localAdmittedInstall = func() (bootstrapstart.AcceptedIdentity, error) {
+		return bootstrapstart.AcceptedIdentity{Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-a",
+			PrimaryPrivateIP: "127.0.0.1", Store: identityrekey.StoreIdentity{Directory: store}}, nil
 	}
 	stubRefoundGuard(t, root)
 	_, key, err := ed25519.GenerateKey(rand.Reader)
@@ -109,7 +110,7 @@ func TestRecoverQuorumRefoundRequiresBackupAndConfirmation(t *testing.T) {
 	recorder := &recordingRefound{}
 	previousInput, previousReplacer := recoveryInput, refoundReplacer
 	t.Cleanup(func() { recoveryInput, refoundReplacer = previousInput, previousReplacer })
-	refoundReplacer = func(context.Context, bootstrapstart.AcceptedInstall) (interface {
+	refoundReplacer = func(context.Context, bootstrapstart.AcceptedIdentity) (interface {
 		Replace(context.Context, string, []byte) error
 	}, error) {
 		return recorder, nil
@@ -238,7 +239,7 @@ func TestRecoverQuorumRefoundReFoundsOneSlotAtATime(t *testing.T) {
 	recorder := &recordingRefound{}
 	previousInput, previousReplacer := recoveryInput, refoundReplacer
 	t.Cleanup(func() { recoveryInput, refoundReplacer = previousInput, previousReplacer })
-	refoundReplacer = func(context.Context, bootstrapstart.AcceptedInstall) (interface {
+	refoundReplacer = func(context.Context, bootstrapstart.AcceptedIdentity) (interface {
 		Replace(context.Context, string, []byte) error
 	}, error) {
 		return recorder, nil

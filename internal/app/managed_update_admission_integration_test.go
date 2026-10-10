@@ -40,7 +40,7 @@ func TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3(t *testing.T) 
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: cell, CandidateID: "00000000003GNSSN4GVAYA2191", Replicas: 1,
 	})
 	if err != nil {

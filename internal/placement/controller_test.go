@@ -1261,7 +1261,7 @@ func (store *placementMemoryStore) CompareAndSwap(_ context.Context, expected ui
 type placementTestFencer struct{}
 
 func (placementTestFencer) Current() authority.Snapshot {
-	return authority.Snapshot{CandidateID: "0000000000GR3712FB1A87M2H7", OwnerID: "00000000004AS2NC5H2SW57SZG", Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", CandidateID: "0000000000GR3712FB1A87M2H7", OwnerID: "00000000004AS2NC5H2SW57SZG", Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func (placementTestFencer) Guard(context.Context, uint64) error { return nil }

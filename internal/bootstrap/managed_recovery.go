@@ -29,7 +29,7 @@ func (ledger *Ledger) RecordManagedPeerCandidate(ctx context.Context, scope Boot
 	if err != nil {
 		return err
 	}
-	if baseline.Intent.Mode != IntentModeManaged || baseline.Intent.SchemaVersion != 2 || baseline.Head.SchemaVersion != 2 {
+	if baseline.Intent.Mode != IntentModeManaged || baseline.Intent.SchemaVersion != 1 || baseline.Head.SchemaVersion != 1 {
 		return ErrFounderPlanRequired
 	}
 	candidate, candidateEnvelope, err := ledger.decodeManagedPeerCandidate(scope, candidateWire, true)
@@ -389,7 +389,7 @@ func (ledger *Ledger) progressObjectName(scope BootstrapScope, attempt uint64) s
 	return ledger.managedPeerObjectName(scope, attempt, "progress.json")
 }
 
-func (ledger *Ledger) readManagedPeerV2State(ctx context.Context, scope BootstrapScope, state SlotState,
+func (ledger *Ledger) readManagedPeerState(ctx context.Context, scope BootstrapScope, state SlotState,
 	allowQuarantine bool,
 ) (SlotState, error) {
 	if !allowQuarantine && state.quarantined {
@@ -623,7 +623,7 @@ func (ledger *Ledger) readManagedPeerV2State(ctx context.Context, scope Bootstra
 
 func (ledger *Ledger) managedPeerObjectName(scope BootstrapScope, attempt uint64, name string) string {
 	identity := sha256.Sum256([]byte(scope.Cell + "\x00controller\x00" + scope.Slot))
-	objectName := "bootstrap/v2/" + scope.DeploymentID + "/" + fmt.Sprintf("%x", identity[:]) +
+	objectName := "bootstrap/v1/" + scope.DeploymentID + "/" + fmt.Sprintf("%x", identity[:]) +
 		fmt.Sprintf("/attempt-%020d/%s", attempt, name)
 	if ledger.config.Prefix != "" {
 		return ledger.config.Prefix + "/" + objectName

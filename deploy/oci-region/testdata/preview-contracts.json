@@ -5496,21 +5496,21 @@
       },
       "mode": 420
     },
-    "fixture-0480": "eyJzY2hlbWFWZXJzaW9uIjogMSwgImtleUlkIjogInJvb3QiLCAic2lnbmF0dXJlIjogInNpZ25lZCIsICJzY29wZSI6IHsiZG9tYWluIjogInRlcnJhc2NhbGUuYm9vdHN0cmFwLm1hbmlmZXN0IiwgInJvbGUiOiAiY29udHJvbGxlciIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJjZWxsIjogIkdSVSJ9LCAicGF5bG9hZCI6IHsic2NoZW1hVmVyc2lvbiI6IDIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJzZWVkU2xvdCI6ICJjb250cm9sbGVyLWEiLCAiY2VsbCI6ICJHUlUifX0=",
+    "fixture-0480": "eyJzY2hlbWFWZXJzaW9uIjogMSwgImtleUlkIjogInJvb3QiLCAic2lnbmF0dXJlIjogInNpZ25lZCIsICJzY29wZSI6IHsiZG9tYWluIjogInRlcnJhc2NhbGUuYm9vdHN0cmFwLm1hbmlmZXN0IiwgInJvbGUiOiAiY29udHJvbGxlciIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJjZWxsIjogIkdSVSJ9LCAicGF5bG9hZCI6IHsic2NoZW1hVmVyc2lvbiI6IDEsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJzZWVkU2xvdCI6ICJjb250cm9sbGVyLWEiLCAiY2VsbCI6ICJHUlUifX0=",
     "fixture-0481": {
       "data": {
         "$fixture": "fixture-0480"
       },
       "mode": 420
     },
-    "fixture-0482": "eyJzY2hlbWFWZXJzaW9uIjoxLCJkZXBsb3ltZW50SWQiOiJ0cy1wcmV2aWV3LWdydS1yNiIsImVudmlyb25tZW50IjoiY2FuYXJ5IiwiY2VsbCI6IkdSVSJ9",
+    "fixture-0482": "eyJzY2hlbWFWZXJzaW9uIjoxLCJkZXBsb3ltZW50SWQiOiIwMDAwMDAwMDAwRjlQUjFXTlZEVEVYUzMxWiIsImVudmlyb25tZW50IjoiY2FuYXJ5IiwiY2VsbCI6IkdSVSJ9",
     "fixture-0483": {
       "data": {
         "$fixture": "fixture-0482"
       },
       "mode": 420
     },
-    "fixture-0484": "eyJhdmFpbGFiaWxpdHlfZG9tYWluIjogIkFELTEiLCAiZmF1bHRfZG9tYWluIjogIkZBVUxULURPTUFJTi0xIiwgImNvbXBhcnRtZW50X2lkIjogIm9jaWQxLmNvbXBhcnRtZW50Lm9jMS4uY29udHJvbCIsICJzaGFwZSI6ICJWTS5TdGFuZGFyZC5BMS5GbGV4IiwgIm9jcHVzIjogMSwgIm1lbW9yeV9nYiI6IDYsICJpbWFnZV9pZCI6ICJvY2lkMS5pbWFnZS5vYzEuLmltYWdlIiwgImJvb3RfZ2IiOiA1MCwgImJvb3RfdnB1c19wZXJfZ2IiOiAxMCwgInN1Ym5ldF9pZCI6ICJvY2lkMS5zdWJuZXQub2MxLi5zdWJuZXQiLCAibmV0d29ya19zZWN1cml0eV9ncm91cF9pZHMiOiBbIm9jaWQxLm5ldHdvcmtzZWN1cml0eWdyb3VwLm9jMS4uYSJdLCAiYXNzaWduX3B1YmxpY19pcCI6IGZhbHNlLCAiY3JlYXRlX2lkZW50aXR5IjogInNlZWQtYS1yNiIsICJtYW5pZmVzdF9zaGEyNTYiOiAiMjg0YzNjYzJlYmJkMGQyOTVhODQ3NjU0ZDRkMjMyZDVkNWQ2ZWE2MDE5YmM5YTYyMjA2YjA1MDBhYWVjNTlkYiIsICJhbmNob3Jfc2hhMjU2IjogIjY5YmVkM2QwNzNlZjU0MzBiYmY3MTI1NmQ2MTU5Y2NmYWJjNTUyNzNhODQyOWQ5MTNhNmUwMWQ1Mjc4NWI2NTEifQ==",
+    "fixture-0484": "eyJhdmFpbGFiaWxpdHlfZG9tYWluIjogIkFELTEiLCAiZmF1bHRfZG9tYWluIjogIkZBVUxULURPTUFJTi0xIiwgImNvbXBhcnRtZW50X2lkIjogIm9jaWQxLmNvbXBhcnRtZW50Lm9jMS4uY29udHJvbCIsICJzaGFwZSI6ICJWTS5TdGFuZGFyZC5BMS5GbGV4IiwgIm9jcHVzIjogMSwgIm1lbW9yeV9nYiI6IDYsICJpbWFnZV9pZCI6ICJvY2lkMS5pbWFnZS5vYzEuLmltYWdlIiwgImJvb3RfZ2IiOiA1MCwgImJvb3RfdnB1c19wZXJfZ2IiOiAxMCwgInN1Ym5ldF9pZCI6ICJvY2lkMS5zdWJuZXQub2MxLi5zdWJuZXQiLCAibmV0d29ya19zZWN1cml0eV9ncm91cF9pZHMiOiBbIm9jaWQxLm5ldHdvcmtzZWN1cml0eWdyb3VwLm9jMS4uYSJdLCAiYXNzaWduX3B1YmxpY19pcCI6IGZhbHNlLCAiY3JlYXRlX2lkZW50aXR5IjogInNlZWQtYS1yNiIsICJtYW5pZmVzdF9zaGEyNTYiOiAiNDkwNTc2NDM2NWI1NjgxNzZkZDE1Yzg0ODUwMjVmMzZiN2NmMDlmNTBiOThiNmI1ODFkNjUzYjA4ZjhkZGVhYyIsICJhbmNob3Jfc2hhMjU2IjogIjY5YmVkM2QwNzNlZjU0MzBiYmY3MTI1NmQ2MTU5Y2NmYWJjNTUyNzNhODQyOWQ5MTNhNmUwMWQ1Mjc4NWI2NTEifQ==",
     "fixture-0485": {
       "data": {
         "$fixture": "fixture-0484"
@@ -5644,7 +5644,7 @@
       "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "cell": "GRU",
       "ociRegion": "sa-saopaulo-1",
-      "schemaVersion": 3,
+      "schemaVersion": 1,
       "storageDomain": {
         "$fixture": "fixture-0491"
       }
@@ -5671,7 +5671,7 @@
         "$fixture": "fixture-0493"
       },
       "releaseReceiptSha256": "097b961adc73460ecadad8df026673010b09cccb9e9cb38189a1bc9014c59b9c",
-      "schemaVersion": 2,
+      "schemaVersion": 1,
       "slot": "controller-a"
     },
     "fixture-0495": "verified OCI image=ocid1.image.oc1.sa-saopaulo-1.seedimage region=GRU revision=abc arch=arm64 sha256=abc",
@@ -22938,8 +22938,8 @@
           "ssh_authorized_keys": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl operator@terrascale",
           "terrascale-bootstrap": "{\"schemaVersion\":1,\"slot\":\"controller-a\"}",
           "terrascale-bootstrap-anchor-v1": "{\"schemaVersion\":1,\"payload\":{}}",
-          "terrascale-bootstrap-identity-v1": "{\"schemaVersion\":1,\"deploymentId\":\"ts-preview-gru-r6\",\"environment\":\"canary\",\"cell\":\"GRU\"}",
-          "terrascale-controller-manifest-v1": "{\"schemaVersion\": 1, \"keyId\": \"root\", \"signature\": \"signed\", \"scope\": {\"domain\": \"terrascale.bootstrap.manifest\", \"role\": \"controller\", \"slot\": \"controller-a\", \"cell\": \"GRU\"}, \"payload\": {\"schemaVersion\": 2, \"slot\": \"controller-a\", \"seedSlot\": \"controller-a\", \"cell\": \"GRU\"}}",
+          "terrascale-bootstrap-identity-v1": "{\"schemaVersion\":1,\"deploymentId\":\"0000000000F9PR1WNVDTEXS31Z\",\"environment\":\"canary\",\"cell\":\"GRU\"}",
+          "terrascale-controller-manifest-v1": "{\"schemaVersion\": 1, \"keyId\": \"root\", \"signature\": \"signed\", \"scope\": {\"domain\": \"terrascale.bootstrap.manifest\", \"role\": \"controller\", \"slot\": \"controller-a\", \"cell\": \"GRU\"}, \"payload\": {\"schemaVersion\": 1, \"slot\": \"controller-a\", \"seedSlot\": \"controller-a\", \"cell\": \"GRU\"}}",
           "terrascale-host-enrollment-v1": "{\"schema_version\":1}",
           "user_data": "I2Nsb3VkLWNvbmZpZwp7InJ1bmNtZCI6WyJzZXQgLWV1OyBJRlM9JyAnIHJlYWQgLXIga2V5X3R5cGUga2V5X2RhdGEga2V5X2NvbW1lbnQgPCAvZXRjL3NzaC9zc2hfaG9zdF9lZDI1NTE5X2tleS5wdWI7IHRlc3QgXCIka2V5X3R5cGVcIiA9IHNzaC1lZDI1NTE5OyB0ZXN0IC1uIFwiJGtleV9kYXRhXCI7IHByaW50ZiAnXFxuVEVSUkFTQ0FMRV9TRUVEX0FfSE9TVF9LRVlfQkVHSU5cXG4lcyAlc1xcblRFUlJBU0NBTEVfU0VFRF9BX0hPU1RfS0VZX0VORFxcbicgXCIka2V5X3R5cGVcIiBcIiRrZXlfZGF0YVwiID4gL2Rldi9jb25zb2xlIl19Cg=="
         },
@@ -23087,7 +23087,7 @@
           "$fixture": "fixture-0483"
         },
         "/tmp/tmppo0opjwf/manifest.json": {
-          "data": "eyJzY2hlbWFWZXJzaW9uIjogMSwgImtleUlkIjogInJvb3QiLCAic2lnbmF0dXJlIjogInNpZ25lZCIsICJzY29wZSI6IHsiZG9tYWluIjogInRlcnJhc2NhbGUuYm9vdHN0cmFwLm1hbmlmZXN0IiwgInJvbGUiOiAiY29udHJvbGxlciIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJjZWxsIjogIkZSQSJ9LCAicGF5bG9hZCI6IHsic2NoZW1hVmVyc2lvbiI6IDIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJzZWVkU2xvdCI6ICJjb250cm9sbGVyLWEiLCAiY2VsbCI6ICJHUlUifX0=",
+          "data": "eyJzY2hlbWFWZXJzaW9uIjogMSwgImtleUlkIjogInJvb3QiLCAic2lnbmF0dXJlIjogInNpZ25lZCIsICJzY29wZSI6IHsiZG9tYWluIjogInRlcnJhc2NhbGUuYm9vdHN0cmFwLm1hbmlmZXN0IiwgInJvbGUiOiAiY29udHJvbGxlciIsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJjZWxsIjogIkZSQSJ9LCAicGF5bG9hZCI6IHsic2NoZW1hVmVyc2lvbiI6IDEsICJzbG90IjogImNvbnRyb2xsZXItYSIsICJzZWVkU2xvdCI6ICJjb250cm9sbGVyLWEiLCAiY2VsbCI6ICJHUlUifX0=",
           "mode": 420
         },
         "/tmp/tmppo0opjwf/owner.pub": {
@@ -23140,7 +23140,7 @@
           "$fixture": "fixture-0479"
         },
         "/tmp/tmppo0opjwf/reviewed.json": {
-          "data": "eyJhdmFpbGFiaWxpdHlfZG9tYWluIjogIkFELTEiLCAiZmF1bHRfZG9tYWluIjogIkZBVUxULURPTUFJTi0xIiwgImNvbXBhcnRtZW50X2lkIjogIm9jaWQxLmNvbXBhcnRtZW50Lm9jMS4uY29udHJvbCIsICJzaGFwZSI6ICJWTS5TdGFuZGFyZC5BMS5GbGV4IiwgIm9jcHVzIjogMSwgIm1lbW9yeV9nYiI6IDYsICJpbWFnZV9pZCI6ICJvY2lkMS5pbWFnZS5vYzEuLmltYWdlIiwgImJvb3RfZ2IiOiA1MCwgImJvb3RfdnB1c19wZXJfZ2IiOiAxMCwgInN1Ym5ldF9pZCI6ICJvY2lkMS5zdWJuZXQub2MxLi5zdWJuZXQiLCAibmV0d29ya19zZWN1cml0eV9ncm91cF9pZHMiOiBbIm9jaWQxLm5ldHdvcmtzZWN1cml0eWdyb3VwLm9jMS4uYSJdLCAiYXNzaWduX3B1YmxpY19pcCI6IGZhbHNlLCAiY3JlYXRlX2lkZW50aXR5IjogInNlZWQtYS1yNiIsICJtYW5pZmVzdF9zaGEyNTYiOiAiMjg0YzNjYzJlYmJkMGQyOTVhODQ3NjU0ZDRkMjMyZDVkNWQ2ZWE2MDE5YmM5YTYyMjA2YjA1MDBhYWVjNTlkYiIsICJhbmNob3Jfc2hhMjU2IjogIjQ4ZWM0OTM4NmUxNTdmYWEzZjBlZTdjZmNlZjFmM2FlYmJjNzVkYTc1NjE0MTcyZDQ3ZTg0ZWM5MTQ4OWM4YmUifQ==",
+          "data": "eyJhdmFpbGFiaWxpdHlfZG9tYWluIjogIkFELTEiLCAiZmF1bHRfZG9tYWluIjogIkZBVUxULURPTUFJTi0xIiwgImNvbXBhcnRtZW50X2lkIjogIm9jaWQxLmNvbXBhcnRtZW50Lm9jMS4uY29udHJvbCIsICJzaGFwZSI6ICJWTS5TdGFuZGFyZC5BMS5GbGV4IiwgIm9jcHVzIjogMSwgIm1lbW9yeV9nYiI6IDYsICJpbWFnZV9pZCI6ICJvY2lkMS5pbWFnZS5vYzEuLmltYWdlIiwgImJvb3RfZ2IiOiA1MCwgImJvb3RfdnB1c19wZXJfZ2IiOiAxMCwgInN1Ym5ldF9pZCI6ICJvY2lkMS5zdWJuZXQub2MxLi5zdWJuZXQiLCAibmV0d29ya19zZWN1cml0eV9ncm91cF9pZHMiOiBbIm9jaWQxLm5ldHdvcmtzZWN1cml0eWdyb3VwLm9jMS4uYSJdLCAiYXNzaWduX3B1YmxpY19pcCI6IGZhbHNlLCAiY3JlYXRlX2lkZW50aXR5IjogInNlZWQtYS1yNiIsICJtYW5pZmVzdF9zaGEyNTYiOiAiNDkwNTc2NDM2NWI1NjgxNzZkZDE1Yzg0ODUwMjVmMzZiN2NmMDlmNTBiOThiNmI1ODFkNjUzYjA4ZjhkZGVhYyIsICJhbmNob3Jfc2hhMjU2IjogIjQ4ZWM0OTM4NmUxNTdmYWEzZjBlZTdjZmNlZjFmM2FlYmJjNzVkYTc1NjE0MTcyZDQ3ZTg0ZWM5MTQ4OWM4YmUifQ==",
           "mode": 420
         }
       },
@@ -23465,7 +23465,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "ts-preview-gru-20260926-head",
             "headKmsKeyOcid": "ocid1.key.gru",
@@ -23522,7 +23522,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "ts-preview-gru-20260926-head",
             "headKmsKeyOcid": "ocid1.key.gru",
@@ -23579,7 +23579,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "ts-preview-gru-20260926-head",
             "headKmsKeyOcid": "ocid1.key.gru",
@@ -23636,7 +23636,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "other-head",
             "headKmsKeyOcid": "ocid1.key.gru",
@@ -23693,7 +23693,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "ts-preview-gru-20260926-head",
             "headKmsKeyOcid": "ocid1.key.gru",
@@ -23750,7 +23750,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "headBucket": "ts-preview-gru-20260926-head",
             "headKmsKeyOcid": "ocid1.key.gru.other",
@@ -23807,7 +23807,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "GRU",
           "ociRegion": "us-ashburn-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "$fixture": "fixture-0491"
           }
@@ -23859,7 +23859,7 @@
           "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "cell": "IAD",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "$fixture": "fixture-0491"
           }
@@ -23911,7 +23911,7 @@
           "anchorSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
           "cell": "GRU",
           "ociRegion": "sa-saopaulo-1",
-          "schemaVersion": 3,
+          "schemaVersion": 1,
           "storageDomain": {
             "$fixture": "fixture-0491"
           }
@@ -24033,7 +24033,7 @@
             "subnetOcid": "ocid1.subnet.gru"
           },
           "releaseReceiptSha256": "097b961adc73460ecadad8df026673010b09cccb9e9cb38189a1bc9014c59b9c",
-          "schemaVersion": 2,
+          "schemaVersion": 1,
           "slot": "controller-a"
         },
         {
@@ -24176,7 +24176,7 @@
           ],
           "kwargs": {},
           "name": "checked_tool",
-          "result": "{\"schemaVersion\": 3, \"anchorSha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"storageDomain\": {\"prefix\": \"fixture-deployment\"}}"
+          "result": "{\"schemaVersion\": 1, \"anchorSha256\": \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", \"storageDomain\": {\"prefix\": \"fixture-deployment\"}}"
         },
         {
           "args": [
@@ -24239,7 +24239,7 @@
             },
             {
               "anchorSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-              "schemaVersion": 3,
+              "schemaVersion": 1,
               "storageDomain": {
                 "prefix": "fixture-deployment"
               }

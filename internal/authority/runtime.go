@@ -113,14 +113,16 @@ type Runtime struct {
 }
 
 type leaseRecord struct {
-	Version       int    `json:"version"`
-	Scope         string `json:"scope"`
-	CandidateID   string `json:"candidate_id"`
-	OwnerID       string `json:"owner_id"`
-	Epoch         uint64 `json:"epoch"`
-	LeaseDuration int64  `json:"lease_duration_ns"`
-	TransitionID  string `json:"transition_id"`
-	Released      bool   `json:"released"`
+	Version             int    `json:"version"`
+	Scope               string `json:"scope"`
+	DeploymentID        string `json:"deployment_id"`
+	CandidateID         string `json:"candidate_id"`
+	OwnerID             string `json:"owner_id"`
+	Epoch               uint64 `json:"epoch"`
+	LeaseDuration       int64  `json:"lease_duration_ns"`
+	TransitionID        string `json:"transition_id"`
+	Released            bool   `json:"released"`
+	IdentityResetSHA256 string `json:"identity_reset_sha256,omitempty"`
 }
 
 // Start creates or validates the durable R3 control log, observes or acquires
@@ -175,7 +177,7 @@ func Start(ctx context.Context, js jetstream.JetStream, config Config) (*Runtime
 		cancel:      cancel,
 		done:        make(chan struct{}),
 	}
-	runtime.publishSnapshot(Snapshot{Scope: config.Scope, CandidateID: config.CandidateID, OwnerID: runtime.ownerID, Reason: "not-observed"})
+	runtime.publishSnapshot(Snapshot{Scope: config.Scope, DeploymentID: config.DeploymentID, CandidateID: config.CandidateID, OwnerID: runtime.ownerID, Reason: "not-observed"})
 	runtime.logSnapshotTransition()
 	var observeErr error
 	for attempt := range startupReconcileAttempts {
@@ -243,6 +245,9 @@ func (c Config) validate() error {
 	if !natsToken.MatchString(c.Scope) {
 		return errors.New("authority scope must be a lowercase NATS token")
 	}
+	if !entityid.Valid(c.DeploymentID) {
+		return errors.New("authority deployment ID must be a canonical uppercase ULID")
+	}
 	if !entityid.Valid(c.CandidateID) {
 		return errors.New("authority candidate ID must be a canonical uppercase ULID")
 	}
@@ -280,7 +285,7 @@ func (r *Runtime) run(ctx context.Context) {
 			if err != nil && !errors.Is(err, context.Canceled) {
 				r.recordFailure(err)
 				if !errors.Is(err, ErrConflict) {
-					r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
+					r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
 				}
 			}
 			r.logSnapshotTransition()
@@ -330,16 +335,28 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 	}
 	lease, err := decodeLease(entry.Data)
 	if err != nil || lease.Scope != r.config.Scope || lease.Epoch == 0 {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-corrupt"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-corrupt"})
+		return nil
+	}
+	if lease.DeploymentID != r.config.DeploymentID {
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID,
+			CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch,
+			Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
 		return nil
 	}
 	expiresAt := entry.Time.Add(time.Duration(lease.LeaseDuration))
 	now := time.Now()
 	current := r.Current()
+	if lease.IdentityResetSHA256 != "" {
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID,
+			CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch,
+			Revision: entry.Sequence, ObservedAt: now, Reason: "identity-reset-pending"})
+		return nil
+	}
 	if !lease.Released && now.Before(expiresAt) {
 		if lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID {
 			r.publishSnapshot(Snapshot{
-				Scope: r.config.Scope, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Ready: true,
+				Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Ready: true,
 				Epoch: lease.Epoch, Revision: entry.Sequence, ExpiresAt: expiresAt,
 				ObservedAt: now, Reason: "follower",
 			})
@@ -351,7 +368,7 @@ func (r *Runtime) reconcile(ctx context.Context) error {
 		return r.appendLease(ctx, info.State.LastSeq, entry.Sequence, lease.Epoch, false)
 	}
 	if lease.CandidateID == r.config.CandidateID && lease.OwnerID == r.ownerID && current.Leader && current.Epoch == lease.Epoch {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: now, Reason: "lease-expired"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Revision: entry.Sequence, ObservedAt: now, Reason: "lease-expired"})
 	}
 	return r.acquire(ctx, info.State.LastSeq, entry.Sequence, lease.Epoch+1)
 }
@@ -368,7 +385,7 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 		return ErrClockUnhealthy
 	}
 	lease := leaseRecord{
-		Version: 1, Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID,
+		Version: 1, Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID,
 		Epoch: epoch, LeaseDuration: int64(r.config.LeaseDuration), TransitionID: entityid.New(), Released: released,
 	}
 	data, err := jsonMarshal(lease)
@@ -398,11 +415,11 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 		return stageFailure("lease_confirm_sequence", ErrConflict)
 	}
 	confirmed, err := decodeLease(stored.Data)
-	if err != nil || confirmed.Scope != r.config.Scope || confirmed.CandidateID != r.config.CandidateID || confirmed.OwnerID != r.ownerID || confirmed.Epoch != epoch || confirmed.TransitionID != lease.TransitionID || confirmed.Released != released {
+	if err != nil || confirmed.Scope != r.config.Scope || confirmed.DeploymentID != r.config.DeploymentID || confirmed.CandidateID != r.config.CandidateID || confirmed.OwnerID != r.ownerID || confirmed.Epoch != epoch || confirmed.TransitionID != lease.TransitionID || confirmed.Released != released {
 		return stageFailure("lease_confirm_record", ErrFenced)
 	}
 	if released {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: epoch, Revision: ack.Sequence, ObservedAt: time.Now(), Reason: "released"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: epoch, Revision: ack.Sequence, ObservedAt: time.Now(), Reason: "released"})
 		return nil
 	}
 	now := time.Now()
@@ -411,7 +428,7 @@ func (r *Runtime) appendLease(ctx context.Context, lastSequence, leaseSequence, 
 		return stageFailure("lease_confirm_expiry", ErrFenced)
 	}
 	r.publishSnapshot(Snapshot{
-		Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true,
+		Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true,
 		Epoch: epoch, Revision: ack.Sequence, ExpiresAt: expiresAt, ObservedAt: now, Reason: "leader",
 	})
 	return nil
@@ -423,22 +440,23 @@ func (r *Runtime) resolveLeaseAppend(ctx context.Context, attempted leaseRecord,
 	entry, err := r.stream.GetLastMsgForSubject(probeCtx, r.leaseSub)
 	if err == nil {
 		lease, decodeErr := decodeLease(entry.Data)
-		if decodeErr == nil && lease.TransitionID == attempted.TransitionID && lease.Scope == attempted.Scope &&
+		if decodeErr == nil && lease.TransitionID == attempted.TransitionID && lease.Scope == r.config.Scope && lease.Scope == attempted.Scope &&
+			lease.DeploymentID == r.config.DeploymentID && lease.DeploymentID == attempted.DeploymentID &&
 			lease.CandidateID == attempted.CandidateID && lease.OwnerID == attempted.OwnerID &&
 			lease.Epoch == attempted.Epoch && lease.Released == attempted.Released {
 			now := time.Now()
 			if attempted.Released {
-				r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: attempted.Epoch, Revision: entry.Sequence, ObservedAt: now, Reason: "released"})
+				r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Epoch: attempted.Epoch, Revision: entry.Sequence, ObservedAt: now, Reason: "released"})
 				return nil
 			}
 			expiresAt := entry.Time.Add(time.Duration(lease.LeaseDuration))
 			if now.Before(expiresAt) {
-				r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true, Epoch: lease.Epoch, Revision: entry.Sequence, ExpiresAt: expiresAt, ObservedAt: now, Reason: "leader"})
+				r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Leader: true, Ready: true, Epoch: lease.Epoch, Revision: entry.Sequence, ExpiresAt: expiresAt, ObservedAt: now, Reason: "leader"})
 				return nil
 			}
 			return ErrFenced
 		}
-		if decodeErr == nil && (lease.Epoch > attempted.Epoch || lease.OwnerID != attempted.OwnerID) {
+		if decodeErr == nil && (lease.Scope != r.config.Scope || lease.DeploymentID != r.config.DeploymentID || lease.Epoch > attempted.Epoch || lease.OwnerID != attempted.OwnerID) {
 			return ErrFenced
 		}
 	}
@@ -458,7 +476,7 @@ func (r *Runtime) Current() Snapshot {
 		}
 		return *snapshot
 	}
-	return Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "not-observed"}
+	return Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "not-observed"}
 }
 
 func (r *Runtime) checkClock() error {
@@ -629,7 +647,7 @@ func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {
 	}
 	r.mu.Lock()
 	current := r.Current()
-	if !current.CanMutate() || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {
+	if !current.CanMutate() || current.Scope != r.config.Scope || current.DeploymentID != r.config.DeploymentID || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {
 		wasLocalLeader := current.Leader && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID
 		r.mu.Unlock()
 		r.logSnapshotTransition()
@@ -667,16 +685,16 @@ func (r *Runtime) Guard(ctx context.Context, expectedEpoch uint64) error {
 func (r *Runtime) guardLocked(ctx context.Context, expectedEpoch uint64) error {
 	info, err := r.stream.Info(ctx)
 	if err != nil {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-unavailable"})
 		return stageFailure("guard_stream_info", err)
 	}
 	if err := verifyControlStreamConfig(info.Config, r.config.Replicas); err != nil {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-incompatible"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "control-log-incompatible"})
 		return stageFailure("guard_stream_config", err)
 	}
 	entry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 	if err != nil {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-unreadable"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-unreadable"})
 		return stageFailure("guard_lease_msg_get", err)
 	}
 	if entry.Sequence > info.State.LastSeq {
@@ -684,11 +702,11 @@ func (r *Runtime) guardLocked(ctx context.Context, expectedEpoch uint64) error {
 	}
 	lease, err := decodeLease(entry.Data)
 	if err != nil {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-corrupt"})
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, OwnerID: r.ownerID, Reason: "lease-corrupt"})
 		return stageFailure("guard_lease_decode", ErrLeaseCorrupt)
 	}
-	if lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released || !time.Now().Before(entry.Time.Add(time.Duration(lease.LeaseDuration))) {
-		r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
+	if lease.Scope != r.config.Scope || lease.DeploymentID != r.config.DeploymentID || lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released || !time.Now().Before(entry.Time.Add(time.Duration(lease.LeaseDuration))) {
+		r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Epoch: lease.Epoch, Revision: entry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
 		return stageFailure("guard_lease_check", ErrFenced)
 	}
 	return r.appendLease(ctx, info.State.LastSeq, entry.Sequence, expectedEpoch, false)
@@ -706,7 +724,7 @@ func (r *Runtime) Close() error {
 		r.cancel()
 		<-r.done
 		current := r.Current()
-		if current.CanMutate() && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID {
+		if current.CanMutate() && current.Scope == r.config.Scope && current.DeploymentID == r.config.DeploymentID && current.CandidateID == r.config.CandidateID && current.OwnerID == r.ownerID {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			r.mu.Lock()
@@ -716,7 +734,7 @@ func (r *Runtime) Close() error {
 				entry, getErr := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 				if getErr == nil {
 					lease, decodeErr := decodeLease(entry.Data)
-					if decodeErr == nil && lease.CandidateID == r.config.CandidateID && lease.OwnerID == r.ownerID && lease.Epoch == current.Epoch && !lease.Released {
+					if decodeErr == nil && lease.Scope == r.config.Scope && lease.DeploymentID == r.config.DeploymentID && lease.CandidateID == r.config.CandidateID && lease.OwnerID == r.ownerID && lease.Epoch == current.Epoch && !lease.Released {
 						closeErr = r.appendLease(ctx, info.State.LastSeq, entry.Sequence, current.Epoch, true)
 					}
 				}
@@ -781,7 +799,7 @@ func Observe(ctx context.Context, js jetstream.JetStream, scope string) (Snapsho
 		expiresAt := entry.Time.Add(time.Duration(lease.LeaseDuration))
 		now := time.Now()
 		snapshot := Snapshot{
-			Scope: scope, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Ready: true, Epoch: lease.Epoch,
+			Scope: scope, DeploymentID: lease.DeploymentID, CandidateID: lease.CandidateID, OwnerID: lease.OwnerID, Ready: true, Epoch: lease.Epoch,
 			Revision: entry.Sequence, ExpiresAt: expiresAt, ObservedAt: now, Reason: "observed",
 		}
 		if lease.Released || !now.Before(expiresAt) {

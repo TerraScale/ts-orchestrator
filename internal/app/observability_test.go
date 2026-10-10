@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -100,7 +101,8 @@ func freeLoopbackAddress(t *testing.T) string {
 }
 
 // The controller wiring must expose readiness, metrics, its own snapshot and
-// a cell-wide view through the private listener without touching state.
+// a cell-wide view through the private listener, plus broker decision and
+// region queries, with the default observability settings.
 func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	original := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(original) })
@@ -122,6 +124,7 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	if telemetry.server == nil {
 		t.Skipf("loopback port %s was taken before the listener bound", address)
 	}
+	t.Cleanup(telemetry.close)
 	get := func(path string) (int, string) {
 		t.Helper()
 		response, err := http.Get("http://" + address + path)
@@ -135,7 +138,7 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	if status, body := get("/readyz"); status != http.StatusServiceUnavailable || !strings.Contains(body, "startup failing") {
 		t.Fatalf("/readyz before startup = %d %q", status, body)
 	}
-	lease := observedAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 3, Revision: 8,
+	lease := observedAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 3, Revision: 8,
 		ExpiresAt: time.Now().Add(time.Minute)}}
 	if err := telemetry.attachController(ctx, controllerObservation{nats: nats, replicas: 1,
 		brokerIDs: []string{"one", "two"}, authority: lease}, nil); err != nil {
@@ -192,6 +195,24 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	if leader := decisions.Decisions[0]; leader.Region != "lab" || leader.Epoch != 3 || leader.Actor.Member != "one" {
 		t.Fatalf("leader decision = %+v", leader)
 	}
+	subject, err := protocol.ObservabilitySubject("lab", decisionlog.QueryLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	query, err := nats.Conn().RequestWithContext(ctx, subject,
+		[]byte(`{"version":1,"query":{"kinds":["leader_changed"],"subject_kind":"member"}}`))
+	if err != nil {
+		t.Fatalf("default decision query responder: %v", err)
+	}
+	var reply struct {
+		Version int                `json:"version"`
+		Region  string             `json:"region"`
+		Result  decisionlog.Result `json:"result"`
+	}
+	if err := json.Unmarshal(query.Data, &reply); err != nil || reply.Version != 1 || reply.Region != "lab" ||
+		len(reply.Result.Decisions) != 1 || reply.Result.Decisions[0].ID != decisions.Decisions[0].ID {
+		t.Fatalf("broker decision query = %s (%v)", query.Data, err)
+	}
 	if status, body = get("/v1/decisions/" + decisions.Decisions[0].ID); status != http.StatusOK ||
 		!strings.Contains(body, decisions.Decisions[0].ID) {
 		t.Fatalf("/v1/decisions/{id} = %d %s", status, body)
@@ -204,6 +225,19 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &regions); err != nil || status != http.StatusOK || len(regions) != 1 ||
 		regions[0].Region != "lab" || !regions[0].Local || regions[0].Leaders.Authority != "one" {
 		t.Fatalf("/v1/regions = %d %s (%v)", status, body, err)
+	}
+	subject, err = protocol.ObservabilitySubject("lab", regionview.SummaryLeaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	region, err := nats.Conn().RequestWithContext(ctx, subject, []byte(`{"version":1}`))
+	if err != nil {
+		t.Fatalf("default region summary responder: %v", err)
+	}
+	var summary regionview.Summary
+	if err := json.Unmarshal(region.Data, &summary); err != nil || summary.Region != "lab" ||
+		summary.Leaders.Authority != "one" {
+		t.Fatalf("broker region summary = %s (%v)", region.Data, err)
 	}
 	if status, body = get("/v1/insights"); status != http.StatusOK || !strings.Contains(body, `"insights"`) {
 		t.Fatalf("/v1/insights = %d %s", status, body)

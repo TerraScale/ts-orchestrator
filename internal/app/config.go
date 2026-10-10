@@ -58,19 +58,6 @@ type ControllerConfig struct {
 	// requests are refused while they are unset.
 	TerraBaseCACertFile string `json:"terrabase_ca_cert_file,omitempty"`
 	TerraBaseCAKeyFile  string `json:"terrabase_ca_key_file,omitempty"`
-	// OfflineRestartAdmission lets a restarted production controller form
-	// broker routes after local, OCI-free admission (root-owned marker, IMDS
-	// instance ID, signed manifest and config digest, installed materials).
-	// Full OCI restart admission and NTP still gate authority, the broker gate,
-	// the founder, and every mutation. It is part of the signed controller
-	// config, so enabling it is a signed operator decision. Default off.
-	//
-	// It applies to controller process restarts, where the install and
-	// bootstrap oneshots stay active. A VM reboot still reruns those units,
-	// which require systemd-time-wait-sync and verify the signed config
-	// against the wall clock, so a reboot without NTP does not reach the
-	// offline path; relaxing those boot units is a separate trust decision.
-	OfflineRestartAdmission bool `json:"offline_restart_admission,omitzero"`
 	// OciReconcile enables the declarative OCI resource reconcilers; nil or
 	// disabled keeps them off.
 	OciReconcile *OciReconcileConfig `json:"oci_reconcile,omitempty"`
@@ -95,12 +82,9 @@ type ControllerConfig struct {
 	// Membership enables controller slot supervision; nil keeps it off.
 	Membership *membership.Config `json:"membership,omitempty"`
 	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
-	// Global enables the global control plane; nil or disabled keeps every
-	// region standalone, exactly as before.
+	// Global optionally pins the home derived from the signed interregion
+	// topology; global control always starts.
 	Global *GlobalControlConfig `json:"global,omitempty"`
-	// Rollouts opens the rollout store for the dashboard and insights; nil
-	// or disabled keeps it off.
-	Rollouts *RolloutsConfig `json:"rollouts,omitempty"`
 	// RegionPlanner runs the region planner in the global home; nil or
 	// disabled keeps it off.
 	RegionPlanner *RegionPlannerConfig `json:"region_planner,omitempty"`
@@ -223,5 +207,9 @@ func (c Config) signedWire() ([]byte, error) {
 	if c.wire != nil {
 		return c.wire, nil
 	}
+	if c.Version != 0 && c.Version != ConfigVersion {
+		return nil, fmt.Errorf("unsupported config version %d; want %d", c.Version, ConfigVersion)
+	}
+	c.Version = ConfigVersion
 	return protocol.EncodeJSON(c)
 }

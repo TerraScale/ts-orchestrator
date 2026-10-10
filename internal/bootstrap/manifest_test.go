@@ -107,17 +107,17 @@ func TestSignManifestDoesNotRetainCallerReleaseWireAliases(t *testing.T) {
 	}
 }
 
-func TestManifestV2RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testing.T) {
+func TestManifestV1RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testing.T) {
 	authority := newTestBootstrapAuthority(t)
 	if err := authority.manifest.Validate(); err != nil {
-		t.Fatalf("valid v2 manifest rejected: %v", err)
+		t.Fatalf("valid v1 manifest rejected: %v", err)
 	}
 
 	tests := []struct {
 		name   string
 		mutate func(*Manifest)
 	}{
-		{name: "v1 schema version", mutate: func(manifest *Manifest) { manifest.SchemaVersion = 1 }},
+		{name: "v2 schema version", mutate: func(manifest *Manifest) { manifest.SchemaVersion = 2 }},
 		{name: "missing image receipt wire", mutate: func(manifest *Manifest) { manifest.ReleaseImageReceiptWire = nil }},
 		{name: "missing release delegation wire", mutate: func(manifest *Manifest) { manifest.ReleaseDelegationWire = nil }},
 		{name: "unsorted controller slots", mutate: func(manifest *Manifest) {
@@ -162,25 +162,25 @@ func TestManifestV2RequiresCanonicalReleaseWiresAndPinnedStorageDomain(t *testin
 		})
 	}
 
-	v1 := authority.manifest
-	v1.SchemaVersion = 1
-	payload, err := trust.EncodePayload(v1)
+	v2 := authority.manifest
+	v2.SchemaVersion = 2
+	payload, err := trust.EncodePayload(v2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	v1Envelope, err := trust.Sign(payload, trust.Scope{
-		Domain: "terrascale.bootstrap.manifest", DeploymentID: v1.DeploymentID, Cell: string(v1.Cell),
-		Environment: v1.Environment, Role: v1.ControllerRole, Slot: v1.Slot,
+	v2Envelope, err := trust.Sign(payload, trust.Scope{
+		Domain: "terrascale.bootstrap.manifest", DeploymentID: v2.DeploymentID, Cell: string(v2.Cell),
+		Environment: v2.Environment, Role: v2.ControllerRole, Slot: v2.Slot,
 	}, authority.now.Add(-time.Minute), authority.now.Add(30*time.Minute), authority.rootPrivate)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyManifest(v1Envelope, authority.roots, ManifestExpectation{
-		DeploymentID: v1.DeploymentID, Environment: v1.Environment, ClusterID: v1.ClusterID,
-		Cell: v1.Cell, Slot: v1.Slot, ImageOCID: v1.ImageOCID, StorageDomain: v1.StorageDomain,
-		ControllerSlots: slices.Clone(v1.ControllerSlots),
+	if _, err := VerifyManifest(v2Envelope, authority.roots, ManifestExpectation{
+		DeploymentID: v2.DeploymentID, Environment: v2.Environment, ClusterID: v2.ClusterID,
+		Cell: v2.Cell, Slot: v2.Slot, ImageOCID: v2.ImageOCID, StorageDomain: v2.StorageDomain,
+		ControllerSlots: slices.Clone(v2.ControllerSlots),
 	}, authority.now, authority.policy); !errors.Is(err, ErrManifestInvalid) {
-		t.Fatalf("VerifyManifest() error for signed v1 schema = %v; want ErrManifestInvalid", err)
+		t.Fatalf("VerifyManifest() error for signed v2 schema = %v; want ErrManifestInvalid", err)
 	}
 
 	if emptyPrefix := authority.manifest.StorageDomain; emptyPrefix.Prefix != "" {

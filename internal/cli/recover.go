@@ -49,15 +49,28 @@ var renderRetirement = func(ctx context.Context, slot, dir string) (string, erro
 
 // localAdmittedInstall reads this host's accepted controller install; tests
 // replace it.
-var localAdmittedInstall = func() (bootstrapstart.AcceptedInstall, error) {
-	return bootstrapstart.NewMarkerStore().Read()
+var localAdmittedInstall = func() (bootstrapstart.AcceptedIdentity, error) {
+	return bootstrapstart.NewMarkerStore().ReadIdentity()
 }
 
 // refoundReplacer opens the seed founder replacer for the accepted install
 // the recovery config was bound to; tests replace it.
-var refoundReplacer = func(ctx context.Context, accepted bootstrapstart.AcceptedInstall) (interface {
+var refoundReplacer = func(ctx context.Context, accepted bootstrapstart.AcceptedIdentity) (interface {
 	Replace(context.Context, string, []byte) error
 }, error) {
+	if _, err := bootstrapstart.ReadIdentityRekeyJournal(accepted); err == nil {
+		return nil, errors.New("current controller replacement launch authority is absent for accepted deployment")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
+	if err != nil {
+		return nil, err
+	}
+	if initial.DeploymentID != accepted.DeploymentID || initial.Cell != accepted.Cell || initial.Slot != accepted.Slot ||
+		initial.InstanceOCID != accepted.InstanceOCID || initial.PrimaryVNICOCID != accepted.PrimaryVNICOCID {
+		return nil, errors.New("current formation differs from locally accepted identity")
+	}
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
 		return nil, err
@@ -69,7 +82,7 @@ var refoundReplacer = func(ctx context.Context, accepted bootstrapstart.Accepted
 	if uid <= 0 || gid <= 0 {
 		return nil, errors.New("refound must run as the controller service account")
 	}
-	return bootstrapstart.NewAdmittedFounderReplacer(ctx, baked, accepted, uint32(uid), uint32(gid))
+	return bootstrapstart.NewAdmittedFounderReplacer(ctx, baked, initial, uint32(uid), uint32(gid))
 }
 
 // refoundLedger reads every controller slot's verified ledger HEAD; tests
@@ -214,15 +227,15 @@ func recoveryTarget(path string) (membership.RecoveryTarget, error) {
 
 // bindLocalAdmittedInstall requires the recovery config to name the cell,
 // slot and broker address of the controller admitted on this host.
-func bindLocalAdmittedInstall(target membership.RecoveryTarget) (bootstrapstart.AcceptedInstall, error) {
+func bindLocalAdmittedInstall(target membership.RecoveryTarget) (bootstrapstart.AcceptedIdentity, error) {
 	accepted, err := localAdmittedInstall()
 	if err != nil {
-		return bootstrapstart.AcceptedInstall{}, fmt.Errorf("read the locally admitted controller: %w", err)
+		return bootstrapstart.AcceptedIdentity{}, fmt.Errorf("read the locally admitted controller: %w", err)
 	}
 	host, _, err := net.SplitHostPort(target.ClientAddress)
 	if err != nil || !strings.EqualFold(accepted.Cell, target.Cell) || accepted.Slot != target.Slot ||
-		accepted.PrimaryPrivateIP != host {
-		return bootstrapstart.AcceptedInstall{}, fmt.Errorf(
+		accepted.PrimaryPrivateIP != host || accepted.Store.Directory != target.StoreDir {
+		return bootstrapstart.AcceptedIdentity{}, fmt.Errorf(
 			"--config describes %s/%s at %s, not the controller admitted on this host (%s/%s at %s)",
 			target.Cell, target.Slot, host, accepted.Cell, accepted.Slot, accepted.PrimaryPrivateIP)
 	}
@@ -257,7 +270,7 @@ func readRetirementEvidence(path string) ([]byte, error) {
 
 const maxRetirementEvidenceBytes = 64 << 10
 
-func refound(ctx context.Context, target membership.RecoveryTarget, accepted bootstrapstart.AcceptedInstall,
+func refound(ctx context.Context, target membership.RecoveryTarget, accepted bootstrapstart.AcceptedIdentity,
 	slot, retirementPath, backup string, out io.Writer,
 ) error {
 	if slot == "" || retirementPath == "" || backup == "" {

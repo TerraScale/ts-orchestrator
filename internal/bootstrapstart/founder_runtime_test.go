@@ -20,6 +20,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -192,6 +193,46 @@ func newFounderRuntimeFixtureWithReservation(t *testing.T, setup func(*founderSi
 
 func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFixture) {
 	t.Helper()
+	anchorEnvelope, err := trust.DecodeEnvelope(fixture.anchorWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var anchor bootstrap.BootstrapAnchor
+	if err := protocol.DecodeStrict(anchorEnvelope.Payload, &anchor, bootstrap.MaxBootstrapAnchorBytes); err != nil {
+		t.Fatal(err)
+	}
+	anchor.ControllerSlots = []string{"controller-a", "controller-b", "controller-c"}
+	anchor.LedgerDelegationWire = signTestDelegation(t, fixture.root, fixture.ledgerKey.Public().(ed25519.PublicKey),
+		[]string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"},
+		anchor.ControllerSlots, fixture.now.Add(-time.Hour), fixture.now.Add(24*time.Hour))
+	anchorEnvelope, err = bootstrap.SignBootstrapAnchor(anchor, fixture.now.Add(-time.Minute), fixture.now.Add(23*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.anchorWire = envelopeWire(t, anchorEnvelope)
+	fixture.baked.AnchorWire = bytes.Clone(fixture.anchorWire)
+	fixture.accepted.Slot, fixture.accepted.SeedSlot = "controller-c", "controller-c"
+	fixture.accepted.AnchorSHA256 = digest(fixture.anchorWire)
+	fixture.plan.SeedSlot, fixture.plan.ControllerSlots = "controller-c", anchor.ControllerSlots
+	fixture.plan.AnchorSHA256, fixture.selection.AnchorSHA256 = digest(fixture.anchorWire), digest(fixture.anchorWire)
+	for i := range fixture.selection.Manifests {
+		if fixture.selection.Manifests[i].Slot == "seed-a" {
+			fixture.selection.Manifests[i].Slot = "controller-c"
+		}
+	}
+	for i := range fixture.plan.Peers {
+		for j := range fixture.plan.Peers[i].RouteEndpoints {
+			if fixture.plan.Peers[i].RouteEndpoints[j].Slot == "seed-a" {
+				fixture.plan.Peers[i].RouteEndpoints[j].Slot = "controller-c"
+			}
+		}
+		slot := fixture.plan.Peers[i].Slot
+		fixture.plan.Peers[i].TLSMaterial = bootstrap.FounderTLSMaterialDigests{
+			ClientCA: digest([]byte("ca.pem")), ClientCertificate: digest([]byte(slot + "-tls-cert.pem")),
+			ClientPrivateKey: digest([]byte(slot + "-tls-key.pem")), RouteCA: digest([]byte("ca.pem")),
+			RouteCertificate: digest([]byte(slot + "-tls-cert.pem")), RoutePrivateKey: digest([]byte(slot + "-tls-key.pem")),
+		}
+	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +276,7 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 	if err != nil {
 		t.Fatal(err)
 	}
+	manifests := make(map[string][]byte, 3)
 	for slot, wire := range fixture.manifests {
 		envelope, err := trust.DecodeEnvelope(wire)
 		if err != nil {
@@ -244,19 +286,39 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 		if err := protocol.DecodeStrict(envelope.Payload, &manifest, bootstrap.MaxManifestBytes); err != nil {
 			t.Fatal(err)
 		}
+		if slot == "seed-a" {
+			slot = "controller-c"
+		}
+		manifest.Slot, manifest.SeedSlot, manifest.ControllerSlots = slot, "controller-c", anchor.ControllerSlots
+		for i := range manifest.Profiles {
+			if manifest.Profiles[i].Slot == "seed-a" {
+				manifest.Profiles[i].Slot = "controller-c"
+			}
+		}
+		offline := manifest.Secrets
+		manifest.Secrets = acceptedReferences(slot)
+		for _, ref := range offline {
+			if ref.Purpose == bootstrap.SecretSeedFounder || ref.Purpose == bootstrap.SecretSeedLedgerSigner {
+				ref.Slot = slot
+				manifest.Secrets = append(manifest.Secrets, ref)
+			}
+		}
 		manifest.ReleaseReceiptSHA256 = digestWire(imageWire)
 		manifest.ReleaseImageReceiptWire = imageWire
 		manifest.ReleaseDelegationWire = grantWire
+		manifest.ControllerFiles = nil
+		addTestControllerConfig(&manifest)
 		envelope, err = bootstrap.SignManifest(manifest, fixture.now.Add(-time.Minute),
 			fixture.now.Add(22*time.Hour), fixture.root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		fixture.manifests[slot], err = trust.EncodeEnvelope(envelope)
+		manifests[slot], err = trust.EncodeEnvelope(envelope)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	fixture.manifests = manifests
 	fixture.accepted.ManifestSHA256 = digestWire(fixture.manifests[fixture.accepted.Slot])
 	fixture.plan.SeedManifestSHA256 = fixture.accepted.ManifestSHA256
 	for index := range fixture.plan.Peers {
@@ -591,13 +653,19 @@ type founderAdmissionLedger struct {
 type founderAdmissionCredentials struct{ calls int }
 
 func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Context, expected MaterialPins,
-	_ bootstrap.Manifest,
+	_ AcceptedIdentity,
 ) error {
 	checker.calls++
 	if len(expected.Digests) == 0 {
 		return ErrLiveCredentials
 	}
 	return nil
+}
+
+func (checker *founderAdmissionCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins,
+	_ bootstrap.VerifiedManifest,
+) error {
+	return checker.VerifyLiveCredentials(ctx, expected, AcceptedIdentity{})
 }
 
 func (reader *founderAdmissionLedger) OpenCurrentLedger(_ context.Context, anchor bootstrap.VerifiedBootstrapAnchor,
@@ -668,6 +736,18 @@ func newFounderPeerGateForInstance(t *testing.T, fixture *founderSignerFixture, 
 	}
 	peerFloor := &FounderSelectionFloorStore{directory: peerFloorDirectory,
 		ownerUID: serviceUID, allowUnsafeAncestors: true}
+	fixture.peerFloor = peerFloor
+	prepared := admissionPreparedIdentity(t, row.Slot)
+	trustStore := admissionTrustStore(t, fixture.baked.Roots)
+	manifestEnvelope, err := trust.DecodeEnvelope(fixture.current.ManifestWires[row.Slot])
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := bootstrap.ManifestPayload(manifestEnvelope.Payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAdmissionLaunchInputs(t, trustStore, manifest)
 	continuation := &FounderPeerContinuation{floor: peerFloor,
 		serviceUID: serviceUID, serviceGID: serviceGID,
 		now: func() time.Time { return fixture.now }}
@@ -682,9 +762,15 @@ func newFounderPeerGateForInstance(t *testing.T, fixture *founderSignerFixture, 
 			PrimaryVNICOCID:  "ocid1.vnic.oc1.sa-saopaulo-1." + row.Slot,
 			PrimaryPrivateIP: row.PrivateIP, PrimaryVNIC: true, LifecycleState: "RUNNING"}},
 		Ledgers: reader, Binary: fixedBinaryChecker{}, Material: material, Credentials: credentials,
-		Continuation: continuation,
-		Markers:      MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
-		ClockCheck:   func() error { return nil }, Now: func() time.Time { return fixture.now },
+		ObserveIdentity: func(AcceptedIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
+			return prepared.Broker, prepared.Store, nil
+		},
+		InitialIdentity: func(bootstrap.Manifest) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
+			return prepared.Broker, prepared.Store, nil
+		},
+		trustStore: &trustStore,
+		Markers:    MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Getuid()), allowUnsafeAncestors: true},
+		ClockCheck: func() error { return nil }, Now: func() time.Time { return fixture.now },
 		InitialPeerFloor: func(ctx context.Context, marker AcceptedInstall, state bootstrap.SlotState,
 			now time.Time,
 		) error {
@@ -740,7 +826,7 @@ func TestFounderRuntimePeerGateWaitsForRealLedgerCompletion(t *testing.T) {
 		t.Fatalf("peer did not cross the exact completion gate: marker=%+v reads=%d material=%d credentials=%d launches=%d observations=%d",
 			accepted, reader.reads, material.initialCalls, credentials.calls, fake.launches, fake.observations)
 	}
-	stored, err := gate.Markers.Read()
+	stored, err := gate.Markers.ReadIdentity()
 	if err != nil || stored.Slot != row.Slot || stored.SeedSlot != fixture.plan.SeedSlot {
 		t.Fatalf("persisted peer marker = %+v, %v", stored, err)
 	}
@@ -780,7 +866,7 @@ func TestFounderRuntimePeerGateWaitsForQuarantineRepair(t *testing.T) {
 	if material.initialCalls != 0 || credentials.calls != 0 {
 		t.Fatal("quarantined peer reached material or credential effects")
 	}
-	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("quarantined peer left an accepted marker: %v", err)
 	}
 	observationsBeforeRepair := fake.observations
@@ -923,7 +1009,7 @@ func TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry(t *testing.T) {
 	if material.initialCalls != 0 || credentials.calls != 0 {
 		t.Fatal("expired first-install receipt reached material or credential effects")
 	}
-	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expired first-install receipt left accepted marker: %v", err)
 	}
 }
@@ -960,7 +1046,7 @@ func TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication(t
 		t.Fatalf("fixture did not reach floor after material and credential checks: material=%d credentials=%d",
 			material.initialCalls, credentials.calls)
 	}
-	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expired floor publication left accepted marker: %v", err)
 	}
 }
@@ -998,177 +1084,8 @@ func TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline(t *test
 	if material.initialCalls != 0 || credentials.calls != 0 {
 		t.Fatal("late/quarantined result reached material or credential effects")
 	}
-	if _, err := gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("late/quarantined result left accepted marker: %v", err)
-	}
-}
-
-func TestFounderRuntimePeerRestartRejectsObservedSelectorRollbackWithinReceiptLifetime(t *testing.T) {
-	fixture, caller, _, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
-		founderFixtureWithAdmissibleRelease(t, fixture)
-	})
-	row := fixture.plan.Peers[0]
-	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
-	if _, err := gate.AdmitInitial(t.Context()); err != nil {
-		t.Fatalf("initial peer admission: %v", err)
-	}
-	selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-		fixture.accepted.DeploymentID, fixture.accepted.Cell, fixture.baked.Identity.Environment)
-	original := bytes.Clone(fixture.objects.items[selectorKey])
-	fixture.selection.Generation++
-	fixture.publish(t, fixture.selection)
-	if _, err := gate.AdmitRestart(t.Context()); err != nil {
-		t.Fatalf("current superseding selector should advance peer floor: %v", err)
-	}
-	fixture.objects.items[selectorKey] = original // Simulate a rollback after generation two was observed.
-	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
-		t.Fatalf("rolled-back but still-current selector admitted peer: %v", err)
-	}
-	if fake.launches != 1 || fake.observations != 1 {
-		t.Fatalf("selector rollback touched founder OCI: launches=%d observations=%d", fake.launches, fake.observations)
-	}
-}
-
-func TestFounderRuntimePeerRestartRejectsSupersedingPlanWithinReceiptLifetime(t *testing.T) {
-	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
-		founderFixtureWithAdmissibleRelease(t, fixture)
-	})
-	row := fixture.plan.Peers[0]
-	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate, material, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
-	if _, err := gate.AdmitInitial(t.Context()); err != nil {
-		t.Fatalf("initial peer admission: %v", err)
-	}
-	launches, observations, writes := fake.launches, fake.observations, objects.writes
-	fixture.plan.LaunchDeadline = fixture.plan.LaunchDeadline.Add(-time.Minute)
-	payload, err := trust.EncodePayload(fixture.plan)
-	if err != nil {
-		t.Fatal(err)
-	}
-	envelope, err := trust.Sign(payload, trust.Scope{Domain: bootstrap.FounderPlanDomain,
-		DeploymentID: fixture.plan.DeploymentID, Cell: string(fixture.plan.Cell),
-		Environment: fixture.plan.Environment, Role: "controller", Slot: fixture.plan.SeedSlot},
-		fixture.now.Add(-time.Minute), fixture.now.Add(22*time.Hour), fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.planWire, err = trust.EncodeEnvelope(envelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixture.selection.Generation++
-	fixture.selection.PlanSHA256 = digestWire(fixture.planWire)
-	fixture.publish(t, fixture.selection)
-	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
-		t.Fatalf("superseding signed plan admitted old managed peer: %v", err)
-	}
-	if fake.launches != launches || fake.observations != observations || objects.writes != writes ||
-		material.restartCalls != 1 {
-		t.Fatalf("superseding plan caused founder effects or skipped installed-material check: launches=%d→%d observations=%d→%d writes=%d→%d material=%d",
-			launches, fake.launches, observations, fake.observations, writes, objects.writes, material.restartCalls)
-	}
-}
-
-func TestFounderRuntimePeerRestartRequiresDurableSelectorFloor(t *testing.T) {
-	fixture, caller, _, _ := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
-		founderFixtureWithAdmissibleRelease(t, fixture)
-	})
-	row := fixture.plan.Peers[0]
-	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
-	if _, err := gate.AdmitInitial(t.Context()); err != nil {
-		t.Fatalf("initial peer admission: %v", err)
-	}
-	continuation := gate.Continuation.(*FounderPeerContinuation)
-	if err := os.Remove(filepath.Join(continuation.floor.directory, founderSelectionFloorName)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
-		t.Fatalf("missing peer floor admitted within current receipt lifetime: %v", err)
-	}
-}
-
-func TestFounderRuntimePeerRestartRechecksSelectorAfterCurrentProof(t *testing.T) {
-	fixture, caller, _, _ := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
-		founderFixtureWithAdmissibleRelease(t, fixture)
-	})
-	row := fixture.plan.Peers[0]
-	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
-	if _, err := gate.AdmitInitial(t.Context()); err != nil {
-		t.Fatalf("initial peer admission: %v", err)
-	}
-	clockReads := 0
-	gate.Now = func() time.Time {
-		clockReads++
-		if clockReads == 3 {
-			fixture.now = fixture.now.Add(2 * time.Hour)
-		}
-		return fixture.now
-	}
-	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
-		t.Fatalf("selector expired after current receipt proof was checked: %v", err)
-	}
-}
-
-func TestFounderRuntimePeerContinuationRechecksPlanAfterFinalSelectorRead(t *testing.T) {
-	fixture, caller, objects, fake := newFounderRuntimeFixtureWithSetup(t, func(fixture *founderSignerFixture) {
-		founderFixtureWithAdmissibleRelease(t, fixture)
-	})
-	row := fixture.plan.Peers[0]
-	if err := caller.runPeer(t.Context(), row.Slot); err != nil {
-		t.Fatal(err)
-	}
-	ledger, err := caller.openLedger(t.Context(), fixture.current, fixture.baked.Roots)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gate, _, _ := newFounderPeerGate(t, fixture, &founderAdmissionLedger{ledger: ledger}, row)
-	if _, err := gate.AdmitInitial(t.Context()); err != nil {
-		t.Fatalf("initial peer admission: %v", err)
-	}
-	initial := fixture.now
-	fixture.selection.Generation++
-	selectorKey := fixture.domain.HeadBucket + "/" + FounderSelectionObjectName(fixture.domain,
-		fixture.accepted.DeploymentID, fixture.accepted.Cell, fixture.baked.Identity.Environment)
-	fixture.objects.items[selectorKey] = fixture.signSelection(t, fixture.selection, initial.Add(23*time.Hour))
-	fixture.now = initial.Add(21*time.Hour + 59*time.Minute)
-	objects.now, fake.now = fixture.now, fixture.now
-	baseline := fixture.objects.reads[selectorKey]
-	fixture.objects.onGet = func(key string, count int) {
-		if key == selectorKey && count == baseline+5 {
-			// The selector remains signed/current, but the original plan and
-			// manifests expire during the last exact-key consistency GET.
-			fixture.now = initial.Add(22*time.Hour + time.Minute)
-		}
-	}
-	if _, err := gate.AdmitRestart(t.Context()); !errors.Is(err, ErrFounderPeerContinuation) {
-		t.Fatalf("plan expiry during final selector GET admitted peer: %v", err)
 	}
 }
 

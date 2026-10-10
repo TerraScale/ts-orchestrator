@@ -28,29 +28,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// RolloutsConfig opens the regional rollout store so the dashboard and the
-// insight deadline rule see the active rollout. Off in a lab; a production
-// controller without it follows its region's release channel
-// (rolloutSettings).
-type RolloutsConfig struct {
-	Enabled bool `json:"enabled"`
-	// Executor runs the cell's orchestrator self-update from its desired
-	// release (ts-orch rollout): the authority leader moves the controllers
-	// one per wave, the seed last. Each controller relays its steps to the
-	// node's root step agent, the self-update watchdog. It needs Enabled.
-	Executor bool `json:"executor,omitzero"`
-	// Channel makes the authority leader follow the region's release
-	// channel (TS-557): it publishes each newer CI release as the next
-	// generation and reports progress in the channel's status.json. It needs
-	// Executor and the controller's OCI region.
-	Channel bool `json:"channel,omitzero"`
-	// AllowScopedAutoSign lets the leader admit update receipts signed under
-	// a scoped binary update delegation. Set it exactly when the controllers'
-	// step agents accept them (selfupdate --allow-scoped-auto-sign), so the
-	// leader never admits a release no node stages.
-	AllowScopedAutoSign bool `json:"allow_scoped_auto_sign,omitzero"`
-}
-
 // RegionPlannerConfig runs the region planner on the global home's leader.
 // It only ever proposes: every proposal needs a signed approval before
 // anything is admitted or spent. Off by default; it requires global control
@@ -143,13 +120,13 @@ func (c *RegionPlannerConfig) plannerPolicy(home string) (regionplanner.Policy, 
 	return policy, lifecycle, nil
 }
 
-// startRollouts opens the rollout store when enabled. knownBad, when set,
+// startRollouts opens the rollout store. knownBad, when set,
 // is pointed at the store so placement admission enforces its list.
 func startRollouts(ctx context.Context, cfg Config, js jetstream.JetStream, control authority.Fencer,
 	fullClusterReady func() bool, knownBad *rolloutKnownBad,
-) (insights.RolloutProvider, error) {
-	if cfg.Controller.Rollouts == nil || !cfg.Controller.Rollouts.Enabled {
-		return nil, nil
+) (*rollout.Store, error) {
+	if js == nil {
+		return nil, errors.New("rollout store requires JetStream")
 	}
 	store, _, err := retryControllerOpen(ctx, "open rollout store", fullClusterReady, false,
 		func(attempt context.Context) (*rollout.Store, error) {
@@ -164,22 +141,12 @@ func startRollouts(ctx context.Context, cfg Config, js jetstream.JetStream, cont
 	return store, nil
 }
 
-// rolloutKnownBad lets placement admission, which starts before the rollout
-// store opens, read the cell's known-bad list. It exists only when the
-// rollout store is enabled; until the store opens it refuses, so admission
-// fails closed instead of skipping the list.
+// rolloutKnownBad refuses placement admission until the mandatory rollout store opens.
 type rolloutKnownBad struct {
 	store atomic.Pointer[rollout.Store]
 }
 
-// newRolloutKnownBad returns the placement known-bad source for cfg, or nil
-// when the rollout store is disabled and no cell list exists.
-func newRolloutKnownBad(cfg Config) *rolloutKnownBad {
-	if cfg.Controller.Rollouts == nil || !cfg.Controller.Rollouts.Enabled {
-		return nil
-	}
-	return &rolloutKnownBad{}
-}
+func newRolloutKnownBad() *rolloutKnownBad { return &rolloutKnownBad{} }
 
 func (k *rolloutKnownBad) IsKnownBad(ctx context.Context, digest string) (bool, error) {
 	store := k.store.Load()
@@ -200,8 +167,8 @@ func startRegionPlanner(ctx context.Context, cfg Config, js jetstream.JetStream,
 	if settings == nil || !settings.Enabled {
 		return nil, nil
 	}
-	if global == nil || global.authority == nil || cfg.Controller.Global == nil || cfg.Controller.Global.Home != cfg.NATS.Cell {
-		return nil, errors.New("the region planner runs only in the global home with global control enabled")
+	if global == nil || global.authority == nil {
+		return nil, errors.New("the region planner runs only in the global home")
 	}
 	policy, lifecyclePolicy, err := settings.plannerPolicy(cfg.NATS.Cell)
 	if err != nil {

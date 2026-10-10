@@ -119,8 +119,8 @@ func NewLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error)
 	return newLedger(client, config, false)
 }
 
-// NewHistoricalLedger constructs an evidence-only reader for a schema-v2
-// anchor carrying the legacy three-domain ledger grant. Its write paths remain
+// NewHistoricalLedger constructs an evidence-only reader for the current
+// five-domain ledger grant. Its write paths remain
 // disabled even if the caller later invokes a mutation method.
 func NewHistoricalLedger(client ObjectStorageClient, config LedgerConfig) (*Ledger, error) {
 	return newLedger(client, config, true)
@@ -135,7 +135,7 @@ func newLedger(client ObjectStorageClient, config LedgerConfig, historical bool)
 		strings.ContainsAny(config.HeadKMSKeyID, " \t\r\n") ||
 		!ledgerIDPattern.MatchString(config.Environment) || config.TrustPolicy.MaxLifetime <= 0 || config.TrustPolicy.ClockSkew < 0 ||
 		len(config.ControllerSlots) == 0 || len(config.ControllerSlots) > 64 || hasDuplicate(config.ControllerSlots) ||
-		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config, historical) != nil {
+		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config) != nil {
 		return nil, errors.New("bootstrap ledger requires separate immutable and coordination buckets, KMS keys, environment, trust policy, and a valid Object Storage client")
 	}
 	for _, slot := range config.ControllerSlots {
@@ -156,19 +156,12 @@ func newLedger(client ObjectStorageClient, config LedgerConfig, historical bool)
 	return &Ledger{client: client, config: config, maxRecord: maxLedgerRecordBytes, readOnly: historical}, nil
 }
 
-func validateLedgerDelegations(config LedgerConfig, historical bool) error {
+func validateLedgerDelegations(config LedgerConfig) error {
 	if len(config.Delegations) != 1 {
 		return errors.New("bootstrap ledger requires exactly one anchor-verified ledger delegation")
 	}
-	wantDomains := []string{domainBootstrapHead, domainBootstrapIntent, domainBootstrapResult}
+	wantDomains := BootstrapLedgerCapabilityDomains()
 	capabilities := config.Delegations[0].Capabilities()
-	if historical {
-		if len(capabilities) == 5 {
-			wantDomains = append(wantDomains, domainBootstrapCandidate, domainBootstrapProgress)
-		}
-	} else {
-		wantDomains = append(wantDomains, domainBootstrapCandidate, domainBootstrapProgress)
-	}
 	if len(capabilities) != len(wantDomains) {
 		return fmt.Errorf("bootstrap ledger delegation must contain exactly %d record grants", len(wantDomains))
 	}
@@ -457,6 +450,10 @@ func (ledger *Ledger) readExistingExact(
 }
 
 func (ledger *Ledger) readObject(ctx context.Context, bucket, objectName string) (StoredRecord, error) {
+	return ledger.readObjectLimit(ctx, bucket, objectName, ledger.maxRecord)
+}
+
+func (ledger *Ledger) readObjectLimit(ctx context.Context, bucket, objectName string, maximum int) (StoredRecord, error) {
 	response, err := ledger.client.GetObject(ctx, objectstorage.GetObjectRequest{
 		NamespaceName: new(ledger.config.Namespace),
 		BucketName:    new(bucket),
@@ -471,16 +468,16 @@ func (ledger *Ledger) readObject(ctx context.Context, bucket, objectName string)
 	if response.Content == nil {
 		return StoredRecord{}, errors.New("bootstrap object response has no body")
 	}
-	if response.ContentLength == nil || *response.ContentLength < 1 || *response.ContentLength > int64(ledger.maxRecord) {
+	if response.ContentLength == nil || *response.ContentLength < 1 || *response.ContentLength > int64(maximum) {
 		response.Content.Close()
 		return StoredRecord{}, errors.New("bootstrap object has missing or invalid content length")
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Content, int64(ledger.maxRecord)+1))
+	body, err := io.ReadAll(io.LimitReader(response.Content, int64(maximum)+1))
 	closeErr := response.Content.Close()
 	if err := errors.Join(err, closeErr); err != nil {
 		return StoredRecord{}, fmt.Errorf("read bootstrap object body: %w", err)
 	}
-	if len(body) != int(*response.ContentLength) || len(body) > ledger.maxRecord {
+	if len(body) != int(*response.ContentLength) || len(body) > maximum {
 		return StoredRecord{}, errors.New("bootstrap object body length does not match its metadata")
 	}
 	if response.ETag == nil || strings.TrimSpace(*response.ETag) == "" || response.LastModified == nil {

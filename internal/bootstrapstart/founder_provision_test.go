@@ -19,7 +19,7 @@ func TestInitialSeedAdmissionInvokesFloorBeforeMarkerAndRestartNeverReinitialize
 		if marker.Slot != marker.SeedSlot || marker.HeadAttempt != 1 || at.IsZero() {
 			t.Fatalf("unverified initial seed floor inputs: %+v, %s", marker, at)
 		}
-		if _, err := fixture.gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+		if _, err := fixture.gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("marker persisted before durable floor: %v", err)
 		}
 		return nil
@@ -41,7 +41,7 @@ func TestInitialSeedAdmissionFloorFailureLeavesNoAcceptedMarker(t *testing.T) {
 	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("failed floor provision admitted seed: %v", err)
 	}
-	if _, err := fixture.gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := fixture.gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed floor provision left accepted marker: %v", err)
 	}
 }
@@ -52,7 +52,7 @@ func TestInitialSeedAdmissionRequiresFloorProvisioner(t *testing.T) {
 	if _, err := fixture.gate.AdmitInitial(t.Context()); !errors.Is(err, ErrAdmission) {
 		t.Fatalf("seed admitted without durable floor provisioner: %v", err)
 	}
-	if _, err := fixture.gate.Markers.Read(); !errors.Is(err, os.ErrNotExist) {
+	if _, err := fixture.gate.Markers.ReadIdentity(); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("seed without floor left accepted marker: %v", err)
 	}
 }

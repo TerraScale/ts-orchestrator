@@ -14,12 +14,12 @@ import (
 func completedManagedSlotForRetirement() SlotState {
 	result := strings.Repeat("c", 64)
 	return SlotState{
-		Intent: Intent{SchemaVersion: 2, Mode: IntentModeManaged, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
+		Intent: Intent{SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: "0000000000DMC7WFP9VHV640EP", Cell: "GRU",
 			Environment: "production", Role: roleController, Slot: "controller-b", Attempt: 1, Generation: 1,
 			CreateKey: "0000000000BGNP7XAX1V0HT06F"},
-		Head: SlotHead{SchemaVersion: 2, Slot: "controller-b", Attempt: 1, Generation: 1,
+		Head: SlotHead{SchemaVersion: 1, Slot: "controller-b", Attempt: 1, Generation: 1,
 			IntentDigest: strings.Repeat("a", 64), ResultDigest: result, CandidateDigest: strings.Repeat("d", 64)},
-		Result:       &Result{InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.controller-b", Attempt: 1},
+		Result:       &Result{SchemaVersion: 1, InstanceOCID: "ocid1.instance.oc1.sa-saopaulo-1.controller-b", Attempt: 1},
 		ResultRecord: &StoredRecord{SHA256: result},
 	}
 }

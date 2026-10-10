@@ -218,7 +218,7 @@ type fakeAuthority struct {
 }
 
 func (f *fakeAuthority) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: f.leader, Ready: true, Epoch: 7, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: f.leader, Ready: true, Epoch: 7, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func (f *fakeAuthority) Guard(_ context.Context, epoch uint64) error {

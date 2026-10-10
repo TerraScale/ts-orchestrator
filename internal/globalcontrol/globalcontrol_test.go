@@ -286,7 +286,7 @@ func TestHomeRefusesADriftedMirrorConsumer(t *testing.T) {
 
 func startAuthority(ctx context.Context, t *testing.T, js jetstream.JetStream, scope string) *authority.Runtime {
 	t.Helper()
-	runtime, err := authority.Start(ctx, js, authority.Config{
+	runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})

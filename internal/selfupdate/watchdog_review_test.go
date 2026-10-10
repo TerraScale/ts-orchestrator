@@ -9,6 +9,44 @@ import (
 	"time"
 )
 
+func TestUnreadableActivationRejectsUnrelatedCurrentBeforeRecoveryEffects(t *testing.T) {
+	f := newFixture(t)
+	if _, err := Seed(f.layout, f.baked); err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("damaged record target"))
+	if _, err := Activate(f.layout, target, testUnit, f.now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	wire, err := os.ReadFile(f.layout.activationPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire = bytes.Replace(wire, []byte(`"schema"`), []byte(`"unknown":true,"schema"`), 1)
+	if err := writeFileAtomic(f.layout.activationPath(), wire, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := f.stage([]byte("independently selected release"))
+	if err := f.layout.flipCurrent(unrelated); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := Watch(f.layout, testUnit, ProofCheck{}, f.now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unrelated selection admitted recovery: %v", err)
+	}
+	if current, _ := f.layout.Current(); current != unrelated {
+		t.Fatal("recovery changed unrelated current")
+	}
+	if owed, err := f.layout.RestartPending(testUnit); err != nil || owed {
+		t.Fatalf("unrelated release acquired a restart obligation: %t %v", owed, err)
+	}
+	if bad, err := f.layout.KnownBad(); err != nil || bad[target] {
+		t.Fatalf("inconsistent recovery marked target bad: %v", err)
+	}
+	if retained, err := os.ReadFile(f.layout.activationPath()); err != nil || !bytes.Equal(retained, wire) {
+		t.Fatal("refusal changed unreadable activation evidence")
+	}
+}
+
 // A proof produced after the activation deadline never confirms, while a
 // proof produced in time still confirms at a late check (#127 12038).
 func TestProofAfterTheDeadlineNeverConfirms(t *testing.T) {
@@ -303,5 +341,27 @@ func TestBackstopEnforcesDeadlinesTheDelegateIgnored(t *testing.T) {
 	}
 	if owed, err := f.layout.RestartPending(HostUnit); err != nil || !owed {
 		t.Fatalf("rollback owes no restart: %v %v", owed, err)
+	}
+}
+
+func TestBackstopRollsBackDamagedTargetBeforeDeadline(t *testing.T) {
+	f := newFixture(t)
+	previous, err := Seed(f.layout, f.baked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := f.stage([]byte("target damaged after activation"))
+	if _, err := Activate(f.layout, target, HostUnit, f.now, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(f.layout.BinaryPath(target)); err != nil {
+		t.Fatal(err)
+	}
+	outcome, _, err := Backstop(f.layout, f.now.Add(time.Second))
+	if err != nil || outcome != OutcomeRolledBack {
+		t.Fatalf("damaged target = %s, %v", outcome, err)
+	}
+	if current, _ := f.layout.Current(); current != previous {
+		t.Fatal("trusted predecessor was not restored")
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -49,10 +50,60 @@ func ValidateLoadedControllerConfig(manifest bootstrap.Manifest, config []byte, 
 
 // ValidateInstalledControllerConfig checks the role-specific meaning of the
 // exact signed bytes. Guest installation and every restart re-check configs
-// that an older or newer binary signed, so the digest covers the bytes, not a
+// against the current schema, so the digest covers the bytes, not a
 // re-encoding. observedPrivateIP is empty during offline signing and is the
 // independently observed primary VNIC address on the guest.
 func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPrivateIP string) (Config, error) {
+	return validateControllerConfig(controllerConfigBinding{
+		DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Slot: manifest.Slot,
+		SeedSlot: manifest.SeedSlot, Environment: manifest.Environment, ControllerSlots: manifest.ControllerSlots,
+		ControllerConfig: manifest.ControllerConfig, ControllerConfigSHA256: manifest.ControllerConfigSHA256,
+		ControllerFiles: manifest.ControllerFiles, Secrets: manifest.Secrets,
+		IntentGeneration: manifest.IntentGeneration, IntentSHA256: manifest.IntentSHA256,
+	}, observedPrivateIP)
+}
+
+type controllerConfigBinding struct {
+	DeploymentID, Slot, SeedSlot, Environment string
+	Cell                                      oci.Region
+	ControllerSlots                           []string
+	ControllerConfig                          []byte
+	ControllerConfigSHA256                    string
+	ControllerFiles                           []bootstrap.ControllerConfigFile
+	Secrets                                   []bootstrap.SecretReference
+	IntentGeneration                          uint64
+	IntentSHA256                              string
+}
+
+// ValidateAcceptedControllerConfig checks current config bytes against the
+// independently read accepted identity, without reopening launch history.
+func ValidateAcceptedControllerConfig(accepted bootstrapstart.AcceptedIdentity, config []byte, want string,
+	files []bootstrap.ControllerConfigFile,
+) (Config, error) {
+	if err := accepted.Validate(); err != nil {
+		return Config{}, err
+	}
+	if len(files) != len(bootstrap.ControllerConfigFileNames) {
+		return Config{}, errors.New("accepted controller sidecars are incomplete")
+	}
+	for i, file := range files {
+		if file.Name != bootstrap.ControllerConfigFileNames[i] || file.SHA256 != accepted.ConfigSHA256[file.Name] {
+			return Config{}, errors.New("controller sidecar differs from accepted identity")
+		}
+	}
+	intent, err := oci.ParseRegionIntent(files[0].Bytes)
+	if err != nil {
+		return Config{}, err
+	}
+	return validateControllerConfig(controllerConfigBinding{
+		DeploymentID: accepted.DeploymentID, Cell: oci.Region(accepted.Cell), Slot: accepted.Slot,
+		SeedSlot: accepted.SeedSlot, Environment: accepted.Environment, ControllerSlots: accepted.ControllerSlots,
+		ControllerConfig: config, ControllerConfigSHA256: want, ControllerFiles: files,
+		Secrets: accepted.MaterialReferences, IntentGeneration: intent.Generation, IntentSHA256: files[0].SHA256,
+	}, accepted.PrimaryPrivateIP)
+}
+
+func validateControllerConfig(manifest controllerConfigBinding, observedPrivateIP string) (Config, error) {
 	if len(manifest.ControllerConfig) > bootstrap.MaxControllerConfigBytes ||
 		controllerSHA256(manifest.ControllerConfig) != manifest.ControllerConfigSHA256 {
 		return Config{}, errors.New("signed controller config differs from its signed digest")
@@ -67,7 +118,8 @@ func ValidateInstalledControllerConfig(manifest bootstrap.Manifest, observedPriv
 	}
 	if cfg.NATS.Cell != strings.ToLower(string(manifest.Cell)) || cfg.NATS.Instance != manifest.Slot ||
 		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Lab || cfg.NATS.Embedded == nil ||
-		cfg.Controller.CandidateID != manifest.Slot || !reflect.DeepEqual(hostConfig, HostConfig{}) ||
+		cfg.Controller.CandidateID != entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot) ||
+		!reflect.DeepEqual(hostConfig, HostConfig{}) ||
 		cfg.Operator != (OperatorConfig{}) ||
 		cfg.Controller.OciRegionConfig != controllerSidecarPath("oci-region.json") ||
 		cfg.Controller.OciRegionIntentFile != controllerSidecarPath("oci-region-intent.json") ||

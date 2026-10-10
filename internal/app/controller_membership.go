@@ -15,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -178,38 +179,79 @@ func writeOwnerOnlyFile(dir, name string, data []byte) error {
 	return errors.Join(directory.Sync(), directory.Close())
 }
 
-// membershipLedger is the historically verified controller slot ledger and
-// exact-instance lifecycle observer of this admitted controller install.
+// acceptedMembershipSlots observes current physical controllers without
+// inventing former launch attempts or authority to launch replacements.
+type acceptedMembershipSlots struct {
+	accepted bootstrapstart.AcceptedIdentity
+}
+
+func (source acceptedMembershipSlots) Slots(ctx context.Context, slots []string) (map[string]membership.LedgerSlot, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := source.accepted.Validate(); err != nil {
+		return nil, err
+	}
+	result := make(map[string]membership.LedgerSlot, len(slots))
+	for _, binding := range source.accepted.ControllerBindings {
+		if slices.Contains(slots, binding.Slot) {
+			result[binding.Slot] = membership.LedgerSlot{InstanceOCID: binding.InstanceOCID, Complete: true}
+		}
+	}
+	return result, nil
+}
+
 type membershipLedger struct {
 	baked    bootstrapstart.BakedInputs
-	accepted bootstrapstart.AcceptedInstall
-	anchor   bootstrap.HistoricalBootstrapAnchor
+	accepted bootstrapstart.AcceptedIdentity
+	initial  *bootstrapstart.AcceptedInstall
 	observer lifecycleObserver
 	ledger   bootstrapstart.SlotReader
+	slots    membership.LedgerSource
 }
 
 func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return membershipLedger{}, err
+	}
+	if _, err := bootstrapstart.ReadIdentityRekeyJournal(accepted); err == nil {
+		region := oci.Region(accepted.Cell)
+		provider, err := bootstrap.NewRegionalInstancePrincipalConfigurationProvider(region)
+		if err != nil {
+			return membershipLedger{}, err
+		}
+		instances, err := bootstrapstart.NewOCIInstanceObserver(region, provider)
+		if err != nil {
+			return membershipLedger{}, err
+		}
+		observer := instances
+		return membershipLedger{accepted: accepted, observer: observer, slots: acceptedMembershipSlots{accepted: accepted}}, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return membershipLedger{}, err
+	}
+	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
+	if err != nil {
+		return membershipLedger{}, err
+	}
+	if initial.DeploymentID != accepted.DeploymentID || initial.Cell != accepted.Cell || initial.Slot != accepted.Slot ||
+		initial.InstanceOCID != accepted.InstanceOCID || initial.PrimaryVNICOCID != accepted.PrimaryVNICOCID {
+		return membershipLedger{}, errors.New("current formation differs from accepted controller identity")
+	}
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
-		return membershipLedger{}, fmt.Errorf("load baked controller inputs for membership: %w", err)
-	}
-	accepted, err := bootstrapstart.NewMarkerStore().Read()
-	if err != nil {
-		return membershipLedger{}, fmt.Errorf("read accepted controller install for membership: %w", err)
+		return membershipLedger{}, err
 	}
 	anchorEnvelope, err := trust.DecodeEnvelope(baked.AnchorWire)
 	if err != nil {
 		return membershipLedger{}, err
 	}
 	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots,
-		baked.Identity.AnchorExpectation(), accepted.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil {
-		return membershipLedger{}, fmt.Errorf("verify accepted anchor for membership: %w", err)
+		baked.Identity.AnchorExpectation(), initial.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil || anchor.Digest() != initial.AnchorSHA256 {
+		return membershipLedger{}, errors.New("current formation anchor differs from root-owned history")
 	}
-	if anchor.Digest() != accepted.AnchorSHA256 {
-		return membershipLedger{}, errors.New("verify accepted anchor for membership: digest differs from the accepted install")
-	}
-	instances, ledgers, err := bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
+	instances, _, err := bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
 	if err != nil {
 		return membershipLedger{}, err
 	}
@@ -217,23 +259,20 @@ func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
 	if !ok {
 		return membershipLedger{}, errors.New("OCI instance observer cannot read lifecycle state")
 	}
-	ledger, err := ledgers.OpenHistoricalLedger(ctx, anchor, baked.Roots)
+	ledger, err := (bootstrapstart.InstancePrincipalLedgerOpener{}).OpenHistoricalLedger(ctx, anchor, baked.Roots)
 	if err != nil {
 		return membershipLedger{}, err
 	}
-	return membershipLedger{baked: baked, accepted: accepted, anchor: anchor, observer: observer, ledger: ledger}, nil
+	return membershipLedger{baked: baked, accepted: accepted, initial: &initial, observer: observer, ledger: ledger,
+		slots: ledgerMembershipSlots{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell}}, nil
 }
 
-// ControllerSlotLedger reads every anchored controller slot's historically
-// verified ledger HEAD for this admitted install. Break-glass refound uses it
-// to re-found one slot at a time.
 func ControllerSlotLedger(ctx context.Context) (map[string]membership.LedgerSlot, error) {
 	opened, err := openMembershipLedger(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return ledgerMembershipSlots{ledger: opened.ledger, deploymentID: opened.accepted.DeploymentID,
-		cell: opened.accepted.Cell}.Slots(ctx, opened.anchor.Anchor().ControllerSlots)
+	return opened.slots.Slots(ctx, opened.accepted.ControllerSlots)
 }
 
 // RenderBreakGlassRetirementRequest writes <slot>.retirement-request.json for
@@ -246,7 +285,10 @@ func RenderBreakGlassRetirementRequest(ctx context.Context, slot, dir string, no
 		return "", err
 	}
 	accepted := opened.accepted
-	if !slices.Contains(opened.anchor.Anchor().ControllerSlots, slot) || slot == accepted.Slot ||
+	if opened.initial == nil {
+		return "", errors.New("current controller replacement launch authority is absent for accepted deployment")
+	}
+	if !slices.Contains(opened.accepted.ControllerSlots, slot) || slot == accepted.Slot ||
 		slot == accepted.SeedSlot {
 		return "", errors.New("only a lost anchored non-seed peer slot other than this controller can be retired")
 	}
@@ -322,16 +364,15 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 	if err != nil {
 		return nil, err
 	}
-	baked, accepted, anchor, observer, ledger := opened.baked, opened.accepted, opened.anchor, opened.observer,
-		opened.ledger
-	topology := membership.Topology{Cell: cfg.NATS.Cell, Slots: anchor.Anchor().ControllerSlots,
+	baked, accepted, observer, ledger := opened.baked, opened.accepted, opened.observer, opened.ledger
+	topology := membership.Topology{Cell: cfg.NATS.Cell, Slots: accepted.ControllerSlots,
 		SeedSlot: accepted.SeedSlot, SelfSlot: accepted.Slot}
 	logger := slog.Default().With("component", "membership")
 	instances := lifecycleInstances{observer: observer}
 	var replacer membership.Replacer
 	var seed *seedReplacementService
 	switch {
-	case settings.Replace && accepted.Slot == accepted.SeedSlot:
+	case opened.initial != nil && settings.Replace && accepted.Slot == accepted.SeedSlot:
 		// The seed's own reconciler and its seed-routing server share one
 		// founder replacer, which runs one replacement at a time.
 		founder := &serializedReplacer{inner: founderMembershipReplacer{
@@ -340,7 +381,7 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 				if err != nil {
 					return nil, err
 				}
-				return bootstrapstart.NewAdmittedFounderReplacer(openCtx, baked, accepted, serviceUID, serviceGID)
+				return bootstrapstart.NewAdmittedFounderReplacer(openCtx, baked, *opened.initial, serviceUID, serviceGID)
 			}}}
 		replacer = founder
 		if settings.RouteToSeed {
@@ -352,18 +393,21 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 			seed = &seedReplacementService{conn: runtime.Conn(), subject: protocol.MembershipReplaceSubject(cfg.NATS.Cell),
 				server: server}
 		}
-	case settings.Replace && settings.RouteToSeed:
+	case opened.initial != nil && settings.Replace && settings.RouteToSeed:
 		replacer = membership.SeedRoutedReplacer{Cell: cfg.NATS.Cell, Leadership: control,
 			Request: natsSeedRequester(runtime.Conn(), protocol.MembershipReplaceSubject(cfg.NATS.Cell))}
 	}
+	var requests membership.RetirementRequester
+	if opened.initial != nil {
+		requests = ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell, dir: settings.EvidenceDir()}
+	}
 	reconciler, err := membership.New(*settings, topology, membership.Dependencies{
 		Leadership: control, Peers: natsMembershipPeers{runtime: runtime},
-		Ledger:    ledgerMembershipSlots{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell},
+		Ledger:    opened.slots,
 		Instances: instances,
 		Evidence:  membership.NewFileEvidence(settings.EvidenceDir(), topology.Slots, logger),
-		Requests: ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID,
-			cell: accepted.Cell, dir: settings.EvidenceDir()},
-		Replacer: replacer, Logger: logger,
+		Requests:  requests,
+		Replacer:  replacer, Logger: logger,
 	})
 	if err != nil {
 		if seed != nil {

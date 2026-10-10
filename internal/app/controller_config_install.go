@@ -23,11 +23,15 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if len(args) != 0 || os.Geteuid() != 0 {
 		return errors.New("install-controller-config requires root and accepts no arguments")
 	}
-	if _, err := bootstrapstart.NewMarkerStore().Read(); err == nil {
-		// Restart admission checks the historical ledger and loaded config.
-		return nil
+	if accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity(); err == nil {
+		return bootstrapstart.CheckIdentityRekeyPrestart(accepted)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect accepted controller install: %w", err)
+	}
+	if present, err := bootstrapstart.IdentityRekeyJournalPresent(); err != nil {
+		return err
+	} else if present {
+		return bootstrapstart.ErrIdentityRekeyLocalPending
 	}
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("controller install NTP clock health: %w", err)
@@ -72,35 +76,27 @@ func runInstallControllerConfig(ctx context.Context, args []string) error {
 	if _, err := ValidateInstalledControllerConfig(manifest, observed.PrimaryPrivateIP); err != nil {
 		return err
 	}
-	_, gid, err := controllerServiceIdentity()
-	if err != nil {
-		return err
-	}
-	return installSignedControllerFiles(controllerConfigDirectory, wire, manifest, gid)
+	return installSignedControllerFiles(controllerConfigDirectory, wire, manifest)
 }
 
 // installSignedControllerFiles installs the manifest and sidecars before the
 // config that enables bootstrap. Existing files must match byte for byte, so a
 // crash or retry cannot quietly replace a partially installed role.
-func installSignedControllerFiles(directory string, wire []byte, manifest bootstrap.Manifest, serviceGID uint32) error {
+func installSignedControllerFiles(directory string, wire []byte, manifest bootstrap.Manifest) error {
 	dir, err := openControllerConfigDirectory(directory)
 	if err != nil {
 		return err
 	}
 	defer unix.Close(dir)
-	if err := installExactControllerFile(dir, controllerManifestFilename, wire, 0, 0, 0o644); err != nil {
+	if err := installExactControllerFile(dir, controllerManifestFilename, wire, 0, 0, 0o444); err != nil {
 		return err
 	}
 	for _, file := range manifest.ControllerFiles {
-		uid, gid, mode := uint32(0), uint32(0), uint32(0o644)
-		if file.Name == "oci-region-intent.json" {
-			uid, gid, mode = 0, serviceGID, 0o440
-		}
-		if err := installExactControllerFile(dir, file.Name, file.Bytes, uid, gid, mode); err != nil {
+		if err := installExactControllerFile(dir, file.Name, file.Bytes, 0, 0, 0o444); err != nil {
 			return err
 		}
 	}
-	return installExactControllerFile(dir, controllerConfigFilename, manifest.ControllerConfig, 0, 0, 0o644)
+	return installExactControllerFile(dir, controllerConfigFilename, manifest.ControllerConfig, 0, 0, 0o444)
 }
 
 func openControllerConfigDirectory(path string) (int, error) {
@@ -145,7 +141,7 @@ func readExactControllerFile(dir int, name string, uid, gid, mode uint32, maximu
 	if name == "" || name != filepath.Base(name) || maximum <= 0 {
 		return nil, errors.New("invalid controller config file name or bound")
 	}
-	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +156,12 @@ func readExactControllerFile(dir int, name string, uid, gid, mode uint32, maximu
 	data, err := io.ReadAll(io.LimitReader(file, int64(maximum)+1))
 	if err != nil || len(data) == 0 || len(data) > maximum {
 		return nil, errors.New("controller config file exceeds bound")
+	}
+	var after unix.Stat_t
+	if err := unix.Fstatat(dir, name, &after, unix.AT_SYMLINK_NOFOLLOW); err != nil ||
+		after.Dev != stat.Dev || after.Ino != stat.Ino || after.Size != stat.Size || len(data) != int(stat.Size) ||
+		after.Mode != stat.Mode || after.Uid != stat.Uid || after.Gid != stat.Gid || after.Nlink != 1 {
+		return nil, errors.New("controller config file changed while reading")
 	}
 	return data, nil
 }

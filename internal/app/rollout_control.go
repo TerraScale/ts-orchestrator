@@ -50,17 +50,15 @@ var rolloutSeedSlot = func(cfg Config) (string, error) {
 	if cfg.NATS.Lab {
 		return "", nil
 	}
-	accepted, err := bootstrapstart.NewMarkerStore().Read()
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	return accepted.SeedSlot, err
 }
 
-// rolloutControl answers the operator's rollout requests and, with
-// controller.rollouts.executor, runs the cell's orchestrator self-update:
+// rolloutControl answers operator rollout requests and runs cell self-updates:
 // every controller publishes signed health proofs, collects its peers' and
 // relays its own steps to the node's root step agent, and the authority
 // leader's executor moves the controllers to the desired release, one per
-// wave and the seed last. With controller.rollouts.channel the leader also
-// follows the region's release channel (TS-557).
+// wave and the seed last. The leader follows the region's release channel.
 type rolloutControl struct {
 	cell  string
 	store atomic.Pointer[rollout.Store]
@@ -81,8 +79,6 @@ type rolloutControl struct {
 	roots         *rootRegistry
 	environment   string
 	architectures []string
-	// follow runs the release channel consumer (controller.rollouts.channel).
-	follow bool
 	// ticks wakes the consumer after every executor tick.
 	ticks chan struct{}
 	// channel is the region's head bucket, the CI edge; nil bridges none.
@@ -112,24 +108,16 @@ type rolloutControl struct {
 	layout selfupdate.Layout
 }
 
-// newRolloutControl takes the effective settings (rolloutSettings) and the
+// newRolloutControl takes the rollout policy and the
 // controller's OCI region, which locates the release channel.
 func newRolloutControl(cfg Config, services *specRegistry, region string) (*rolloutControl, error) {
 	c := &rolloutControl{cell: cfg.NATS.Cell, spool: rolloutexec.DefaultSpoolDir, architectures: []string{goruntime.GOARCH},
 		layout: selfupdate.NewLayout(selfupdate.DefaultRoot), ticks: make(chan struct{}, 1)}
-	settings := cfg.Controller.Rollouts
 	c.policy = rollout.DefaultPolicy
 	if services != nil {
 		c.controllerNode = func(slot string) string { return services.controllerNode(cfg.NATS.Cell, slot) }
 	}
-	if settings != nil && settings.Executor && !settings.Enabled {
-		return nil, errors.New("controller.rollouts.executor needs controller.rollouts.enabled")
-	}
-	if settings != nil && settings.Channel && !settings.Executor {
-		return nil, errors.New("controller.rollouts.channel needs controller.rollouts.executor")
-	}
-	c.follow = settings != nil && settings.Channel
-	if c.follow && region != "" {
+	if region != "" {
 		c.channel = instancePrincipalChannel(region, strings.ToUpper(cfg.NATS.Cell))
 	}
 	if services != nil && services.roots != nil {
@@ -150,8 +138,7 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 		// The current roots are read per receipt, so a root rotation applies.
 		c.verify = func(receipt, delegation []byte, now time.Time) (rollout.Release, error) {
 			policy := selfupdate.ReceiptPolicy{Roots: services.roots.current(), Environment: services.identity.Environment,
-				Cell: strings.ToUpper(cfg.NATS.Cell), Architecture: goruntime.GOARCH,
-				AllowScopedAutoSign: settings != nil && settings.AllowScopedAutoSign}
+				Cell: strings.ToUpper(cfg.NATS.Cell), Architecture: goruntime.GOARCH}
 			verified, err := policy.Verify(receipt, delegation, now)
 			if err != nil {
 				return rollout.Release{}, err
@@ -294,10 +281,8 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		if nodes != nil {
 			workers.Go(func() { nodes.returnLoop(ctx, store, collector, fencer) })
 		}
-		if c.follow {
-			workers.Go(func() { c.followChannel(ctx, store, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
-		}
-		if c.follow && c.channel != nil {
+		workers.Go(func() { c.followChannel(ctx, store, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
+		if c.channel != nil {
 			workers.Go(func() { c.bridgeChannel(ctx, fencer, runtime.JetStream(), cfg.NATS.Replicas) })
 		}
 		return executor.Run(ctx)
@@ -448,7 +433,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 	}
 	store := c.store.Load()
 	if store == nil {
-		return rolloutReply{}, errors.New("rollouts are not enabled in this cell (controller.rollouts.enabled)")
+		return rolloutReply{}, errors.New("rollout store is not open")
 	}
 	reply := rolloutReply{}
 	// written is the release this request made the cell's desired one.

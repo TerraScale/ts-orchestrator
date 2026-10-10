@@ -3,7 +3,7 @@
 `EmitCompletedRestartPacket` is the offline integration entrypoint. Its
 `SignedHistoryRecipe.Prepare` callback verifies a schema-v3 production GRU
 anchor, founder plan, three signed manifests, and the current signed founder
-selection. It signs one external `seed-a` history and schema-v2 managed
+selection. It signs one external `seed-a` history and schema-v1 managed
 histories for `controller-a` and `controller-b` through public trust and
 bootstrap APIs. The emitter completes all three through the public ledger
 over an initially empty `CapturingObjectStorage`, then rereads both peers

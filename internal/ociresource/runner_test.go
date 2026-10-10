@@ -34,7 +34,7 @@ func TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures(t *testing.T) {
 	runner := Runner{Authority: auth, Passes: []Pass{pass("publish", errors.New("boom")), pass("nsg", nil)}}
 
 	runner.Tick(t.Context())
-	auth.snapshot = authority.Snapshot{Leader: true, Ready: false, Epoch: 3}
+	auth.snapshot = authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: false, Epoch: 3}
 	runner.Tick(t.Context())
 	if len(ran) != 0 {
 		t.Fatalf("a follower or unready leader ran %v", ran)
@@ -57,7 +57,7 @@ func TestRunnerStopsWithContextAndControllerPassIsFenced(t *testing.T) {
 	if err := (Runner{}).Run(t.Context()); err == nil {
 		t.Fatal("ran without authority or passes")
 	}
-	auth := &snapshotAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 9}}
+	auth := &snapshotAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 9}}
 	store := NewMemoryStore()
 	cloud := &fakeWidgets{cloud: map[string]widget{}}
 	controller := &Controller[widgetSpec, widget]{Region: "GRU", Resource: cloud, Store: store,
@@ -88,7 +88,7 @@ func TestRunnerStopsWithContextAndControllerPassIsFenced(t *testing.T) {
 
 // A wake runs the next tick at once instead of after the interval.
 func TestRunnerWakeStartsTheNextTick(t *testing.T) {
-	auth := &snapshotAuthority{snapshot: authority.Snapshot{Leader: true, Ready: true, Epoch: 1}}
+	auth := &snapshotAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 1}}
 	ticks := make(chan struct{}, 4)
 	wake := make(chan struct{}, 1)
 	runner := Runner{Authority: auth, Interval: time.Hour, Wake: wake,

@@ -52,7 +52,7 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	}
 	lead := func(scope string) *authority.Runtime {
 		t.Helper()
-		runtime, err := authority.Start(ctx, js, authority.Config{Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
+		runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
 			LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 		if err != nil {
 			t.Fatal(err)

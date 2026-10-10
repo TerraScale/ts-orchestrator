@@ -67,6 +67,7 @@ type SignedRotation struct {
 
 // RootChain is every rotation after genesis, in order.
 type RootChain struct {
+	Version   int              `json:"version"`
 	Rotations []SignedRotation `json:"rotations"`
 }
 
@@ -135,7 +136,7 @@ func (signed SignedRotation) Payload() (Rotation, error) {
 // signatures and links, not whether the newest statement is still current;
 // see RotationCurrent.
 func VerifyRootChain(genesis Keyring, id ChainIdentity, chain RootChain) (VerifiedRoots, error) {
-	if len(genesis) == 0 || len(genesis) > MaxRootSet || len(chain.Rotations) > MaxRotations {
+	if chain.Version != 1 || len(genesis) == 0 || len(genesis) > MaxRootSet || len(chain.Rotations) > MaxRotations {
 		return VerifiedRoots{}, fmt.Errorf("%w: root chain genesis or length", ErrInvalid)
 	}
 	if err := RotationScope(id, 1).validate(); err != nil {
@@ -231,7 +232,7 @@ func RotationCurrent(signed SignedRotation, now time.Time) error {
 // Extends reports whether chain keeps every statement of prefix in order:
 // adopting it neither forks nor rolls back the adopted chain.
 func (chain RootChain) Extends(prefix RootChain) bool {
-	if len(chain.Rotations) < len(prefix.Rotations) {
+	if chain.Version != 1 || prefix.Version != 1 || len(chain.Rotations) < len(prefix.Rotations) {
 		return false
 	}
 	for index, signed := range prefix.Rotations {
@@ -246,6 +247,9 @@ func (chain RootChain) Extends(prefix RootChain) bool {
 
 // EncodeRootChain emits the deterministic, bounded wire form.
 func EncodeRootChain(chain RootChain) ([]byte, error) {
+	if chain.Version != 1 {
+		return nil, fmt.Errorf("%w: root chain requires version 1", ErrInvalid)
+	}
 	if chain.Rotations == nil {
 		chain.Rotations = []SignedRotation{}
 	}

@@ -21,7 +21,7 @@ func controllerCredentialFiles(cfg Config) []maintenance.CredentialFile {
 			maintenance.CredentialFile{Name: "nats cell account jwt", Path: embedded.CellJWTFile},
 			maintenance.CredentialFile{Name: "nats system credentials", Path: embedded.SystemCredentialsFile},
 			maintenance.CredentialFile{Name: "nats membership credentials", Path: embedded.MembershipCredentialsFile})
-		if link := embedded.InterRegion; link != nil && link.Enabled {
+		if link := embedded.InterRegion; link != nil {
 			files = append(files, maintenance.CredentialFile{Name: "interregion account jwt", Path: link.AccountJWTFile})
 			if link.Listen != nil {
 				files = append(files, tlsFiles("interregion listen", link.Listen.TLS)...)

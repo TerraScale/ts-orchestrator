@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -72,6 +73,46 @@ func newBoardFixture(t *testing.T) *boardFixture {
 	f.agent = &Agent{Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Layout: layout, Leaders: keys,
 		Restart: r.restart, Now: clock}
 	return f
+}
+
+func TestSpooledAgentGuardRefusesBeforeEffectsAndAfterFetch(t *testing.T) {
+	for _, refusedCall := range []int{1, 2} {
+		t.Run(fmt.Sprint(refusedCall), func(t *testing.T) {
+			f := newBoardFixture(t)
+			if _, err := f.driver.Step(t.Context(), f.step()); err != nil {
+				t.Fatal(err)
+			}
+			if err := f.relay.Pass(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			f.agent.Guard = func(context.Context, StepCommand) error {
+				calls++
+				if calls == refusedCall {
+					return errors.New("accepted contract refused")
+				}
+				return nil
+			}
+			f.apply(t)
+			reply, exists := f.reply(t)
+			if !exists || reply.Outcome != OutcomeRefused || calls != refusedCall {
+				t.Fatalf("guard reply %+v; calls %d", reply, calls)
+			}
+			if current, err := f.agent.Layout.Current(); err != nil || current != f.from {
+				t.Fatalf("guard changed current to %s: %v", current, err)
+			}
+			if _, pending, err := f.agent.Layout.Pending(); err != nil || pending {
+				t.Fatalf("guard left activation: %v %v", pending, err)
+			}
+			if owed, err := f.agent.Layout.RestartPending(agentUnit); err != nil || owed || f.restarts.count() != 0 {
+				t.Fatal("guard owed a restart")
+			}
+			_, err := os.Stat(f.agent.Layout.BinaryPath(f.to))
+			if (err == nil) != (refusedCall == 2) {
+				t.Fatalf("fetch before/after guard: %v", err)
+			}
+		})
+	}
 }
 
 func (f *boardFixture) step() Step {

@@ -23,6 +23,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 )
@@ -40,11 +41,11 @@ import (
 //   - operator.jwt is the operator's own, names the system account and has
 //     no signing keys; system.jwt and cell.jwt are signed by it; cell.jwt
 //     has JetStream and exactly these signing keys: the host scope of
-//     HostSigner, in schema 2 the role scope of RoleSigner, and the
+//     HostSigner, in v1 the role scope of RoleSigner, and the
 //     unscoped AccountSigner when the controller issuers are pinned;
 //   - system.creds is a system account user with only its claim-update and
 //     reply grants;
-//   - schema 2 (TS-668): the interregion files and controller configs, see
+//   - v1 (TS-668): the interregion files and controller configs, see
 //     generationCheck.interRegion.
 //
 // A slot's own files (its interregion leaf TLS, and its controller config,
@@ -93,7 +94,7 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 	cell := strings.ToLower(string(generation.Cell))
 	check := generationCheck{now: now}
 	roots := check.bundle("ca.pem", files["ca.pem"])
-	// Schema 2 may pin no controller issuers; Validate ties them to
+	// The v1 contract may pin no controller issuers; Validate ties them to
 	// AccountSigner.
 	issuing := generation.AccountSigner != ""
 	if issuing {
@@ -145,7 +146,7 @@ func CheckGenerationFiles(generation bootstrap.MaterialGeneration, read func(nam
 			keys = keys && roleScoped && reflect.DeepEqual(roleScope, roleidentity.Scope(generation.RoleSigner))
 		}
 		if !keys || len(cellClaim.SigningKeys) != 1+boolInt(issuing)+boolInt(generation.RoleSigner != "") {
-			check.fail("cell.jwt must have exactly the host scope, in schema 2 the role scope, and with controller " +
+			check.fail("cell.jwt must have exactly the host scope, in v1 the role scope, and with controller " +
 				"issuers the unscoped account signer as signing keys")
 		}
 		if cellClaim.Limits.JetStreamLimits == (jwt.JetStreamLimits{}) {
@@ -189,7 +190,7 @@ func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGen
 	}
 }
 
-// interRegion checks a schema-2 generation's interregion files (TS-668) and
+// interRegion checks a v1 generation's interregion files (TS-668) and
 // the controller configs read supplied:
 //   - interregion.jwt is an account of its own, signed by the operator;
 //   - interregion-ca.pem holds one to four self-signed CAs, and each slot's
@@ -198,7 +199,7 @@ func (check *generationCheck) controllerIssuers(generation bootstrap.MaterialGen
 //     .interregion.terrascale.internal;
 //   - a child's leaf-<parent>.creds is a leaf user without permissions of
 //     its own, issued by a scoped signing key of another interregion account;
-//   - each config enables interregion exactly when the files are pinned. Its
+//   - each config carries interregion material exactly when the files are pinned. Its
 //     block then passes startup's validation, references only pinned files,
 //     by absolute path, pins on each remote the account that issued its
 //     credentials, and its contract accepts system.jwt, cell.jwt and
@@ -246,8 +247,11 @@ func (check *generationCheck) interRegion(generation bootstrap.MaterialGeneratio
 	}
 	contracts := 0
 	for _, slot := range generation.ControllerSlots {
+		if files[slot+".creds"] != nil && configs[slot] == nil {
+			check.fail(slot + ".creds needs its controller config")
+		}
 		if data, supplied := configs[slot]; supplied &&
-			check.controllerConfig(generation, slot, data, pinned, leafAccounts, system, cellClaim, interregion) {
+			check.controllerConfig(generation, slot, data, files, pinned, leafAccounts, system, cellClaim, interregion) {
 			contracts++
 		}
 	}
@@ -314,31 +318,84 @@ func (check *generationCheck) leafCredentials(name string, data []byte) (string,
 
 // controllerConfig checks one supplied controller config and reports whether
 // its interregion contract was applied. app.Config cannot be imported here:
-// the version and nats block are decoded strictly.
+// the nats, global and optional observability blocks are decoded strictly.
 func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGeneration, slot string, data []byte,
-	pinned map[string]bool, leafAccounts map[string]string, system, cellClaim, interregion *jwt.AccountClaims,
+	files map[string][]byte, pinned map[string]bool, leafAccounts map[string]string, system, cellClaim, interregion *jwt.AccountClaims,
 ) bool {
 	name := "controller-" + slot + ".json"
 	var top map[string]jsontext.Value
+	var version int
 	var nats natscell.Config
-	if protocol.DecodeStrict(data, &top, bootstrap.MaxControllerConfigBytes) != nil || top["controller"] == nil ||
+	if protocol.DecodeStrict(data, &top, bootstrap.MaxControllerConfigBytes) != nil ||
+		protocol.DecodeStrict(top["version"], &version, bootstrap.MaxControllerConfigBytes) != nil || version != 1 || top["controller"] == nil ||
 		top["nats"] == nil || protocol.DecodeStrict(top["nats"], &nats, bootstrap.MaxControllerConfigBytes) != nil {
 		check.fail(name + " is not a controller config")
 		return false
 	}
-	var version int
-	if protocol.DecodeStrict(top["version"], &version, bootstrap.MaxControllerConfigBytes) != nil || version != 1 {
-		check.fail(name + " must have config version 1")
-		return false
+	if data := top["observability"]; data != nil {
+		var telemetry observability.Config
+		if protocol.DecodeStrict(data, &telemetry, bootstrap.MaxControllerConfigBytes) != nil || telemetry.Validate() != nil {
+			check.fail(name + " has invalid observability settings")
+			return false
+		}
 	}
 	var ir *natscell.InterRegion
 	if nats.Embedded != nil {
 		ir = nats.Embedded.InterRegion
 	}
-	if enabled := ir != nil && ir.Enabled; enabled != pinned["interregion.jwt"] {
-		check.fail(name + " must enable interregion exactly when the generation pins the interregion files")
+	home, err := ir.GlobalControlHome(nats.Cell)
+	if err != nil {
+		check.fail(name + " has an invalid global home: " + err.Error())
 		return false
-	} else if !enabled {
+	}
+	var controller map[string]jsontext.Value
+	if protocol.DecodeStrict(top["controller"], &controller, bootstrap.MaxControllerConfigBytes) != nil {
+		check.fail(name + " has no controller settings")
+		return false
+	}
+	if data := controller["global"]; data != nil {
+		var global struct {
+			Home string `json:"home"`
+		}
+		if protocol.DecodeStrict(data, &global, bootstrap.MaxControllerConfigBytes) != nil {
+			check.fail(name + " has invalid global controller settings")
+			return false
+		}
+		if global.Home != "" && global.Home != home {
+			check.fail(name + " has a global home inconsistent with its interregion topology")
+			return false
+		}
+	}
+	if credsName := slot + ".creds"; pinned[credsName] {
+		if nats.Cell != strings.ToLower(string(generation.Cell)) || nats.Instance != slot ||
+			nats.CredentialsFile != filepath.Join(bootstrap.MaterialDirectory, credsName) || files[credsName] == nil {
+			check.fail(credsName + " must be present and referenced at its installed path by its own cell and slot's config")
+			return false
+		}
+		var peers []string
+		if ir != nil {
+			peers = ir.Peers
+		}
+		if err := CheckControllerObservabilityCredentials(files[credsName], nats.Cell, slot, generation.CellAccount, peers, home == nats.Cell); err != nil {
+			check.fail(credsName + ": " + err.Error())
+		} else if raw, err := jwt.ParseDecoratedJWT(files[credsName]); err == nil {
+			claim, err := jwt.DecodeUserClaims(raw)
+			if err != nil {
+				check.fail(credsName + ": " + err.Error())
+			} else {
+				check.jwt(credsName, claim.IssuedAt, claim.Expires)
+			}
+		}
+		if home == nats.Cell {
+			if err := natscell.ValidateGlobalControllerCredentialBytes(files[credsName]); err != nil {
+				check.fail(credsName + ": " + err.Error())
+			}
+		}
+	}
+	if (ir != nil) != pinned["interregion.jwt"] {
+		check.fail(name + " must reference interregion material exactly when the generation pins its files")
+		return false
+	} else if ir == nil {
 		return false
 	}
 	contract, links, err := ir.Contract(nats.Cell)
@@ -353,7 +410,7 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 	}
 	cert, key := bootstrap.InterRegionTLSFiles(slot)
 	file := func(path, want string) bool {
-		return filepath.IsAbs(path) && filepath.Clean(path) == path && filepath.Base(path) == want && pinned[want]
+		return path == filepath.Join(bootstrap.MaterialDirectory, want) && pinned[want]
 	}
 	tlsFiles := func(files natscell.TLSFiles) bool {
 		return file(files.CAFile, "interregion-ca.pem") && file(files.CertFile, cert) && file(files.KeyFile, key)

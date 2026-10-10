@@ -57,7 +57,7 @@ func TestRelayedCellSpecReachesTheSpokeThroughPartitions(t *testing.T) {
 	defer sfoRuntime.Close()
 	waitLeafCount(ctx, t, gruRuntime, 1)
 
-	global, err := authority.Start(ctx, gruRuntime.JetStream(), authority.Config{
+	global, err := authority.Start(ctx, gruRuntime.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond,
 	})

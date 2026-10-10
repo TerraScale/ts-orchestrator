@@ -18,6 +18,9 @@ Commands:
   sign-anchor
   sign-manifest
   sign-material-generation
+  sign-accepted-identity-checkpoint
+  sign-host-state-handoff-plan
+  sign-identity-reset
   render-controller-config
   render-operator-config
   render-host-enrollment-public
@@ -26,12 +29,11 @@ Commands:
   open-rotated-customer-material
   generate-controller-material
   generate-interregion-material
+  issue-observability-credentials
   render-interregion-config
   role-claim
   provision-controller-material
   sign-peer-receipt-delegation
-  render-founder-continuity
-  sign-founder-continuity
   sign-founder-plan
   sign-initial-founder-selection
   publish-initial-founder-selection
@@ -40,8 +42,6 @@ Commands:
   observe-external-seed
   sign-external-seed-completion
   publish-external-seed-completion
-  sign-founder-selection
-  publish-founder-selection
   sign-slot-retirement
 `
 

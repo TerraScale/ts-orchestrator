@@ -41,6 +41,13 @@ type testSpecTrust struct {
 	rootFile   string
 }
 
+func authorityTestSpecTrust(t *testing.T, dir, cell string) *SpecTrustConfig {
+	t.Helper()
+	return newTestSpecTrust(t, dir, cellspec.Identity{
+		DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Cell: cell, Environment: "test",
+	}).config()
+}
+
 func newTestSpecTrust(t *testing.T, dir string, identity cellspec.Identity) testSpecTrust {
 	t.Helper()
 	_, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
@@ -251,7 +258,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
-			SpecTrust: keys.config(), Global: &GlobalControlConfig{Enabled: true, Home: "gru"}},
+			SpecTrust: keys.config(), Global: &GlobalControlConfig{Home: "gru"}},
 	})
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,

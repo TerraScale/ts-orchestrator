@@ -168,7 +168,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: cell, CandidateID: "0000000000E907NSBAGPHGG5DT", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: cell, CandidateID: "0000000000E907NSBAGPHGG5DT", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

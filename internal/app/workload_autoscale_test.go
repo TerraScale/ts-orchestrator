@@ -24,7 +24,7 @@ import (
 func TestAutoscaleConfigDefaultsOffAndValidates(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	profiles := map[string]WorkloadProfile{"api": {Resources: resources}, "terrabase": {Resources: resources}}
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	// The reconciler always runs, for the roles a cell spec adds later;
 	// without a service it owns nothing.
@@ -116,7 +116,7 @@ func TestHostTelemetryFeedsAutoscaleHistory(t *testing.T) {
 	config := &AutoscaleConfig{Enabled: true, HostTelemetry: true, Services: []workload.ServiceSpec{{Role: "api",
 		Environment: "prod", Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 3},
 		Scaling: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.6}}}}}}
-	fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1,
+	fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Hour)}}
 	reconciler, _, telemetry, err := startWorkloadAutoscale("gru", config, map[string]WorkloadProfile{"api": {Resources: resources}},
 		config.Services, nil, time.Time{}, &host.Controller{}, fencer)

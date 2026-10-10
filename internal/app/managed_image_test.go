@@ -236,6 +236,29 @@ func TestIndependentManagedImageProofRequiresOwnCurrentReceipt(t *testing.T) {
 	}
 }
 
+func TestAcceptedManagedImageInitializationSurvivesExpiredOrRetiredLaunchAuthority(t *testing.T) {
+	fixture, reader, now := managedImageVerifierFixture(t)
+	accepted, _, _ := identityRekeyConfigFixture(t)
+	accepted.Cell, accepted.Environment, accepted.ImageOCID, accepted.AcceptedAt = "GRU", "production", "ocid1.image.oc1.sa-saopaulo-1.controller", now
+	accepted.Binary.Architecture = "amd64"
+	accepted.ControllerBindings[0].ImageOCID = accepted.ImageOCID
+	accepted.ControllerBindings[0].Binary = accepted.Binary
+	for _, retired := range []bool{false, true} {
+		proof, err := acceptedManagedImageProof(fixture.region, accepted, fixture.roots, fixture.receiptWire, fixture.delegationWire)
+		if err != nil {
+			t.Fatalf("accepted initialization required current launch authority: %v", err)
+		}
+		proof.images, proof.now = reader, func() time.Time { return now.Add(2 * time.Hour) }
+		if retired {
+			proof.roots = trust.Keyring{}
+			proof.now = func() time.Time { return now }
+		}
+		if err := proof.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
+			t.Fatal("historical acceptance authorized a new launch")
+		}
+	}
+}
+
 func TestManagedImageVerifierForDefaultsToAcceptedBootImage(t *testing.T) {
 	if reflect.ValueOf(managedImageVerifierFromFiles(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
 		t.Fatal("unconfigured controller does not pin hosts to its accepted boot image")

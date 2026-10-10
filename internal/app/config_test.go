@@ -110,6 +110,17 @@ func TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers(t *testing.T) {
 		"duplicate member":           `{"version": 1, "nats": {"cell": "gru", "cell": "0000000000V4MRM46HP1SNGDYW"}}`,
 		"wrong type":                 `{"version": 1, "nats": {"cell": 7}}`,
 		"version not a number":       `{"version": "1000", "added": true}`,
+		"aggregation on":             `{"version":1,"observability":{"cluster_aggregation":true}}`,
+		"aggregation off":            `{"version":1,"observability":{"cluster_aggregation":false}}`,
+		"dashboard on":               `{"version":1,"observability":{"dashboard":true}}`,
+		"dashboard off":              `{"version":1,"observability":{"dashboard":false}}`,
+		"listener off":               `{"version":1,"observability":{"listen_address":"off"}}`,
+		"restart opt-in on":          `{"version":1,"controller":{"offline_restart_admission":true}}`,
+		"host session trace on":      `{"version":1,"host":{"session_trace":true}}`,
+		"host session trace off":     `{"version":1,"host":{"session_trace":false}}`,
+		"host load interval off":     `{"version":1,"host":{"load_telemetry_seconds":0}}`,
+		"host load interval custom":  `{"version":1,"host":{"load_telemetry_seconds":60}}`,
+		"restart opt-in off":         `{"version":1,"controller":{"offline_restart_admission":false}}`,
 	} {
 		if _, err := load(body); err == nil {
 			t.Errorf("%s: config accepted", name)
@@ -120,8 +131,16 @@ func TestLoadConfigPreservesSignedBytesAndRejectsUnknownMembers(t *testing.T) {
 // A config built in code has no loaded bytes; it is signed as its canonical
 // encoding.
 func TestSignedWireOfABuiltConfigIsCanonical(t *testing.T) {
-	wire, err := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"}}.signedWire()
-	if err != nil || string(wire) == "" || !strings.HasPrefix(string(wire), `{"version":1,"nats":{"cell":"gru"`) {
-		t.Fatalf("signed wire = %s, %v", wire, err)
+	for _, version := range []int{0, ConfigVersion} {
+		wire, err := Config{Version: version, NATS: natscell.Config{Cell: "gru"}}.signedWire()
+		if err != nil || !strings.HasPrefix(string(wire), `{"version":1,"nats":{"cell":"gru"`) {
+			t.Fatalf("signed wire = %s, %v", wire, err)
+		}
+		if _, err := decodeConfig(wire); err != nil {
+			t.Fatalf("built config did not pass the current decoder: %v", err)
+		}
+	}
+	if _, err := (Config{Version: 2}).signedWire(); err == nil {
+		t.Fatal("signed an unsupported config version")
 	}
 }

@@ -17,8 +17,7 @@ import (
 )
 
 // InterRegion links this regional cluster to peer regions with NATS
-// leafnodes. It is off unless Enabled is set; a disabled or absent block keeps
-// the regional server exactly as before (no JetStream domain, no leafnodes).
+// leafnodes. The block describes reviewed topology and link credentials.
 //
 // Each region keeps its own operator. A leafnode binds only the dedicated
 // interregion account on both sides, never the regional cell account. The cell
@@ -27,10 +26,9 @@ import (
 // authenticates with credentials issued under the peer region's operator for
 // the peer's interregion account, which is why it pins that account key.
 //
-// When enabled, the JetStream domain is the cell name so a peer can address
+// The production JetStream domain is the cell name so a peer can address
 // this region's JetStream API as $JS.<cell>.API without colliding with its own.
 type InterRegion struct {
-	Enabled bool `json:"enabled"`
 	// Peers lists every other region cell in the signed roster. The contract
 	// exports and imports per-peer subjects only, never wildcards over cells.
 	Peers []string `json:"peers"`
@@ -39,10 +37,10 @@ type InterRegion struct {
 	AccountJWTFile string       `json:"account_jwt_file"`
 	Listen         *LeafListen  `json:"listen,omitempty"`
 	Remotes        []LeafRemote `json:"remotes,omitempty"`
-	// GlobalHome is the region that owns TS_GLOBAL_CONTROL. When set, the
+	// GlobalHome is the region that owns TS_GLOBAL_CONTROL. The
 	// contract carries the subjects of one home-created durable mirror
 	// consumer per peer and nothing else of JetStream. It must be this cell
-	// or a roster peer.
+	// or a roster peer, and agrees with Topology.Hub when supplied.
 	GlobalHome string `json:"global_home,omitempty"`
 	// Subtrees maps every direct child region that dials Listen to the
 	// regions reached through it, the child included. Each child gets its
@@ -96,14 +94,34 @@ const leafReplyGrant = "_R_.>"
 // broker of an R5 child cluster opens its own connection.
 const maxLeafConnectionsPerLink = 5
 
-func (ir *InterRegion) active() bool { return ir != nil && ir.Enabled }
+// GlobalControlHome derives the global home from topology material. An
+// isolated cell without link material owns its global control plane.
+func (ir *InterRegion) GlobalControlHome(cell string) (string, error) {
+	home := cell
+	if ir != nil {
+		home = ir.GlobalHome
+		if ir.Topology != nil {
+			if err := ir.matchTopology(cell, *ir.Topology); err != nil {
+				return "", err
+			}
+			home = ir.Topology.Hub
+		}
+		if home != cell && !slices.Contains(ir.Peers, home) {
+			return "", errors.New("interregion global home must be this region or a roster peer")
+		}
+	}
+	if token, err := protocol.RegionToken(home); err != nil || token != home || token == protocol.GlobalScope {
+		return "", errors.New("global control home must be a lowercase regional cell")
+	}
+	return home, nil
+}
 
 // Validate runs startup's configuration check of this block for a
 // production broker of cell, so a rendered block is checked before use.
 func (ir *InterRegion) Validate(cell string) error { return ir.validate(Config{Cell: cell}) }
 
 func (ir *InterRegion) validate(cfg Config) error {
-	if !ir.active() {
+	if ir == nil {
 		return nil
 	}
 	if cfg.Lab {
@@ -112,8 +130,8 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir.AccountJWTFile == "" {
 		return errors.New("interregion account JWT is required")
 	}
-	if len(ir.Peers) == 0 || len(ir.Peers) > 63 {
-		return errors.New("interregion peers must list between 1 and 63 regions")
+	if len(ir.Peers) > 63 {
+		return errors.New("interregion peers must list at most 63 regions")
 	}
 	seen := map[string]bool{cfg.Cell: true}
 	for _, peer := range ir.Peers {
@@ -122,21 +140,22 @@ func (ir *InterRegion) validate(cfg Config) error {
 		}
 		seen[peer] = true
 	}
-	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && !slices.Contains(ir.Peers, ir.GlobalHome) {
-		return errors.New("interregion global home must be this region or a roster peer")
+	home, err := ir.GlobalControlHome(cfg.Cell)
+	if err != nil {
+		return err
 	}
 	// The leaf tree is rooted at the global home. LeafPermissions relies on
 	// it: an accepted leaf never speaks for the home, so a home that dialed
 	// a parent would have its health, queries and mirror feeds refused there.
-	if ir.GlobalHome == cfg.Cell && len(ir.Remotes) != 0 {
+	if home == cfg.Cell && len(ir.Remotes) != 0 {
 		return errors.New("the interregion global home is the leaf tree root and must not dial remotes")
 	}
-	if ir.Listen == nil && len(ir.Remotes) == 0 {
+	if len(ir.Peers) != 0 && ir.Listen == nil && len(ir.Remotes) == 0 {
 		return errors.New("interregion needs a leaf listener or at least one remote")
 	}
 	// The home is the tree root and never dials out, so a non-home region
 	// reaches it, and its mirror feed, only through a parent remote.
-	if ir.GlobalHome != "" && ir.GlobalHome != cfg.Cell && len(ir.Remotes) == 0 {
+	if home != cfg.Cell && len(ir.Remotes) == 0 {
 		return errors.New("a non-home region must dial a remote to reach the interregion global home")
 	}
 	if ir.Listen != nil && (ir.Listen.Host != "0.0.0.0" || ir.Listen.Port <= 0 || !ir.Listen.TLS.complete()) {
@@ -151,7 +170,7 @@ func (ir *InterRegion) validate(cfg Config) error {
 			return fmt.Errorf("interregion child %q must be in its own subtree", child)
 		}
 		for _, region := range subtree {
-			if !slices.Contains(ir.Peers, region) || region == ir.GlobalHome || reached[region] {
+			if !slices.Contains(ir.Peers, region) || region == home || reached[region] {
 				return fmt.Errorf("interregion subtree of %q names %q, which is not a unique non-home peer", child, region)
 			}
 			reached[region] = true
@@ -188,9 +207,6 @@ func (ir *InterRegion) validate(cfg Config) error {
 				return fmt.Errorf("interregion remote %q URL must be nats-leaf://host:port", remote.Peer)
 			}
 		}
-	}
-	if ir.Topology != nil {
-		return ir.matchTopology(cfg.Cell, *ir.Topology)
 	}
 	return nil
 }
@@ -563,7 +579,8 @@ func (c InterRegionContract) verify(system, cell, interregion *jwt.AccountClaims
 	if err := c.verifyChildScopes(interregion); err != nil {
 		return err
 	}
-	if interregion.Limits.LeafNodeConn <= 0 || interregion.Limits.LeafNodeConn > int64(links*maxLeafConnectionsPerLink) ||
+	if interregion.Limits.LeafNodeConn < 0 || links > 0 && interregion.Limits.LeafNodeConn == 0 ||
+		interregion.Limits.LeafNodeConn > int64(links*maxLeafConnectionsPerLink) ||
 		interregion.Limits.IsJSEnabled() {
 		return errors.New("interregion account limits are not bounded to its leaf links")
 	}
@@ -577,24 +594,28 @@ func (c InterRegionContract) VerifyClaims(system, cell, interregion *jwt.Account
 	return c.verify(system, cell, interregion, links)
 }
 
-// Contract checks an enabled block of cell's configuration as startup does
+// Contract checks cell's topology material as startup does
 // and returns its subject contract and leaf link count, so a tool can check
 // account claims against a configuration it has not started (TS-668).
 func (ir *InterRegion) Contract(cell string) (InterRegionContract, int, error) {
-	if !ir.active() {
-		return InterRegionContract{}, 0, errors.New("interregion is not enabled")
+	if ir == nil {
+		return InterRegionContract{}, 0, errors.New("interregion topology material is required")
 	}
 	if err := ir.validate(Config{Cell: cell}); err != nil {
 		return InterRegionContract{}, 0, err
 	}
-	contract := InterRegionContract{Cell: cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome, Subtrees: ir.Subtrees}
+	home, err := ir.GlobalControlHome(cell)
+	if err != nil {
+		return InterRegionContract{}, 0, err
+	}
+	contract := InterRegionContract{Cell: cell, Peers: ir.Peers, GlobalHome: home, Subtrees: ir.Subtrees}
 	return contract, contract.links(len(ir.Remotes)), nil
 }
 
-// Files lists every file an enabled block reads: the account JWT, the
-// listener's TLS and each remote's credentials and TLS. None when disabled.
+// Files lists the topology material's account JWT, listener TLS, and each
+// remote's credentials and TLS.
 func (ir *InterRegion) Files() []string {
-	if !ir.active() {
+	if ir == nil {
 		return nil
 	}
 	files := []string{ir.AccountJWTFile}
@@ -671,8 +692,8 @@ func sameImports(actual, expected jwt.Imports) bool {
 	return true
 }
 
-// interRegionServerOptions applies the leafnode listener, remotes and the
-// JetStream domain. resolver must already admit the interregion account.
+// interRegionServerOptions admits the interregion account and applies the
+// leafnode listener and remotes.
 func interRegionServerOptions(cfg Config, options *server.Options, resolver *accountResolver,
 	operator *jwt.OperatorClaims,
 ) error {
@@ -694,13 +715,14 @@ func interRegionServerOptions(cfg Config, options *server.Options, resolver *acc
 	if err != nil {
 		return err
 	}
-	contract := InterRegionContract{Cell: cfg.Cell, Peers: ir.Peers, GlobalHome: ir.GlobalHome, Subtrees: ir.Subtrees}
-	links := contract.links(len(ir.Remotes))
+	contract, links, err := ir.Contract(cfg.Cell)
+	if err != nil {
+		return err
+	}
 	if err := contract.verify(systemClaim, cellClaim, claim, links); err != nil {
 		return err
 	}
 	resolver.admitInterRegion(claim.Subject, raw, contract, links)
-	options.JetStreamDomain = cfg.Cell
 	options.LeafNode.NoAdvertise = true
 	// Leafnodes have no ping knob of their own. With these, a silently
 	// dropped path is closed after 3 unanswered pings and the remote fails

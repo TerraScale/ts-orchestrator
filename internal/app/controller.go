@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -46,21 +47,35 @@ import (
 var controllerBrokerClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
 var controllerFounderProduction = runAdmittedControllerFounder
+var controllerRuntimeProduction = openControllerRuntime
 
 func runAdmittedControllerFounder(ctx context.Context) error {
+	identity, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return err
+	}
+	if _, err := bootstrapstart.ReadIdentityRekeyJournal(identity); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	// The admission child is a process boundary. Reread the trusted public
 	// inputs and accepted marker in this process before any founder work.
 	baked, err := bootstrapstart.LoadBakedInputs()
 	if err != nil {
 		return fmt.Errorf("reread baked controller founder inputs: %w", err)
 	}
-	accepted, err := bootstrapstart.NewMarkerStore().Read()
+	accepted, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
 	if err != nil {
 		return fmt.Errorf("reread accepted controller founder install: %w", err)
 	}
 	serviceUID, serviceGID, err := controllerServiceIdentity()
 	if err != nil {
 		return err
+	}
+	if accepted.DeploymentID != identity.DeploymentID || accepted.Cell != identity.Cell || accepted.Slot != identity.Slot ||
+		accepted.InstanceOCID != identity.InstanceOCID || accepted.PrimaryVNICOCID != identity.PrimaryVNICOCID {
+		return errors.New("initial formation history differs from accepted installation")
 	}
 	return bootstrapstart.RunAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID)
 }
@@ -106,12 +121,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	// Default the rollouts only after the managed config check, which
-	// re-encodes cfg against the signed manifest digest. A defaulted executor
-	// that cannot start never stops the controller; one the signed config
-	// asks for does.
-	defaultRollouts := cfg.Controller.Rollouts == nil
-	cfg.Controller.Rollouts = rolloutSettings(cfg)
 	// A managed TerraBase controller needs no generic delivery profile.
 	if managed == nil && len(cfg.Controller.Workloads) == 0 {
 		return errors.New("controller requires a managed placement config or explicit workload profiles")
@@ -133,6 +142,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	services, err := newSpecRegistry(cfg, memberRole)
 	if err != nil {
 		return err
+	}
+	if !entityid.Valid(services.identity.DeploymentID) {
+		return errors.New("controller authority requires a trusted deployment ID; lab controllers require spec_trust")
 	}
 	if managed != nil {
 		services.ociRegion = &managed.region
@@ -179,7 +191,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		clockProbe = nil
 	}
 	cfg.NATS.ClientRole = "controller"
-	runtime, err := natscell.Start(ctx, cfg.NATS)
+	runtime, err := controllerRuntimeProduction(ctx, cfg, clockCheck)
 	if err != nil {
 		return err
 	}
@@ -262,7 +274,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	control, stopAuthority, err := retryControllerOpen(ctx, "start regional authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, runtime.JetStream(), authority.Config{
-				Scope: cfg.NATS.Cell, CandidateID: candidateID,
+				Scope: cfg.NATS.Cell, DeploymentID: services.identity.DeploymentID, CandidateID: candidateID,
 				LeaseDuration: time.Duration(cfg.Controller.LeaseSeconds) * time.Second,
 				RenewInterval: time.Duration(cfg.Controller.RenewSeconds) * time.Second,
 				Replicas:      cfg.NATS.Replicas,
@@ -278,12 +290,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start controller membership supervision: %w", err)
 	}
-	global, err := startGlobalControl(ctx, cfg, runtime.JetStream(), candidateID, clockCheck, fullClusterReady)
+	global, err := startGlobalControl(ctx, cfg, runtime.JetStream(), services.identity.DeploymentID, candidateID, clockCheck, fullClusterReady)
 	if err != nil {
 		return fmt.Errorf("start global control: %w", err)
 	}
 	defer global.close()
-	gate, err := startBrokerGate(ctx, cfg, runtime, control, candidateID, ticketPrivate, ticketPublic, clockProbe)
+	gate, err := startBrokerGate(ctx, cfg, runtime, control, services.identity.DeploymentID, candidateID, ticketPrivate, ticketPublic, clockProbe)
 	if err != nil {
 		return fmt.Errorf("start broker admission gate: %w", err)
 	}
@@ -356,7 +368,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
-		launchMaterial, err := bootstrapstart.LoadLaunchMaterial()
+		acceptedLaunch, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+		if err != nil {
+			return err
+		}
+		launchMaterial, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(acceptedLaunch)
 		if err != nil {
 			return fmt.Errorf("load host launch material: %w", err)
 		}
@@ -473,7 +489,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// Service releases sequenced by a release fence (TS-610) hold a host's
 	// restart until the leader permits its node, on every controller.
 	var releaseChannel jetstream.KeyValue
-	if policy.rollouts.follow && policy.rollouts.channel != nil {
+	if policy.rollouts.channel != nil {
 		if releaseChannel, err = openChannelBucket(ctx, runtime.JetStream(), cfg.NATS.Replicas); err != nil {
 			return err
 		}
@@ -632,7 +648,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	placementHolds := new(placementHoldLog)
 	holdDecisions := newHoldJournal(cfg.NATS.Cell)
-	rolloutKnownBadReleases := newRolloutKnownBad(cfg)
+	rolloutKnownBadReleases := newRolloutKnownBad()
 	if managed != nil {
 		placementConfig := withKnownBad(managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
@@ -716,7 +732,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return fmt.Errorf("serve host enrollment: %w", err)
 	}
 	defer enrollmentSub.Unsubscribe()
-	if global != nil && global.writer != nil {
+	if global.writer != nil {
 		relaySub, err := serveCellSpecRelay(runCtx, runtime.Conn(), cfg, policy, global)
 		if err != nil {
 			return fmt.Errorf("serve cell spec relay: %w", err)
@@ -814,29 +830,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 		defer brokerSub.Unsubscribe()
 	}
-	// Optional rollout and region planner providers, behind their flags.
 	rollouts, err := startRollouts(runCtx, cfg, runtime.JetStream(), control, fullClusterReady, rolloutKnownBadReleases)
 	if err != nil {
 		return fmt.Errorf("start rollout store: %w", err)
 	}
-	var rolloutStore *rollout.Store
-	var rolloutExecutor func(context.Context) error
-	if store, ok := rollouts.(*rollout.Store); ok {
-		rolloutStore = store
-		policy.rollouts.store.Store(store)
-		if cfg.Controller.Rollouts.Executor {
-			rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey, hostController)
-			if err == nil {
-				hostController.SetRolloutSink(policy.rollouts)
-			}
-			if err != nil && defaultRollouts {
-				slog.Error("rollout executor did not start; this controller takes no part in self-updates",
-					observability.ComponentKey, "rollout", "error", err)
-			} else if err != nil {
-				return fmt.Errorf("start rollout executor: %w", err)
-			}
-		}
+	policy.rollouts.store.Store(rollouts)
+	rolloutExecutor, err := policy.rollouts.start(runCtx, cfg, runtime, control, responseKey, hostController)
+	if err != nil {
+		return fmt.Errorf("start rollout executor: %w", err)
 	}
+	hostController.SetRolloutSink(policy.rollouts)
 	budgets, err := startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, placementHolds,
 		runtime.Conn(), fullClusterReady)
 	if err != nil {
@@ -847,7 +850,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
-		rollouts: rolloutStore, budgets: budgets, ociResources: ociReconcile.resources(),
+		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},
@@ -889,12 +892,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,
 			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir, netbird: networkControl}.Run(runCtx)
 	})
-	if global != nil && global.writer == nil {
+	if global.writer == nil {
 		workers.Go(func() {
 			workerErrors <- services.followRelayedSpecs(runCtx, global.reader, policy, control, hostController)
 		})
 	}
-	if policy.rollouts.follow && policy.rollouts.channel != nil {
+	if policy.rollouts.channel != nil {
 		releases := &serviceReleases{cell: cfg.NATS.Cell, channel: policy.rollouts.channel, deliveries: service,
 			hosts: hostController, profiles: services.profiles, fencer: control, fences: fences}
 		var memberCA []byte
@@ -916,10 +919,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if networkControl != nil {
 		workers.Go(func() { networkControl.run(runCtx) })
 	}
-	if rolloutExecutor != nil {
-		workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
-		workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
-	}
+	workers.Go(func() { workerErrors <- rolloutExecutor(runCtx) })
+	workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
 	if services.roots != nil {
 		workers.Go(func() { workerErrors <- services.roots.Run(runCtx) })
 		if !cfg.NATS.Lab {
@@ -1064,11 +1065,12 @@ func transientControllerBootstrapError(err error) bool {
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, nats.ErrTimeout) ||
 		errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrDisconnected) ||
-		errors.Is(err, authority.ErrConflict) || errors.Is(err, delivery.ErrStoreNotReady) {
+		errors.Is(err, authority.ErrConflict) || errors.Is(err, delivery.ErrStoreNotReady) ||
+		errors.Is(err, host.ErrStateNotReady) {
 		return true
 	}
-	var apiErr *jetstream.APIError
-	if !errors.As(err, &apiErr) {
+	apiErr, ok := errors.AsType[*jetstream.APIError](err)
+	if !ok {
 		return false
 	}
 	return apiErr.ErrorCode == 10005 || apiErr.Code >= 500 &&

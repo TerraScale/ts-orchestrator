@@ -160,7 +160,7 @@ func TestBakedInputsExtendGenesisWithTheAdoptedRootChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	signChain := func(id trust.ChainIdentity) []byte {
-		start, err := trust.VerifyRootChain(loaded.Genesis, id, trust.RootChain{})
+		start, err := trust.VerifyRootChain(loaded.Genesis, id, trust.RootChain{Version: 1})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func TestBakedInputsExtendGenesisWithTheAdoptedRootChain(t *testing.T) {
 			}
 			signed.Signatures = append(signed.Signatures, envelope)
 		}
-		wire, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{signed}})
+		wire, err := trust.EncodeRootChain(trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{signed}})
 		if err != nil {
 			t.Fatal(err)
 		}

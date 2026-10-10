@@ -9,16 +9,36 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
+
+func TestControllerObservabilityPublishesRejectsInvalidPeers(t *testing.T) {
+	for _, peer := range []string{"global", "sfo-", "sfo--north", "sfo.*"} {
+		grants, err := ControllerObservabilityPublishes([]string{"sfo", peer})
+		if !errors.Is(err, protocol.ErrInvalidSubjectToken) || len(grants) != 0 {
+			t.Fatalf("peer %q: grants=%v error=%v", peer, grants, err)
+		}
+	}
+}
+
+func TestBrokerControllerCredentialReadErrorHasContext(t *testing.T) {
+	err := ValidateBrokerControllerCredentials(filepath.Join(t.TempDir(), "absent.creds"), "gru", "broker-a")
+	if !errors.Is(err, os.ErrNotExist) || !strings.HasPrefix(err.Error(), "broker controller credentials: ") {
+		t.Fatalf("missing controller credentials: %v", err)
+	}
+}
 
 func productionPreflightFixture(t *testing.T) (Config, nkeys.KeyPair, nkeys.KeyPair, *jwt.UserClaims) {
 	t.Helper()

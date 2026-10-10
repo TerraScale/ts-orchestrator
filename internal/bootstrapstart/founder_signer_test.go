@@ -23,6 +23,7 @@ type founderSignerFixture struct {
 	ledgerKey ed25519.PrivateKey
 	store     FounderSignerStore
 	current   CurrentFounderAuthority
+	peerFloor *FounderSelectionFloorStore
 }
 
 func newFounderSignerFixture(t *testing.T) *founderSignerFixture {
@@ -239,7 +240,11 @@ func TestCanceledSeedCannotOpenFounderProviderOrLaunch(t *testing.T) {
 
 func TestRestartRejectsTamperedAcceptedSeedRole(t *testing.T) {
 	fixture := newAdmissionFlowFixture(t)
-	marker, err := fixture.gate.AdmitInitial(t.Context())
+	_, err := fixture.gate.AdmitInitial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := fixture.gate.Markers.ReadIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +256,7 @@ func TestRestartRejectsTamperedAcceptedSeedRole(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(fixture.gate.Markers.directory, markerName), wire, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.gate.AdmitRestart(t.Context()); !errors.Is(err, ErrAdmission) {
-		t.Fatalf("contradictory marker seed role survived signed-manifest comparison: %v", err)
+	if _, err := fixture.gate.AdmitRestart(t.Context()); !errors.Is(err, ErrAcceptedIdentity) {
+		t.Fatalf("contradictory accepted seed role survived record validation: %v", err)
 	}
 }

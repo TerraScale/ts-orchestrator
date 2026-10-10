@@ -34,7 +34,7 @@ func (appNativeMaterialValidator) ValidateManagedMaterial(_ context.Context, inp
 }
 
 func (preparationTestFencer) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: true, Epoch: 9, Revision: 1,
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 9, Revision: 1,
 		ExpiresAt: time.Now().Add(time.Minute)}
 }
 func (preparationTestFencer) Guard(_ context.Context, epoch uint64) error {

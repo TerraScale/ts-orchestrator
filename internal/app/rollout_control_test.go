@@ -25,7 +25,7 @@ import (
 type rolloutTestFence struct{ epoch uint64 }
 
 func (f rolloutTestFence) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: true, Epoch: f.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: f.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 
 func (f rolloutTestFence) Guard(_ context.Context, epoch uint64) error {
@@ -286,30 +286,22 @@ func TestRolloutRequestsRefuseUntrustedStaleAndTamperedRequests(t *testing.T) {
 		t.Fatalf("publish without roots: %v", err)
 	}
 	r.control.store.Store(nil)
-	if _, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err == nil || !strings.Contains(err.Error(), "not enabled") {
+	if _, err := r.serve(r.sign(rolloutStatusKind, struct{}{}, nil)); err == nil || !strings.Contains(err.Error(), "not open") {
 		t.Fatalf("status without a store: %v", err)
 	}
 }
 
 func TestRolloutConfigAndCommandFlagsAreChecked(t *testing.T) {
-	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Executor: true}}}, nil, ""); err == nil {
-		t.Fatal("an executor without the rollout store was accepted")
+	if _, err := newRolloutControl(Config{}, nil, ""); err != nil {
+		t.Fatalf("mandatory rollout defaults refused: %v", err)
 	}
-	if _, err := newRolloutControl(Config{Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Channel: true}}}, nil, ""); err == nil {
-		t.Fatal("a release channel without the executor was accepted")
-	}
-	// A production controller without a rollouts block follows its
-	// region's release channel; a lab or an explicit block keeps its own.
-	if settings := rolloutSettings(Config{}); settings == nil || !settings.Enabled || !settings.Executor ||
-		!settings.AllowScopedAutoSign || !settings.Channel {
-		t.Fatalf("production default = %+v", settings)
-	}
-	if settings := rolloutSettings(Config{NATS: natscell.Config{Lab: true}}); settings != nil {
-		t.Fatalf("lab default = %+v", settings)
-	}
-	explicit := &RolloutsConfig{Enabled: true}
-	if settings := rolloutSettings(Config{Controller: ControllerConfig{Rollouts: explicit}}); settings != explicit {
-		t.Fatalf("explicit settings were replaced: %+v", settings)
+	for _, key := range []string{"enabled", "executor", "channel", "allow_scoped_auto_sign"} {
+		for _, value := range []string{"true", "false", "null"} {
+			wire := []byte(`{"version":1,"controller":{"rollouts":{"` + key + `":` + value + `}}}`)
+			if _, err := decodeConfig(wire); err == nil {
+				t.Fatalf("retired control accepted: %s=%s", key, value)
+			}
+		}
 	}
 	for _, test := range []struct {
 		command, receipt string
@@ -334,8 +326,7 @@ func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 // Every cell uses the same policy without a configuration override.
 func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
 	ctx := t.Context()
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
-		Controller: ControllerConfig{Rollouts: &RolloutsConfig{Enabled: true, Executor: true}}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -362,5 +353,4 @@ func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
 	if got := planned(); got != rollout.DefaultPolicy() {
 		t.Fatalf("generation 0 policy = %+v", got)
 	}
-
 }

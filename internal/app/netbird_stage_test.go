@@ -186,7 +186,7 @@ func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixtu
 	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "stage-controller", Replicas: 1, Lab: true,
 		NKeySeedFile: controllerSeed, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1,
 			StoreDir: filepath.Join(f.root, "nats"), Users: []natscell.NKeyGrant{
-				{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"}}}})
+				{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixtu
 	if err := broker.WaitForCluster(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "739PSJDKA86QX9QSHM4Q778WVM", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "739PSJDKA86QX9QSHM4Q778WVM", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

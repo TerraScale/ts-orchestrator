@@ -3,6 +3,7 @@ package bootstrapmaterial_test
 import (
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json/v2"
 	"io/fs"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
@@ -138,11 +140,11 @@ func TestCheckGenerationFilesRefusesUnsafeMaterial(t *testing.T) {
 	}
 }
 
-// Schema 2 (TS-668): gru-1's shape, without controller issuers, with the role
+// The v1 contract (TS-668): gru-1's shape, without controller issuers, with the role
 // signer and the interregion files, and one representative of each refusal.
-func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
+func TestCheckGenerationFilesWithRoleSigner(t *testing.T) {
 	slots := generationExpectation().ControllerSlots
-	withIssuers := generationtest.New(t, generationNow).SchemaTwo(t)
+	withIssuers := generationtest.New(t, generationNow)
 	material := withIssuers.WithoutIssuers(t).InterRegion(t, generationNow, slots)
 	for name, valid := range map[string]generationtest.Material{"no issuers, with interregion": material,
 		"issuers, without interregion": withIssuers} {
@@ -190,8 +192,8 @@ func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
 		if changed == config {
 			t.Fatal("version-1 fixture was not changed")
 		}
-		if _, err := check(material.With(map[string][]byte{"controller-controller-a.json": []byte(changed)})); err == nil || !strings.Contains(err.Error(), "config version 1") {
-			t.Errorf("invalid config version %q accepted: %v", version, err)
+		if _, err := check(material.With(map[string][]byte{"controller-controller-a.json": []byte(changed)})); err == nil || !strings.Contains(err.Error(), "not a controller config") {
+			t.Errorf("invalid config version %q: %v", version, err)
 		}
 	}
 	_, parent, _ := strings.Cut(config, `"peer_account":"`)
@@ -221,6 +223,176 @@ func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
 	} {
 		if _, err := check(material.With(files)); err == nil {
 			t.Errorf("accepted %s", name)
+		}
+	}
+}
+
+func TestCheckGenerationControllerCredentials(t *testing.T) {
+	slots := generationExpectation().ControllerSlots
+	material := generationtest.New(t, generationNow).WithoutIssuers(t).
+		InterRegion(t, generationNow, slots).WithControllerCredentials(t, slots)
+	if strings.Contains(string(material.Files["controller-controller-a.json"]), `"observability"`) {
+		t.Fatal("credential fixture should use observability defaults without a config block")
+	}
+	if _, err := check(material); err != nil {
+		t.Fatal(err)
+	}
+	for _, grant := range natscell.GlobalControllerPublishes() {
+		t.Run("non-home "+grant, func(t *testing.T) {
+			creds := material.Files["controller-a.creds"]
+			raw, _ := jwt.ParseDecoratedJWT(creds)
+			claim, _ := jwt.DecodeUserClaims(raw)
+			claim.Pub.Allow.Add(grant)
+			encoded, err := claim.Encode(material.Cell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			user, _ := jwt.ParseDecoratedUserNKey(creds)
+			defer user.Wipe()
+			seed, _ := user.Seed()
+			defer clear(seed)
+			widened, _ := jwt.FormatUserConfig(encoded, seed)
+			if _, err := check(material.With(map[string][]byte{"controller-a.creds": widened})); err == nil ||
+				!strings.Contains(err.Error(), "unscoped publish") {
+				t.Fatalf("non-home global grant passed generation validation: %v", err)
+			}
+		})
+	}
+	for name, files := range map[string]map[string][]byte{
+		"another slot's user": {"controller-a.creds": material.Files["controller-b.creds"]},
+		"missing config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"version":1,`, "", 1))},
+		"zero config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"version":1`, `"version":0`, 1))},
+		"unsupported config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"version":1`, `"version":2`, 1))},
+		"null config version": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"version":1`, `"version":null`, 1))},
+		"tampered user":           {"controller-a.creds": []byte("invalid")},
+		"wrong config slot":       {"controller-controller-a.json": material.Files["controller-controller-b.json"]},
+		"another credential path": {"controller-controller-a.json": []byte(strings.ReplaceAll(string(material.Files["controller-controller-a.json"]), "controller-a.creds", "controller-b.creds"))},
+		"credential outside installed directory": {"controller-controller-a.json": []byte(strings.ReplaceAll(string(material.Files["controller-controller-a.json"]),
+			"/var/lib/terrascale-orchestrator-secrets/controller-a.creds", "/tmp/controller-a.creds"))},
+		"interregion outside installed directory": {"controller-controller-a.json": []byte(strings.ReplaceAll(string(material.Files["controller-controller-a.json"]),
+			"/var/lib/terrascale-orchestrator-secrets/interregion.jwt", "/tmp/interregion.jwt"))},
+		"obsolete aggregation switch": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"controller":`, `"observability":{"cluster_aggregation":true},"controller":`, 1))},
+		"obsolete dashboard switch": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"controller":`, `"observability":{"dashboard":false},"controller":`, 1))},
+		"obsolete off sentinel": {"controller-controller-a.json": []byte(strings.Replace(string(material.Files["controller-controller-a.json"]),
+			`"controller":`, `"observability":{"listen_address":"off"},"controller":`, 1))},
+		"conflicting global home": {"controller-controller-a.json": []byte(strings.ReplaceAll(string(material.Files["controller-controller-a.json"]),
+			`"candidate_id":"controller-a"`, `"candidate_id":"controller-a","global":{"home":"gru"}`))},
+	} {
+		if _, err := check(material.With(files)); err == nil {
+			t.Errorf("accepted %s", name)
+		}
+	}
+	raw, _ := jwt.ParseDecoratedJWT(material.Files["controller-a.creds"])
+	claim, _ := jwt.DecodeUserClaims(raw)
+	claim.Expires = time.Now().Add(-time.Minute).Unix()
+	encoded, _ := claim.Encode(material.Cell)
+	user, _ := jwt.ParseDecoratedUserNKey(material.Files["controller-a.creds"])
+	defer user.Wipe()
+	seed, _ := user.Seed()
+	defer clear(seed)
+	expired, _ := jwt.FormatUserConfig(encoded, seed)
+	if _, err := check(material.With(map[string][]byte{"controller-a.creds": expired})); err == nil {
+		t.Fatal("expired user accepted")
+	}
+	own := func(name string) ([]byte, error) {
+		if name == "controller-b.creds" || name == "controller-c.creds" ||
+			strings.Contains(name, "-controller-b") || strings.Contains(name, "-controller-c") {
+			return nil, fs.ErrNotExist
+		}
+		return material.Read(name)
+	}
+	generation := material.Generation(generationExpectation(), 1, "")
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, own, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	missingOwn := func(name string) ([]byte, error) {
+		if name == "controller-a.creds" {
+			return nil, fs.ErrNotExist
+		}
+		return own(name)
+	}
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, missingOwn, time.Now()); err == nil {
+		t.Fatal("own config accepted without its pinned credential")
+	}
+	missingConfig := func(name string) ([]byte, error) {
+		if name == "controller-controller-a.json" {
+			return nil, fs.ErrNotExist
+		}
+		return own(name)
+	}
+	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, missingConfig, time.Now()); err == nil {
+		t.Fatal("own credential accepted without its config")
+	}
+}
+
+func TestCheckGenerationControllerCredentialsWithoutInterRegion(t *testing.T) {
+	slots := generationExpectation().ControllerSlots
+	for name, test := range map[string]struct {
+		embedded *natscell.Embedded
+		global   map[string]any
+	}{
+		"no embedded server": {},
+		"isolated cell":      {embedded: &natscell.Embedded{}},
+		"explicit home":      {embedded: &natscell.Embedded{}, global: map[string]any{"home": "gru"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			material := generationtest.New(t, generationNow).WithoutIssuers(t)
+			for _, slot := range slots {
+				controller := map[string]any{"candidate_id": slot}
+				if test.global != nil {
+					controller["global"] = test.global
+				}
+				config, err := json.Marshal(map[string]any{"version": 1, "controller": controller,
+					"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: test.embedded}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				material.Files["controller-"+slot+".json"] = config
+			}
+			material = material.WithControllerCredentials(t, slots)
+			if _, err := check(material); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := jwt.ParseDecoratedJWT(material.Files["controller-a.creds"])
+			claim, _ := jwt.DecodeUserClaims(raw)
+			for _, grant := range natscell.GlobalControllerPublishes() {
+				claim.Pub.Allow.Remove(grant)
+			}
+			encoded, err := claim.Encode(material.Cell)
+			if err != nil {
+				t.Fatal(err)
+			}
+			user, _ := jwt.ParseDecoratedUserNKey(material.Files["controller-a.creds"])
+			defer user.Wipe()
+			seed, _ := user.Seed()
+			defer clear(seed)
+			missing, _ := jwt.FormatUserConfig(encoded, seed)
+			if _, err := check(material.With(map[string][]byte{"controller-a.creds": missing})); err == nil {
+				t.Fatal("isolated global home accepted without global grants")
+			}
+		})
+	}
+}
+
+func TestGenerationRejectsRemovedGlobalAndInterRegionSwitches(t *testing.T) {
+	slots := generationExpectation().ControllerSlots
+	material := generationtest.New(t, generationNow).WithoutIssuers(t).InterRegion(t, generationNow, slots)
+	name := "controller-" + slots[0] + ".json"
+	config := string(material.Files[name])
+	for _, value := range []string{"true", "false"} {
+		for _, candidate := range []string{
+			strings.Replace(config, `"candidate_id":`, `"global":{"enabled":`+value+`},"candidate_id":`, 1),
+			strings.Replace(config, `"interregion":{`, `"interregion":{"enabled":`+value+`,`, 1),
+		} {
+			if _, err := check(material.With(map[string][]byte{name: []byte(candidate)})); err == nil {
+				t.Fatalf("removed enabled field accepted: %s", candidate)
+			}
 		}
 	}
 }

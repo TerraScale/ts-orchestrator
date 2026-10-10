@@ -68,7 +68,7 @@ func serveMaterialGenerations(ctx context.Context, wire []byte, policy signerPol
 	leader := generationinstall.Leader{KV: roots.kv, Expected: target.Expected, Roots: roots.current,
 		Guard: func(ctx context.Context) error { return fencer.Guard(ctx, envelope.Epoch) }}
 	if envelope.Kind == materialGenerationStatusKind {
-		return leader.Report(ctx)
+		return leader.Report(ctx, roots.historical())
 	}
 	if grant, _ := policy.grant(actor); !grant.CanInstallMaterial {
 		return generationinstall.Report{}, fmt.Errorf("trusted signer %s may not install material generations (can_install_material)", actor)
@@ -93,7 +93,7 @@ func serveMaterialGenerations(ctx context.Context, wire []byte, policy signerPol
 	}
 	slog.Info("material generation request", observability.ComponentKey, "trust", "actor", actor,
 		"kind", envelope.Kind, "slot", request.Slot, "status", status)
-	report, err := leader.Report(ctx)
+	report, err := leader.Report(ctx, roots.historical())
 	report.Status = status
 	return report, err
 }

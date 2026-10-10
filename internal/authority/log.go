@@ -223,7 +223,7 @@ func (r *Runtime) commitMutationVerified(
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	current := r.Current()
-	if !current.CanMutate() || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {
+	if !current.CanMutate() || current.Scope != r.config.Scope || current.DeploymentID != r.config.DeploymentID || current.CandidateID != r.config.CandidateID || current.OwnerID != r.ownerID {
 		return 0, ErrNotLeader
 	}
 	if expectedEpoch == 0 || current.Epoch != expectedEpoch {
@@ -241,7 +241,7 @@ func (r *Runtime) commitMutationVerified(
 		}
 		leaseEntry, err := r.stream.GetLastMsgForSubject(ctx, r.leaseSub)
 		if err != nil {
-			r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, Reason: "lease-unreadable"})
+			r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, Reason: "lease-unreadable"})
 			return 0, err
 		}
 		if leaseEntry.Sequence > info.State.LastSeq {
@@ -249,12 +249,12 @@ func (r *Runtime) commitMutationVerified(
 		}
 		lease, err := decodeLease(leaseEntry.Data)
 		if err != nil {
-			r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: r.config.CandidateID, Reason: "lease-corrupt"})
+			r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: r.config.DeploymentID, CandidateID: r.config.CandidateID, Reason: "lease-corrupt"})
 			return 0, ErrLeaseCorrupt
 		}
-		if lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released ||
+		if lease.Scope != r.config.Scope || lease.DeploymentID != r.config.DeploymentID || lease.CandidateID != r.config.CandidateID || lease.OwnerID != r.ownerID || lease.Epoch != expectedEpoch || lease.Released ||
 			!time.Now().Before(leaseEntry.Time.Add(time.Duration(lease.LeaseDuration))) {
-			r.publishSnapshot(Snapshot{Scope: r.config.Scope, CandidateID: lease.CandidateID, Epoch: lease.Epoch, Revision: leaseEntry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
+			r.publishSnapshot(Snapshot{Scope: r.config.Scope, DeploymentID: lease.DeploymentID, CandidateID: lease.CandidateID, Epoch: lease.Epoch, Revision: leaseEntry.Sequence, ObservedAt: time.Now(), Reason: "lease-fenced"})
 			return 0, ErrFenced
 		}
 
@@ -1274,9 +1274,13 @@ func decodeLease(data []byte) (leaseRecord, error) {
 	if err := json.Unmarshal(data, &lease, json.RejectUnknownMembers(true)); err != nil {
 		return lease, err
 	}
-	if lease.Version != 1 || !natsToken.MatchString(lease.Scope) || !entityid.Valid(lease.CandidateID) ||
+	if lease.Version != 1 || !natsToken.MatchString(lease.Scope) || !entityid.Valid(lease.DeploymentID) || !entityid.Valid(lease.CandidateID) ||
 		!entityid.Valid(lease.OwnerID) || !entityid.Valid(lease.TransitionID) || lease.Epoch == 0 ||
 		lease.LeaseDuration < int64(time.Second) || lease.LeaseDuration > int64(5*time.Minute) {
+		return lease, ErrLeaseCorrupt
+	}
+	if lease.IdentityResetSHA256 != "" && (!validTerminalDigest(lease.IdentityResetSHA256) || !lease.Released ||
+		lease.CandidateID != lease.OwnerID || lease.CandidateID != lease.TransitionID) {
 		return lease, ErrLeaseCorrupt
 	}
 	return lease, nil

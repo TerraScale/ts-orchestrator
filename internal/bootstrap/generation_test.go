@@ -48,10 +48,8 @@ func TestMaterialGenerationChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Schema 2's members are omitted from schema 1, whose signed bytes stay
-	// exactly as before.
-	if payload := string(first.Payload); strings.Contains(payload, "roleSigner") || strings.Contains(payload, "controllerConfigs") {
-		t.Fatalf("a schema-1 payload carries schema-2 members: %s", payload)
+	if firstGeneration := verified[0].Generation(); firstGeneration.SchemaVersion != 1 || firstGeneration.RoleSigner == "" {
+		t.Fatal("v1 generation must bind its role signer")
 	}
 	rollover := generationtest.Rollover(t, generationNow, material)
 	second := signGeneration(t, rollover.Generation(expected, 2, verified[0].Fingerprint()), rootPrivate)
@@ -171,9 +169,9 @@ func TestMaterialGenerationShape(t *testing.T) {
 		"a secret outside OCI Vault": func(generation *bootstrap.MaterialGeneration) {
 			generation.Secrets[0].SecretOCID = "ocid1.bucket.oc1..x"
 		},
-		"an unknown schema": func(generation *bootstrap.MaterialGeneration) { generation.SchemaVersion = 3 },
-		"a schema-1 role signer": func(generation *bootstrap.MaterialGeneration) {
-			generation.RoleSigner = material.SchemaTwo(t).RoleSignerID
+		"an unsupported schema": func(generation *bootstrap.MaterialGeneration) { generation.SchemaVersion = 2 },
+		"a missing role signer": func(generation *bootstrap.MaterialGeneration) {
+			generation.RoleSigner = ""
 		},
 		"an unpinned digest": func(generation *bootstrap.MaterialGeneration) { generation.Secrets[0].SHA256 = "" },
 		"an unbounded secret": func(generation *bootstrap.MaterialGeneration) {
@@ -189,9 +187,8 @@ func TestMaterialGenerationShape(t *testing.T) {
 	}
 }
 
-// Schema 2 (TS-668) extends a schema-1 chain; a chain never returns to
-// schema 1 and never drops the role signer or the controller configs.
-func TestMaterialGenerationSchemaTwoChain(t *testing.T) {
+// An extended v1 chain retains the role signer, configs and credentials.
+func TestMaterialGenerationPinnedConfigChain(t *testing.T) {
 	rootPublic, rootPrivate, _ := ed25519.GenerateKey(rand.Reader)
 	roots := keyring(t, rootPublic)
 	expected := generationExpectation()
@@ -201,22 +198,23 @@ func TestMaterialGenerationSchemaTwoChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upgraded := material.SchemaTwo(t).WithoutIssuers(t).InterRegion(t, generationNow, expected.ControllerSlots)
+	withoutCredentials := material.WithoutIssuers(t).InterRegion(t, generationNow, expected.ControllerSlots)
+	upgraded := withoutCredentials.WithControllerCredentials(t, expected.ControllerSlots)
 	second := signGeneration(t, upgraded.Generation(expected, 2, verified[0].Fingerprint()), rootPrivate)
 	verified, err = bootstrap.VerifyMaterialGenerationChain([]trust.Envelope{first, second}, roots, expected, generationNow)
 	if err != nil {
-		t.Fatalf("schema 2 extends schema 1: %v", err)
+		t.Fatalf("v1 generation extends its predecessor: %v", err)
 	}
-	if generation := verified[1].Generation(); generation.SchemaVersion != 2 || len(generation.ControllerConfigs) != 3 ||
+	if generation := verified[1].Generation(); generation.SchemaVersion != 1 || len(generation.ControllerConfigs) != 3 ||
 		generation.AccountSigner != "" || generation.RoleSigner == "" {
 		t.Fatalf("generation 2 = %+v", generation)
 	}
 	otherRole := upgraded.Generation(expected, 3, verified[1].Fingerprint())
 	otherRole.RoleSigner = material.SignerID
 	for name, generation := range map[string]bootstrap.MaterialGeneration{
-		"a return to schema 1":       material.Generation(expected, 3, verified[1].Fingerprint()),
-		"dropped controller configs": material.SchemaTwo(t).Generation(expected, 3, verified[1].Fingerprint()),
-		"another role signer":        otherRole,
+		"dropped controller credentials": withoutCredentials.Generation(expected, 3, verified[1].Fingerprint()),
+		"dropped controller configs":     material.Generation(expected, 3, verified[1].Fingerprint()),
+		"another role signer":            otherRole,
 	} {
 		if err := generation.Validate(); err != nil {
 			t.Fatalf("%s is valid alone: %v", name, err)
@@ -228,9 +226,39 @@ func TestMaterialGenerationSchemaTwoChain(t *testing.T) {
 	}
 }
 
-func TestMaterialGenerationSchemaTwoShape(t *testing.T) {
+func TestMaterialGenerationControllerCredentialShape(t *testing.T) {
 	expected := generationExpectation()
-	withIssuers := generationtest.New(t, generationNow).SchemaTwo(t)
+	material := generationtest.New(t, generationNow).WithoutIssuers(t).
+		InterRegion(t, generationNow, expected.ControllerSlots).WithControllerCredentials(t, expected.ControllerSlots)
+	if err := material.Generation(expected, 1, "").Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*bootstrap.MaterialGeneration){
+		"missing one slot": func(g *bootstrap.MaterialGeneration) {
+			g.Secrets = slices.DeleteFunc(g.Secrets, func(ref bootstrap.SecretReference) bool { return ref.TargetFile == "controller-b.creds" })
+		},
+		"wrong slot": func(g *bootstrap.MaterialGeneration) {
+			for i := range g.Secrets {
+				if g.Secrets[i].TargetFile == "controller-a.creds" {
+					g.Secrets[i].Slot = "controller-b"
+				}
+			}
+		},
+		"no configs": func(g *bootstrap.MaterialGeneration) { g.ControllerConfigs = nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			generation := material.Generation(expected, 1, "")
+			mutate(&generation)
+			if generation.Validate() == nil {
+				t.Fatal("invalid credential pins accepted")
+			}
+		})
+	}
+}
+
+func TestMaterialGenerationInterRegionShape(t *testing.T) {
+	expected := generationExpectation()
+	withIssuers := generationtest.New(t, generationNow)
 	material := withIssuers.WithoutIssuers(t).InterRegion(t, generationNow, expected.ControllerSlots)
 	for name, valid := range map[string]generationtest.Material{"no issuers, with interregion": material,
 		"issuers, without interregion": withIssuers} {

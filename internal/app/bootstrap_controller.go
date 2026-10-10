@@ -16,6 +16,10 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -23,20 +27,36 @@ import (
 const controllerServiceUser = "terrascale-orchestrator"
 const controllerAdmissionTimeout = 240 * time.Second
 
-var controllerBakedInputsPresent = bootstrapstart.BakedInputsPresent
 var controllerBootstrapProduction = superviseControllerRestart
 var controllerBootstrapCommand = bootstrapController
+var controllerBakedInputsPresent = bootstrapstart.BakedInputsPresent
 
-func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func() error) error {
+func controllerProductionInputsPresent() (bool, error) {
+	if present, err := controllerMarkerPresent(); err != nil || present {
+		return present, err
+	}
+	if present, err := bootstrapstart.IdentityRekeyJournalPresent(); err != nil {
+		return false, err
+	} else if present {
+		return false, bootstrapstart.ErrIdentityRekeyLocalPending
+	}
 	present, err := controllerBakedInputsPresent()
 	if err != nil {
-		return fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
+		return false, fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
+	}
+	return present, nil
+}
+
+func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func() error) error {
+	present, err := controllerProductionInputsPresent()
+	if err != nil {
+		return err
 	}
 	if !present {
 		if cfg.NATS.Lab {
 			return nil
 		}
-		return errors.New("production controller requires baked bootstrap inputs")
+		return errors.New("production controller requires accepted identity or baked bootstrap inputs")
 	}
 	if clockCheck == nil {
 		return errors.New("production controller NTP clock check is unavailable")
@@ -51,31 +71,39 @@ func bootstrapController(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("bootstrap-controller requires root")
 	}
-	present, err := controllerBakedInputsPresent()
-	if err != nil {
-		return fmt.Errorf("inspect baked controller bootstrap inputs: %w", err)
-	}
-	if !present {
-		if cfg.NATS.Lab {
+	if cfg.NATS.Lab {
+		present, err := controllerProductionInputsPresent()
+		if err != nil {
+			return err
+		}
+		if !present {
 			return nil
 		}
-		return errors.New("production controller requires baked bootstrap inputs")
+	}
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err == nil {
+		return bootstrapstart.CheckIdentityRekeyPrestart(accepted)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if present, err := bootstrapstart.IdentityRekeyJournalPresent(); err != nil {
+		return err
+	} else if present {
+		return bootstrapstart.ErrIdentityRekeyLocalPending
 	}
 	if err := controllerClockCheck(controllerBrokerClockProbe())(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
-	present, err = acceptedControllerInstallPresent(bootstrapstart.NewMarkerStore().Read)
-	if err != nil {
+	if present, err := bootstrapstart.BakedInputsPresent(); err != nil {
 		return err
-	}
-	if present {
-		// The service-account controller performs full restart admission.
-		return nil
+	} else if !present {
+		return errors.New("initial production controller requires current bootstrap inputs")
 	}
 	return superviseControllerAdmission(ctx, cfg, "bootstrap-admit-initial", "/proc/self/exe")
 }
 
-func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedInstall, error)) (bool, error) {
+func acceptedControllerInstallPresent(read func() (bootstrapstart.AcceptedIdentity, error)) (bool, error) {
 	if read == nil {
 		return false, errors.New("accepted controller install reader is unavailable")
 	}
@@ -168,7 +196,7 @@ func runControllerAdmissionChild(ctx context.Context, commandName string, input 
 
 func admitProductionControllerRoot(ctx context.Context, cfg Config) error {
 	markers := bootstrapstart.NewMarkerStore()
-	_, err := markers.Read()
+	_, err := markers.ReadIdentity()
 	if err == nil {
 		return admitProductionController(ctx, cfg, markers, false)
 	}
@@ -183,6 +211,23 @@ func admitProductionControllerRestart(ctx context.Context, cfg Config) error {
 }
 
 func admitProductionController(ctx context.Context, cfg Config, markers bootstrapstart.MarkerStore, initial bool) error {
+	if !initial {
+		gate, accepted, err := acceptedControllerAdmissionGate(cfg, markers, controllerClockCheck(controllerBrokerClockProbe()))
+		if err != nil {
+			return err
+		}
+		region := oci.Region(accepted.Cell)
+		provider, err := bootstrap.NewRegionalInstancePrincipalConfigurationProvider(region)
+		if err != nil {
+			return err
+		}
+		gate.Instances, err = bootstrapstart.NewOCIInstanceObserver(region, provider)
+		if err != nil {
+			return err
+		}
+		_, err = gate.AdmitRestart(ctx)
+		return err
+	}
 	loadedWire, err := cfg.signedWire()
 	if err != nil || len(loadedWire) == 0 || len(loadedWire) > bootstrap.MaxControllerConfigBytes {
 		return errors.New("loaded controller config is not bounded JSON")
@@ -235,71 +280,52 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot)),
 	}
 	gate.LoadedControllerConfig = loadedWire
-	if initial {
-		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall,
-			state bootstrap.SlotState, now time.Time,
-		) error {
-			checker, err := bootstrapstart.NewOCIFounderPeerContinuation(baked, marker, serviceUID, serviceGID)
-			if err != nil {
-				return err
-			}
-			return checker.Initialize(ctx, marker, state, now)
+	gate.ObserveIdentity = controllerIdentityObserver(cfg)
+	gate.InitialIdentity = func(_ bootstrap.Manifest) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
+		observed, err := natscell.PrepareInitialInstallationIdentity(cfg.NATS, serviceUID, serviceGID)
+		if err != nil {
+			return identityrekey.BrokerIdentity{}, identityrekey.StoreIdentity{}, err
 		}
-		floor, err := bootstrapstart.NewServiceFounderSelectionFloorStore(serviceUID)
+		broker, store := controllerInstallationIdentity(observed)
+		return broker, store, nil
+	}
+	gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall,
+		state bootstrap.SlotState, now time.Time,
+	) error {
+		checker, err := bootstrapstart.NewOCIFounderPeerContinuation(baked, marker, serviceUID, serviceGID)
 		if err != nil {
 			return err
 		}
-		gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
-			return bootstrapstart.ProvisionInitialFounderFloor(ctx, baked, marker, floor, serviceUID, serviceGID, now, clockCheck)
-		}
-		if err := clockCheck(); err != nil {
-			return fmt.Errorf("production controller startup NTP clock health: %w", err)
-		}
-		anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, baked.Roots, gate.Expected,
-			time.Now(), bootstrap.BootstrapAnchorTrustPolicy())
-		if err != nil {
-			return fmt.Errorf("verify current baked controller anchor: %w", err)
-		}
-		if err := clockCheck(); err != nil {
-			return fmt.Errorf("production controller startup NTP clock health: %w", err)
-		}
-		var vault *bootstrap.Vault
-		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
-		if err != nil {
-			return err
-		}
-		gate.Material, err = bootstrapstart.NewMaterialStore(vault, serviceUID, serviceGID)
-		if err != nil {
-			return err
-		}
-		_, err = gate.AdmitInitialWhenReady(ctx)
+		return checker.Initialize(ctx, marker, state, now)
+	}
+	floor, err := bootstrapstart.NewServiceFounderSelectionFloorStore(serviceUID)
+	if err != nil {
 		return err
 	}
-	marker, err := markers.Read()
-	if err != nil {
-		return fmt.Errorf("read accepted controller bootstrap install: %w", err)
-	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorEnvelope, baked.Roots, gate.Expected,
-		marker.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil {
-		return fmt.Errorf("verify accepted baked controller anchor: %w", err)
+	gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
+		return bootstrapstart.ProvisionInitialFounderFloor(ctx, baked, marker, floor, serviceUID, serviceGID, now, clockCheck)
 	}
 	if err := clockCheck(); err != nil {
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
-	gate.Instances, gate.Ledgers, err = bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
+	anchor, err := bootstrap.VerifyBootstrapAnchor(anchorEnvelope, baked.Roots, gate.Expected,
+		time.Now(), bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		return fmt.Errorf("verify current baked controller anchor: %w", err)
+	}
+	if err := clockCheck(); err != nil {
+		return fmt.Errorf("production controller startup NTP clock health: %w", err)
+	}
+	var vault *bootstrap.Vault
+	gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
 	if err != nil {
 		return err
 	}
-	gate.Material, err = bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
+	gate.Material, err = bootstrapstart.NewMaterialStore(vault, serviceUID, serviceGID)
 	if err != nil {
 		return err
 	}
-	gate.Continuation, err = bootstrapstart.NewOCIFounderInstallContinuation(baked, marker, checker, serviceUID)
-	if err != nil {
-		return err
-	}
-	_, err = gate.AdmitRestart(ctx)
+	_, err = gate.AdmitInitialWhenReady(ctx)
 	return err
 }
 
@@ -314,4 +340,77 @@ func controllerServiceIdentity() (uint32, uint32, error) {
 		return 0, 0, errors.New("dedicated controller service UID/GID is invalid")
 	}
 	return uint32(uid), uint32(gid), nil
+}
+
+func controllerInstallationIdentity(observed natscell.InstallationIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity) {
+	return identityrekey.BrokerIdentity{Operator: observed.Operator, SystemAccount: observed.SystemAccount,
+			CellAccount: observed.CellAccount, HostSigner: observed.HostSigner, RoleSigner: observed.RoleSigner,
+			AccountSigner: observed.AccountSigner, InterRegionAccount: observed.InterRegionAccount},
+		identityrekey.StoreIdentity{Directory: observed.Directory, ServerName: observed.ServerName, RaftNodeID: observed.RaftNodeID,
+			ServerNameSHA256: observed.ServerNameSHA256, NodeIdentitySHA256: observed.NodeIdentitySHA256}
+}
+
+func controllerIdentityObserver(cfg Config) bootstrapstart.IdentityObservation {
+	return func(_ bootstrapstart.AcceptedIdentity) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
+		observed, err := natscell.ObserveInstalledIdentity(cfg.NATS)
+		if err != nil {
+			return identityrekey.BrokerIdentity{}, identityrekey.StoreIdentity{}, err
+		}
+		broker, store := controllerInstallationIdentity(observed)
+		return broker, store, nil
+	}
+}
+
+func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerStore, clockCheck func() error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
+	fail := func(err error) (bootstrapstart.Gate, bootstrapstart.AcceptedIdentity, error) {
+		return bootstrapstart.Gate{}, bootstrapstart.AcceptedIdentity{}, err
+	}
+	accepted, err := markers.ReadIdentity()
+	if err != nil {
+		return fail(fmt.Errorf("read accepted controller identity: %w", err))
+	}
+	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
+		cfg.Controller.CandidateID != entityid.Derive("controller", accepted.DeploymentID, accepted.Cell, accepted.Slot) {
+		return fail(errors.New("controller configuration differs from accepted deployment and slot"))
+	}
+	if err := bootstrapstart.CheckIdentityRekeyPrestart(accepted); err != nil {
+		return fail(err)
+	}
+	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
+	if err != nil {
+		return fail(err)
+	}
+	loadedWire, err := cfg.signedWire()
+	if err != nil {
+		return fail(err)
+	}
+	serviceUID, serviceGID, err := controllerServiceIdentity()
+	if err != nil {
+		return fail(err)
+	}
+	if os.Geteuid() != int(serviceUID) || os.Getegid() != int(serviceGID) {
+		return fail(errors.New("accepted controller admission requires the dedicated service account"))
+	}
+	checker, err := bootstrapstart.NewLiveCredentialChecker(cfg.NATS, serviceUID, serviceGID,
+		cfg.Controller.ResponseKeyFile, cfg.Controller.BrokerTicketKeyFile, cfg.Controller.HostNATSIssuerSeedFile,
+		cfg.Controller.HostTLSIssuerKeyFile, cfg.Controller.HostTLSIssuerCertFile, func() error {
+			if _, err := readPrivateKey(cfg.Controller.ResponseKeyFile); err != nil {
+				return err
+			}
+			_, _, err := brokerTicketKeys(cfg)
+			return err
+		})
+	if err != nil {
+		return fail(err)
+	}
+	checker.TerraBaseCACertFile, checker.TerraBaseCAKeyFile = cfg.Controller.TerraBaseCACertFile, cfg.Controller.TerraBaseCAKeyFile
+	checker.ControllerConfig = loadedWire
+	material, err := bootstrapstart.NewMaterialStore(nil, serviceUID, serviceGID)
+	if err != nil {
+		return fail(err)
+	}
+	return bootstrapstart.Gate{Roots: inputs.Roots.Historical, LoadedControllerConfigSHA256: controllerSHA256(loadedWire),
+		LoadedControllerConfig: loadedWire, Descriptor: bootstrapstart.NewIMDSClient(), Material: material, Credentials: checker,
+		Markers: markers, ClockCheck: clockCheck, ObserveIdentity: controllerIdentityObserver(cfg),
+		SelfUpdate: selfupdate.NewLayout(selfUpdateRoot(cfg.Controller.SelfUpdateRoot))}, accepted, nil
 }

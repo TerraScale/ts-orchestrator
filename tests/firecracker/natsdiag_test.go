@@ -44,7 +44,7 @@ func TestDiagnosticUsesAuthenticatedReplyInboxes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = regional.Close() })
-	control, err := authority.Start(ctx, regional.JetStream(), authority.Config{
+	control, err := authority.Start(ctx, regional.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "lab", CandidateID: "0000000000XTGQJSECWR54430J", Replicas: 1,
 	})
 	if err != nil {
@@ -377,6 +377,7 @@ func TestReadPathTargetsAndBoundedErrors(t *testing.T) {
 
 func TestDiagnosticTopologyUsesControllerSlotAndRouteOrder(t *testing.T) {
 	config := app.Config{
+		Version: app.ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "controller-b", Replicas: 3,
 			URL: "tls://10.251.0.12:4222", Embedded: &natscell.Embedded{
 				Host: "10.251.0.12", Port: 4222, RouteHost: "10.251.0.12", RoutePort: 6222,
@@ -667,7 +668,7 @@ func TestDiagnosticReadsLiveReplicatedCluster(t *testing.T) {
 		}
 	}
 	js := runtimes[0].JetStream()
-	control, err := authority.Start(ctx, js, authority.Config{
+	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "lab", CandidateID: "0000000000XTGQJSECWR54430J", Replicas: 3,
 	})
 	if err != nil {

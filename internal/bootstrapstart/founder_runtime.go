@@ -471,7 +471,7 @@ func (caller founderCaller) reservePeer(ctx context.Context, snapshot founderSna
 	if err != nil {
 		return err
 	}
-	headWire, err := keys.signHead(bootstrap.SlotHead{SchemaVersion: 2, DeploymentID: intent.DeploymentID,
+	headWire, err := keys.signHead(bootstrap.SlotHead{SchemaVersion: 1, DeploymentID: intent.DeploymentID,
 		Cell: intent.Cell, Environment: intent.Environment, Role: intent.Role, Slot: slot,
 		Attempt: intent.Attempt, Generation: intent.Generation, IntentDigest: digest(intentWire)}, now, expiresAt)
 	if err != nil {

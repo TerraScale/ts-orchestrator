@@ -30,25 +30,17 @@ var ErrFounderSelection = errors.New("current founder selection is invalid or un
 // The offline publisher publishes digest-addressed immutable objects first,
 // then CAS-updates this one exact mutable object with increasing generation.
 type FounderSelection struct {
-	SchemaVersion int                    `json:"schemaVersion"`
-	DeploymentID  string                 `json:"deploymentId"`
-	Cell          string                 `json:"cell"`
-	Environment   string                 `json:"environment"`
-	Generation    uint64                 `json:"generation"`
-	PlanSHA256    string                 `json:"planSha256,omitempty"`
-	AnchorSHA256  string                 `json:"anchorSha256,omitempty"`
-	Manifests     []FounderManifestPin   `json:"manifests,omitempty"`
-	Continuities  []FounderContinuityPin `json:"continuities,omitempty"`
+	SchemaVersion int                  `json:"schemaVersion"`
+	DeploymentID  string               `json:"deploymentId"`
+	Cell          string               `json:"cell"`
+	Environment   string               `json:"environment"`
+	Generation    uint64               `json:"generation"`
+	PlanSHA256    string               `json:"planSha256"`
+	AnchorSHA256  string               `json:"anchorSha256"`
+	Manifests     []FounderManifestPin `json:"manifests"`
 }
 
 type FounderManifestPin struct {
-	Slot   string `json:"slot"`
-	SHA256 string `json:"sha256"`
-}
-
-// FounderContinuityPin points to an immutable read-only continuation proof.
-// It has no launch, ledger, materialization, or Vault authority.
-type FounderContinuityPin struct {
 	Slot   string `json:"slot"`
 	SHA256 string `json:"sha256"`
 }
@@ -198,14 +190,9 @@ func (reader *CurrentFounderAuthorityReader) ReadCurrent(ctx context.Context, no
 }
 
 // The peer paths share current signature and exact-key verification with the
-// seed reader. Initial peer admission establishes its floor only after this
-// read; every subsequent continuation checks and advances that floor.
+// seed reader. Initial peer admission establishes its floor after this read.
 func (reader *CurrentFounderAuthorityReader) readCurrentPeerInitial(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
 	return reader.readCurrentCompletedPeer(ctx, now, false)
-}
-
-func (reader *CurrentFounderAuthorityReader) readCurrentPeerContinuation(ctx context.Context, now time.Time) (currentFounderPeerSelection, error) {
-	return reader.readCurrentCompletedPeer(ctx, now, true)
 }
 
 func (reader *CurrentFounderAuthorityReader) readCurrent(ctx context.Context, now time.Time,
@@ -484,48 +471,20 @@ func decodeFounderSelectionPayload(payload []byte, expected trust.Scope) (Founde
 		return FounderSelection{}, ErrFounderSelection
 	}
 	canonical, err := protocol.EncodeJSON(selection)
-	if err != nil || !bytes.Equal(canonical, payload) || selection.Generation == 0 ||
+	if err != nil || !bytes.Equal(canonical, payload) || selection.SchemaVersion != 1 || selection.Generation == 0 ||
 		selection.DeploymentID != expected.DeploymentID || selection.Cell != expected.Cell ||
 		selection.Environment != expected.Environment {
 		return FounderSelection{}, ErrFounderSelection
 	}
-	switch selection.SchemaVersion {
-	case 1:
-		if len(selection.Manifests) != 3 || len(selection.Continuities) != 0 ||
-			!validFounderDigest(selection.PlanSHA256) || !validFounderDigest(selection.AnchorSHA256) {
-			return FounderSelection{}, ErrFounderSelection
-		}
-		for i, pin := range selection.Manifests {
-			if !descriptorSlotRE.MatchString(pin.Slot) || !validFounderDigest(pin.SHA256) ||
-				i > 0 && selection.Manifests[i-1].Slot >= pin.Slot {
-				return FounderSelection{}, ErrFounderSelection
-			}
-		}
-	case 2:
-		if selection.PlanSHA256 != "" || selection.AnchorSHA256 != "" || len(selection.Manifests) != 0 ||
-			len(selection.Continuities) != 3 {
-			return FounderSelection{}, ErrFounderSelection
-		}
-		for i, pin := range selection.Continuities {
-			if !descriptorSlotRE.MatchString(pin.Slot) || !validFounderDigest(pin.SHA256) ||
-				i > 0 && selection.Continuities[i-1].Slot >= pin.Slot {
-				return FounderSelection{}, ErrFounderSelection
-			}
-		}
-	default:
+	if len(selection.Manifests) != 3 ||
+		!validFounderDigest(selection.PlanSHA256) || !validFounderDigest(selection.AnchorSHA256) {
 		return FounderSelection{}, ErrFounderSelection
 	}
-	return selection, nil
-}
-
-// ValidateFounderContinuitySelectionCandidate validates the canonical offline
-// selector payload before it is signed. It accepts only the read-only mode.
-func ValidateFounderContinuitySelectionCandidate(payload []byte, identity BakedIdentity) (FounderSelection, error) {
-	selection, err := decodeFounderSelectionPayload(payload, trust.Scope{
-		DeploymentID: identity.DeploymentID, Cell: string(identity.Cell), Environment: identity.Environment,
-	})
-	if err != nil || selection.SchemaVersion != 2 {
-		return FounderSelection{}, ErrFounderSelection
+	for i, pin := range selection.Manifests {
+		if !descriptorSlotRE.MatchString(pin.Slot) || !validFounderDigest(pin.SHA256) ||
+			i > 0 && selection.Manifests[i-1].Slot >= pin.Slot {
+			return FounderSelection{}, ErrFounderSelection
+		}
 	}
 	return selection, nil
 }

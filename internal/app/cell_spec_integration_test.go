@@ -48,7 +48,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	for index := range controllerSeeds {
 		public, seed := testNKey(t)
 		controllerSeeds[index] = seed
-		grants = append(grants, natscell.NKeyGrant{PublicKey: public, Role: "controller"})
+		grants = append(grants, natscell.NKeyGrant{PublicKey: public, Role: "controller", Global: true})
 	}
 	operatorNKey, operatorSeed := testNKey(t)
 	grants = append(grants, natscell.NKeyGrant{PublicKey: operatorNKey, Role: "operator"})

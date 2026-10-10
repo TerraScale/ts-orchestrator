@@ -343,7 +343,7 @@ Inputs, outside Git except where named:
    cell's identity, material and member CA paths only, and signs the
    manifests and founder plan.
 5. **Controllers — LIVE (gru-1-ctl-1; it then forms ctl-2/3).** `$A launch`,
-   `$A complete`, `$A continuity`, then `$A operator`, which installs the
+   `$A complete`, then `$A operator`, which installs the
    operator material and prints the qualified operator CLI path. Check three
    healthy controllers, then run `$A services`: it applies TerraBase's
    profile (`terrabase_profile`, or derived from the plan; root-signed) and

@@ -1906,7 +1906,7 @@ func sameLaunchProfile(a, b LaunchRequest) bool {
 }
 
 func writableSnapshot() authority.Snapshot {
-	return authority.Snapshot{
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		CandidateID: "00000000008VQHCQFMKQSH41D6", Leader: true, Ready: true, Epoch: 4, Revision: 9,
 		ExpiresAt: time.Now().Add(time.Minute), ObservedAt: time.Now(),
 	}

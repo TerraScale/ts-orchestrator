@@ -145,7 +145,7 @@ func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
 	// Rotate the root that qualified the image away. The next generation,
 	// signed by the new root, keeps the image without a new receipt.
 	next := newRootKey(t)
-	rotation, err := trust.EncodeRootChain(trust.RootChain{Rotations: []trust.SignedRotation{
+	rotation, err := trust.EncodeRootChain(trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{
 		signTestRotation(t, trust.ChainIdentity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"},
 			registry.roots.verified, rootKeys(next), keys.root, next)}})
 	if err != nil {

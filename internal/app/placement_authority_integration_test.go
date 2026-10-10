@@ -26,7 +26,7 @@ func TestSignedPlacementUsesBusinessKeyInRealAuthorityLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000RSVEVH5A778HC7A2", Replicas: 1,
 	})
 	if err != nil {

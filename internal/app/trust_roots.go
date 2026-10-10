@@ -74,6 +74,7 @@ type rootRegistry struct {
 }
 
 type rootChainReply struct {
+	Version  int             `json:"version"`
 	Sequence uint64          `json:"sequence"`
 	Head     string          `json:"head"`
 	Roots    []string        `json:"roots"`
@@ -291,7 +292,7 @@ func (r *rootRegistry) adopt(chain trust.RootChain) error {
 func (r *rootRegistry) reply(status string) rootChainReply {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return rootChainReply{Sequence: r.verified.Sequence, Head: r.verified.Head,
+	return rootChainReply{Version: 1, Sequence: r.verified.Sequence, Head: r.verified.Head,
 		Roots: slices.Sorted(maps.Keys(r.verified.Current)), Chain: r.chain, Status: status}
 }
 
@@ -331,7 +332,7 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 	next, status, onChain := base, "unchanged", false
 	if rotation.Sequence >= 1 && rotation.Sequence <= uint64(len(base.Rotations)) {
 		// A statement already on the chain must still carry valid signatures.
-		prefix := trust.RootChain{Rotations: append(slices.Clone(base.Rotations[:rotation.Sequence-1]), signed)}
+		prefix := trust.RootChain{Version: 1, Rotations: append(slices.Clone(base.Rotations[:rotation.Sequence-1]), signed)}
 		if base.Extends(prefix) {
 			if _, err := trust.VerifyRootChain(r.genesis, r.identity, prefix); err != nil {
 				return rootChainReply{}, err
@@ -343,7 +344,7 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 		if err := trust.RotationCurrent(signed, time.Now()); err != nil {
 			return rootChainReply{}, fmt.Errorf("root rotation is not current: %w", err)
 		}
-		next, status = trust.RootChain{Rotations: append(slices.Clone(base.Rotations), signed)}, "applied"
+		next, status = trust.RootChain{Version: 1, Rotations: append(slices.Clone(base.Rotations), signed)}, "applied"
 		verified, err := trust.VerifyRootChain(r.genesis, r.identity, next)
 		if err != nil {
 			return rootChainReply{}, err
@@ -409,6 +410,9 @@ func requestRootChain(ctx context.Context, cfg Config, runtime *natscell.Runtime
 	var reply rootChainReply
 	if err := protocol.DecodeStrict(data, &reply, 2*trust.MaxRootChainBytes); err != nil {
 		return rootChainReply{}, fmt.Errorf("decode root chain reply: %w", err)
+	}
+	if reply.Version != 1 {
+		return rootChainReply{}, errors.New("root chain reply requires version 1")
 	}
 	if reply.Error != "" {
 		return rootChainReply{}, errors.New(reply.Error)

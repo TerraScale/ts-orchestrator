@@ -11,12 +11,12 @@ func TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority(t *testing.
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	leader, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", LeaseDuration: 5 * time.Second,
+	leader, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", LeaseDuration: 5 * time.Second,
 		RenewInterval: time.Second, Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
-	seed, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000SF1REEJJX6TC691V", LeaseDuration: 5 * time.Second,
+	seed, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000SF1REEJJX6TC691V", LeaseDuration: 5 * time.Second,
 		RenewInterval: time.Second, Replicas: 1})
 	if err != nil {
 		t.Fatal(err)

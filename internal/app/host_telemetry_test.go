@@ -14,7 +14,7 @@ import (
 
 func TestHostTelemetryCollectsWithoutAutoscaling(t *testing.T) {
 	for _, config := range []*AutoscaleConfig{nil, {}, {HostTelemetry: true}, {Enabled: true}} {
-		fencer := &switchingFencer{snapshot: authority.Snapshot{Ready: true, Leader: true, Epoch: 1,
+		fencer := &switchingFencer{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1,
 			Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}}
 		reconciler, scaler, telemetry, err := startWorkloadAutoscale("gru", config, nil, nil, nil,
 			time.Time{}, &host.Controller{}, fencer)
@@ -43,7 +43,7 @@ func TestHostTelemetryCollectsWithoutAutoscaling(t *testing.T) {
 }
 
 func TestHostTelemetryDiscardsPreviousAuthorityTerms(t *testing.T) {
-	leader := authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	leader := authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 	fencer := &switchingFencer{snapshot: leader}
 	telemetry := &hostTelemetry{fencer: fencer, load: hostload.NewAggregator(hostload.AggregatorConfig{})}
 	cpu := 0.4

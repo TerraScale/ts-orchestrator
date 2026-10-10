@@ -23,7 +23,7 @@ func TestInterRegionConfigMatchesItsTopology(t *testing.T) {
 	remote := LeafRemote{Peer: "gru", URLs: []string{"nats-leaf://10.0.0.1:7422"}, CredentialsFile: "x.creds",
 		PeerAccount: region.interregionID, TLS: leafTLS, ServerName: testLeafServerName}
 	// sfo is a spoke with its own child fra: it dials gru and accepts fra.
-	spoke := InterRegion{Enabled: true, Peers: []string{"gru", "fra"}, AccountJWTFile: "x.jwt", GlobalHome: "gru",
+	spoke := InterRegion{Peers: []string{"gru", "fra"}, AccountJWTFile: "x.jwt", GlobalHome: "gru",
 		Listen: &LeafListen{Host: "0.0.0.0", Port: 7422, TLS: leafTLS}, Subtrees: map[string][]string{"fra": {"fra"}},
 		Remotes: []LeafRemote{remote}, Topology: &tree}
 	spokeCfg := region.cfg

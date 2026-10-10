@@ -60,7 +60,7 @@ func runBackupGoRustCompleteProcessBridge(t *testing.T, fullProducer bool) {
 	js := backupProcessJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	runtime, err := authority.Start(ctx, js, authority.Config{
+	runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000Z5PQQEQKXJAW7SWD", Replicas: 1,
 	})
 	if err != nil {

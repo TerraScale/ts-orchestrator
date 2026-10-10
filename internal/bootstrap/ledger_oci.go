@@ -50,7 +50,7 @@ func NewInstancePrincipalLedger(region oci.Region, config LedgerConfig) (*Ledger
 }
 
 // NewHistoricalInstancePrincipalLedger creates a read-only Object Storage
-// reader for legacy schema-v2 anchors and their three-domain grant.
+// reader for historically verified anchors with all five ledger grants.
 func NewHistoricalInstancePrincipalLedger(region oci.Region, config LedgerConfig) (*Ledger, error) {
 	return newHistoricalInstancePrincipalLedger(
 		region,
@@ -67,7 +67,7 @@ func NewInstancePrincipalLedgerWithProvider(region oci.Region, config LedgerConf
 }
 
 // NewHistoricalInstancePrincipalLedgerWithProvider creates an evidence-only
-// reader for legacy schema-v2 anchors and their three-domain grant.
+// reader for historically verified anchors with all five ledger grants.
 func NewHistoricalInstancePrincipalLedgerWithProvider(region oci.Region, config LedgerConfig,
 	provider common.ConfigurationProvider,
 ) (*Ledger, error) {
@@ -85,8 +85,27 @@ func NewInstancePrincipalConfigurationProvider(region oci.Region, config LedgerC
 		region,
 		config,
 		auth.InstancePrincipalConfigurationForRegionWithCustomClient,
-		false,
 	)
+}
+
+// NewRegionalInstancePrincipalConfigurationProvider authenticates a region
+// selected by accepted installation identity, without reopening launch history.
+func NewRegionalInstancePrincipalConfigurationProvider(region oci.Region) (common.ConfigurationProvider, error) {
+	ociRegion, err := region.OCIRegion()
+	if err != nil {
+		return nil, err
+	}
+	if err := validateInstancePrincipalSDKOverrides(); err != nil {
+		return nil, err
+	}
+	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(ociRegion), boundInstancePrincipalDispatcher)
+	if err != nil {
+		return nil, fmt.Errorf("create accepted regional Instance Principal provider: %w", err)
+	}
+	if provider == nil {
+		return nil, errors.New("accepted regional Instance Principal provider is nil")
+	}
+	return provider, nil
 }
 
 // NewInstancePrincipalSDKHTTPClient returns the hardened HTTP client to assign
@@ -100,7 +119,7 @@ func newInstancePrincipalLedger(
 	config LedgerConfig,
 	newProvider instancePrincipalProviderFactory,
 ) (*Ledger, error) {
-	provider, err := newInstancePrincipalConfigurationProvider(region, config, newProvider, false)
+	provider, err := newInstancePrincipalConfigurationProvider(region, config, newProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +131,7 @@ func newHistoricalInstancePrincipalLedger(
 	config LedgerConfig,
 	newProvider instancePrincipalProviderFactory,
 ) (*Ledger, error) {
-	provider, err := newInstancePrincipalConfigurationProvider(region, config, newProvider, true)
+	provider, err := newInstancePrincipalConfigurationProvider(region, config, newProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +144,7 @@ func newInstancePrincipalLedgerWithProviderMode(
 	provider common.ConfigurationProvider,
 	historical bool,
 ) (*Ledger, error) {
-	ociRegion, err := validateInstancePrincipalLedgerScope(region, config, historical)
+	ociRegion, err := validateInstancePrincipalLedgerScope(region, config)
 	if err != nil {
 		return nil, err
 	}
@@ -158,9 +177,8 @@ func newInstancePrincipalConfigurationProvider(
 	region oci.Region,
 	config LedgerConfig,
 	newProvider instancePrincipalProviderFactory,
-	historical bool,
 ) (common.ConfigurationProvider, error) {
-	ociRegion, err := validateInstancePrincipalLedgerScope(region, config, historical)
+	ociRegion, err := validateInstancePrincipalLedgerScope(region, config)
 	if err != nil {
 		return nil, err
 	}
@@ -178,12 +196,12 @@ func newInstancePrincipalConfigurationProvider(
 	return provider, nil
 }
 
-func validateInstancePrincipalLedgerScope(region oci.Region, config LedgerConfig, historical bool) (string, error) {
+func validateInstancePrincipalLedgerScope(region oci.Region, config LedgerConfig) (string, error) {
 	ociRegion, err := region.OCIRegion()
 	if err != nil {
 		return "", err
 	}
-	if err := validateInstancePrincipalLedgerConfig(config, historical); err != nil {
+	if err := validateInstancePrincipalLedgerConfig(config); err != nil {
 		return "", err
 	}
 	if config.Cell != region {
@@ -210,7 +228,7 @@ func validateInstancePrincipalSDKOverrides() error {
 	return nil
 }
 
-func validateInstancePrincipalLedgerConfig(config LedgerConfig, historical bool) error {
+func validateInstancePrincipalLedgerConfig(config LedgerConfig) error {
 	// Keep this pre-authentication check aligned with NewLedger's config check.
 	// NewLedger remains authoritative after the SDK client is constructed.
 	if validateLedgerAnchor(config) != nil || !ledgerIDPattern.MatchString(config.Namespace) ||
@@ -221,7 +239,7 @@ func validateInstancePrincipalLedgerConfig(config LedgerConfig, historical bool)
 		strings.ContainsAny(config.HeadKMSKeyID, " \t\r\n") || !ledgerIDPattern.MatchString(config.Environment) ||
 		config.TrustPolicy.MaxLifetime <= 0 || config.TrustPolicy.ClockSkew < 0 ||
 		len(config.ControllerSlots) == 0 || len(config.ControllerSlots) > 64 || hasDuplicate(config.ControllerSlots) ||
-		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config, historical) != nil {
+		len(config.TrustRoots) == 0 && len(config.Delegations) == 0 || validateLedgerDelegations(config) != nil {
 		return errors.New("bootstrap ledger configuration is invalid before Instance Principal setup")
 	}
 	for _, slot := range config.ControllerSlots {

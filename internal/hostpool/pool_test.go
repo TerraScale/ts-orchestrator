@@ -194,7 +194,7 @@ func (v *fakeView) ListDesired(context.Context, string) ([]host.Desired, error) 
 type fencer struct{ leader bool }
 
 func (f fencer) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: f.leader, Ready: true, Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: f.leader, Ready: true, Epoch: 3, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 func (fencer) Guard(context.Context, uint64) error { return nil }
 

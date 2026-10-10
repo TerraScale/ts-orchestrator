@@ -52,8 +52,8 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
-				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}}}},
-		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
+				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}}}},
+		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{{Actor: "ops",
 				PublicKey: base64.StdEncoding.EncodeToString(operatorPublic), Roles: []string{"web"}, Environments: []string{"test"}}},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
@@ -140,7 +140,7 @@ func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru", CandidateID: "0000000000N8R21NWNZ7QZ2X0N", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000N8R21NWNZ7QZ2X0N", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

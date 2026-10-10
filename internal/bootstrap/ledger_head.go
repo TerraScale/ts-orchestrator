@@ -231,9 +231,6 @@ func (ledger *Ledger) ReserveSlot(ctx context.Context, scope BootstrapScope, int
 	if intentErr != nil {
 		return SlotState{}, intentErr
 	}
-	if intent.Mode == IntentModeManaged && intent.SchemaVersion != 2 {
-		return SlotState{}, ErrFounderPlanRequired
-	}
 	if intent.Attempt != 1 || intent.Generation != 1 {
 		return SlotState{}, fmt.Errorf("%w: an initial reservation must begin at attempt and generation one", ErrInvalidRecord)
 	}
@@ -242,11 +239,8 @@ func (ledger *Ledger) ReserveSlot(ctx context.Context, scope BootstrapScope, int
 	if headErr != nil {
 		return SlotState{}, headErr
 	}
-	if intent.Mode == IntentModeManaged && head.SchemaVersion != 2 {
-		return SlotState{}, fmt.Errorf("%w: managed schema-v2 attempts require a schema-v2 HEAD", ErrRecordAuthorization)
-	}
 	if head.Attempt != intent.Attempt || head.Generation != intent.Generation || head.IntentDigest != objectDigest(intentBytes) ||
-		head.ResultDigest != "" || head.PreviousAttempt != 0 || head.RetirementDigest != "" {
+		head.ResultDigest != "" || head.CandidateDigest != "" || head.PreviousAttempt != 0 || head.RetirementDigest != "" {
 		return SlotState{}, ErrSlotNotReserved
 	}
 	intentRecord, err := ledger.createOrRead(ctx, scope, intent.Attempt, ledgerIntent, intentBytes)
@@ -300,13 +294,13 @@ func (ledger *Ledger) ReadSlot(ctx context.Context, scope BootstrapScope) (SlotS
 	if err == nil {
 		return state, nil
 	}
-	// Schema-v2 managed peer records can be valid historical evidence whose
+	// Managed peer records can be valid historical evidence whose
 	// signed interval or exact proof timing is no longer current. Preserve that
 	// distinction for read-only callers while keeping malformed or mismatched
 	// records as hard errors.
 	quarantined, recoveryErr := ledger.readSlotWithRecovery(ctx, scope, false, true)
 	if recoveryErr == nil && quarantined.Intent.Mode == IntentModeManaged &&
-		quarantined.Intent.SchemaVersion == 2 && quarantined.quarantined {
+		quarantined.quarantined {
 		return SlotState{}, fmt.Errorf("%w: slot %q", ErrManagedPeerProofQuarantined, scope.Slot)
 	}
 	return SlotState{}, err
@@ -328,9 +322,6 @@ func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (
 	}
 	if state.Intent.Mode == IntentModeExternalSeed {
 		return LaunchAuthorization{}, ErrExternalSeedMode
-	}
-	if state.Intent.SchemaVersion != 2 {
-		return LaunchAuthorization{}, ErrFounderPlanRequired
 	}
 	if state.Head.Attempt == ^uint64(0) {
 		return LaunchAuthorization{}, fmt.Errorf("%w: slot attempt sequence is exhausted", ErrInvalidRecord)
@@ -374,7 +365,7 @@ func (ledger *Ledger) ReadForLaunch(ctx context.Context, scope BootstrapScope) (
 }
 
 // ReadForManagedPeerRecovery returns the exact durable phase of a managed
-// schema-v2 attempt. Unlike ReadForLaunch, it can authorize observing an
+// attempt. Unlike ReadForLaunch, it can authorize observing an
 // already receipt-bound instance or finishing an already written result, but
 // it never grants launch authority by itself.
 func (ledger *Ledger) ReadForManagedPeerRecovery(
@@ -390,9 +381,6 @@ func (ledger *Ledger) ReadForManagedPeerRecovery(
 	}
 	if state.Intent.Mode != IntentModeManaged {
 		return ManagedPeerRecoveryAuthorization{}, ErrExternalSeedMode
-	}
-	if state.Intent.SchemaVersion != 2 {
-		return ManagedPeerRecoveryAuthorization{}, ErrFounderPlanRequired
 	}
 	if state.Head.Attempt == ^uint64(0) {
 		return ManagedPeerRecoveryAuthorization{}, fmt.Errorf("%w: slot attempt sequence is exhausted", ErrInvalidRecord)
@@ -423,51 +411,8 @@ func (ledger *Ledger) ReadForManagedPeerRecovery(
 			state.Progress.Phase == ManagedPeerProgressResult && state.ResultRecord == nil) {
 		phase = ManagedPeerRecoveryProofStaged
 	}
-	if state.Intent.Mode == IntentModeManaged && state.Intent.SchemaVersion == 2 && state.Head.SchemaVersion != 2 {
-		state.quarantined = true
-	}
 	if state.quarantined {
 		phase = ManagedPeerRecoveryQuarantined
-	}
-
-	managedV2 := state.Intent.Mode == IntentModeManaged && state.Intent.SchemaVersion == 2 && state.Head.SchemaVersion == 2
-	if state.Head.ResultDigest == "" && !managedV2 {
-		resultRecord, resultErr := ledger.read(ctx, scope, state.Head.Attempt, ledgerResult)
-		if resultErr == nil {
-			if state.Manifest == nil || state.ManifestRecord == nil || state.PeerReceipt == nil || state.PeerReceiptRecord == nil {
-				return ManagedPeerRecoveryAuthorization{}, fmt.Errorf("%w: result exists before its exact manifest and peer receipt", ErrRecordAuthorization)
-			}
-			result, decodeErr := ledger.decodeResult(scope, resultRecord.Bytes, false)
-			if decodeErr != nil || validateResultForIntent(result, state.Intent, state.IntentRecord.SHA256) != nil ||
-				result.Mode != IntentModeManaged || result.SeedReceiptDigest != "" ||
-				result.PeerReceiptDigest != state.PeerReceiptRecord.SHA256 {
-				return ManagedPeerRecoveryAuthorization{}, fmt.Errorf("%w: unattached result does not match the active managed proof", ErrRecordAuthorization)
-			}
-			if err := ledger.validateStoredResult(result, resultRecord); err != nil {
-				return ManagedPeerRecoveryAuthorization{}, err
-			}
-			if err := validatePeerReceiptForIntent(*state.PeerReceipt, state.Intent, state.IntentRecord.SHA256); err != nil {
-				return ManagedPeerRecoveryAuthorization{}, err
-			}
-			if err := validatePeerReceiptForResult(*state.PeerReceipt, result); err != nil {
-				return ManagedPeerRecoveryAuthorization{}, err
-			}
-			if err := validateCompletionWriteOrder(*state.ManifestRecord, *state.PeerReceiptRecord, resultRecord); err != nil {
-				return ManagedPeerRecoveryAuthorization{}, err
-			}
-			if err := validateResultStoredWithinProofs(*state.ManifestRecord, *state.PeerReceiptRecord, resultRecord, ledger.config.AnchorExpiresAt); err != nil {
-				return ManagedPeerRecoveryAuthorization{}, err
-			}
-			facts, factsErr := instanceFactsFromReceipt(*state.PeerReceipt, *state.Manifest)
-			if factsErr != nil || validateManagedFacts(ledger, facts, state.Intent, state.IntentRecord.SHA256, result) != nil {
-				return ManagedPeerRecoveryAuthorization{}, ErrIdentityMismatch
-			}
-			state.Result = &result
-			state.ResultRecord = &resultRecord
-			phase = ManagedPeerRecoveryResultReady
-		} else if !errors.Is(resultErr, ErrRecordMissing) {
-			return ManagedPeerRecoveryAuthorization{}, resultErr
-		}
 	}
 	if err := ledger.validateCurrentAuthority(); err != nil {
 		return ManagedPeerRecoveryAuthorization{}, err
@@ -1144,9 +1089,6 @@ func (ledger *Ledger) RecordManagedPeer(
 	if state.Intent.Mode != IntentModeManaged {
 		return SlotState{}, ErrExternalSeedMode
 	}
-	if state.Intent.SchemaVersion != 2 {
-		return SlotState{}, ErrFounderPlanRequired
-	}
 	if state.Candidate == nil || state.CandidateRecord == nil ||
 		state.Candidate.InstanceOCID != facts.InstanceOCID ||
 		validateManagedPeerCandidateForIntent(*state.Candidate, state.Intent, state.IntentRecord.SHA256,
@@ -1647,13 +1589,10 @@ func (ledger *Ledger) AdvanceSlot(
 	if err != nil {
 		return SlotState{}, err
 	}
-	if historicalIntent.Mode == IntentModeManaged && historicalIntent.SchemaVersion != 2 {
-		return SlotState{}, ErrFounderPlanRequired
-	}
 	previousCandidateDigest := ""
-	previousManagedV2 := state.Intent.Mode == IntentModeManaged && state.Intent.SchemaVersion == 2
-	if previousManagedV2 {
-		if state.Head.SchemaVersion != 2 || state.CandidateRecord == nil ||
+	previousManaged := state.Intent.Mode == IntentModeManaged
+	if previousManaged {
+		if state.CandidateRecord == nil ||
 			state.Head.CandidateDigest != state.CandidateRecord.SHA256 || !validDigest(state.Head.CandidateDigest) {
 			return SlotState{}, ErrSlotNotReserved
 		}
@@ -1693,8 +1632,7 @@ func (ledger *Ledger) AdvanceSlot(
 		nextHead.PreviousAttempt != state.Head.Attempt || nextHead.PreviousGeneration != state.Head.Generation ||
 		nextHead.PreviousIntentDigest != state.Head.IntentDigest || nextHead.PreviousResultDigest != state.Head.ResultDigest ||
 		nextHead.PreviousCandidateDigest != previousCandidateDigest ||
-		nextHead.RetirementDigest != objectDigest(retirementBytes) ||
-		(nextIntent.Mode == IntentModeManaged && nextIntent.SchemaVersion == 2 || previousManagedV2) && nextHead.SchemaVersion != 2 {
+		nextHead.RetirementDigest != objectDigest(retirementBytes) {
 		return SlotState{}, ErrRetirementInvalid
 	}
 	// Persist the exact, proof-bound successor intent first. Historical proof
@@ -1898,8 +1836,8 @@ func (ledger *Ledger) readSlotWithRecovery(
 	if intent.Attempt != head.Attempt || intent.Generation != head.Generation || intentRecord.SHA256 != head.IntentDigest {
 		return SlotState{}, ErrSlotNotReserved
 	}
-	if intent.Mode == IntentModeManaged && intent.SchemaVersion == 2 {
-		if head.SchemaVersion != 2 || head.ResultDigest != "" && !validDigest(head.CandidateDigest) {
+	if intent.Mode == IntentModeManaged {
+		if head.ResultDigest != "" && !validDigest(head.CandidateDigest) {
 			return SlotState{}, ErrSlotNotReserved
 		}
 	} else if head.CandidateDigest != "" {
@@ -1923,16 +1861,16 @@ func (ledger *Ledger) readSlotWithRecovery(
 		if err := ledger.validateStoredBeforeAnchorExpiry(previousIntentRecord); err != nil {
 			return SlotState{}, ErrSlotNotReserved
 		}
-		previousManagedV2 := previousIntent.Mode == IntentModeManaged && previousIntent.SchemaVersion == 2
-		if previousManagedV2 {
-			if head.SchemaVersion != 2 || !validDigest(head.PreviousCandidateDigest) {
+		previousManaged := previousIntent.Mode == IntentModeManaged
+		if previousManaged {
+			if !validDigest(head.PreviousCandidateDigest) {
 				return SlotState{}, ErrSlotNotReserved
 			}
 		} else if head.PreviousCandidateDigest != "" {
 			return SlotState{}, ErrSlotNotReserved
 		}
 		var previousResultRecord StoredRecord
-		if previousManagedV2 {
+		if previousManaged {
 			previousResultRecord, err = ledger.readContent(ctx, scope, head.PreviousAttempt, ledgerResult, head.PreviousResultDigest)
 		} else {
 			previousResultRecord, err = ledger.read(ctx, scope, head.PreviousAttempt, ledgerResult)
@@ -1971,25 +1909,9 @@ func (ledger *Ledger) readSlotWithRecovery(
 			if _, err := ledger.read(ctx, scope, head.PreviousAttempt, ledgerSeedReceipt); err == nil || !errors.Is(err, ErrRecordMissing) {
 				return SlotState{}, ErrSlotNotReserved
 			}
-			if previousManagedV2 {
-				if err := ledger.validateCompletedManagedPeerV2Predecessor(ctx, scope, previousIntent,
-					previousIntentRecord, previousResult, previousResultRecord, head.PreviousCandidateDigest); err != nil {
-					return SlotState{}, ErrSlotNotReserved
-				}
-			} else {
-				_, _, _, previousPeerReceiptRecord, err := ledger.loadManagedPeerProof(
-					ctx, scope, previousIntent, previousIntentRecord.SHA256, &previousResult,
-				)
-				if err != nil || previousPeerReceiptRecord == nil || previousPeerReceiptRecord.SHA256 != previousResult.PeerReceiptDigest {
-					return SlotState{}, ErrSlotNotReserved
-				}
-				previousManifestRecord, readErr := ledger.read(ctx, scope, head.PreviousAttempt, ledgerManifest)
-				if readErr != nil || validateCompletionWriteOrder(previousManifestRecord, *previousPeerReceiptRecord, previousResultRecord) != nil {
-					return SlotState{}, ErrSlotNotReserved
-				}
-				if err := validateResultStoredWithinProofs(previousManifestRecord, *previousPeerReceiptRecord, previousResultRecord, ledger.config.AnchorExpiresAt); err != nil {
-					return SlotState{}, ErrSlotNotReserved
-				}
+			if err := ledger.validateCompletedManagedPeerPredecessor(ctx, scope, previousIntent,
+				previousIntentRecord, previousResult, previousResultRecord, head.PreviousCandidateDigest); err != nil {
+				return SlotState{}, ErrSlotNotReserved
 			}
 		} else {
 			return SlotState{}, ErrSlotNotReserved
@@ -2022,8 +1944,13 @@ func (ledger *Ledger) readSlotWithRecovery(
 	}
 	state := SlotState{Head: head, HeadRecord: headRecord, Intent: intent, IntentRecord: intentRecord,
 		quarantined: quarantined}
-	if intent.Mode == IntentModeManaged && intent.SchemaVersion == 2 && head.SchemaVersion == 2 {
-		return ledger.readManagedPeerV2State(ctx, scope, state, allowExpiredUnfinishedRecovery)
+	if intent.Mode == IntentModeManaged {
+		if _, err := ledger.read(ctx, scope, head.Attempt, ledgerSeedReceipt); err == nil {
+			return SlotState{}, ErrSlotNotReserved
+		} else if !errors.Is(err, ErrRecordMissing) {
+			return SlotState{}, err
+		}
+		return ledger.readManagedPeerState(ctx, scope, state, allowExpiredUnfinishedRecovery)
 	}
 	if intent.Mode == IntentModeExternalSeed {
 		if err := ledger.ensurePeerReceiptAbsent(ctx, scope, head.Attempt); err != nil {
@@ -2035,18 +1962,6 @@ func (ledger *Ledger) readSlotWithRecovery(
 		}
 		state.Manifest, state.ManifestRecord = manifest, manifestRecord
 		state.SeedReceipt, state.SeedReceiptRecord = receipt, receiptRecord
-	} else if intent.Mode == IntentModeManaged {
-		if _, err := ledger.read(ctx, scope, head.Attempt, ledgerSeedReceipt); err == nil {
-			return SlotState{}, ErrSlotNotReserved
-		} else if !errors.Is(err, ErrRecordMissing) {
-			return SlotState{}, err
-		}
-		manifest, manifestRecord, receipt, receiptRecord, err := ledger.loadManagedPeerProof(ctx, scope, intent, intentRecord.SHA256, nil)
-		if err != nil {
-			return SlotState{}, err
-		}
-		state.Manifest, state.ManifestRecord = manifest, manifestRecord
-		state.PeerReceipt, state.PeerReceiptRecord = receipt, receiptRecord
 	} else {
 		return SlotState{}, ErrSlotNotReserved
 	}
@@ -2077,19 +1992,6 @@ func (ledger *Ledger) readSlotWithRecovery(
 			if err := validateResultStoredWithinProofs(*state.ManifestRecord, *state.SeedReceiptRecord, resultRecord, ledger.config.AnchorExpiresAt); err != nil {
 				return SlotState{}, err
 			}
-		} else if state.Manifest == nil || state.ManifestRecord == nil || state.PeerReceipt == nil ||
-			state.PeerReceiptRecord == nil || result.PeerReceiptDigest != state.PeerReceiptRecord.SHA256 ||
-			validatePeerReceiptForIntent(*state.PeerReceipt, intent, intentRecord.SHA256) != nil ||
-			validatePeerReceiptForResult(*state.PeerReceipt, result) != nil {
-			return SlotState{}, ErrSlotNotReserved
-		}
-		if intent.Mode == IntentModeManaged {
-			if err := validateCompletionWriteOrder(*state.ManifestRecord, *state.PeerReceiptRecord, resultRecord); err != nil {
-				return SlotState{}, ErrSlotNotReserved
-			}
-			if err := validateResultStoredWithinProofs(*state.ManifestRecord, *state.PeerReceiptRecord, resultRecord, ledger.config.AnchorExpiresAt); err != nil {
-				return SlotState{}, err
-			}
 		}
 		state.Result = &result
 		state.ResultRecord = &resultRecord
@@ -2106,10 +2008,10 @@ func (ledger *Ledger) ensurePeerReceiptAbsent(ctx context.Context, scope Bootstr
 	return nil
 }
 
-// validateCompletedManagedPeerV2Predecessor verifies the immutable proof chain
-// named by a schema-v2 successor HEAD. Progress is mutable and is deliberately
+// validateCompletedManagedPeerPredecessor verifies the immutable proof chain
+// named by a successor HEAD. Progress is mutable and is deliberately
 // not used to reconstruct a predecessor's completed state after advancement.
-func (ledger *Ledger) validateCompletedManagedPeerV2Predecessor(
+func (ledger *Ledger) validateCompletedManagedPeerPredecessor(
 	ctx context.Context,
 	scope BootstrapScope,
 	intent Intent,
@@ -2118,7 +2020,7 @@ func (ledger *Ledger) validateCompletedManagedPeerV2Predecessor(
 	resultRecord StoredRecord,
 	candidateDigest string,
 ) error {
-	if intent.Mode != IntentModeManaged || intent.SchemaVersion != 2 ||
+	if intent.Mode != IntentModeManaged || intent.SchemaVersion != 1 ||
 		result.Mode != IntentModeManaged || result.PeerReceiptDigest == "" || result.SeedReceiptDigest != "" ||
 		!validDigest(candidateDigest) || resultRecord.SHA256 != objectDigest(resultRecord.Bytes) {
 		return ErrRecordAuthorization
@@ -2197,75 +2099,6 @@ func (ledger *Ledger) validateCompletedManagedPeerV2Predecessor(
 		return ErrRecordAuthorization
 	}
 	return validateResultStoredWithinProofs(manifestRecord, receiptRecord, resultRecord, ledger.config.AnchorExpiresAt)
-}
-
-func (ledger *Ledger) loadManagedPeerProof(
-	ctx context.Context,
-	scope BootstrapScope,
-	intent Intent,
-	intentDigest string,
-	result *Result,
-) (*Manifest, *StoredRecord, *Receipt, *StoredRecord, error) {
-	manifestRecord, manifestErr := ledger.read(ctx, scope, intent.Attempt, ledgerManifest)
-	manifestExists := manifestErr == nil
-	if manifestErr != nil && !errors.Is(manifestErr, ErrRecordMissing) {
-		return nil, nil, nil, nil, manifestErr
-	}
-	receiptRecord, receiptErr := ledger.read(ctx, scope, intent.Attempt, ledgerPeerReceipt)
-	receiptExists := receiptErr == nil
-	if receiptErr != nil && !errors.Is(receiptErr, ErrRecordMissing) {
-		return nil, nil, nil, nil, receiptErr
-	}
-	if !manifestExists {
-		if receiptExists || result != nil {
-			return nil, nil, nil, nil, ErrSlotNotReserved
-		}
-		return nil, nil, nil, nil, nil
-	}
-	if intent.Mode != IntentModeManaged || manifestRecord.SHA256 != intent.ManifestDigest {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	historicalManifest, manifestEnvelope, err := ledger.verifyHistoricalIntentManifest(scope, intent, manifestRecord.Bytes)
-	if err != nil || validateStoredInterval(manifestRecord, manifestEnvelope) != nil ||
-		ledger.validateStoredBeforeAnchorExpiry(manifestRecord) != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	manifest := historicalManifest.Manifest()
-	manifestCopy := cloneManifest(manifest)
-	manifestRecordCopy := manifestRecord
-	if !receiptExists {
-		if result != nil {
-			return nil, nil, nil, nil, ErrSlotNotReserved
-		}
-		return &manifestCopy, &manifestRecordCopy, nil, nil, nil
-	}
-	receiptEnvelope, err := trust.DecodeEnvelope(receiptRecord.Bytes)
-	if err != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	receipt, err := ReceiptPayload([]byte(receiptEnvelope.Payload))
-	if err != nil || validatePeerReceiptForIntent(receipt, intent, intentDigest) != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	facts, err := instanceFactsFromReceipt(receipt, manifest)
-	if err != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	historicalReceipt, err := VerifyHistoricalPeerReceipt(receiptEnvelope, historicalManifest, facts, ledger.config.TrustPolicy)
-	if err != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	receipt = historicalReceipt.Receipt()
-	if result != nil && (result.Mode != IntentModeManaged || result.PeerReceiptDigest != receiptRecord.SHA256 ||
-		validatePeerReceiptForResult(receipt, *result) != nil) {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	if validateStoredInterval(receiptRecord, receiptEnvelope) != nil || ledger.validateStoredBeforeAnchorExpiry(receiptRecord) != nil {
-		return nil, nil, nil, nil, ErrSlotNotReserved
-	}
-	receiptCopy := receipt
-	receiptRecordCopy := receiptRecord
-	return &manifestCopy, &manifestRecordCopy, &receiptCopy, &receiptRecordCopy, nil
 }
 
 func (ledger *Ledger) loadSeedProof(

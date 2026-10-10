@@ -25,7 +25,7 @@ import (
 type leader struct{}
 
 func (leader) Current() authority.Snapshot {
-	return authority.Snapshot{Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 func (leader) Guard(context.Context, uint64) error { return nil }
 

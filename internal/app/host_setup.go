@@ -361,7 +361,6 @@ func installedHostCredentialActive(root, secrets string, bundle hostenroll.Publi
 		config.NATS.Cell != bundle.Cell || config.NATS.Instance != node ||
 		config.NATS.URL != strings.Join(bundle.NATSURLs, ",") ||
 		config.Host.Node != node || config.Host.Environment != bundle.Environment ||
-		config.Host.ControllerPublicKey != bundle.ControllerResponsePublicKey ||
 		config.Host.IdentityKeyFile != filepath.Join(credentialRoot, "host-identity.key") ||
 		config.NATS.CredentialsFile != filepath.Join(credentialRoot, "host-nats.creds") ||
 		config.NATS.TLS.KeyFile != filepath.Join(credentialRoot, "host-tls-key.pem") ||
@@ -406,6 +405,10 @@ func installedHostCredentialActive(root, secrets string, bundle hostenroll.Publi
 	installedUser.Wipe()
 	if err != nil || installedPublic != request.NATSUserPublicKey {
 		return false, errors.New("installed NATS seed differs from the enrollment request")
+	}
+	if config.Host.ControllerPublicKey != bundle.ControllerResponsePublicKey {
+		// A root-pinned replacement authority requires a freshly verified response.
+		return false, nil
 	}
 	rawJWT, err := nkeys.ParseDecoratedJWT(creds)
 	if err != nil {

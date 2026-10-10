@@ -265,7 +265,7 @@ func TestBackupHistoryPagesExactPartitionAndPayloadOperationID(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000SBF32FW762VKS7H4", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000SBF32FW762VKS7H4", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestBackupAllocationAndPlacementRaceAtPinnedSequence(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000EVS561564DK546QE", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000EVS561564DK546QE", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func TestNewBackupOperationRequiresFinalRosterVerifier(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000M3311JQNDM5G57FB", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000M3311JQNDM5G57FB", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders(t *testing.T) {
 			js := newAuthorityTestJetStream(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 			defer cancel()
-			runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: entityid.Derive("candidate", order), Replicas: 1})
+			runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: entityid.Derive("candidate", order), Replicas: 1})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -484,7 +484,7 @@ func TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "00000000003QJJFQZWRG8PT548", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "00000000003QJJFQZWRG8PT548", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestBackupStartAllowsDurableHeldManagedUpdate(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000E6DGB7QGG8HJ2WQP", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000E6DGB7QGG8HJ2WQP", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -610,7 +610,7 @@ func TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable(t *testing.T
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000ADZVNETZWAXD7T7Q", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000ADZVNETZWAXD7T7Q", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +653,7 @@ func TestBackupActiveFencesTerminalUntilAllRosterAbort(t *testing.T) {
 	js := newAuthorityTestJetStream(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 8*time.Second)
 	defer cancel()
-	runtime, err := Start(ctx, js, Config{Scope: "gru", CandidateID: "0000000000C8ZZ0Q1TC1W83ETT", Replicas: 1})
+	runtime, err := Start(ctx, js, Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000C8ZZ0Q1TC1W83ETT", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

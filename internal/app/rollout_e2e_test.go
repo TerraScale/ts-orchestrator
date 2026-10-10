@@ -256,8 +256,7 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, id), BrokerIDs: ids}},
-			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{config.grant},
-				Rollouts: &RolloutsConfig{Enabled: true, Executor: true, AllowScopedAutoSign: true}},
+			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{config.grant}},
 		}
 		runtime, err := natscell.Start(ctx, configs[index].NATS)
 		if err != nil {
@@ -283,7 +282,7 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 		cfg, runtime := configs[index], cell.runtimes[index]
 		// The authority runtime keeps the context it started with.
 		control := retryOpen(t, ctx, func(context.Context) (*authority.Runtime, error) {
-			return authority.Start(ctx, runtime.JetStream(), authority.Config{Scope: config.cell, CandidateID: entityid.Derive("test-controller", id),
+			return authority.Start(ctx, runtime.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: config.cell, CandidateID: entityid.Derive("test-controller", id),
 				Replicas: 3, LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 		})
 		t.Cleanup(func() { _ = control.Close() })

@@ -28,7 +28,8 @@ func SlotRetirementCandidate(state SlotState, observedEvidenceDigest, fencingAut
 ) (RetirementEvidence, error) {
 	if state.Result == nil || state.ResultRecord == nil || state.Head.ResultDigest == "" ||
 		state.Head.ResultDigest != state.ResultRecord.SHA256 || state.Intent.Mode != IntentModeManaged ||
-		state.Intent.SchemaVersion != 2 || state.Head.Attempt != state.Intent.Attempt ||
+		state.Intent.SchemaVersion != 1 || state.Head.SchemaVersion != 1 || state.Result.SchemaVersion != 1 ||
+		state.Head.Attempt != state.Intent.Attempt ||
 		state.Result.InstanceOCID == "" || !validDigest(observedEvidenceDigest) || fencingAuthority == "" ||
 		len(fencingAuthority) > 256 || !validFounderNow(observedAt) {
 		return RetirementEvidence{}, fmt.Errorf("%w: only a completed managed peer attempt can be retired", ErrRetirementInvalid)
@@ -117,6 +118,7 @@ func (verified VerifiedFounderPlan) ReplacementManagedPeerIntent(slot string, pr
 		return Intent{}, ErrFounderPeerAuthorization
 	}
 	if previous.Intent.Slot != slot || previous.Head.ResultDigest == "" || previous.Result == nil ||
+		previous.Intent.SchemaVersion != 1 || previous.Head.SchemaVersion != 1 || previous.Result.SchemaVersion != 1 ||
 		previous.Head.Attempt == 0 || previous.Head.Attempt == ^uint64(0) ||
 		previous.Head.Generation == ^uint64(0) || previous.Intent.Mode != IntentModeManaged {
 		return Intent{}, fmt.Errorf("%w: only a completed managed slot can be replaced", ErrFounderPeerAuthorization)
@@ -144,15 +146,19 @@ func (verified VerifiedFounderPlan) ReplacementManagedPeerIntent(slot string, pr
 // ReplacementSlotHead returns the unsigned successor HEAD that AdvanceSlot
 // requires for intentWire after the completed previous attempt.
 func ReplacementSlotHead(previous SlotState, intent Intent, intentWire, retirementWire []byte) (SlotHead, error) {
-	if previous.Head.ResultDigest == "" || intent.Attempt != previous.Head.Attempt+1 ||
+	if intent.SchemaVersion != 1 || previous.Intent.SchemaVersion != 1 || previous.Head.SchemaVersion != 1 ||
+		previous.Head.ResultDigest == "" || intent.Attempt != previous.Head.Attempt+1 ||
 		intent.Generation != previous.Head.Generation+1 || len(intentWire) == 0 || len(retirementWire) == 0 {
 		return SlotHead{}, fmt.Errorf("%w: successor head does not follow the completed attempt", ErrRetirementInvalid)
 	}
 	previousCandidate := ""
-	if previous.Intent.Mode == IntentModeManaged && previous.Intent.SchemaVersion == 2 {
+	if previous.Intent.Mode == IntentModeManaged {
+		if !validDigest(previous.Head.CandidateDigest) {
+			return SlotHead{}, fmt.Errorf("%w: completed managed predecessor requires its candidate pin", ErrRetirementInvalid)
+		}
 		previousCandidate = previous.Head.CandidateDigest
 	}
-	return SlotHead{SchemaVersion: 2, DeploymentID: intent.DeploymentID, Cell: intent.Cell,
+	return SlotHead{SchemaVersion: 1, DeploymentID: intent.DeploymentID, Cell: intent.Cell,
 		Environment: intent.Environment, Role: intent.Role, Slot: intent.Slot, Attempt: intent.Attempt,
 		Generation: intent.Generation, IntentDigest: objectDigest(intentWire),
 		PreviousAttempt: previous.Head.Attempt, PreviousGeneration: previous.Head.Generation,

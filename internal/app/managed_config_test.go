@@ -12,7 +12,6 @@ import (
 )
 
 func TestManagedControllerConfigRejectsGenericMemberRole(t *testing.T) {
-	root := t.TempDir()
 	intent := oci.RegionIntent{SchemaVersion: 1, Generation: 7, BootstrapRegion: oci.RegionGRU,
 		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
 	region := oci.RegionConfig{Region: oci.RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
@@ -23,21 +22,14 @@ func TestManagedControllerConfigRejectsGenericMemberRole(t *testing.T) {
 		ImageID: "ocid1.image.oc1..owned", Shape: "VM.Standard.A1.Flex", Owner: "regional-owner"}
 	settings := managedPlacementSettings{Environment: "test", MemberRole: "terrabase",
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 20, DiskBytes: 1 << 20}}
-	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
-		OciRegionIntentFile: testJSONFile(t, root, "intent.json", intent),
-		OciRegionConfig:     testJSONFile(t, root, "region.json", region),
-		PlacementConfig:     testJSONFile(t, root, "placement.json", settings),
-		Workloads:           map[string]WorkloadProfile{"terrabase": {Resources: settings.Resources}},
-	}}
-	if _, err := loadManagedControllerConfig(cfg); err == nil || !strings.Contains(err.Error(), "overlaps") {
+	managed := &managedControllerConfig{intent: intent, region: region, placement: settings}
+	if err := managed.validateWorkloads(map[string]WorkloadProfile{"terrabase": {Resources: settings.Resources}}); err == nil || !strings.Contains(err.Error(), "overlaps") {
 		t.Fatalf("overlapping generic profile accepted: %v", err)
 	}
-	cfg.Controller.Workloads = nil
-	managed, err := loadManagedControllerConfig(cfg)
-	if err != nil {
+	if err := managed.validateWorkloads(nil); err != nil {
 		t.Fatal(err)
 	}
-	controller, err := placement.StartController(t.Context(), managed.placementConfig(cfg.NATS.Cell, nil, nil),
+	controller, err := placement.StartController(t.Context(), managed.placementConfig("gru", nil, nil),
 		struct{ placement.Store }{}, struct{ authority.Fencer }{}, regionOnlyFleet{region: managed.region.Region},
 		struct{ placement.HostView }{}, struct{ placement.DesiredWriter }{},
 		func(context.Context, string, string, string) (placement.AdmittedArtifact, error) {
@@ -45,6 +37,28 @@ func TestManagedControllerConfigRejectsGenericMemberRole(t *testing.T) {
 		})
 	if err != nil || controller == nil {
 		t.Fatalf("managed placement constructor rejected validated config: %v", err)
+	}
+}
+
+func TestManagedControllerConfigRequiresSignedAdmissionInLab(t *testing.T) {
+	root := t.TempDir()
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+		OciRegionIntentFile: testJSONFile(t, root, "intent.json", map[string]any{}),
+		OciRegionConfig:     testJSONFile(t, root, "region.json", map[string]any{}),
+		PlacementConfig:     testJSONFile(t, root, "placement.json", map[string]any{}),
+	}}
+	if _, err := loadManagedControllerConfig(cfg); err == nil || strings.Contains(err.Error(), "OCI region intent") {
+		t.Fatalf("lab selected unsigned sidecar loading: %v", err)
+	}
+}
+
+func TestManagedPlacementRejectsRetiredSwitches(t *testing.T) {
+	for _, key := range []string{"auto_grow_volumes", "reattach_on_host_loss"} {
+		for _, value := range []string{"true", "false"} {
+			if _, err := parseManagedPlacementSettings([]byte(`{"` + key + `":` + value + `}`)); err == nil {
+				t.Fatalf("retired switch accepted: %s=%s", key, value)
+			}
+		}
 	}
 }
 

@@ -59,7 +59,7 @@ func TestTerraBaseReleaseUnderLoadServesNoErrors(t *testing.T) {
 type leaderFence struct{}
 
 func (leaderFence) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
 }
 func (leaderFence) Guard(context.Context, uint64) error { return nil }
 

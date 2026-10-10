@@ -19,13 +19,13 @@ version, SHA-256 and size bound), exactly these renewable files:
 | `host-tls-issuer-cert.pem`, `host-tls-issuer-key.pem` | `host-issuer` |
 | `controller-tls-issuer-cert.pem`, `controller-tls-issuer-key.pem`, `controller-account-signer.seed` | `controller-issuer` |
 
-- **Pins replace the manifest's.** A generation's pin replaces the
-  manifest's pin for the same file.
+- **Pins replace the accepted baseline.** A verified generation's pin
+  replaces the accepted material reference for the same renewable file.
 - **The cell issues its own leaves and user JWTs.** Controller TLS leaves and
   NATS user JWTs come from the controller TLS issuer and the account signer.
   They last at most `issuedLifetimeHours`, which can be up to 90 days.
 - **Some secrets never renew.** Founder, response, ticket and route secrets
-  do not expire and keep their manifest pins.
+  do not expire and keep their exact accepted pins.
 - **Fixed keys:** these never change, because brokers and hosts pin them:
   - the NATS operator (`operator`);
   - the system and cell accounts (`systemAccount`, `cellAccount`);
@@ -38,20 +38,16 @@ version, SHA-256 and size bound), exactly these renewable files:
   - **Lifetime cap:** `issuedLifetimeHours` is enforced by the controllers'
     own issuing and by restart admission, not by NATS.
   - **Cleanup after a compromise:** rotate the signer with a new generation.
-- **Interregion material** is not part of a schema-1 generation. Schema 2
-  can carry it (below).
+## The v1 contract
 
-## Schema 2 (TS-668)
+Material generations use only schema 1. The signed contract covers the
+interregion leaf fabric, role signer, slot configurations and offline-issued
+controller credentials. Breaking changes update v1 in place; obsolete identity-scoped chains are replaced only by the root-authorized
+[in-place identity re-key transaction](identity-rekey.md).
 
-Schema 2 lets a generation link a running cell into the interregion leaf
-fabric without re-founding it. Restart admission accepts an installed
-schema-2 chain ([below](#restart-admission-with-a-generation)), and
-controllers [install](#install-a-generation) one. A binary from before
-schema 2 refuses one. Schema 2 adds the following:
-
-- **`controllerConfigs`**: one `{slot, manifestSha256, sha256, size}` per
+- **`controllerConfigs`**: one `{slot, acceptanceSha256, sha256, size}` per
   controller slot, in `controllerSlots` order. Each pins the slot's new
-  `controller.json`, bound to that slot's accepted manifest digest. The
+  `controller.json`, bound to that slot's signed acceptance digest. The
   config bytes travel beside the chain, not in it. A config may be at most
   16 KiB, the manifest's own limit.
 - **`roleSigner`**: required. It is the public key of the cell account's
@@ -62,6 +58,15 @@ schema 2 refuses one. Schema 2 adds the following:
   controller issuers. Without them, `accountSigner` is empty,
   `issuedLifetimeHours` is 0, and the cell issues nothing under the
   generation. Every other renewable file is still required.
+- **Offline-issued controller credentials (TS-774).** Without online issuers,
+  a generation may pin `<slot>.creds` with purpose `controller` and that
+  slot. It must pin every slot's credentials and config. Observability is
+  always active; its config block may be absent. The JWT must be
+  signed by the cell account, match its user seed and slot's fence/inbox,
+  grant local `obs.>` subscriptions and exactly the configured peers'
+  `obs.region` and `obs.decisions` publishes. Remote wildcards, snapshots,
+  raw journals and mutations are refused. A later generation must retain
+  credential pins, so a restart cannot revert to the founding JWTs.
 - **Interregion files**, Vault purpose `interregion`, all or none:
   - `interregion.jwt` and `interregion-ca.pem`;
   - each slot's `interregion-tls-<slot>-cert.pem` and
@@ -71,16 +76,15 @@ schema 2 refuses one. Schema 2 adds the following:
   `interregion-ca.key` and `child-<cell>.seed` stay offline and can never
   be pinned. Interregion files require the controller configs.
 
-A chain may move from schema 1 to schema 2 but never back. The role signer
-never changes. Once a generation carries controller configs, every later
+Every generation uses the same v1 shape. The role signer never changes. Once a generation carries controller configs, every later
 generation must carry them too, because a controller would otherwise
 restart on a config that nothing pins.
 
-The signer adds these checks for schema 2:
+The signer verifies these bindings:
 
 - **Controller configs:** each `controller-<slot>.json` in the material
   directory matches its digest and size. Its `nats` block decodes strictly.
-  It enables interregion exactly when the interregion files are pinned.
+  Its mandatory interregion block matches the pinned interregion files.
 - **Interregion blocks:** each block passes startup's validation. It
   references only pinned files, by absolute path. Each remote pins the
   account that issued its credentials.
@@ -113,9 +117,30 @@ keys.
 
 ## Sign a generation
 
+For cells without online issuers, issue each controller's telemetry grants
+with the existing offline cell account seed and the reviewed immutable
+interregion material:
+
+```sh
+ts-orch bootstrap issue-observability-credentials \
+  --credentials /private/founding/controller-a.creds \
+  --account-seed /private/founding/issuer-cell.seed \
+  --interregion-directory /private/gru-interregion \
+  --slot controller-a --cell-account <signed-generation-cell-account> \
+  --out /private/generation-3/controller-a.creds
+```
+
+Repeat for B/C. Output is a new owner-only file; the original material is
+immutable. User keys, authority grants and expiry stay the same. Publish
+the exact bytes to Vault, add slot-bound `controller` references to the
+candidate. Pin each current config with the path of that slot's `.creds`.
+Deploy binary support to every controller before publishing/arming this
+generation, then use the installation procedure below one slot at a time.
+Issuing or publishing credentials alone does not install them.
+
 Put the files in one directory under their target names, publish them to
 Vault, and write the unsigned candidate (`bootstrap.MaterialGeneration` JSON)
-with their references. For schema 2, also put each pinned controller config
+with their references. For v1, also put each pinned controller config
 in the directory as `controller-<slot>.json`. The command refuses a
 candidate if any pinned file or config is missing. Then run:
 
@@ -145,9 +170,8 @@ rules the running cell applies (`bootstrapmaterial.CheckGenerationFiles`):
   - `operator.jwt` is the operator's own, names the system account and has
     no signing keys.
   - `system.jwt` and `cell.jwt` are signed by the operator.
-  - `cell.jwt` grants JetStream and has exactly two signing keys: the host
-    scope of `hostSigner` and the unscoped account signer. Schema 2 differs
-    (see above).
+  - `cell.jwt` grants JetStream and carries the required host and role
+    scopes, plus the unscoped account signer when controller issuers are present.
   - `system.creds` is a system account user with only its claim-update and
     reply grants.
 - **Validity:** everything is valid now.
@@ -200,7 +224,7 @@ before any generation.
      within the same lifetime.
    - **Before the first renewal:** an issued file that is still
      byte-identical to its manifest pin is accepted.
-   - **Without controller issuers** (schema 2) nothing is issued: the issued
+   - **Without controller issuers** (v1) nothing is issued: the issued
      files keep their manifest pins and no issuer is read.
 5. **Check the directory.** It must hold exactly these files, owned by the
    service user with mode 0600.
@@ -243,17 +267,12 @@ Then, for gru-1 or sfo-1:
 3. **Arm one slot:** `ts-orch operator material-generation arm --config
    operator.json --slot controller-b`. From now on any restart of that
    controller installs the generation; `disarm` undoes it before then.
-4. **Bind continuity.** A slot that restarts through
-   [install continuity](#install-continuity-with-a-generation) needs a proof
-   that binds the new generation. That is every managed peer, and the seed
-   once its current proofs lapse. Render and sign that slot's proof from
-   the chain. Then sign and publish a founder selection
-   (`sign-founder-selection`, `publish-founder-selection`) with the new
-   proof and the other slots' proofs unchanged. Do this only once the slot
-   is armed and staged: its next restart then installs what the proof
-   binds. A slot that restarts without installing (it was disarmed, or
-   prepare refused the stage) fails admission. It passes again once a
-   selection binds its installed set again.
+4. **Verify accepted restart.** Each controller loads its root-owned v1
+   accepted identity and verifies the adopted generation against that identity's
+   deployment, cell, slot, broker and exact config pins. Initial manifests and
+   founder selections are not restart authority. Prepare and arm the exact
+   generation before rebooting; a missing, expired or inconsistent generation
+   refuses admission.
 5. **Reboot it:** `ts-orch node reboot --config operator.json --node <node>
    --wait 30m`.
 6. **Check** that `status` shows the slot `installed`. Then do steps 3 to
@@ -325,41 +344,17 @@ new one.
 may refuse the new config's members: `prepare` installs that drop-in
 ([binary-only self-update](continuous-delivery.md#binary-only-self-update)).
 
-## Install continuity with a generation
+## Accepted restart with a generation
 
-After the manifest's current proofs lapse, a restart needs an owner-signed
-install continuity proof. For an install that adopted a generation, the
-proof binds the generation instead of the credential files:
+Restart admission uses the explicit v1 accepted identity in
+`accepted-install.json`, the baked genesis roots, and the adopted root chain.
+It independently verifies the local broker/store and installed config. A
+re-keyed install also requires its immutable root-signed identity journal.
+It does not reload a bootstrap manifest, ledger or founder continuity proof.
 
-- `materialGenerationSha256` is the newest generation's fingerprint.
-- `credentialSha256` is `InstallContinuityGenerationDigest` of that
-  fingerprint.
-- `credentialValidUntil` is that generation's expiry.
-
-So one proof lasts across every leaf and credential renewal under the
-generation. Render and sign it from the install's chain:
-
-```sh
-ts-orch bootstrap render-founder-continuity --marker accepted-install.json \
-  --anchor anchor.json --material-generations gru-generations.json \
-  --selector-generation 3 --out continuity.json
-ts-orch bootstrap sign-founder-continuity --candidate continuity.json \
-  --marker accepted-install.json --anchor anchor.json \
-  --material-generations gru-generations.json \
-  --root-key root.pub --signing-key root.key --out continuity.signed.json
-```
-
-Signing checks three things before it signs:
-- the chain is the anchor's deployment;
-- the chain is current under the root key;
-- the candidate binds the chain's newest generation and does not outlive it.
-
-The controller makes the same binding from its adopted chain, after checking
-its credential directory against the generation.
-
-The `oci-region attempt` continuity phase does this by itself when the
-attempt directory holds `material-generations.json`. Otherwise it renders
-from the attempt's bootstrap material, as before.
-
-Restart admission refuses an adopted generation past its signed expiry, even
-when its certificates and JWTs are still valid.
+The material generation must belong to the accepted deployment, cell and slot
+and bind the broker account and controller config. Renewable leaves and user
+credentials must be current under that verified generation; immutable material
+keeps exact byte pins. An expired or mismatched generation refuses admission.
+See [in-place identity re-key](identity-rekey.md) for the root-authorized
+transaction that replaces retired identities without replacing the store.

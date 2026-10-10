@@ -18,20 +18,20 @@ func TestCredentialCheckerPinsTheOptionalMembershipCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected["membership.creds"] = digest(content)
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("signed but unconfigured membership credential = %v", err)
 	}
 	embedded := *check.Config.Embedded
 	embedded.MembershipCredentialsFile = path
 	check.Config.Embedded = &embedded
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); err != nil {
 		t.Fatalf("signed and configured membership credential: %v", err)
 	}
 	if err := check.verifyInventory(ManifestPins(expected)); err != nil {
 		t.Fatal(err)
 	}
 	delete(expected, "membership.creds")
-	if err := check.verifyPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
+	if err := check.verifyInitialPaths(ManifestPins(expected), peerCredentialManifest); !errors.Is(err, ErrLiveCredentials) {
 		t.Fatalf("configured but unsigned membership credential = %v", err)
 	}
 }

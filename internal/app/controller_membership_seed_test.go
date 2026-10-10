@@ -84,7 +84,7 @@ func TestSeedRoutingOverNATSRunsUnderTheRealLeaderLease(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	start := func(candidate string) *authority.Runtime {
-		runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: "gru",
+		runtime, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru",
 			CandidateID: candidate, LeaseDuration: 5 * time.Second, RenewInterval: time.Second, Replicas: 1})
 		if err != nil {
 			t.Fatal(err)

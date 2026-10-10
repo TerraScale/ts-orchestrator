@@ -228,7 +228,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = broker.Close() })
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{Scope: deployTestCell, CandidateID: "0000000000D58ZC5VE3YK35W1J", Replicas: 1})
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: deployTestCell, CandidateID: "0000000000D58ZC5VE3YK35W1J", Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}

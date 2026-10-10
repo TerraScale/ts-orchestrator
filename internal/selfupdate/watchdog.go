@@ -2,7 +2,6 @@ package selfupdate
 
 import (
 	"crypto/ed25519"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -41,7 +40,7 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 		return OutcomeIdle, Activation{}, fmt.Errorf("finish interrupted restore: %w", err)
 	}
 	activation, pending, err := layout.Pending()
-	if errors.Is(err, errUnreadableActivation) {
+	if errors.Is(err, ErrUnreadableActivation) {
 		return layout.resolveUnreadable(err)
 	}
 	if err != nil || !pending {
@@ -120,7 +119,7 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 	return OutcomeRolledBack, activation, nil
 }
 
-// Backstop rolls back a readable activation that is still pending
+// Backstop rolls back a damaged target or a readable activation still pending
 // OrphanedActivationGrace past its deadline. The image-baked binary runs it
 // after the known-good release ran prepare or the watchdog, so a release
 // whose steps succeed without enforcing deadlines cannot keep an unproven
@@ -128,16 +127,20 @@ func Watch(layout Layout, unit string, proof ProofCheck, now time.Time) (Outcome
 // wrote it and is left alone. The caller holds Lock.
 func Backstop(layout Layout, now time.Time) (Outcome, Activation, error) {
 	activation, pending, err := layout.Pending()
-	if errors.Is(err, errUnreadableActivation) {
+	if errors.Is(err, ErrUnreadableActivation) {
 		return OutcomeIdle, Activation{}, nil
 	}
 	if err != nil || !pending {
 		return OutcomeIdle, Activation{}, err
 	}
-	if now.Before(activation.Deadline.Add(OrphanedActivationGrace)) {
+	bad, err := layout.KnownBad()
+	if err != nil {
+		return OutcomePending, activation, err
+	}
+	if !bad[activation.Target] && layout.VerifyRelease(activation.Target) == nil && now.Before(activation.Deadline.Add(OrphanedActivationGrace)) {
 		return OutcomePending, activation, nil
 	}
-	slog.Warn("self-update activation outlived its deadline under the known-good release; rolling back",
+	slog.Warn("self-update activation is damaged or outlived its deadline; rolling back",
 		"activation", activation.ActivationID, "unit", activation.Unit)
 	if err := layout.rollback(activation); err != nil {
 		return OutcomeRolledBack, activation, err
@@ -167,26 +170,30 @@ const OrphanedActivationGrace = 5 * time.Minute
 // then moved aside so the unit can start. The VerifyRelease gate on the
 // current release in Prepare still refuses bytes that do not verify.
 func (layout Layout) resolveUnreadable(cause error) (Outcome, Activation, error) {
-	data, exists, err := layout.pendingRecord()
+	_, exists, err := layout.pendingRecord()
 	if err != nil || !exists {
 		return OutcomeIdle, Activation{}, err
 	}
-	var loose struct {
-		Target   string `json:"target"`
-		Previous string `json:"previous"`
-	}
-	_ = json.Unmarshal(data, &loose)
 	outcome := OutcomeIdle
-	activation := Activation{Target: loose.Target, Previous: loose.Previous}
-	if digestRE.MatchString(loose.Target) && digestRE.MatchString(loose.Previous) && loose.Target != loose.Previous &&
-		layout.VerifyRelease(loose.Previous) == nil {
-		if err := layout.markKnownBad(loose.Target); err != nil {
+	activation, recoveryErr := layout.RecoveryActivation()
+	if recoveryErr == nil && layout.VerifyRelease(activation.Previous) == nil {
+		current, err := layout.Current()
+		if err != nil {
 			return OutcomePending, activation, err
 		}
-		if current, err := layout.Current(); err == nil && current == loose.Target {
-			if err := layout.flipCurrent(loose.Previous); err != nil {
+		if current != activation.Target && current != activation.Previous {
+			return OutcomePending, activation, fmt.Errorf("%w: unreadable activation does not own current selection", ErrInvalid)
+		}
+		if err := layout.markKnownBad(activation.Target); err != nil {
+			return OutcomePending, activation, err
+		}
+		if current == activation.Target {
+			if err := layout.flipCurrent(activation.Previous); err != nil {
 				return OutcomePending, activation, err
 			}
+		}
+		if err := layout.markRestartPending(activation.Unit); err != nil {
+			return OutcomePending, activation, err
 		}
 		outcome = OutcomeRolledBack
 	}

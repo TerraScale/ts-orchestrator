@@ -13,17 +13,20 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"golang.org/x/sys/unix"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -49,20 +52,25 @@ type Record struct {
 
 // Status is one controller's report of its slot, by generation number.
 type Status struct {
-	Slot      string `json:"slot"`
-	Staged    uint64 `json:"staged,omitzero"`
-	Armed     bool   `json:"armed,omitzero"`
-	Installed uint64 `json:"installed,omitzero"`
-	Error     string `json:"error,omitempty"`
+	Slot             string `json:"slot"`
+	DeploymentID     string `json:"deploymentId"`
+	AcceptanceSHA256 string `json:"acceptanceSha256"`
+	Fingerprint      string `json:"fingerprint"`
+	Staged           uint64 `json:"staged,omitzero"`
+	Armed            bool   `json:"armed,omitzero"`
+	Installed        uint64 `json:"installed,omitzero"`
+	Error            string `json:"error,omitempty"`
 }
 
 // Report is the record and every slot's status.
 type Report struct {
-	Generation  uint64   `json:"generation,omitzero"`
-	Fingerprint string   `json:"fingerprint,omitempty"`
-	Configs     []string `json:"configs,omitempty"`
-	Armed       []string `json:"armed,omitempty"`
-	Slots       []Status `json:"slots,omitempty"`
+	Generation  uint64    `json:"generation,omitzero"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
+	ExpiresAt   time.Time `json:"expiresAt,omitzero"`
+	Expired     bool      `json:"expired,omitzero"`
+	Configs     []string  `json:"configs,omitempty"`
+	Armed       []string  `json:"armed,omitempty"`
+	Slots       []Status  `json:"slots,omitempty"`
 	// Status is the outcome of a change.
 	Status string `json:"status,omitempty"`
 }
@@ -105,6 +113,9 @@ func (l Leader) Publish(ctx context.Context, wire []byte) (string, error) {
 // SetConfig stores slot's config when it matches the newest generation's pin.
 func (l Leader) SetConfig(ctx context.Context, slot string, config []byte) (string, error) {
 	return l.update(ctx, func(record *Record) (string, error) {
+		if _, err := l.verifyStored(record.Chain); err != nil {
+			return "", err
+		}
 		pin, err := configPin(record.Chain, slot)
 		if err != nil {
 			return "", err
@@ -130,8 +141,10 @@ func (l Leader) Arm(ctx context.Context, slot string, armed bool) (string, error
 		return "", fmt.Errorf("%q is not a controller slot of this cell", slot)
 	}
 	return l.update(ctx, func(record *Record) (string, error) {
-		if len(record.Chain) == 0 {
-			return "", errors.New("no material generation is published")
+		if armed {
+			if _, err := l.verifyStored(record.Chain); err != nil {
+				return "", err
+			}
 		}
 		if slices.Contains(record.Armed, slot) == armed {
 			return "unchanged", nil
@@ -189,9 +202,18 @@ func (l Leader) update(ctx context.Context, change func(*Record) (string, error)
 	return status, nil
 }
 
-// Report reads the record and every slot's status.
-func (l Leader) Report(ctx context.Context) (Report, error) {
+func (l Leader) verifyStored(wire []byte) ([]bootstrap.VerifiedMaterialGeneration, error) {
+	chain, err := bootstrap.DecodeMaterialGenerationChain(wire)
+	if err != nil {
+		return nil, err
+	}
+	return bootstrap.VerifyMaterialGenerationChain(chain, l.Roots(), l.Expected, now(l.Now))
+}
+
+// Report verifies historical evidence for inspection; it grants no installation authority.
+func (l Leader) Report(ctx context.Context, historicalRoots trust.Keyring) (Report, error) {
 	var report Report
+	acceptances := map[string]string{}
 	entry, err := l.KV.Get(ctx, RecordKey)
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return Report{}, fmt.Errorf("read material generations: %w", err)
@@ -205,9 +227,17 @@ func (l Leader) Report(ctx context.Context) (Report, error) {
 		if err != nil {
 			return Report{}, err
 		}
-		report.Generation = uint64(len(chain))
-		if report.Fingerprint, err = trust.Fingerprint(chain[len(chain)-1]); err != nil {
+		verified, err := bootstrap.VerifyAdoptedMaterialGenerationChain(chain, historicalRoots, l.Expected)
+		if err != nil {
 			return Report{}, err
+		}
+		report.Generation = uint64(len(verified))
+		newest := verified[len(verified)-1]
+		report.Fingerprint = newest.Fingerprint()
+		report.ExpiresAt = newest.ExpiresAt()
+		report.Expired = !now(l.Now).Before(report.ExpiresAt)
+		for _, pin := range newest.Generation().ControllerConfigs {
+			acceptances[pin.Slot] = pin.AcceptanceSHA256
 		}
 		for slot := range record.Configs {
 			report.Configs = append(report.Configs, slot)
@@ -222,6 +252,11 @@ func (l Leader) Report(ctx context.Context) (Report, error) {
 			if protocol.DecodeTolerant(entry.Value(), &status, maxStatusBytes) != nil || status.Slot != slot {
 				status = Status{Slot: slot, Error: "unreadable report"}
 			}
+		}
+		if status.Error == "" && (status.DeploymentID != l.Expected.DeploymentID || status.AcceptanceSHA256 == "" ||
+			acceptances[slot] != "" && status.AcceptanceSHA256 != acceptances[slot] || status.Fingerprint != report.Fingerprint ||
+			status.Staged > report.Generation || status.Installed > report.Generation) {
+			status = Status{Slot: slot, Error: "report does not match the current deployment, acceptance and generation"}
 		}
 		report.Slots = append(report.Slots, status)
 	}
@@ -289,10 +324,10 @@ func (s *Stager) Run(ctx context.Context) {
 	}
 }
 
-// Pass stages once and returns the slot's status. Any failure leaves the
-// slot disarmed.
+// Pass stages once and returns the slot's status. Verification failures
+// disarm the slot; shutdown cancellation preserves its existing stage.
 func (s *Stager) Pass(ctx context.Context) Status {
-	status := Status{Slot: s.Target.Slot}
+	status := Status{Slot: s.Target.Slot, DeploymentID: s.Target.Expected.DeploymentID, AcceptanceSHA256: s.Target.AcceptanceSHA256}
 	if err := os.MkdirAll(s.Spool, 0o700); err != nil {
 		status.Error = err.Error()
 		return status
@@ -311,14 +346,19 @@ func (s *Stager) Pass(ctx context.Context) Status {
 	defer spool.Close()
 	if err := s.stage(ctx, spool, &status); err != nil {
 		status.Error, status.Armed = err.Error(), false
-		if err := spool.Remove(bootstrapstart.GenerationArmedFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			status.Error += "; " + err.Error()
+		if ctx.Err() == nil {
+			if err := spool.Remove(bootstrapstart.GenerationArmedFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				status.Error += "; " + err.Error()
+			}
 		}
 	}
 	return status
 }
 
 func (s *Stager) stage(ctx context.Context, spool *os.Root, status *Status) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	installedWire, err := os.ReadFile(s.Installed)
 	var installed []trust.Envelope
 	if err == nil {
@@ -329,10 +369,12 @@ func (s *Stager) stage(ctx context.Context, spool *os.Root, status *Status) erro
 	if err != nil {
 		return fmt.Errorf("read the installed generations: %w", err)
 	}
-	status.Installed = uint64(len(installed))
 	entry, err := s.KV.Get(ctx, RecordKey)
+	if canceled := ctx.Err(); canceled != nil {
+		return canceled
+	}
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
-		return clearSpool(spool)
+		return clearSpool(spool, s.Target.Slot)
 	}
 	if err != nil {
 		return err
@@ -341,27 +383,35 @@ func (s *Stager) stage(ctx context.Context, spool *os.Root, status *Status) erro
 	if err := protocol.DecodeTolerant(entry.Value(), &record, MaxRecordBytes); err != nil {
 		return fmt.Errorf("stored material generations: %w", err)
 	}
-	if bytes.Equal(record.Chain, installedWire) {
-		return clearSpool(spool)
-	}
 	chain, err := bootstrap.DecodeMaterialGenerationChain(record.Chain)
 	if err != nil {
 		return err
 	}
-	verified, err := bootstrap.VerifyMaterialGenerationChain(chain, s.Roots(), s.Target.Expected, now(s.Now))
+	verified, err := s.Target.VerifyChain(chain, s.Roots(), now(s.Now))
 	if err != nil {
 		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	newest := verified[len(verified)-1]
+	status.Fingerprint = newest.Fingerprint()
+	if bytes.Equal(record.Chain, installedWire) {
+		status.Installed = uint64(len(installed))
+		return clearSpool(spool, s.Target.Slot)
 	}
 	if !bootstrap.ExtendsMaterialGenerationChain(chain, installed) {
 		return errors.New("the published chain does not extend the installed generations")
 	}
-	newest := verified[len(verified)-1]
-	if staged, err := spool.ReadFile(bootstrapstart.MaterialGenerationsFile); err != nil || !bytes.Equal(staged, record.Chain) {
-		if err := s.write(ctx, spool, newest.Generation(), record); err != nil {
-			return errors.Join(err, clearSpool(spool))
+	status.Installed = uint64(len(installed))
+	if err := s.write(ctx, spool, newest.Generation(), record); err != nil {
+		if ctx.Err() != nil {
+			return err
 		}
+		return errors.Join(err, clearSpool(spool, s.Target.Slot))
 	}
 	status.Staged = uint64(len(chain))
+	// Once replacement starts, finish its armed publication before shutdown.
 	if !slices.Contains(record.Armed, s.Target.Slot) {
 		if err := spool.Remove(bootstrapstart.GenerationArmedFile); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -374,17 +424,40 @@ func (s *Stager) stage(ctx context.Context, spool *os.Root, status *Status) erro
 
 // write replaces the spool with the slot's stage, the chain last.
 func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap.MaterialGeneration, record Record) error {
-	if err := clearSpool(spool); err != nil {
-		return err
-	}
 	slot := s.Target.Slot
+	for _, pin := range generation.ControllerConfigs {
+		if pin.Slot == slot && (pin.AcceptanceSHA256 != s.Target.AcceptanceSHA256 || digest(record.Configs[slot]) != pin.SHA256) {
+			return errors.New("stored controller config differs from its signed acceptance or bytes")
+		}
+	}
 	files := map[string][]byte{}
+	defer func() {
+		for _, data := range files {
+			clear(data)
+		}
+	}()
+	if staged, err := readSpooled(spool, bootstrapstart.MaterialGenerationsFile, trust.MaxRootChainBytes); err == nil && bytes.Equal(staged, record.Chain) {
+		if err := s.Target.VerifyFiles(generation, func(name string) ([]byte, error) {
+			if data, ok := files[name]; ok {
+				return data, nil
+			}
+			data, err := readSpooled(spool, name, bootstrap.MaxSecretBytes)
+			files[name] = data
+			return data, err
+		}, now(s.Now)); err == nil {
+			return ctx.Err()
+		}
+	}
+	for _, data := range files {
+		clear(data)
+	}
+	clear(files)
 	for _, pin := range generation.ControllerConfigs {
 		if pin.Slot != slot {
 			continue
 		}
-		if pin.ManifestSHA256 != s.Target.ManifestSHA256 {
-			return errors.New("the newest generation's config is for another manifest of this slot")
+		if pin.AcceptanceSHA256 != s.Target.AcceptanceSHA256 {
+			return errors.New("the newest generation's config is for another acceptance of this slot")
 		}
 		if record.Configs[slot] == nil {
 			return errors.New("this slot's config is not stored yet")
@@ -401,17 +474,18 @@ func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap
 		}
 		files[secret.TargetFile] = data
 	}
-	defer func() {
-		for _, data := range files {
-			clear(data)
-		}
-	}()
-	if _, err := bootstrapmaterial.CheckGenerationFiles(generation, func(name string) ([]byte, error) {
+	if err := s.Target.VerifyFiles(generation, func(name string) ([]byte, error) {
 		if data, ok := files[name]; ok {
 			return data, nil
 		}
 		return nil, fs.ErrNotExist
 	}, now(s.Now)); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := clearSpool(spool, s.Target.Slot); err != nil {
 		return err
 	}
 	for name, data := range files {
@@ -420,6 +494,24 @@ func (s *Stager) write(ctx context.Context, spool *os.Root, generation bootstrap
 		}
 	}
 	return writeSpooled(spool, bootstrapstart.MaterialGenerationsFile, record.Chain)
+}
+
+func readSpooled(spool *os.Root, name string, maximum int64) ([]byte, error) {
+	file, err := spool.OpenFile(name, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	var stat unix.Stat_t
+	if err := unix.Fstat(int(file.Fd()), &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0o7777 != 0o600 || stat.Uid != uint32(os.Getuid()) || stat.Gid != uint32(os.Getgid()) || stat.Nlink != 1 || stat.Size <= 0 || stat.Size > maximum {
+		return nil, errors.Join(err, errors.New("staged material file is invalid"))
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil || int64(len(data)) != stat.Size || int64(len(data)) > maximum {
+		clear(data)
+		return nil, errors.Join(err, errors.New("staged material is unreadable or oversized"))
+	}
+	return data, nil
 }
 
 // report posts status to the slot's key when it changed.
@@ -457,7 +549,7 @@ func writeSpooled(spool *os.Root, name string, data []byte) error {
 }
 
 // clearSpool removes the stage, the armed marker and the chain first.
-func clearSpool(spool *os.Root) error {
+func clearSpool(spool *os.Root, slot string) error {
 	for _, name := range []string{bootstrapstart.GenerationArmedFile, bootstrapstart.MaterialGenerationsFile} {
 		if err := spool.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -468,8 +560,24 @@ func clearSpool(spool *os.Root) error {
 		return err
 	}
 	for _, entry := range entries {
-		if err := spool.RemoveAll(entry.Name()); err != nil {
-			return err
+		name := entry.Name()
+		candidate := name
+		if strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".tmp") {
+			candidate = strings.TrimSuffix(strings.TrimPrefix(name, "."), ".tmp")
+		}
+		_, known := bootstrap.MaterialGenerationFiles()[candidate]
+		cert, key := bootstrap.InterRegionTLSFiles(slot)
+		known = known || candidate == bootstrapstart.GenerationConfigFile(slot) || candidate == slot+".creds" ||
+			candidate == cert || candidate == key || candidate == "interregion.jwt" || candidate == "interregion-ca.pem" ||
+			candidate == bootstrapstart.GenerationArmedFile || candidate == bootstrapstart.MaterialGenerationsFile
+		if strings.HasPrefix(candidate, "leaf-") && strings.HasSuffix(candidate, ".creds") {
+			peer := strings.TrimSuffix(strings.TrimPrefix(candidate, "leaf-"), ".creds")
+			known = catalog.IsCell(strings.ToUpper(peer)) && peer == strings.ToLower(peer)
+		}
+		if known {
+			if err := spool.Remove(name); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

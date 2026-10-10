@@ -15,8 +15,8 @@ serves is read-only and none of it is admission evidence.
 
 Both the `run` (controller) and `host` roles read an optional
 `observability` section. Its zero value is the default and is omitted from
-canonical JSON, so configs signed before this section existed keep their
-exact bytes.
+canonical JSON. The listener, dashboard and controller telemetry responders
+are always active, including when the section is absent.
 
 ```json
 "observability": {
@@ -290,25 +290,11 @@ as missing. Only controllers may publish on that subject: operator
 credentials have an exact publish list and host credentials publish only their
 own observation subjects.
 
-Production controller credentials carry the subscribe grant
-`ts.orch.v1.<cell>.obs.>` only when their bootstrap material was issued with
-`"grantVersion": 2` in the reviewed controller configuration
-(`generate-controller-material`). The default (absent, `0` or `1`) issues the
-earlier grant set without it, so existing material is unchanged. The grant is
-subscribe-only: it lets each controller answer the read-only telemetry
-requests (`obs.snapshot`, region summaries, decision queries); publishing on
-`obs.*` is unchanged. The credential validator accepts both grant sets.
-
-Material is immutable, so adding the required grants is a credential rotation:
-
-1. Add `"grantVersion": 2` to the reviewed controller configuration, record
-   its new SHA-256, and issue new material into a new directory.
-2. Roll the controllers onto the new credentials one at a time.
-
-A controller always attempts to start its responders. Credentials that lack
-the grants produce a telemetry error; install corrected credentials rather
-than disabling the feature. TS-774 owns the production telemetry credential
-rotation and identity re-key in place.
+Production controller credentials always carry the subscribe grant
+`ts.orch.v1.<cell>.obs.>`. Fresh material grants telemetry without a setting.
+For an existing installation, issue replacement controller credentials and pin
+all slots in a current-root signed material generation before serial installation.
+The accepted-identity transaction is documented in [identity-rekey.md](identity-rekey.md).
 
 ## Dashboard
 

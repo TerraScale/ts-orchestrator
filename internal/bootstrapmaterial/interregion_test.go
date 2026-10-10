@@ -134,6 +134,73 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 	}
 }
 
+func TestSingleRegionInterRegionMaterialUsesStrictV1(t *testing.T) {
+	material, directory, _, now := interRegionFixture(t)
+	record, err := GenerateInterRegion(material, directory,
+		InterRegionConfig{Topology: natscell.HubAndSpoke("gru", nil)}, InterRegionInputs{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.SchemaVersion != 1 {
+		t.Fatalf("interregion schema = %d", record.SchemaVersion)
+	}
+	if _, err := LoadInterRegion(directory); err != nil {
+		t.Fatal(err)
+	}
+	block, err := RenderInterRegion(record, "controller-a", "/var/lib/terrascale-orchestrator-secrets", nil, now)
+	if err != nil || block.GlobalHome != "gru" || len(block.Peers) != 0 || block.Listen != nil || len(block.Remotes) != 0 {
+		t.Fatalf("single-region material = %+v, %v", block, err)
+	}
+	for _, name := range []string{"missing", "zero", "null", "newer", "enabled true", "enabled false"} {
+		t.Run(name, func(t *testing.T) {
+			candidate := record
+			if name == "newer" {
+				candidate.SchemaVersion = 2
+			} else if name == "missing" || name == "zero" || name == "null" {
+				candidate.SchemaVersion = 0
+			}
+			candidate.LedgerDigest, err = candidate.ledgerDigest()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if candidate.SchemaVersion != 1 {
+				if _, err := RenderInterRegion(candidate, "controller-a", "/var/lib/terrascale-orchestrator-secrets", nil, now); err == nil {
+					t.Fatal("unsupported schema rendered")
+				}
+			}
+			wire, err := json.Marshal(candidate, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(wire, &body); err != nil {
+				t.Fatal(err)
+			}
+			switch name {
+			case "missing":
+				delete(body, "schemaVersion")
+			case "null":
+				body["schemaVersion"] = nil
+			case "enabled true", "enabled false":
+				body["enabled"] = name == "enabled true"
+			}
+			wire, err = json.Marshal(body, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, interRegionMetadataName), wire, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(directory, readyName), []byte(digest(wire)+"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadInterRegion(directory); err == nil {
+				t.Fatal("invalid material admitted")
+			}
+		})
+	}
+}
+
 func TestInterRegionConfigNeedsAPortExactlyWithChildren(t *testing.T) {
 	material, directory, cfg, now := interRegionFixture(t)
 	for name, mutate := range map[string]func(*InterRegionConfig){
@@ -232,6 +299,17 @@ func TestLeafRemotePrivateURLsComeFromTheReviewedReceipt(t *testing.T) {
 	remote, err := LeafRemote(parent, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now())
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, version := range []int{0, 2} {
+		candidate := parent
+		candidate.SchemaVersion = version
+		candidate.LedgerDigest, err = candidate.ledgerDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LeafRemote(candidate, "sfo", 0, Readback{wire, reviewed}, Readback{}, creds, tls, time.Now()); err == nil {
+			t.Fatalf("parent schema %d admitted", version)
+		}
 	}
 	if remote.Peer != "gru" || remote.PeerAccount != parent.InterRegionAccountNKey ||
 		remote.ServerName != "leaf.gru.interregion.terrascale.internal" || !slices.Equal(remote.URLs,
@@ -649,7 +727,7 @@ func TestRenderInterRegionPassesTheBrokerCheck(t *testing.T) {
 	}
 	gruTLS := natscell.TLSFiles{CAFile: installed + "/interregion-ca.pem",
 		CertFile: installed + "/interregion-tls-controller-b-cert.pem", KeyFile: installed + "/interregion-tls-controller-b-key.pem"}
-	if !hub.Enabled || hub.AccountJWTFile != installed+"/interregion.jwt" || hub.GlobalHome != "gru" ||
+	if hub.AccountJWTFile != installed+"/interregion.jwt" || hub.GlobalHome != "gru" ||
 		!slices.Equal(hub.Peers, []string{"sfo"}) || len(hub.Remotes) != 0 || hub.Topology == nil ||
 		!reflect.DeepEqual(hub.Listen, &natscell.LeafListen{Host: "0.0.0.0", Port: 7422, TLS: gruTLS}) ||
 		!reflect.DeepEqual(hub.Subtrees, map[string][]string{"sfo": {"sfo"}}) || hub.Validate("gru") != nil {

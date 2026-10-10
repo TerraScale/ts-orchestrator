@@ -72,10 +72,6 @@ func (e *Engine) run(argv []string) {
 		args["bootstrap_root"] = append(arr(args["bootstrap_root"]), Path(v))
 		return nil
 	})
-	for _, name := range []string{"legacy-bootstrap-tool", "legacy-release-tool"} {
-		args[strings.ReplaceAll(name, "-", "_")] = false
-		f.BoolFunc(name, "", func(v string) error { args[strings.ReplaceAll(name, "-", "_")] = v == "true"; return nil })
-	}
 	if err := f.Parse(argv[1:]); err != nil {
 		panic(err)
 	}

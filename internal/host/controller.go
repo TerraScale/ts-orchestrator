@@ -24,6 +24,9 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
+// ErrStateNotReady reports delayed visibility after host state provisioning.
+var ErrStateNotReady = errors.New("provisioned host state is not yet visible")
+
 // Controller holds the durable host authority and serves restricted host RPCs.
 // Administrative callers own admission of Register and ApplyDesired operations.
 type Controller struct {
@@ -112,6 +115,9 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 	}
 	status, err := state.Status(ctx)
 	if err != nil {
+		if cfg.State == nil && errors.Is(err, jetstream.ErrStreamNotFound) {
+			return nil, fmt.Errorf("%w: inspect host state: %w", ErrStateNotReady, err)
+		}
 		return nil, err
 	}
 	if status.Config().Replicas != replicas {

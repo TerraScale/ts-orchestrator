@@ -99,7 +99,7 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 	if _, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started without global control")
 	}
-	cfg.Controller.Global = &GlobalControlConfig{Enabled: true, Home: "gru"}
+	cfg.Controller.Global = &GlobalControlConfig{Home: "gru"}
 	if _, err := startRegionPlanner(t.Context(), cfg, nil, &globalControl{}, nil, nil, func() bool { return true }); err == nil {
 		t.Fatal("region planner started outside the global home")
 	}
@@ -107,12 +107,13 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 	if budgets, err := startRegionPlanner(t.Context(), cfg, nil, nil, nil, nil, nil); err != nil || budgets != nil {
 		t.Fatalf("disabled planner = %v, %v", budgets, err)
 	}
-	if rollouts, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err != nil || rollouts != nil {
-		t.Fatalf("disabled rollouts = %v, %v", rollouts, err)
+	if _, err := startRollouts(t.Context(), cfg, nil, nil, nil, nil); err == nil {
+		t.Fatal("mandatory rollouts admitted no JetStream")
 	}
-	if newRolloutKnownBad(cfg) != nil {
-		t.Fatal("placement got a known-bad source without a rollout store")
+	if newRolloutKnownBad() == nil {
+		t.Fatal("mandatory rollout store has no known-bad source")
 	}
+
 }
 
 // Placement starts before the rollout store opens: until it does, the
@@ -120,9 +121,7 @@ func TestRegionPlannerRunsOnlyInTheGlobalHome(t *testing.T) {
 func TestRolloutKnownBadFailsClosedUntilTheStoreOpens(t *testing.T) {
 	t.Parallel()
 
-	cfg := Config{}
-	cfg.Controller.Rollouts = &RolloutsConfig{Enabled: true}
-	knownBad := newRolloutKnownBad(cfg)
+	knownBad := newRolloutKnownBad()
 	if knownBad == nil {
 		t.Fatal("no known-bad source with the rollout store enabled")
 	}
@@ -197,7 +196,7 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	global, err := authority.Start(ctx, js, authority.Config{Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
+	global, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: protocol.GlobalScope, CandidateID: "0000000000F2D374M7NMRHJJQT", Replicas: 1,
 		LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)

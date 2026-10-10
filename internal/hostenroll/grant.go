@@ -52,20 +52,21 @@ func IsGrantMutationNotApplied(err error) bool {
 // Grant pins the first successful private-network enrollment to one exact
 // instance and request. Response is set durably before it is sent to the host.
 type Grant struct {
-	SchemaVersion       int       `json:"schema_version"`
-	InstanceID          string    `json:"instance_id"`
-	CreateKey           string    `json:"create_key"`
-	DescriptorSHA256    string    `json:"descriptor_sha256"`
-	Request             []byte    `json:"request"`
-	Response            []byte    `json:"response,omitempty"`
-	Disabled            bool      `json:"disabled,omitzero"`
-	OwnerToken          string    `json:"owner_token,omitempty"`
-	LeaseUntil          time.Time `json:"lease_until,omitzero"`
-	RenewalRequest      []byte    `json:"renewal_request,omitempty"`
-	RenewalResponse     []byte    `json:"renewal_response,omitempty"`
-	RenewalToken        string    `json:"renewal_token,omitempty"`
-	RenewalLeaseUntil   time.Time `json:"renewal_lease_until,omitzero"`
-	TerminalOperationID string    `json:"terminal_operation_id,omitempty"`
+	SchemaVersion            int       `json:"schema_version"`
+	InstanceID               string    `json:"instance_id"`
+	CreateKey                string    `json:"create_key"`
+	DescriptorSHA256         string    `json:"descriptor_sha256"`
+	Request                  []byte    `json:"request"`
+	Response                 []byte    `json:"response,omitempty"`
+	Disabled                 bool      `json:"disabled,omitzero"`
+	OwnerToken               string    `json:"owner_token,omitempty"`
+	LeaseUntil               time.Time `json:"lease_until,omitzero"`
+	RenewalRequest           []byte    `json:"renewal_request,omitempty"`
+	RenewalResponse          []byte    `json:"renewal_response,omitempty"`
+	RenewalToken             string    `json:"renewal_token,omitempty"`
+	RenewalLeaseUntil        time.Time `json:"renewal_lease_until,omitzero"`
+	TerminalOperationID      string    `json:"terminal_operation_id,omitempty"`
+	IdentityResetOperationID string    `json:"identity_reset_operation_id,omitempty"`
 }
 
 type GrantStore struct {
@@ -100,7 +101,7 @@ func (store *GrantStore) Claim(ctx context.Context, candidate Grant) (Grant, uin
 	if store == nil || store.kv == nil || candidate.SchemaVersion != 1 || candidate.InstanceID == "" ||
 		!entityid.Valid(candidate.CreateKey) || len(candidate.DescriptorSHA256) != 64 ||
 		len(candidate.Request) == 0 || len(candidate.Request) > 16<<10 || len(candidate.Response) != 0 || candidate.Disabled ||
-		candidate.OwnerToken != "" || !candidate.LeaseUntil.IsZero() {
+		candidate.OwnerToken != "" || !candidate.LeaseUntil.IsZero() || candidate.IdentityResetOperationID != "" {
 		return Grant{}, 0, mutationNotApplied(errors.New("host enrollment grant candidate is invalid"))
 	}
 	claimToken := make([]byte, 32)
@@ -243,7 +244,7 @@ func (store *GrantStore) TerminalFence(ctx context.Context, expected Grant, expe
 		if expected.DescriptorSHA256 != "" || len(expected.Request) != 0 || len(expected.Response) != 0 ||
 			expected.Disabled || expected.OwnerToken != "" || !expected.LeaseUntil.IsZero() ||
 			len(expected.RenewalRequest) != 0 || len(expected.RenewalResponse) != 0 ||
-			expected.RenewalToken != "" || !expected.RenewalLeaseUntil.IsZero() || expected.TerminalOperationID != "" {
+			expected.RenewalToken != "" || !expected.RenewalLeaseUntil.IsZero() || expected.TerminalOperationID != "" || expected.IdentityResetOperationID != "" {
 			return Grant{}, 0, errors.New("absent terminal grant fence contains enrollment state")
 		}
 		tombstone := Grant{SchemaVersion: 1, InstanceID: expected.InstanceID,
@@ -331,7 +332,7 @@ func isTerminalTombstone(grant Grant, instanceID, createKey, operationID string)
 		grant.Disabled && grant.TerminalOperationID == operationID && len(grant.Request) == 0 &&
 		grant.DescriptorSHA256 == "" && len(grant.Response) == 0 && grant.OwnerToken == "" &&
 		grant.LeaseUntil.IsZero() && len(grant.RenewalRequest) == 0 && len(grant.RenewalResponse) == 0 &&
-		grant.RenewalToken == "" && grant.RenewalLeaseUntil.IsZero()
+		grant.RenewalToken == "" && grant.RenewalLeaseUntil.IsZero() && grant.IdentityResetOperationID == ""
 }
 
 func sameGrant(left, right Grant) bool {
@@ -342,7 +343,8 @@ func sameGrant(left, right Grant) bool {
 		left.LeaseUntil.Equal(right.LeaseUntil) && bytes.Equal(left.RenewalRequest, right.RenewalRequest) &&
 		bytes.Equal(left.RenewalResponse, right.RenewalResponse) && left.RenewalToken == right.RenewalToken &&
 		left.RenewalLeaseUntil.Equal(right.RenewalLeaseUntil) &&
-		left.TerminalOperationID == right.TerminalOperationID
+		left.TerminalOperationID == right.TerminalOperationID &&
+		left.IdentityResetOperationID == right.IdentityResetOperationID
 }
 
 func validTerminalOperationID(value string) bool { return entityid.Valid(value) }
@@ -358,7 +360,11 @@ func (store *GrantStore) ClaimRenew(ctx context.Context, instanceID string, requ
 	if err != nil {
 		return Grant{}, 0, mutationNotApplied(err)
 	}
-	if grant.Disabled || len(grant.Response) == 0 {
+	// Root reset provenance permits completing a grant without replaying an old response.
+	resetPending := len(grant.Response) == 0 && entityid.Valid(grant.IdentityResetOperationID) &&
+		grant.SchemaVersion == 1 && entityid.Valid(grant.CreateKey) && len(grant.DescriptorSHA256) == 64 &&
+		len(grant.Request) != 0 && len(grant.Request) <= MaxRequestBytes && grant.OwnerToken == "" && grant.LeaseUntil.IsZero() && grant.TerminalOperationID == ""
+	if grant.Disabled || len(grant.Response) == 0 && !resetPending {
 		return Grant{}, 0, mutationNotApplied(errors.New("host enrollment grant is disabled or incomplete"))
 	}
 	if bytes.Equal(grant.RenewalRequest, request) && len(grant.RenewalResponse) != 0 {
@@ -373,7 +379,7 @@ func (store *GrantStore) ClaimRenew(ctx context.Context, instanceID string, requ
 			now.Before(previous.ExpiresAt.Add(-24*time.Hour)) {
 			return Grant{}, 0, mutationNotApplied(errors.New("host enrollment renewal is not due"))
 		}
-	} else if len(grant.RenewalRequest) == 0 {
+	} else if len(grant.RenewalRequest) == 0 && !resetPending {
 		if json.Unmarshal(grant.Response, &previous, json.RejectUnknownMembers(true)) != nil ||
 			now.Before(previous.ExpiresAt.Add(-24*time.Hour)) {
 			return Grant{}, 0, mutationNotApplied(errors.New("host enrollment renewal is not due"))

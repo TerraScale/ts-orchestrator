@@ -41,7 +41,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 		Embedded: &natscell.Embedded{
 			Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats"),
 			Users: []natscell.NKeyGrant{
-				{PublicKey: controllerNKey, Role: "controller"},
+				{PublicKey: controllerNKey, Role: "controller", Global: true},
 				{PublicKey: operatorNKey, Role: "operator"},
 			},
 		},
@@ -53,7 +53,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 	if err := broker.WaitForCluster(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{
+	control, err := authority.Start(ctx, broker.JetStream(), authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		Scope: "gru", CandidateID: "0000000000S9GTF4XKZB00HRAT", Replicas: 1,
 	})
 	if err != nil {

@@ -109,19 +109,19 @@ func managedImageVerifierFromFiles(controller ControllerConfig) func(context.Con
 		if err != nil {
 			return nil, fmt.Errorf("read managed host image delegation: %w", err)
 		}
-		baked, err := bootstrapstart.LoadBakedInputs()
+		accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 		if err != nil {
-			return nil, fmt.Errorf("load baked image trust roots: %w", err)
+			return nil, err
 		}
-		marker, err := bootstrapstart.NewMarkerStore().Read()
+		if err := bootstrapstart.CheckIdentityRekeyPrestart(accepted); err != nil {
+			return nil, err
+		}
+		inputs, err := bootstrapstart.LoadTrustInputs(accepted)
 		if err != nil {
-			return nil, fmt.Errorf("read accepted image install: %w", err)
+			return nil, err
 		}
-		if marker.DeploymentID != baked.Identity.DeploymentID || marker.Cell != string(baked.Identity.Cell) {
-			return nil, errors.New("accepted install differs from baked root scope")
-		}
-		proof, err := independentManagedImageProof(region, baked.Identity.Cell, baked.Identity.Environment,
-			baked.Roots, receiptWire, delegationWire, time.Now().Round(0).UTC())
+		proof, err := independentManagedImageProof(region, oci.Region(accepted.Cell), accepted.Environment,
+			inputs.Roots.Current, receiptWire, delegationWire, time.Now().Round(0).UTC())
 		if err != nil {
 			return nil, err
 		}
@@ -161,37 +161,29 @@ func independentManagedImageProof(region oci.RegionConfig, cell oci.Region, envi
 	}, nil
 }
 
-// The accepted slot ledger is the source of the release image proof. The
-// marker alone carries only digests and never grants a new cloud operation.
+// An accepted installation pins its existing image; future launches still
+// require independent current qualification and exact OCI readback.
 func newManagedImageVerifier(ctx context.Context, region oci.RegionConfig) (*managedImageVerifier, error) {
-	baked, err := bootstrapstart.LoadBakedInputs()
-	if err != nil {
-		return nil, fmt.Errorf("load baked image trust roots: %w", err)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	marker, err := bootstrapstart.NewMarkerStore().Read()
-	if err != nil {
-		return nil, fmt.Errorf("read accepted image install: %w", err)
-	}
-	anchorWire, err := trust.DecodeEnvelope(baked.AnchorWire)
-	if err != nil {
-		return nil, fmt.Errorf("decode baked image anchor: %w", err)
-	}
-	anchor, err := bootstrap.VerifyHistoricalBootstrapAnchor(anchorWire, baked.Roots,
-		baked.Identity.AnchorExpectation(), marker.AcceptedAt, bootstrap.BootstrapAnchorTrustPolicy())
-	if err != nil {
-		return nil, fmt.Errorf("verify accepted image anchor: %w", err)
-	}
-	if anchor.Digest() != marker.AnchorSHA256 {
-		return nil, errors.New("accepted image anchor differs from install marker")
-	}
-	ledger, err := (bootstrapstart.InstancePrincipalLedgerOpener{}).OpenHistoricalLedger(ctx, anchor, baked.Roots)
-	if err != nil {
-		return nil, fmt.Errorf("open accepted image slot: %w", err)
-	}
-	proof, err := acceptedManagedImageProof(ctx, region, baked, marker, anchor, ledger)
+	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return nil, err
 	}
+	inputs, err := bootstrapstart.LoadTrustInputs(accepted)
+	if err != nil {
+		return nil, err
+	}
+	receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(accepted)
+	if err != nil {
+		return nil, err
+	}
+	proof, err := acceptedManagedImageProof(region, accepted, inputs.Roots.Historical, receipt, delegation)
+	if err != nil {
+		return nil, err
+	}
+	proof.roots = inputs.Roots.Current
 	if proof.images, err = newManagedImageReadback(region); err != nil {
 		return nil, err
 	}
@@ -219,67 +211,16 @@ func newManagedImageReadback(region oci.RegionConfig) (managedImageReadback, err
 	return &compute, nil
 }
 
-func acceptedManagedImageProof(ctx context.Context, region oci.RegionConfig, baked bootstrapstart.BakedInputs,
-	marker bootstrapstart.AcceptedInstall, anchor bootstrap.HistoricalBootstrapAnchor,
-	ledger bootstrapstart.SlotReader,
+func acceptedManagedImageProof(region oci.RegionConfig, accepted bootstrapstart.AcceptedIdentity,
+	roots trust.Keyring, receipt, delegation []byte,
 ) (*managedImageVerifier, error) {
-	if ledger == nil || marker.DeploymentID != baked.Identity.DeploymentID ||
-		marker.Cell != string(baked.Identity.Cell) || region.Region != baked.Identity.Cell ||
-		region.ImageID != marker.ImageOCID || anchor.Digest() != marker.AnchorSHA256 {
-		return nil, errors.New("managed image differs from accepted controller image and root scope")
-	}
-	architecture, err := imageArchitectureForShape(region.Shape)
-	if err != nil {
+	if err := accepted.Validate(); err != nil {
 		return nil, err
 	}
-	state, err := ledger.ReadSlot(ctx, bootstrap.BootstrapScope{
-		DeploymentID: marker.DeploymentID, Cell: marker.Cell, Slot: marker.Slot,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("read accepted controller image ledger: %w", err)
+	if region.Region != oci.Region(accepted.Cell) {
+		return nil, errors.New("managed image belongs to another accepted region")
 	}
-	if state.ManifestRecord == nil || state.ManifestRecord.SHA256 != marker.ManifestSHA256 ||
-		state.Head.Attempt != marker.HeadAttempt || state.Head.Generation != marker.HeadGeneration ||
-		state.Head.ResultDigest != marker.ResultSHA256 || state.Intent.ImageOCID != marker.ImageOCID ||
-		state.Intent.ManifestDigest != marker.ManifestSHA256 ||
-		state.Intent.ReleaseReceiptDigest != marker.ImageReceiptSHA256 ||
-		state.Result == nil || state.ResultRecord == nil || state.ResultRecord.SHA256 != marker.ResultSHA256 ||
-		state.Result.InstanceOCID != marker.InstanceOCID {
-		return nil, errors.New("accepted controller image ledger does not match install marker")
-	}
-	anchored := anchor.Anchor()
-	expected := bootstrap.ManifestExpectation{
-		DeploymentID: anchored.DeploymentID, Environment: anchored.Environment,
-		ClusterID: anchored.ClusterID, Cell: anchored.Cell, Slot: marker.Slot,
-		ImageOCID: marker.ImageOCID, StorageDomain: anchored.StorageDomain,
-		ControllerSlots:  slices.Clone(anchored.ControllerSlots),
-		IntentGeneration: anchored.InitialRegionIntentGeneration,
-		IntentSHA256:     anchored.InitialRegionIntentSHA256,
-	}
-	manifestWire, err := trust.DecodeEnvelope(state.ManifestRecord.Bytes)
-	if err != nil {
-		return nil, fmt.Errorf("decode accepted image manifest: %w", err)
-	}
-	manifest, err := bootstrap.VerifyHistoricalManifest(manifestWire, baked.Roots,
-		expected, bootstrap.ManifestTrustPolicy())
-	if err != nil {
-		return nil, fmt.Errorf("verify accepted image manifest: %w", err)
-	}
-	if manifest.Digest() != marker.ManifestSHA256 ||
-		marker.AcceptedAt.Before(manifestWire.IssuedAt) || !marker.AcceptedAt.Before(manifestWire.ExpiresAt) {
-		return nil, errors.New("accepted image manifest differs from install marker")
-	}
-	payload := manifest.Manifest()
-	if payload.ReleaseReceiptSHA256 != marker.ImageReceiptSHA256 ||
-		digestManagedImageWire(payload.ReleaseImageReceiptWire) != marker.ImageReceiptSHA256 ||
-		payload.ImageOCID != region.ImageID || payload.ImageArchitecture != "linux-"+architecture {
-		return nil, errors.New("accepted manifest image proof differs from managed image")
-	}
-	return &managedImageVerifier{
-		region: region, environment: baked.Identity.Environment, architecture: architecture,
-		roots: baked.Roots, receiptWire: payload.ReleaseImageReceiptWire,
-		delegationWire: payload.ReleaseDelegationWire, now: time.Now,
-	}, nil
+	return independentManagedImageProof(region, oci.Region(accepted.Cell), accepted.Environment, roots, receipt, delegation, accepted.AcceptedAt)
 }
 
 func (verifier *managedImageVerifier) hostImageSnapshot() hostImageSnapshot {

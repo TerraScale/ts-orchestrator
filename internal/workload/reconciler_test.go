@@ -134,7 +134,7 @@ type fakeFencer struct {
 }
 
 func (f *fakeFencer) Current() authority.Snapshot {
-	return authority.Snapshot{Leader: f.leader, Ready: true, Epoch: f.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
+	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: f.leader, Ready: true, Epoch: f.epoch, Revision: 1, ExpiresAt: time.Now().Add(time.Minute)}
 }
 
 func (f *fakeFencer) Guard(context.Context, uint64) error {

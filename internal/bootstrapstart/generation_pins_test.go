@@ -3,6 +3,7 @@ package bootstrapstart
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -29,6 +31,8 @@ type generationInstall struct {
 	t          *testing.T
 	dir        string
 	manifest   bootstrap.Manifest
+	accepted   AcceptedIdentity
+	configPath string
 	credential LiveCredentials
 	material   generationtest.Material
 	roots      trust.Keyring
@@ -39,8 +43,110 @@ type generationInstall struct {
 	loaded []byte
 }
 
-// acceptedManifest is the digest of the install's accepted manifest.
-var acceptedManifest = digest([]byte("accepted manifest"))
+func TestAcceptedMaterialBaselineSurvivesSubsequentRenewal(t *testing.T) {
+	install := newGenerationInstall(t)
+	first, files := install.signedGeneration()
+	chain, err := bootstrap.DecodeMaterialGenerationChain(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := trust.Fingerprint(chain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := bootstrap.MaterialGenerationPayload(chain[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	install.accepted.Broker.AccountSigner = generation.AccountSigner
+	refs := materialReferences(install.accepted, nil)
+	for _, ref := range generation.Secrets {
+		refs[ref.TargetFile] = ref
+	}
+	install.accepted.MaterialReferences = nil
+	for _, ref := range refs {
+		install.accepted.MaterialReferences = append(install.accepted.MaterialReferences, ref)
+	}
+	install.accepted.MaterialGenerationSHA256 = baseline
+	if err := install.accepted.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	store := install.store()
+	if err := store.AdoptGeneration(install.target(), install.roots, first, files, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := install.verify(pinnedIP); err != nil {
+		t.Fatal(err)
+	}
+	next, err := bootstrap.SignMaterialGeneration(install.material.Generation(install.expected, 2, baseline), time.Now().Add(-30*time.Second), time.Now().AddDate(0, 6, 0), install.rootKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	both, err := bootstrap.EncodeMaterialGenerationChain(append(chain, next))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AdoptGeneration(install.target(), install.roots, both, files, nil, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	install.renew(bootstrapmaterial.ControllerLeafIdentity("gru", "controller-a", pinnedIP))
+	if err := install.verify(pinnedIP); err != nil {
+		t.Fatalf("legitimate subsequent renewal: %v", err)
+	}
+	if install.accepted.MaterialGenerationSHA256 != baseline {
+		t.Fatal("renewal changed accepted baseline")
+	}
+	if _, err := store.RestartPins(install.accepted, install.roots); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"missing", "foreign baseline"} {
+		accepted := install.accepted.Clone()
+		if bad == "missing" {
+			if err := os.Remove(filepath.Join(install.dir, MaterialGenerationsFile)); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			install.write(MaterialGenerationsFile, both)
+			accepted.MaterialGenerationSHA256 = digest([]byte("another baseline"))
+		}
+		if _, err := store.RestartPins(accepted, install.roots); err == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+}
+
+func TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline(t *testing.T) {
+	install := newGenerationInstall(t)
+	install.adopt(install.material, install.expected, install.rootKey)
+	pins, err := install.store().RestartPins(install.accepted, install.roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"references", "config", "generation"} {
+		accepted := install.accepted.Clone()
+		switch field {
+		case "references":
+			for i := range accepted.MaterialReferences {
+				if accepted.MaterialReferences[i].TargetFile == "ticket.key" {
+					accepted.MaterialReferences[i].SHA256 = digest([]byte("new ticket"))
+				}
+			}
+		case "config":
+			accepted.ConfigSHA256["controller.json"] = digest([]byte("new baseline config"))
+		case "generation":
+			accepted.MaterialGenerationSHA256 = digest([]byte("new baseline generation"))
+		}
+		if acceptance, err := accepted.AcceptanceSHA256(); err != nil || acceptance != pins.acceptance {
+			t.Fatalf("acyclic binding changed for %s: %v", field, err)
+		}
+		if err := install.store().VerifyRestart(t.Context(), accepted, pins); err == nil {
+			t.Fatalf("reused material pins after %s changed", field)
+		}
+		if err := install.credential.VerifyLiveCredentials(t.Context(), pins, accepted); err == nil {
+			t.Fatalf("reused live pins after %s changed", field)
+		}
+	}
+}
 
 func newGenerationInstall(t *testing.T) *generationInstall {
 	t.Helper()
@@ -70,7 +176,7 @@ func newGenerationInstall(t *testing.T) *generationInstall {
 		"ca.pem": bootstrap.SecretRegionalShared, "operator.jwt": bootstrap.SecretRegionalShared,
 		"system.jwt": bootstrap.SecretRegionalShared, "cell.jwt": bootstrap.SecretRegionalShared,
 		"system.creds": bootstrap.SecretRegionalShared, "ticket.pub": bootstrap.SecretRegionalShared,
-		"ticket.key": bootstrap.SecretRegionalShared, "host-nats-issuer.seed": bootstrap.SecretHostIssuer,
+		"ticket.key": bootstrap.SecretRegionalShared, "route-password": bootstrap.SecretRegionalShared, "host-nats-issuer.seed": bootstrap.SecretHostIssuer,
 		"host-tls-issuer-key.pem": bootstrap.SecretHostIssuer, "host-tls-issuer-cert.pem": bootstrap.SecretHostIssuer,
 		"controller-a.creds": bootstrap.SecretController, "controller-a-tls-cert.pem": bootstrap.SecretController,
 		"controller-a-tls-key.pem": bootstrap.SecretController, "controller-a-response.key": bootstrap.SecretController,
@@ -81,7 +187,7 @@ func newGenerationInstall(t *testing.T) *generationInstall {
 			content = creds
 		}
 		install.write(name, content)
-		reference := bootstrap.SecretReference{Purpose: purpose, TargetFile: name, SHA256: digest(content)}
+		reference := bootstrap.SecretReference{Purpose: purpose, TargetFile: name, SHA256: digest(content), SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.baseline-" + strings.ReplaceAll(name, ".", "-"), VersionNumber: 1, MaxBytes: bootstrap.MaxSecretBytes}
 		if purpose == bootstrap.SecretController {
 			reference.Slot = "controller-a"
 		}
@@ -99,7 +205,26 @@ func newGenerationInstall(t *testing.T) *generationInstall {
 		ResponseKeyFile: path("controller-a-response.key"), BrokerTicketKeyFile: path("ticket.key"),
 		HostNATSIssuerSeedFile: path("host-nats-issuer.seed"), HostTLSIssuerKeyFile: path("host-tls-issuer-key.pem"),
 		HostTLSIssuerCertFile: path("host-tls-issuer-cert.pem"), ValidateControllerKeys: func() error { return nil },
-		directory: dir, allowUnsafeAncestors: true}
+		directory: dir, allowUnsafeAncestors: true, ControllerConfig: []byte(oldConfig)}
+	install.accepted = acceptedIdentityFixture(t)
+	install.accepted.DeploymentID = install.expected.DeploymentID
+	install.accepted.ClusterID = install.expected.ClusterID
+	install.accepted.Environment = install.expected.Environment
+	install.accepted.PrimaryPrivateIP = pinnedIP
+	install.accepted.MaterialReferences = install.manifest.Secrets
+	install.accepted.Broker = identityrekey.BrokerIdentity{Operator: install.material.OperatorID,
+		SystemAccount: install.material.SystemID, CellAccount: install.material.CellID,
+		HostSigner: install.material.HostSignerID, RoleSigner: install.material.RoleSignerID}
+	install.accepted.ConfigSHA256["controller.json"] = digest([]byte(oldConfig))
+	install.accepted.ControllerBindings = []ControllerBinding{install.accepted.localBinding()}
+	if err := install.accepted.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	install.configPath = filepath.Join(t.TempDir(), "controller.json")
+	if err := os.WriteFile(install.configPath, []byte(oldConfig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	install.credential.Config.Embedded.RoutePasswordFile = path("route-password")
 	return install
 }
 
@@ -121,6 +246,24 @@ func (install *generationInstall) read(name string) []byte {
 		install.t.Fatal(err)
 	}
 	return content
+}
+
+func (install *generationInstall) acceptance() string {
+	install.t.Helper()
+	value, err := install.accepted.AcceptanceSHA256()
+	if err != nil {
+		install.t.Fatal(err)
+	}
+	return value
+}
+
+func (install *generationInstall) target() GenerationTarget {
+	install.t.Helper()
+	target, err := generationTarget(install.accepted)
+	if err != nil {
+		install.t.Fatal(err)
+	}
+	return target
 }
 
 // adopt installs the generation's files and its chain, signed by key.
@@ -150,15 +293,19 @@ func (install *generationInstall) verify(privateIP string) error {
 		return err
 	}
 	defer unix.Close(dir)
-	pins, err := restartPins(dir, uint32(os.Getuid()), uint32(os.Getgid()), install.manifest, install.roots, privateIP)
+	accepted := install.accepted.Clone()
+	accepted.PrimaryPrivateIP = privateIP
+	accepted.ControllerBindings = []ControllerBinding{accepted.localBinding()}
+	pins, err := restartPins(dir, uint32(os.Getuid()), uint32(os.Getgid()), accepted, install.roots)
 	if err != nil {
 		return err
 	}
 	if install.loaded != nil {
-		gate := Gate{LoadedControllerConfigSHA256: digest(install.loaded), LoadedControllerConfig: install.loaded}
-		if err := gate.restartConfig(&pins, install.manifest, acceptedManifest); err != nil {
-			return err
+		want, err := pins.controllerConfigSHA256(accepted)
+		if err != nil || want != digest(install.loaded) {
+			return fmt.Errorf("loaded controller config differs from acceptance: %v", err)
 		}
+		pins.config = install.loaded
 	}
 	store := MaterialStore{installedDirectory: install.dir, serviceUID: uint32(os.Getuid()),
 		serviceGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
@@ -168,7 +315,7 @@ func (install *generationInstall) verify(privateIP string) error {
 	if err := pins.verifyGeneration(dir, uint32(os.Getuid()), uint32(os.Getgid()), time.Now()); err != nil {
 		return err
 	}
-	if err := install.credential.verifyPaths(pins, install.manifest); err != nil {
+	if err := install.credential.verifyPaths(pins, accepted.Slot, accepted.SeedSlot, accepted.MaterialReferences); err != nil {
 		return err
 	}
 	return install.credential.verifyInventory(pins)
@@ -282,52 +429,7 @@ func TestRestartPinsRefuseUntrustedOrStaleMaterial(t *testing.T) {
 	}
 }
 
-// Install continuity binds the adopted generation, not the slot's issued
-// files: renewal keeps the bound, an expired generation or a foreign leaf
-// has none.
-func TestCredentialBoundFollowsTheAdoptedGeneration(t *testing.T) {
-	install := newGenerationInstall(t)
-	install.adopt(install.material, install.expected, install.rootKey)
-	materials := expectedMaterials(install.manifest, install.manifest.Slot)
-	bound, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots, pinnedIP)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, _ := os.ReadFile(filepath.Join(install.dir, MaterialGenerationsFile))
-	chain, _ := bootstrap.DecodeMaterialGenerationChain(wire)
-	fingerprint, _ := trust.Fingerprint(chain[0])
-	want, _ := bootstrap.InstallContinuityGenerationDigest(fingerprint)
-	if bound.SHA256 != want || bound.Generation != fingerprint || !bound.ValidUntil.Equal(chain[0].ExpiresAt) {
-		t.Fatalf("bound = %+v, want the generation %s until %s", bound, fingerprint, chain[0].ExpiresAt)
-	}
-	install.renew(bootstrapmaterial.ControllerLeafIdentity("gru", "controller-a", pinnedIP))
-	if renewed, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots,
-		pinnedIP); err != nil || renewed != bound {
-		t.Fatalf("renewal changed the bound: %+v, %v", renewed, err)
-	}
-	install.renew(bootstrapmaterial.ControllerLeafIdentity("gru", "controller-b", pinnedIP))
-	if _, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots, pinnedIP); err == nil {
-		t.Fatal("another slot's leaf was bound")
-	}
-
-	expired := newGenerationInstall(t)
-	for name := range bootstrap.MaterialGenerationFiles() {
-		expired.write(name, expired.material.Files[name])
-	}
-	envelope, err := bootstrap.SignMaterialGeneration(expired.material.Generation(expired.expected, 1, ""),
-		time.Now().Add(-2*time.Hour), time.Now().Add(-time.Hour), expired.rootKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wire, _ = bootstrap.EncodeMaterialGenerationChain([]trust.Envelope{envelope})
-	expired.write(MaterialGenerationsFile, wire)
-	if _, err := expired.credential.CurrentCredentialBound(expectedMaterials(expired.manifest, "controller-a"),
-		expired.manifest, expired.roots, pinnedIP); err == nil {
-		t.Fatal("an expired generation was bound")
-	}
-}
-
-// adoptInterRegion installs gru-1's schema-2 shape for controller-a: no
+// adoptInterRegion installs gru-1's v1 shape for controller-a: no
 // controller issuers, the role signer and the interregion files, every
 // slot's new controller config bound to manifestSHA256. It holds only
 // controller-a's leaf TLS, gives the live credential check that slot's
@@ -335,10 +437,13 @@ func TestCredentialBoundFollowsTheAdoptedGeneration(t *testing.T) {
 func (install *generationInstall) adoptInterRegion(manifestSHA256 string) (generationtest.Material, []byte) {
 	t := install.t
 	t.Helper()
-	material := install.material.SchemaTwo(t).WithoutIssuers(t).InterRegion(t, time.Now(), install.expected.ControllerSlots)
+	material := install.material.WithoutIssuers(t).InterRegion(t, time.Now(), install.expected.ControllerSlots)
 	generation := material.Generation(install.expected, 1, "")
 	for index := range generation.ControllerConfigs {
-		generation.ControllerConfigs[index].ManifestSHA256 = manifestSHA256
+		generation.ControllerConfigs[index].AcceptanceSHA256 = install.acceptance()
+		if manifestSHA256 != "" {
+			generation.ControllerConfigs[index].AcceptanceSHA256 = manifestSHA256
+		}
 	}
 	for _, secret := range generation.Secrets {
 		if secret.Slot == "" || secret.Slot == "controller-a" {
@@ -373,13 +478,13 @@ func interRegionBlock(t *testing.T, config []byte, dir string) *natscell.InterRe
 	return loaded.NATS.Embedded.InterRegion
 }
 
-// Schema 2 as gru-1 and sfo-1 adopt it (TS-668). Without controller issuers
+// The v1 contract as gru-1 and sfo-1 adopt it (TS-668). Without controller issuers
 // nothing is issued: the slot's manifest-era leaf (placeholder bytes no
 // issuance rule accepts) keeps its manifest pin, and no issuer file is read,
 // since none is installed. The interregion files have their role in the
 // loaded config, which must be the generation's config for the slot, bound
 // to the accepted manifest. A controller holds only its own leaf TLS.
-func TestRestartPinsAdoptSchemaTwoInterRegion(t *testing.T) {
+func TestRestartPinsAdoptWithRoleSignerInterRegion(t *testing.T) {
 	old := []byte(`{"nats":{},"controller":{}}`)
 	newInstall := func(manifestSHA256 string) (*generationInstall, generationtest.Material, []byte) {
 		install := newGenerationInstall(t)
@@ -388,28 +493,20 @@ func TestRestartPinsAdoptSchemaTwoInterRegion(t *testing.T) {
 		install.loaded = config
 		return install, material, config
 	}
-	install, _, config := newInstall(acceptedManifest)
+	install, _, config := newInstall("")
 	if err := install.verify(pinnedIP); err != nil {
 		t.Fatalf("the generation's config and files: %v", err)
 	}
 	store := MaterialStore{installedDirectory: install.dir, serviceUID: uint32(os.Getuid()),
 		serviceGID: uint32(os.Getgid()), allowUnsafeAncestors: true}
-	if want, err := store.ControllerConfigSHA256(install.manifest, acceptedManifest, install.roots); err != nil ||
+	if want, err := store.ControllerConfigSHA256(install.accepted, install.roots); err != nil ||
 		want != digest(config) {
 		t.Fatalf("expected config digest = %s, %v; want the generation's", want, err)
 	}
-	if _, err := store.ControllerConfigSHA256(install.manifest, digest([]byte("another manifest")), install.roots); err == nil {
+	otherAcceptance := install.accepted.Clone()
+	otherAcceptance.OperationID = "00000000000ZGTG9F4ZD9XG0T1"
+	if _, err := store.ControllerConfigSHA256(otherAcceptance, install.roots); err == nil {
 		t.Fatal("a config bound to another manifest was expected")
-	}
-	materials := expectedMaterials(install.manifest, "controller-a")
-	install.credential.ControllerConfig = config
-	if bound, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots,
-		pinnedIP); err != nil || bound.Generation == "" {
-		t.Fatalf("continuity bound = %+v, %v; want the generation", bound, err)
-	}
-	install.credential.ControllerConfig = nil
-	if _, err := install.credential.CurrentCredentialBound(materials, install.manifest, install.roots, pinnedIP); err == nil {
-		t.Fatal("continuity bound the generation without the loaded config")
 	}
 
 	certA, keyA := bootstrap.InterRegionTLSFiles("controller-a")
@@ -444,7 +541,7 @@ func TestRestartPinsAdoptSchemaTwoInterRegion(t *testing.T) {
 			install.credential.Config.Embedded.InterRegion.AccountJWTFile = filepath.Join(t.TempDir(), "interregion.jwt")
 		},
 	} {
-		install, material, _ := newInstall(acceptedManifest)
+		install, material, _ := newInstall("")
 		change(install, material)
 		if err := install.verify(pinnedIP); err == nil {
 			t.Errorf("accepted %s", name)

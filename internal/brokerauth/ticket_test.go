@@ -57,9 +57,9 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	finish := time.Now().Add(-100 * time.Millisecond)
 	start := finish.Add(-30 * time.Millisecond)
 	claim := Claim{Cell: "gru", Account: "account-a", Sequence: 11, Hash: "exact-hash", JWT: "exact-jwt", Epoch: 2}
-	lease := authority.Snapshot{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", Ready: true, Epoch: 2, Revision: 22,
+	lease := authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", Ready: true, Epoch: 2, Revision: 22,
 		ExpiresAt: finish.Add(8 * time.Second)}
-	ticket := Ticket{TicketRequest: request, Epoch: 2, LeaseRevision: 22, ClaimSequence: 11,
+	ticket := Ticket{TicketRequest: request, DeploymentID: lease.DeploymentID, Epoch: 2, LeaseRevision: 22, ClaimSequence: 11,
 		ClaimHash: claim.Hash, ClaimJWT: claim.JWT, IssuedAt: start.UTC(),
 		ExpiresAt: start.Add(5 * time.Second).UTC(), LeaseExpiresAt: lease.ExpiresAt.UTC(),
 		IssuerClockErrorNanos: int64(20 * time.Millisecond)}
@@ -96,7 +96,7 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 		{"stale clock", sign(ticket), request, ClockBound{SampledAt: finish.Add(-2 * time.Second), MaxError: 20 * time.Millisecond}, claim, lease, finish},
 		{"clock error too large", sign(ticket), request, ClockBound{SampledAt: finish, MaxError: MaxClockError + time.Millisecond}, claim, lease, finish},
 		{"slow reply", sign(ticket), request, bound, claim, lease, start.Add(MaxTicketRoundTrip + time.Millisecond)},
-		{"new epoch", sign(ticket), request, bound, claim, authority.Snapshot{Scope: "gru", Ready: true, Epoch: 3, Revision: 23, ExpiresAt: lease.ExpiresAt}, finish},
+		{"new epoch", sign(ticket), request, bound, claim, authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", Ready: true, Epoch: 3, Revision: 23, ExpiresAt: lease.ExpiresAt}, finish},
 		// A revocation commits the next claim. A ticket the leader signed
 		// for the pre-revocation claim must not admit the broker, even within
 		// its lifetime and the same authority epoch.
@@ -113,6 +113,13 @@ func TestTicketBindsDurableClaimBrokerNonceAndMonotonicDeadline(t *testing.T) {
 	bad.Signature[0] ^= 1
 	if _, _, err := VerifyTicket(bad, public, request, start, finish, bound, claim, lease); err == nil {
 		t.Fatal("tampered ticket was accepted")
+	}
+	for _, deploymentID := range []string{"", "legacy-deployment", "01ARZ3NDEKTSV4RRFFQ69G5FAW"} {
+		foreign := ticket
+		foreign.DeploymentID = deploymentID
+		if _, _, err := VerifyTicket(sign(foreign), public, request, start, finish, bound, claim, lease); err == nil {
+			t.Fatalf("ticket for deployment %q was accepted", deploymentID)
+		}
 	}
 	late := ticket
 	late.ExpiresAt = lease.ExpiresAt.Add(time.Millisecond)
@@ -161,7 +168,7 @@ func TestDelayedIssuerCannotSignAfterLeaderLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 	fencer := &pausedTicketFencer{entered: make(chan struct{}), release: make(chan struct{}),
-		snapshot: authority.Snapshot{Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", OwnerID: "0000000000WG6WAQW746KJBD69", Ready: true, Leader: true,
+		snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: "gru", CandidateID: "0000000000FHEQV98X4ASD7RXW", OwnerID: "0000000000WG6WAQW746KJBD69", Ready: true, Leader: true,
 			Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(5 * time.Second)}}
 	issuer := Issuer{Store: &Store{cell: "gru", fencer: fencer}, Account: "account-a",
 		Brokers: map[string]struct{}{"broker-a": {}}, Key: private, Clock: healthyTicketClock{}}

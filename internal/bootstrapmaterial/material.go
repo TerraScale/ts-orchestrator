@@ -67,29 +67,7 @@ type Config struct {
 	SubnetCIDR    string `json:"subnetCidr"`
 	Slots         []Slot `json:"slots"`
 	ValidityHours int    `json:"validityHours"`
-	// GlobalHome issues the controller credentials of the global home region:
-	// they also publish the global authority and global state subjects
-	// (natscell.GlobalControllerPublishes). Every other region leaves it off.
-	// Material is immutable, so turning it on means issuing new material and
-	// rotating the controllers onto it before enabling controller.global.
-	GlobalHome bool `json:"globalHome,omitempty"`
-	// GrantVersion is the controller grant set the material issues. Zero
-	// (or GrantVersionBase) issues today's grants. GrantVersionObservability
-	// adds the subscribe grant ts.orch.v1.<cell>.obs.>, which the read-only
-	// cell-wide telemetry responders need. Material is immutable: raising it
-	// means issuing new material and rotating the controllers onto it.
-	GrantVersion int `json:"grantVersion,omitempty"`
 }
-
-// Controller grant versions.
-const (
-	GrantVersionBase          = 1
-	GrantVersionObservability = 2
-)
-
-// observabilityGrant reports that the material grants controllers the
-// read-only telemetry subscriptions.
-func (cfg Config) observabilityGrant() bool { return cfg.GrantVersion >= GrantVersionObservability }
 
 type File struct {
 	Name     string                  `json:"name"`
@@ -137,7 +115,7 @@ func (cfg Config) validate() error {
 		!entityid.Valid(cfg.DeploymentID) ||
 		!entityid.Valid(cfg.ClusterID) ||
 		cfg.ValidityHours < int(minValidity.Hours()) || cfg.ValidityHours > int(MaxValidity.Hours()) ||
-		len(cfg.Slots) != 3 || cfg.GrantVersion < 0 || cfg.GrantVersion > GrantVersionObservability {
+		len(cfg.Slots) != 3 {
 		return ErrMaterial
 	}
 	prefix, err := netip.ParsePrefix(cfg.SubnetCIDR)
@@ -240,7 +218,7 @@ func Load(directory string) (Record, error) {
 		return Record{}, ErrMaterial
 	}
 	var record Record
-	if err := json.Unmarshal(metadata, &record); err != nil || record.SchemaVersion != 1 ||
+	if err := json.Unmarshal(metadata, &record, json.RejectUnknownMembers(true)); err != nil || record.SchemaVersion != 1 ||
 		record.Config.validate() != nil ||
 		len(record.Files) != len(expectedNames())+len(memberCANames)*boolInt(record.HasMemberCA()) ||
 		record.ExpiresAt.Sub(record.IssuedAt) != time.Duration(record.Config.ValidityHours)*time.Hour {
@@ -302,8 +280,7 @@ func Load(directory string) (Record, error) {
 
 func sameConfig(a, b Config) bool {
 	return a.Environment == b.Environment && a.Region == b.Region && a.Cell == b.Cell && a.DeploymentID == b.DeploymentID && a.ClusterID == b.ClusterID &&
-		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots) &&
-		a.GlobalHome == b.GlobalHome && max(a.GrantVersion, GrantVersionBase) == max(b.GrantVersion, GrantVersionBase)
+		a.SubnetCIDR == b.SubnetCIDR && a.ValidityHours == b.ValidityHours && slices.Equal(a.Slots, b.Slots)
 }
 
 // memberCANames are the cell's C# TerraBase member CA. Generate always
@@ -518,16 +495,12 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim := jwt.NewUserClaims(userID)
 		claim.IssuerAccount = cellID
 		claim.IssuedAt, claim.Expires = now.Unix(), expires.Unix()
-		claim.Pub.Allow = jwt.StringList{protocol.Regional(cfg.Cell, ">"), protocol.Control(cfg.Cell, ">"), "$JS.API.>", "$KV.>", "$O.>",
-			protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", ">")}
-		if cfg.GlobalHome {
-			claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
-		}
+		claim.Pub.Allow = natscell.ControllerPublishes(cfg.Cell)
+		// Fresh material has no link topology: the standalone cell is its own home.
+		claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
 		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
-		if cfg.observabilityGrant() {
-			claim.Sub.Allow.Add(protocol.ObservabilityGrant(cfg.Cell))
-		}
+		claim.Sub.Allow.Add(protocol.ObservabilityGrant(cfg.Cell))
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
 		user.Wipe()
