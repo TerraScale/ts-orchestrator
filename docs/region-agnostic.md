@@ -157,7 +157,8 @@ Slice: deploy targets.
 
 - The home's global leader publishes the roster to Atlas every 10 s with the
   Vault publish key; `release deploy` keeps discovering serving cells from
-  Atlas `/v1/discovery`. Publishing is always on.
+  Atlas `/v1/discovery`. Publishing is always on. Atlas lists the roster's
+  regions; the spec's `atlas.regions` only overrides display details.
 - A cell token is the OCI short region code (legacy alias `sfo` for
   `us-sanjose-1`) and maps to its OCI region through the OCI SDK's region
   table (`common.StringToRegion`), not a compiled allowlist, so any OCI region

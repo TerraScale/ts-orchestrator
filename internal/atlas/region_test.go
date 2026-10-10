@@ -81,3 +81,47 @@ func TestAddRegionRefusesConflictsAndUnknownCells(t *testing.T) {
 		}
 	}
 }
+
+// WithRegions lists exactly the roster, in catalog order, keeping the spec's
+// own entry for a region it already lists.
+func TestWithRegionsListsTheRosterAndKeepsSpecEntries(t *testing.T) {
+	gru := gruSection(t)
+	gru.Regions[0].Name = "Sao Paulo (reviewed)"
+	next, err := gru.WithRegions([]string{"sfo-1", "gru-1", "fra-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(ids(next), []string{"gru-1", "sfo-1", "fra-1"}) {
+		t.Fatalf("regions = %v", ids(next))
+	}
+	if next.Regions[0] != gru.Regions[0] {
+		t.Fatalf("spec entry replaced: %+v", next.Regions[0])
+	}
+	if want, _ := RegionFor("sfo-1"); next.Regions[1] != want {
+		t.Fatalf("derived sfo-1 = %+v", next.Regions[1])
+	}
+	if len(gru.Regions) != 1 {
+		t.Fatal("WithRegions changed its receiver's regions")
+	}
+	if err := next.Validate("gru"); err != nil {
+		t.Fatal(err)
+	}
+	if shrunk, err := next.WithRegions([]string{"gru-1"}); err != nil || !slices.Equal(ids(shrunk), []string{"gru-1"}) {
+		t.Fatalf("roster without sfo-1 and fra-1 = %v %v", ids(shrunk), err)
+	}
+}
+
+func TestRegionForAndWithRegionsRefuseBadCells(t *testing.T) {
+	gru := gruSection(t)
+	for _, cell := range []string{"xxx-1", "gru", "gru-0", "gru-01", "GRU-1", ""} {
+		if _, err := RegionFor(cell); err == nil {
+			t.Errorf("RegionFor(%q) was accepted", cell)
+		}
+		if _, err := gru.WithRegions([]string{"gru-1", cell}); err == nil {
+			t.Errorf("WithRegions with %q was accepted", cell)
+		}
+	}
+	if _, err := gru.WithRegions(nil); err == nil {
+		t.Error("an empty roster was accepted")
+	}
+}

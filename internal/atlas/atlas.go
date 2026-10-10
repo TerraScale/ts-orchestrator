@@ -6,6 +6,7 @@
 package atlas
 
 import (
+	"cmp"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -86,15 +87,11 @@ func (c Config) Validate(cell string) error {
 	if err := vaultsecret.ValidateRefs(cell, Role, map[string]vaultsecret.Ref{KeyName: c.PublishKey}, nil); err != nil {
 		return err
 	}
-	if len(c.Regions) == 0 || len(c.Regions) > 64 || len(c.Services) > 32 {
-		return errors.New("atlas needs 1 to 64 regions and at most 32 services")
+	if err := c.validateRegions(); err != nil {
+		return err
 	}
-	seen := map[string]bool{}
-	for _, region := range c.Regions {
-		if !regionID.MatchString(region.ID) || seen[region.ID] || !httpsURL(region.API) || !httpsURL(region.Auth) {
-			return fmt.Errorf("atlas region %q needs a unique region id and https api and auth origins", region.ID)
-		}
-		seen[region.ID] = true
+	if len(c.Services) > 32 {
+		return errors.New("atlas needs at most 32 services")
 	}
 	ids := map[string]bool{}
 	for _, service := range c.Services {
@@ -116,38 +113,89 @@ func (c Config) Validate(cell string) error {
 // added is false when cell is already listed exactly so; a different entry
 // for cell is refused.
 func (c Config) AddRegion(cell string) (next Config, added bool, err error) {
-	name, index, _ := strings.Cut(cell, "-")
-	entry, known := catalog.LookupName(name)
-	if n, err := strconv.Atoi(index); !known || err != nil || n < 1 || strconv.Itoa(n) != index {
-		return c, false, fmt.Errorf("cell %q is not <catalog region>-<n>, such as %s-1", cell, catalog.Names()[0])
+	region, err := RegionFor(cell)
+	if err != nil {
+		return c, false, err
 	}
-	region := Region{ID: cell, Name: entry.City, Country: entry.Country, Lat: entry.Latitude, Lon: entry.Longitude,
-		API: "https://" + name + ".api.terrascale.tech", Auth: "https://" + name + ".auth.terrascale.tech"}
 	if i := slices.IndexFunc(c.Regions, func(r Region) bool { return r.ID == cell }); i >= 0 {
 		if c.Regions[i] != region {
 			return c, false, fmt.Errorf("atlas already lists region %s as %+v, not the catalog's %+v", cell, c.Regions[i], region)
 		}
 		return c, false, nil
 	}
-	// Regions outside the catalog sort last; cells of one region by number.
-	order := func(r Region) (int, int) {
-		name, index, _ := strings.Cut(r.ID, "-")
-		n, _ := strconv.Atoi(index)
-		if i := slices.Index(catalog.Names(), name); i >= 0 {
-			return i, n
-		}
-		return catalog.Len, n
-	}
-	at := slices.IndexFunc(c.Regions, func(r Region) bool {
-		ri, rn := order(r)
-		ni, nn := order(region)
-		return ri > ni || ri == ni && rn > nn
-	})
+	at := slices.IndexFunc(c.Regions, func(r Region) bool { return compareCells(r.ID, cell) > 0 })
 	if at < 0 {
 		at = len(c.Regions)
 	}
 	c.Regions = slices.Insert(slices.Clone(c.Regions), at, region)
 	return c, true, nil
+}
+
+// WithRegions returns c listing exactly cells, in catalog order. A region
+// the spec already lists keeps its spec entry, which may carry reviewed
+// display details; any other cell is derived by RegionFor.
+func (c Config) WithRegions(cells []string) (Config, error) {
+	regions := make([]Region, 0, len(cells))
+	for _, cell := range cells {
+		if i := slices.IndexFunc(c.Regions, func(r Region) bool { return r.ID == cell }); i >= 0 {
+			regions = append(regions, c.Regions[i])
+			continue
+		}
+		region, err := RegionFor(cell)
+		if err != nil {
+			return c, err
+		}
+		regions = append(regions, region)
+	}
+	slices.SortStableFunc(regions, func(a, b Region) int { return compareCells(a.ID, b.ID) })
+	next := c
+	next.Regions = regions
+	return next, next.validateRegions()
+}
+
+// RegionFor returns the region entry the catalog describes for cell (gru-1),
+// with its regional API and auth origins.
+func RegionFor(cell string) (Region, error) {
+	name, index, _ := strings.Cut(cell, "-")
+	entry, known := catalog.LookupName(name)
+	if n, err := strconv.Atoi(index); !known || err != nil || n < 1 || strconv.Itoa(n) != index {
+		return Region{}, fmt.Errorf("cell %q is not <catalog region>-<n>, such as %s-1", cell, catalog.Names()[0])
+	}
+	return Region{ID: cell, Name: entry.City, Country: entry.Country, Lat: entry.Latitude, Lon: entry.Longitude,
+		API: "https://" + name + ".api.terrascale.tech", Auth: "https://" + name + ".auth.terrascale.tech"}, nil
+}
+
+// validateRegions is the region part of Validate, which WithRegions reuses
+// because it has no home cell to validate the rest against.
+func (c Config) validateRegions() error {
+	if len(c.Regions) == 0 || len(c.Regions) > 64 {
+		return errors.New("atlas needs 1 to 64 regions")
+	}
+	seen := map[string]bool{}
+	for _, region := range c.Regions {
+		if !regionID.MatchString(region.ID) || seen[region.ID] || !httpsURL(region.API) || !httpsURL(region.Auth) {
+			return fmt.Errorf("atlas region %q needs a unique region id and https api and auth origins", region.ID)
+		}
+		seen[region.ID] = true
+	}
+	return nil
+}
+
+// compareCells orders cells as the catalog does: by region, then by number.
+// Regions outside the catalog sort last.
+func compareCells(a, b string) int {
+	ai, an := cellOrder(a)
+	bi, bn := cellOrder(b)
+	return cmp.Or(cmp.Compare(ai, bi), cmp.Compare(an, bn))
+}
+
+func cellOrder(cell string) (int, int) {
+	name, index, _ := strings.Cut(cell, "-")
+	n, _ := strconv.Atoi(index)
+	if i := slices.Index(catalog.Names(), name); i >= 0 {
+		return i, n
+	}
+	return catalog.Len, n
 }
 
 func httpsURL(raw string) bool {

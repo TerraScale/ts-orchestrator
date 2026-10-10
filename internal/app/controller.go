@@ -958,7 +958,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	workers.Go(func() { workerErrors <- workloadReconciler.Run(runCtx) })
 	atlasPublisher := &atlas.Loop{Publisher: atlas.Publisher{HTTP: &http.Client{Timeout: atlas.Interval}},
-		Config: services.atlasConfig, Authority: control, LoadKey: atlas.VaultKey}
+		Config: atlasRoster(services.atlasConfig, cfg.NATS.Cell, peers), Authority: control, LoadKey: atlas.VaultKey}
 	workers.Go(func() { workerErrors <- atlasPublisher.Run(runCtx) })
 	workers.Go(func() { workerErrors <- services.Run(runCtx) })
 	workers.Go(func() { workerErrors <- nativeReleases.run(runCtx) })

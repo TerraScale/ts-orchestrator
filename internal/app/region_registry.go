@@ -10,8 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -213,6 +215,7 @@ func rosterPeersOf(roster globalcontrol.Roster, local string) []string {
 type rosterPeers struct {
 	mu          sync.Mutex
 	list        []string
+	known       bool // a roster has been read
 	subscribers []func([]string)
 }
 
@@ -220,7 +223,7 @@ type rosterPeers struct {
 func (peers *rosterPeers) apply(list []string) {
 	peers.mu.Lock()
 	defer peers.mu.Unlock()
-	peers.list = list
+	peers.list, peers.known = list, true
 	for _, subscriber := range peers.subscribers {
 		subscriber(list)
 	}
@@ -228,9 +231,15 @@ func (peers *rosterPeers) apply(list []string) {
 
 // current returns the peers as followRoster last applied them.
 func (peers *rosterPeers) current() []string {
+	list, _ := peers.read()
+	return list
+}
+
+// read returns the current peers and whether a roster has been read yet.
+func (peers *rosterPeers) read() ([]string, bool) {
 	peers.mu.Lock()
 	defer peers.mu.Unlock()
-	return slices.Clone(peers.list)
+	return slices.Clone(peers.list), peers.known
 }
 
 // follow offers the current peers to fn now, and every later change.
@@ -239,6 +248,40 @@ func (peers *rosterPeers) follow(fn func([]string)) {
 	defer peers.mu.Unlock()
 	peers.subscribers = append(peers.subscribers, fn)
 	fn(peers.list)
+}
+
+// atlasRoster is the Atlas loop's config: the spec's section with its regions
+// replaced by local and the roster peers, as Atlas region IDs (gru-1). Until
+// the first roster is read, and when the roster cannot be listed, it keeps the
+// spec's regions, so deploy targets never shrink at startup; each distinct
+// error is logged once.
+func atlasRoster(spec func() *atlas.Config, local string, peers *rosterPeers) func() *atlas.Config {
+	var logged string
+	return func() *atlas.Config {
+		config := spec()
+		peerCells, known := peers.read()
+		if config == nil || !known {
+			return config
+		}
+		var ids []string
+		for _, cell := range append([]string{local}, peerCells...) {
+			id, err := naming.RegionCell(cell).Name()
+			if err != nil {
+				return config
+			}
+			ids = append(ids, id)
+		}
+		next, err := config.WithRegions(ids)
+		if err != nil {
+			if message := err.Error(); message != logged {
+				slog.Warn("Atlas keeps the spec's regions: the roster cannot be listed", observability.ComponentKey, "atlas", "error", err)
+				logged = message
+			}
+			return config
+		}
+		logged = ""
+		return &next
+	}
 }
 
 // linkRoster keeps links connected to exactly the roster peers, over conn.
