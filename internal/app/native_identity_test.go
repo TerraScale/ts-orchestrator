@@ -16,6 +16,29 @@ import (
 // A chain pin bound to another acceptance must not admit the retained config,
 // even when the manifest and chain are validly signed.
 func TestNativeRetainedChainPinMustMatchAcceptedIdentity(t *testing.T) {
+	f, p := newRetainedChainFixture(t, false)
+	err := f.history.verifyProfile(terrabase.Role, nativeRegressionProfile(), p)
+	if err == nil || err.Error() != "retained material/config acceptance mismatch" {
+		t.Fatalf("chain pin bound to another acceptance: err = %v", err)
+	}
+}
+
+// A chain pin bound to the retained acceptance passes both identity checks.
+// The fixture config is not a full controller config, so verification stops at
+// config validation; reaching that step proves the pin and identity admitted it.
+func TestNativeRetainedChainPinAdmitsMatchingAcceptance(t *testing.T) {
+	f, p := newRetainedChainFixture(t, true)
+	err := f.history.verifyProfile(terrabase.Role, nativeRegressionProfile(), p)
+	if err == nil || err.Error() != "signed controller config does not match role, slot, or fixed paths" {
+		t.Fatalf("chain pin bound to the retained acceptance: err = %v", err)
+	}
+}
+
+// newRetainedChainFixture returns provenance whose manifest and material chain
+// are validly signed for controller-a. matchingPin binds the chain's controller-a
+// pin to the retained accepted identity instead of an unrelated digest.
+func newRetainedChainFixture(t *testing.T, matchingPin bool) (*retainedConsumerFixture, nativeProfileProvenance) {
+	t.Helper()
 	f := newRetainedConsumerFixture(t)
 	now := time.Now().UTC()
 	const slot = "controller-a"
@@ -57,10 +80,23 @@ func TestNativeRetainedChainPinMustMatchAcceptedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fixture pins controller-a to a digest that is not this install's acceptance.
+	accepted, _, _ := identityRekeyConfigFixture(t)
+	accepted.DeploymentID, accepted.Environment, accepted.Cell = identity.DeploymentID, identity.Environment, string(oci.RegionGRU)
+	identityWire, err := bootstrapstart.EncodeAcceptedIdentity(accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptance, err := accepted.AcceptanceSHA256()
+	if err != nil {
+		t.Fatal(err)
+	}
 	material := generationtest.New(t, now).WithoutIssuers(t).InterRegion(t, now, expected.ControllerSlots).
 		With(map[string][]byte{"controller-" + slot + ".json": config})
-	signed, err := bootstrap.SignMaterialGeneration(material.Generation(expected, 1, ""), now.Add(-time.Minute), now.AddDate(0, 6, 0), f.keys.root)
+	generation := material.Generation(expected, 1, "")
+	if matchingPin {
+		generation.ControllerConfigs[0].AcceptanceSHA256 = acceptance
+	}
+	signed, err := bootstrap.SignMaterialGeneration(generation, now.Add(-time.Minute), now.AddDate(0, 6, 0), f.keys.root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,15 +104,5 @@ func TestNativeRetainedChainPinMustMatchAcceptedIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted, _, _ := identityRekeyConfigFixture(t)
-	accepted.DeploymentID, accepted.Environment = identity.DeploymentID, identity.Environment
-	identityWire, err := bootstrapstart.EncodeAcceptedIdentity(accepted)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = f.history.verifyProfile(terrabase.Role, nativeRegressionProfile(), nativeProfileProvenance{
-		Manifest: manifestWire, Config: config, MaterialChain: chain, Identity: identityWire})
-	if err == nil || err.Error() != "retained material/config acceptance mismatch" {
-		t.Fatalf("chain pin bound to another acceptance: err = %v", err)
-	}
+	return f, nativeProfileProvenance{Manifest: manifestWire, Config: config, MaterialChain: chain, Identity: identityWire}
 }
