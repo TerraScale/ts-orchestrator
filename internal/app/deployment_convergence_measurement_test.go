@@ -84,7 +84,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true, CanPlaceTerraBase: true,
 	}
-	controllerConfig := Config{
+	controllerConfig := Config{Version: ConfigVersion,
 		NATS: natscell.Config{
 			Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{
@@ -118,7 +118,7 @@ func TestDeploymentConvergenceMeasurement(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 
-	operatorConfig := Config{
+	operatorConfig := Config{Version: ConfigVersion,
 		NATS: natscell.Config{
 			Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
 			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed,

@@ -112,7 +112,7 @@ func TestBootstrapControllerCommandDispatchesSameBinary(t *testing.T) {
 		return nil
 	}
 	path := filepath.Join(t.TempDir(), "controller.json")
-	wire, err := json.Marshal(Config{NATS: natscell.Config{Cell: "gru"}})
+	wire, err := json.Marshal(Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,17 +171,17 @@ func TestDirectControllerRunChecksBakedAdmissionBeforeNATS(t *testing.T) {
 	}
 	for _, lab := range []bool{false, true} {
 		called = false
-		cfg := Config{NATS: natscell.Config{Lab: lab}}
+		cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Lab: lab}}
 		if err := runController(t.Context(), cfg, io.Discard); !errors.Is(err, sentinel) || !called {
 			t.Fatalf("baked input with lab=%t skipped pre-NATS gate: %v", lab, err)
 		}
 	}
 	controllerBakedInputsPresent = func() (bool, error) { return false, nil }
 	called = false
-	if err := runController(t.Context(), Config{}, io.Discard); err == nil || !strings.Contains(err.Error(), "baked bootstrap") || called {
+	if err := runController(t.Context(), Config{Version: ConfigVersion}, io.Discard); err == nil || !strings.Contains(err.Error(), "baked bootstrap") || called {
 		t.Fatalf("production without baked inputs = %v, gate called=%t", err, called)
 	}
-	if err := runController(t.Context(), Config{NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
+	if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "embedded regional NATS") {
 		t.Fatalf("explicit lab without baked inputs did not reach normal controller validation: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			controllerBrokerClockProbe = func() brokerauth.ClockProbe { return test.clock }
 			for _, lab := range []bool{false, true} {
-				if err := runController(t.Context(), Config{NATS: natscell.Config{Lab: lab}}, io.Discard); err == nil ||
+				if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: lab}}, io.Discard); err == nil ||
 					!strings.Contains(err.Error(), "NTP clock health") {
 					t.Fatalf("run with baked inputs, lab=%t and %s clock = %v", lab, test.name, err)
 				}
@@ -223,13 +223,13 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 					test.name, admissionCalls, test.clock.calls)
 			}
 			for _, initial := range []bool{true, false} {
-				if err := admitProductionController(t.Context(), Config{}, bootstrapstart.MarkerStore{}, initial); err == nil ||
+				if err := admitProductionController(t.Context(), Config{Version: ConfigVersion}, bootstrapstart.MarkerStore{}, initial); err == nil ||
 					!strings.Contains(err.Error(), "NTP clock health") {
 					t.Fatalf("hidden child body initial=%t with %s clock = %v", initial, test.name, err)
 				}
 			}
 			if os.Geteuid() == 0 {
-				if err := bootstrapController(t.Context(), Config{}); err == nil ||
+				if err := bootstrapController(t.Context(), Config{Version: ConfigVersion}); err == nil ||
 					!strings.Contains(err.Error(), "NTP clock health") {
 					t.Fatalf("standalone root bootstrap with %s clock = %v", test.name, err)
 				}
@@ -242,7 +242,7 @@ func TestControllerBakedPresenceErrorCannotFallBackToLab(t *testing.T) {
 	priorPresent := controllerBakedInputsPresent
 	t.Cleanup(func() { controllerBakedInputsPresent = priorPresent })
 	controllerBakedInputsPresent = func() (bool, error) { return false, errors.New("permission denied") }
-	if err := runController(t.Context(), Config{NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
+	if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "permission denied") {
 		t.Fatalf("baked path inspection error fell through to lab: %v", err)
 	}

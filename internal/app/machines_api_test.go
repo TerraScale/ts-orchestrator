@@ -49,7 +49,7 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
 	issuer, audience := "https://gru.auth.terrascale.tech/terrascale", "https://gru.orch.terrascale.tech"
-	controllerConfig := testJSONFile(t, root, "controller.json", Config{
+	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}}}},

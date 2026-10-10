@@ -126,7 +126,7 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := observability.NewTokenServer(observability.Config{Dashboard: true}, third, observability.ServerDeps{
+	other, err := observability.NewTokenServer(observability.Config{}, third, observability.ServerDeps{
 		Registry: observability.NewRegistry(false), Health: new(observability.Health), Sessions: store,
 		TokenVersion: observability.TokenVersion{Source: "gru-1-orch-dashboard-token-2", Number: 2, SpecGeneration: 2}})
 	if err != nil {
@@ -198,7 +198,7 @@ func TestNetBirdDashboardServesAuthenticatedResourceAPIs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = broker.Close() })
 	runtime, err := startRuntimeObservability(ctx, Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: "off", ClusterAggregation: true}}, "controller", "one")
+		Observability: observability.Config{ListenAddress: freeLoopbackAddress(t)}}, "controller", "one")
 	if err != nil {
 		t.Fatal(err)
 	}

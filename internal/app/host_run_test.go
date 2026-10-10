@@ -32,14 +32,14 @@ func TestHostRunResultOnlyTreatsParentCancellationAsShutdown(t *testing.T) {
 	}
 }
 
-func TestHostSessionTraceConfigAccepted(t *testing.T) {
-	path := testJSONFile(t, t.TempDir(), "host.json", Config{Host: HostConfig{
-		SessionTrace: true, WorkloadUID: 2000, WorkloadGID: 2000, ManagedRuntimeRoot: "/srv/terrabase-managed",
+func TestHostWorkloadIdentityConfigAccepted(t *testing.T) {
+	path := testJSONFile(t, t.TempDir(), "host.json", Config{Version: ConfigVersion, Host: HostConfig{
+		WorkloadUID: 2000, WorkloadGID: 2000, ManagedRuntimeRoot: "/srv/terrabase-managed",
 	}})
 	loaded, err := LoadConfig(path)
-	if err != nil || !loaded.Host.SessionTrace || loaded.Host.WorkloadUID != 2000 || loaded.Host.WorkloadGID != 2000 ||
+	if err != nil || loaded.Host.WorkloadUID != 2000 || loaded.Host.WorkloadGID != 2000 ||
 		loaded.Host.ManagedRuntimeRoot != "/srv/terrabase-managed" {
-		t.Fatalf("load host trace and workload identity config: host=%+v err=%v", loaded.Host, err)
+		t.Fatalf("load host workload identity config: host=%+v err=%v", loaded.Host, err)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestHostCommandRejectsUnhealthyClockBeforeNativeProbeAndNATS(t *testing.T) 
 	_, _ = testEd25519(t, root, "host.key")
 	_, natsSeed := testNKey(t)
 	stateRoot := filepath.Join(root, "state")
-	config := testJSONFile(t, root, "host.json", Config{NATS: natscell.Config{
+	config := testJSONFile(t, root, "host.json", Config{Version: ConfigVersion, NATS: natscell.Config{
 		Cell: "gru", URL: "nats://127.0.0.1:1", NKeySeedFile: natsSeed,
 	}, Host: HostConfig{
 		Node: "node-a", Environment: "production", Roles: []string{"terrabase"},

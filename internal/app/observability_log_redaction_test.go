@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"strings"
 	"testing"
 
@@ -18,8 +19,13 @@ func TestRuntimeLogRedactionWithoutListener(t *testing.T) {
 		t.Run(role, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
 			cfg := Config{NATS: natscell.Config{Cell: "lab"}, Observability: observability.Config{
-				ListenAddress: observability.DisabledListenAddress, LogLevel: "error",
+				ListenAddress: listener.Addr().String(), LogLevel: "error",
 			}}
 			runtime, err := startRuntimeObservability(ctx, cfg, role, "one")
 			if err != nil {
@@ -27,7 +33,7 @@ func TestRuntimeLogRedactionWithoutListener(t *testing.T) {
 			}
 			defer runtime.close()
 			if runtime.server != nil {
-				t.Fatal("disabled listener started")
+				t.Fatal("listener bound an occupied port")
 			}
 			// WARN still reaches the event ring under log_level=error.
 			slog.Default().With(observability.ComponentKey, "logs").Warn(

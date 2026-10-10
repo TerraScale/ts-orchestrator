@@ -191,7 +191,7 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err != nil {
 		t.Fatal(err)
 	}
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: cell, Instance: "enrollment-operator", Replicas: 1, Lab: true,
 			URL: broker.URL()},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},

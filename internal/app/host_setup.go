@@ -855,7 +855,6 @@ type hostLocalOptions struct {
 	TerraBaseDataVolume     bool              `json:"terrabase_data_volume,omitzero"`
 	TerraBaseDataVolumeID   string            `json:"terrabase_data_volume_id,omitempty"`
 	RoleMemoryMaxBytes      map[string]uint64 `json:"role_memory_max_bytes,omitempty"`
-	LoadTelemetrySeconds    *int              `json:"load_telemetry_seconds,omitempty"`
 }
 
 func (o hostLocalOptions) applyTo(host *HostConfig) {
@@ -867,7 +866,6 @@ func (o hostLocalOptions) applyTo(host *HostConfig) {
 	host.TerraBaseDataVolume = o.TerraBaseDataVolume
 	host.TerraBaseDataVolumeID = o.TerraBaseDataVolumeID
 	host.RoleMemoryMaxBytes = o.RoleMemoryMaxBytes
-	host.LoadTelemetrySeconds = o.LoadTelemetrySeconds
 }
 
 // readHostLocalOptions reads the host-local options of an existing host.json.
@@ -888,6 +886,9 @@ func readHostLocalOptions(path string) (hostLocalOptions, error) {
 	}
 	if len(data) > 1<<20 {
 		return hostLocalOptions{}, errors.New("existing host config is too large")
+	}
+	if _, err := decodeConfig(data); err != nil {
+		return hostLocalOptions{}, fmt.Errorf("decode existing host config %s (repair it before renewing): %w", path, err)
 	}
 	var existing struct {
 		Host hostLocalOptions `json:"host"`

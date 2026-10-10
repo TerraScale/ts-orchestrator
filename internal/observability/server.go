@@ -253,9 +253,6 @@ func (server *Server) authenticate(next http.Handler) http.Handler {
 // Start binds the validated address and serves until ctx ends or Close.
 // The returned channel yields the terminal serve error, nil after Close.
 func (server *Server) Start(ctx context.Context, config Config) (<-chan error, error) {
-	if !config.Enabled() {
-		return nil, errors.New("observability listener is disabled")
-	}
 	address, err := ValidateListenAddress(config.Address())
 	if err != nil {
 		return nil, err
@@ -285,7 +282,7 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 	server.http = &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 4096}
 	server.listen = listener
-	if config.Dashboard && server.token != nil {
+	if server.token != nil {
 		cleanupCtx, cancel := context.WithCancel(ctx)
 		server.reclaimCancel, server.reclaimDone = cancel, make(chan struct{})
 		go func() {

@@ -156,9 +156,8 @@ cell connection: the interregion contract carries exactly the
 `obs.region` and `obs.decisions` services, and both responders decode
 requests strictly and bound every filter.
 
-The responders run when `observability.cluster_aggregation` is enabled,
-like the snapshot responder, because they need the controller's `obs.>`
-subscription grant.
+The responders always run, like the snapshot responder, and require the
+controller's `obs.>` subscription grant.
 
 ## Metric history
 

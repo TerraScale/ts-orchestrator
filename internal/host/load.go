@@ -14,15 +14,16 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
-// Host load telemetry: the agent samples its own load every LoadInterval and
+// Host load telemetry: the agent samples its own load every 15 seconds and
 // sends it as the "load" host operation over its authenticated session; the
 // authority leader hands accepted reports to the configured LoadSink. Load
 // is telemetry only: it never changes a session, a desired state or any
 // lifecycle decision on either side.
 
 const (
-	// MinLoadInterval bounds how often an agent may publish load.
-	MinLoadInterval = 5 * time.Second
+	loadInterval = 15 * time.Second
+	// minTerraBaseLoadTTL keeps recent member status through fast host polls.
+	minTerraBaseLoadTTL = 5 * time.Second
 	// maxLoadBackoff caps the retry spacing after failed publications, for
 	// example while the controller has host telemetry disabled.
 	maxLoadBackoff = 10 * time.Minute
@@ -129,7 +130,7 @@ func (a *Agent) currentTerraBaseLoads() map[string]memberstatus.Load {
 	// A running member's block is refreshed on every poll, so one that
 	// missed a few polls (withdrawn, draining, or stuck) is dropped well
 	// before the absolute cap.
-	ttl := min(max(3*a.cfg.PollInterval, MinLoadInterval), terraBaseLoadTTL)
+	ttl := min(max(3*a.cfg.PollInterval, minTerraBaseLoadTTL), terraBaseLoadTTL)
 	out := make(map[string]memberstatus.Load, len(a.terraBaseLoads))
 	for role, entry := range a.terraBaseLoads {
 		if time.Since(entry.at) > ttl {
@@ -193,7 +194,7 @@ func (a *Agent) publishLoad(ctx context.Context) {
 	sampler := hostload.NewSampler(config)
 	// The first sample only sets CPU baselines.
 	sampler.Sample(nil)
-	wait, failing := a.cfg.LoadInterval, false
+	wait, failing := loadInterval, false
 	for {
 		select {
 		case <-ctx.Done():
@@ -213,21 +214,20 @@ func (a *Agent) publishLoad(ctx context.Context) {
 				slog.Info("host load telemetry not accepted; backing off", "error_class", loadErrorClass(err))
 			}
 			failing = true
-			wait = nextLoadWait(wait, a.cfg.LoadInterval)
+			wait = nextLoadWait(wait)
 			continue
 		}
 		if failing {
 			slog.Info("host load telemetry accepted")
 		}
-		failing, wait = false, a.cfg.LoadInterval
+		failing, wait = false, loadInterval
 	}
 }
 
 // nextLoadWait doubles the wait after a failed publication, capped at
-// maxLoadBackoff, but never below the configured interval: a failure must
-// not make an agent with a long interval publish more often.
-func nextLoadWait(wait, interval time.Duration) time.Duration {
-	return max(min(wait*2, maxLoadBackoff), interval)
+// maxLoadBackoff, but never below the reporting interval.
+func nextLoadWait(wait time.Duration) time.Duration {
+	return max(min(wait*2, maxLoadBackoff), loadInterval)
 }
 
 // loadOutcome treats a reply whose sample the controller discarded (it

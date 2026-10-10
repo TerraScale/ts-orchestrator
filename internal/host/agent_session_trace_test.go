@@ -33,7 +33,7 @@ func TestSessionTraceOnlyRecordsVerifiedAcceptedLeases(t *testing.T) {
 	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil }, WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
 		Conn: conn, Identity: hostKey, ControllerPublicKey: responseKey.Public().(ed25519.PublicKey),
 		Runner: &sessionTraceRunner{memoryRunner: &memoryRunner{observed: make(map[string]Observation)}}, InstallRoot: testAgentInstallRoot(t),
-		StateRoot: testAgentStateRoot(t), SessionTrace: true})
+		StateRoot: testAgentStateRoot(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,12 +53,18 @@ func TestSessionTraceOnlyRecordsVerifiedAcceptedLeases(t *testing.T) {
 	deadline := time.NewTimer(4 * time.Second)
 	defer deadline.Stop()
 	var renewed session
-	for {
+	var renewals []session
+	lastExpiry := acquired.ExpiresAt
+	for len(renewals) < 2 {
 		agent.mu.RLock()
 		renewed = agent.session
 		agent.mu.RUnlock()
-		if renewed.ExpiresAt.After(acquired.ExpiresAt) {
-			break
+		if renewed.ExpiresAt.After(lastExpiry) {
+			renewals = append(renewals, renewed)
+			lastExpiry = renewed.ExpiresAt
+			if len(renewals) == 2 {
+				break
+			}
 		}
 		select {
 		case err := <-lost:
@@ -120,12 +126,12 @@ func TestSessionTraceOnlyRecordsVerifiedAcceptedLeases(t *testing.T) {
 		}
 		lineIndex++
 	}
-	if len(events) != 2 || events[0]["phase"] != "acquire" || events[1]["phase"] != "renew" {
-		t.Fatalf("verified accepted events = %v; want acquire and one renew", events)
+	if len(events) != 3 || events[0]["phase"] != "acquire" || events[1]["phase"] != "renew" || events[2]["phase"] != "renew" {
+		t.Fatalf("verified accepted events = %v; want acquire and both renewals", events)
 	}
 	hash := sha256.Sum256([]byte(acquired.SessionID))
 	wantHash := hex.EncodeToString(hash[:16])
-	for index, accepted := range []session{acquired, renewed} {
+	for index, accepted := range append([]session{acquired}, renewals...) {
 		event := events[index]
 		if event["session_id_hash"] != wantHash || event["expires_at"] != accepted.ExpiresAt.UTC().Format(time.RFC3339Nano) ||
 			event["epoch"] != float64(accepted.Epoch) {

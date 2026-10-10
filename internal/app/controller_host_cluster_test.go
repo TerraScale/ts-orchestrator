@@ -94,7 +94,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
-		configs[index] = testJSONFile(t, root, instance+".json", Config{
+		configs[index] = testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
 			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
 				NKeySeedFile: controllerSeeds[index], TLS: tlsFiles, Embedded: &natscell.Embedded{
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
@@ -145,7 +145,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		t.Fatal(err)
 	}
 	defer probe.Close()
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, Lab: true,
 			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
@@ -205,7 +205,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	agentConfig := host.AgentConfig{WorkloadIdentity: testHostWorkloadIdentity(), Cell: "lab", Node: "node-a", Environment: "test", Roles: []string{"terrabase"},
 		Conn: hostConn, Identity: hostPrivate, NATSUserPublicKey: hostNKey, ControllerPublicKey: controllerPublic, Runner: agentRunner,
 		InstallRoot: testHostInstallRoot(t), StateRoot: testHostStateRoot(t), PollInterval: 100 * time.Millisecond,
-		ClockCheck: controllerClockCheck(clock), SessionTrace: production && blackhole}
+		ClockCheck: controllerClockCheck(clock)}
 	agent, err := host.NewAgent(agentConfig)
 	if err != nil {
 		t.Fatal(err)

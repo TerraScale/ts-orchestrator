@@ -114,6 +114,9 @@ func validateControllerConfig(wire []byte, slot, instanceOCID, privateIP string,
 	if err := protocol.DecodeStrict(wire, &cfg, 1<<20); err != nil {
 		return fmt.Errorf("decode strict controller configuration: %w", err)
 	}
+	if cfg.Version != app.ConfigVersion {
+		return fmt.Errorf("controller configuration version must be %d, got %d", app.ConfigVersion, cfg.Version)
+	}
 	canonical, err := protocol.EncodeJSON(cfg)
 	if err != nil || !bytes.Equal(canonical, wire) {
 		return errors.New("production controller configuration is not canonical")

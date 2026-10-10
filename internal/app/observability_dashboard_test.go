@@ -22,7 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
-// With the dashboard enabled on a token-protected listener a browser signs
+// On a token-protected listener a browser signs
 // in with the bearer token, and the pages render the providers the
 // controller attaches later.
 func TestControllerDashboardRequiresSignIn(t *testing.T) {
@@ -43,8 +43,7 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	}
 	address := freeLoopbackAddress(t)
 	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: address, BearerTokenFile: tokenFile,
-			ClusterAggregation: true, Dashboard: true}}
+		Observability: observability.Config{ListenAddress: address, BearerTokenFile: tokenFile}}
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", "one")
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +138,7 @@ func TestHostDashboardKeepsLocalBrowserLoginWithoutJetStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	telemetry, err := startRuntimeObservability(t.Context(), Config{Observability: observability.Config{
-		ListenAddress: freeLoopbackAddress(t), BearerTokenFile: tokenFile, Dashboard: true}}, "host", "host-one")
+		ListenAddress: freeLoopbackAddress(t), BearerTokenFile: tokenFile}}, "host", "host-one")
 	if err != nil || telemetry.server == nil {
 		t.Fatalf("host listener: %v", err)
 	}

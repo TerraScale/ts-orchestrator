@@ -126,7 +126,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	hostPublic, hostPrivate := testEd25519(t, root, "host.key")
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true, CanPlaceTerraBase: true}
-	controllerConfig := Config{
+	controllerConfig := Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"}, {PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
@@ -146,7 +146,7 @@ func TestAuthenticatedOperatorToHostDelivery(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}

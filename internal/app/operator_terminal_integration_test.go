@@ -77,7 +77,7 @@ func TestOperatorTerminalTeardownThroughSignedRuntimeAndGrantReadback(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "terminal-operator", Replicas: 1, Lab: true,
 			URL: broker.URL(), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},

@@ -56,7 +56,7 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	first := install("-1")
 	if first.Host.ManagedVolumeOnlineGrow || first.Host.SelfUpdateProofFile != "" || first.Host.TerraBaseRoot != "" ||
 		first.Host.TSAuthRoot != "" ||
-		first.Host.TerraBaseDataVolume || first.Host.LoadTelemetrySeconds != nil {
+		first.Host.TerraBaseDataVolume {
 		t.Fatalf("first enrollment invented host-local options: %+v", first.Host)
 	}
 	// The operator enables the host-local options.
@@ -68,7 +68,6 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 	first.Host.TerraBaseDataVolume = true
 	first.Host.TerraBaseDataVolumeID = "ocid1.volume.oc1..first"
 	first.Host.RoleMemoryMaxBytes = map[string]uint64{"terrabase": 3 << 30}
-	first.Host.LoadTelemetrySeconds = new(60)
 	wire, err := protocol.EncodeJSON(first)
 	if err != nil {
 		t.Fatal(err)
@@ -81,43 +80,11 @@ func TestHostEnrollmentRenewalKeepsHostLocalOptions(t *testing.T) {
 		renewed.Host.SelfUpdateRoot != first.Host.SelfUpdateRoot || renewed.Host.TerraBaseRoot != first.Host.TerraBaseRoot ||
 		renewed.Host.TSAuthRoot != first.Host.TSAuthRoot ||
 		!renewed.Host.TerraBaseDataVolume || renewed.Host.TerraBaseDataVolumeID != first.Host.TerraBaseDataVolumeID ||
-		renewed.Host.RoleMemoryMaxBytes["terrabase"] != 3<<30 ||
-		renewed.Host.LoadTelemetrySeconds == nil || *renewed.Host.LoadTelemetrySeconds != 60 {
+		renewed.Host.RoleMemoryMaxBytes["terrabase"] != 3<<30 {
 		t.Fatalf("renewal dropped host-local options: %+v", renewed.Host)
 	}
 	if renewed.NATS.TLS.CertFile == first.NATS.TLS.CertFile {
 		t.Fatal("renewal did not switch to the new credential directory")
-	}
-	for _, tt := range []struct {
-		name    string
-		seconds *int
-	}{
-		{name: "omitted"},
-		{name: "off", seconds: new(0)},
-		{name: "custom", seconds: new(45)},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			first.Host.LoadTelemetrySeconds = tt.seconds
-			wire, err := protocol.EncodeJSON(first)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(root, "host.json"), wire, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			renewed := install("-" + tt.name)
-			got := renewed.Host.LoadTelemetrySeconds
-			if (got == nil) != (tt.seconds == nil) || (got != nil && *got != *tt.seconds) {
-				t.Fatalf("renewed interval = %v; want %v", got, tt.seconds)
-			}
-			data, err := os.ReadFile(filepath.Join(root, "host.json"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if present := strings.Contains(string(data), `"load_telemetry_seconds":`); present != (tt.seconds != nil) {
-				t.Fatalf("renewal changed interval presence to %v", present)
-			}
-		})
 	}
 	// An unreadable existing config fails the rewrite instead of dropping
 	// the options silently.

@@ -108,20 +108,6 @@ func TestAutoscaleConfigRefusesInertEntries(t *testing.T) {
 	}
 }
 
-func TestLoadTelemetrySecondsIsCheckedBeforeConversion(t *testing.T) {
-	for _, valid := range []int{0, 5, 15, 3600} {
-		if err := validateLoadTelemetrySeconds(valid); err != nil {
-			t.Errorf("%d refused: %v", valid, err)
-		}
-	}
-	// 1<<55 seconds overflows a time.Duration to zero.
-	for _, invalid := range []int{-1, 1, 4, 3601, 1 << 55} {
-		if err := validateLoadTelemetrySeconds(invalid); err == nil {
-			t.Errorf("%d accepted", invalid)
-		}
-	}
-}
-
 // Host telemetry starts an aggregator as the reconciler's signal source,
 // installs it as the host controller's load sink, and its readings and the
 // reconciler's results reach the metric history.

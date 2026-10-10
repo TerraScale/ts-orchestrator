@@ -301,7 +301,7 @@ func runPublicControllerNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(root, "controller.json")
-	wire, err := protocol.EncodeJSON(Config{NATS: natscell.Config{Cell: "gru"}})
+	wire, err := protocol.EncodeJSON(Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"}})
 	if err != nil {
 		t.Fatal(err)
 	}

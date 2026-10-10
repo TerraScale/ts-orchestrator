@@ -51,7 +51,7 @@ printf '%%s\n%%s\n%%s\n' "$PATH" "$LANG" "${OCI_CONFIG_FILE-unset}" > %s
 `, shellQuote(startedPath), shellQuote(cat), shellQuote(wirePath), shellQuote(environmentPath)))
 
 	t.Setenv("OCI_CONFIG_FILE", "must-not-be-inherited")
-	want := Config{
+	want := Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 3, CredentialsFile: "/var/lib/example/controller.creds"},
 		Controller: ControllerConfig{CandidateID: "0000000000RTDFYAHDCP6Y401P", ArtifactStoreMaxBytes: 64 << 20,
 			TrustedSigners: []TrustedSignerConfig{{Actor: "operator", PublicKey: "public-key", Roles: []string{"terrabase"}}},
@@ -122,7 +122,7 @@ func TestControllerAdmissionChildReceivesTheLoadedBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	executable := writeAdmissionShell(t, fmt.Sprintf("#!/bin/sh\n%s > %s\n", shellQuote(cat), shellQuote(wirePath)))
-	signed := []byte(`{ "version": 1000, "nats": {"cell": "gru", "instance": "ctl-1"}, "added_by_newer_binary": true }`)
+	signed := []byte(`{ "version": 1, "nats": {"cell": "gru", "instance": "ctl-1"} }`)
 	configPath := filepath.Join(directory, "controller.json")
 	if err := os.WriteFile(configPath, signed, 0o600); err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ exec %s --reuid=%d --regid=%d --clear-groups -- /bin/sh -c 'printf "%%s\n" "$$" 
 	executable := writeAdmissionShell(t, script)
 	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
 	defer cancel()
-	err = superviseControllerAdmission(ctx, Config{NATS: natscell.Config{Cell: "gru"}}, "bootstrap-admit-initial", executable)
+	err = superviseControllerAdmission(ctx, Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"}}, "bootstrap-admit-initial", executable)
 	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("short admission deadline returned %v, want deadline exceeded", err)
 	}
@@ -273,7 +273,7 @@ func TestHiddenAdmissionChildPrivilegeGatesInPrivateNamespace(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(t.TempDir(), "child-config.json")
-	configWire, err := protocol.EncodeJSON(Config{NATS: natscell.Config{Cell: "gru"}})
+	configWire, err := protocol.EncodeJSON(Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"}})
 	if err != nil {
 		t.Fatal(err)
 	}

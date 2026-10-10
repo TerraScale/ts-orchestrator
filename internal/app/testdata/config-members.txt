@@ -1,4 +1,4 @@
-version 6
+version 1
 .Controller struct json:"controller"
 .Controller.ArtifactStoreMaxBytes int64 json:"artifact_store_max_bytes,omitzero"
 .Controller.Autoscale *struct json:"autoscale,omitempty"
@@ -252,7 +252,6 @@ version 6
 .Host.Environment string json:"environment"
 .Host.IdentityKeyFile string json:"identity_key_file"
 .Host.InstallRoot string json:"install_root"
-.Host.LoadTelemetrySeconds *int json:"load_telemetry_seconds,omitempty"
 .Host.ManagedRuntimeRoot string json:"managed_runtime_root,omitempty"
 .Host.ManagedVolumeOnlineGrow bool json:"managed_volume_online_grow,omitzero"
 .Host.Node string json:"node"
@@ -261,7 +260,6 @@ version 6
 .Host.Roles []string json:"roles"
 .Host.SelfUpdateProofFile string json:"self_update_proof_file,omitempty"
 .Host.SelfUpdateRoot string json:"self_update_root,omitempty"
-.Host.SessionTrace bool json:"session_trace,omitzero"
 .Host.StateRoot string json:"state_root"
 .Host.TSAuthRoot string json:"ts_auth_root,omitempty"
 .Host.TerraBaseDataVolume bool json:"terrabase_data_volume,omitzero"
@@ -340,8 +338,6 @@ version 6
 .NATS.URL string json:"url"
 .Observability struct json:"observability,omitzero"
 .Observability.BearerTokenFile string json:"bearer_token_file,omitempty"
-.Observability.ClusterAggregation bool json:"cluster_aggregation,omitzero"
-.Observability.Dashboard bool json:"dashboard,omitzero"
 .Observability.ListenAddress string json:"listen_address,omitempty"
 .Observability.LogFormat string json:"log_format,omitempty"
 .Observability.LogLevel string json:"log_level,omitempty"
@@ -352,4 +348,4 @@ version 6
 .Operator.BrokerTicketPublicKeyFile string json:"broker_ticket_public_key_file,omitempty"
 .Operator.ControllerPublicKey string json:"controller_public_key,omitempty"
 .Operator.SigningKeyFile string json:"signing_key_file"
-.Version int json:"version,omitzero"
+.Version int json:"version"

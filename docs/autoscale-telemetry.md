@@ -1,22 +1,21 @@
 # Autoscale telemetry
 
 Host agents publish resource load to the regional authority leader for
-metric history by default. Using those reports as autoscaling signals is a
+metric history every fifteen seconds. Using those reports as autoscaling signals is a
 separate signed opt-in.
 
-## Flags
+## Collection and autoscaling
 
 | Where | Field | Default | Effect |
 | --- | --- | --- | --- |
-| host config | `host.load_telemetry_seconds` | `15` when omitted | The agent samples its load every N seconds (5..3600) and sends it as the `load` host operation. Explicit `0` disables reporting. Keep it below 300 for scaling: the aggregator treats a 5 minute silence of every host as a break. |
 | signed controller config | `controller.autoscale.host_telemetry` | `false` | When autoscaling is enabled, the collected reports also feed its signal source. Scaling policies (`services[].scaling`) are refused without it. |
 
 Collection works with absent or disabled autoscaling. Reports are accepted
 only under valid regional authority; demotion and a new authority term
 discard cached reports before they can enter history. Failed publications
-back off exponentially up to ten minutes (or the configured interval, if
-longer). Hosts with reporting disabled supply no scaling signals; bounds
-and self-healing still work.
+back off exponentially up to ten minutes, returning to the fixed fifteen-second
+interval after recovery. The aggregator treats a five-minute silence of every
+host as a break.
 
 ## What a host reports
 
@@ -92,8 +91,8 @@ presenting its last results.
 A window must also be densely covered: if any gap between consecutive
 samples of the series inside the window, or since its latest sample, is
 longer than half the window (at least 10s), the reading is unavailable.
-A `window_seconds` below twice the hosts' `load_telemetry_seconds`
-therefore never scales; choose windows of several host intervals. The
+A `window_seconds` below thirty seconds therefore never scales; choose
+windows of several fifteen-second host intervals. The
 signal's `min_samples` counts the samples of all replicas together.
 
 ## Trust decision

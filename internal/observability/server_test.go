@@ -36,8 +36,8 @@ func TestConfigRequiresTokenOffLoopback(t *testing.T) {
 	if err := (Config{}).Validate(); err != nil {
 		t.Fatalf("default config: %v", err)
 	}
-	if err := (Config{ListenAddress: DisabledListenAddress}).Validate(); err != nil {
-		t.Fatalf("disabled config: %v", err)
+	if err := (Config{ListenAddress: "off"}).Validate(); err == nil {
+		t.Fatal("listener off switch was accepted")
 	}
 	if err := (Config{ListenAddress: "10.0.0.4:9464"}).Validate(); err == nil {
 		t.Fatal("private listener without a token was accepted")

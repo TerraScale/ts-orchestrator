@@ -182,6 +182,18 @@ func TestCheckGenerationFilesSchemaTwo(t *testing.T) {
 	other := generationtest.New(t, generationNow)
 	extraSigner, _ := other.Signer.PublicKey()
 	config := string(material.Files["controller-controller-a.json"])
+	for _, version := range []string{"", `"version":0`, `"version":2`, `"version":6`} {
+		changed := strings.Replace(config, `"version":1`, version, 1)
+		if version == "" {
+			changed = strings.Replace(config, `,"version":1`, "", 1)
+		}
+		if changed == config {
+			t.Fatal("version-1 fixture was not changed")
+		}
+		if _, err := check(material.With(map[string][]byte{"controller-controller-a.json": []byte(changed)})); err == nil || !strings.Contains(err.Error(), "config version 1") {
+			t.Errorf("invalid config version %q accepted: %v", version, err)
+		}
+	}
 	_, parent, _ := strings.Cut(config, `"peer_account":"`)
 	for name, files := range map[string]map[string][]byte{
 		"an extra cell signing key": {"cell.jwt": material.Account(t, "cell.jwt", func(claims *jwt.AccountClaims) {

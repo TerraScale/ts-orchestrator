@@ -4,6 +4,11 @@ Design note for TS-569. Changing a running cell's settings must never need a
 re-found, and a controller binary must restart cleanly after a self-update or
 a rollback. Today neither holds:
 
+TS-796 supersedes the role-config compatibility policy below: unknown fields
+are always rejected, and removed settings must be deleted from signed configs
+before rollout. The remaining optional cell-spec settings are follow-up scope
+under the zero-configuration rule.
+
 - Every setting lives in the signed controller config (`controller.json`).
   Changing one means signing a new config, which only a re-found installs.
 - Restart admission compared the manifest's config digest with a digest of
@@ -22,8 +27,8 @@ a rollback. Today neither holds:
 - Every mutable setting is a section of the [cell spec](cell-spec.md), which
   `ts-orch apply` changes on running controllers. A section that widens
   authority needs a root's signature; the rest need the release leaf's.
-- The config digest covers the signed bytes, and every reader decodes what a
-  newer binary wrote.
+- The config digest covers the signed bytes, and role-config readers reject
+  fields they do not understand at every version.
 
 ## Slice 1: restarts and rollbacks survive new members
 
@@ -31,20 +36,18 @@ a rollback. Today neither holds:
 Restart admission (full, local and the admission child, which now receives
 those bytes on stdin) and the managed config check digest the bytes, not a
 re-encoding. Guest installation and every restart re-check the config with
-`ValidateInstalledControllerConfig`: the signed digest, a versioned decode
+`ValidateInstalledControllerConfig`: the signed digest, a strict decode
 and the role's rules. Only signing (`bootstrap render-controller-config` and
 `sign-manifest`) still requires this binary's canonical encoding.
 
-**Versioned configs.** `app.ConfigVersion` is the config schema a binary
-writes; the renderers and `host-setup` stamp it as `version`. A binary from
-before versioning (before #226) refuses the stamp, so it cannot start on a
-config a versioned binary rendered: re-render the config to roll back that
-far. A binary
-decodes a config of its own version or older strictly, so a typo is still an
-error, and skips the unknown members of a newer config, with a warning.
+**Version-1 configs.** `app.ConfigVersion` is fixed at 1; the renderers and
+`host-setup` stamp it as `version`. Loading requires explicit version 1 and
+decodes strictly. A version label cannot allow removed switches or unknown
+settings to be silently discarded. Rollback must use a signed config whose
+fields the target binary understands.
 `TestConfigVersionCoversEveryMember` fails when `app.Config`'s members differ
 from `internal/app/testdata/config-members.txt`, which names the version it
-records: raise `ConfigVersion`, then rewrite the file.
+records: review the changed contract, then rewrite the file.
 
 **Tolerant records.** `protocol.DecodeTolerant` is `DecodeStrict` without the
 unknown-member check: duplicate names, invalid UTF-8, the size limit and the
@@ -63,7 +66,8 @@ signed scope.
 
 Rules for every config and record member from now on:
 
-1. Never rename or remove a member; an older writer still sets it.
+1. Remove obsolete settings from code and signed configs; do not preserve
+   compatibility shims for them.
 2. A new member is `omitzero` or `omitempty`, with a safe zero value: an
    older writer omits it, an older binary that rewrites a record drops it,
    and a digest of a re-encoding stays the same while it is unset.
@@ -71,7 +75,7 @@ Rules for every config and record member from now on:
    or one that narrows authority) is a new schema version. A config has no
    such version: a narrowing setting belongs in the cell spec, whose binary
    level an older binary cannot skip.
-4. A new config member raises `ConfigVersion`.
+4. Config changes retain version 1 and update the reviewed member snapshot.
 
 ## Next slices: one cell spec section per setting
 

@@ -424,9 +424,9 @@ func TestSignedControllerConfigRejectsMisplacedCAAndOverlappingPlacementRole(t *
 }
 
 // A controller restarts on a config another binary signed: it checks the
-// signed digest of the bytes, not a re-encoding, and a newer binary's members
-// do not stop it. Signing still needs this binary's canonical config.
-func TestInstalledControllerConfigFromAnotherBinaryStillStarts(t *testing.T) {
+// signed digest of the bytes, not a re-encoding. Unknown and removed members
+// are rejected at every version. Signing needs this binary's canonical config.
+func TestInstalledControllerConfigRejectsUnknownMembersAtEveryVersion(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	args, manifest := renderInputs(t, now, keepEverySecret)
 	output := filepath.Join(t.TempDir(), "controller.json")
@@ -457,17 +457,26 @@ func TestInstalledControllerConfigFromAnotherBinaryStillStarts(t *testing.T) {
 	newer := strings.Replace(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
 		fmt.Sprintf(`{"version":%d, "added_by_newer_binary":{"setting":true},`, app.ConfigVersion+1), 1),
 		`"controller":{`, `"controller":{"added_setting":"on",`, 1)
-	if _, err := app.ValidateInstalledControllerConfig(signed(newer), ""); err != nil {
-		t.Fatalf("config signed by a newer binary: %v", err)
+	if _, err := app.ValidateInstalledControllerConfig(signed(newer), ""); err == nil {
+		t.Fatal("installed config accepted unknown members from a newer binary")
 	}
 	if _, err := app.ValidateSignedControllerConfig(signed(newer), ""); err == nil {
 		t.Fatal("signing accepted members this binary does not know")
 	}
-	older := strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion), "{ ", 1)
-	if _, err := app.ValidateInstalledControllerConfig(signed(older), ""); err != nil {
-		t.Fatalf("non-canonical config signed by an older binary: %v", err)
+	spaced := strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion), "{ \"version\":1, ", 1)
+	if _, err := app.ValidateInstalledControllerConfig(signed(spaced), ""); err != nil {
+		t.Fatalf("non-canonical version-1 signed config: %v", err)
 	}
 	for name, manifest := range map[string]bootstrap.Manifest{
+		"version missing":    signed(strings.Replace(rendered, `"version":1,`, "", 1)),
+		"version zero":       signed(strings.Replace(rendered, `"version":1,`, `"version":0,`, 1)),
+		"version two":        signed(strings.Replace(rendered, `"version":1,`, `"version":2,`, 1)),
+		"aggregation switch": signed(strings.Replace(rendered, `"controller":{`, `"observability":{"cluster_aggregation":false},"controller":{`, 1)),
+		"dashboard switch":   signed(strings.Replace(rendered, `"controller":{`, `"observability":{"dashboard":false},"controller":{`, 1)),
+		"newer aggregation switch": signed(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
+			fmt.Sprintf(`{"version":%d,"observability":{"cluster_aggregation":false},`, app.ConfigVersion+1), 1)),
+		"newer dashboard switch": signed(strings.Replace(rendered, fmt.Sprintf(`{"version":%d,`, app.ConfigVersion),
+			fmt.Sprintf(`{"version":%d,"observability":{"dashboard":false},`, app.ConfigVersion+1), 1)),
 		"bytes differ from the signed digest": func() bootstrap.Manifest {
 			tampered := signed(newer)
 			tampered.ControllerConfig = []byte(strings.Replace(newer, `"setting":true`, `"setting":false`, 1))

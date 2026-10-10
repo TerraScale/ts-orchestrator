@@ -202,7 +202,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
-	controllerConfig := testJSONFile(t, root, "controller.json", Config{
+	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"},
@@ -212,7 +212,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
 			SpecTrust: genesisTrust.config()},
 	})
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
 			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},

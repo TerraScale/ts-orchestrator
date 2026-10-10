@@ -146,8 +146,8 @@ operator `hosts` attempt is capped at five seconds and the remaining deadline.
 Failed operator attempts record their stage, elapsed time, and bounded stderr.
 Guest renewal events captured after a timeout are diagnostic only; they cannot
 replace a successful operator status read or the matching process and lease
-checks. The `host.session_trace` option emits the verified lease epoch,
-expiry, and a 128-bit hash of the session ID for this qualification. To test
+checks. Host agents always emit the verified lease epoch, expiry, and a 128-bit
+hash of the session ID after accepting a signed session binding. To test
 1/3 quorum, it blackholes the host's newly connected controller socket,
 matches the latest durable session expiry to that verified lease event, then
 crashes the connected controller and

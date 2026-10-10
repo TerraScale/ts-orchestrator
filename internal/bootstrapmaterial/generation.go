@@ -314,7 +314,7 @@ func (check *generationCheck) leafCredentials(name string, data []byte) (string,
 
 // controllerConfig checks one supplied controller config and reports whether
 // its interregion contract was applied. app.Config cannot be imported here:
-// only the nats block is decoded, strictly.
+// the version and nats block are decoded strictly.
 func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGeneration, slot string, data []byte,
 	pinned map[string]bool, leafAccounts map[string]string, system, cellClaim, interregion *jwt.AccountClaims,
 ) bool {
@@ -324,6 +324,11 @@ func (check *generationCheck) controllerConfig(generation bootstrap.MaterialGene
 	if protocol.DecodeStrict(data, &top, bootstrap.MaxControllerConfigBytes) != nil || top["controller"] == nil ||
 		top["nats"] == nil || protocol.DecodeStrict(top["nats"], &nats, bootstrap.MaxControllerConfigBytes) != nil {
 		check.fail(name + " is not a controller config")
+		return false
+	}
+	var version int
+	if protocol.DecodeStrict(top["version"], &version, bootstrap.MaxControllerConfigBytes) != nil || version != 1 {
+		check.fail(name + " must have config version 1")
 		return false
 	}
 	var ir *natscell.InterRegion

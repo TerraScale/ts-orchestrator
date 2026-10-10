@@ -154,9 +154,6 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	if cfg.PollInterval < 100*time.Millisecond {
 		return nil, errors.New("agent poll interval is too short")
 	}
-	if cfg.LoadInterval != 0 && (cfg.LoadInterval < MinLoadInterval || cfg.LoadInterval > time.Hour) {
-		return nil, errors.New("agent load interval must be within 5s..1h")
-	}
 	runner := cfg.Runner
 	if runner == nil {
 		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node), cfg.WorkloadIdentity)
@@ -316,9 +313,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.cfg.ManagedRuntimeRoot != "" {
 		go a.refreshNativeRootPins(work)
 	}
-	if a.cfg.LoadInterval > 0 {
-		go a.publishLoad(work)
-	}
+	go a.publishLoad(work)
 	if a.cfg.FollowRollouts != nil {
 		go a.cfg.FollowRollouts(work, a)
 	}
@@ -607,7 +602,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 			if next.SessionID != current.SessionID || next.Epoch != current.Epoch || !next.ExpiresAt.After(current.ExpiresAt) {
 				err = errors.New("renewed session binding mismatch")
 			} else if _, _, err = a.executionLease(); err == nil {
-				if err = a.acceptSession(next); err == nil && a.cfg.SessionTrace {
+				if err = a.acceptSession(next); err == nil {
 					a.logSessionAccepted("renew", next)
 				}
 			}
@@ -632,7 +627,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 
 // logSessionAccepted is called only after exchange has verified the signed
 // controller reply and the agent has accepted its session binding. Renewal
-// events are opt-in and capped by the one-second renewal ticker per host.
+// events retain each changed expiry so fencing proofs can match the latest grant.
 func (a *Agent) logSessionAccepted(phase string, accepted session) {
 	digest := sha256.Sum256([]byte(accepted.SessionID))
 	slog.Info("host session accepted", "phase", phase,
@@ -680,20 +675,18 @@ func (a *Agent) stopForLostSession(cancel context.CancelFunc, lost chan<- error,
 	if err := a.stopAllManagedNativeRoots(); err != nil {
 		reason = errors.Join(reason, err)
 	}
-	if a.cfg.SessionTrace {
-		a.mu.RLock()
-		accepted := a.session
-		a.mu.RUnlock()
-		if accepted.SessionID != "" && accepted.Epoch != 0 {
-			cause := "renewal_failed"
-			if errors.Is(reason, errSessionExecutionReserve) {
-				cause = "reserve_exhausted"
-			}
-			digest := sha256.Sum256([]byte(accepted.SessionID))
-			slog.Info("host session fenced", "session_id_hash", hex.EncodeToString(digest[:16]),
-				"epoch", accepted.Epoch, "expires_at", accepted.ExpiresAt.UTC().Format(time.RFC3339Nano),
-				"cause_class", cause)
+	a.mu.RLock()
+	accepted := a.session
+	a.mu.RUnlock()
+	if accepted.SessionID != "" && accepted.Epoch != 0 {
+		cause := "renewal_failed"
+		if errors.Is(reason, errSessionExecutionReserve) {
+			cause = "reserve_exhausted"
 		}
+		digest := sha256.Sum256([]byte(accepted.SessionID))
+		slog.Info("host session fenced", "session_id_hash", hex.EncodeToString(digest[:16]),
+			"epoch", accepted.Epoch, "expires_at", accepted.ExpiresAt.UTC().Format(time.RFC3339Nano),
+			"cause_class", cause)
 	}
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), sessionExecutionReserve-time.Second)
 	if err := a.runner.Close(stopCtx); err != nil {

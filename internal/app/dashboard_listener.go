@@ -164,7 +164,7 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 	}
 	stopped := make(chan error, len(listener.addresses))
 	for _, address := range listener.addresses.listen() {
-		settings := observability.Config{ListenAddress: address, Dashboard: true}
+		settings := observability.Config{ListenAddress: address}
 		server, err := observability.NewTokenServer(settings, listener.token.Value, observability.ServerDeps{
 			Registry: runtime.registry, Health: runtime.health, Events: runtime.events, Sessions: store,
 			TokenVersion: observability.TokenVersion{Source: listener.token.SecretID, Number: listener.token.Number, SpecGeneration: listener.generation}})

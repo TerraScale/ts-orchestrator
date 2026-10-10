@@ -290,7 +290,7 @@ func (material Material) InterRegion(t testing.TB, now time.Time, slots []string
 			ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}, &ca)
 		leafTLS := natscell.TLSFiles{CAFile: directory + "interregion-ca.pem", CertFile: directory + certName,
 			KeyFile: directory + keyName}
-		config, err := json.Marshal(map[string]any{"controller": map[string]any{"candidate_id": slot},
+		config, err := json.Marshal(map[string]any{"version": 1, "controller": map[string]any{"candidate_id": slot},
 			"nats": natscell.Config{Cell: "gru", Instance: slot, Embedded: &natscell.Embedded{
 				CellJWTFile: directory + "cell.jwt", SystemJWTFile: directory + "system.jwt",
 				InterRegion: &natscell.InterRegion{Enabled: true, Peers: contract.Peers, GlobalHome: "sfo",

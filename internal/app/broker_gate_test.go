@@ -200,11 +200,11 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 		t.Cleanup(func() { stopAuthority(); _ = control.Close() })
 		var gateCtx context.Context
 		gateCtx, gateCancel[index] = context.WithCancel(ctx)
-		gates[index], err = startBrokerGate(gateCtx, Config{NATS: configs[index]}, runtimes[index], controls[index], entityid.Derive("test-controller", id), ticketPrivate, ticketPub, clock)
+		gates[index], err = startBrokerGate(gateCtx, Config{Version: ConfigVersion, NATS: configs[index]}, runtimes[index], controls[index], entityid.Derive("test-controller", id), ticketPrivate, ticketPub, clock)
 		if err != nil {
 			t.Fatalf("start %s gate: %v", id, err)
 		}
-		policy, err := buildSignerPolicy(Config{NATS: configs[index], Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+		policy, err := buildSignerPolicy(Config{Version: ConfigVersion, NATS: configs[index], Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -223,7 +223,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	}
 	operatorClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + operatorPub + ".>"}
 	operatorCreds = testBrokerJWTUserWithClaim(t, root, "claim-operator.creds", cellKey, operatorClaim)
-	operatorConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "claim-operator", Replicas: 3, URL: configs[0].URL,
+	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "claim-operator", Replicas: 3, URL: configs[0].URL,
 		CredentialsFile: operatorCreds, TLS: tlsFiles},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "claim-operator.key"), BrokerTicketPublicKeyFile: ticketPubFile}}
@@ -365,7 +365,7 @@ func TestBrokerGateR3TicketRevocationAndOfflineFence(t *testing.T) {
 	if err := rogue.Unsubscribe(); err != nil {
 		t.Fatal(err)
 	}
-	policy, err := buildSignerPolicy(Config{NATS: configs[leader], Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
+	policy, err := buildSignerPolicy(Config{Version: ConfigVersion, NATS: configs[leader], Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
 	if err != nil {
 		t.Fatal(err)
 	}

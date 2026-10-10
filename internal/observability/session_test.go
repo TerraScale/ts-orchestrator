@@ -29,7 +29,7 @@ func newLoginServer(t *testing.T) (*Server, string) {
 	if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile, Dashboard: true},
+	server, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile},
 		ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: newTestSessionStore(t)})
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +214,7 @@ func TestHandleLoginAfterServingDoesNotRace(t *testing.T) {
 	if err := os.WriteFile(tokenFile, []byte(strings.Repeat("s", 48)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile, Dashboard: true},
+	server, err := NewServer(Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: tokenFile},
 		ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
 	if err != nil {
 		t.Fatal(err)
@@ -266,7 +266,7 @@ func TestSessionsPersistAndTokenRotationRevokesPermanently(t *testing.T) {
 	token := strings.Repeat("a", 48)
 	build := func(token string) *Server {
 		t.Helper()
-		server, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{
+		server, err := NewTokenServer(Config{}, token, ServerDeps{
 			Registry: NewRegistry(false), Health: new(Health), Sessions: store})
 		if err != nil {
 			t.Fatal(err)
@@ -443,7 +443,7 @@ func TestSessionsSurviveBrokerRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		listener, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
+		listener, err := NewTokenServer(Config{}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -560,7 +560,7 @@ func TestSessionCapacityIsSharedAndRotationReclaimsIt(t *testing.T) {
 	store := newTestSessionStore(t)
 	build := func(token string) *Server {
 		t.Helper()
-		server, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
+		server, err := NewTokenServer(Config{}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -817,7 +817,7 @@ func TestListenerRetriesDeferredCollectionAndStopsOnCloseOrCancellation(t *testi
 			fault.down.Store(true)
 			store.kv = fault
 			token := strings.Repeat("b", 48)
-			rotated, err := NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
+			rotated, err := NewTokenServer(Config{}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
 			if err != nil {
 				t.Fatal("cleanup outage prevented listener construction")
 			}
@@ -830,7 +830,7 @@ func TestListenerRetriesDeferredCollectionAndStopsOnCloseOrCancellation(t *testi
 			}
 			address := probe.Addr().String()
 			_ = probe.Close()
-			if _, err := rotated.Start(ctx, Config{ListenAddress: address, Dashboard: true}); err != nil {
+			if _, err := rotated.Start(ctx, Config{ListenAddress: address}); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = rotated.Close() })
@@ -843,7 +843,7 @@ func TestListenerRetriesDeferredCollectionAndStopsOnCloseOrCancellation(t *testi
 			if cancelRuntime {
 				// Another controller rotates again while this listener's retry
 				// is pending. Collection must use the shared latest generation.
-				current, err = NewTokenServer(Config{Dashboard: true}, strings.Repeat("c", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
+				current, err = NewTokenServer(Config{}, strings.Repeat("c", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: &store})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -942,7 +942,7 @@ func TestFailedTokenRotationPreservesActiveSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	rotated, err := NewTokenServer(Config{}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -975,7 +975,7 @@ func TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	rotated, err := NewTokenServer(Config{}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -991,7 +991,7 @@ func TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection(t *testing.T)
 	if err != nil || !sessionValid(t, rotated.sessions, t.Context(), fresh) {
 		t.Fatal("cleanup failure made the current binding unavailable")
 	}
-	reattached, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
+	reattached, err := NewTokenServer(Config{}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store})
 	if err != nil || !sessionValid(t, reattached.sessions, t.Context(), fresh) {
 		t.Fatal("cleanup failure prevented a new listener from attaching")
 	}
@@ -1018,7 +1018,7 @@ func TestTokenRotationBetweenSessionReadsRejectsOldGeneration(t *testing.T) {
 	binding := server.sessions.binding.Load()
 	store := binding.store
 	leader := store.leader
-	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
+	rotated, err := NewTokenServer(Config{}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1216,7 +1216,7 @@ func TestFailedCanceledAllocationRollbackRetriesAndPreservesReusedSlot(t *testin
 			}
 			address := probe.Addr().String()
 			_ = probe.Close()
-			if _, err := server.Start(t.Context(), Config{ListenAddress: address, Dashboard: true}); err != nil {
+			if _, err := server.Start(t.Context(), Config{ListenAddress: address}); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = server.Close() })
@@ -1355,7 +1355,7 @@ func TestAmbiguousAllocationCleanupRetriesAndPreservesReusedSlots(t *testing.T) 
 			}
 			address := probe.Addr().String()
 			_ = probe.Close()
-			if _, err := server.Start(t.Context(), Config{ListenAddress: address, Dashboard: true}); err != nil {
+			if _, err := server.Start(t.Context(), Config{ListenAddress: address}); err != nil {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = server.Close() })
@@ -1394,7 +1394,7 @@ func TestRotationBetweenReconciliationAndAllocationRejectsLoginAndRemovesRecord(
 		t.Fatal(err)
 	}
 	rotationStore := *store
-	rotated, err := NewTokenServer(Config{Dashboard: true}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health),
+	rotated, err := NewTokenServer(Config{}, strings.Repeat("b", 48), ServerDeps{Registry: NewRegistry(false), Health: new(Health),
 		TokenVersion: TokenVersion{Source: "test-vault-secret", Number: 2, SpecGeneration: 1}})
 	if err != nil {
 		t.Fatal(err)
@@ -1465,7 +1465,7 @@ func TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings(t 
 	t.Parallel()
 	store := newTestSessionStore(t)
 	create := func(token string, version TokenVersion) (*Server, error) {
-		return NewTokenServer(Config{Dashboard: true}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store, TokenVersion: version})
+		return NewTokenServer(Config{}, token, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Sessions: store, TokenVersion: version})
 	}
 	build := func(token string, version TokenVersion) *Server {
 		t.Helper()

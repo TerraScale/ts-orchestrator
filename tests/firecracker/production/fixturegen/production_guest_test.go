@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,25 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
+
+func TestProductionControllerConfigRequiresExplicitVersionOne(t *testing.T) {
+	input := productionGuestTestInputs(t, time.Now().UTC(), []byte("unused"))
+	const slot = "controller-a"
+	validate := func(wire []byte) error {
+		return validateControllerConfig(wire, slot, "ocid1.instance.oc1.sa-saopaulo-1."+slot,
+			input.VNICs[slot].PrimaryPrivateIP, input.VNICs, input.Credentials[slot])
+	}
+	wire := input.Configs[slot]
+	if err := validate(wire); err != nil {
+		t.Fatalf("version-1 production config: %v", err)
+	}
+	for _, version := range []string{"", `"version":0,`, `"version":2,`, `"version":6,`} {
+		changed := strings.Replace(string(wire), `"version":1,`, version, 1)
+		if err := validate([]byte(changed)); err == nil || !strings.Contains(err.Error(), "version") {
+			t.Errorf("invalid version %q accepted: %v", version, err)
+		}
+	}
+}
 
 func productionGuestTestInputs(t *testing.T, now time.Time, binary []byte) GuestMaterialInputs {
 	t.Helper()
@@ -88,7 +108,7 @@ func productionGuestTestInputs(t *testing.T, now time.Time, binary []byte) Guest
 				routes = append(routes, "nats-route://"+addresses[peer]+":6222")
 			}
 		}
-		cfg := app.Config{
+		cfg := app.Config{Version: app.ConfigVersion,
 			NATS: natscell.Config{Cell: "gru", Instance: slot, Replicas: 3,
 				ClientRole: "controller", CredentialsFile: secret(slot + ".creds"), TLS: tlsFiles,
 				Embedded: &natscell.Embedded{

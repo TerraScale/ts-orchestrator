@@ -255,7 +255,6 @@ type AgentConfig struct {
 	MemoryRuntime    bool
 	WorkloadIdentity WorkloadIdentity
 	PollInterval     time.Duration
-	SessionTrace     bool
 	ClockCheck       func() error
 	VolumeInitSocket string
 
@@ -268,9 +267,6 @@ type AgentConfig struct {
 	// session. A self-update activation proof belongs here: earlier, a host
 	// whose recovery fails would still confirm its release.
 	Initialized func()
-	// LoadInterval, when nonzero, publishes host load telemetry that often
-	// (5s..1h). Zero, the default, never samples or sends load.
-	LoadInterval time.Duration
 	// FollowRollouts, when set, takes part in the cell's orchestrator
 	// rollouts over this agent's session (rollout.go) until ctx ends.
 	FollowRollouts func(ctx context.Context, session RolloutSession)

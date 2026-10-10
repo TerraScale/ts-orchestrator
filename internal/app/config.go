@@ -1,10 +1,8 @@
 package app
 
 import (
-	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
@@ -20,25 +18,19 @@ import (
 
 const maxConfigBytes = 1 << 20
 
-// ConfigVersion is the config schema this binary writes. Raise it with every
-// new member (TestConfigVersionCoversEveryMember names the digest to record):
-// an older binary then skips the members it lacks instead of refusing them as
-// typos. Never rename or remove a member; an older config still names it.
-const ConfigVersion = 6
+// ConfigVersion is the only supported role-config contract.
+// Removed settings must be deleted from signed configs before rollout.
+const ConfigVersion = 1
 
 // Config is the one binary's role-specific configuration. A controller and a
 // host can share the same schema while holding separate credentials and files.
 type Config struct {
-	// Version is the ConfigVersion of the binary that wrote the config. A
-	// binary decodes a config of its own version or older strictly and skips
-	// the unknown members of a newer one, so a rolled-back binary starts.
-	Version    int              `json:"version,omitzero"`
-	NATS       natscell.Config  `json:"nats"`
-	Controller ControllerConfig `json:"controller"`
-	Host       HostConfig       `json:"host"`
-	Operator   OperatorConfig   `json:"operator"`
-	// Observability is omitted when zero, so configs signed before it
-	// existed keep their exact canonical bytes.
+	// Version must explicitly name ConfigVersion; unknown members are rejected.
+	Version       int                  `json:"version"`
+	NATS          natscell.Config      `json:"nats"`
+	Controller    ControllerConfig     `json:"controller"`
+	Host          HostConfig           `json:"host"`
+	Operator      OperatorConfig       `json:"operator"`
 	Observability observability.Config `json:"observability,omitzero"`
 	// wire is the exact bytes the config was read from. A signed controller
 	// config's digest covers them, not a re-encoding, so a binary with a new
@@ -171,7 +163,6 @@ type HostConfig struct {
 	WorkloadUID         uint32   `json:"workload_uid"`
 	WorkloadGID         uint32   `json:"workload_gid"`
 	PollMillis          int      `json:"poll_millis,omitzero"`
-	SessionTrace        bool     `json:"session_trace,omitzero"`
 	// TerraBaseDataVolume keeps the C# member's data directory on its OCI
 	// block volume (<node>-data at /dev/oracleoci/oraclevdb), mounted by the
 	// root volume initializer; the member never starts without it.
@@ -189,10 +180,6 @@ type HostConfig struct {
 	// SelfUpdateRoot is the release root the selfupdate prepare and watchdog
 	// steps use (their --root); empty means selfupdate.DefaultRoot.
 	SelfUpdateRoot string `json:"self_update_root,omitempty"`
-	// LoadTelemetrySeconds sets how often the host publishes cgroup, disk
-	// and TerraBase load. Omitted defaults to 15 seconds; 0 disables it,
-	// and an explicit interval must be within 5..3600 seconds.
-	LoadTelemetrySeconds *int `json:"load_telemetry_seconds,omitempty"`
 	// RoleMemoryMaxBytes caps a native role's cgroup memory.max on this host
 	// from its next start (TS-578), for example terrabase and ts-auth beside
 	// a controller, so neither can push the controller's NATS into the OOM
@@ -233,22 +220,14 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// decodeConfig decodes config bytes, strictly unless a newer binary wrote
-// them, and keeps them as the config's wire.
+// decodeConfig strictly decodes config bytes and keeps them as the config's wire.
 func decodeConfig(data []byte) (Config, error) {
-	var header struct {
-		Version int `json:"version"`
-	}
-	_ = json.Unmarshal(data, &header)
-	decode := protocol.DecodeStrict
-	if header.Version > ConfigVersion {
-		slog.Warn("config is newer than this binary; skipping the members it does not know",
-			"config_version", header.Version, "binary_config_version", ConfigVersion)
-		decode = protocol.DecodeTolerant
-	}
 	var cfg Config
-	if err := decode(data, &cfg, maxConfigBytes); err != nil {
+	if err := protocol.DecodeStrict(data, &cfg, maxConfigBytes); err != nil {
 		return Config{}, err
+	}
+	if cfg.Version != ConfigVersion {
+		return Config{}, fmt.Errorf("config version must be %d, got %d", ConfigVersion, cfg.Version)
 	}
 	cfg.wire = data
 	return cfg, nil

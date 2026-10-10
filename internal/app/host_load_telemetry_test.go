@@ -1,42 +1,30 @@
 package app
 
 import (
-	"io"
-	"strings"
+	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
 )
 
-func TestEffectiveLoadTelemetryInterval(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		seconds *int
-		want    time.Duration
-		invalid bool
-	}{
-		{name: "omitted", want: 15 * time.Second},
-		{name: "off", seconds: new(0)},
-		{name: "minimum", seconds: new(5), want: 5 * time.Second},
-		{name: "explicit default", seconds: new(15), want: 15 * time.Second},
-		{name: "custom", seconds: new(60), want: time.Minute},
-		{name: "maximum", seconds: new(3600), want: time.Hour},
-		{name: "negative", seconds: new(-1), invalid: true},
-		{name: "below minimum", seconds: new(4), invalid: true},
-		{name: "above maximum", seconds: new(3601), invalid: true},
-		{name: "overflow to zero", seconds: new(1 << 55), invalid: true},
-		{name: "maximum integer", seconds: new(int(^uint(0) >> 1)), invalid: true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := effectiveLoadTelemetryInterval(tt.seconds)
-			if (err != nil) != tt.invalid || got != tt.want {
-				t.Fatalf("effective interval = %v, %v; want %v, invalid=%v", got, err, tt.want, tt.invalid)
+func TestHostTelemetryControlsAreRejectedOnLoadAndRenewal(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int{0, ConfigVersion, ConfigVersion + 1} {
+		for _, settings := range []string{
+			`{"load_telemetry_seconds":0}`, `{"load_telemetry_seconds":15}`,
+			`{"session_trace":false}`, `{"session_trace":true}`,
+		} {
+			path := filepath.Join(t.TempDir(), "host.json")
+			wire := fmt.Sprintf(`{"version":%d,"host":%s}`, version, settings)
+			if err := os.WriteFile(path, []byte(wire), 0o600); err != nil {
+				t.Fatal(err)
 			}
-			if tt.invalid {
-				err := runHost(t.Context(), Config{Host: HostConfig{LoadTelemetrySeconds: tt.seconds}}, "", io.Discard)
-				if err == nil || !strings.Contains(err.Error(), "load_telemetry_seconds") {
-					t.Fatalf("runHost did not reject the interval before startup: %v", err)
-				}
+			if _, err := LoadConfig(path); err == nil {
+				t.Errorf("host telemetry control accepted: %s", wire)
 			}
-		})
+			if _, err := readHostLocalOptions(path); err == nil {
+				t.Errorf("credential renewal discarded a retired control: %s", wire)
+			}
+		}
 	}
 }

@@ -83,10 +83,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	context.AfterFunc(runtime.journalCtx, cancel)
 	conn := observed.nats.Conn()
 	go openDecisionStream(ctx, observed.nats.JetStream(), runtime.cell, observed.replicas, journal)
-	if runtime.config.ClusterAggregation {
-		if _, err := decisionlog.ServeQueries(ctx, conn, runtime.cell, journal); err != nil {
-			slog.Warn("decision query responder unavailable", observability.ComponentKey, "decision", "error", err)
-		}
+	if _, err := decisionlog.ServeQueries(ctx, conn, runtime.cell, journal); err != nil {
+		slog.Warn("decision query responder unavailable", observability.ComponentKey, "decision", "error", err)
 	}
 	if observed.nats != nil {
 		go watchControlPlane(ctx, runtime.cell, runtime.member, observed.authority, observed.nats, observed.replicas)
@@ -144,10 +142,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()
-	if runtime.config.ClusterAggregation {
-		if _, err := regionview.Serve(ctx, conn, runtime.cell, regions); err != nil {
-			slog.Warn("region summary responder unavailable", observability.ComponentKey, "regionview", "error", err)
-		}
+	if _, err := regionview.Serve(ctx, conn, runtime.cell, regions); err != nil {
+		slog.Warn("region summary responder unavailable", observability.ComponentKey, "regionview", "error", err)
 	}
 	federation := decisionlog.Federation{Local: journal, Links: links}
 	providers := journalProviders{Decisions: federation, Live: journal, History: sharedHistory, Insights: engine,

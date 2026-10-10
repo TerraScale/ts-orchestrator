@@ -72,7 +72,7 @@ func TestHostEnrollmentOnlySeedsUnmanagedFirstBootstrapNetBirdConfig(t *testing.
 				}
 			}
 			if test.host {
-				if err := os.WriteFile(filepath.Join(root, "host.json"), []byte(`{"host":{"node":"old-node"}}`), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(root, "host.json"), []byte(`{"version":1,"host":{"node":"old-node"}}`), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}

@@ -76,8 +76,7 @@ type Config struct {
 	// GrantVersion is the controller grant set the material issues. Zero
 	// (or GrantVersionBase) issues today's grants. GrantVersionObservability
 	// adds the subscribe grant ts.orch.v1.<cell>.obs.>, which the read-only
-	// cell-wide telemetry responders need before observability
-	// cluster_aggregation can be enabled. Material is immutable: raising it
+	// cell-wide telemetry responders need. Material is immutable: raising it
 	// means issuing new material and rotating the controllers onto it.
 	GrantVersion int `json:"grantVersion,omitempty"`
 }

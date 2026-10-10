@@ -71,7 +71,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	children := make([]*controllerChild, 3)
 	for index := range children {
 		instance := fmt.Sprintf("peer%d", index)
-		config := testJSONFile(t, root, instance+".json", Config{
+		config := testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
 			NATS: natscell.Config{Cell: "gru", Instance: instance, Replicas: 3, Lab: true, NKeySeedFile: controllerSeeds[index],
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
@@ -98,7 +98,7 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	}
 	ctx, cancelScenario := context.WithTimeout(controllerCtx, 4*time.Minute)
 	defer cancelScenario()
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{
+	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 3, Lab: true,
 			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},

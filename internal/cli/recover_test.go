@@ -41,7 +41,7 @@ func recoveryFixture(t *testing.T) (string, string, string) {
 	}
 	config := filepath.Join(root, "controller.json")
 	clientPort, routePort := closedPort(t), closedPort(t)
-	if err := os.WriteFile(config, []byte(`{"nats":{"cell":"gru","instance":"controller-a","replicas":3,`+
+	if err := os.WriteFile(config, []byte(`{"version":1,"nats":{"cell":"gru","instance":"controller-a","replicas":3,`+
 		`"embedded":{"host":"127.0.0.1","port":`+clientPort+`,"route_host":"127.0.0.1","route_port":`+routePort+
 		`,"store_dir":"`+store+`"}}}`), 0o600); err != nil {
 		t.Fatal(err)

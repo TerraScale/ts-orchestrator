@@ -122,7 +122,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	actorClaim.Sub.Allow = jwt.StringList{"ts.orch.v1.gru.inbox." + operatorNKey + ".>"}
 	operatorCreds = testBrokerJWTUserWithClaim(t, root, "operator.creds", cellKey, actorClaim)
 	clientPort := reserveControllerPort(t)
-	controllerConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 1,
+	controllerConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "broker-a", Replicas: 1,
 		CredentialsFile: controllerCreds, TLS: tlsFiles, Embedded: &natscell.Embedded{
 			Host: "127.0.0.1", Port: clientPort, StoreDir: filepath.Join(root, "broker"), StoreMaxBytes: 4 << 30,
 			TLS: tlsFiles, RouteTLS: tlsFiles, OperatorJWTFile: operatorFile, SystemJWTFile: systemFile,
@@ -176,7 +176,7 @@ func TestRunControllerOperatorBrokerClaimApply(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1,
+	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1,
 		URL: fmt.Sprintf("tls://127.0.0.1:%d", clientPort), CredentialsFile: operatorCreds, TLS: tlsFiles},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "actor.key"), BrokerTicketPublicKeyFile: ticketFile}}

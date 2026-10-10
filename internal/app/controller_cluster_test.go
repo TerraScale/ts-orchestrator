@@ -75,7 +75,7 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
-		configs[index] = testJSONFile(t, root, instance+".json", Config{
+		configs[index] = testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
 			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
 					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),

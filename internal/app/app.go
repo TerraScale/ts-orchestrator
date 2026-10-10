@@ -123,27 +123,6 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 
 var hostClockProbe = func() brokerauth.ClockProbe { return brokerauth.KernelClockProbe{} }
 
-// validateLoadTelemetrySeconds checks the integer before it becomes a
-// duration, so an enormous value cannot overflow past the agent's bounds
-// (for example wrap to zero and silently disable telemetry).
-func validateLoadTelemetrySeconds(seconds int) error {
-	if seconds != 0 && (seconds < 5 || seconds > 3600) {
-		return fmt.Errorf("host load_telemetry_seconds %d must be 0 (off) or within 5..3600", seconds)
-	}
-	return nil
-}
-
-func effectiveLoadTelemetryInterval(configured *int) (time.Duration, error) {
-	seconds := 15
-	if configured != nil {
-		seconds = *configured
-	}
-	if err := validateLoadTelemetrySeconds(seconds); err != nil {
-		return 0, err
-	}
-	return time.Duration(seconds) * time.Second, nil
-}
-
 func runHost(ctx context.Context, cfg Config, configPath string, output io.Writer) error {
 	ctx, restart := context.WithCancelCause(ctx)
 	defer restart(nil)
@@ -154,10 +133,6 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 	notifier := sdnotify.FromEnvironment()
 	if cfg.NATS.Embedded != nil {
 		return errors.New("host role cannot start the regional NATS server")
-	}
-	loadInterval, err := effectiveLoadTelemetryInterval(cfg.Host.LoadTelemetrySeconds)
-	if err != nil {
-		return err
 	}
 	cfg.NATS.ClientRole = "host"
 	telemetry, err := startRuntimeObservability(ctx, cfg, "host", cfg.Host.Node)
@@ -242,12 +217,11 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 		BakedSystemReserveBytes: bakedSystemReserveBytes,
 		MemoryRuntime:           memoryRuntime,
 		WorkloadIdentity:        identity,
-		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond, SessionTrace: cfg.Host.SessionTrace,
-		ClockCheck:       clockCheck,
-		LoadInterval:     loadInterval,
-		FollowRollouts:   hostRollouts(cfg, key, controllerKey),
-		FollowNetBird:    hostNetBird(cfg, controllerKey),
-		VolumeInitSocket: "/run/terrascale-orchestrator-volume-init.sock",
+		PollInterval:            time.Duration(cfg.Host.PollMillis) * time.Millisecond,
+		ClockCheck:              clockCheck,
+		FollowRollouts:          hostRollouts(cfg, key, controllerKey),
+		FollowNetBird:           hostNetBird(cfg, controllerKey),
+		VolumeInitSocket:        "/run/terrascale-orchestrator-volume-init.sock",
 		// The activation proof follows native recovery, so a release whose
 		// agent cannot recover its workloads is never confirmed.
 		Initialized: func() {

@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
@@ -326,16 +327,61 @@ func TestLoadOutcomeTreatsDiscardedSampleAsRejection(t *testing.T) {
 }
 
 // Backoff doubles up to its cap but never publishes more often than the
-// configured interval.
+// fixed reporting interval.
 func TestLoadBackoffNeverShortensTheInterval(t *testing.T) {
-	for _, tc := range []struct{ wait, interval, want time.Duration }{
-		{15 * time.Second, 15 * time.Second, 30 * time.Second},
-		{8 * time.Minute, 15 * time.Second, maxLoadBackoff},
-		{time.Hour, time.Hour, time.Hour},
-		{30 * time.Minute, 30 * time.Minute, 30 * time.Minute},
+	for _, tc := range []struct{ wait, want time.Duration }{
+		{0, 15 * time.Second},
+		{15 * time.Second, 30 * time.Second},
+		{8 * time.Minute, maxLoadBackoff},
+		{maxLoadBackoff, maxLoadBackoff},
 	} {
-		if got := nextLoadWait(tc.wait, tc.interval); got != tc.want {
-			t.Errorf("nextLoadWait(%v, %v) = %v, want %v", tc.wait, tc.interval, got, tc.want)
+		if got := nextLoadWait(tc.wait); got != tc.want {
+			t.Errorf("nextLoadWait(%v) = %v, want %v", tc.wait, got, tc.want)
 		}
+	}
+}
+
+func TestAgentPublishesLoadWithoutTelemetrySettings(t *testing.T) {
+	controller, conn, _, _, responseKey := testController(t)
+	hostKey := registerTestHost(t, controller)
+	reported := make(chan hostload.Origin, 1)
+	controller.SetLoadSink(func(origin hostload.Origin, report hostload.Report) error {
+		if err := report.Validate(); err != nil {
+			return err
+		}
+		select {
+		case reported <- origin:
+		default:
+		}
+		return nil
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	t.Cleanup(cancel)
+	controllerDone := make(chan error, 1)
+	go func() { controllerDone <- controller.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-controllerDone })
+	select {
+	case <-controller.Ready():
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	agent, err := NewAgent(AgentConfig{Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
+		Conn: conn, Identity: hostKey, NATSUserPublicKey: testNATSUserKey("node-a"),
+		ControllerPublicKey: responseKey.Public().(ed25519.PublicKey),
+		Runner:              &memoryRunner{observed: make(map[string]Observation)}, ClockCheck: func() error { return nil },
+		WorkloadIdentity: testAgentIdentity(), InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentDone := make(chan error, 1)
+	go func() { agentDone <- agent.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-agentDone })
+	select {
+	case origin := <-reported:
+		if origin != (hostload.Origin{Cell: "gru", Node: "node-a", Environment: "production"}) {
+			t.Fatalf("load origin = %+v", origin)
+		}
+	case <-ctx.Done():
+		t.Fatal("agent did not publish authenticated load with default settings")
 	}
 }

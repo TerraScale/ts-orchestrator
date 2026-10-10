@@ -201,7 +201,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{tsauth.Role}, Environments: []string{"test"}, CanRegisterHosts: true,
 		Repositories: []string{tsauth.Repository}}
-	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{
+	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: users}},
@@ -222,7 +222,7 @@ func TestTSAuthReleaseGateWithFakeReplicas(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}

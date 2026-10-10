@@ -43,7 +43,7 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	t.Cleanup(func() { _ = nats.Close() })
 	address := freeLoopbackAddress(t)
 	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: address, Dashboard: true}}
+		Observability: observability.Config{ListenAddress: address}}
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", "one")
 	if err != nil {
 		t.Fatal(err)

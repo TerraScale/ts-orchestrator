@@ -105,7 +105,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true,
 		Repositories: []string{terrabase.Repository}}
-	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{
+	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
 				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller"}, {PublicKey: operatorNKey, Role: "operator"},
@@ -127,7 +127,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
@@ -278,7 +278,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 		t.Fatal(err)
 	}
 	defer leader.Close()
-	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"},
+	policy, err := buildSignerPolicy(Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru"},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}}})
 	if err != nil {
 		t.Fatal(err)
@@ -289,7 +289,7 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader, err := operatorHostReader(ctx, Config{NATS: natscell.Config{Cell: "gru", Replicas: 1}}, leader)
+	reader, err := operatorHostReader(ctx, Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Replicas: 1}}, leader)
 	if err != nil {
 		t.Fatal(err)
 	}

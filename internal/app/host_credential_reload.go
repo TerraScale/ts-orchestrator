@@ -48,11 +48,7 @@ func sameHostIdentityConfig(running, reloaded Config) error {
 		hostLeft.InstallRoot != hostRight.InstallRoot || hostLeft.StateRoot != hostRight.StateRoot ||
 		hostLeft.ManagedRuntimeRoot != hostRight.ManagedRuntimeRoot || hostLeft.TerraBaseRoot != hostRight.TerraBaseRoot ||
 		hostLeft.TSAuthRoot != hostRight.TSAuthRoot || hostLeft.WorkloadUID != hostRight.WorkloadUID ||
-		hostLeft.WorkloadGID != hostRight.WorkloadGID || hostLeft.PollMillis != hostRight.PollMillis ||
-		hostLeft.SessionTrace != hostRight.SessionTrace ||
-		(hostLeft.LoadTelemetrySeconds == nil) != (hostRight.LoadTelemetrySeconds == nil) ||
-		(hostLeft.LoadTelemetrySeconds != nil && hostRight.LoadTelemetrySeconds != nil &&
-			*hostLeft.LoadTelemetrySeconds != *hostRight.LoadTelemetrySeconds) {
+		hostLeft.WorkloadGID != hostRight.WorkloadGID || hostLeft.PollMillis != hostRight.PollMillis {
 		return errors.New("reloaded host configuration changes more than credentials")
 	}
 	return nil

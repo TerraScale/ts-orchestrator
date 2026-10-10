@@ -15,19 +15,15 @@ const (
 	// unless an operator selects a private address explicitly. It is not
 	// 9464, the TerraBase member's loopback admin port on the same host.
 	DefaultListenAddress = "127.0.0.1:9463"
-	// DisabledListenAddress turns the listener off.
-	DisabledListenAddress = "off"
-
-	minBearerTokenBytes = 32
-	maxBearerTokenBytes = 4096
+	minBearerTokenBytes  = 32
+	maxBearerTokenBytes  = 4096
 )
 
 // Config is the observability section of a role configuration. Its zero
-// value is the default: JSON logs, a loopback listener without a token and no
-// cross-member aggregation.
+// value is the default: JSON logs and a loopback listener without a token.
 type Config struct {
 	// ListenAddress is an IP:port literal. Empty selects
-	// DefaultListenAddress; "off" disables the listener. Only loopback and
+	// DefaultListenAddress. Only loopback and
 	// RFC 1918/ULA private addresses are accepted; NetBird peers use
 	// 10.200.0.0/16, so a NetBird address is private too.
 	ListenAddress string `json:"listen_address,omitempty"`
@@ -40,20 +36,6 @@ type Config struct {
 	// LogFormat is "json" (default) or "logfmt"; LogLevel defaults to info.
 	LogFormat string `json:"log_format,omitempty"`
 	LogLevel  string `json:"log_level,omitempty"`
-	// ClusterAggregation answers and issues cell-wide snapshot requests on
-	// ts.orch.v1.<cell>.obs.*. It requires a subscribe grant for that subject
-	// on the controller credentials, which production issuers do not grant
-	// by default, so it is opt-in.
-	ClusterAggregation bool `json:"cluster_aggregation,omitzero"`
-	// Dashboard serves the read-only operator dashboard on this listener,
-	// with a browser login that exchanges the bearer token for a session
-	// cookie. Off by default: enabling it adds browser-facing routes.
-	Dashboard bool `json:"dashboard,omitzero"`
-}
-
-// Enabled reports whether the listener should start.
-func (config Config) Enabled() bool {
-	return config.ListenAddress != DisabledListenAddress
 }
 
 // Address returns the effective listen address.
@@ -72,9 +54,6 @@ func (config Config) Validate() error {
 	}
 	if (config.TLSCertFile == "") != (config.TLSKeyFile == "") {
 		return errors.New("observability TLS requires both a certificate and a key file")
-	}
-	if !config.Enabled() {
-		return nil
 	}
 	address, err := ValidateListenAddress(config.Address())
 	if err != nil {

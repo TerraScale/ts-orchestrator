@@ -253,7 +253,7 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 		t.Fatal(err)
 	}
 	cell := &deployTestCellServices{control: control, broker: broker, root: root, responseKey: controllerPublic,
-		operatorFile: testJSONFile(t, root, "operator.json", Config{
+		operatorFile: testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
 			NATS:       natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", Replicas: 1, Lab: true, URL: broker.URL()},
 			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant, compatibility}},
 			Operator: OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key"),

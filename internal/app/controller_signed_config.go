@@ -235,11 +235,9 @@ func validateSignedObservability(cfg Config) error {
 	if err := settings.Validate(); err != nil {
 		return fmt.Errorf("signed controller observability: %w", err)
 	}
-	if settings.Enabled() {
-		address, err := netip.ParseAddrPort(settings.Address())
-		if err != nil || !address.Addr().IsLoopback() && address.Addr().String() != cfg.NATS.Embedded.Host {
-			return errors.New("signed observability listener must bind loopback or the signed broker address")
-		}
+	address, err := netip.ParseAddrPort(settings.Address())
+	if err != nil || !address.Addr().IsLoopback() && address.Addr().String() != cfg.NATS.Embedded.Host {
+		return errors.New("signed observability listener must bind loopback or the signed broker address")
 	}
 	for _, path := range []string{settings.BearerTokenFile, settings.TLSCertFile, settings.TLSKeyFile} {
 		if path != "" && (filepath.Clean(path) != path ||

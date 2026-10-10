@@ -258,7 +258,7 @@ func (fixture *manifestFixture) writeCandidate(t *testing.T, manifest bootstrap.
 			routes = append(routes, "nats-route://"+privateIP[slot]+":6222")
 		}
 	}
-	cfg := app.Config{NATS: natscell.Config{Cell: strings.ToLower(string(manifest.Cell)), Instance: manifest.Slot,
+	cfg := app.Config{Version: app.ConfigVersion, NATS: natscell.Config{Cell: strings.ToLower(string(manifest.Cell)), Instance: manifest.Slot,
 		Replicas: len(manifest.ControllerSlots), ClientRole: "controller", URL: "tls://" + host + ":4222",
 		CredentialsFile: guestPath(manifest.Slot + ".creds"), TLS: tls,
 		Embedded: &natscell.Embedded{Host: host, Port: 4222, RouteHost: host, RoutePort: 6222,

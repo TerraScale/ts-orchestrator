@@ -116,9 +116,6 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		runtime.usage = capacity.NewStore(cfg.NATS.Cell)
 		runtime.startDecisionJournal(ctx)
 	}
-	if !settings.Enabled() {
-		return runtime, nil
-	}
 	server, err := observability.NewServer(settings, observability.ServerDeps{Registry: runtime.registry,
 		Health: runtime.health, Events: runtime.events, LocalSessions: role == "host"})
 	if err != nil {
@@ -129,15 +126,12 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 			observability.ComponentKey, "observability", "error", err)
 		return runtime, nil
 	}
-	var board *dashboard.Dashboard
 	runtime.mountUsage(server)
-	if settings.Dashboard {
-		// A token-protected listener issues browser sessions; a tokenless
-		// one is loopback only and refuses DNS names against rebinding.
-		board = dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events,
-			SignOut: settings.BearerTokenFile != "", RequireLiteralHost: settings.BearerTokenFile == ""})
-		board.Mount(server)
-	}
+	// A token-protected listener issues browser sessions; a tokenless
+	// one is loopback only and refuses DNS names against rebinding.
+	board := dashboard.New(dashboard.Options{Health: runtime.health, Events: runtime.events,
+		SignOut: settings.BearerTokenFile != "", RequireLiteralHost: settings.BearerTokenFile == ""})
+	board.Mount(server)
 	serveErrors, err := server.Start(ctx, settings)
 	if err != nil {
 		slog.Warn("observability listener unavailable; continuing without it",
@@ -146,11 +140,9 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	}
 	go watchObservabilityListener(serveErrors)
 	runtime.server = server
-	if board != nil {
-		runtime.addBoard(board)
-	}
+	runtime.addBoard(board)
 	slog.Info("observability listener ready", observability.ComponentKey, "observability",
-		"address", server.Addr().String(), "dashboard", board != nil)
+		"address", server.Addr().String())
 	return runtime, nil
 }
 
@@ -205,12 +197,12 @@ type controllerObservation struct {
 }
 
 // attachController registers controller metrics, readiness checks and the
-// snapshot provider, and answers cell-wide snapshot requests when enabled.
+// snapshot provider, and answers cell-wide snapshot requests.
 func (runtime *runtimeObservability) attachController(ctx context.Context, observed controllerObservation,
 	filesystems []observability.FilesystemRole,
 ) error {
 	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
-	if runtime.server != nil && runtime.config.Dashboard && runtime.config.BearerTokenFile != "" {
+	if runtime.server != nil && runtime.config.BearerTokenFile != "" {
 		go retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
 			store, err := observability.OpenSessionStore(attempt, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
 			if err != nil {
@@ -284,10 +276,6 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 		return err
 	}
 	runtime.attachSnapshots(collector)
-	if !runtime.config.ClusterAggregation {
-		runtime.attachJournal(ctx, observed, collector, nil)
-		return nil
-	}
 	// Cell-wide aggregation is telemetry too: a subscription the broker
 	// refuses (for example credentials without the obs grant) leaves this
 	// member's own view in place instead of stopping the controller.

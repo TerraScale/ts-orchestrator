@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -24,8 +25,7 @@ func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
 	t.Parallel()
 	base := Config{NATS: natscell.Config{Embedded: &natscell.Embedded{Host: "10.0.1.5"}}}
 	for name, settings := range map[string]observability.Config{
-		"default":  {},
-		"disabled": {ListenAddress: observability.DisabledListenAddress},
+		"default": {},
 		"broker": {ListenAddress: "10.0.1.5:9464",
 			BearerTokenFile: "/etc/terrascale-orchestrator/observability-token"},
 	} {
@@ -36,6 +36,7 @@ func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
 		}
 	}
 	for name, settings := range map[string]observability.Config{
+		"off switch": {ListenAddress: "off"},
 		"other private address": {ListenAddress: "10.0.1.6:9464",
 			BearerTokenFile: "/etc/terrascale-orchestrator/observability-token"},
 		"wildcard":          {ListenAddress: "0.0.0.0:9464"},
@@ -55,11 +56,30 @@ func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {
 func TestLoadConfigRejectsPublicObservabilityListener(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":1,"nats":{"cell":"lab"},"observability":{"listen_address":"8.8.8.8:9464"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadConfig(path); err == nil || !strings.Contains(err.Error(), "observability") {
 		t.Fatalf("LoadConfig() error = %v", err)
+	}
+}
+
+func TestLoadConfigRejectsObservabilitySwitches(t *testing.T) {
+	t.Parallel()
+	for _, version := range []int{0, ConfigVersion, ConfigVersion + 1} {
+		for _, settings := range []string{
+			`{"cluster_aggregation":false}`, `{"cluster_aggregation":true}`,
+			`{"dashboard":false}`, `{"dashboard":true}`, `{"listen_address":"off"}`,
+		} {
+			path := filepath.Join(t.TempDir(), "config.json")
+			wire := fmt.Sprintf(`{"version":%d,"observability":%s}`, version, settings)
+			if err := os.WriteFile(path, []byte(wire), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(path); err == nil {
+				t.Errorf("observability switch accepted: %s", wire)
+			}
+		}
 	}
 }
 
@@ -94,7 +114,7 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 	t.Cleanup(func() { _ = nats.Close() })
 	address := freeLoopbackAddress(t)
 	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: address, ClusterAggregation: true, LogFormat: "logfmt"}}
+		Observability: observability.Config{ListenAddress: address, LogFormat: "logfmt"}}
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", "one")
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +162,9 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 		len(cluster.Members) != 1 || cluster.Members[0].Member != "one" ||
 		len(cluster.Missing) != 1 || cluster.Missing[0] != "two" {
 		t.Fatalf("/v1/cluster = %d %s (%v)", status, body, err)
+	}
+	if status, body = get("/members"); status != http.StatusOK || !strings.Contains(body, ">one</a></td>") {
+		t.Fatalf("default dashboard /members = %d %s", status, body)
 	}
 	slog.Warn("synthetic warning", observability.ComponentKey, "test")
 	status, body = get("/v1/events")

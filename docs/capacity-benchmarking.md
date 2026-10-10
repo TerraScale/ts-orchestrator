@@ -79,18 +79,17 @@ measurements. Inspect `replicas` for individual values.
 Truncation or missing usage, requests or limits makes the
 window incomplete. Dropped-series coverage is tracked for the queried hour,
 conservatively rounded to minutes; healthy later windows recover without a
-controller restart. Longer configured telemetry intervals can therefore
-produce incomplete benchmark windows.
+controller restart. Gaps in telemetry can therefore produce incomplete
+benchmark windows.
 Service coverage additionally requires a positive overlapping observed range
 for each concurrently active group. Sequential replicas are evaluated during
 their own lifetimes; known inactive gaps remain complete zero intervals.
 Capacity history limits never reject an otherwise accepted autoscaler report;
 both consumers record independently.
 
-Hosts default to a fifteen-second telemetry interval; an explicit
-`host.load_telemetry_seconds` chooses 5–3600 seconds, and `0` disables reporting.
-For short benchmark stages, configure 5–10 second reporting to cover the
-measurement window densely. Capacity collection does
+Hosts report automatically every fifteen seconds. Benchmark stages must span
+several reporting intervals to cover the measurement window densely.
+Capacity collection does
 not enable autoscaling. Its existing `controller.autoscale.host_telemetry`
 gate is preserved. Update the binary in place through the normal release
 channel. A serving cell is never re-founded to enable this feature.

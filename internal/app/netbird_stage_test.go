@@ -206,7 +206,7 @@ func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixtu
 	}
 	var grant TrustedSignerConfig
 	f.policy, grant, f.key = netbirdStagePolicy(t, f.root)
-	f.config = testJSONFile(t, f.root, "operator.json", Config{
+	f.config = testJSONFile(t, f.root, "operator.json", Config{Version: ConfigVersion,
 		NATS: natscell.Config{Cell: "gru", Instance: "stage-operator", Replicas: 1, Lab: true,
 			URL: broker.URL(), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},

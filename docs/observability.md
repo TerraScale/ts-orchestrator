@@ -18,21 +18,20 @@ exact bytes.
   "tls_cert_file": "",
   "tls_key_file": "",
   "log_format": "json",
-  "log_level": "info",
-  "cluster_aggregation": false,
-  "dashboard": false
+  "log_level": "info"
 }
 ```
 
 | Field | Default | Rule |
 | --- | --- | --- |
-| `listen_address` | `127.0.0.1:9463` | Literal `IP:port`. Not 9464: a TerraBase member's loopback admin listener uses it on the same host. Loopback or RFC 1918/ULA private only; NetBird addresses (`10.200.0.0/16`) are private. CGNAT (`100.64.0.0/10`) is rejected. `off` disables the listener. Wildcard, public, link-local and multicast addresses are rejected at config load. |
+| `listen_address` | `127.0.0.1:9463` | Literal `IP:port`. Not 9464: a TerraBase member's loopback admin listener uses it on the same host. Loopback or RFC 1918/ULA private only; NetBird addresses (`10.200.0.0/16`) are private. CGNAT (`100.64.0.0/10`) is rejected. Wildcard, public, link-local and multicast addresses are rejected at config load. |
 | `bearer_token_file` | none | Required for any non-loopback address. A private (`0600`) file holding one 32-4096 byte token. |
 | `tls_cert_file`, `tls_key_file` | none | Optional pair; serves TLS 1.3. |
 | `log_format` | `json` | `json` or `logfmt`. |
 | `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
-| `cluster_aggregation` | `false` | Answer and issue `ts.orch.v1.<cell>.obs.snapshot`. See below. |
-| `dashboard` | `false` | Serve the read-only operator dashboard on this listener. See below. |
+
+The listener, dashboard, cell-wide aggregation, region summaries and decision
+query responders always run. There are no observability on/off settings.
 
 A signed controller config may bind only loopback or its own signed broker
 address, and any token or TLS file must live under
@@ -49,7 +48,7 @@ controller from serving its region.
 | `GET /readyz` | none | 200 when every check passes, else 503. Checks: `startup`, and on controllers `nats`, `cluster` (full replica count), `authority` (lease observed; leadership is a gauge, not a readiness gate). Details are fixed phrases. |
 | `GET /metrics` | token | Prometheus text: `process_*`, `go_*` and `ts_orch_*`. |
 | `GET /v1/snapshot[?metrics=1]` | token | This member's `MemberSnapshot` JSON. |
-| `GET /v1/cluster[?metrics=1]` | token | Cell-wide `ClusterSnapshot` (only with `cluster_aggregation`). |
+| `GET /v1/cluster[?metrics=1]` | token | Cell-wide `ClusterSnapshot` on controllers. |
 | `GET /v1/events?after=N&limit=M` | token | Recent events, oldest first. |
 | `GET /v1/usage?region=gru&from=<RFC3339>&to=<RFC3339>` | token required | Node, service and replica CPU/memory for a window within the last hour; [capacity benchmarking](capacity-benchmarking.md). |
 
@@ -110,10 +109,8 @@ authenticated host node name in lowercase; service series are named by their
 CPU/memory/filesystem charts do not count host reports twice. Service history
 uses `service_cpu_cores` and `service_memory_used_bytes`.
 
-Host load collection is independent of autoscaling. An omitted
-`host.load_telemetry_seconds` reports every 15 seconds; explicit `0` disables
-reporting, and explicit intervals of 5–3600 seconds are preserved through
-credential renewal. The authority leader accepts authenticated reports and
+Host load collection is independent of autoscaling. Hosts automatically report
+every 15 seconds, including after credential renewal. The authority leader accepts authenticated reports and
 collects their resource measurements. The five resource charts use one
 minute sampling; controller history continues at its existing interval.
 Service readings must match the host's current registration and desired
@@ -279,7 +276,7 @@ read prints `unreadable` and fails the command; warnings and errors do not.
 
 ## Cell-wide aggregation
 
-With `cluster_aggregation`, each controller subscribes to
+Every controller subscribes to
 `ts.orch.v1.<cell>.obs.snapshot` and answers with its `MemberSnapshot`; any
 member gathers all of them within one second and lists non-answering members
 as missing. Only controllers may publish on that subject: operator
@@ -295,23 +292,21 @@ subscribe-only: it lets each controller answer the read-only telemetry
 requests (`obs.snapshot`, region summaries, decision queries); publishing on
 `obs.*` is unchanged. The credential validator accepts both grant sets.
 
-Material is immutable, so enabling it is a rotation:
+Material is immutable, so adding the required grants is a credential rotation:
 
 1. Add `"grantVersion": 2` to the reviewed controller configuration, record
    its new SHA-256, and issue new material into a new directory.
 2. Roll the controllers onto the new credentials one at a time.
-3. Only then set `cluster_aggregation: true` in the signed controller
-   configuration. A controller whose credentials lack the grant logs that
-   its responders were skipped and keeps running.
 
-Rolling back is the same rotation with the grant version removed. Leave
-`cluster_aggregation` off until every controller of the cell runs material of
-grant version 2.
+A controller always attempts to start its responders. Credentials that lack
+the grants produce a telemetry error; install corrected credentials rather
+than disabling the feature. TS-774 owns the production telemetry credential
+rotation and identity re-key in place.
 
 ## Dashboard
 
 `internal/dashboard` is a read-only operator dashboard served on the same
-private listener as `/metrics` when `dashboard` is `true`. It is built with
+private listener as `/metrics`. It is built with
 templ (generated `*_templ.go` files are committed), Datastar and Pico CSS;
 every asset is embedded in the binary and nothing is loaded from a CDN.
 
@@ -431,15 +426,15 @@ interfaces carry) at port 9463, beside the signed listener:
 - A node without a NetBird address yet, a port it cannot bind or a token it
   cannot read is logged and retried every 5 seconds; it never stops the
   controller. Removing the section closes the listener.
-- The dashboard reads the same providers as the signed listener's. Without
-  `cluster_aggregation` (credentials without the observability grant) it
+- The dashboard reads the same providers as the signed listener's. If the
+  credentials lack the observability grant it
   shows this controller's own snapshot and its region's other controllers
   as unobserved, and other regions as unreachable.
 
 Adding or changing the section needs a root; it needs binary level 18.
 
-Session cookies are accepted only when `dashboard` is on; otherwise the
-listener accepts the bearer header alone, exactly as before. Responses carry
+Token-protected dashboards accept session cookies or the bearer header.
+Responses carry
 a `Content-Security-Policy` of `'self'` only (plus `'unsafe-eval'` for
 Datastar expressions), `X-Frame-Options: DENY` and `no-store`.
 
