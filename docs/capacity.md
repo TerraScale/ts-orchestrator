@@ -17,11 +17,12 @@ operator input is the budget, which is data, not configuration.
 It builds on TS-803 ([region-agnostic](region-agnostic.md)): the roster
 names the serving regions, every region's summary
 (`ts.orch.v1.<cell>.obs.region`) crosses the links, and `TS_GLOBAL_CONTROL`
-is written by the home's global leader and mirrored to every region. It replaces `internal/cellscale`, `internal/hostpool`, the
-`autoscale.node_pools` and `region_planner` controller settings, the cell
-spec `budget` and the signed region approvals; they are deleted in the last
-slice ([autoscaling](autoscaling.md) and [cell autoscaler](cell-autoscaler.md)
-describe what is deleted).
+is written by the home's global leader and mirrored to every region. It
+replaces `internal/cellscale` (deleted), the signed region approvals
+(deleted), `internal/hostpool`, the `autoscale.node_pools` and
+`region_planner` controller settings and the cell spec `budget`; the rest
+are deleted in the last slice ([autoscaling](autoscaling.md) describes
+them).
 
 ## Who decides what
 

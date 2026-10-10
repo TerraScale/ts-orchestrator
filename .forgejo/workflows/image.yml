@@ -110,7 +110,7 @@ jobs:
         shell: bash
         env:
           TS_TEST_TIER: qualification
-          TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release cellscale-oci-readonly ts-auth-terrabase
+          TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release ts-auth-terrabase
         run: bash scripts/ci/qualify-image.sh
 
       # The gate has already waited for the dispatching ci.yml run, and a

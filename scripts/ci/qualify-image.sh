@@ -24,11 +24,6 @@
 #   terrabase-release        (terrabase-linux-<arch>) with its .sha256 beside it.
 #   ts-auth-terrabase       TS_TERRABASE_BINARY: a C# TerraBase release asset
 #                            (terrabase-linux-<arch>) with its .sha256 beside it.
-#   cellscale-oci-readonly   TS_CELLSCALE_OCI_REGION and
-#                            TS_CELLSCALE_OCI_COMPARTMENT, with the runner's
-#                            ~/.oci/config DEFAULT profile; optional
-#                            TS_CELLSCALE_OCI_AD, _IMAGE and _SUBNET. Reads
-#                            only: instances, image, subnet, shapes, quota.
 #
 # The D10 backup bridges (TestBackupGoRust*ProcessBridge) are not a suite:
 # each is a child process that a TerraBase Rust parent test starts with its
@@ -61,7 +56,6 @@ declare -A packages=(
 	[rendered-sfo-enrollment]=./internal/app
 	[terrabase-binary]=./internal/terrabase
 	[terrabase-release]=./internal/app
-	[cellscale-oci-readonly]=./internal/cellscale
 	[ts-auth-terrabase]=./internal/tsauth
 )
 declare -A tests=(
@@ -71,7 +65,6 @@ declare -A tests=(
 	[rendered-sfo-enrollment]='^TestManagedPlacementEnrollmentFromRenderedSFOBundle$'
 	[terrabase-binary]='^TestTerraBaseBinaryPeerMesh$'
 	[terrabase-release]='^TestTerraBaseReleaseDeployUpgradeRollback$'
-	[cellscale-oci-readonly]='^TestOCIReadOnlyAgainstRealAPI$'
 	[ts-auth-terrabase]='^TestBootstrapAgainstTerraBaseRelease$'
 )
 for suite in "${suites[@]}"; do

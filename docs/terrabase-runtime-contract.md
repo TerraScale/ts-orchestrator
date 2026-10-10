@@ -466,8 +466,8 @@ only loopback, so the client listener cannot expose restored data to the
 scratch host's network. Readiness defaults to client HTTPS `/readyz`; the
 document read remains the restore proof.
 
-**Autoscaler integration.** After the cell autoscaler (PR #150,
-`internal/cellscale`) launches node `<cell>-db-N`, it calls
+**Member host integration.** A caller that launches a TerraBase member
+host `<cell>-db-N` calls
 `oci.NewOperatorMemberVolumes(...)` once and
 `volumes.Ensure(ctx, oci.MemberVolumeRequest{Member: name, InstanceID: instance.ID, SizeGB: sizeGB})`.
 It must record the returned `VolumeID`, bind it in the host registration
@@ -483,8 +483,9 @@ succeeds. A new member with the same name calls `Ensure` without an active
 recorded ID and receives a fresh volume and first-format grant. Host
 replacement passes the existing ID and reattaches the existing volume.
 Retired volumes are never automatically deleted; deletion requires a
-separate explicit user-confirmed action. `internal/cellscale` is not edited
-here; these hooks are its integration contract.
+separate explicit user-confirmed action. These hooks are the integration
+contract of any such caller. Node autoscaling ([capacity](capacity.md))
+launches pool nodes that hold no TerraBase member and does not use them.
 
 ## Readiness
 

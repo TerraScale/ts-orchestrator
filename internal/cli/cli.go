@@ -17,7 +17,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/benchmark"
 	bootstrapcli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/cli"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellscale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/realcaller"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
@@ -95,7 +94,6 @@ Operator tooling:
   runtime-priority       Qualify runtime resources and run bounded pressure
   cluster                Break-glass controller quorum-loss recovery
   disaster-recovery      Prepare cross-region Object Storage and Vault recovery copies
-  cell-autoscaler        Scale TerraBase cell nodes and shapes within policy
 
 Use ts-orch bootstrap --help or ts-orch release --help to list their commands.
 `
@@ -193,8 +191,6 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		return runCluster(ctx, args[1:], commandio.NewWriter(output))
 	case "disaster-recovery":
 		return disasterrecovery.Run(ctx, args[1:], commandio.NewWriter(output))
-	case "cell-autoscaler":
-		return cellscale.Run(ctx, args[1:], commandio.NewWriter(output))
 	case "runtime-priority":
 		if len(args) == 1 || args[1] == "help" || args[1] == "--help" || args[1] == "-h" {
 			_, err := io.WriteString(output, "Usage: ts-orch runtime-priority <qualify|pressure|probe-admission|adapter|remote> [flags]\n")

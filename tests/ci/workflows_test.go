@@ -117,7 +117,7 @@ func TestWorkflowContracts(t *testing.T) {
 		qualifyStep, _, _ = strings.Cut(qualifyStep, "- name:")
 		requireText(t, qualifyStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
 		forbidText(t, qualifyStep, "vars.TS_QUALIFICATION_SUITES")
-		requireText(t, qualifyStep, "TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release cellscale-oci-readonly ts-auth-terrabase")
+		requireText(t, qualifyStep, "TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release ts-auth-terrabase")
 		requireText(t, qualifyStep, "TS_TEST_TIER: qualification\n")
 		requireText(t, qualifyStep, "run: bash scripts/ci/qualify-image.sh")
 		_, dispatch, ok := strings.Cut(image, "workflow_dispatch:")

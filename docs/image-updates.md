@@ -45,8 +45,9 @@ re-founding the cell and relaunching the database hosts.
    its own image on retry while that stays allowed, so moving the launch
    image never conflicts with a launch in flight; recovering a host that
    exists needs no fresh check. New hosts thus move to a newer image without
-   a new signed controller config or a re-found. Node pool hosts
-   (`cellscale`) keep their own template image.
+   a new signed controller config or a re-found. Pool nodes
+   ([capacity](capacity.md)) launch from their instance pool's
+   configuration, which copies the leader's image.
    Attaching a retained volume, and placement's gates before a member's
    volume creation, attachment, runtime contract and desired state, require
    the image that member's host boots to qualify now. The fleet's volume
