@@ -209,13 +209,14 @@ func TestPlannerRunnerProposesOnTheGlobalLeaderOnly(t *testing.T) {
 		t.Fatalf("leader proposals = %v", submitted)
 	}
 	record, _, err := store.Get(ctx, "sfo")
-	if err != nil || record.Phase != regionlifecycle.Approved || record.Admission != nil {
-		t.Fatalf("approved record = %+v, %v", record, err)
+	// Nothing approves until the budget guards admission (TS-804).
+	if err != nil || record.Phase != regionlifecycle.Proposed || record.Admission != nil {
+		t.Fatalf("proposed record = %+v, %v", record, err)
 	}
 	budgets, err := regionplanner.Budgets{Policy: policy, Records: store}.Budgets(ctx)
-	if err != nil || len(budgets) != 2 || budgets[0].Used != 2 || budgets[1].Used != 90 {
-		// The approved proposal takes a slot and commits its estimate; the
-		// home holds a slot.
+	if err != nil || len(budgets) != 2 || budgets[0].Used != 1 || budgets[1].Used != 0 {
+		// An unapproved proposal takes no slot and commits nothing; the home
+		// holds a slot and its spend is in the budget projection.
 		t.Fatalf("budgets = %+v, %v", budgets, err)
 	}
 }

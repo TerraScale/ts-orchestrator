@@ -163,7 +163,6 @@ version 1
 .Controller.PlacementConfig string json:"placement_config,omitempty"
 .Controller.RegionPlanner *struct json:"region_planner,omitempty"
 .Controller.RegionPlanner.Admit bool json:"admit,omitzero"
-.Controller.RegionPlanner.Approvers map[string]string json:"approvers,omitempty"
 .Controller.RegionPlanner.CapacityThreshold int json:"capacity_threshold,omitzero"
 .Controller.RegionPlanner.Drive bool json:"drive,omitzero"
 .Controller.RegionPlanner.Enabled bool json:"enabled"
