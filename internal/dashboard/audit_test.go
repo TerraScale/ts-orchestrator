@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 type failedDashboardInventory struct{}
@@ -57,7 +58,7 @@ func TestStaticTerraBaseServicesRemainVisibleWithoutManagedPlacement(t *testing.
 		current.Cluster.Members[index].Placement.Databases = nil
 	}
 	handler := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: *current.Local},
-		Journal: &Journal{Regions: fakeRegions(current.Regions)}}).Handler()
+		Journal: &Journal{Local: func(context.Context) regionview.Summary { return *current.LocalSummary }}}).Handler()
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/terrabase", nil))
 	body := response.Body.String()

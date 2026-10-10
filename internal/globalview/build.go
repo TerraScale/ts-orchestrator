@@ -44,9 +44,8 @@ func (s Sources) Collect(ctx context.Context) Inputs {
 		in.Reports = s.Reports()
 	}
 	if s.Volumes != nil {
-		if list, err := s.Volumes.Volumes(ctx); err == nil {
-			in.Volumes = list
-		}
+		list, err := s.Volumes.Volumes(ctx)
+		in.Volumes, in.VolumesUnavailable = list, err != nil
 	}
 	if s.Links != nil {
 		in.Links = s.Links()
@@ -88,6 +87,7 @@ func Build(in Inputs) Rollup {
 
 	rollup.Nodes = keep(nodes, maxNodes, &truncated)
 	rollup.Volumes = buildVolumes(in.Volumes, &truncated)
+	rollup.VolumesUnavailable = in.VolumesUnavailable
 	rollup.Links = keep(links, maxLinks, &truncated)
 	rollup.Routes = keep(routes, maxRoutes, &truncated)
 	rollup.Autoscale = Autoscale{Services: buildScaling(in.Autoscale)}
@@ -118,15 +118,16 @@ func buildControllers(snapshot observability.ClusterSnapshot) Controllers {
 }
 
 func buildVersions(members []observability.MemberSnapshot) []BuildCount {
-	counts := map[string]int{}
+	names := map[string][]string{}
 	for _, member := range members {
 		if member.BuildVersion != "" {
-			counts[member.BuildVersion]++
+			names[member.BuildVersion] = append(names[member.BuildVersion], member.Member)
 		}
 	}
 	var out []BuildCount
-	for _, version := range slices.Sorted(maps.Keys(counts)) {
-		out = append(out, BuildCount{Version: version, Count: counts[version]})
+	for _, version := range slices.Sorted(maps.Keys(names)) {
+		slices.Sort(names[version])
+		out = append(out, BuildCount{Version: version, Count: len(names[version]), Members: names[version]})
 	}
 	return out
 }
@@ -380,14 +381,19 @@ func buildDatabases(databases []Database, truncated *bool) []Database {
 	return keep(out, maxDatabases, truncated)
 }
 
-// buildErrors prefers the error source. Otherwise it takes ERROR events. It
-// is newest first, and each message is clipped to maxMessage runes.
+// buildErrors prefers the error source. Otherwise it takes ERROR events, one
+// count each. It is newest first, each message is clipped to maxMessage runes,
+// and each error lists at most maxErrorNodes nodes.
 func buildErrors(in Inputs, truncated *bool) []Error {
 	out := slices.Clone(in.Errors)
 	if in.Errors == nil {
 		for _, event := range in.Events {
 			if event.Level == slog.LevelError.String() {
-				out = append(out, Error{At: event.Time, Node: event.Attrs["node"], Component: event.Component, Message: event.Message})
+				var nodes []string
+				if node := event.Attrs["node"]; node != "" {
+					nodes = []string{node}
+				}
+				out = append(out, Error{At: event.Time, Level: "ERROR", Component: event.Component, Message: event.Message, Count: 1, Nodes: nodes})
 			}
 		}
 	}
@@ -395,6 +401,10 @@ func buildErrors(in Inputs, truncated *bool) []Error {
 	out = keep(out, maxErrors, truncated)
 	for i := range out {
 		out[i].Message = clip(out[i].Message, maxMessage)
+		if len(out[i].Nodes) > maxErrorNodes {
+			out[i].Nodes = out[i].Nodes[:maxErrorNodes]
+			*truncated = true
+		}
 	}
 	return out
 }
@@ -424,6 +434,9 @@ func buildHealth(in Inputs, controllers Controllers, nodes []Node, links []Link,
 		case NodeWarn:
 			warn++
 		}
+	}
+	if in.VolumesUnavailable {
+		degraded = append(degraded, "volume list unavailable")
 	}
 	if down > 0 {
 		degraded = append(degraded, fmt.Sprintf("%d of %d nodes down", down, len(nodes)))

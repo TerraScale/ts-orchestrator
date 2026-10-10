@@ -125,7 +125,7 @@ func entityAttention(current view, what string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		if current.Journal == nil || current.Journal.Insights == nil && len(current.Regions) == 0 {
+		if current.Journal == nil || current.Journal.Insights == nil && len(current.Global) == 0 {
 			templ_7745c5c3_Err = unavailable("The insight engine is not running on this member yet.").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

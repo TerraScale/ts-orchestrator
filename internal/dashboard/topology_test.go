@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -39,20 +40,16 @@ func topologyFixture(query string) view {
 	}
 	return view{Now: testNow, State: parseState(values), Ready: true, Local: &members[0],
 		Cluster: &observability.ClusterSnapshot{Cell: "gru", Members: members},
-		Regions: []regionview.Summary{{Region: "gru", Local: true, Reach: decisionlog.RegionOK,
+		LocalSummary: &regionview.Summary{Region: "gru", Local: true, Reach: decisionlog.RegionOK,
 			Health:  regionview.Health{Score: 100, Status: regionview.StatusHealthy},
 			Leaders: regionview.Leaders{Authority: "ctl-1", MetaLeader: "gru-1-ctl-1"},
-			Members: summaryMembers, Nodes: nodes}}}
+			Members: summaryMembers, Nodes: nodes}}
 }
 
-func withSFO(current view, reach string) view {
-	current.Regions = append(current.Regions, regionview.Summary{Region: "sfo", Reach: reach,
-		Health:  regionview.Health{Score: 90, Status: regionview.StatusHealthy},
-		Members: []regionview.Member{{Name: "ctl-1", Role: "controller", Ready: true, Version: "v0.43.0", MetaLeader: true}},
-		Nodes: []regionview.Node{{Name: "ts-sfo-1", Address: "10.252.0.11", Member: "ctl-1",
-			Resources: &regionview.ResourceView{CPU: &regionview.Reading{ObservedAt: testNow},
-				Memory: &regionview.Reading{ObservedAt: testNow}, Disk: &regionview.Reading{ObservedAt: testNow}},
-			Services: []regionview.Service{{Role: "terrabase", Digest: "sha256:7da6542c9f0e", State: "running"}}}}})
+// withSFO adds sfo to the global view, so the topology links it below the graph.
+func withSFO(current view) view {
+	current.Global = []globalview.Region{{Cell: "gru"},
+		{Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo", Health: globalview.Health{Status: globalview.Healthy}}}}
 	return current
 }
 
@@ -102,7 +99,7 @@ func TestTopologyHealthyCell(t *testing.T) {
 func TestTopologyDrainedNode(t *testing.T) {
 	t.Parallel()
 	current := topologyFixture("")
-	node := &current.Regions[0].Nodes[1]
+	node := &current.LocalSummary.Nodes[1]
 	node.Fence, node.Operation = []string{"drain"}, "drain: fence"
 	node.Backends = []regionview.Backend{{Set: "terrabase", Offline: true}}
 	current.Cluster.Members[0].Placement.Databases[0].Members[1].Stage = "draining"
@@ -122,13 +119,12 @@ func TestTopologyDrainedNode(t *testing.T) {
 
 func TestTopologyNATSLinkDown(t *testing.T) {
 	t.Parallel()
-	current := withSFO(topologyFixture("nats=1"), decisionlog.RegionNotLinked)
+	current := withSFO(topologyFixture("nats=1"))
 	// ctl-1 sees ctl-3 offline: every route to it breaks.
 	current.Cluster.Members[0].NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-3", Offline: true}}
 	current.Cluster.Members[0].NATS.Streams = []observability.StreamView{{Name: "KV_desired", Replicas: 3, OfflinePeers: 1}}
 	body := renderTopology(t, current)
-	for _, want := range []string{"edge e-region s-bad", "GRU ↔ SFO: missing (no leaf link)", "edge e-route s-bad",
-		"KV_desired", "1 offline"} {
+	for _, want := range []string{"edge e-route s-bad", "KV_desired", "1 offline"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("link-down topology lacks %q", want)
 		}
@@ -137,21 +133,14 @@ func TestTopologyNATSLinkDown(t *testing.T) {
 	if !strings.Contains(body, "edge e-route s-ok") {
 		t.Error("an unaffected route lost its health")
 	}
-	linked := renderTopology(t, withSFO(topologyFixture("nats=1"), decisionlog.RegionOK))
-	if !strings.Contains(linked, "edge e-region s-ok") || !strings.Contains(linked, "GRU ↔ SFO: linked") {
-		t.Error("a linked region is not drawn healthy")
-	}
 }
 
-func TestTopologyTwoRegions(t *testing.T) {
+func TestTopologyLinksOtherRegions(t *testing.T) {
 	t.Parallel()
-	current := withSFO(topologyFixture("nats=1"), decisionlog.RegionOK)
+	current := withSFO(topologyFixture("nats=1"))
 	graph := current.topologyGraph()
-	if len(graph.Regions) != 2 || graph.Regions[0].Name != "GRU" || graph.Regions[1].Name != "SFO" {
+	if len(graph.Regions) != 1 || graph.Regions[0].Name != "GRU" {
 		t.Fatalf("regions = %+v", graph.Regions)
-	}
-	if graph.Regions[1].X <= graph.Regions[0].X+graph.Regions[0].W {
-		t.Error("region columns overlap")
 	}
 	for _, region := range graph.Regions {
 		for index := 1; index < len(region.Nodes); index++ {
@@ -163,16 +152,12 @@ func TestTopologyTwoRegions(t *testing.T) {
 			t.Errorf("%s exceeds the canvas", region.Name)
 		}
 	}
-	sfo := graph.Regions[1]
-	if len(sfo.Nodes) != 1 || sfo.Nodes[0].Name != "ts-sfo-1" || sfo.Nodes[0].Status != "ok" {
-		t.Errorf("sfo nodes = %+v", sfo.Nodes)
+	body := renderTopology(t, current)
+	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sfo"`) {
+		t.Error("the topology does not link the other regions")
 	}
-	// Another region's controller opens that region, not a local member page.
-	if href := sfo.Nodes[0].Rows[0].Href; !strings.HasPrefix(href, "/region?") || !strings.Contains(href, "r=sfo") {
-		t.Errorf("remote controller href = %q", href)
-	}
-	if len(sfo.Servers) != 1 || sfo.Servers[0].Detail != "counts in its region" {
-		t.Errorf("sfo servers = %+v", sfo.Servers)
+	if strings.Contains(body, "edge e-region") {
+		t.Error("the topology draws a region pair it cannot evidence")
 	}
 }
 
@@ -190,9 +175,9 @@ func TestTopologyOlderSummary(t *testing.T) {
 	if got := strings.Join(names, ","); got != "c1/c1,h0/,c2/c2,h1/" {
 		t.Errorf("nodes = %s", got)
 	}
-	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{{Region: "fra",
+	current := view{State: parseState(url.Values{}), LocalSummary: &regionview.Summary{Region: "fra",
 		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}},
-		Quorum:  regionview.Quorum{Missing: []string{"c2"}}}}}
+		Quorum:  regionview.Quorum{Missing: []string{"c2"}}}}
 	body := renderTopology(t, current)
 	if got := nodeClass(body, "c2"); got != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
 		t.Errorf("missing controller class = %q", got)
@@ -209,7 +194,7 @@ func TestTopologyWithoutCellWideView(t *testing.T) {
 	local.NATS.MetaPeers = []observability.PeerView{{Name: "gru-1-ctl-2", Current: true},
 		{Name: "gru-1-ctl-3", Offline: true}}
 	current.Local, current.Cluster = &local, nil
-	summary := &current.Regions[0]
+	summary := current.LocalSummary
 	summary.Members = summary.Members[:1]
 	for index := range summary.Nodes {
 		summary.Nodes[index].Server = "gru-1-" + summary.Nodes[index].Member

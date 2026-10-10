@@ -335,6 +335,28 @@ func volumeTable(current view, entries []volumeEntry) table {
 	return volumes
 }
 
+// regionVolumeTable is volumeTable for one region; a failed volume read is
+// not shown as an empty list.
+func regionVolumeTable(current view, region globalview.Region, entries []volumeEntry) table {
+	volumes := volumeTable(current, entries)
+	if region.Rollup != nil && region.Rollup.VolumesUnavailable {
+		volumes.Empty = "This region could not read its volume list."
+	}
+	return volumes
+}
+
+// unreadVolumeRegions lists the regions whose last rollup could not read
+// their volumes, for the global volume list.
+func unreadVolumeRegions(regions []globalview.Region) []string {
+	var out []string
+	for _, region := range regions {
+		if region.Rollup != nil && region.Rollup.VolumesUnavailable {
+			out = append(out, upper(region.Cell))
+		}
+	}
+	return out
+}
+
 // filesystemTable lists a node's filesystems with their use.
 func filesystemTable(filesystems []globalview.Filesystem) table {
 	disks := table{Caption: "Filesystems", Empty: "No filesystem reported.", Headers: []string{"Role", "Used / size", "Used"}}

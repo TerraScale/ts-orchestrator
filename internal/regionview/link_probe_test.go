@@ -34,10 +34,9 @@ func TestProbeRequiresFreshExactRegionReply(t *testing.T) {
 					return json.Marshal(reply)
 				},
 			}}
-			provider.Regions(t.Context())
 			result := provider.Probe(t.Context(), "sfo")
-			if calls != 2 {
-				t.Fatalf("scheduled probe used cached reachability: requests=%d", calls)
+			if calls != 1 {
+				t.Fatalf("scheduled probe did not ask the link once: requests=%d", calls)
 			}
 			if (result.Reach == decisionlog.RegionOK) != (name == "fresh") {
 				t.Fatalf("probe accepted invalid telemetry: %+v", result)

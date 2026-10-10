@@ -16,6 +16,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -228,9 +229,9 @@ func TestControllerObservabilityServesSnapshotAndCluster(t *testing.T) {
 		t.Fatalf("bad since = %d", status)
 	}
 	status, body = get("/v1/regions")
-	var regions []regionview.Summary
+	var regions []globalview.Region
 	if err := json.Unmarshal([]byte(body), &regions); err != nil || status != http.StatusOK || len(regions) != 1 ||
-		regions[0].Region != "lab" || !regions[0].Local || regions[0].Leaders.Authority != "one" {
+		regions[0].Cell != "lab" || regions[0].Rollup == nil || regions[0].Rollup.Controllers.Leader != "one" {
 		t.Fatalf("/v1/regions = %d %s (%v)", status, body, err)
 	}
 	subject, err = protocol.ObservabilitySubject("lab", regionview.SummaryLeaf)

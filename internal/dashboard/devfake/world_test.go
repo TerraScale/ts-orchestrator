@@ -272,14 +272,13 @@ func (world *World) Options() dashboard.Options {
 		Insights: world.local.engine,
 		Summaries: insights.Summarizer{Decisions: world.store, Insights: world.local.engine, Scope: "all regions",
 			AttentionScope: "GRU"},
-		Regions: world, Versions: world, Rollouts: rollouts{region: "gru"}, Volumes: world,
+		Local: world.local.provider.Local, Versions: world, Rollouts: rollouts{region: "gru"}, Volumes: world,
 		Qualification: qualifications{}, Inventory: inventory{}}
 	return dashboard.Options{Health: world.health, Events: world.events, Snapshots: world.local,
 		Cluster: world.local, Journal: &journal}
 }
 
 var (
-	_ regionview.Source      = (*World)(nil)
 	_ decisionlog.Source     = (*store)(nil)
 	_ decisionlog.LiveSource = (*store)(nil)
 )

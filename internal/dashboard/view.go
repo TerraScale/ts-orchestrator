@@ -47,7 +47,8 @@ type page struct {
 type needs uint16
 
 const (
-	needRegions needs = 1 << iota
+	// needLocal loads this region's summary. It never calls another region.
+	needLocal needs = 1 << iota
 	needInsights
 	needSummaries
 	needVersions
@@ -91,26 +92,26 @@ func (page page) streamPath() string {
 // landing page.
 var pages = []page{
 	{slug: "", title: "Global", group: "Overview", needs: needGlobal | needInsights, body: overviewBody},
-	{slug: "region", title: "Region", group: "Overview", events: 10, needs: needRegions | needInsights,
+	{slug: "region", title: "Region", group: "Overview", events: 10, needs: needLocal | needInsights,
 		decisions: regionDecisions, body: regionBody},
 	{slug: "nodes", title: "Nodes", group: "Overview", needs: needGlobal, body: globalNodesBody},
 	{slug: "volumes", title: "Volumes", group: "Overview", needs: needGlobal, body: globalVolumesBody},
 	{slug: "insights", title: "Needs attention", group: "Overview",
-		needs: needRegions | needInsights | needSummaries, body: insightsBody},
-	{slug: "decisions", title: "Decisions", group: "Overview", needs: needRegions | needChain,
+		needs: needLocal | needInsights | needSummaries, body: insightsBody},
+	{slug: "decisions", title: "Decisions", group: "Overview", needs: needLocal | needChain,
 		decisions: journalDecisions, body: decisionsBody},
-	{slug: "releases", title: "Releases", group: "Delivery", needs: needRegions | needVersions | needChain,
+	{slug: "releases", title: "Releases", group: "Delivery", needs: needLocal | needVersions | needChain,
 		decisions: releaseDecisions, body: releasesBody},
 	{slug: "rollouts", title: "Rollouts", group: "Delivery", needs: needRollouts, decisions: rolloutDecisions,
 		body: rolloutsBody},
 	{slug: "ci", title: "Qualification", group: "Delivery", needs: needQualification,
 		decisions: qualificationDecisions, body: ciBody},
-	{slug: "topology", title: "Topology", group: "Infrastructure", needs: needRegions, body: topologyBody},
-	{slug: "members", title: "Hosts", group: "Infrastructure", needs: needRegions, body: membersBody},
+	{slug: "topology", title: "Topology", group: "Infrastructure", needs: needLocal, body: topologyBody},
+	{slug: "members", title: "Hosts", group: "Infrastructure", needs: needLocal, body: membersBody},
 	{slug: "nats", title: "NATS", group: "Infrastructure", decisions: natsDecisions, body: natsBody},
-	{slug: "terrabase", title: "TerraBase", group: "Infrastructure", needs: needRegions, decisions: terrabaseDecisions,
+	{slug: "terrabase", title: "TerraBase", group: "Infrastructure", needs: needLocal, decisions: terrabaseDecisions,
 		body: terrabaseBody},
-	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes | needRegions, decisions: storageDecisions,
+	{slug: "storage", title: "Storage", group: "Infrastructure", needs: needVolumes | needLocal, decisions: storageDecisions,
 		body: storageBody},
 	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
 	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
@@ -148,7 +149,8 @@ type view struct {
 
 	// Journal is nil until a controller attaches its providers.
 	Journal *Journal
-	Regions []regionview.Summary
+	// LocalSummary is this region's summary, loaded only by pages that show it.
+	LocalSummary *regionview.Summary
 	// Global is every region of the global view, local first (TS-805).
 	Global     []globalview.Region
 	Evaluation *insights.Evaluation

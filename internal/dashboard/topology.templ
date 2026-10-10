@@ -34,7 +34,25 @@ templ topologyBody(current view) {
 			<p class="muted"><small>Each region is a column of its nodes with the services their host grants place, each service's release digest and verified report, fences, active node operations and load balancer backends (from the fence records). Arcs on the left join nodes that replicate a TerraBase partition. The NATS layer adds each controller's server, the route mesh, the other nodes' client sessions, JetStream health and the links between regions. Click a node or service to open its page.</small></p>
 			@topologySVG(current.topologyGraph())
 		</article>
+		@otherRegions(current)
 	</div>
+}
+
+// otherRegions links every other region of the global view with its health.
+templ otherRegions(current view) {
+	if others := current.otherRegions(); len(others) > 0 {
+		<article>
+			<h2>Other regions <small>open each region's global view</small></h2>
+			<ul class="region-links">
+				for _, region := range others {
+					<li>
+						<a href={ safe(current.regionLink(region.Cell)) }>{ upper(region.Cell) }</a>
+						@statusPill(region.Health, region.HealthLabel)
+					</li>
+				}
+			</ul>
+		</article>
+	}
 }
 
 templ topologySVG(graph topoGraph) {

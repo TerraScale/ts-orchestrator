@@ -198,9 +198,8 @@ func (state uiState) keep(path string, pairs ...string) string {
 // lives in ("" for this member's region): it replaces the selected region,
 // because the entity is in its own region whatever the page shows, unless
 // the link names a region itself. Paths that providers still emit from
-// before the dashboard pages existed are translated (/regions/<r> is
-// /region?r=<r>, /regions is the global page, subject= is the journal's
-// q=). A link that is not a local path is returned as "/" so a provider
+// before the dashboard pages existed are translated (/regions is the
+// global page, subject= is the journal's q=). A link that is not a local path is returned as "/" so a provider
 // cannot point the page elsewhere.
 func (state uiState) adopt(link, region string) string {
 	parsed, err := url.Parse(link)
@@ -212,14 +211,10 @@ func (state uiState) adopt(link, region string) string {
 	switch {
 	case parsed.Path == "/regions" || parsed.Path == "/regions/":
 		parsed.Path = "/"
-	case strings.HasPrefix(parsed.Path, "/regions/") &&
-		!strings.Contains(strings.TrimSuffix(strings.TrimPrefix(parsed.Path, "/regions/"), "/"), "/"):
-		// /regions/<r> is the region overview; deeper paths such as
-		// /regions/<r>/hosts/<h> are detail pages and kept as they are.
-		if named := strings.ToLower(strings.TrimPrefix(parsed.Path, "/regions/")); validRegion(named) {
-			values.Set("r", named)
-		}
-		parsed.Path = "/region"
+	case strings.HasPrefix(parsed.Path, "/regions/"):
+		// Region pages name their region in the path, in lower case.
+		region, rest, _ := strings.Cut(strings.TrimPrefix(parsed.Path, "/regions/"), "/")
+		parsed.Path = "/regions/" + strings.ToLower(region) + strings.TrimSuffix("/"+rest, "/")
 	}
 	if subject := values.Get("subject"); subject != "" {
 		values.Del("subject")

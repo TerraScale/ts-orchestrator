@@ -30,6 +30,12 @@ func (dashboard *Dashboard) pageHandler(page page) http.Handler {
 			return
 		}
 		current := dashboard.load(request.Context(), page, request.URL.Query(), path)
+		if page.slug == "region" && current.remote() {
+			// The region page shows this member's region only; another one
+			// has its own global view.
+			http.Redirect(writer, request, "/regions/"+current.State.Region, http.StatusSeeOther)
+			return
+		}
 		render(writer, request, layout(current))
 	})
 }
@@ -94,6 +100,14 @@ func (dashboard *Dashboard) streamHandler(page page) http.Handler {
 		}
 		query := request.URL.Query()
 		sse := datastar.NewSSE(writer, request)
+		if page.slug == "region" {
+			// A tab left on another region's old region page moves to its
+			// global view, as the page itself does.
+			if current := dashboard.load(request.Context(), page, query, path); current.remote() {
+				_ = sse.Redirect("/regions/" + current.State.Region)
+				return
+			}
+		}
 		if page.slug == "events" && dashboard.options.Events != nil {
 			dashboard.streamEvents(request.Context(), sse, page, query)
 			return

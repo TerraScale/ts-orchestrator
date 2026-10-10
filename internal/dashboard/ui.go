@@ -141,7 +141,7 @@ func rfc3339(value time.Time) string {
 // attention returns the open insight counts across every region for the
 // badge.
 func (current view) attention() insights.Counts {
-	if current.Evaluation == nil && len(current.Regions) == 0 {
+	if current.Evaluation == nil && len(current.Global) == 0 {
 		return insights.Counts{}
 	}
 	return current.globalCounts()
@@ -162,30 +162,16 @@ type switcherRegion struct {
 	Local  bool
 }
 
-// switcher lists the regions for the top bar: every summarized region, or
-// this member's alone.
+// switcher lists every region of the global view, or this member's alone
+// before the view has a region.
 func (current view) switcher() []switcherRegion {
-	if len(current.Global) > 0 {
-		out := make([]switcherRegion, 0, len(current.Global))
-		for _, region := range current.Global {
-			status := "idle"
-			if region.Rollup != nil && !region.Stale {
-				status = regionStatus(regionview.Status(region.Rollup.Health.Status))
-			}
-			out = append(out, switcherRegion{ID: region.Cell, Status: status, Local: region.Cell == current.localRegion()})
-		}
-		return out
-	}
-	if len(current.Regions) == 0 {
+	if len(current.Global) == 0 {
 		return []switcherRegion{{ID: current.localRegion(), Status: boolStatus(current.Ready), Local: true}}
 	}
-	out := make([]switcherRegion, 0, len(current.Regions))
-	for _, summary := range current.Regions {
-		status := regionStatus(summary.Health.Status)
-		if summary.Reach != decisionlog.RegionOK && !summary.Local {
-			status = reachStatus(summary.Reach)
-		}
-		out = append(out, switcherRegion{ID: summary.Region, Status: status, Local: summary.Local})
+	out := make([]switcherRegion, 0, len(current.Global))
+	for _, region := range current.Global {
+		out = append(out, switcherRegion{ID: region.Cell, Status: regionCellsOf(region, current.Now).Health,
+			Local: region.Cell == current.localRegion()})
 	}
 	return out
 }
@@ -223,18 +209,13 @@ func (page page) scope() scope {
 	}
 }
 
-// switchLink keeps the current page when it shows the selected region and
-// otherwise goes to that region's overview, so the switcher never claims a
-// regional view the page does not render.
-func (current view) switchLink(region string) string {
-	switch current.Page.scope() {
-	case scopeRegional:
-		return current.State.link(current.here(), "r", region)
-	case scopeFiltered:
-		return current.State.keep(current.here(), "r", region, "region", "")
-	default:
-		return current.State.link("/region", "r", region)
-	}
+// switchLink goes to the region's global view, which every page can reach.
+func (current view) switchLink(region string) string { return current.regionLink(region) }
+
+// regionLink is a region's global view. The selection is the path's, so the
+// query's r is dropped.
+func (current view) regionLink(region string) string {
+	return current.State.link("/regions/"+region, "r", "")
 }
 
 // globalScope reports that the page currently shows every region.
@@ -262,6 +243,9 @@ func (current view) allRegionsLink() string {
 
 // selectedRegion marks the region the page's data comes from.
 func (current view) selectedRegion(region string) bool {
+	if named := current.Path["r"]; named != "" {
+		return region == named
+	}
 	switch current.Page.scope() {
 	case scopeGlobal:
 		return false
@@ -288,7 +272,7 @@ func (current view) paletteJSON() string {
 	}
 	for _, region := range current.switcher() {
 		items = append(items, paletteItem{Label: "Region " + upper(region.ID), Group: "Region",
-			Href: current.State.link("/region", "r", region.ID)})
+			Href: current.regionLink(region.ID)})
 	}
 	for _, choice := range timeRanges {
 		items = append(items, paletteItem{Label: "Time range " + choice.Key, Group: "Range",

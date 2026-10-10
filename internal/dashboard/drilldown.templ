@@ -55,7 +55,7 @@ templ globalRegionBody(current view) {
 				</article>
 				<article id="volumes">
 					<h2>Volumes</h2>
-					@dataTable(volumeTable(current, regionVolumes(region)))
+					@dataTable(regionVolumeTable(current, region, regionVolumes(region)))
 				</article>
 				<article id="autoscale">
 					<h2>Autoscale</h2>
@@ -113,7 +113,7 @@ templ globalNodeBody(current view) {
 			</article>
 			<article id="volumes">
 				<h2>Volumes on this node</h2>
-				@dataTable(volumeTable(current, nodeVolumes(region, node.Name)))
+				@dataTable(regionVolumeTable(current, region, nodeVolumes(region, node.Name)))
 			</article>
 		}
 	</div>

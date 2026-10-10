@@ -106,16 +106,11 @@ func worst(statuses ...string) string {
 
 func itos(value int) string { return strconv.Itoa(value) }
 
-// topologyGraph lays out every summarized region, or this member's region
-// alone before the region provider runs.
+// topologyGraph lays out this region. Other regions are linked below it.
 func (current view) topologyGraph() topoGraph {
 	graph := topoGraph{NATS: current.State.param("nats") == "1"}
 	summaries := current.topologySummaries()
 	top := topoMargin
-	pairs := len(summaries) * (len(summaries) - 1) / 2
-	if graph.NATS && pairs > 0 {
-		top += 34 + 14*min(pairs, 6)
-	}
 	x := topoMargin
 	for _, summary := range summaries {
 		region := current.topologyRegion(summary, x, top, graph.NATS, &graph.Edges)
@@ -124,15 +119,32 @@ func (current view) topologyGraph() topoGraph {
 		graph.Height = max(graph.Height, region.Y+region.H+topoMargin)
 	}
 	graph.Width = max(x-topoRegionGap+topoMargin, 320)
-	if graph.NATS {
-		graph.Edges = append(graph.Edges, current.regionEdges(summaries, graph.Regions, top)...)
-	}
 	return graph
 }
 
+// otherRegion is one region of the global view other than this one, with
+// its health for the topology's links.
+type otherRegion struct {
+	Cell, Health, HealthLabel string
+}
+
+func (current view) otherRegions() []otherRegion {
+	var out []otherRegion
+	for _, region := range current.Global {
+		if region.Cell == current.localRegion() {
+			continue
+		}
+		cells := regionCellsOf(region, current.Now)
+		out = append(out, otherRegion{Cell: region.Cell, Health: cells.Health, HealthLabel: cells.HealthLabel})
+	}
+	return out
+}
+
+// topologySummaries is this region's summary, or this member's own members
+// before the summary is loaded. Other regions are not summarized here.
 func (current view) topologySummaries() []regionview.Summary {
-	if len(current.Regions) > 0 {
-		return current.Regions
+	if current.LocalSummary != nil {
+		return []regionview.Summary{*current.LocalSummary}
 	}
 	summary := regionview.Summary{Region: current.localRegion(), Local: true, Reach: decisionlog.RegionOK,
 		Quorum: regionview.Quorum{Missing: current.missing()}}
@@ -235,9 +247,6 @@ func (current view) topologyRegion(summary regionview.Summary, x, top int, nats 
 	}
 	if city := regionName(summary.Region); city != "" {
 		region.Caption = city + " · " + region.Caption
-	}
-	if !summary.Local && summary.Reach != decisionlog.RegionOK && len(current.Regions) > 0 {
-		region.Status, region.Caption = reachStatus(summary.Reach), reachLabel(summary.Reach)
 	}
 	members := map[string]regionview.Member{}
 	for _, member := range summary.Members {
@@ -703,46 +712,4 @@ func (current view) jetStreamRows(summary regionview.Summary, local bool) []topo
 			Status: ratioStatus(used), Href: href})
 	}
 	return append(rows, unhealthy[:min(len(unhealthy), maxJetStreamRows)]...)
-}
-
-// regionEdges are the inter-region NATS links, arcs over the regions'
-// NATS lanes. Only links that touch this region carry evidence (whether
-// the other region answers over its link); a missing link is drawn broken,
-// a link between two other regions stays unknown.
-func (current view) regionEdges(summaries []regionview.Summary, regions []topoRegion, top int) []topoEdge {
-	local := current.localRegion()
-	var edges []topoEdge
-	index := 0
-	for left := range summaries {
-		for right := left + 1; right < len(summaries); right++ {
-			from, to := summaries[left], summaries[right]
-			status, label := "idle", "unknown"
-			other := ""
-			switch {
-			case from.Region == local:
-				other = to.Reach
-			case to.Region == local:
-				other = from.Reach
-			}
-			switch other {
-			case "":
-			case decisionlog.RegionOK:
-				status, label = "ok", "linked"
-			case decisionlog.RegionNotLinked:
-				status, label = "bad", "missing (no leaf link)"
-			default:
-				status, label = "bad", reachLabel(other)
-			}
-			x1 := regions[left].X + regions[left].W - topoPad - topoNATSLane/2
-			x2 := regions[right].X + regions[right].W - topoPad - topoNATSLane/2
-			height := 22 + 14*min(index, 5)
-			index++
-			title := upper(from.Region) + " ↔ " + upper(to.Region) + ": " + label
-			edges = append(edges, topoEdge{Kind: "region", Status: status, Title: title, Label: title,
-				LX: (x1 + x2) / 2, LY: top - height + 4,
-				Path: "M" + itos(x1) + " " + itos(top) + " C" + itos(x1) + " " + itos(top-height-8) + " " + itos(x2) + " " +
-					itos(top-height-8) + " " + itos(x2) + " " + itos(top)})
-		}
-	}
-	return edges
 }

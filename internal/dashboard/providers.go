@@ -28,8 +28,8 @@ type Journal struct {
 	Insights insights.Source
 	// Summaries writes the plain-language 1h and 24h paragraphs.
 	Summaries SummarySource
-	// Regions summarizes every configured region, local first.
-	Regions regionview.Source
+	// Local summarizes this region. It never asks another region.
+	Local func(context.Context) regionview.Summary
 	// Global holds every region's newest rollup, in memory (TS-805).
 	Global *globalview.View
 
@@ -60,8 +60,8 @@ type SummarySource interface {
 var _ SummarySource = insights.Summarizer{}
 
 // VersionSource lists the build every unit runs, in every region. Without
-// one the version matrix is derived from the region summaries, which only
-// know orchestrator members.
+// one the version matrix is derived from this region's summary and the
+// other regions' rollups, which only know orchestrator members.
 type VersionSource interface {
 	Versions(ctx context.Context) ([]UnitVersion, error)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/a-h/templ"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -87,11 +88,10 @@ func completedRelease(regions ...string) []decisionlog.Decision {
 
 func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 	t.Parallel()
-	summaries := []regionview.Summary{{Region: "fra", Local: true, Reach: decisionlog.RegionOK},
-		{Region: "sfo", Reach: decisionlog.RegionUnreachable}}
+	global := []globalview.Region{{Cell: "fra"}, {Cell: "sfo"}}
 	journal := &Journal{Decisions: &fakeDecisions{}}
 	label := func(result decisionlog.Result) string {
-		current := view{Journal: journal, Decisions: &result, Regions: summaries}
+		current := view{Journal: journal, Decisions: &result, Global: global}
 		releases := current.releases()
 		if len(releases) != 1 {
 			t.Fatalf("releases = %+v", releases)
@@ -222,26 +222,24 @@ func TestHeatmapKeepsTheSampleAtTheRangeEnd(t *testing.T) {
 	}
 }
 
+// Only this region's engine raises insights, so a key is unique on the page;
+// the card's id still names the region.
 func TestInsightIdentityIsRegionScoped(t *testing.T) {
 	t.Parallel()
 	dashboard, source, _ := journalDashboard(Options{})
 	source.evaluation.Insights = append(source.evaluation.Insights,
 		testInsight("oci_throttled:sfo", "Same key in FRA", insights.SeverityWarning, "fra"))
 	fraID := entityid.Derive("insight", "fra", "oci_throttled:sfo")
-	sfoID := entityid.Derive("insight", "sfo", "oci_throttled:sfo")
-	body := get(t, dashboard.Handler(), "/insights?id="+sfoID).Body.String()
-	if !strings.Contains(body, `id="insight-`+fraID+`"`) || !strings.Contains(body, `id="insight-`+sfoID+`"`) {
-		t.Fatal("cards with the same key in two regions share a DOM id")
+	body := get(t, dashboard.Handler(), "/insights?id="+fraID).Body.String()
+	if !strings.Contains(body, `id="insight-`+fraID+`"`) {
+		t.Fatal("the insight card id does not name its region")
 	}
-	card := func(id string) string {
-		start := strings.Index(body, `id="insight-`+id+`"`)
-		return body[start : start+strings.Index(body[start:], ">")]
-	}
-	if !strings.Contains(card(sfoID), "aria-current") || strings.Contains(card(fraID), "aria-current") {
-		t.Fatal("the selection marks the wrong card")
+	start := strings.Index(body, `id="insight-`+fraID+`"`)
+	if !strings.Contains(body[start:start+strings.Index(body[start:], ">")], "aria-current") {
+		t.Fatal("the selection does not mark the card")
 	}
 	global := get(t, dashboard.Handler(), "/insights?region="+allRegions).Body.String()
-	if !strings.Contains(global, `id="insight-`+fraID+`"`) || !strings.Contains(global, `id="insight-`+sfoID+`"`) {
+	if !strings.Contains(global, `id="insight-`+fraID+`"`) {
 		t.Fatal("the all-regions insight list lacks a region's card")
 	}
 }
@@ -260,8 +258,8 @@ func TestInsightsPageEmptyStatesAreHonest(t *testing.T) {
 		t.Fatalf("quiet = %q", text)
 	}
 	// A region that could not be observed rules out the global all-clear.
-	unlinked := view{Evaluation: &insights.Evaluation{At: testNow}, Regions: []regionview.Summary{
-		{Region: "fra", Local: true, Reach: decisionlog.RegionOK}, {Region: "sfo", Reach: decisionlog.RegionNotLinked}}}
+	unlinked := view{Evaluation: &insights.Evaluation{At: testNow}, Global: []globalview.Region{
+		{Cell: "fra", Rollup: &globalview.Rollup{Cell: "fra"}}, {Cell: "sfo"}}}
 	if text := unlinked.quietText(); strings.Contains(text, "Every rule is quiet") || !strings.Contains(text, "SFO") {
 		t.Fatalf("unobserved region = %q", text)
 	}
@@ -311,7 +309,7 @@ func TestRegionFiltersFollowTheSelectedRegion(t *testing.T) {
 		t.Fatal("the region select does not show the effective region")
 	}
 	body = get(t, dashboard.Handler(), "/insights?r=sfo").Body.String()
-	if strings.Contains(body, `id="insight-`+entityid.Derive("insight", "fra", "disk:ctl-1")) || !strings.Contains(body, `id="insight-`+entityid.Derive("insight", "sfo", "oci_throttled:sfo")) {
+	if strings.Contains(body, `id="insight-`+entityid.Derive("insight", "fra", "disk:ctl-1")) {
 		t.Fatal("the insights page ignores the selected region")
 	}
 }
@@ -335,11 +333,11 @@ func TestSwitcherOnlyOffersViewsThePageRenders(t *testing.T) {
 		global     bool
 		selected   string
 	}{
-		{"topology", "/region?r=fra", true, ""},
-		{"releases", "/region?r=fra", true, ""},
-		{"members", "/region?r=fra", false, "gru"},
-		{"nats", "/nats?r=fra", false, "sfo"},
-		{"insights", "/insights?r=fra", false, "sfo"},
+		{"topology", "/regions/fra", true, ""},
+		{"releases", "/regions/fra", true, ""},
+		{"members", "/regions/fra", false, "gru"},
+		{"nats", "/regions/fra", false, "sfo"},
+		{"insights", "/regions/fra", false, "sfo"},
 	}
 	for _, test := range cases {
 		current := view{Page: pageOf(test.slug), State: state, Local: &observability.MemberSnapshot{Cell: "gru"}}
@@ -373,12 +371,27 @@ func TestRemoteSelectionLabelsLocalSections(t *testing.T) {
 func TestDerivedVersionsKeepTheLocalSnapshot(t *testing.T) {
 	t.Parallel()
 	snapshot := memberSnapshot()
-	current := view{Local: &snapshot, Journal: &Journal{},
-		Regions: []regionview.Summary{{Region: "fra", Local: true}, {Region: "sfo",
-			Versions: []regionview.Version{{Version: "v1", Members: []string{"sfo-1"}}}}}}
+	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
+		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
+			Versions: []globalview.BuildCount{{Version: "v1", Count: 1, Members: []string{"sfo-1"}}}}}}}
 	current.loadVersions(context.Background())
 	if len(current.Versions) != 2 || current.Versions[1].Unit != "ctl-1" || current.Versions[1].Version != "abc123def456" {
 		t.Fatalf("versions = %+v", current.Versions)
+	}
+}
+
+func TestReleaseMatrixShowsRemoteControllers(t *testing.T) {
+	t.Parallel()
+	snapshot := memberSnapshot()
+	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
+		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
+			Versions: []globalview.BuildCount{{Version: "v0.43.0", Count: 1, Members: []string{"sfo-ctl-1"}}}}}}}
+	current.loadVersions(context.Background())
+	if want := (UnitVersion{Region: "sfo", Kind: "controller", Unit: "sfo-ctl-1", Version: "v0.43.0"}); !slices.Contains(current.Versions, want) {
+		t.Fatalf("versions = %+v, want %+v", current.Versions, want)
+	}
+	if regions := current.matrixRegions(); !slices.Equal(regions, []string{"fra", "sfo"}) {
+		t.Fatalf("matrix regions = %v", regions)
 	}
 }
 
@@ -446,7 +459,7 @@ func TestDiskCapacityCountsSharedFilesystemsOnce(t *testing.T) {
 		})
 	}
 	current := view{State: parseState(url.Values{}), Local: &snapshot, Now: now, Journal: &Journal{History: history},
-		Regions: []regionview.Summary{{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical-node", Member: "ctl-1"}}}}}
+		LocalSummary: &regionview.Summary{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical-node", Member: "ctl-1"}}}}
 	spec := current.capacityChart(true)
 	if spec.Bars[0].Values[0]+spec.Bars[1].Values[0] != 100 {
 		t.Fatalf("disk capacity = %+v", spec.Bars)

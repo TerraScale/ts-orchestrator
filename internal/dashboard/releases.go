@@ -224,8 +224,8 @@ func (current view) releases() []releaseView {
 		}
 		release.Partial = coverage != coverageComplete
 		unseen := 0
-		for _, summary := range current.Regions {
-			if lanes[id][summary.Region] == nil {
+		for _, region := range current.Global {
+			if lanes[id][region.Cell] == nil {
 				unseen++
 			}
 		}
@@ -262,12 +262,12 @@ func (current view) releases() []releaseView {
 	return out
 }
 
-// orderRegions sorts regions as the region summaries list them (this region
+// orderRegions sorts regions as the global view lists them (this region
 // first), then by name.
 func (current view) orderRegions(regions []string) []string {
 	rank := map[string]int{}
-	for index, summary := range current.Regions {
-		rank[summary.Region] = index + 1
+	for index, region := range current.Global {
+		rank[region.Cell] = index + 1
 	}
 	slices.SortFunc(regions, func(left, right string) int {
 		leftRank, rightRank := rank[left], rank[right]
@@ -365,9 +365,9 @@ func (current view) targetVersion(kind string) string {
 func (current view) matrixRegions() []string {
 	seen := map[string]bool{}
 	var regions []string
-	for _, summary := range current.Regions {
-		seen[summary.Region] = true
-		regions = append(regions, summary.Region)
+	for _, region := range current.Global {
+		seen[region.Cell] = true
+		regions = append(regions, region.Cell)
 	}
 	for _, unit := range current.Versions {
 		if !seen[unit.Region] {

@@ -25,9 +25,9 @@ const maxRegions = 32 // the registry's region limit
 
 // Region is one region of the view. Rollup is nil until one arrives.
 type Region struct {
-	Cell   string
-	Rollup *Rollup
-	Stale  bool
+	Cell   string  `json:"cell"`
+	Rollup *Rollup `json:"rollup"`
+	Stale  bool    `json:"stale"`
 }
 
 // View holds the newest rollup of every listed region, in memory.

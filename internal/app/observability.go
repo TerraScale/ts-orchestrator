@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
@@ -331,7 +332,7 @@ func mountJournalAPI(server *observability.Server, providers journalProviders) {
 	insightAPI := insights.Handler(providers.Insights, providers.Summarizer)
 	server.Handle("GET /v1/insights", insightAPI)
 	server.Handle("GET /v1/summary", insightAPI)
-	regions := regionview.Handler(providers.Regions)
+	regions := globalview.Handler(providers.Global)
 	server.Handle("GET /v1/regions", regions)
 	server.Handle("GET /v1/regions/{region}", regions)
 }

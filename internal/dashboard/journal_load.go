@@ -30,10 +30,9 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 	if journal.Global != nil {
 		current.Global = journal.Global.Regions()
 	}
-	// Pages that list regions read the provider, which answers from short
-	// caches or memory.
-	if needs&needRegions != 0 && journal.Regions != nil {
-		current.Regions = journal.Regions.Regions(ctx)
+	if needs&needLocal != 0 && journal.Local != nil {
+		summary := journal.Local(ctx)
+		current.LocalSummary = &summary
 	}
 	if journal.Insights != nil {
 		evaluation := journal.Insights.Current()
@@ -143,19 +142,27 @@ func (current *view) loadVersions(ctx context.Context) {
 		roles[member.Member] = member.Role
 	}
 	seen := map[[2]string]bool{}
-	for _, summary := range current.Regions {
-		for _, version := range summary.Versions {
+	if current.LocalSummary != nil {
+		for _, version := range current.LocalSummary.Versions {
 			for _, member := range version.Members {
-				if seen[[2]string{summary.Region, member}] {
+				seen[[2]string{local, member}] = true
+				current.Versions = append(current.Versions, UnitVersion{Region: local, Kind: cmp.Or(roles[member], "controller"),
+					Unit: member, Version: version.Version})
+			}
+		}
+	}
+	for _, region := range current.Global {
+		if region.Cell == local || region.Rollup == nil {
+			continue
+		}
+		for _, build := range region.Rollup.Versions {
+			for _, member := range build.Members {
+				if seen[[2]string{region.Cell, member}] {
 					continue
 				}
-				seen[[2]string{summary.Region, member}] = true
-				kind := "controller"
-				if summary.Region == local && roles[member] != "" {
-					kind = roles[member]
-				}
-				current.Versions = append(current.Versions, UnitVersion{Region: summary.Region, Kind: kind,
-					Unit: member, Version: version.Version})
+				seen[[2]string{region.Cell, member}] = true
+				current.Versions = append(current.Versions, UnitVersion{Region: region.Cell, Kind: "controller",
+					Unit: member, Version: build.Version})
 			}
 		}
 	}

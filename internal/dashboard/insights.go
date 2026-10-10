@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 )
 
@@ -151,10 +150,10 @@ func changeStatus(change insights.Change) string {
 func (current view) insightRegions() []string {
 	seen := map[string]bool{}
 	var regions []string
-	for _, summary := range current.Regions {
-		if !seen[summary.Region] {
-			seen[summary.Region] = true
-			regions = append(regions, summary.Region)
+	for _, region := range current.Global {
+		if !seen[region.Cell] {
+			seen[region.Cell] = true
+			regions = append(regions, region.Cell)
 		}
 	}
 	for _, insight := range current.globalInsights() {
@@ -192,7 +191,7 @@ func (current view) quietText() string {
 	switch {
 	case open > 0:
 		return "No insight matches these filters; " + itoa(open) + " are open with other filters."
-	case !evaluated && len(current.Regions) == 0:
+	case !evaluated && len(current.Global) == 0:
 		return "Insights are unavailable on this member: no evaluation has run, so nothing can be ruled out."
 	case !evaluated:
 		return "Nothing is reported by the other regions, but this region's insights are unavailable, so nothing can be ruled out here."
@@ -206,13 +205,13 @@ func (current view) quietText() string {
 	}
 }
 
-// unobservedRegions lists the remote regions whose insights could not be
-// read (not linked, unreachable or failed).
+// unobservedRegions lists the remote regions whose rollup is missing or
+// stale, so their insights cannot be read.
 func (current view) unobservedRegions() []string {
 	var out []string
-	for _, summary := range current.Regions {
-		if !summary.Local && summary.Reach != "" && summary.Reach != decisionlog.RegionOK {
-			out = append(out, summary.Region)
+	for _, region := range current.Global {
+		if region.Cell != current.localRegion() && (region.Rollup == nil || region.Stale) {
+			out = append(out, region.Cell)
 		}
 	}
 	return out

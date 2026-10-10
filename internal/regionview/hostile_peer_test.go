@@ -54,6 +54,7 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 		}
 	}
 	hostile.Quorum.Missing = names
+	hostile.ObservedAt = time.Now().UTC()
 	forged := hostile
 	forged.Region = "gru"
 	// Prepare the flood before the request deadline: the link timeout tests
@@ -100,11 +101,7 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 	_ = links.Link("sfo", conn)
 	_ = links.Link("mia", conn)
 	local := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}, Links: links}
-	byRegion := map[string]Summary{}
-	for _, summary := range local.Regions(ctx) {
-		byRegion[summary.Region] = summary
-	}
-	sfo := byRegion["sfo"]
+	sfo := local.Probe(ctx, "sfo")
 	if sfo.Reach != decisionlog.RegionOK || sfo.Local || len(sfo.Decisions) != 0 {
 		t.Fatalf("sfo reach=%s local=%v decisions=%d", sfo.Reach, sfo.Local, len(sfo.Decisions))
 	}
@@ -118,7 +115,7 @@ func TestRemoteSummaryFromHostilePeerIsBounded(t *testing.T) {
 		len(sfo.Nodes[0].Backends) != maxNodeBackends || len(sfo.Nodes[0].Fence) != maxNodeBackends {
 		t.Fatalf("unbounded peer nodes: nodes=%d", len(sfo.Nodes))
 	}
-	if mia := byRegion["mia"]; mia.Reach != decisionlog.RegionError || len(mia.Members) != 0 {
+	if mia := local.Probe(ctx, "mia"); mia.Reach != decisionlog.RegionError || len(mia.Members) != 0 {
 		t.Fatalf("a summary naming another region must be rejected: %s", mia.Reach)
 	}
 	seenMu.Lock()

@@ -2,10 +2,7 @@ package regionview
 
 import (
 	"context"
-	"encoding/json/v2"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -89,23 +86,15 @@ func TestRegionResourceAPIAndCapacity(t *testing.T) {
 		}}}, Nodes: func(_ context.Context) []Node {
 			return []Node{{Name: "node", Member: "controller"}, {Name: "host"}, {Name: "missing"}}
 		}}
-	recorder := httptest.NewRecorder()
-	Handler(provider).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/regions/gru", nil))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("resource API = %d: %s", recorder.Code, recorder.Body)
-	}
-	var summary Summary
-	if err := json.Unmarshal(recorder.Body.Bytes(), &summary); err != nil {
-		t.Fatal(err)
-	}
+	summary := provider.Local(t.Context())
 	if summary.Capacity.CPUs != 6 || summary.Capacity.MemoryBytes != 300 || summary.Capacity.MemoryUsedBytes != 0 {
 		t.Fatalf("capacity = %+v", summary.Capacity)
 	}
 	if summary.Nodes[0].Resources.CPU == nil || summary.Nodes[0].Resources.CPU.Value != 0 || !summary.Nodes[0].Resources.CPU.ObservedAt.Equal(now) {
-		t.Fatalf("API dropped observed zero: %s", recorder.Body)
+		t.Fatalf("API dropped observed zero: %+v", summary.Nodes[0].Resources.CPU)
 	}
 	if summary.Nodes[2].Resources.CPU != nil || summary.Nodes[2].Resources.Memory != nil {
-		t.Fatalf("API invented missing readings: %s", recorder.Body)
+		t.Fatalf("API invented missing readings: %+v", summary.Nodes[2].Resources)
 	}
 }
 
@@ -133,15 +122,7 @@ func TestRegionCapacityMarksNodePresentationTruncation(t *testing.T) {
 			}
 			provider := &Provider{Cell: "gru", Now: func() time.Time { return now }, History: history,
 				Nodes: func(context.Context) []Node { return nodes }}
-			response := httptest.NewRecorder()
-			Handler(provider).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/regions/gru", nil))
-			if response.Code != http.StatusOK {
-				t.Fatalf("resource API = %d: %s", response.Code, response.Body)
-			}
-			var summary Summary
-			if err := json.Unmarshal(response.Body.Bytes(), &summary); err != nil {
-				t.Fatal(err)
-			}
+			summary := provider.Local(t.Context())
 			if len(summary.Nodes) != maxTopologyMembers || summary.Capacity.CPUs != 2*maxTopologyMembers ||
 				summary.Capacity.MemoryBytes != 100*maxTopologyMembers || summary.Capacity.DiskBytes != 200*maxTopologyMembers ||
 				summary.Capacity.Partial != (count > maxTopologyMembers) {

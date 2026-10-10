@@ -1,25 +1,25 @@
-package regionview
+package globalview
 
 import (
 	"encoding/json"
 	"net/http"
 )
 
-// Handler serves GET /v1/regions (every region, local first) and
-// GET /v1/regions/{region} as JSON. Mount it only on an authenticated
-// listener.
-func Handler(source Source) http.Handler {
+// Handler serves GET /v1/regions (every listed region, local first) and
+// GET /v1/regions/{region} from view as JSON. Mount it only on an
+// authenticated listener.
+func Handler(view *View) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/regions", func(writer http.ResponseWriter, request *http.Request) {
-		writeJSON(writer, source.Regions(request.Context()))
+		writeJSON(writer, view.Regions())
 	})
 	mux.HandleFunc("GET /v1/regions/{region}", func(writer http.ResponseWriter, request *http.Request) {
-		summary, err := source.Region(request.Context(), request.PathValue("region"))
-		if err != nil {
+		region, ok := view.Region(request.PathValue("region"))
+		if !ok {
 			http.Error(writer, "region is not configured", http.StatusNotFound)
 			return
 		}
-		writeJSON(writer, summary)
+		writeJSON(writer, region)
 	})
 	return mux
 }

@@ -225,7 +225,11 @@ func linkMatrix(regions []globalview.Region) table {
 				row = append(row, cell{Text: "·", Status: "idle"})
 				continue
 			}
-			row = append(row, cell{Text: linkText(link), Status: reachStatus(link.Reach), Title: link.Error})
+			title := linkText(link)
+			if link.Error != "" {
+				title += " · " + link.Error
+			}
+			row = append(row, cell{Text: linkRTT(link), Status: reachStatus(link.Reach), Title: title})
 		}
 		matrix.Rows = append(matrix.Rows, row)
 	}
@@ -243,6 +247,15 @@ func linkTo(region globalview.Region, cell string) (globalview.Link, bool) {
 		}
 	}
 	return globalview.Link{}, false
+}
+
+// linkRTT is a link's round trip in whole milliseconds, or its reach when it
+// has none.
+func linkRTT(link globalview.Link) string {
+	if link.RTTMillis == nil {
+		return reachLabel(link.Reach)
+	}
+	return strconv.Itoa(int(math.Round(*link.RTTMillis)))
 }
 
 // linkText is a link's round trip and replication lag, or its reach.
@@ -352,15 +365,22 @@ func topDatabases(regions []globalview.Region) []regionDatabase {
 	return out[:min(overviewTop, len(out))]
 }
 
-// databaseTable renders the top databases by replication bandwidth.
+// databaseTable renders the top databases by replication bandwidth. Catalog
+// IDs are shortened in the cell; the full ID is its tooltip.
 func databaseTable(rows []regionDatabase) table {
 	databases := table{Caption: "Top databases by replication bandwidth", Empty: "No region reports database replication yet.",
-		Headers: []string{"Region", "Database", "Replication", "Lag"}}
+		Headers: []string{"Region", "Database", "Project", "Replication", "Lag"}}
 	for _, row := range rows {
-		databases.Rows = append(databases.Rows, []cell{textCell(upper(row.Region)), textCell(row.Name),
+		databases.Rows = append(databases.Rows, []cell{textCell(upper(row.Region)),
+			{Text: orDash(shortID(row.ID)), Title: row.ID}, {Text: orDash(shortID(row.Project)), Title: row.Project},
 			textCell(rate(row.ReplicationBytesPerSecond)), textCell(tenths(row.LagSeconds) + " s")})
 	}
 	return databases
+}
+
+// shortID is the first twelve characters of a catalog ID.
+func shortID(id string) string {
+	return id[:min(12, len(id))]
 }
 
 // regionError is one error with the region that reports it.
@@ -389,10 +409,23 @@ func recentErrors(regions []globalview.Region) []regionError {
 // errorTable renders the recent errors, newest first.
 func errorTable(rows []regionError) table {
 	errors := table{Caption: "Recent errors, newest first", Empty: "No recent errors.",
-		Headers: []string{"Time", "Region", "Node", "Component", "Message"}}
+		Headers: []string{"Time", "Region", "Level", "Service", "Component", "Message", "Count", "Nodes"}}
 	for _, row := range rows {
 		errors.Rows = append(errors.Rows, []cell{{Extra: ago(row.At)}, textCell(upper(row.Region)),
-			textCell(orDash(row.Node)), textCell(orDash(row.Component)), textCell(row.Message)})
+			{Text: row.Level, Status: levelStatus(row.Level)}, textCell(orDash(row.Service)),
+			textCell(orDash(row.Component)), textCell(row.Message), textCell(itoa(row.Count)),
+			textCell(orDash(strings.Join(row.Nodes, ", ")))})
 	}
 	return errors
+}
+
+// levelStatus maps a log level to its status pill.
+func levelStatus(level string) string {
+	switch level {
+	case "ERROR":
+		return "bad"
+	case "WARN":
+		return "warn"
+	}
+	return ""
 }

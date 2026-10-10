@@ -114,7 +114,7 @@ func overviewBody(current view) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</article><article id=\"links\"><h2>Links between regions</h2><p class=\"muted\">Round trip and replication lag from the row region to the column region.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</article><article id=\"links\"><h2>Links between regions <small>round trip in ms; hover a cell for lag and errors</small></h2><p class=\"muted\">From the row region to the column region.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

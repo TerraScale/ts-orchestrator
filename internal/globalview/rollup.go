@@ -34,6 +34,7 @@ const (
 	maxRoutes      = 64
 	maxDatabases   = 10
 	maxErrors      = 10
+	maxErrorNodes  = 8
 	maxReasons     = 5
 	maxMessage     = 200
 )
@@ -62,14 +63,16 @@ type Rollup struct {
 	Totals      Totals       `json:"totals"`
 	Nodes       []Node       `json:"nodes,omitempty"`
 	Volumes     []Volume     `json:"volumes,omitempty"`
-	Links       []Link       `json:"links,omitempty"`
-	Routes      []Route      `json:"routes,omitempty"`
-	Replication Replication  `json:"replication"`
-	Autoscale   Autoscale    `json:"autoscale"`
-	Cost        *Cost        `json:"cost,omitempty"`
-	Databases   []Database   `json:"databases,omitempty"`
-	Errors      []Error      `json:"errors,omitempty"`
-	Truncated   bool         `json:"truncated,omitzero"`
+	// VolumesUnavailable marks a failed volume read: Volumes is unknown, not empty.
+	VolumesUnavailable bool        `json:"volumes_unavailable,omitzero"`
+	Links              []Link      `json:"links,omitempty"`
+	Routes             []Route     `json:"routes,omitempty"`
+	Replication        Replication `json:"replication"`
+	Autoscale          Autoscale   `json:"autoscale"`
+	Cost               *Cost       `json:"cost,omitempty"`
+	Databases          []Database  `json:"databases,omitempty"`
+	Errors             []Error     `json:"errors,omitempty"`
+	Truncated          bool        `json:"truncated,omitzero"`
 }
 
 // Health is a region's status and why it is not healthy.
@@ -90,6 +93,8 @@ type Controllers struct {
 type BuildCount struct {
 	Version string `json:"version"`
 	Count   int    `json:"count"`
+	// Members names the controllers running Version, sorted.
+	Members []string `json:"members,omitempty"`
 }
 
 // Totals sums the region's nodes that reported.
@@ -192,24 +197,30 @@ type Scaling struct {
 
 // Cost is what this region's own resources cost (TS-807).
 type Cost struct {
-	Currency      string    `json:"currency"`
-	PerHour       float64   `json:"per_hour"`
-	MonthToDate   float64   `json:"month_to_date"`
-	MonthForecast float64   `json:"month_forecast"`
-	ObservedAt    time.Time `json:"observed_at"`
+	Currency          string    `json:"currency"`
+	PerHour           float64   `json:"per_hour"`
+	MonthToDate       float64   `json:"month_to_date"`
+	MonthForecast     float64   `json:"month_forecast"`
+	NextMonthForecast float64   `json:"next_month_forecast"`
+	ObservedAt        time.Time `json:"observed_at"`
 }
 
 // Database is one TerraBase database by replication bandwidth (TS-806).
 type Database struct {
-	Name                      string  `json:"name"`
+	ID                        string  `json:"id"`      // catalog ULID
+	Org                       string  `json:"org"`     // catalog ULID
+	Project                   string  `json:"project"` // catalog ULID
 	ReplicationBytesPerSecond float64 `json:"replication_bps"`
 	LagSeconds                float64 `json:"lag_s"`
 }
 
-// Error is one recent error in the region (TS-808).
+// Error is one recent error class in the region (TS-808).
 type Error struct {
-	At        time.Time `json:"at"`
-	Node      string    `json:"node,omitempty"`
+	At        time.Time `json:"at"`    // newest occurrence
+	Level     string    `json:"level"` // ERROR or WARN
+	Service   string    `json:"service,omitempty"`
 	Component string    `json:"component,omitempty"`
 	Message   string    `json:"message"`
+	Count     int       `json:"count"`
+	Nodes     []string  `json:"nodes,omitempty"`
 }

@@ -24,54 +24,19 @@ type kpi struct {
 	Href   string
 }
 
-// globalInsights merges this region's full evaluation with the top
-// insights other regions report in their summaries, worst first.
+// globalInsights is this region's open insights, worst first. Rollups carry
+// health reasons, not insights, so other regions contribute none.
 func (current view) globalInsights() []insights.Insight {
-	var merged []insights.Insight
-	seen := map[string]bool{}
-	add := func(insight insights.Insight) {
-		key := insight.Region + "|" + insight.Key
-		if !seen[key] {
-			seen[key] = true
-			merged = append(merged, insight)
-		}
+	if current.Evaluation == nil {
+		return nil
 	}
-	if current.Evaluation != nil {
-		for _, insight := range current.Evaluation.Insights {
-			add(insight)
-		}
-	}
-	for _, summary := range current.Regions {
-		if summary.Local && current.Evaluation != nil {
-			continue
-		}
-		for _, insight := range summary.Insights {
-			if insight.Region == "" {
-				insight.Region = summary.Region
-			}
-			add(insight)
-		}
-	}
+	merged := slices.Clone(current.Evaluation.Insights)
 	insights.Rank(merged)
 	return merged
 }
 
 func (current view) globalCounts() insights.Counts {
-	counts := insights.Count(current.globalInsights())
-	// Remote summaries carry only their top insights; their counts are
-	// complete.
-	for _, summary := range current.Regions {
-		if summary.Local && current.Evaluation != nil {
-			continue
-		}
-		if summary.Counts.Total() > len(summary.Insights) {
-			listed := insights.Count(summary.Insights)
-			counts.Critical += summary.Counts.Critical - listed.Critical
-			counts.Warning += summary.Counts.Warning - listed.Warning
-			counts.Info += summary.Counts.Info - listed.Info
-		}
-	}
-	return counts
+	return insights.Count(current.globalInsights())
 }
 
 // filteredInsights applies the insights page's severity and region filters.
@@ -99,16 +64,6 @@ func (current view) regionInsights(region string) []insights.Insight {
 		}
 	}
 	return out
-}
-
-// selectedSummary is the selected region's summary, if summarized.
-func (current view) selectedSummary() *regionview.Summary {
-	for index := range current.Regions {
-		if current.Regions[index].Region == current.region() {
-			return &current.Regions[index]
-		}
-	}
-	return nil
 }
 
 // mapSpec is the <ts-map> data.

@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -117,18 +118,6 @@ func (source *fakeInsights) push(change insights.Change) {
 	}
 }
 
-type fakeRegions []regionview.Summary
-
-func (regions fakeRegions) Regions(context.Context) []regionview.Summary { return regions }
-func (regions fakeRegions) Region(_ context.Context, name string) (regionview.Summary, error) {
-	for _, summary := range regions {
-		if summary.Region == name {
-			return summary, nil
-		}
-	}
-	return regionview.Summary{}, errors.New("unknown")
-}
-
 type fakeSummaries struct{}
 
 func (fakeSummaries) Summary(_ context.Context, window time.Duration) (insights.Summary, error) {
@@ -214,8 +203,8 @@ func testInsight(key, title string, severity insights.Severity, region string) i
 		Actions: []insights.Action{{Label: "Find large files", Command: "du -xh /var/lib/terrascale | sort -h | tail"}}}
 }
 
-func testRegions() fakeRegions {
-	return fakeRegions{
+func testRegions() []regionview.Summary {
+	return []regionview.Summary{
 		{Version: 1, Region: "fra", Local: true, Reach: decisionlog.RegionOK,
 			Health:   regionview.Health{Score: 74, Status: regionview.StatusDegraded, Reasons: []string{"1 warning"}},
 			Quorum:   regionview.Quorum{Expected: 3, Answering: 3, Ready: 3, Required: 2, Healthy: true},
@@ -232,6 +221,25 @@ func testRegions() fakeRegions {
 		{Version: 1, Region: "gru", Reach: decisionlog.RegionNotLinked,
 			Health: regionview.Health{Status: regionview.StatusUnknown, Reasons: []string{"no cross-region link yet"}}},
 	}
+}
+
+// testGlobalView is the global view of this region (fra) with gru and sfo
+// rolled up.
+func testGlobalView() *globalview.View {
+	global := globalview.NewView("fra", func() []string { return []string{"gru", "sfo"} }, func() time.Time { return testNow })
+	for _, cell := range []string{"gru", "sfo"} {
+		global.Accept(overviewRollup(cell, testNow, nil))
+	}
+	return global
+}
+
+// testGlobal is the global view of testRegions: local first, each with a rollup.
+func testGlobal() []globalview.Region {
+	var out []globalview.Region
+	for _, summary := range testRegions() {
+		out = append(out, globalview.Region{Cell: summary.Region, Rollup: &globalview.Rollup{Cell: summary.Region}})
+	}
+	return out
 }
 
 func fullJournal() (*Journal, *fakeInsights, *fakeDecisions) {
@@ -252,7 +260,8 @@ func fullJournal() (*Journal, *fakeInsights, *fakeDecisions) {
 		Counts:   insights.Counts{Warning: 1}}}
 	decisions := &fakeDecisions{decisions: testDecisions()}
 	journal := &Journal{Decisions: decisions, History: history, Insights: source, Summaries: fakeSummaries{},
-		Regions: testRegions(),
+		Local:  func(context.Context) regionview.Summary { return testRegions()[0] },
+		Global: testGlobalView(),
 		Versions: fakeVersions{{Region: "fra", Kind: "controller", Unit: "ctl-1", Version: "v0.43.0"},
 			{Region: "fra", Kind: "controller", Unit: "ctl-2", Version: "v0.42.1"},
 			{Region: "sfo", Kind: "seat", Unit: "orders-1", Version: "terrabase 3.8.1"}},
@@ -278,11 +287,10 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 	dashboard, _, _ := journalDashboard(Options{})
 	handler := dashboard.Handler()
 	for path, wants := range map[string][]string{
-		"/":             {"All regions", "No region has reported to the global view yet."},
-		"/region":       {"Region FRA", "CPU by member", "ctl-1 nats filesystem full", "<ts-chart"},
-		"/region?r=sfo": {"Region SFO", "served by that region", "OCI is throttling"},
-		"/insights":     {"Needs attention", "expected &lt; 85.0%", "du -xh", "data-copy", "data-notify-toggle", "Notify me"},
-		"/decisions":    {"Decision journal", "Promoted the canary of v0.43.0", "sfo", "unreachable", "partial"},
+		"/":          {"All regions", "Links between regions", "SFO"},
+		"/region":    {"Region FRA", "CPU by member", "ctl-1 nats filesystem full", "<ts-chart"},
+		"/insights":  {"Needs attention", "expected &lt; 85.0%", "du -xh", "data-copy", "data-notify-toggle", "Notify me"},
+		"/decisions": {"Decision journal", "Promoted the canary of v0.43.0", "sfo", "unreachable", "partial"},
 		"/decisions?id=d2": {"canary health gates", "error_rate", "✓ passed", "extend the canary", "Admitted release v0.43.0",
 			"Promoted batch 1 of 3"},
 		"/releases":  {"Version matrix", "v0.43.0", "mixed versions", "rolled back", "signer-q4", "batch 1 of 3", "Target"},
@@ -311,6 +319,10 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 				t.Errorf("GET %s lacks %s", path, chrome)
 			}
 		}
+	}
+	// Another region's page is its global view, not this member's region page.
+	if response := get(t, handler, "/region?r=sfo"); response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/regions/sfo" {
+		t.Errorf("GET /region?r=sfo = %d to %q, want 303 to /regions/sfo", response.Code, response.Header().Get("Location"))
 	}
 }
 
@@ -443,7 +455,8 @@ func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	}
 	// Links the insight engine emits for routes that predate the pages.
 	for link, want := range map[string]string{
-		"/regions/SFO":                  "/region?r=sfo",
+		"/regions/SFO":                  "/regions/sfo",
+		"/regions/SFO/nodes/Host-A":     "/regions/sfo/nodes/Host-A",
 		"/regions":                      "/",
 		"/decisions?subject=seat/m1":    "/decisions?q=m1",
 		"/decisions?subject=db/p0/m1":   "/decisions?q=db%2Fp0%2Fm1",
@@ -544,7 +557,7 @@ func TestReleaseTimelineAndVersionDrift(t *testing.T) {
 	t.Parallel()
 	journal, _, _ := fullJournal()
 	result, _ := journal.Decisions.Query(context.Background(), decisionlog.Query{})
-	current := view{Decisions: &result, Regions: testRegions(), Versions: []UnitVersion{
+	current := view{Decisions: &result, Global: testGlobal(), Versions: []UnitVersion{
 		{Region: "fra", Kind: "controller", Unit: "a", Version: "v0.42.1"},
 		{Region: "fra", Kind: "controller", Unit: "b", Version: "v0.42.1"},
 		{Region: "fra", Kind: "controller", Unit: "c", Version: "v0.43.0"},
@@ -588,17 +601,17 @@ func TestReleaseTimelineAndVersionDrift(t *testing.T) {
 	}
 }
 
-func TestGlobalInsightsMergeRegionsAndCounts(t *testing.T) {
+func TestGlobalInsightsAreThisRegion(t *testing.T) {
 	t.Parallel()
 	journal, source, _ := fullJournal()
 	evaluation := source.Current()
-	current := view{Journal: journal, Regions: testRegions(), Evaluation: &evaluation}
+	current := view{Journal: journal, Evaluation: &evaluation}
 	merged := current.globalInsights()
-	if len(merged) != 2 || merged[0].Severity != insights.SeverityCritical || merged[0].Region != "sfo" {
+	if len(merged) != 1 || merged[0].Region != "fra" {
 		t.Fatalf("merged = %+v", merged)
 	}
-	// SFO lists one insight but counts three; the badge counts all.
-	if counts := current.attention(); counts.Critical != 1 || counts.Warning != 3 {
+	// Rollups carry health reasons, not insights: the badge counts this region.
+	if counts := current.attention(); counts.Critical != 0 || counts.Warning != 1 {
 		t.Fatalf("counts = %+v", counts)
 	}
 }
@@ -697,5 +710,15 @@ func TestEventFilterSearchAndTimeWindow(t *testing.T) {
 	other.Attrs = map[string]string{"region": "fra"}
 	if !filter.matches(near) || filter.matches(far) || filter.matches(other) {
 		t.Fatal("search or time window filter is wrong")
+	}
+}
+
+func TestRegionStreamOfAnotherRegionRedirects(t *testing.T) {
+	t.Parallel()
+	dashboard := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()}})
+	server := newStreamServer(t, dashboard)
+	reader, _ := openStream(t, server, "/region/stream?r=sfo")
+	if eventType, data := reader.next(); eventType != "datastar-patch-elements" || !strings.Contains(data, "/regions/sfo") {
+		t.Fatalf("stream of another region's page = %s %q, want a redirect to /regions/sfo", eventType, data)
 	}
 }

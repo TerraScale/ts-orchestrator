@@ -1,13 +1,14 @@
-// Package regionview aggregates one region's state into the summary the
-// global dashboard shows side by side for every region: a health score,
+// Package regionview summarizes one region's state: a health score,
 // controller quorum, the authority and NATS leaders, versions, capacity,
 // TerraBase counts, active rollouts, the latest decisions and the open
-// insights.
+// insights. The dashboard's global view (globalview) carries every other
+// region; this package only answers for the local region.
 //
-// The local region is summarized from the cell-wide observability snapshot,
-// the decision journal and the insight engine. Other regions answer the same
-// summary over ts.orch.v1.<region>.obs.region through regionlink; a region
-// without a link is listed as not linked instead of being guessed at.
+// The local summary is built from the cell-wide observability snapshot, the
+// decision journal and the insight engine. Each region's link probe asks its
+// peers for their summary over ts.orch.v1.<region>.obs.region through
+// regionlink; a region without a link is listed as not linked instead of
+// being guessed at.
 package regionview
 
 import (
@@ -19,7 +20,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -47,7 +47,6 @@ const (
 	// maxNodeServices and maxNodeBackends bound one node's lists.
 	maxNodeServices = 16
 	maxNodeBackends = 16
-	cacheTTL        = 3 * time.Second
 	maxRequestBytes = 256
 )
 
@@ -206,16 +205,7 @@ type Summary struct {
 // MixedVersions reports whether members run more than one build.
 func (summary Summary) MixedVersions() bool { return len(summary.Versions) > 1 }
 
-// Source is what the dashboard's global and region pages read. Provider
-// implements it.
-type Source interface {
-	// Regions returns every configured region, local first.
-	Regions(ctx context.Context) []Summary
-	// Region returns one region's summary.
-	Region(ctx context.Context, region string) (Summary, error)
-}
-
-// Provider builds the local summary and gathers the others.
+// Provider summarizes this region and answers the link probes.
 type Provider struct {
 	// Cell is the local region token.
 	Cell      string
@@ -234,11 +224,6 @@ type Provider struct {
 	LatestDecisions int
 	TopInsights     int
 	Now             func() time.Time
-
-	once    sync.Once
-	cache   observability.Cache[[]Summary]
-	reachMu sync.Mutex
-	seen    map[string]time.Time
 }
 
 func (provider *Provider) now() time.Time {
@@ -516,48 +501,6 @@ func score(summary Summary, observed bool, open []insights.Insight) Health {
 	return Health{Score: value, Status: status, Reasons: reasons}
 }
 
-// Regions returns every configured region's summary, local first. Remote
-// summaries are fetched in parallel; the result is cached for a few seconds
-// so several dashboard streams share one round of requests.
-func (provider *Provider) Regions(ctx context.Context) []Summary {
-	provider.once.Do(func() { provider.cache.TTL = cacheTTL })
-	summaries, _ := provider.cache.Get(ctx, func(ctx context.Context) ([]Summary, error) {
-		return provider.gather(ctx), nil
-	})
-	return slices.Clone(summaries)
-}
-
-func (provider *Provider) gather(ctx context.Context) []Summary {
-	local := strings.ToLower(provider.Cell)
-	regions := []string{local}
-	if provider.Links != nil {
-		regions = provider.Links.Regions()
-	}
-	summaries := make([]Summary, len(regions))
-	var group sync.WaitGroup
-	for index, region := range regions {
-		group.Go(func() {
-			if region == local {
-				summaries[index] = provider.Local(ctx)
-				return
-			}
-			summaries[index] = provider.remote(ctx, region)
-		})
-	}
-	group.Wait()
-	provider.reachMu.Lock()
-	defer provider.reachMu.Unlock()
-	if provider.seen == nil {
-		provider.seen = map[string]time.Time{}
-	}
-	for _, summary := range summaries {
-		if summary.Reach == decisionlog.RegionOK {
-			provider.seen[summary.Region] = provider.now()
-		}
-	}
-	return summaries
-}
-
 func (provider *Provider) remote(ctx context.Context, region string) Summary {
 	placeholder := Summary{Version: summaryVersion, Region: region,
 		Health: Health{Status: StatusUnknown, Reasons: []string{"region not observed"}}}
@@ -648,43 +591,23 @@ var summaryRequestPayload = func() []byte {
 	return data
 }()
 
-// Region returns one region's summary.
-func (provider *Provider) Region(ctx context.Context, region string) (Summary, error) {
-	region = strings.ToLower(region)
-	for _, summary := range provider.Regions(ctx) {
-		if summary.Region == region {
-			return summary, nil
-		}
+// Reachability reports each remote region's reach for the insight engine,
+// from the link probes. Without probes it reports nothing.
+func (provider *Provider) Reachability(context.Context) []insights.RegionReach {
+	if provider.LinkProbes == nil {
+		return nil
 	}
-	return Summary{}, regionlink.ErrUnknownRegion
-}
-
-// Reachability reports each remote region's reach for the insight engine.
-func (provider *Provider) Reachability(ctx context.Context) []insights.RegionReach {
 	var out []insights.RegionReach
-	if provider.LinkProbes != nil {
-		for _, probe := range provider.LinkProbes() {
-			state := probe.Reach
-			if state != decisionlog.RegionOK && state != decisionlog.RegionUnreachable && state != decisionlog.RegionNotLinked {
-				state = decisionlog.RegionError
-			}
-			reach := insights.RegionReach{Region: probe.Region, State: state, LastSeen: probe.LastSuccessAt}
-			if probe.Reach == decisionlog.RegionOK {
-				reach.WAN, reach.Detail = probe.WAN, probe.Detail
-			}
-			out = append(out, reach)
+	for _, probe := range provider.LinkProbes() {
+		state := probe.Reach
+		if state != decisionlog.RegionOK && state != decisionlog.RegionUnreachable && state != decisionlog.RegionNotLinked {
+			state = decisionlog.RegionError
 		}
-		return out
-	}
-	summaries := provider.Regions(ctx)
-	provider.reachMu.Lock()
-	defer provider.reachMu.Unlock()
-	for _, summary := range summaries {
-		if summary.Local {
-			continue
+		reach := insights.RegionReach{Region: probe.Region, State: state, LastSeen: probe.LastSuccessAt}
+		if probe.Reach == decisionlog.RegionOK {
+			reach.WAN, reach.Detail = probe.WAN, probe.Detail
 		}
-		out = append(out, insights.RegionReach{Region: summary.Region, State: summary.Reach,
-			LastSeen: provider.seen[summary.Region]})
+		out = append(out, reach)
 	}
 	return out
 }
@@ -731,7 +654,4 @@ func validSummaryRequest(data []byte) bool {
 		request.Version == summaryVersion
 }
 
-var (
-	_ Source                        = (*Provider)(nil)
-	_ insights.ReachabilityProvider = (*Provider)(nil)
-)
+var _ insights.ReachabilityProvider = (*Provider)(nil)

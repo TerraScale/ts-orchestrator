@@ -45,9 +45,9 @@ func nodeResourceFixture() view {
 	snapshot := memberSnapshot()
 	snapshot.Cell, snapshot.Member = "fra", "controller"
 	return view{Now: now, Ready: true, State: parseState(url.Values{}), Local: &snapshot,
-		Journal: &Journal{History: history}, Regions: []regionview.Summary{{Region: "fra", Local: true,
+		Journal: &Journal{History: history}, LocalSummary: &regionview.Summary{Region: "fra", Local: true,
 			Nodes: []regionview.Node{{Name: "physical", Member: "controller"}, {Name: "controller", Member: "other-controller"},
-				{Name: "worker"}, {Name: "stale"}, {Name: "missing"}}}}}
+				{Name: "worker"}, {Name: "stale"}, {Name: "missing"}}}}
 }
 
 func TestAllNodesRenderAuthenticatedResourcesWithoutClusterSnapshots(t *testing.T) {
@@ -161,7 +161,7 @@ func TestTopologyResourceAlarmControlsNodeStatus(t *testing.T) {
 	for _, metric := range []string{"cpu", "memory", "disk"} {
 		t.Run(metric, func(t *testing.T) {
 			current := topologyFixture("")
-			resources := current.Regions[0].Nodes[0].Resources
+			resources := current.LocalSummary.Nodes[0].Resources
 			switch metric {
 			case "cpu":
 				resources.CPU.Value = .99
@@ -180,7 +180,7 @@ func TestTopologyResourceAlarmControlsNodeStatus(t *testing.T) {
 func TestCapacityDisplaysPartialCoverage(t *testing.T) {
 	t.Parallel()
 	current := topologyFixture("")
-	summary := current.Regions[0]
+	summary := *current.LocalSummary
 	summary.Capacity = regionview.Capacity{Partial: true, MemoryBytes: 100, MemoryUsedBytes: 90, DiskBytes: 100, DiskUsedBytes: 90}
 	body := renderHTML(t, regionCard(current, summary))
 	if !strings.Contains(body, "Resource coverage is partial") || !strings.Contains(body, "90.0%") || !strings.Contains(body, "unavailable") {
@@ -191,7 +191,7 @@ func TestCapacityDisplaysPartialCoverage(t *testing.T) {
 func TestStorageWarnsWhenOneFilesystemFailedCollection(t *testing.T) {
 	t.Parallel()
 	current := nodeResourceFixture()
-	node := &current.Regions[0].Nodes[0]
+	node := &current.LocalSummary.Nodes[0]
 	node.Resources = regionview.CollectResources(*node, current.Journal.History, current.Now)
 	node.Resources.Incomplete = true
 	body := renderHTML(t, storageBody(current))

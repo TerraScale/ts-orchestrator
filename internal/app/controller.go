@@ -32,7 +32,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -885,8 +884,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if providers == nil {
 		return errors.New("controller region telemetry provider is missing")
 	}
-	regions, ok := providers.Regions.(*regionview.Provider)
-	if !ok || regions.Links == nil {
+	regions := providers.Probes
+	if regions == nil || regions.Links == nil {
 		return errors.New("controller region link probe source is missing")
 	}
 	linkSupervisor.source = regions

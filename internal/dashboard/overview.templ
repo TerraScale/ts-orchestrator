@@ -26,8 +26,8 @@ templ overviewBody(current view) {
 				@dataTable(regionTable(current))
 			</article>
 			<article id="links">
-				<h2>Links between regions</h2>
-				<p class="muted">Round trip and replication lag from the row region to the column region.</p>
+				<h2>Links between regions <small>round trip in ms; hover a cell for lag and errors</small></h2>
+				<p class="muted">From the row region to the column region.</p>
 				@dataTable(linkMatrix(current.Global))
 			</article>
 			<article id="databases">

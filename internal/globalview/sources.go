@@ -40,10 +40,13 @@ type Inputs struct {
 	Grants    []regionview.Node
 	Reports   []hostload.NodeLoad
 	Volumes   []insights.Volume
-	Links     []regionview.LinkProbe
-	Autoscale map[string]workload.Result
-	Events    []observability.Event
-	Cost      *Cost
-	Databases []Database
-	Errors    []Error
+	// VolumesUnavailable is true when the volume source failed, so an empty
+	// list is not mistaken for a region without volumes.
+	VolumesUnavailable bool
+	Links              []regionview.LinkProbe
+	Autoscale          map[string]workload.Result
+	Events             []observability.Event
+	Cost               *Cost
+	Databases          []Database
+	Errors             []Error
 }

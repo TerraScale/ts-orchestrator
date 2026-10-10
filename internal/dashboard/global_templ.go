@@ -979,7 +979,7 @@ func insightList(current view, list []insights.Insight, limit int, showRegion bo
 			templ_7745c5c3_Var55 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		if current.Journal == nil || current.Journal.Insights == nil && len(current.Regions) == 0 {
+		if current.Journal == nil || current.Journal.Insights == nil && len(current.Global) == 0 {
 			templ_7745c5c3_Err = unavailable("The insight engine is not running on this member yet.").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

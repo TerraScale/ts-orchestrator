@@ -423,7 +423,7 @@ func TestDeepRegionLinksAreKept(t *testing.T) {
 	if got := state.adopt("/regions/sfo/hosts/h-1", ""); got != "/regions/sfo/hosts/h-1" {
 		t.Fatalf("adopt kept %q", got)
 	}
-	if got := state.adopt("/regions/sfo", ""); got != "/region?r=sfo" {
+	if got := state.adopt("/regions/sfo", ""); got != "/regions/sfo" {
 		t.Fatalf("adopt rewrote %q", got)
 	}
 	if got := state.hostLink("sfo", "a b"); got != "/regions/sfo/hosts/a%20b" {

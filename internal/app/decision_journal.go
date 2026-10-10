@@ -14,6 +14,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -49,7 +50,9 @@ type journalProviders struct {
 	History    observability.HistorySource
 	Insights   insights.Source
 	Summarizer insights.Summarizer
-	Regions    regionview.Source
+	Global     *globalview.View
+	// Probes is the link probe source of the region link supervisor.
+	Probes *regionview.Provider
 }
 
 // startDecisionJournal installs the in-memory journal as the process-wide
@@ -153,7 +156,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	providers := journalProviders{Decisions: federation, Live: journal, History: sharedHistory, Insights: engine,
 		Summarizer: insights.Summarizer{Decisions: federation, Insights: engine, Scope: "all regions",
 			AttentionScope: strings.ToUpper(runtime.cell)},
-		Regions: regions}
+		Global: globalView, Probes: regions}
 	runtime.providers.Store(&providers)
 	if runtime.server != nil {
 		mountJournalAPI(runtime.server, providers)
@@ -163,7 +166,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	runtime.attachBoards(func() {
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes, Rollouts: rolloutSource,
+			Local: regions.Local, Volumes: volumes, Rollouts: rolloutSource,
 			Global: globalView}
 	})
 }

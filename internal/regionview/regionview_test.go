@@ -2,10 +2,7 @@ package regionview
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptest"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -154,54 +151,20 @@ func TestRegionsAcrossLinks(t *testing.T) {
 	_ = links.Link("sfo", conn)
 	_ = links.Link("mia", conn)
 	local := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}, Links: links}
-	summaries := local.Regions(ctx)
-	if len(summaries) != 4 || summaries[0].Region != "gru" || !summaries[0].Local {
-		t.Fatalf("summaries = %+v", summaries)
-	}
-	byRegion := map[string]Summary{}
-	for _, summary := range summaries {
-		byRegion[summary.Region] = summary
-	}
-	if sfo := byRegion["sfo"]; sfo.Reach != decisionlog.RegionOK || sfo.Local || len(sfo.Versions) != 1 ||
+	sfo := local.Probe(ctx, "sfo")
+	if sfo.Reach != decisionlog.RegionOK || sfo.Local || len(sfo.Versions) != 1 ||
 		sfo.Versions[0].Version != "v2" || len(sfo.Decisions) != 1 {
 		t.Fatalf("sfo = %+v", sfo)
 	}
-	if fra := byRegion["fra"]; fra.Reach != decisionlog.RegionNotLinked || fra.Health.Status != StatusUnknown {
+	if fra := local.Probe(ctx, "fra"); fra.Reach != decisionlog.RegionNotLinked || fra.Health.Status != StatusUnknown {
 		t.Fatalf("fra = %+v", fra)
 	}
-	if mia := byRegion["mia"]; mia.Reach != decisionlog.RegionUnreachable {
+	if mia := local.Probe(ctx, "mia"); mia.Reach != decisionlog.RegionUnreachable {
 		t.Fatalf("mia = %+v", mia)
 	}
-	reach := local.Reachability(ctx)
-	if len(reach) != 3 {
+	// The dashboard reads other regions from the global view; probes alone
+	// feed reachability.
+	if reach := local.Reachability(ctx); reach != nil {
 		t.Fatalf("reach = %+v", reach)
-	}
-	if _, err := local.Region(ctx, "SFO"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := local.Region(ctx, "nowhere"); err == nil {
-		t.Fatal("unknown region must fail")
-	}
-	// Concurrent dashboard streams share the cached gather.
-	var group sync.WaitGroup
-	for range 8 {
-		group.Go(func() { _ = local.Regions(ctx) })
-	}
-	group.Wait()
-}
-
-func TestHandler(t *testing.T) {
-	provider := &Provider{Cell: "gru", Cluster: staticCluster{cluster(member("c1", "v1", true))}}
-	handler := Handler(provider)
-	for path, want := range map[string]int{
-		"/v1/regions":     http.StatusOK,
-		"/v1/regions/GRU": http.StatusOK,
-		"/v1/regions/sfo": http.StatusNotFound,
-	} {
-		recorder := httptest.NewRecorder()
-		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
-		if recorder.Code != want {
-			t.Fatalf("%s = %d %s", path, recorder.Code, recorder.Body)
-		}
 	}
 }

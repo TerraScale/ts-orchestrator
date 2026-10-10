@@ -197,8 +197,8 @@ regions' over `ts.orch.v1.<region>.obs.region`. The health score starts at
 100 and subtracts for lost or degraded quorum, members not ready, a missing
 leader, open insights by severity (capped) and mixed versions; 85 and above
 is healthy, 50 and above degraded, below that critical, and a region that
-cannot be observed is unknown. `GET /v1/regions` lists every region, local
-first.
+cannot be observed is unknown. `GET /v1/regions` lists every region's newest
+rollup from the global view (TS-805), local first.
 
 ## Dashboard providers
 

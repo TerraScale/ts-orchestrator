@@ -21,7 +21,7 @@ templ detailHead(current view, kind, name, back, backLabel string) {
 templ entityAttention(current view, what string) {
 	<article>
 		<h2>Needs attention</h2>
-		if current.Journal == nil || current.Journal.Insights == nil && len(current.Regions) == 0 {
+		if current.Journal == nil || current.Journal.Insights == nil && len(current.Global) == 0 {
 			@unavailable("The insight engine is not running on this member yet.")
 		} else if list := current.entityInsights(); len(list) == 0 {
 			<p class="empty">No open insight names this { what }.</p>

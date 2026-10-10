@@ -117,6 +117,7 @@ td, th { font-variant-numeric: tabular-nums; }
   border-inline-start: 1px solid var(--ts-hairline); display: inline-flex; align-items: center; gap: 0.35rem;
 }
 .segmented a:first-child { border-inline-start: 0; }
+#region-switcher { flex-wrap: wrap; }
 .segmented a:hover { background: var(--ts-plane); }
 .segmented a[aria-current="true"] { background: var(--ts-ink); color: var(--ts-surface); font-weight: 600; }
 .segmented a[aria-current="true"] .dot { box-shadow: 0 0 0 2px var(--ts-surface); }

@@ -281,8 +281,31 @@ func TestBuildErrorsFromEvents(t *testing.T) {
 	if got := utf8.RuneCountInString(errs[0].Message); got != maxMessage {
 		t.Fatalf("message runes = %d, want %d", got, maxMessage)
 	}
-	if errs[1].Node != "ts-gru-1" || errs[1].Component != "host" || errs[1].Message != "old" {
+	if errs[1].Level != "ERROR" || errs[1].Count != 1 || !slices.Equal(errs[1].Nodes, []string{"ts-gru-1"}) ||
+		errs[1].Component != "host" || errs[1].Message != "old" {
 		t.Fatalf("second error = %+v", errs[1])
+	}
+	if errs[0].Nodes != nil {
+		t.Fatalf("event without node has nodes %v, want nil", errs[0].Nodes)
+	}
+}
+
+func TestBuildErrorsClipsNodes(t *testing.T) {
+	in := healthyRegion()
+	var nodes []string
+	for i := range 10 {
+		nodes = append(nodes, fmt.Sprintf("ts-gru-%02d", i))
+	}
+	in.Errors = []Error{{At: rollupNow, Level: "WARN", Count: 40, Nodes: nodes}}
+	rollup := Build(in)
+	if len(rollup.Errors) != 1 || len(rollup.Errors[0].Nodes) != maxErrorNodes || rollup.Errors[0].Count != 40 {
+		t.Fatalf("errors = %+v, want one with %d nodes and count 40", rollup.Errors, maxErrorNodes)
+	}
+	if !rollup.Truncated {
+		t.Fatal("truncated = false, want true")
+	}
+	if len(nodes) != 10 {
+		t.Fatal("Build changed the input nodes")
 	}
 }
 
@@ -299,16 +322,16 @@ func TestBuildErrorsSourceOverridesEvents(t *testing.T) {
 func TestBuildDatabasesSortedAndCapped(t *testing.T) {
 	in := healthyRegion()
 	for i := range 12 {
-		in.Databases = append(in.Databases, Database{Name: fmt.Sprintf("db-%02d", i), ReplicationBytesPerSecond: float64(i * 10)})
+		in.Databases = append(in.Databases, Database{ID: fmt.Sprintf("db-%02d", i), ReplicationBytesPerSecond: float64(i * 10)})
 	}
 	rollup := Build(in)
-	if len(rollup.Databases) != maxDatabases || rollup.Databases[0].Name != "db-11" || rollup.Databases[9].Name != "db-02" {
+	if len(rollup.Databases) != maxDatabases || rollup.Databases[0].ID != "db-11" || rollup.Databases[9].ID != "db-02" {
 		t.Fatalf("databases = %+v, want db-11 down to db-02", rollup.Databases)
 	}
 	if !rollup.Truncated {
 		t.Fatal("truncated = false, want true")
 	}
-	if in.Databases[0].Name != "db-00" {
+	if in.Databases[0].ID != "db-00" {
 		t.Fatal("Build reordered the input databases")
 	}
 }
@@ -347,8 +370,11 @@ func TestBuildVersionsAndControllers(t *testing.T) {
 	if rollup.Controllers != (Controllers{Expected: 3, Ready: 3, Leader: "ctl-1", MetaLeader: "nats-ctl-1"}) {
 		t.Fatalf("controllers = %+v", rollup.Controllers)
 	}
-	want := []BuildCount{{Version: "2026.09.4", Count: 1}, {Version: "2026.10.1", Count: 1}}
-	if !slices.Equal(rollup.Versions, want) {
+	want := []BuildCount{{Version: "2026.09.4", Count: 1, Members: []string{"ctl-2"}},
+		{Version: "2026.10.1", Count: 1, Members: []string{"ctl-1"}}}
+	if !slices.EqualFunc(rollup.Versions, want, func(a, b BuildCount) bool {
+		return a.Version == b.Version && a.Count == b.Count && slices.Equal(a.Members, b.Members)
+	}) {
 		t.Fatalf("versions = %+v, want %+v", rollup.Versions, want)
 	}
 }
@@ -376,8 +402,8 @@ func TestBuildRollupJSONStaysUnder16KB(t *testing.T) {
 		}})
 	}
 	for i := range 10 {
-		in.Errors = append(in.Errors, Error{At: rollupNow, Node: "ts-gru-01", Component: "terrabase", Message: strings.Repeat("x", 300) + fmt.Sprint(i)})
-		in.Databases = append(in.Databases, Database{Name: fmt.Sprintf("db-%d", i), ReplicationBytesPerSecond: float64(i)})
+		in.Errors = append(in.Errors, Error{At: rollupNow, Level: "ERROR", Count: i + 1, Nodes: []string{"ts-gru-01"}, Component: "terrabase", Message: strings.Repeat("x", 300) + fmt.Sprint(i)})
+		in.Databases = append(in.Databases, Database{ID: fmt.Sprintf("db-%d", i), ReplicationBytesPerSecond: float64(i)})
 	}
 	raw, err := json.Marshal(Build(in))
 	if err != nil {
@@ -450,4 +476,24 @@ func samePtr(a, b *float64) bool {
 		return a == b
 	}
 	return *a == *b
+}
+
+type failingVolumes struct{}
+
+func (failingVolumes) Volumes(context.Context) ([]insights.Volume, error) {
+	return nil, errors.New("placement store unavailable")
+}
+
+func TestFailedVolumeReadIsNotAnEmptyList(t *testing.T) {
+	in := Sources{Cell: "gru", Volumes: failingVolumes{}}.Collect(context.Background())
+	if !in.VolumesUnavailable {
+		t.Fatal("a failed volume read was collected as an empty list")
+	}
+	healthy := healthyRegion()
+	healthy.VolumesUnavailable = true
+	rollup := Build(healthy)
+	if !rollup.VolumesUnavailable || rollup.Health.Status != Degraded ||
+		!slices.Contains(rollup.Health.Reasons, "volume list unavailable") {
+		t.Fatalf("rollup = unavailable %v, health %+v", rollup.VolumesUnavailable, rollup.Health)
+	}
 }

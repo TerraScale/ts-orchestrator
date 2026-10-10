@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -61,11 +60,11 @@ func overviewRollup(cell string, observed time.Time, peers []string) globalview.
 	}
 	for index := range 10 {
 		rollup.Errors = append(rollup.Errors, globalview.Error{At: observed.Add(-time.Duration(index) * time.Minute),
-			Node: cell + "-n01", Component: "orchestrator", Message: "lease renewal slow"})
+			Level: "ERROR", Component: "orchestrator", Message: "lease renewal slow", Count: index + 1, Nodes: []string{cell + "-n01"}})
 	}
 	for index := range 5 {
-		rollup.Databases = append(rollup.Databases, globalview.Database{Name: fmt.Sprintf("%s-db-%d", cell, index),
-			ReplicationBytesPerSecond: float64(1000 * (index + 1)), LagSeconds: 1})
+		rollup.Databases = append(rollup.Databases, globalview.Database{ID: fmt.Sprintf("%s-db-%d", cell, index),
+			Project: cell + "-project", ReplicationBytesPerSecond: float64(1000 * (index + 1)), LagSeconds: 1})
 	}
 	return rollup
 }
@@ -142,10 +141,10 @@ func TestLinkMatrixLooksUpEachDirection(t *testing.T) {
 		t.Fatalf("headers = %v, rows = %d", matrix.Headers, len(matrix.Rows))
 	}
 	to := matrix.Rows[0]
-	if to[0].Text != "GRU" || to[1].Text != "—" || to[2].Text != "40 ms, lag 2 s" || to[2].Status != "ok" {
+	if to[0].Text != "GRU" || to[1].Text != "—" || to[2].Text != "40" || to[2].Title != "40 ms, lag 2 s" || to[2].Status != "ok" {
 		t.Fatalf("gru to sfo = %+v", to[2])
 	}
-	if to[3].Status != "bad" || to[3].Title != "timeout" {
+	if to[3].Status != "bad" || !strings.HasSuffix(to[3].Title, " · timeout") {
 		t.Fatalf("gru to fra = %+v", to[3])
 	}
 	if matrix.Rows[1][1].Text != "·" || matrix.Rows[2][1].Text != "·" {
@@ -179,14 +178,14 @@ func TestTopDatabasesAndErrorsMergeFreshRegions(t *testing.T) {
 	t.Parallel()
 	gru := overviewRollup("gru", testNow, nil)
 	sfo := overviewRollup("sfo", testNow, nil)
-	sfo.Databases = append(sfo.Databases, globalview.Database{Name: "big", ReplicationBytesPerSecond: 1 << 40})
-	sfo.Errors = append(sfo.Errors, globalview.Error{At: testNow.Add(time.Second), Message: "newest"})
+	sfo.Databases = append(sfo.Databases, globalview.Database{ID: "big", ReplicationBytesPerSecond: 1 << 40})
+	sfo.Errors = append(sfo.Errors, globalview.Error{At: testNow.Add(time.Second), Level: "WARN", Message: "newest", Count: 1})
 	stale := overviewRollup("fra", testNow.Add(-time.Minute), nil)
-	stale.Databases = append(stale.Databases, globalview.Database{Name: "stale-big", ReplicationBytesPerSecond: 1 << 50})
+	stale.Databases = append(stale.Databases, globalview.Database{ID: "stale-big", ReplicationBytesPerSecond: 1 << 50})
 	regions := []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}, {Cell: "fra", Rollup: &stale, Stale: true}}
 
 	databases := topDatabases(regions)
-	if len(databases) != overviewTop || databases[0].Name != "big" || databases[0].Region != "sfo" {
+	if len(databases) != overviewTop || databases[0].ID != "big" || databases[0].Region != "sfo" {
 		t.Fatalf("databases = %d, first %+v", len(databases), databases[0])
 	}
 	for index := 1; index < len(databases); index++ {
@@ -200,6 +199,42 @@ func TestTopDatabasesAndErrorsMergeFreshRegions(t *testing.T) {
 	}
 	if len(topDatabases(nil)) != 0 || len(recentErrors(nil)) != 0 {
 		t.Fatal("no regions should merge to empty lists")
+	}
+}
+
+func TestDatabaseAndErrorTablesShowFields(t *testing.T) {
+	t.Parallel()
+	const databaseID = "01HZDB4Q7MXYABCDEFGHJKMNPQ"
+	const projectID = "01HZPRJ0000000000000000000"
+	gru := overviewRollup("gru", testNow, nil)
+	gru.Databases = []globalview.Database{{ID: databaseID, Project: projectID, ReplicationBytesPerSecond: 2048, LagSeconds: 1.5}}
+	gru.Errors = []globalview.Error{
+		{At: testNow, Level: "WARN", Service: "terrabase", Component: "wan", Message: "lag rising", Count: 7, Nodes: []string{"gru-n01", "gru-n02"}},
+		{At: testNow.Add(-time.Minute), Level: "ERROR", Message: "boom", Count: 1},
+	}
+	regions := []globalview.Region{{Cell: "gru", Rollup: &gru}}
+
+	databases := databaseTable(topDatabases(regions)).Rows
+	if len(databases) != 1 {
+		t.Fatalf("database rows = %d, want 1", len(databases))
+	}
+	if got := databases[0][1]; got.Text != "01HZDB4Q7MXY" || got.Title != databaseID {
+		t.Fatalf("database cell = %+v, want short ID with full ID in title", got)
+	}
+	if got := databases[0][2]; got.Text != "01HZPRJ00000" || got.Title != projectID {
+		t.Fatalf("project cell = %+v, want short ID with full ID in title", got)
+	}
+
+	errs := errorTable(recentErrors(regions)).Rows
+	if len(errs) != 2 {
+		t.Fatalf("error rows = %d, want 2", len(errs))
+	}
+	warn, bad := errs[0], errs[1]
+	if warn[2].Text != "WARN" || warn[2].Status != "warn" || warn[6].Text != "7" || warn[7].Text != "gru-n01, gru-n02" {
+		t.Fatalf("warn row = %+v, want WARN pill, count 7 and both nodes", warn)
+	}
+	if bad[2].Text != "ERROR" || bad[2].Status != "bad" || bad[6].Text != "1" || bad[7].Text != "-" {
+		t.Fatalf("error row = %+v, want ERROR pill, count 1 and no nodes", bad)
 	}
 }
 
@@ -240,17 +275,12 @@ func TestGlobalMapWorseDirectionWins(t *testing.T) {
 	}
 }
 
-// noFanout fails the test when the overview asks a region for anything.
-type noFanout struct{ t *testing.T }
-
-func (fake noFanout) Regions(context.Context) []regionview.Summary {
-	fake.t.Error("the overview asked every region for a summary")
-	return nil
-}
-
-func (fake noFanout) Region(context.Context, string) (regionview.Summary, error) {
-	fake.t.Error("the overview asked one region for a summary")
-	return regionview.Summary{}, errors.New("not called")
+// neverLocal fails the test when a page loads this region's summary.
+func neverLocal(t *testing.T) func(context.Context) regionview.Summary {
+	return func(context.Context) regionview.Summary {
+		t.Error("the page loaded this region's summary")
+		return regionview.Summary{}
+	}
 }
 
 func TestOverviewNeverAsksRegions(t *testing.T) {
@@ -259,13 +289,13 @@ func TestOverviewNeverAsksRegions(t *testing.T) {
 	global := globalview.NewView("gru", func() []string { return []string{"sfo"} }, func() time.Time { return testNow })
 	global.Accept(rollup)
 	dashboard := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()},
-		Journal: &Journal{Regions: noFanout{t}, Global: global}})
+		Journal: &Journal{Local: neverLocal(t), Global: global}})
 	if body := get(t, dashboard.Handler(), "/").Body.String(); !strings.Contains(body, "GRU") {
 		t.Fatal("the overview did not render the global view")
 	}
 	current := dashboard.load(t.Context(), pages[0], nil, nil)
-	if len(current.Global) != 2 || current.Regions != nil {
-		t.Fatalf("overview loaded regions: global=%d regions=%d", len(current.Global), len(current.Regions))
+	if len(current.Global) != 2 || current.LocalSummary != nil {
+		t.Fatalf("overview loaded this region: global=%d local=%v", len(current.Global), current.LocalSummary != nil)
 	}
 }
 

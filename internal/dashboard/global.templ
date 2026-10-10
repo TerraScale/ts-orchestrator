@@ -166,7 +166,7 @@ templ regionCard(current view, summary regionview.Summary) {
 
 // insightList renders ranked insights compactly.
 templ insightList(current view, list []insights.Insight, limit int, showRegion bool) {
-	if current.Journal == nil || current.Journal.Insights == nil && len(current.Regions) == 0 {
+	if current.Journal == nil || current.Journal.Insights == nil && len(current.Global) == 0 {
 		@unavailable("The insight engine is not running on this member yet.")
 	} else if len(list) == 0 {
 		<p class="empty">Nothing needs attention. Every rule is quiet.</p>

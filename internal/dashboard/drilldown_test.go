@@ -107,12 +107,27 @@ func TestDrilldownNeverAsksRegions(t *testing.T) {
 	t.Parallel()
 	global := drillView(testNow)
 	handler := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: memberSnapshot()},
-		Journal: &Journal{Regions: noFanout{t}, Global: global}}).Handler()
+		Journal: &Journal{Local: neverLocal(t), Global: global}}).Handler()
 	for _, path := range []string{"/nodes", "/nodes?region=gru&sort=cpu", "/volumes", "/regions/gru",
 		"/regions/sfo", "/regions/fra", "/regions/gru/nodes/gru-n00", "/regions/gru/volumes/gru-vol-0",
 		"/regions/gru/nodes/gru-n00/services/controller"} {
 		if response := get(t, handler, path); response.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", path, response.Code)
 		}
+	}
+}
+
+func TestUnreadVolumesAreNotShownAsNone(t *testing.T) {
+	t.Parallel()
+	global := drillView(testNow)
+	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sfo", "fra"})
+	rollup.Volumes, rollup.VolumesUnavailable = nil, true
+	global.Accept(rollup)
+	handler := drillDashboard(t, global)
+	if body := get(t, handler, "/regions/gru").Body.String(); !strings.Contains(body, "could not read its volume list") {
+		t.Fatal("region page shows a failed volume read as no volumes")
+	}
+	if body := get(t, handler, "/volumes").Body.String(); !strings.Contains(body, "Volume list unavailable from GRU") {
+		t.Fatal("/volumes hides the region whose volume read failed")
 	}
 }
