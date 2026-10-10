@@ -112,7 +112,7 @@ func TestCapacityPageReadsBudgetCapacityAndPlannerAtHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	capacity := budget.Allocate(&monthly, []budget.Region{{Cell: "gru", Nodes: 3, Want: 4, NodeMonthlyCents: 4100,
-		ProjectedCents: 20000, Currency: "BRL", At: now}}, now)
+		ProjectedCents: 20000, Currency: "BRL", At: now}}, nil, now)
 	if err := budget.WriteCapacity(ctx, global.writer, epoch, capacity); err != nil {
 		t.Fatal(err)
 	}

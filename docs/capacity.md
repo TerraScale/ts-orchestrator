@@ -197,7 +197,11 @@ Every minute the home's global leader:
    allowance.
 
 An allowance is at least the region's current size, so the budget never
-removes capacity. An allowance older than 5 minutes is not fresh. A region
+removes capacity. A granted node stays reserved until its region reports the
+new size, or for 25 minutes at most: the status lags the launch, and the
+reserved node counts in the projection, so the next minute cannot grant the
+same headroom to another region. An allowance older than 5 minutes is not
+fresh. A region
 whose status or forecast is missing or older than 6 hours gets no growth,
 and its unknown spend makes every region's growth hold: the cap is global,
 so a partial sum cannot admit spending.
@@ -299,9 +303,11 @@ Lifecycle steps, each an effector driven by `regionops`:
 fake OCI (pools, instance configurations, region subscriptions, region list,
 prices), fake load per region, one regional scaler per region and one home
 allocator and planner. Tests assert: every region stays within 3..12, no
-region scales up within 30 minutes of scaling down, projected spend never
-exceeds the cap, the last two regions are never removed, cooldowns hold, and
-a partitioned region holds its size. The fake lives in `_test.go` files only.
+region scales up within 10 minutes, or down within 30 minutes, of its last
+change, projected spend never exceeds the cap, the last two regions are never
+removed, cooldowns hold, and a partitioned region holds its size. The fake
+lives in `_test.go` files only. A second, planner-only run covers 40 days so
+idle regions reach the 14-day removal.
 
 ## Slices
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -31,6 +32,10 @@ type capacityAllocator struct {
 	mu       sync.Mutex
 	capacity budget.Capacity
 	found    bool
+	// primedEpoch is the leader epoch the stored capacity was read for, once
+	// primed is set. Only tick reads or writes them.
+	primedEpoch uint64
+	primed      bool
 	// journaledState and journaledReason are the last decision journaled. Only
 	// tick reads or writes them.
 	journaledState  budget.State
@@ -90,7 +95,11 @@ func (a *capacityAllocator) tick(ctx context.Context, now time.Time) error {
 	if roster, _, err := a.global.reader.Roster(ctx); err == nil {
 		regions = addRosterCells(regions, roster)
 	}
-	capacity := budget.Allocate(ceiling, regions, now)
+	prior, err := a.priorFor(ctx, snapshot.Epoch)
+	if err != nil {
+		return err
+	}
+	capacity := budget.Allocate(ceiling, regions, prior, now)
 	if err := a.global.authority.Guard(ctx, snapshot.Epoch); err != nil {
 		return err
 	}
@@ -103,6 +112,32 @@ func (a *capacityAllocator) tick(ctx context.Context, now time.Time) error {
 	a.journal(ctx, now, snapshot.Epoch, capacity)
 	a.alertBudget(ctx, now, snapshot.Epoch, capacity)
 	return nil
+}
+
+// priorFor returns the capacity the last allocation wrote. A leader reads the stored document once per epoch, so
+// its first grant honors any reservation the previous leader made. Only tick calls it.
+func (a *capacityAllocator) priorFor(ctx context.Context, epoch uint64) (*budget.Capacity, error) {
+	if !a.primed || a.primedEpoch != epoch {
+		stored, found, err := budget.ReadCapacity(ctx, a.global.reader)
+		// An unreadable document holds no reservation this leader can honor;
+		// the next write replaces it.
+		if errors.Is(err, budget.ErrInvalidCapacity) {
+			slog.Warn("stored capacity document is invalid; allocating without it", observability.ComponentKey, "budget", "error", err)
+			stored, found, err = budget.Capacity{}, false, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read capacity: %w", err)
+		}
+		a.mu.Lock()
+		a.capacity, a.found = stored, found
+		a.mu.Unlock()
+		a.primed, a.primedEpoch = true, epoch
+	}
+	if !a.found {
+		return nil, nil
+	}
+	prior := a.capacity
+	return &prior, nil
 }
 
 // Capacity returns the last capacity document this allocator wrote, and false before its first write.

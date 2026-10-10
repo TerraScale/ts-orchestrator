@@ -23,6 +23,10 @@ const (
 	ClearRatio      = 0.75
 )
 
+// ReservationTTL bounds a granted node's reservation while its region's status lags. It outlasts nodescale's
+// 20-minute launch timeout, so a launch still running keeps its node reserved and a dead one frees it.
+const ReservationTTL = 25 * time.Minute
+
 // State is the budget's spend state at the time of an allocation.
 type State string
 
@@ -48,11 +52,12 @@ type Region struct {
 
 // RegionAllowance is the most nodes one region may have until the next allocation.
 type RegionAllowance struct {
-	Cell      string  `json:"cell"`
-	Nodes     int     `json:"nodes"`
-	Want      int     `json:"want"`
-	Allowance int     `json:"allowance"`
-	Pressure  float64 `json:"pressure"`
+	Cell      string    `json:"cell"`
+	Nodes     int       `json:"nodes"`
+	Want      int       `json:"want"`
+	Allowance int       `json:"allowance"`
+	Pressure  float64   `json:"pressure"`
+	GrantedAt time.Time `json:"granted_at,omitzero"` // when the reserved grant was made; zero when none
 }
 
 // Capacity is the global capacity document the home region's leader writes.
@@ -70,9 +75,13 @@ type Capacity struct {
 
 // Allocate projects the month from every region's own forecast and grants one
 // node per wanting region, highest pressure first, while the projection stays
-// within the cap. A region with unknown spend holds growth everywhere, since a
-// partial sum cannot admit spending. A nil budget holds every region at its size.
-func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
+// within the cap. A granted node is reserved from its grant until its region
+// reaches the new size or ReservationTTL passes, because a region's status lags
+// its launch: a reserved node counts in the projection, and its region is not
+// granted again. A region with unknown spend holds growth everywhere, since a
+// partial sum cannot admit spending, and drops every reservation. A nil budget
+// holds every region at its size. prior is the capacity the last allocation wrote.
+func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) Capacity {
 	sorted := slices.Clone(regions)
 	slices.SortFunc(sorted, func(a, b Region) int { return strings.Compare(a.Cell, b.Cell) })
 	capacity := Capacity{Schema: Schema, At: now, Regions: make([]RegionAllowance, len(sorted))}
@@ -106,6 +115,17 @@ func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
 			unknown = region.Cell
 		}
 	}
+	if unknown == "" {
+		for index, region := range sorted {
+			granted, ok := reservation(prior, region, now)
+			if !ok {
+				continue
+			}
+			capacity.Regions[index].Allowance = region.Nodes + 1
+			capacity.Regions[index].GrantedAt = granted
+			projected = saturatingAdd(projected, region.NodeMonthlyCents)
+		}
+	}
 	capacity.ProjectedCents = projected
 	capacity.Ratio = float64(projected) / float64(budget.MonthlyCapCents)
 	switch {
@@ -125,7 +145,7 @@ func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
 
 	var candidates []int
 	for index, region := range sorted {
-		if region.Want > region.Nodes {
+		if region.Want > region.Nodes && capacity.Regions[index].Allowance == region.Nodes {
 			candidates = append(candidates, index)
 		}
 	}
@@ -144,6 +164,7 @@ func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
 		}
 		projected = next
 		capacity.Regions[index].Allowance++
+		capacity.Regions[index].GrantedAt = now
 		grants = append(grants, region.Cell+" +1")
 	}
 	switch {
@@ -157,9 +178,27 @@ func Allocate(budget *Budget, regions []Region, now time.Time) Capacity {
 	return capacity
 }
 
+// reservation returns when prior's grant for region is still outstanding: prior
+// allowed one node above the region's size, the region has not reached it, and
+// the grant is younger than ReservationTTL.
+func reservation(prior *Capacity, region Region, now time.Time) (time.Time, bool) {
+	if prior == nil {
+		return time.Time{}, false
+	}
+	index := slices.IndexFunc(prior.Regions, func(granted RegionAllowance) bool { return granted.Cell == region.Cell })
+	if index < 0 {
+		return time.Time{}, false
+	}
+	granted := prior.Regions[index]
+	if granted.Allowance != region.Nodes+1 || now.Sub(granted.GrantedAt) >= ReservationTTL {
+		return time.Time{}, false
+	}
+	return granted.GrantedAt, true
+}
+
 // Validate requires the current schema, a reason, a budget-shaped cap and
 // currency, sorted cells, and allowances of one node above the current size
-// at most, which is all Allocate ever grants.
+// at most, with a grant time exactly when one node is allowed.
 func (c Capacity) Validate() error {
 	switch {
 	case c.Schema != Schema:
@@ -191,6 +230,9 @@ func (c Capacity) Validate() error {
 			return fmt.Errorf("capacity region %q has negative nodes or wants", region.Cell)
 		case region.Allowance < region.Nodes || region.Allowance > region.Nodes+1:
 			return fmt.Errorf("capacity allowance for %q must be its nodes or one more", region.Cell)
+		case region.Allowance > region.Nodes && region.GrantedAt.IsZero(),
+			region.Allowance == region.Nodes && !region.GrantedAt.IsZero():
+			return fmt.Errorf("capacity grant time for %q must be set exactly when it allows one more node", region.Cell)
 		}
 	}
 	return nil
@@ -200,13 +242,17 @@ func (c Capacity) Validate() error {
 func DecodeCapacity(payload []byte) (Capacity, error) {
 	var c Capacity
 	if err := protocol.DecodeStrict(payload, &c, maxDocumentBytes); err != nil {
-		return Capacity{}, fmt.Errorf("decode capacity: %w", err)
+		return Capacity{}, fmt.Errorf("%w: %w", ErrInvalidCapacity, err)
 	}
 	if err := c.Validate(); err != nil {
-		return Capacity{}, err
+		return Capacity{}, fmt.Errorf("%w: %w", ErrInvalidCapacity, err)
 	}
 	return c, nil
 }
+
+// ErrInvalidCapacity marks a stored capacity document that does not decode or
+// validate, as opposed to one that could not be read.
+var ErrInvalidCapacity = errors.New("invalid capacity document")
 
 // Encode validates c and returns its stored form.
 func (c Capacity) Encode() ([]byte, error) {
