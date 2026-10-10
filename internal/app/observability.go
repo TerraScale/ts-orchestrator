@@ -182,7 +182,9 @@ type controllerObservation struct {
 	hostLoad *hostTelemetry
 	// linkedPeers are the interregion peers whose observability services
 	// the cell account imports, so the local connection reaches them.
-	linkedPeers []string
+	linkedPeers           []string
+	linkProbes            func() []regionview.LinkProbe
+	nativeTerraBaseRegion func() string
 	// rollouts and budgets are the rollout store and the region planner's
 	// budgets, when their feature flags enable them.
 	rollouts *rollout.Store

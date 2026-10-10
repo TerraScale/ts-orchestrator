@@ -186,6 +186,7 @@ func (a *Agent) terraBaseExited(observed Observation, d Desired, fingerprint str
 // certificate the member actually serves expires, the host restarts it, with
 // a drain, so it loads the renewed one.
 func (a *Agent) terraBaseRunningReport(ctx context.Context, d Desired) Report {
+	// Publication rechecks the cached observation's freshness and exact process while this poll runs.
 	// reconcile fenced a member whose data volume is gone before it got
 	// here; these checks stop it when the volume goes between the two or
 	// while preparation renews the certificate and maintains the mount.
@@ -214,6 +215,9 @@ func (a *Agent) terraBaseRunningReport(ctx context.Context, d Desired) Report {
 		a.terraBase[d.Role] = member
 	}
 	state, healthErr := a.terraBaseState(ctx, d)
+	if state == "running" {
+		a.collectTerraBaseWAN(ctx, d)
+	}
 	return a.reportFor(d, state, errors.Join(healthErr, renewErr))
 }
 

@@ -115,6 +115,8 @@ type RegionReach struct {
 	// that stops answering raises an insight.
 	State    string    `json:"state"`
 	LastSeen time.Time `json:"last_seen,omitzero"`
+	WAN      string    `json:"wan,omitempty"`
+	Detail   string    `json:"detail,omitempty"`
 }
 
 // HoldProvider reports placement holds currently being re-asserted by the

@@ -91,6 +91,17 @@ const (
 	HistServiceMemoryUsed     = "service_memory_used_bytes"
 )
 
+// Incoming WAN evidence: member, node, role, receiver_region, source_region.
+const (
+	HistTerraBaseWANObservedAt    = "terrabase_wan_observed_at_ms"
+	HistTerraBaseWANLagGroups     = "terrabase_wan_lag_groups"
+	HistTerraBaseWANStaleness     = "terrabase_wan_staleness_seconds"
+	HistTerraBaseWANMembers       = "terrabase_wan_members"
+	HistTerraBaseWANUnregistered  = "terrabase_wan_unregistered"
+	HistTerraBaseWANConflicts     = "terrabase_wan_conflicts"
+	HistTerraBaseWANAheadFailures = "terrabase_wan_ahead_failures_total" // cumulative gauge; compare observations/reset
+)
+
 // Bounds on what the sampler remembers between snapshots.
 const (
 	maxSampledMembers    = 512

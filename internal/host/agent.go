@@ -58,10 +58,12 @@ type Agent struct {
 	memoryCheck      func(Registration) error
 	wallNow          func() time.Time
 	// addresses overrides this host's own addresses in tests.
-	addresses      func() ([]string, error)
-	watchdogTicks  <-chan time.Time
-	loadMu         sync.Mutex
-	terraBaseLoads map[string]terraBaseLoad
+	addresses           func() ([]string, error)
+	watchdogTicks       <-chan time.Time
+	loadMu              sync.Mutex
+	terraBaseLoads      map[string]terraBaseLoad
+	terraBaseWAN        *terraBaseWAN
+	terraBaseWANOutcome string
 
 	// terraBaseVolumeChecked is when the volume initializer last
 	// established or maintained the TerraBase data volume mount.

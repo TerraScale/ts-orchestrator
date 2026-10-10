@@ -30,6 +30,14 @@ import (
 // DefaultTimeout bounds one cross-region request.
 const DefaultTimeout = 2 * time.Second
 
+// WAN states describe receiver evidence in a regional link probe.
+const (
+	WANOK         = "ok"
+	WANUnknown    = "unknown"
+	WANFailed     = "failed"
+	WANCatchingUp = "catching_up"
+)
+
 var (
 	// ErrNotLinked reports a configured region without a connection.
 	ErrNotLinked = errors.New("region is not linked")

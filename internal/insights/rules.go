@@ -11,6 +11,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 )
 
 // Thresholds tune the default rules. Zero fields take the defaults below.
@@ -817,18 +818,30 @@ func ociErrors(inputs *Inputs) []Insight {
 func regionUnreachable(inputs *Inputs) []Insight {
 	var out []Insight
 	for _, reach := range inputs.Reachability {
-		if reach.State != decisionlog.RegionUnreachable && reach.State != decisionlog.RegionError {
+		wanUnhealthy := reach.State == decisionlog.RegionOK && reach.WAN == regionlink.WANFailed
+		if reach.State != decisionlog.RegionUnreachable && reach.State != decisionlog.RegionError && !wanUnhealthy {
 			continue
 		}
-		held := inputs.Since("region:" + reach.Region)
+		key := "region:" + reach.Region
+		if wanUnhealthy {
+			key = "region-wan:" + reach.Region
+		}
+		held := inputs.Since(key)
 		if held < inputs.Thresholds.RegionUnreachable {
 			continue
 		}
+		title := "Region " + strings.ToUpper(reach.Region) + " is unreachable"
+		evidence := "Unreachable for"
+		why := fmt.Sprintf("%s has not answered cross-region queries for %s.", strings.ToUpper(reach.Region), roundDuration(held))
+		if wanUnhealthy {
+			title = "TerraBase WAN to " + strings.ToUpper(reach.Region) + " is " + reach.WAN
+			evidence = "Unhealthy for"
+			why = reach.Detail
+		}
 		out = append(out, Insight{Severity: SeverityCritical, Score: held.Seconds(), Region: reach.Region,
-			Title:  "Region " + strings.ToUpper(reach.Region) + " is unreachable",
-			Why:    fmt.Sprintf("%s has not answered cross-region queries for %s.", strings.ToUpper(reach.Region), roundDuration(held)),
+			Title: title, Why: why,
 			Entity: Entity{Kind: "region", ID: reach.Region, Region: reach.Region, Href: "/regions/" + reach.Region},
-			Evidence: []Evidence{{Label: "Unreachable for", Value: held.Seconds(), Unit: "s", Comparison: "<",
+			Evidence: []Evidence{{Label: evidence, Value: held.Seconds(), Unit: "s", Comparison: "<",
 				Threshold: threshold(inputs.Thresholds.RegionUnreachable.Seconds())}},
 			Actions: []Action{{Label: "Open the global view", Href: "/regions"}}})
 	}

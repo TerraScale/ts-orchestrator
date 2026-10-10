@@ -32,6 +32,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -847,10 +848,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	// runController refused a configuration without an embedded broker at
 	// its top, so Embedded is always set here.
+	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
+		reconnect: runtime.ReconnectInterRegion, recorder: telemetry.journal}
+	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
-		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
+		linkProbes:            linkSupervisor.snapshot,
+		nativeTerraBaseRegion: func() string { return services.profiles()[terrabase.Role].Env[terrabase.EnvRegion] },
+		rollouts:              rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},
@@ -861,6 +867,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// shutdown.
 	workerErrors := make(chan error, 32)
 	var workers sync.WaitGroup
+	providers := telemetry.providers.Load()
+	if providers == nil {
+		return errors.New("controller region telemetry provider is missing")
+	}
+	regions, ok := providers.Regions.(*regionview.Provider)
+	if !ok || regions.Links == nil {
+		return errors.New("controller region link probe source is missing")
+	}
+	linkSupervisor.source = regions
+	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
 	if backupRuntime != nil {

@@ -82,6 +82,16 @@ func IsHostMetric(metric string) bool {
 		HistHostFSFiles, HistHostFSFilesFree,
 		HistServiceCPUCores, HistServiceMemoryUsed:
 		return true
+	default:
+		return isWANMetric(metric)
+	}
+}
+
+func isWANMetric(metric string) bool {
+	switch metric {
+	case HistTerraBaseWANObservedAt, HistTerraBaseWANLagGroups, HistTerraBaseWANStaleness,
+		HistTerraBaseWANMembers, HistTerraBaseWANUnregistered, HistTerraBaseWANConflicts, HistTerraBaseWANAheadFailures:
+		return true
 	}
 	return false
 }
@@ -257,11 +267,19 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 	filesystems := make(map[string]map[string]float64)
 	filesystemIdentities := make(map[string]string)
 	filesystemCounts := make(map[string]int)
+	wanReceivers := make(map[string]string)
+	wanSources := make(map[string]map[string]bool)
+	wanObserved := make(map[string]float64)
+	received := make(map[string]float64)
 	for _, sample := range batch.Samples {
 		if !IsHostMetric(sample.Metric) || sample.Counter {
 			return errors.New("host metric batch contains an unsupported gauge")
 		}
 		limit := 1.0
+		wan := isWANMetric(sample.Metric)
+		if wan {
+			limit = 1<<53 - 1
+		}
 		service := sample.Metric == HistServiceCPUCores || sample.Metric == HistServiceMemoryUsed
 		filesystem := sample.Metric == HistHostFSUsed || sample.Metric == HistHostFSSize || sample.Metric == HistHostFSRatio ||
 			sample.Metric == HistHostFSFiles || sample.Metric == HistHostFSFilesFree
@@ -272,22 +290,26 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 			limit = 1 << 44
 		case HistHostFSUsed, HistHostFSSize, HistHostFSFiles, HistHostFSFilesFree:
 			limit = 1 << 50
-		case HistHostReceivedAt:
+		case HistHostReceivedAt, HistTerraBaseWANObservedAt:
 			limit = float64(batch.At.Add(HostMetricInterval).UnixMilli())
 		}
 		if math.IsNaN(sample.Value) || math.IsInf(sample.Value, 0) || sample.Value < 0 || sample.Value > limit {
 			return errors.New("host metric value is out of bounds")
 		}
 		if (sample.Metric == HistHostCPUCores || sample.Metric == HistHostMemoryTotal ||
-			sample.Metric == HistHostFSSize || sample.Metric == HistHostReceivedAt) && sample.Value == 0 {
+			sample.Metric == HistHostFSSize || sample.Metric == HistHostReceivedAt || sample.Metric == HistTerraBaseWANObservedAt) && sample.Value == 0 {
 			return errors.New("host metric capacity and receive time must be positive")
 		}
 		if sample.Metric != HistHostCPUUtilization && sample.Metric != HistHostMemoryRatio &&
 			sample.Metric != HistHostDiskRatio && sample.Metric != HistHostFSRatio &&
-			sample.Metric != HistServiceCPUCores && math.Trunc(sample.Value) != sample.Value {
+			sample.Metric != HistServiceCPUCores && sample.Metric != HistTerraBaseWANStaleness && math.Trunc(sample.Value) != sample.Value {
 			return errors.New("host metric cores, bytes, inode counts and timestamps must be integers")
 		}
 		member, serviceName, role, path, device := "", "", "", "", ""
+		var wanLabels map[string]string
+		if wan {
+			wanLabels = make(map[string]string, 5)
+		}
 		for _, label := range sample.Labels {
 			switch label.Name {
 			case "path":
@@ -302,9 +324,32 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 					return errors.New("host metric filesystem device is not a canonical uint64")
 				}
 			default:
-				if protocol.ValidateSubjectToken(label.Value) != nil {
+				value := label.Value
+				if wan && label.Name == "node" {
+					value = strings.ToLower(value)
+				}
+				if protocol.ValidateSubjectToken(value) != nil {
 					return errors.New("host metric label is not a valid token")
 				}
+			}
+			if wan {
+				switch label.Name {
+				case "member", "node", "role", "receiver_region", "source_region":
+					if wanLabels[label.Name] != "" {
+						return errors.New("WAN history label is repeated")
+					}
+					if (label.Name == "receiver_region" || label.Name == "source_region") &&
+						(label.Value[0] < 'a' || label.Value[0] > 'z' || strings.Contains(label.Value, "_")) {
+						return errors.New("WAN history requires exact native region tokens")
+					}
+					wanLabels[label.Name] = label.Value
+					if label.Name == "member" {
+						member = label.Value
+					}
+				default:
+					return errors.New("unsupported WAN history label")
+				}
+				continue
 			}
 			switch {
 			case label.Name == "member" && member == "":
@@ -321,6 +366,29 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 				return errors.New("host metric labels must be precisely member, member/service, or member/role/path/device")
 			}
 		}
+		if wan {
+			if len(wanLabels) != 5 || wanLabels["role"] != "terrabase" || member != strings.ToLower(wanLabels["node"]) {
+				return errors.New("WAN history requires the receiver node, terrabase role and native regions")
+			}
+			if previous := wanReceivers[member]; previous != "" && previous != wanLabels["receiver_region"] {
+				return errors.New("WAN history receiver identity is inconsistent")
+			}
+			wanReceivers[member] = wanLabels["receiver_region"]
+			if wanSources[member] == nil {
+				wanSources[member] = make(map[string]bool)
+			}
+			wanSources[member][wanLabels["source_region"]] = true
+			if len(wanSources[member]) > 64 {
+				return errors.New("WAN history exceeds source region bound")
+			}
+			if sample.Metric == HistTerraBaseWANObservedAt {
+				if sample.Value < float64(batch.At.Add(-2*time.Minute).UnixMilli()) ||
+					(wanObserved[member] != 0 && wanObserved[member] != sample.Value) {
+					return errors.New("WAN history scrape time is stale or inconsistent within its batch")
+				}
+				wanObserved[member] = sample.Value
+			}
+		}
 		if member == "" || service && serviceName == "" || filesystem && (role == "" || path == "" || device == "") {
 			return errors.New("host metric required label is missing")
 		}
@@ -329,6 +397,9 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 			return errors.New("host metric batch contains a duplicate series")
 		}
 		seen[key] = true
+		if sample.Metric == HistHostReceivedAt {
+			received[member] = sample.Value
+		}
 		if filesystem {
 			identity := member + "\x00" + role
 			if previous, ok := filesystemIdentities[identity]; ok && previous != path+"\x00"+device {
@@ -343,6 +414,11 @@ func validateHostMetricBatch(batch HostMetricBatch) error {
 				filesystems[identity] = make(map[string]float64)
 			}
 			filesystems[identity][sample.Metric] = sample.Value
+		}
+	}
+	for member, observed := range wanObserved {
+		if received[member] != 0 && observed > received[member] {
+			return errors.New("WAN history scrape time is after host receipt")
 		}
 	}
 	for _, filesystem := range filesystems {

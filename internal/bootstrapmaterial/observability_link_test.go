@@ -19,6 +19,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go"
@@ -295,6 +296,17 @@ func TestControllerObservabilityCredentialsAcrossMTLSLeaf(t *testing.T) {
 						t.Fatalf("%s decisions: %+v, %v", subject, reply, err)
 					}
 				}
+			}
+			links, err := regionlink.New(r.record.Cell, conn, []string{peer}, time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := links.Link(peer, conn); err != nil {
+				t.Fatal(err)
+			}
+			provider := &regionview.Provider{Cell: r.record.Cell, Links: links}
+			if probe := provider.Probe(ctx, peer); probe.Reach != decisionlog.RegionOK || probe.Region != peer || len(probe.Members) != 3 {
+				t.Fatalf("%s controller %d authenticated probe: %+v", r.record.Cell, clientIndex, probe)
 			}
 			for _, subject := range []string{
 				protocol.InterRegionObservabilitySubject(peer, observability.SnapshotLeaf),

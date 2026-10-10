@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -90,6 +91,12 @@ func (c *Controller) storeLoad(ctx context.Context, req request, r Registration)
 				break
 			}
 		}
+		if role.WAN != nil {
+			if name != terrabase.Role || desired.ManagedMember != nil || !role.WAN.Fresh(time.Now()) ||
+				role.WAN.ReceiverRegion != desired.Env[terrabase.EnvRegion] {
+				role.WAN = nil
+			}
+		}
 		roles = append(roles, role)
 	}
 	report.Roles = roles
@@ -140,6 +147,117 @@ func (a *Agent) currentTerraBaseLoads() map[string]memberstatus.Load {
 		out[role] = entry.load
 	}
 	return out
+}
+
+type terraBaseWAN struct {
+	process Observation
+	wan     *terrabase.WANObservation
+}
+
+// collectTerraBaseWAN runs only in the verified native running-report path.
+// Recheck the exact process around the unauthenticated loopback scrape.
+func (a *Agent) collectTerraBaseWAN(ctx context.Context, desired Desired) {
+	if !a.terraBaseMember(desired) || a.runner == nil {
+		a.noteTerraBaseWANOutcome("desired_unverified", nil)
+		return
+	}
+	fingerprint, err := desiredFingerprint(desired)
+	if err != nil {
+		a.noteTerraBaseWANOutcome("desired_fingerprint_failed", err)
+		return
+	}
+	before, err := a.runner.Observe(ctx, desired.Role)
+	if err != nil {
+		a.noteTerraBaseWANOutcome("before_verification_failed", err)
+		return
+	}
+	if !before.Running {
+		a.noteTerraBaseWANOutcome("not_running", nil)
+		return
+	}
+	if before.Digest != desired.Digest || before.Fingerprint != fingerprint {
+		a.noteTerraBaseWANOutcome("process_replaced", nil)
+		return
+	}
+	wan, err := terrabase.CollectWAN(ctx, desired.Env)
+	if err != nil {
+		outcome := "metrics_invalid"
+		if _, httpErr := errors.AsType[*url.Error](err); httpErr || strings.HasPrefix(err.Error(), "WAN metrics HTTP status ") {
+			outcome = "metrics_http_failed"
+		}
+		a.noteTerraBaseWANOutcome(outcome, err)
+		return
+	}
+	if wan == nil {
+		a.noteTerraBaseWANOutcome("metrics_unavailable", nil)
+		return
+	}
+	after, err := a.runner.Observe(ctx, desired.Role)
+	if err != nil {
+		a.noteTerraBaseWANOutcome("after_verification_failed", err)
+		return
+	}
+	if !after.Running {
+		a.noteTerraBaseWANOutcome("not_running", nil)
+		return
+	}
+	if !sameWANProcess(before, after) {
+		a.noteTerraBaseWANOutcome("process_replaced", nil)
+		return
+	}
+	a.loadMu.Lock()
+	a.terraBaseWAN = &terraBaseWAN{process: after, wan: wan}
+	a.loadMu.Unlock()
+	a.noteTerraBaseWANOutcome("ok", nil)
+}
+
+// Retain verified evidence through transient failures, but discard evidence known to be invalid.
+func (a *Agent) noteTerraBaseWANOutcome(outcome string, err error) {
+	a.loadMu.Lock()
+	switch outcome {
+	case "desired_unverified", "desired_fingerprint_failed", "not_running", "process_replaced":
+		a.terraBaseWAN = nil
+	}
+	previous := a.terraBaseWANOutcome
+	a.terraBaseWANOutcome = outcome
+	a.loadMu.Unlock()
+	if previous == outcome || (previous == "" && outcome == "ok") {
+		return
+	}
+	if outcome == "ok" {
+		slog.Info("terrabase WAN collection recovered", observability.ComponentKey, "host", "outcome", outcome)
+		return
+	}
+	slog.Info("terrabase WAN collection unavailable", observability.ComponentKey, "host", "outcome", outcome, "error", err)
+}
+
+func sameWANProcess(before, after Observation) bool {
+	return after.Running && before.PID == after.PID && before.Digest == after.Digest && before.Fingerprint == after.Fingerprint
+}
+
+func (a *Agent) addTerraBaseWAN(ctx context.Context, report *hostload.Report) {
+	a.loadMu.Lock()
+	entry := a.terraBaseWAN
+	a.loadMu.Unlock()
+	if entry == nil || a.runner == nil || !entry.wan.Fresh(time.Now()) {
+		return
+	}
+	current, err := a.runner.Observe(ctx, terrabase.Role)
+	if err != nil || !sameWANProcess(entry.process, current) {
+		return
+	}
+	a.loadMu.Lock()
+	defer a.loadMu.Unlock()
+	if a.terraBaseWAN == nil || !sameWANProcess(entry.process, a.terraBaseWAN.process) || !entry.wan.Fresh(time.Now()) {
+		return
+	}
+	for i := range report.Roles {
+		if report.Roles[i].Role == terrabase.Role {
+			report.Roles[i].WAN = entry.wan
+			return
+		}
+	}
+	report.Roles = append(report.Roles, hostload.RoleUsage{Role: terrabase.Role, WAN: entry.wan})
 }
 
 // cgroupRooted is implemented by runners that keep one cgroup v2 group per
@@ -205,7 +323,9 @@ func (a *Agent) publishLoad(ctx context.Context) {
 			return
 		}
 		var ack loadAck
-		err := a.request(ctx, "load", sampler.Sample(a.currentTerraBaseLoads()), &ack)
+		report := sampler.Sample(a.currentTerraBaseLoads())
+		a.addTerraBaseWAN(ctx, &report)
+		err := a.request(ctx, "load", report, &ack)
 		if ctx.Err() != nil {
 			return
 		}

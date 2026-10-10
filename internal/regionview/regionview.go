@@ -111,9 +111,11 @@ type Capacity struct {
 
 // TerraBase counts managed databases and seats.
 type TerraBase struct {
-	Databases    int `json:"databases"`
-	DesiredSeats int `json:"desired_seats"`
-	ServingSeats int `json:"serving_seats"`
+	NativeRegion string    `json:"native_region,omitempty"`
+	Databases    int       `json:"databases"`
+	DesiredSeats int       `json:"desired_seats"`
+	ServingSeats int       `json:"serving_seats"`
+	WAN          []WANPeer `json:"wan,omitempty"`
 }
 
 // Member is one answering member, for other regions' topology views.
@@ -196,7 +198,9 @@ type Summary struct {
 	Hosts   []Host   `json:"hosts,omitempty"`
 	// Nodes are the region's granted nodes and their services, bounded.
 	// Older regions omit them.
-	Nodes []Node `json:"nodes,omitempty"`
+	Nodes           []Node      `json:"nodes,omitempty"`
+	Links           []LinkProbe `json:"links,omitempty"`
+	NodesIncomplete bool        `json:"nodes_incomplete,omitzero"`
 }
 
 // MixedVersions reports whether members run more than one build.
@@ -222,7 +226,9 @@ type Provider struct {
 	Insights  insights.Source
 	Links     regionlink.Requester
 	// Nodes lists the cell's nodes and their services; nil lists none.
-	Nodes func(ctx context.Context) []Node
+	Nodes        func(ctx context.Context) []Node
+	LinkProbes   func() []LinkProbe
+	NativeRegion func() string
 	// LatestDecisions and TopInsights bound the lists; zero takes the
 	// defaults.
 	LatestDecisions int
@@ -247,6 +253,12 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 	region := strings.ToLower(provider.Cell)
 	summary := Summary{Version: summaryVersion, Region: region, Local: true, Reach: decisionlog.RegionOK,
 		ObservedAt: provider.now()}
+	if provider.LinkProbes != nil {
+		summary.Links = provider.LinkProbes()
+	}
+	if provider.NativeRegion != nil {
+		summary.TerraBase.NativeRegion = provider.NativeRegion()
+	}
 	var cluster *observability.ClusterSnapshot
 	if provider.Cluster != nil {
 		if snapshot, err := provider.Cluster.Cluster(ctx, false); err == nil {
@@ -309,6 +321,7 @@ func (provider *Provider) Local(ctx context.Context) Summary {
 		}
 		fillNodeCapacity(&summary)
 		summary.Capacity.Partial = summary.Capacity.Partial || truncated
+		summary.TerraBase.WAN = CollectWAN(summary.Nodes, summary.TerraBase.NativeRegion, provider.History, summary.ObservedAt)
 	}
 	return summary
 }
@@ -588,6 +601,8 @@ func (provider *Provider) remote(ctx context.Context, region string) Summary {
 // unbounded member or missing list from a peer would cost quadratic work on
 // every stream tick.
 func (summary *Summary) boundTopology() {
+	summary.Links = summary.Links[:min(len(summary.Links), maxTopologyMembers)]
+	summary.TerraBase.WAN = summary.TerraBase.WAN[:min(len(summary.TerraBase.WAN), maxTopologyMembers)]
 	summary.Members = summary.Members[:min(len(summary.Members), maxTopologyMembers)]
 	summary.Hosts = summary.Hosts[:min(len(summary.Hosts), maxTopologyHosts)]
 	summary.Quorum.Missing = summary.Quorum.Missing[:min(len(summary.Quorum.Missing), maxTopologyMembers)]
@@ -608,9 +623,11 @@ func (summary *Summary) boundTopology() {
 }
 
 func (summary *Summary) boundNodes() {
+	summary.NodesIncomplete = summary.NodesIncomplete || len(summary.Nodes) > maxTopologyMembers
 	summary.Nodes = summary.Nodes[:min(len(summary.Nodes), maxTopologyMembers)]
 	for index := range summary.Nodes {
 		node := &summary.Nodes[index]
+		summary.NodesIncomplete = summary.NodesIncomplete || len(node.Services) > maxNodeServices
 		node.Services = node.Services[:min(len(node.Services), maxNodeServices)]
 		node.Backends = node.Backends[:min(len(node.Backends), maxNodeBackends)]
 		node.Fence = node.Fence[:min(len(node.Fence), maxNodeBackends)]
@@ -645,6 +662,20 @@ func (provider *Provider) Region(ctx context.Context, region string) (Summary, e
 // Reachability reports each remote region's reach for the insight engine.
 func (provider *Provider) Reachability(ctx context.Context) []insights.RegionReach {
 	var out []insights.RegionReach
+	if provider.LinkProbes != nil {
+		for _, probe := range provider.LinkProbes() {
+			state := probe.Reach
+			if state != decisionlog.RegionOK && state != decisionlog.RegionUnreachable && state != decisionlog.RegionNotLinked {
+				state = decisionlog.RegionError
+			}
+			reach := insights.RegionReach{Region: probe.Region, State: state, LastSeen: probe.LastSuccessAt}
+			if probe.Reach == decisionlog.RegionOK {
+				reach.WAN, reach.Detail = probe.WAN, probe.Detail
+			}
+			out = append(out, reach)
+		}
+		return out
+	}
 	summaries := provider.Regions(ctx)
 	provider.reachMu.Lock()
 	defer provider.reachMu.Unlock()

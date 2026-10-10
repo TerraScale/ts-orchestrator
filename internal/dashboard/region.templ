@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -22,6 +23,9 @@ templ regionBody(current view) {
 			}
 		</div>
 		@notes(current)
+		if summary := current.selectedSummary(); summary != nil {
+			@regionLinkProbes(*summary)
+		}
 		if current.remote() {
 			<p class="note">Live member detail for { upper(current.region()) } is served by that region's own controllers. This page shows the summary { upper(current.region()) } answers over the region link, its decisions and its insights.</p>
 			if summary := current.selectedSummary(); summary != nil {
@@ -128,6 +132,44 @@ templ regionBody(current view) {
 			</article>
 		}
 	</div>
+}
+
+templ regionLinkProbes(summary regionview.Summary) {
+	<article>
+		<h2>Cross-region links <small>tested every minute</small></h2>
+		<p class="note">Outgoing probes from { upper(summary.Region) }. WAN lag counts unapplied change groups at the destination's TerraBase receivers.</p>
+		if len(summary.Links) == 0 {
+			@unavailable("No scheduled link probe has completed yet.")
+		} else {
+			<div class="table-scroll">
+				<table>
+					<thead><tr><th>Destination</th><th>Telemetry request</th><th>TerraBase WAN</th><th>Checked</th><th>Recovery</th></tr></thead>
+					<tbody>
+						for _, probe := range summary.Links {
+							<tr>
+								<td>{ upper(probe.Region) }</td>
+								<td>
+									@statusPill(boolStatus(probe.Reach == "ok"), probe.Reach)
+									<small class="muted">{ formatFloat(probe.RoundTripMS, 1) } ms</small>
+								</td>
+								<td>
+									@statusPill(boolStatus(probe.WAN == regionlink.WANOK), probe.WAN)
+									if probe.Lag != nil {
+										<small class="muted">lag { formatFloat(*probe.Lag, 0) } change groups</small>
+									}
+									if probe.Detail != "" {
+										<small class="muted">{ probe.Detail }</small>
+									}
+								</td>
+								<td>{ probe.ObservedAt.UTC().Format("15:04:05 UTC") }</td>
+								<td>{ orDash(probe.Recovery) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	</article>
 }
 
 // remoteMembers lists the members and seat hosts another region's summary

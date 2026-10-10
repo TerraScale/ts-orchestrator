@@ -22,6 +22,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // SchemaVersion is the only Report version this build accepts.
@@ -67,13 +68,14 @@ type HostUsage struct {
 // controller can relate it to the role's signed resource request, plus the
 // TerraBase load block when the role is a TerraBase member that reports one.
 type RoleUsage struct {
-	Role        string             `json:"role"`
-	CPUCores    *float64           `json:"cpu_cores,omitempty"`
-	MemoryBytes *uint64            `json:"memory_bytes,omitempty"`
-	CPULimit    *float64           `json:"cpu_limit_cores,omitempty"`
-	MemoryLimit *uint64            `json:"memory_limit_bytes,omitempty"`
-	LimitsRead  bool               `json:"limits_read,omitzero"`
-	TerraBase   *memberstatus.Load `json:"terrabase,omitempty"`
+	Role        string                    `json:"role"`
+	CPUCores    *float64                  `json:"cpu_cores,omitempty"`
+	MemoryBytes *uint64                   `json:"memory_bytes,omitempty"`
+	CPULimit    *float64                  `json:"cpu_limit_cores,omitempty"`
+	MemoryLimit *uint64                   `json:"memory_limit_bytes,omitempty"`
+	LimitsRead  bool                      `json:"limits_read,omitzero"`
+	TerraBase   *memberstatus.Load        `json:"terrabase,omitempty"`
+	WAN         *terrabase.WANObservation `json:"wan,omitempty"`
 }
 
 // Validate checks the schema version, role tokens and every value bound.
@@ -124,6 +126,14 @@ func (r Report) Validate() error {
 		if role.TerraBase != nil {
 			if err := role.TerraBase.Validate(); err != nil {
 				return fmt.Errorf("%w: role %q: %v", ErrInvalidReport, role.Role, err)
+			}
+		}
+		if role.WAN != nil {
+			if role.Role != terrabase.Role {
+				return fmt.Errorf("%w: WAN observations require the terrabase role", ErrInvalidReport)
+			}
+			if err := role.WAN.Validate(); err != nil {
+				return fmt.Errorf("%w: role %q WAN: %v", ErrInvalidReport, role.Role, err)
 			}
 		}
 	}

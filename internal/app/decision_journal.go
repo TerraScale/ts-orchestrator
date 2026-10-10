@@ -117,7 +117,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	go runHistorySampler(ctx, observed, runtime.member, history,
 		withoutHostMetricSamples(withAutoscaleSamples(observability.ClusterCollect(cluster, collector), observed.autoscalers, observed.hostLoad)))
 	regions := &regionview.Provider{Cell: runtime.cell, Cluster: cluster, Snapshot: collector, History: sharedHistory,
-		Decisions: journal, Links: links, Nodes: observed.nodes}
+		Decisions: journal, Links: links, Nodes: observed.nodes, LinkProbes: observed.linkProbes,
+		NativeRegion: observed.nativeTerraBaseRegion}
 	insightConfig := insights.Config{Region: runtime.cell, Cluster: cluster, Local: collector,
 		History: sharedHistory, Decisions: journal, Reachability: regions, Holds: observed.holds}
 	// Optional providers of the other slices: each stays nil, and its rules

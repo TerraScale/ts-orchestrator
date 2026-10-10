@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
@@ -127,6 +128,27 @@ func hostLoadSamples(load *hostload.Aggregator) []observability.Sample {
 			if role.MemoryBytes != nil {
 				samples = append(samples, observability.Sample{Metric: observability.HistServiceMemoryUsed,
 					Labels: service, Value: float64(*role.MemoryBytes)})
+			}
+			if wan := role.WAN; wan != nil && wan.Fresh(time.Now()) && wan.Validate() == nil {
+				for _, source := range wan.Sources {
+					labels := observability.L("member", member, "node", node.Origin.Node, "role", role.Role,
+						"receiver_region", wan.ReceiverRegion, "source_region", source.SourceRegion)
+					samples = append(samples, observability.Sample{Metric: observability.HistTerraBaseWANObservedAt,
+						Labels: labels, Value: float64(wan.ObservedAt.UnixMilli())})
+					for _, reading := range []struct {
+						metric string
+						value  *float64
+					}{{observability.HistTerraBaseWANLagGroups, source.LagGroups},
+						{observability.HistTerraBaseWANStaleness, source.StalenessSeconds},
+						{observability.HistTerraBaseWANMembers, source.Members},
+						{observability.HistTerraBaseWANUnregistered, source.Unregistered},
+						{observability.HistTerraBaseWANConflicts, source.Conflicts},
+						{observability.HistTerraBaseWANAheadFailures, source.AheadFailuresTotal}} {
+						if reading.value != nil {
+							samples = append(samples, observability.Sample{Metric: reading.metric, Labels: labels, Value: *reading.value})
+						}
+					}
+				}
 			}
 			block := role.TerraBase
 			if block == nil {
