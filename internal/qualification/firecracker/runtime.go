@@ -302,7 +302,7 @@ func LiveProcessGroupMembers(pgid int) ([]int, error) {
 			continue
 		}
 		b, e := os.ReadFile(filepath.Join("/proc", entry.Name(), "stat"))
-		if os.IsNotExist(e) {
+		if processStatGone(e) {
 			continue
 		}
 		if e != nil {
@@ -326,6 +326,12 @@ func LiveProcessGroupMembers(pgid int) ([]int, error) {
 	}
 	return members, nil
 }
+
+// A process can disappear after its stat file opens, returning ESRCH instead of ENOENT.
+func processStatGone(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
+}
+
 func WaitProcessGroupQuiescent(pgid int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
