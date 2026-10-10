@@ -7,6 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
@@ -23,6 +26,7 @@ const capacityInterval = time.Minute
 type capacityAllocator struct {
 	global  *globalControl
 	regions func() []globalview.Region
+	alert   budgetAlert
 
 	mu       sync.Mutex
 	capacity budget.Capacity
@@ -37,9 +41,9 @@ type capacityAllocator struct {
 // other region gets an allocator that never runs; its budget insight reads the
 // capacity document instead.
 func startCapacityAllocator(ctx context.Context, global *globalControl,
-	regions func() []globalview.Region,
+	regions func() []globalview.Region, js jetstream.JetStream, replicas int, atlasConfig func() *atlas.Config,
 ) *capacityAllocator {
-	allocator := &capacityAllocator{global: global, regions: regions}
+	allocator := &capacityAllocator{global: global, regions: regions, alert: newBudgetAlert(js, replicas, atlasConfig)}
 	if global == nil || global.writer == nil || global.authority == nil {
 		return allocator
 	}
@@ -97,6 +101,7 @@ func (a *capacityAllocator) tick(ctx context.Context, now time.Time) error {
 	a.capacity, a.found = capacity, true
 	a.mu.Unlock()
 	a.journal(ctx, now, snapshot.Epoch, capacity)
+	a.alertBudget(ctx, now, snapshot.Epoch, capacity)
 	return nil
 }
 

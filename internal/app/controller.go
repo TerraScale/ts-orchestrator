@@ -886,7 +886,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	hostController.SetRolloutSink(policy.rollouts)
 	// The home allocates node growth under the monthly budget. Every region
 	// feeds the budget insight from the capacity document it reads.
-	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups)
+	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups, runtime.JetStream(),
+		cfg.NATS.Replicas, services.atlasConfig)
 	if err := startBudgetSet(runCtx, runtime.Conn(), global); err != nil {
 		return fmt.Errorf("serve budget requests: %w", err)
 	}

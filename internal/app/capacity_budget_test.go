@@ -35,7 +35,7 @@ func testBudget(cents uint64) budget.Budget {
 func TestBudgetSetWritesJournalsAndAnswers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	global, conn := startGlobalHome(t, ctx)
+	global, conn, _ := startGlobalHome(t, ctx)
 	if err := serveBudgetSet(ctx, conn, global.authority, global.writer); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func TestBudgetSetWritesJournalsAndAnswers(t *testing.T) {
 func TestBudgetSetRefusesAnInvalidPayloadAndWritesNothing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	global, conn := startGlobalHome(t, ctx)
+	global, conn, _ := startGlobalHome(t, ctx)
 	if err := serveBudgetSet(ctx, conn, global.authority, global.writer); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestBudgetSetOutsideTheHomeIsRefused(t *testing.T) {
 func TestCapacityPageReadsBudgetCapacityAndPlannerAtHome(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	global, conn := startGlobalHome(t, ctx)
+	global, conn, _ := startGlobalHome(t, ctx)
 	epoch := global.authority.Current().Epoch
 	now := time.Now().UTC()
 	monthly := testBudget(50000)

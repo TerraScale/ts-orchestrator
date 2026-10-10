@@ -421,3 +421,9 @@ func retrySecretRead(err error) bool {
 	status := serviceErr.GetHTTPStatusCode()
 	return status == http.StatusNotFound || status == http.StatusConflict
 }
+
+// Absent reports whether Vault answered that the secret does not exist.
+func Absent(err error) bool {
+	var serviceErr common.ServiceError
+	return errors.As(err, &serviceErr) && serviceErr.GetHTTPStatusCode() == http.StatusNotFound
+}

@@ -244,6 +244,17 @@ func TestRetrySecretReadClassifiesOCIStatus(t *testing.T) {
 	}
 }
 
+func TestAbsentIsOnlyVaultNotFound(t *testing.T) {
+	for status, want := range map[int]bool{http.StatusNotFound: true, http.StatusConflict: false, http.StatusUnauthorized: false} {
+		if got := Absent(fmt.Errorf("wrapped: %w", testSecretServiceError{status: status})); got != want {
+			t.Errorf("status %d: absent=%v, want %v", status, got, want)
+		}
+	}
+	if Absent(nil) || Absent(errors.New("network down")) {
+		t.Error("a non-service error reads as an absent secret")
+	}
+}
+
 type testSecretServiceError struct{ status int }
 
 func (e testSecretServiceError) Error() string           { return "OCI service error" }

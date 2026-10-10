@@ -207,7 +207,7 @@ so a partial sum cannot admit spending.
 At 80% projected spend the dashboard shows the `capacity_budget` insight and
 the leader opens a ts-status warning (impact none, no amounts, no
 components) through ts-status's operator API with the token from OCI Vault
-(`ts-status-operator-token`). Below 75% it resolves the warning. At 100%
+(`ts-status-operator-token`). Below 75% it resolves the warning. The alert state lives in KV `TS_BUDGET_ALERT`, and the operator token is stored once in the home Vault as `ts-status-operator-token`. At 100%
 growth stops (`nodescale.budget-capped`) and the insight turns critical.
 
 ### The capacity status

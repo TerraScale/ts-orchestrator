@@ -85,8 +85,8 @@ func startEmbeddedNATS(t *testing.T) *nats.Conn {
 }
 
 // startGlobalHome runs an embedded NATS and makes this member the global leader of a
-// home region, returning its global control and the connection it runs on.
-func startGlobalHome(t *testing.T, ctx context.Context) (*globalControl, *nats.Conn) {
+// home region, returning its global control, the connection it runs on and its JetStream.
+func startGlobalHome(t *testing.T, ctx context.Context) (*globalControl, *nats.Conn, jetstream.JetStream) {
 	t.Helper()
 	conn := startEmbeddedNATS(t)
 	js, err := jetstream.New(conn)
@@ -110,13 +110,13 @@ func startGlobalHome(t *testing.T, ctx context.Context) (*globalControl, *nats.C
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &globalControl{authority: control, writer: writer, reader: &writer.Reader}, conn
+	return &globalControl{authority: control, writer: writer, reader: &writer.Reader}, conn, js
 }
 
 func TestCapacityAllocatorWritesAndJournalsOnChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	global, _ := startGlobalHome(t, ctx)
+	global, _, js := startGlobalHome(t, ctx)
 	now := time.Now().UTC()
 	epoch := global.authority.Current().Epoch
 	if err := budget.WriteBudget(ctx, global.writer, epoch, budget.Budget{Schema: budget.Schema, ID: entityid.New(),
@@ -124,7 +124,8 @@ func TestCapacityAllocatorWritesAndJournalsOnChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	var rollups []globalview.Region
-	allocator := &capacityAllocator{global: global, regions: func() []globalview.Region { return rollups }}
+	allocator := &capacityAllocator{global: global, regions: func() []globalview.Region { return rollups },
+		alert: budgetAlert{js: js, replicas: 1}}
 	journal := &recordedDecisions{}
 	restore := decisionlog.SetDefault(journal)
 	t.Cleanup(restore)
