@@ -395,7 +395,7 @@ func validateHostStateFacts(facts HostStateHost, observed HostStateObservation, 
 			}
 		}
 	}
-	if r.TerraBaseDataVolumeID == "" && facts.Volume != nil || slices.Contains(r.Roles, terrabase.Role) && facts.Volume == nil {
+	if r.TerraBaseDataVolumeID == "" && facts.Volume != nil {
 		return fmt.Errorf("%w: missing or foreign existing-volume proof", ErrHostStateHandoff)
 	}
 	if r.TerraBaseDataVolumeID != "" {

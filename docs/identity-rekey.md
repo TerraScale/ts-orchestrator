@@ -22,6 +22,9 @@ shutdown. Every inventoried host requires an exact predecessor or explicit
 absence observation for `retired` and `retirement-quarantine`; the regional
 `retirement-cutover` key also requires coverage. Drain affected host agents and observe the required 32-second regional
 quiescence before signing this plan. Preserve every managed member and volume.
+Static TerraBase hosts without a registered block volume retain their existing
+data paths; their handoff creates no volume-format confirmation. Registered
+block volumes still require their exact mounted filesystem and consumed marker.
 Uncommitted staging requires current-root `can_install_material` authority and
 current image qualification. Installation independently authenticates the exact
 shared hold before replaying its durably pinned authorization; initial-install

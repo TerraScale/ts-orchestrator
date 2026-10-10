@@ -227,6 +227,41 @@ func TestHostStateHandoffRequiresRetirementPredecessorOrAbsence(t *testing.T) {
 	}
 }
 
+func TestHostStateHandoffStaticTerraBaseWithoutBlockVolume(t *testing.T) {
+	for _, cell := range []string{"GRU", "SFO"} {
+		t.Run(cell, func(t *testing.T) {
+			observed, root, roots, now := hostStateFixture(t, cell)
+			volumeKeys := map[string]bool{}
+			for i := range observed.Hosts {
+				facts := &observed.Hosts[i]
+				volumeKeys["terrabase-format."+strings.ToLower(cell)+"."+facts.Registration.Node+"."+sha256Hex([]byte(facts.Volume.VolumeID))] = true
+				volumeKeys[entityid.Derive("terrabase-format", strings.ToLower(cell), facts.Registration.Node, facts.Volume.VolumeID)] = true
+				facts.Registration.TerraBaseDataVolumeID, facts.Volume = "", nil
+			}
+			observed.Preconditions = slices.DeleteFunc(observed.Preconditions, func(p HostStatePrecondition) bool {
+				return p.Bucket == hostStateBucket && volumeKeys[p.Key]
+			})
+			plan, err := BuildHostStateHandoffPlan(observed, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			envelope, err := SignHostStateHandoffPlan(plan, now, now.Add(time.Hour), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			verified, err := VerifyHostStateHandoffPlan(envelope, roots, observed, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, record := range verified.Records() {
+				if record.Pin.Bucket == hostStateBucket && record.Action == HostStateReplaceKV || volumeKeys[record.Pin.Key] {
+					t.Fatal("host without a block volume received format authority")
+				}
+			}
+		})
+	}
+}
+
 func TestHostStateHandoffRejectsUnsafeFacts(t *testing.T) {
 	o, _, _, now := hostStateFixture(t, "GRU")
 	for _, test := range []struct {
@@ -248,6 +283,7 @@ func TestHostStateHandoffRejectsUnsafeFacts(t *testing.T) {
 		{"wrong environment", func(o *HostStateObservation) { o.Hosts[0].Desired[0].Target.Environment = "canary" }},
 		{"wrong volume", func(o *HostStateObservation) { o.Hosts[0].Volume.VolumeID += "foreign" }},
 		{"missing volume", func(o *HostStateObservation) { o.Hosts[0].Volume = nil }},
+		{"unregistered volume", func(o *HostStateObservation) { o.Hosts[0].Registration.TerraBaseDataVolumeID = "" }},
 		{"blank device", func(o *HostStateObservation) { o.Hosts[0].Volume.Mounted = false }},
 		{"invalid UUID", func(o *HostStateObservation) { o.Hosts[0].Volume.UUID = "reset" }},
 		{"native identity mismatch", func(o *HostStateObservation) { o.Hosts[0].Volume.NativeClusterID = strings.Repeat("d", 32) }},
