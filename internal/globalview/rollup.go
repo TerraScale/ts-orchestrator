@@ -7,7 +7,11 @@
 // stale badge. The design is docs/dashboard/global-view.md.
 package globalview
 
-import "time"
+import (
+	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+)
 
 const (
 	// Version is the rollup wire version.
@@ -70,9 +74,12 @@ type Rollup struct {
 	Replication        Replication `json:"replication"`
 	Autoscale          Autoscale   `json:"autoscale"`
 	Cost               *Cost       `json:"cost,omitempty"`
-	Databases          []Database  `json:"databases,omitempty"`
-	Errors             []Error     `json:"errors,omitempty"`
-	Truncated          bool        `json:"truncated,omitzero"`
+	// Scale is the region's node scaling status (TS-804): the budget allocator
+	// and the region planner read it.
+	Scale     *nodescale.Status `json:"scale,omitempty"`
+	Databases []Database        `json:"databases,omitempty"`
+	Errors    []Error           `json:"errors,omitempty"`
+	Truncated bool              `json:"truncated,omitzero"`
 }
 
 // Health is a region's status and why it is not healthy.

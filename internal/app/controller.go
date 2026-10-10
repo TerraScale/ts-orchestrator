@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
@@ -27,6 +28,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
@@ -552,8 +554,11 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// controller rollouts and node operations (TS-632).
 	var fences *releaseFence
 	var networkControl *netbirdRollout
+	// The node scaler publishes its pool nodes' addresses to the fence once it starts.
+	var poolScaler atomic.Pointer[nodescale.Scaler]
 	if releaseChannel != nil {
-		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control, spec: services.releaseFence,
+		fences = &releaseFence{kv: releaseChannel, hosts: hostController, fencer: control,
+			spec:  withPoolAddresses(services.releaseFence, &poolScaler),
 			seats: seatStore != nil,
 			open: func(context.Context) (lb.API, error) {
 				factory, err := ociclient.InstancePrincipal(region)
@@ -706,10 +711,22 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	var enrollmentErrors <-chan error
 	var managedEnrollment *managedHostEnrollment
+	// One node pool serves enrollment and the scaler. Without IMDS or OCI it
+	// is nil: pool nodes are refused and no scaler runs.
+	var pool *nodescale.OCIPool
+	var poolFactory *ociclient.Factory
 	if managed != nil && !cfg.NATS.Lab {
+		poolCtx, cancelPool := context.WithTimeout(runCtx, 30*time.Second)
+		var poolErr error
+		pool, poolFactory, poolErr = newNodePool(poolCtx, cfg.NATS.Cell)
+		cancelPool()
+		if poolErr != nil {
+			slog.Warn("node pool is unavailable; pool nodes will not enroll and no node scaler runs",
+				"component", "nodescale", "error", poolErr)
+		}
 		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
 			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control,
-			services)
+			services, pool)
 		if err != nil {
 			return fmt.Errorf("start private managed host enrollment: %w", err)
 		}
@@ -723,6 +740,16 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer server.Close()
 		defer listener.Close()
 		enrollmentErrors = serveErrors
+	}
+	var scaleStatus func() *nodescale.Status
+	if pool != nil {
+		scaleStatus, err = startNodeScaler(runCtx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
+			replicas: cfg.NATS.Replicas, ready: fullClusterReady, pool: pool, factory: poolFactory,
+			hosts: hostController, load: hostLoad, global: global, fencer: control, fences: fences,
+			enrollment: managedEnrollment, scaler: &poolScaler})
+		if err != nil {
+			return fmt.Errorf("start node scaler: %w", err)
+		}
 	}
 	apiErrors, err := startMachinesAPI(runCtx, cfg, runtime, control, fullClusterReady, telemetry)
 	if err != nil {
@@ -873,7 +900,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		rollouts:              rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
-		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},
+		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
+		scale:       scaleStatus},
 		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}

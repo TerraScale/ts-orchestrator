@@ -6,6 +6,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
@@ -23,9 +24,10 @@ type Sources struct {
 	Links     func() []regionview.LinkProbe
 	Autoscale func() map[string]workload.Result
 	Events    func(limit int) []observability.Event
-	Cost      func() *Cost      // TS-807
-	Databases func() []Database // TS-806
-	Errors    func() []Error    // TS-808; replaces Events when set
+	Cost      func() *Cost             // TS-807
+	Scale     func() *nodescale.Status // TS-804
+	Databases func() []Database        // TS-806
+	Errors    func() []Error           // TS-808; replaces Events when set
 	Now       func() time.Time
 }
 
@@ -47,6 +49,7 @@ type Inputs struct {
 	Autoscale          map[string]workload.Result
 	Events             []observability.Event
 	Cost               *Cost
+	Scale              *nodescale.Status
 	Databases          []Database
 	Errors             []Error
 }

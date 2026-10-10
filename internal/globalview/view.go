@@ -300,6 +300,11 @@ func decode(subject string, data []byte) (Rollup, error) {
 	if tokens := strings.Split(subject, "."); len(tokens) < 4 || tokens[3] != r.Cell {
 		return Rollup{}, fmt.Errorf("rollup subject %q does not name cell %q", subject, r.Cell)
 	}
+	// A scaling status the region cannot validate, or that speaks for another
+	// region, is no status: its spend is then unknown and growth holds.
+	if r.Scale != nil && (r.Scale.Validate() != nil || r.Scale.Cell != r.Cell) {
+		r.Scale = nil
+	}
 	return r, nil
 }
 

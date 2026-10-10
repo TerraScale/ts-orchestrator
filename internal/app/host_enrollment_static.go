@@ -277,7 +277,7 @@ func (enrollment *managedHostEnrollment) observePoolNode(ctx context.Context, pe
 ) (oci.CloudInstance, staticAdmission, error) {
 	// Nodes 1 to 3 are the quorum nodes, never pool instances.
 	if number, err := strconv.Atoi(descriptor.Node[strings.LastIndexByte(descriptor.Node, '-')+1:]); err != nil ||
-		number < firstPoolNode {
+		number < nodescale.FirstPoolNode {
 		return oci.CloudInstance{}, staticAdmission{}, errors.New("a pool node is numbered from 4")
 	}
 	state, err := enrollment.pool.Observe(ctx)

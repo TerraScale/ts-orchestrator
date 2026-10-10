@@ -217,6 +217,44 @@ func TestReconcilerReplacesReplicaOnLostHost(t *testing.T) {
 	}
 }
 
+// A cordoned host keeps its session, but its replica moves: the replacement
+// lands on a free host first, and the cordoned replica is withdrawn once the
+// replacement runs.
+func TestReconcilerMovesReplicaOffCordonedHost(t *testing.T) {
+	cell := threeHostCell()
+	release, _ := ReleaseGeneration(3)
+	for _, node := range []string{"node-a", "node-b", "node-c"} {
+		cell.seed(node, "api", testDigest, release)
+	}
+	cell.runAll()
+	cordoned := cell.hosts["node-b"]
+	cordoned.Retired = true
+	cell.hosts["node-b"] = cordoned
+	reconciler := newTestReconciler(t, cell, &fakeFencer{leader: true, epoch: 7}, statelessSpec(1, 5))
+
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-a", "node-b", "node-c", "node-d"}) {
+		t.Fatalf("active after the first tick = %v, want node-d added beside the serving cordoned replica", got)
+	}
+	cell.run("node-d", "api", "running")
+	if err := reconciler.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := cell.active("api"); !slices.Equal(got, []string{"node-a", "node-c", "node-d"}) {
+		t.Fatalf("active = %v, want the replica moved to node-d", got)
+	}
+	for _, write := range cell.writes {
+		if write.Node == "node-d" && write.Withdrawn {
+			t.Fatalf("replacement withdrawn: %#v", write)
+		}
+	}
+	if withdrawn := cell.desired["node-b/api"]; !withdrawn.Withdrawn {
+		t.Fatalf("cordoned replica not withdrawn: %+v", withdrawn)
+	}
+}
+
 func TestReconcilerConvergedServiceIsIdle(t *testing.T) {
 	cell := threeHostCell()
 	for _, node := range []string{"node-a", "node-b"} {

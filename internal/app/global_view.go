@@ -30,6 +30,7 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 	if runtime.events != nil {
 		sources.Events = runtime.events.Recent
 	}
+	sources.Scale = observed.scale
 	build := func(ctx context.Context) globalview.Rollup { return globalview.Build(sources.Collect(ctx)) }
 	leading := func() bool { return observed.authority.Current().CanMutate() }
 	conn := observed.nats.Conn()

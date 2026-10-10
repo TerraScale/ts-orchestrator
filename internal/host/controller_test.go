@@ -2607,3 +2607,41 @@ func TestRetireIdleRefusesNewAllocations(t *testing.T) {
 		t.Fatalf("an unretired host refused an allocation: %v", err)
 	}
 }
+
+// A cordoned host takes no new allocation even while it still holds one, so
+// its replicas can be moved off it.
+func TestCordonRetiresAHostThatHoldsAllocations(t *testing.T) {
+	c, _, store, _, _ := testController(t)
+	registerTestHost(t, c)
+	data := []byte("cordon artifact")
+	hash := sha256.Sum256(data)
+	digest := hex.EncodeToString(hash[:])
+	if _, err := store.PutBytes(t.Context(), "sha256-"+digest, data); err != nil {
+		t.Fatal(err)
+	}
+	desired := Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase", Digest: digest,
+		Generation: 1, AuthorityEpoch: 1}
+	if _, err := c.ApplyDesired(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Cordon(t.Context(), "node-a"); err != nil {
+		t.Fatalf("cordon a host with an allocation: %v", err)
+	}
+	if statuses, err := c.ListHosts(t.Context()); err != nil || len(statuses) != 1 || !statuses[0].Retired {
+		t.Fatalf("cordon did not retire the host: %+v, %v", statuses, err)
+	}
+	next := desired
+	next.Generation = 2
+	if _, err := c.ApplyDesired(t.Context(), next); !errors.Is(err, ErrHostRetiring) {
+		t.Fatalf("a cordoned host took an allocation: %v", err)
+	}
+	if err := c.Cordon(t.Context(), "node-a"); err != nil {
+		t.Fatalf("cordon is not idempotent: %v", err)
+	}
+	if err := c.Unretire(t.Context(), "node-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ApplyDesired(t.Context(), next); err != nil {
+		t.Fatalf("an uncordoned host refused an allocation: %v", err)
+	}
+}

@@ -15,8 +15,8 @@ a constant in code ([zero configuration](zero-configuration.md)). The only
 operator input is the budget, which is data, not configuration.
 
 It builds on TS-803 ([region-agnostic](region-agnostic.md)): the roster
-names the serving regions, every region's summary
-(`ts.orch.v1.<cell>.obs.region`) crosses the links, and `TS_GLOBAL_CONTROL`
+names the serving regions, every region's rollup
+(`ts.orch.v1.<cell>.region.rollup`, TS-805) crosses the links, and `TS_GLOBAL_CONTROL`
 is written by the home's global leader and mirrored to every region. It
 replaces `internal/cellscale` (deleted), the signed region approvals
 (deleted), `internal/hostpool`, the `autoscale.node_pools` and
@@ -212,10 +212,12 @@ growth stops (`nodescale.budget-capped`) and the insight turns critical.
 
 ### The capacity status
 
-Each regional leader publishes its status in its region summary
-(`regionview.Summary.Scale`, served on `ts.orch.v1.<cell>.obs.region`), which
-the link supervisor (TS-796) and the dashboard already fetch from every
-region, so no new subject or grant is needed. A region running an older
+Each regional leader publishes its status in the region rollup it pushes
+every 5 seconds (`globalview.Rollup.Scale` on
+`ts.orch.v1.<cell>.region.rollup`, TS-805). Every region follows every
+rollup, so the home's allocator and planner read all statuses from memory,
+with no fan-out and no new subject or grant. A status that does not
+validate or names another region is dropped. A region running an older
 build has no status: its spend is unknown and growth holds.
 
 ```json
@@ -327,7 +329,7 @@ current decision. No new region is expected.
 ## Coordination
 
 - **TS-803**: the roster (`globalcontrol.Roster` and `Reader.Follow` of it),
-  the region summary (`obs.region`) crossing the links, the
+  the region rollups (TS-805) crossing the links, the
   `TS_GLOBAL_CONTROL` mirror, and automated issuance of a new region's
   material under its derived identity (step 4 of adding a region).
 - **TS-807**: the per-region cost report and `ocicost.Project`; the cap

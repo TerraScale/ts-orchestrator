@@ -103,11 +103,14 @@ func (s *Scaler) Run(ctx context.Context) {
 }
 
 // Tick samples the region, advances the action in flight by one step, decides, and saves the record.
-// A follower resets its load windows; a new leader rebuilds them, which only delays action.
+// A follower resets its load windows and its status; a new leader rebuilds them, which only delays action.
 func (s *Scaler) Tick(ctx context.Context) error {
 	snapshot := s.Leader.Current()
 	if !snapshot.CanMutate() {
 		s.history = History{}
+		s.mu.Lock()
+		s.status, s.addresses = Status{}, nil
+		s.mu.Unlock()
 		return nil
 	}
 	record, revision, err := s.Store.Load(ctx)

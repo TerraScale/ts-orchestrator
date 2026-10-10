@@ -56,6 +56,9 @@ func (s Sources) Collect(ctx context.Context) Inputs {
 	if s.Cost != nil {
 		in.Cost = s.Cost()
 	}
+	if s.Scale != nil {
+		in.Scale = s.Scale()
+	}
 	if s.Databases != nil {
 		in.Databases = s.Databases()
 	}
@@ -92,6 +95,7 @@ func Build(in Inputs) Rollup {
 	rollup.Routes = keep(routes, maxRoutes, &truncated)
 	rollup.Autoscale = Autoscale{Services: buildScaling(in.Autoscale)}
 	rollup.Cost = in.Cost
+	rollup.Scale = in.Scale
 	rollup.Databases = buildDatabases(in.Databases, &truncated)
 	rollup.Errors = buildErrors(in, &truncated)
 	rollup.Truncated = truncated

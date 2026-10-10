@@ -26,6 +26,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
@@ -201,6 +202,8 @@ type controllerObservation struct {
 	kvSnapshots func() observability.KVSnapshotView
 	// nodes lists the cell's granted nodes for the topology view.
 	nodes func(context.Context) []regionview.Node
+	// scale is the region's node scaling status, nil when the region runs no scaler.
+	scale func() *nodescale.Status
 }
 
 // attachController registers controller metrics, readiness checks and the

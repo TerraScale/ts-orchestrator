@@ -587,6 +587,13 @@ func (c *Controller) Unretire(ctx context.Context, node string) error {
 	return c.markRetired(ctx, c.authorityEpoch(), node, false)
 }
 
+// Cordon retires node whatever it holds: a cordoned host takes no new allocation and the workload reconciler moves its replicas elsewhere.
+func (c *Controller) Cordon(ctx context.Context, node string) error {
+	c.retireMu.Lock()
+	defer c.retireMu.Unlock()
+	return c.markRetired(ctx, c.authorityEpoch(), node, true)
+}
+
 func sameDesiredTarget(a, b Desired) bool {
 	a.AuthorityEpoch = 0
 	b.AuthorityEpoch = 0

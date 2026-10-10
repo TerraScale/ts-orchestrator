@@ -79,7 +79,7 @@ func Schedulable(status host.HostStatus, now time.Time) placement.WorkloadHost {
 	return placement.WorkloadHost{
 		Cell: r.Cell, Node: r.Node, FailureDomain: strings.ToLower(r.FailureDomain), Roles: slices.Clone(r.Roles),
 		Capacity:       placement.Resources{CPU: r.Capacity.CPU, MemoryBytes: memory, DiskBytes: r.Capacity.DiskBytes},
-		CurrentSession: live, Admitted: true, Healthy: live,
+		CurrentSession: live, Admitted: true, Healthy: live, Cordoned: status.Retired,
 	}
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -491,4 +492,31 @@ func TestPublishWhileLeading(t *testing.T) {
 	}
 	cancel()
 	<-done
+}
+
+func TestDecodeKeepsOnlyTheRegionsOwnScaleStatus(t *testing.T) {
+	now := time.Now().UTC()
+	own := nodescale.Status{Schema: nodescale.StatusSchema, Cell: "sfo", At: now, Nodes: 3, QuorumNodes: 3,
+		Want: 3, Allowance: 3, Action: nodescale.Hold, Reason: "load within band"}
+	other := own
+	other.Cell = "gru"
+	invalid := own
+	invalid.Reason = ""
+	for name, tc := range map[string]struct {
+		scale nodescale.Status
+		kept  bool
+	}{"own": {own, true}, "another region's": {other, false}, "invalid": {invalid, false}} {
+		t.Run(name, func(t *testing.T) {
+			rollup := rollupAt("sfo", now)
+			rollup.Scale = &tc.scale
+			data, err := json.Marshal(rollup)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r, err := decode(protocol.RegionRollupSubject("sfo"), data)
+			if err != nil || (r.Scale != nil) != tc.kept {
+				t.Fatalf("decode = %+v, %v; want scale kept %v", r.Scale, err, tc.kept)
+			}
+		})
+	}
 }
