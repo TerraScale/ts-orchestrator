@@ -17,9 +17,11 @@ const (
 	tagResource     = "terrascale-resource"
 	tagBackupVolume = "terrascale-backup-volume"
 	tagBackupKey    = "terrascale-backup-key"
+	tagComponent    = "terrascale-component"
 
 	managedByValue = "ts-orchestrator"
 	resourceValue  = "member-data-backup"
+	componentValue = "terrabase"
 )
 
 // Scope binds backups to one controller owner in one region.
@@ -32,7 +34,7 @@ type Scope struct {
 func (scope Scope) Tags(volumeID, key string) map[string]string {
 	return map[string]string{
 		tagManagedBy: managedByValue, tagOwner: scope.Owner, tagRegion: string(scope.Region),
-		tagResource: resourceValue, tagBackupVolume: volumeID, tagBackupKey: key,
+		tagResource: resourceValue, tagBackupVolume: volumeID, tagBackupKey: key, tagComponent: componentValue,
 	}
 }
 

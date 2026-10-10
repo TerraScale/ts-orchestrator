@@ -1020,6 +1020,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })
 		})
 		workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
+		workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
 	}
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {
 		stop()

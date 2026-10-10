@@ -26,6 +26,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
+	"github.com/oracle/oci-go-sdk/v65/resourcesearch"
 	"github.com/oracle/oci-go-sdk/v65/usageapi"
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
 	"golang.org/x/time/rate"
@@ -356,6 +357,17 @@ func (f *Factory) Usage() (usageapi.UsageapiClient, error) {
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceUsage)
+	return client, nil
+}
+
+// Search returns a rate-limited Resource Search client.
+func (f *Factory) Search() (resourcesearch.ResourceSearchClient, error) {
+	client, err := resourcesearch.NewResourceSearchClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI resource search client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceSearch)
 	return client, nil
 }
 

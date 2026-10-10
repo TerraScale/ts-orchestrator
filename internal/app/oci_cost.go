@@ -94,6 +94,24 @@ func newOCICostCollector(cell string, store *ocicost.Store, control *authority.R
 		}}
 }
 
+// newOCICostTagger keeps the region's billable resources tagged with their
+// region and component, so the cost report can split by component. Its IAM
+// limits the search to the region's own compartments (docs/oci-cost.md).
+func newOCICostTagger(cell string, control *authority.Runtime) *ocicost.Tagger {
+	return &ocicost.Tagger{Cell: cell, Leader: func() bool { return control.Current().CanMutate() },
+		Connect: func(ctx context.Context) (ocicost.TagAPI, error) {
+			region, err := oci.Region(strings.ToUpper(cell)).OCIRegion()
+			if err != nil {
+				return nil, err
+			}
+			factory, err := instancePrincipal(ctx, region)
+			if err != nil {
+				return nil, err
+			}
+			return ocicost.ConnectTags(factory, nil)
+		}}
+}
+
 // instancePrincipal is ociclient.InstancePrincipal bounded by ctx, so a
 // stopping controller is not held by the metadata fetch. shortcut: the
 // fetch ignores ctx and finishes unobserved, upgrade when ociclient takes one.

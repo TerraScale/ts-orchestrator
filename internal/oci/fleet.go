@@ -38,6 +38,7 @@ const (
 	tagManagedBy              = "terrascale-managed-by"
 	tagOwner                  = "terrascale-owner"
 	tagRegion                 = "terrascale-region"
+	tagComponent              = "terrascale-component"
 	tagGeneration             = "terrascale-generation"
 	tagResource               = "terrascale-resource"
 	tagCreateKey              = "terrascale-create-key"
@@ -1506,6 +1507,7 @@ func hostTags(config RegionConfig, createKey string) map[string]string {
 		tagManagedBy:  managedByValue,
 		tagOwner:      config.Owner,
 		tagRegion:     string(config.Region),
+		tagComponent:  "terrabase",
 		tagGeneration: fmt.Sprint(config.Generation),
 		tagResource:   resourceMemberHost,
 		tagCreateKey:  createKey,
@@ -1518,6 +1520,7 @@ func volumeTags(config RegionConfig, request VolumeCreateRequest) map[string]str
 		tagManagedBy:  managedByValue,
 		tagOwner:      config.Owner,
 		tagRegion:     string(config.Region),
+		tagComponent:  "terrabase",
 		tagGeneration: fmt.Sprint(config.Generation),
 		tagResource:   resourceMemberData,
 		tagCreateKey:  request.CreateKey,
