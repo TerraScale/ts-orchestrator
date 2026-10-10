@@ -12,6 +12,7 @@ These pages describe the current greenfield Go implementation.
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
 | [Contributing](../CONTRIBUTING.md) | CLI-first Go feature development, automation boundaries, and verification |
+| [OCI cost](oci-cost.md) | TS-807 design: hourly per-region spend from the OCI Usage API, one forecast for the dashboard and the budget gate, cost tags |
 | [Region registry and cross-region subjects](region-registry.md) | v1 interface for features spanning regions: heartbeat, roster, cross-region subjects, role grants, 20-region fan-out |
 | [Region-agnostic multi-region](region-agnostic.md) | TS-803 design: one trust root and release identity, role/pattern NATS permissions, automatic region discovery, registry deploy targets |
 | [Multi-region foundation](multi-region.md) | Automatic interregion operating contract; current fabric, lifecycle and planner gaps |
