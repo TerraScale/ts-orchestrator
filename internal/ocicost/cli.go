@@ -50,11 +50,15 @@ func runReport(ctx context.Context, args []string, out io.Writer) error {
 	if *cell == "" {
 		return errors.New("cost report needs --region <cell>")
 	}
-	ociRegion, err := oci.Region(strings.ToUpper(*cell)).OCIRegion()
+	// Cells are lower-case tokens; GRU and gru name the same region.
+	token := strings.ToLower(*cell)
+	ociRegion, err := oci.Region(strings.ToUpper(token)).OCIRegion()
 	if err != nil {
 		return fmt.Errorf("cost report: %w", err)
 	}
-	return printReport(ctx, *cell, ociRegion, out)
+	ctx, cancel := context.WithTimeout(ctx, readTimeout)
+	defer cancel()
+	return printReport(ctx, token, ociRegion, out)
 }
 
 // printReport reads the cell's OCI cost through the operator's config and
@@ -122,11 +126,15 @@ func runTag(ctx context.Context, args []string, out io.Writer) error {
 			return fmt.Errorf("cost tag: %w", err)
 		}
 	}
-	ociRegion, err := oci.Region(strings.ToUpper(*cell)).OCIRegion()
+	// The component rules match bucket names by the lower-case cell prefix.
+	token := strings.ToLower(*cell)
+	ociRegion, err := oci.Region(strings.ToUpper(token)).OCIRegion()
 	if err != nil {
 		return fmt.Errorf("cost tag: %w", err)
 	}
-	return printTags(ctx, *cell, ociRegion, compartments, *apply, out)
+	ctx, cancel := context.WithTimeout(ctx, passTimeout)
+	defer cancel()
+	return printTags(ctx, token, ociRegion, compartments, *apply, out)
 }
 
 // printTags lists the cell's billable resources in the given compartments,
