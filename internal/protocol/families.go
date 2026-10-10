@@ -185,6 +185,13 @@ func DeliveryArtifactAdmitSubject(cell string) string {
 // RegionHealthSubject is the signed regional heartbeat exported to peers.
 func RegionHealthSubject(cell string) string { return Regional(cell, VerbRegionHealth) }
 
+// RegionRollupSubject is a region leader's dashboard rollup broadcast
+// (TS-805). Like the heartbeat, a region publishes only its own.
+func RegionRollupSubject(cell string) string { return Regional(cell, "region", "rollup") }
+
+// RegionRollupGrant subscribes to every region's dashboard rollup.
+const RegionRollupGrant = SubjectRoot + ".*.region.rollup"
+
 // Rollout executor subjects. The leader publishes the active rollout's status
 // on RolloutStatusSubject; every unit publishes its signed version/health
 // proof on RolloutProofSubject. Steps travel through the rollout KV bucket

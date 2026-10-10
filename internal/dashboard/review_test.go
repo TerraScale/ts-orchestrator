@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/url"
 	"slices"
@@ -161,38 +160,6 @@ func TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge(t *testing.T) {
 	}
 }
 
-func TestGlobalControllerTileCountsRegionsThatDoNotAnswer(t *testing.T) {
-	t.Parallel()
-	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{
-		{Region: "fra", Local: true, Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}},
-		{Region: "sfo", Reach: decisionlog.RegionUnreachable}}}
-	for _, tile := range current.globalKPIs() {
-		if tile.Label != "Controllers up" {
-			continue
-		}
-		if tile.Status != "bad" || strings.Contains(tile.Sub, "all regions") || !strings.Contains(tile.Sub, "1 not answering") {
-			t.Fatalf("controllers tile = %+v", tile)
-		}
-		return
-	}
-	t.Fatal("no controllers tile")
-}
-
-func TestGlobalRolloutFallbackCountsLocalPlacement(t *testing.T) {
-	t.Parallel()
-	snapshot := memberSnapshot()
-	current := view{State: parseState(url.Values{}), Local: &snapshot}
-	for _, tile := range current.globalKPIs() {
-		if tile.Label == "Open rollouts" {
-			if tile.Value != "1" {
-				t.Fatalf("open rollouts = %+v", tile)
-			}
-			return
-		}
-	}
-	t.Fatal("no open rollouts tile")
-}
-
 // historyJournal records 30 minutes of one-minute samples ending at now.
 // The history picks its tier by the wall clock, so tests that read rates
 // pass time.Now().
@@ -273,9 +240,9 @@ func TestInsightIdentityIsRegionScoped(t *testing.T) {
 	if !strings.Contains(card(sfoID), "aria-current") || strings.Contains(card(fraID), "aria-current") {
 		t.Fatal("the selection marks the wrong card")
 	}
-	global := get(t, dashboard.Handler(), "/?r=sfo").Body.String()
-	if !strings.Contains(global, "id="+fraID) || !strings.Contains(global, "id="+sfoID) {
-		t.Fatal("global insight links do not carry the region")
+	global := get(t, dashboard.Handler(), "/insights?region="+allRegions).Body.String()
+	if !strings.Contains(global, `id="insight-`+fraID+`"`) || !strings.Contains(global, `id="insight-`+sfoID+`"`) {
+		t.Fatal("the all-regions insight list lacks a region's card")
 	}
 }
 
@@ -679,31 +646,6 @@ func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
 	if rolloutStatus(insights.Rollout{Phase: "rolled-back", Done: true}, testNow) != "serious" ||
 		rolloutStatus(insights.Rollout{Phase: "aborted", Done: true}, testNow) != "bad" {
 		t.Fatal("terminal failures read as complete")
-	}
-}
-
-// A region that answered but could not read its own quorum is "unknown
-// quorum", not "not answering"; remote-to-remote map links stay unknown.
-func TestGlobalViewSeparatesUnknownQuorumAndUnobservedLinks(t *testing.T) {
-	t.Parallel()
-	current := view{State: parseState(url.Values{}), Regions: []regionview.Summary{
-		{Region: "fra", Local: true, Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}},
-		{Region: "sfo", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Answering: 1, Unobserved: true}},
-		{Region: "gru", Reach: decisionlog.RegionOK, Quorum: regionview.Quorum{Expected: 3, Answering: 3}}}}
-	for _, tile := range current.globalKPIs() {
-		if tile.Label == "Controllers up" && (strings.Contains(tile.Sub, "not answering") ||
-			!strings.Contains(tile.Sub, "1 with unknown quorum")) {
-			t.Fatalf("controllers tile = %+v", tile)
-		}
-	}
-	var spec mapSpec
-	if err := json.Unmarshal([]byte(current.mapJSON()), &spec); err != nil {
-		t.Fatal(err)
-	}
-	for _, link := range spec.Links {
-		if link.From != "fra" && link.To != "fra" && link.State == "ok" {
-			t.Fatalf("a remote-to-remote link was drawn healthy: %+v", link)
-		}
 	}
 }
 

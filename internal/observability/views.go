@@ -260,6 +260,10 @@ type SystemView struct {
 	Filesystems     []FilesystemView `json:"filesystems,omitempty"`
 	UptimeSeconds   float64          `json:"uptime_seconds"`
 	ProcessRSSBytes uint64           `json:"process_rss_bytes"`
+	// NetRxBytes and NetTxBytes are cumulative since boot over every
+	// non-loopback interface; zero when /proc/net/dev cannot be read.
+	NetRxBytes uint64 `json:"net_rx_bytes,omitzero"`
+	NetTxBytes uint64 `json:"net_tx_bytes,omitzero"`
 	// Clock is the kernel's NTP discipline state; nil when it cannot be read.
 	Clock *ClockView `json:"clock,omitempty"`
 }

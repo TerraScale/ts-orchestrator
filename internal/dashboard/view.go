@@ -14,6 +14,7 @@ import (
 	"github.com/a-h/templ"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -57,6 +58,8 @@ const (
 	needInventory
 	// needChain loads the decision chain named by the id parameter.
 	needChain
+	// needGlobal copies the in-memory global view. It never calls a region.
+	needGlobal
 )
 
 func (page page) path() string {
@@ -87,10 +90,11 @@ func (page page) streamPath() string {
 // pages is the sidebar, in order. The global multi-region view is the
 // landing page.
 var pages = []page{
-	{slug: "", title: "Global", group: "Overview", needs: needRegions | needInsights | needSummaries,
-		decisions: globalDecisions, body: globalBody},
+	{slug: "", title: "Global", group: "Overview", needs: needGlobal | needInsights, body: overviewBody},
 	{slug: "region", title: "Region", group: "Overview", events: 10, needs: needRegions | needInsights,
 		decisions: regionDecisions, body: regionBody},
+	{slug: "nodes", title: "Nodes", group: "Overview", needs: needGlobal, body: globalNodesBody},
+	{slug: "volumes", title: "Volumes", group: "Overview", needs: needGlobal, body: globalVolumesBody},
 	{slug: "insights", title: "Needs attention", group: "Overview",
 		needs: needRegions | needInsights | needSummaries, body: insightsBody},
 	{slug: "decisions", title: "Decisions", group: "Overview", needs: needRegions | needChain,
@@ -143,8 +147,10 @@ type view struct {
 	Notes []string
 
 	// Journal is nil until a controller attaches its providers.
-	Journal    *Journal
-	Regions    []regionview.Summary
+	Journal *Journal
+	Regions []regionview.Summary
+	// Global is every region of the global view, local first (TS-805).
+	Global     []globalview.Region
 	Evaluation *insights.Evaluation
 	Summaries  []insights.Summary
 	Decisions  *decisionlog.Result

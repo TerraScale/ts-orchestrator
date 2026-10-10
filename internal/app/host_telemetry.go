@@ -45,6 +45,16 @@ func (t *hostTelemetry) record(origin hostload.Origin, report hostload.Report) e
 	return t.load.Record(origin, report)
 }
 
+// nodes is every node's latest fresh report while this controller leads.
+func (t *hostTelemetry) nodes() []hostload.NodeLoad {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.current() {
+		return nil
+	}
+	return t.load.Nodes()
+}
+
 func (t *hostTelemetry) samples() []observability.Sample {
 	t.mu.Lock()
 	defer t.mu.Unlock()

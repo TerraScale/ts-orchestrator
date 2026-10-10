@@ -143,6 +143,31 @@ func parseUptime(data []byte) (float64, error) {
 	return strconv.ParseFloat(fields[0], 64)
 }
 
+// readNetDev sums receive and transmit bytes over every interface except
+// loopback. Malformed lines are skipped; ok is false when no line parsed.
+func readNetDev(path string) (rx, tx uint64, ok bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		name, rest, found := strings.Cut(line, ":")
+		fields := strings.Fields(rest)
+		if !found || len(fields) < 9 || strings.TrimSpace(name) == "lo" {
+			continue
+		}
+		received, errRx := strconv.ParseUint(fields[0], 10, 64)
+		sent, errTx := strconv.ParseUint(fields[8], 10, 64)
+		if errRx != nil || errTx != nil {
+			continue
+		}
+		rx += received
+		tx += sent
+		ok = true
+	}
+	return rx, tx, ok
+}
+
 // parseStatusRSS reads VmRSS from /proc/self/status.
 func parseStatusRSS(data []byte) uint64 {
 	values, _ := parseKilobyteFields(data)
@@ -259,6 +284,9 @@ func readSystem(procRoot string, filesystems []FilesystemRole,
 	}
 	if data, err = os.ReadFile(filepath.Join(procRoot, "self", "status")); err == nil {
 		view.ProcessRSSBytes = parseStatusRSS(data)
+	}
+	if rx, tx, ok := readNetDev(filepath.Join(procRoot, "net", "dev")); ok {
+		view.NetRxBytes, view.NetTxBytes = rx, tx
 	}
 	for _, resource := range []string{"cpu", "memory", "io"} {
 		data, err := os.ReadFile(filepath.Join(procRoot, "pressure", resource))

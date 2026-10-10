@@ -278,8 +278,7 @@ func TestJournalPagesRenderProviderData(t *testing.T) {
 	dashboard, _, _ := journalDashboard(Options{})
 	handler := dashboard.Handler()
 	for path, wants := range map[string][]string{
-		"/": {"All regions", "FRA", "SFO", "GRU", "not linked yet", "OCI is throttling the orchestrator", "<ts-map",
-			"world.json", "<ts-timeline", "rolled back v0.42.9", "Regions side by side", "mixed versions", "missing sfo-ctl-3"},
+		"/":             {"All regions", "No region has reported to the global view yet."},
 		"/region":       {"Region FRA", "CPU by member", "ctl-1 nats filesystem full", "<ts-chart"},
 		"/region?r=sfo": {"Region SFO", "served by that region", "OCI is throttling"},
 		"/insights":     {"Needs attention", "expected &lt; 85.0%", "du -xh", "data-copy", "data-notify-toggle", "Notify me"},
@@ -350,7 +349,7 @@ func TestDecisionQueriesAreSharedAcrossTicks(t *testing.T) {
 	dashboard, _, decisions := journalDashboard(Options{})
 	handler := dashboard.Handler()
 	for range 5 {
-		get(t, handler, "/")
+		get(t, handler, "/decisions")
 	}
 	if got := decisions.queries.Load(); got != 1 {
 		t.Fatalf("five renders issued %d decision queries, want 1", got)

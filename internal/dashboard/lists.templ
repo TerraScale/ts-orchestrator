@@ -1,0 +1,92 @@
+package dashboard
+
+// pagerNav shows the rows on this page and links to the previous and next
+// page. The links keep every other filter.
+templ pagerNav(current view, page pager) {
+	if page.Total > 0 {
+		<nav aria-label="Pages">
+			<p class="muted">Rows { itoa(page.From + 1) } – { itoa(page.To) } of { itoa(page.Total) }</p>
+			if page.Page > 1 {
+				<a href={ safe(current.State.keep(current.here(), "page", itoa(page.Page-1))) }>← Previous</a>
+			}
+			<small>Page { itoa(page.Page) } of { itoa(page.Pages) }</small>
+			if page.Page < page.Pages {
+				<a href={ safe(current.State.keep(current.here(), "page", itoa(page.Page+1))) }>Next →</a>
+			}
+		</nav>
+	}
+}
+
+templ globalNodesBody(current view) {
+	{{ list := nodesListOf(current) }}
+	<div id="content">
+		<div class="page-head">
+			<h1>Nodes</h1>
+		</div>
+		@notes(current)
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if len(current.Global) == 0 {
+			@unavailable("No region has reported to the global view yet.")
+		} else {
+			<form method="get" action="/nodes" class="filters">
+				@stateFields(current.State)
+				<label>
+					Region
+					<select name="region">
+						<option value="" selected?={ list.Region == "" }>all</option>
+						for _, region := range current.Global {
+							<option value={ region.Cell } selected?={ list.Region == region.Cell }>{ upper(region.Cell) }</option>
+						}
+					</select>
+				</label>
+				<label>
+					Sort by
+					<select name="sort">
+						for _, key := range nodeSorts {
+							<option value={ key } selected?={ list.Sort == key }>{ key }</option>
+						}
+					</select>
+				</label>
+				<button type="submit">Apply</button>
+			</form>
+			<article id="nodes">
+				@dataTable(nodeTable(current, list.Rows))
+				@pagerNav(current, list.Pager)
+			</article>
+		}
+	</div>
+}
+
+templ globalVolumesBody(current view) {
+	{{ list := volumesListOf(current) }}
+	<div id="content">
+		<div class="page-head">
+			<h1>Volumes</h1>
+		</div>
+		@notes(current)
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if len(current.Global) == 0 {
+			@unavailable("No region has reported to the global view yet.")
+		} else {
+			<form method="get" action="/volumes" class="filters">
+				@stateFields(current.State)
+				<label>
+					Region
+					<select name="region">
+						<option value="" selected?={ list.Region == "" }>all</option>
+						for _, region := range current.Global {
+							<option value={ region.Cell } selected?={ list.Region == region.Cell }>{ upper(region.Cell) }</option>
+						}
+					</select>
+				</label>
+				<button type="submit">Apply</button>
+			</form>
+			<article id="volumes">
+				@dataTable(volumeTable(current, list.Rows))
+				@pagerNav(current, list.Pager)
+			</article>
+		}
+	</div>
+}

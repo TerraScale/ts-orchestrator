@@ -38,6 +38,11 @@ const (
 	// MaxFilesystems allows the host roots and one volume per managed role.
 	MaxFilesystems     = MaxRoles + 5
 	MaxFilesystemBytes = 1 << 50
+	// MaxNetworkBps bounds a host's receive or transmit rate: 1 TiB/s.
+	MaxNetworkBps = 1 << 40
+	// MaxLoad1 bounds the one-minute load average; the kernel's PID limit
+	// keeps real values far below it.
+	MaxLoad1 = 1e6
 )
 
 var ErrInvalidReport = errors.New("invalid host load report")
@@ -62,6 +67,12 @@ type HostUsage struct {
 	Memory                *float64                       `json:"mem_util,omitempty"`
 	Disk                  *float64                       `json:"disk_util,omitempty"`
 	Filesystems           []observability.FilesystemView `json:"filesystems,omitempty"`
+	// NetworkRxBps and NetworkTxBps are bytes per second over every
+	// non-loopback interface since the previous sample; Load1 is the
+	// one-minute load average.
+	NetworkRxBps *float64 `json:"net_rx_bps,omitempty"`
+	NetworkTxBps *float64 `json:"net_tx_bps,omitempty"`
+	Load1        *float64 `json:"load1,omitempty"`
 }
 
 // RoleUsage is one native role's cgroup v2 usage in absolute units, so the
@@ -90,6 +101,14 @@ func (r Report) Validate() error {
 		if value != nil && !fraction(*value) {
 			return fmt.Errorf("%w: host utilization out of range", ErrInvalidReport)
 		}
+	}
+	for _, value := range []*float64{r.Host.NetworkRxBps, r.Host.NetworkTxBps} {
+		if value != nil && !finiteWithin(*value, MaxNetworkBps) {
+			return fmt.Errorf("%w: host network rate out of range", ErrInvalidReport)
+		}
+	}
+	if r.Host.Load1 != nil && !finiteWithin(*r.Host.Load1, MaxLoad1) {
+		return fmt.Errorf("%w: host load out of range", ErrInvalidReport)
 	}
 	if len(r.Host.Filesystems) > MaxFilesystems {
 		return fmt.Errorf("%w: more than %d filesystems", ErrInvalidReport, MaxFilesystems)

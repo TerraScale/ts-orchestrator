@@ -211,7 +211,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	runtime.sessionJS, runtime.sessionReplicas = observed.nats.JetStream(), observed.replicas
 	runtime.attachLogs(ctx, observed)
 	if runtime.server != nil && runtime.config.BearerTokenFile != "" {
-		go retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
+		go retryAttachment(ctx, "dashboard session storage", func(attempt context.Context) error {
 			store, err := observability.OpenSessionStore(attempt, runtime.sessionJS, runtime.sessionReplicas, "local."+runtime.member)
 			if err != nil {
 				return err
@@ -417,7 +417,7 @@ func authorityView(snapshot authority.Snapshot) observability.AuthorityView {
 
 // Retry without blocking controller startup; each attempt and the backoff are
 // bounded and stop with the runtime, including during a JetStream outage.
-func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Context) error) {
+func retryAttachment(ctx context.Context, what string, attach func(context.Context) error) {
 	delay := 100 * time.Millisecond
 	var lastError string
 	var nextWarning time.Time
@@ -429,7 +429,7 @@ func retryDashboardSessionAttachment(ctx context.Context, attach func(context.Co
 			return
 		}
 		if err.Error() != lastError || time.Now().After(nextWarning) {
-			slog.Warn("dashboard session storage unavailable; retrying", observability.ComponentKey, "dashboard", "error", err)
+			slog.Warn(what+" unavailable; retrying", observability.ComponentKey, "dashboard", "error", err)
 			lastError, nextWarning = err.Error(), time.Now().Add(time.Minute)
 		}
 		timer := time.NewTimer(delay + time.Duration(rand.Int64N(int64(delay)/5+1)))

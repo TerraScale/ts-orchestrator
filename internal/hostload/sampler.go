@@ -39,6 +39,12 @@ type cpuPoint struct {
 	group os.FileInfo // role only: the cgroup directory the counter came from
 }
 
+type netPoint struct {
+	rx, tx uint64
+	at     time.Time
+	seen   bool
+}
+
 // Sampler turns cumulative counters into per-interval usage. It keeps the
 // previous counter per role, so the first sample of a role reports no CPU.
 type Sampler struct {
@@ -47,6 +53,7 @@ type Sampler struct {
 	mu       sync.Mutex
 	host     cpuPoint
 	hostSeen bool
+	net      netPoint
 	roles    map[string]cpuPoint
 }
 
@@ -88,6 +95,22 @@ func (s *Sampler) Sample(terrabase map[string]memberstatus.Load) Report {
 		s.host, s.hostSeen = cpuPoint{usage: busy, total: total, at: now}, true
 		if view.MemTotalBytes > 0 && view.MemAvailBytes <= view.MemTotalBytes {
 			report.Host.Memory = ratio(float64(view.MemTotalBytes-view.MemAvailBytes), float64(view.MemTotalBytes))
+		}
+		if finiteWithin(view.Load1, MaxLoad1) {
+			load := view.Load1
+			report.Host.Load1 = &load
+		}
+		if rx, tx := view.NetRxBytes, view.NetTxBytes; rx > 0 && tx > 0 {
+			// A counter that went backwards means the interface reset, so
+			// that interval has no valid rate.
+			if elapsed := now.Sub(s.net.at).Seconds(); s.net.seen && elapsed > 0 && rx >= s.net.rx && tx >= s.net.tx {
+				rxBps := float64(rx-s.net.rx) / elapsed
+				txBps := float64(tx-s.net.tx) / elapsed
+				if finiteWithin(rxBps, MaxNetworkBps) && finiteWithin(txBps, MaxNetworkBps) {
+					report.Host.NetworkRxBps, report.Host.NetworkTxBps = &rxBps, &txBps
+				}
+			}
+			s.net = netPoint{rx: rx, tx: tx, at: now, seen: true}
 		}
 		seen := make(map[string]bool)
 		for _, filesystem := range view.Filesystems {

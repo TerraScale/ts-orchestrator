@@ -1,0 +1,213 @@
+package dashboard
+
+import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+
+// The drill-down pages (TS-805) render only the in-memory global view: a
+// region, node, volume or service of it, and the global node and volume
+// lists. None of them asks a region.
+templ drillMissing(message string) {
+	<p class="note warn" role="status">{ message }</p>
+}
+
+// staleBadge says a stale region's values are last-known.
+templ staleBadge(current view, region globalview.Region) {
+	if region.Stale {
+		<p class="note warn" role="status">{ regionCellsOf(region, current.Now).Stale }: values are last-known.</p>
+	}
+}
+
+templ regionHealth(current view, region globalview.Region) {
+	{{ cells := regionCellsOf(region, current.Now) }}
+	<article id="health">
+		@statusPill(cells.Health, cells.HealthLabel)
+		if cells.Reasons != "" {
+			<p class="muted">{ cells.Reasons }</p>
+		}
+	</article>
+}
+
+templ globalRegionBody(current view) {
+	{{ region, found := regionNamed(current.Global, current.Path["r"]) }}
+	<div id="content">
+		@detailHead(current, "Region", upper(current.Path["r"]), "/", "Global")
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if !found {
+			@drillMissing("Region " + upper(current.Path["r"]) + " is not in the global view.")
+		} else {
+			@staleBadge(current, region)
+			@regionHealth(current, region)
+			if region.Rollup == nil {
+				<p class="empty">No data from this region yet.</p>
+			} else {
+				@kpiTiles(regionTiles(region.Rollup))
+				<article id="nodes">
+					<h2>Nodes</h2>
+					@dataTable(nodeTable(current, regionNodes(region)))
+				</article>
+				<article id="routes">
+					<h2>Controller routes <small>round trip and lag, from row to column</small></h2>
+					@dataTable(routeTable(region.Rollup.Routes))
+				</article>
+				<article id="links">
+					<h2>Links to other regions</h2>
+					@dataTable(regionLinkTable(current, region.Rollup.Links))
+				</article>
+				<article id="volumes">
+					<h2>Volumes</h2>
+					@dataTable(volumeTable(current, regionVolumes(region)))
+				</article>
+				<article id="autoscale">
+					<h2>Autoscale</h2>
+					@dataTable(scalingTable(region.Rollup.Autoscale.Services))
+				</article>
+				<article id="databases">
+					<h2>Databases <small>by replication bandwidth</small></h2>
+					@dataTable(databaseTable(regionDatabases(region)))
+				</article>
+				<article id="errors">
+					<h2>Recent errors</h2>
+					@dataTable(errorTable(regionErrors(region)))
+				</article>
+			}
+		}
+	</div>
+}
+
+templ globalNodeBody(current view) {
+	{{ region, _ := regionNamed(current.Global, current.Path["r"]) }}
+	{{ node, found := nodeNamed(region, current.Path["n"]) }}
+	<div id="content">
+		@detailHead(current, "Node in "+upper(current.Path["r"]), current.Path["n"], "/nodes", "All nodes")
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if !found {
+			@drillMissing("Node " + current.Path["n"] + " does not report in " + upper(current.Path["r"]) + ".")
+		} else {
+			{{ cells := regionNodeCells(region, node, current.Now) }}
+			@staleBadge(current, region)
+			<article id="facts">
+				@statusPill(cells.Status, cells.Health)
+				<dl class="kv">
+					<dt>Report age</dt>
+					<dd>{ cells.Reported }</dd>
+					<dt>CPU</dt>
+					<dd>{ cells.CPU }</dd>
+					<dt>Memory</dt>
+					<dd>{ cells.Memory }</dd>
+					<dt>Disk</dt>
+					<dd>{ cells.Disk }</dd>
+					<dt>Network rx / tx</dt>
+					<dd>{ cells.Network }</dd>
+					<dt>Load (1m)</dt>
+					<dd>{ cells.Load }</dd>
+				</dl>
+			</article>
+			<article id="filesystems">
+				<h2>Filesystems</h2>
+				@dataTable(filesystemTable(node.Filesystems))
+			</article>
+			<article id="services">
+				<h2>Services</h2>
+				@dataTable(serviceTable(current, region.Cell, node.Name, node.Services))
+			</article>
+			<article id="volumes">
+				<h2>Volumes on this node</h2>
+				@dataTable(volumeTable(current, nodeVolumes(region, node.Name)))
+			</article>
+		}
+	</div>
+}
+
+templ globalVolumeBody(current view) {
+	{{ region, _ := regionNamed(current.Global, current.Path["r"]) }}
+	{{ volume, volumeFound := volumeNamed(region, current.Path["v"]) }}
+	{{ node, nodeFound := nodeNamed(region, volume.Node) }}
+	<div id="content">
+		@detailHead(current, "Volume in "+upper(current.Path["r"]), current.Path["v"], "/volumes", "All volumes")
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if !volumeFound {
+			@drillMissing("Volume " + current.Path["v"] + " is not in the " + upper(current.Path["r"]) + " rollup.")
+		} else {
+			@staleBadge(current, region)
+			<article id="volume">
+				<dl class="kv">
+					<dt>State</dt>
+					<dd>{ volume.State }</dd>
+					<dt>Detail</dt>
+					<dd>{ orDash(volume.Detail) }</dd>
+					<dt>In this state for</dt>
+					<dd>{ age(current.Now, volume.Since) }</dd>
+					<dt>Node</dt>
+					<dd>
+						if nodeFound {
+							<a href={ safe(current.State.nodeLink(region.Cell, node.Name)) }>{ node.Name }</a>
+							@statusPill(nodeStatus(node.Health), node.Health)
+						} else {
+							{ orDash(volume.Node) }
+						}
+					</dd>
+				</dl>
+			</article>
+			<article id="services">
+				<h2>Services on this node</h2>
+				if nodeFound {
+					@dataTable(serviceTable(current, region.Cell, node.Name, node.Services))
+				} else {
+					<p class="empty">This volume's node does not report in the rollup.</p>
+				}
+			</article>
+		}
+	</div>
+}
+
+templ globalServiceBody(current view) {
+	{{ region, found := regionNamed(current.Global, current.Path["r"]) }}
+	{{ node, nodeFound := nodeNamed(region, current.Path["n"]) }}
+	{{ service, serviceFound := serviceNamed(node, current.Path["s"]) }}
+	{{ back := detailPath("/regions/{r}/nodes/{n}", current.Path) }}
+	<div id="content">
+		@detailHead(current, "Service on "+current.Path["n"], current.Path["s"], back, "Node")
+		if current.Journal == nil {
+			@journalMissing("The multi-region view")
+		} else if !found || !nodeFound {
+			@drillMissing("Node " + current.Path["n"] + " does not report in " + upper(current.Path["r"]) + ".")
+		} else if !serviceFound {
+			@drillMissing("Role " + current.Path["s"] + " is not placed on node " + current.Path["n"] + ".")
+		} else {
+			{{ scaling, scaled := scalingNamed(region, service.Role) }}
+			@staleBadge(current, region)
+			<article id="service">
+				<dl class="kv">
+					<dt>Role</dt>
+					<dd>{ service.Role }</dd>
+					<dt>State</dt>
+					<dd>{ orDash(service.State) }</dd>
+					<dt>Digest</dt>
+					<dd><code>{ orDash(service.Digest) }</code></dd>
+					<dt>Node</dt>
+					<dd>
+						<a href={ safe(current.State.nodeLink(region.Cell, node.Name)) }>{ node.Name }</a>
+						@statusPill(nodeStatus(node.Health), node.Health)
+					</dd>
+					<dt>Autoscale</dt>
+					<dd>
+						if scaled {
+							{ itoa(scaling.Replicas) } of goal { itoa(scaling.Goal) }
+							if scaling.Reason != "" {
+								<small class="muted">{ scaling.Reason }</small>
+							}
+						} else {
+							not autoscaled
+						}
+					</dd>
+				</dl>
+			</article>
+			<article id="peers">
+				<h2>Other nodes running { service.Role }</h2>
+				@dataTable(peerTable(current, region.Cell, service.Role, roleHolders(region, service.Role, node.Name)))
+			</article>
+		}
+	</div>
+}

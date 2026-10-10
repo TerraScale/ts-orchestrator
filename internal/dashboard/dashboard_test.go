@@ -118,7 +118,7 @@ func TestEveryPageRendersProviderData(t *testing.T) {
 	handler := dashboard.Handler()
 	for path, wants := range map[string][]string{
 		"/region":    {"Region FRA", "ctl-1", "epoch 7", "placement held", "1 missing", "ctl-1: placement timeout"},
-		"/":          {"All regions", "Meta leader", "ctl-1", "appears once this controller"},
+		"/":          {"All regions", "appears once this controller"},
 		"/members":   {"ctl-2", "ctl-3", "did not answer", "host-a", "FD-1", "leader", "75.0%"},
 		"/nats":      {"TS_DELIVERY", "placement", "this server", "ctl-3", "512.0 MiB / 1.0 GiB"},
 		"/oci":       {"GET /instances/{id}", "429", "500ms", "OCI inventory provider is attached"},

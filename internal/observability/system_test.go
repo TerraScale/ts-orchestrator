@@ -29,6 +29,13 @@ const testPressure = `some avg10=1.50 avg60=0.75 avg300=0.10 total=123456
 full avg10=0.25 avg60=0.10 avg300=0.00 total=6543
 `
 
+const testNetDev = `Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+    lo:     900      10    0    0    0     0          0         0      900      10    0    0    0     0       0          0
+  eth0:    1000       5    0    0    0     0          0         0     2000       7    0    0    0     0       0          0
+  wt0:     500       3    0    0    0     0          0         0      300       2    0    0    0     0       0          0
+`
+
 func writeProcFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -36,6 +43,7 @@ func writeProcFixture(t *testing.T) string {
 		"stat": testProcStat, "meminfo": testMeminfo, "loadavg": "0.50 0.40 0.30 1/200 3000\n",
 		"uptime": "3600.25 7000.00\n", "self/status": "Name:\tts-orch\nVmRSS:\t   2048 kB\n",
 		"pressure/cpu": "some avg10=0.10 avg60=0.20 avg300=0.30 total=10\n", "pressure/memory": testPressure,
+		"net/dev": testNetDev,
 	}
 	for name, content := range files {
 		path := filepath.Join(root, name)
@@ -74,6 +82,9 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 	if view.Load1 != 0.5 || view.Load15 != 0.3 || view.UptimeSeconds != 3600.25 {
 		t.Fatalf("load or uptime = %+v", view)
 	}
+	if view.NetRxBytes != 1500 || view.NetTxBytes != 2300 {
+		t.Fatalf("network counters = %d/%d", view.NetRxBytes, view.NetTxBytes)
+	}
 	memory := view.Pressure["memory"]
 	if !memory.HasFullRow || memory.SomeAvg10 != 1.5 || memory.FullTotal != 6543 {
 		t.Fatalf("memory pressure = %+v", memory)
@@ -98,6 +109,47 @@ func TestReadSystemFromProcFixture(t *testing.T) {
 	}
 	if strings.Contains(text, `role="store"`) {
 		t.Fatalf("unavailable filesystem produced gauges:\n%s", text)
+	}
+}
+
+func TestReadNetDevSumsNonLoopbackInterfaces(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cases := map[string]struct {
+		content string
+		rx, tx  uint64
+		ok      bool
+	}{
+		"fixture":   {content: testNetDev, rx: 1500, tx: 2300, ok: true},
+		"malformed": {content: "eth0: nope 5 0 0 0 0 0 0 2000\neth1: 1 2\nno colon here\n"},
+		"mixed":     {content: "eth0: 10 0 0 0 0 0 0 0 20\neth1: x 0 0 0 0 0 0 0 1\n", rx: 10, tx: 20, ok: true},
+	}
+	for name, tc := range cases {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if rx, tx, ok := readNetDev(path); rx != tc.rx || tx != tc.tx || ok != tc.ok {
+			t.Errorf("%s: readNetDev = %d, %d, %v", name, rx, tx, ok)
+		}
+	}
+	if rx, tx, ok := readNetDev(filepath.Join(dir, "absent")); rx != 0 || tx != 0 || ok {
+		t.Errorf("missing file: readNetDev = %d, %d, %v", rx, tx, ok)
+	}
+}
+
+func TestReadSystemWithoutNetDevKeepsReadings(t *testing.T) {
+	t.Parallel()
+	root := writeProcFixture(t)
+	if err := os.Remove(filepath.Join(root, "net", "dev")); err != nil {
+		t.Fatal(err)
+	}
+	view, err := readSystem(root, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.NetRxBytes != 0 || view.NetTxBytes != 0 || view.CPUCount != 2 || view.MemTotalBytes == 0 {
+		t.Fatalf("view without net/dev = %+v", view)
 	}
 }
 

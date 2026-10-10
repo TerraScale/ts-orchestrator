@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"encoding/json"
-	"fmt"
 	"math"
 	"slices"
 	"strconv"
@@ -11,9 +9,10 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
+
+// Shared page helpers (KPI tiles, map types, insight and region helpers).
 
 // kpi is one stat tile with an optional sparkline.
 type kpi struct {
@@ -23,162 +22,6 @@ type kpi struct {
 	Status string
 	Spark  string
 	Href   string
-}
-
-// globalKPIs are the landing page's tiles. Cross-region totals come from the
-// region summaries; sparklines from this region's metric history.
-func (current view) globalKPIs() []kpi {
-	var tiles []kpi
-	regions := current.Regions
-	healthy, observed := 0, 0
-	answering, expected := 0, 0
-	databases, serving, desired, rollouts := 0, 0, 0, 0
-	var diskUsed, diskTotal uint64
-	partialResources := false
-	quorumRegions, unknownQuorum := 0, 0
-	for _, summary := range regions {
-		if summary.Reach == decisionlog.RegionOK {
-			observed++
-		}
-		switch answered := summary.Reach == decisionlog.RegionOK || summary.Local; {
-		case answered && summary.Quorum.Unobserved:
-			// The region answered, but its cell-wide quorum could not be
-			// read: unknown, not a connectivity failure.
-			unknownQuorum++
-		case answered:
-			quorumRegions++
-		}
-		if summary.Health.Status == regionview.StatusHealthy {
-			healthy++
-		}
-		answering += summary.Quorum.Answering
-		expected += summary.Quorum.Expected
-		databases += summary.TerraBase.Databases
-		serving += summary.TerraBase.ServingSeats
-		desired += summary.TerraBase.DesiredSeats
-		rollouts += len(summary.Rollouts)
-		diskUsed += summary.Capacity.DiskUsedBytes
-		diskTotal += summary.Capacity.DiskBytes
-		partialResources = partialResources || summary.Capacity.Partial || summary.Reach != decisionlog.RegionOK && !summary.Local
-	}
-	if len(regions) > 0 {
-		status := "ok"
-		if healthy < len(regions) {
-			status = "warn"
-		}
-		if observed < len(regions) {
-			status = "bad"
-		}
-		tiles = append(tiles, kpi{Label: "Regions healthy", Value: itoa(healthy) + " / " + itoa(len(regions)),
-			Sub: itoa(observed) + " observed", Status: status, Href: current.State.link("/")})
-	}
-	members := current.historyRange(observability.HistMembersAnswering, nil, "", false)
-	if expected > 0 {
-		// A region that does not answer reports no quorum at all: its
-		// controllers are unknown, so the total covers observed regions
-		// only and cannot be healthy.
-		status, sub := "ok", "across all regions"
-		if answering < expected {
-			status = "warn"
-		}
-		if quorumRegions < len(regions) {
-			status = "bad"
-			sub = "across " + itoa(quorumRegions) + " of " + itoa(len(regions)) + " regions"
-			if silent := len(regions) - quorumRegions - unknownQuorum; silent > 0 {
-				sub += "; " + itoa(silent) + " not answering"
-			}
-			if unknownQuorum > 0 {
-				sub += "; " + itoa(unknownQuorum) + " with unknown quorum"
-			}
-		}
-		tiles = append(tiles, kpi{Label: "Controllers up", Value: itoa(answering) + " / " + itoa(expected),
-			Sub: sub, Status: status, Spark: sparkValues(members),
-			Href: current.State.link("/topology")})
-	} else if len(current.members()) > 0 {
-		tiles = append(tiles, kpi{Label: "Members up", Value: itoa(len(current.members())),
-			Sub: itoa(len(current.missing())) + " missing", Status: boolStatus(len(current.missing()) == 0),
-			Spark: sparkValues(members), Href: current.State.link("/members")})
-	}
-	if leader := current.metaLeader(); leader != "" {
-		sub := "JetStream meta leader"
-		if lease := current.authority(); lease != nil {
-			sub = "authority " + orDash(lease.OwnerID) + " · epoch " + itoa(lease.Epoch)
-		}
-		tiles = append(tiles, kpi{Label: "Meta leader · " + upper(current.localRegion()), Value: leader, Sub: sub,
-			Status: "ok", Href: current.State.link("/nats")})
-	}
-	if reporter := current.natsReporter(); reporter != nil {
-		degraded := 0
-		for _, stream := range reporter.NATS.Streams {
-			if stream.OfflinePeers > 0 || stream.MaxReplicaLag > 0 {
-				degraded++
-			}
-		}
-		status := "ok"
-		if degraded > 0 || reporter.NATS.Truncated {
-			status = "warn"
-		}
-		sub := percent(storeUsed(reporter.NATS)) + " store used"
-		if reporter.NATS.Truncated {
-			sub += "; partial stream/consumer inventory"
-		}
-		tiles = append(tiles, kpi{Label: "JetStream · " + upper(current.localRegion()),
-			Value: itoa(len(reporter.NATS.Streams)-degraded) + " / " + itoa(len(reporter.NATS.Streams)) + " healthy",
-			Sub:   sub, Status: status,
-			Spark: sparkValues(sumSeries("store", current.historyRange(observability.HistJSStoreUsed, nil, "member", false))),
-			Href:  current.State.link("/nats")})
-	}
-	if len(regions) > 0 || current.placement() != nil {
-		if len(regions) == 0 {
-			placement := current.placement()
-			ids := map[string]bool{}
-			for _, database := range placement.Databases {
-				if database.Terminal {
-					continue
-				}
-				ids[database.DatabaseID] = true
-				serving += database.Serving
-				desired += database.DesiredSeats
-				// The same in-flight condition regionview counts.
-				if database.Rollout != nil && database.Rollout.Completed < database.Rollout.Seats {
-					rollouts++
-				}
-			}
-			databases = len(ids)
-		}
-		tiles = append(tiles, kpi{Label: "Managed TerraBase databases", Value: itoa(databases),
-			Sub: itoa(serving) + " / " + itoa(desired) + " seats serving", Status: boolStatus(serving >= desired),
-			Spark: sparkValues(current.historyRange(observability.HistSeatsServing, nil, "", false)),
-			Href:  current.State.link("/terrabase")})
-		tiles = append(tiles, kpi{Label: "Open rollouts", Value: itoa(rollouts), Sub: "managed updates in flight",
-			Status: "info", Spark: sparkValues(current.historyRange(observability.HistRolloutProgress, nil, "", false)),
-			Href: current.State.link("/rollouts")})
-	}
-	calls := sumSeries("calls", current.historyRange(observability.HistOCICalls, nil, "operation", true))
-	errors := sumSeries("errors", current.historyRange(observability.HistOCIErrors, nil, "operation", true))
-	if rate := divideSeries("error rate", errors, calls); rate != nil {
-		value, _ := lastValue(rate)
-		tiles = append(tiles, kpi{Label: "OCI error rate · " + upper(current.localRegion()), Value: percent(value),
-			Sub: "of API calls", Status: ratioStatus(min(value*10, 1)), Spark: sparkValues(rate),
-			Href: current.State.link("/oci")})
-	}
-	if diskTotal > 0 {
-		used := float64(diskUsed) / float64(diskTotal)
-		sub, status := formatBytes(diskUsed)+" of "+formatBytes(diskTotal), ratioStatus(used)
-		if partialResources {
-			sub += "; partial resource coverage"
-			status = worst(status, "warn")
-		}
-		tiles = append(tiles, kpi{Label: "Storage used", Value: percent(used),
-			Sub: sub, Status: status,
-			Spark: sparkValues(sumSeries("disk", current.historyRange(observability.HistFSUsed, nil, "member", false))),
-			Href:  current.State.link("/storage")})
-	}
-	counts := current.globalCounts()
-	tiles = append(tiles, kpi{Label: "Needs attention", Value: itoa(counts.Total()),
-		Sub: itoa(counts.Critical) + " critical · " + itoa(counts.Warning) + " warning", Status: countsStatus(counts),
-		Href: current.State.link("/insights")})
-	return tiles
 }
 
 // globalInsights merges this region's full evaluation with the top
@@ -291,52 +134,6 @@ type mapLink struct {
 	To    string `json:"to"`
 	State string `json:"state"`
 	Label string `json:"label"`
-}
-
-func (current view) mapJSON() string {
-	spec := mapSpec{}
-	reach := map[string]string{}
-	local := ""
-	for _, summary := range current.Regions {
-		geo, ok := regionGeo(summary.Region)
-		if !ok {
-			continue
-		}
-		if summary.Local {
-			local = summary.Region
-		}
-		reach[summary.Region] = summary.Reach
-		status := regionStatus(summary.Health.Status)
-		detail := fmt.Sprintf("%s · quorum %d/%d · %d TerraBase · %s", geo.Name, summary.Quorum.Answering,
-			summary.Quorum.Expected, summary.TerraBase.Databases, reachLabel(summary.Reach))
-		spec.Regions = append(spec.Regions, mapRegion{ID: summary.Region, Name: upper(summary.Region), Lon: geo.Lon,
-			Lat: geo.Lat, Status: status, Score: summary.Health.Score, Detail: detail, Current: summary.Local,
-			Href: current.State.link("/region", "r", summary.Region)})
-	}
-	for left := range spec.Regions {
-		for right := left + 1; right < len(spec.Regions); right++ {
-			from, to := spec.Regions[left].ID, spec.Regions[right].ID
-			state := "idle"
-			label := upper(from) + " ↔ " + upper(to)
-			switch {
-			case from == local:
-				state = reachStatus(reach[to])
-				label += ": " + reachLabel(reach[to])
-			case to == local:
-				state = reachStatus(reach[from])
-				label += ": " + reachLabel(reach[from])
-			case reach[from] == decisionlog.RegionOK && reach[to] == decisionlog.RegionOK:
-				// Both answer this region; that says nothing about the link
-				// between them, so it stays unknown.
-				label += ": both answer here; their link is not observed"
-			default:
-				label += ": not observed from here"
-			}
-			spec.Links = append(spec.Links, mapLink{From: from, To: to, State: state, Label: label})
-		}
-	}
-	data, _ := json.Marshal(spec)
-	return string(data)
 }
 
 // decisionTimeline turns decisions into timeline marks, one lane per region

@@ -186,16 +186,6 @@ func TestCapacityDisplaysPartialCoverage(t *testing.T) {
 	if !strings.Contains(body, "Resource coverage is partial") || !strings.Contains(body, "90.0%") || !strings.Contains(body, "unavailable") {
 		t.Fatalf("partial capacity lost its coverage evidence: %s", body)
 	}
-	current.Regions = []regionview.Summary{summary}
-	for _, tile := range current.globalKPIs() {
-		if tile.Label == "Storage used" {
-			if !strings.Contains(tile.Sub, "partial resource coverage") || tile.Status != "bad" {
-				t.Fatalf("partial global capacity = %+v", tile)
-			}
-			return
-		}
-	}
-	t.Fatal("observed storage capacity tile missing")
 }
 
 func TestStorageWarnsWhenOneFilesystemFailedCollection(t *testing.T) {

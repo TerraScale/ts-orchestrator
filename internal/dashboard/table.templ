@@ -1,0 +1,50 @@
+package dashboard
+
+// dataTable renders t as a striped table, or its empty note when it has no rows.
+templ dataTable(t table) {
+	if len(t.Rows) == 0 {
+		<p class="empty">{ t.Empty }</p>
+	} else {
+		<div class="table-scroll">
+			<table class="striped" aria-label={ t.Caption }>
+				<thead>
+					<tr>
+						for _, header := range t.Headers {
+							<th scope="col">{ header }</th>
+						}
+					</tr>
+				</thead>
+				<tbody>
+					for _, row := range t.Rows {
+						<tr>
+							for index, c := range row {
+								if index == 0 {
+									<th scope="row" title={ c.Title }>
+										@cellContent(c)
+									</th>
+								} else {
+									<td title={ c.Title }>
+										@cellContent(c)
+									</td>
+								}
+							}
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
+
+templ cellContent(c cell) {
+	if c.Href != "" {
+		<a href={ safe(c.Href) }>{ c.Text }</a>
+	} else if c.Status != "" {
+		@statusPill(c.Status, c.Text)
+	} else {
+		{ c.Text }
+	}
+	if c.Extra != nil {
+		@c.Extra
+	}
+}

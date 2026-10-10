@@ -1,10 +1,12 @@
 package hostload
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +43,46 @@ func TestReportValidateBounds(t *testing.T) {
 	}
 	for name, report := range invalid {
 		if err := report.Validate(); !errors.Is(err, ErrInvalidReport) {
+			t.Errorf("%s: got %v", name, err)
+		}
+	}
+}
+
+func TestReportNetworkAndLoadJSONNames(t *testing.T) {
+	report := Report{SchemaVersion: SchemaVersion, Host: HostUsage{NetworkRxBps: ptr(100.0), NetworkTxBps: ptr(200.0), Load1: ptr(0.5)}}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"net_rx_bps":100`, `"net_tx_bps":200`, `"load1":0.5`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("JSON lacks %s: %s", want, data)
+		}
+	}
+	var decoded Report
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if *decoded.Host.NetworkRxBps != 100 || *decoded.Host.NetworkTxBps != 200 || *decoded.Host.Load1 != 0.5 {
+		t.Fatalf("round trip = %+v", decoded.Host)
+	}
+}
+
+func TestReportValidateNetworkAndLoad(t *testing.T) {
+	valid := Report{SchemaVersion: SchemaVersion, Host: HostUsage{NetworkRxBps: ptr(1.5e6), NetworkTxBps: ptr(0.0), Load1: ptr(0.75)}}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	invalid := map[string]HostUsage{
+		"negative rx":      {NetworkRxBps: ptr(-1.0)},
+		"NaN tx":           {NetworkTxBps: ptr(math.NaN())},
+		"rate above bound": {NetworkRxBps: ptr(MaxNetworkBps + 1.0)},
+		"negative load":    {Load1: ptr(-0.1)},
+		"infinite load":    {Load1: ptr(math.Inf(1))},
+		"load above bound": {Load1: ptr(MaxLoad1 + 1)},
+	}
+	for name, host := range invalid {
+		if err := (Report{SchemaVersion: SchemaVersion, Host: host}).Validate(); !errors.Is(err, ErrInvalidReport) {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
@@ -194,6 +236,40 @@ func TestSamplerDiffsCgroupAndHostCounters(t *testing.T) {
 	now = now.Add(10 * time.Second)
 	if recreated := sampler.Sample(nil); len(recreated.Roles) != 0 {
 		t.Fatalf("recreated group diffed against its predecessor: %+v", recreated.Roles)
+	}
+}
+
+func TestSamplerNetworkRatesAndLoad(t *testing.T) {
+	now := time.Unix(1_000, 0)
+	var rx, tx uint64 = 1000, 2000
+	system := func([]observability.FilesystemRole) (observability.SystemView, error) {
+		return observability.SystemView{CPUCount: 2, Load1: 0.75, NetRxBytes: rx, NetTxBytes: tx}, nil
+	}
+	sampler := NewSampler(SamplerConfig{ReadSystem: system, Now: func() time.Time { return now }})
+
+	first := sampler.Sample(nil)
+	if first.Host.NetworkRxBps != nil || first.Host.NetworkTxBps != nil {
+		t.Fatalf("first sample reported rates without a baseline: %+v", first.Host)
+	}
+	if first.Host.Load1 == nil || *first.Host.Load1 != 0.75 {
+		t.Fatalf("load1 = %v", first.Host.Load1)
+	}
+
+	now = now.Add(15 * time.Second)
+	rx, tx = 2500, 5000
+	second := sampler.Sample(nil)
+	if second.Host.NetworkRxBps == nil || *second.Host.NetworkRxBps != 100 ||
+		second.Host.NetworkTxBps == nil || *second.Host.NetworkTxBps != 200 {
+		t.Fatalf("rates = %+v", second.Host)
+	}
+	if err := second.Validate(); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(15 * time.Second)
+	rx, tx = 100, 6000
+	if reset := sampler.Sample(nil); reset.Host.NetworkRxBps != nil || reset.Host.NetworkTxBps != nil {
+		t.Fatalf("counter reset reported rates: %+v", reset.Host)
 	}
 }
 

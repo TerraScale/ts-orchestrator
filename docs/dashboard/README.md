@@ -119,7 +119,7 @@ contract requires an explicit COS decision.
 
 | Page | What it shows |
 |------|---------------|
-| `/` Global | Every region side by side (health score, quorum, leaders, versions, capacity, TerraBase, rollouts, open problems, latest decisions), KPI tiles with sparklines, the world map with inter-region links, what needs attention, the merged decision timeline and the 1h/24h summaries. |
+| `/` Global | Every region from the in-memory global view (TS-805, [global-view](global-view.md)): KPI tiles, world map, region table with stale badges, region × region link matrix, top databases by replication bandwidth and recent errors. Drill down to `/regions/<cell>`. |
 | `/region?r=<region>` | One region. This member's region shows live members, charts, every member's readiness checks and events; another region shows the summary it answers over the region link. |
 | `/insights` | Ranked needs-attention list across regions: why each insight fired, its evidence against the threshold (charted when it is a history metric), the entity link and the suggested command. Toasts and the top-bar badge update live; browser notifications are opt-in. |
 | `/decisions` | The merged decision journal, filterable by region, kind, actor, status and subject; `?id=` opens a decision's whole chain with its signals, gates, rule and rejected alternatives. |

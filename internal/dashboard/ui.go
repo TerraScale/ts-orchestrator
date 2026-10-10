@@ -165,6 +165,17 @@ type switcherRegion struct {
 // switcher lists the regions for the top bar: every summarized region, or
 // this member's alone.
 func (current view) switcher() []switcherRegion {
+	if len(current.Global) > 0 {
+		out := make([]switcherRegion, 0, len(current.Global))
+		for _, region := range current.Global {
+			status := "idle"
+			if region.Rollup != nil && !region.Stale {
+				status = regionStatus(regionview.Status(region.Rollup.Health.Status))
+			}
+			out = append(out, switcherRegion{ID: region.Cell, Status: status, Local: region.Cell == current.localRegion()})
+		}
+		return out
+	}
 	if len(current.Regions) == 0 {
 		return []switcherRegion{{ID: current.localRegion(), Status: boolStatus(current.Ready), Local: true}}
 	}

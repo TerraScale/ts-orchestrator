@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"hash/fnv"
 	"log/slog"
@@ -45,7 +46,15 @@ func render(writer http.ResponseWriter, request *http.Request, component templ.C
 		return
 	}
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = writer.Write(body.Bytes())
+	writer.Header().Add("Vary", "Accept-Encoding")
+	if !acceptsGzip(request.Header.Get("Accept-Encoding")) {
+		_, _ = writer.Write(body.Bytes())
+		return
+	}
+	writer.Header().Set("Content-Encoding", "gzip")
+	zipped := gzip.NewWriter(writer)
+	_, _ = zipped.Write(body.Bytes())
+	_ = zipped.Close()
 }
 
 // acquireStream reserves one of the listener's live stream slots.

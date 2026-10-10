@@ -110,8 +110,8 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 		!strings.Contains(page, "did not answer") {
 		t.Fatalf("/members after attach = %d, lacks the cell view:\n%s", status, page)
 	}
-	if _, _, page := browse("/"); !strings.Contains(page, "epoch 3") {
-		t.Fatalf("overview lacks the authority lease:\n%s", page)
+	if _, _, page := browse("/region"); !strings.Contains(page, "epoch 3") {
+		t.Fatalf("region page lacks the authority lease:\n%s", page)
 	}
 	// The bearer header still works for scrapers alongside sessions.
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+address+"/metrics", nil)
@@ -184,7 +184,7 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 	var attempts atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		retryDashboardSessionAttachment(ctx, func(attempt context.Context) error {
+		retryAttachment(ctx, "dashboard session storage", func(attempt context.Context) error {
 			if _, ok := attempt.Deadline(); !ok {
 				t.Error("attachment attempt is unbounded")
 			}
@@ -213,5 +213,5 @@ func TestDashboardSessionAttachmentRetriesAndStops(t *testing.T) {
 	}
 	stopped, cancelStopped := context.WithCancel(t.Context())
 	cancelStopped()
-	retryDashboardSessionAttachment(stopped, func(context.Context) error { t.Fatal("canceled runtime attempted attachment"); return nil })
+	retryAttachment(stopped, "dashboard session storage", func(context.Context) error { t.Fatal("canceled runtime attempted attachment"); return nil })
 }

@@ -145,6 +145,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	engine := insights.NewEngine(insightConfig)
 	regions.Insights = engine
 	go func() { _ = engine.Run(ctx) }()
+	globalView := runtime.startGlobalView(ctx, observed, links, cluster, volumes)
 	if _, err := regionview.Serve(ctx, conn, runtime.cell, regions); err != nil {
 		slog.Warn("region summary responder unavailable", observability.ComponentKey, "regionview", "error", err)
 	}
@@ -162,7 +163,8 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	runtime.attachBoards(func() {
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes, Rollouts: rolloutSource}
+			Regions: providers.Regions, Volumes: volumes, Rollouts: rolloutSource,
+			Global: globalView}
 	})
 }
 

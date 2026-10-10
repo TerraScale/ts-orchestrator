@@ -54,6 +54,8 @@ var pageParams = map[string]func(string) bool{
 	"status":   validList,
 	"severity": validList,
 	"region":   validList,
+	"sort":     validToken,
+	"page":     validToken,
 	"q":        validSearch,
 	"at":       validTime,
 	"level":    func(value string) bool { return slices.Contains(levelNames, strings.ToLower(value)) },

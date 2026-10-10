@@ -27,9 +27,12 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 	journal := *holder
 	current.Journal = &journal
 	needs := current.Page.needs
-	// The region switcher and the attention badge are on every page; both
-	// providers answer from short caches or memory.
-	if journal.Regions != nil {
+	if journal.Global != nil {
+		current.Global = journal.Global.Regions()
+	}
+	// Pages that list regions read the provider, which answers from short
+	// caches or memory.
+	if needs&needRegions != 0 && journal.Regions != nil {
 		current.Regions = journal.Regions.Regions(ctx)
 	}
 	if journal.Insights != nil {
@@ -191,10 +194,6 @@ func (current view) queryNow() time.Time { return current.Now.Truncate(decisionC
 
 func (current view) since(minimum time.Duration) time.Time {
 	return current.queryNow().Add(-max(current.State.Range.Duration, minimum))
-}
-
-func globalDecisions(current view) *decisionlog.Query {
-	return &decisionlog.Query{Since: current.since(0), Limit: 300}
 }
 
 func regionDecisions(current view) *decisionlog.Query {

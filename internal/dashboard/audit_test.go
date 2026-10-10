@@ -38,26 +38,10 @@ func TestDashboardProviderFailuresDoNotClaimEmptyInventories(t *testing.T) {
 	}
 }
 
-func TestJetStreamLagAndPartialInventoryRemainVisible(t *testing.T) {
+func TestPartialJetStreamInventoryRemainsVisible(t *testing.T) {
 	member := memberSnapshot()
-	member.NATS.Streams = []observability.StreamView{{Name: "KV_TEST", MaxReplicaLag: 3}}
-	current := view{Local: &member}
-	check := func(substring string) {
-		t.Helper()
-		for _, tile := range current.globalKPIs() {
-			if strings.HasPrefix(tile.Label, "JetStream") {
-				if tile.Status != "warn" || !strings.Contains(tile.Value+" "+tile.Sub, substring) {
-					t.Fatalf("JetStream tile = %+v", tile)
-				}
-				return
-			}
-		}
-		t.Fatal("missing JetStream tile")
-	}
-	check("0 / 1 healthy")
-	member.NATS.Streams[0].MaxReplicaLag = 0
 	member.NATS.Truncated = true
-	check("partial stream/consumer inventory")
+	current := view{Local: &member}
 	body := renderHTML(t, natsBody(current))
 	if !strings.Contains(body, "omitted resources have unknown health") {
 		t.Fatal("NATS page hides partial inventory")
@@ -92,14 +76,6 @@ func TestDashboardActiveCountsExcludeTerminalPartitions(t *testing.T) {
 			Rollout: &observability.RolloutView{Seats: 3}},
 	}}
 	current := view{Local: &member}
-	for _, tile := range current.globalKPIs() {
-		if tile.Label == "Managed TerraBase databases" && (tile.Value != "1" || tile.Sub != "2 / 3 seats serving") {
-			t.Fatalf("managed database tile includes terminal state: %+v", tile)
-		}
-		if tile.Label == "Open rollouts" && tile.Value != "0" {
-			t.Fatalf("open rollouts include terminal state: %+v", tile)
-		}
-	}
 	for _, tile := range current.regionKPIs() {
 		if tile.Label == "Managed TerraBase partitions" && tile.Value != "1" {
 			t.Fatalf("partition tile includes terminal state: %+v", tile)

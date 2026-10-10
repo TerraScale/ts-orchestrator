@@ -34,6 +34,14 @@ var detailPages = []page{
 	{slug: "host", parent: "members", pattern: "/regions/{r}/hosts/{h}", title: "Host", group: "Infrastructure",
 		needs: needRegions | needInsights | needVolumes | needChain, decisions: hostDetailDecisions,
 		chain: newestDecision, body: hostDetailBody},
+	{slug: "global-region", pattern: "/regions/{r}", title: "Region", group: "Overview", needs: needGlobal,
+		body: globalRegionBody},
+	{slug: "global-node", parent: "nodes", pattern: "/regions/{r}/nodes/{n}", title: "Node", group: "Overview",
+		needs: needGlobal, body: globalNodeBody},
+	{slug: "global-volume", parent: "volumes", pattern: "/regions/{r}/volumes/{v}", title: "Volume", group: "Overview",
+		needs: needGlobal, body: globalVolumeBody},
+	{slug: "global-service", parent: "nodes", pattern: "/regions/{r}/nodes/{n}/services/{s}", title: "Service",
+		group: "Overview", needs: needGlobal, body: globalServiceBody},
 }
 
 // detailHistory is how far back a detail page looks for decisions, at

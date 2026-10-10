@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
@@ -29,6 +30,8 @@ type Journal struct {
 	Summaries SummarySource
 	// Regions summarizes every configured region, local first.
 	Regions regionview.Source
+	// Global holds every region's newest rollup, in memory (TS-805).
+	Global *globalview.View
 
 	// The providers below belong to slices built in parallel (rollout,
 	// storage, CI, OCI inventory). They stay nil until those slices land.
