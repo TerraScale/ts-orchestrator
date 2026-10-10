@@ -265,9 +265,6 @@ func (c *Creation) netbird(ctx context.Context, cell string) error {
 			return err
 		}
 		ids, _ := bound["resource_ids"].(map[string]any)
-		if _, err := c.Run(ctx, false, "netbird", "sync", "--apply"); err != nil {
-			return err
-		}
 		key := c.path("netbird-setup-key")
 		if err := os.Remove(key); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
@@ -299,6 +296,11 @@ func (c *Creation) netbird(ctx context.Context, cell string) error {
 	}
 	if err != nil || stored.ID == "" {
 		return fmt.Errorf("%s names no setup key secret: %v", record, err)
+	}
+	// The key operation creates the regional group; reconcile fabric before
+	// nodes enroll, after the key is durably stored so retries cannot lose it.
+	if _, err := c.Run(ctx, false, "netbird", "sync", "--apply"); err != nil {
+		return err
 	}
 	if err := os.Remove(input); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err

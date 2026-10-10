@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -87,85 +86,6 @@ func TestAddressPlanRejectedBeforeManagerRequests(t *testing.T) {
 				t.Fatal("invalid plan reached the manager")
 			}
 		})
-	}
-}
-
-// Every catalog region other than the home region gets its servers group,
-// two NetBird SSH policies without a code change
-// (TS-663). GRU's and SFO's objects keep the names, descriptions and order
-// they had when SFO was hand-coded (TS-640), so a sync leaves them alone;
-// FRA's are derived the same way.
-func TestGRUDesiredStateDerivesEveryOtherRegion(t *testing.T) {
-	ssh := func(name, description, source, group string) PolicySpec {
-		return PolicySpec{Name: name, Description: description, Protocol: "netbird-ssh",
-			Sources: []string{source}, Destinations: []string{group}}
-	}
-	wantGroups := []GroupSpec{
-		{Name: "operators"},
-		{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
-		{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
-		{Name: "ops-automation"},
-		{Name: "sfo-servers"},
-		{Name: "fra-servers"},
-	}
-	// TS-668: the region-to-region fallback path beside the OCI peering.
-	fabric := func(name, description, source, destination string) PolicySpec {
-		return PolicySpec{Name: name, Description: description + ": NATS leafnodes 7422, TerraBase peers 9443",
-			Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{source}, Destinations: []string{destination}}
-	}
-	// TS-672: operators and automation reach every controller's NetBird dashboard.
-	dashboard := func(group, cell string) PolicySpec {
-		return PolicySpec{Name: "operators-to-" + group + "-dashboard",
-			Description: "Operators and operator automation → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
-			Protocol:    "tcp", Ports: []string{"9463"}, Sources: []string{"operators", "ops-automation"}, Destinations: []string{group}}
-	}
-	ping := func(group, cell string) PolicySpec {
-		return PolicySpec{Name: group + "-to-" + group + "-ping",
-			Description: cell + " servers → same-region servers: ICMP diagnostics and peer DNS visibility",
-			Protocol:    "icmp", Sources: []string{group}, Destinations: []string{group}}
-	}
-	health := func(group, cell string) PolicySpec {
-		return PolicySpec{Name: group + "-to-" + group + "-service-health",
-			Description: cell + " servers → same-region servers: NATS client 4222, ts-auth readiness 8080, TerraBase readiness 9465",
-			Protocol:    "tcp", Ports: []string{"4222", "8080", "9465"}, Sources: []string{group}, Destinations: []string{group}}
-	}
-	wantPolicies := []PolicySpec{
-		{Name: "operators-to-gru-cell-ops-ports", RenamedFrom: []string{"operators-to-gru-cell"},
-			Description: "Operators → GRU cell subnet: SSH 22, NATS 4222, TerraBase 9465",
-			Protocol:    "tcp", Ports: []string{"22", "4222", "9465"},
-			Sources: []string{"operators"}, DestinationResource: "gru-cell-private-subnet"},
-		{Name: "operators-to-gru-servers-ssh", RenamedFrom: []string{"operators-ssh-to-ts-orch-servers"},
-			Description: "Operators → GRU servers: NetBird SSH with identity-provider login",
-			Protocol:    "netbird-ssh", Sources: []string{"operators"}, Destinations: []string{"gru-servers"}},
-		ssh("ops-automation-to-gru-servers-ssh", "Operator automation peers → GRU servers: NetBird SSH with identity-provider login", "ops-automation", "gru-servers"),
-		ssh("operators-to-sfo-servers-ssh", "Operators → SFO servers: NetBird SSH with identity-provider login", "operators", "sfo-servers"),
-		ssh("ops-automation-to-sfo-servers-ssh", "Operator automation peers → SFO servers: NetBird SSH with identity-provider login", "ops-automation", "sfo-servers"),
-		fabric("gru-servers-to-sfo-servers-fabric", "GRU servers → SFO servers", "gru-servers", "sfo-servers"),
-		fabric("sfo-servers-to-gru-servers-fabric", "SFO servers → GRU servers", "sfo-servers", "gru-servers"),
-		ssh("operators-to-fra-servers-ssh", "Operators → FRA servers: NetBird SSH with identity-provider login", "operators", "fra-servers"),
-		ssh("ops-automation-to-fra-servers-ssh", "Operator automation peers → FRA servers: NetBird SSH with identity-provider login", "ops-automation", "fra-servers"),
-		fabric("gru-servers-to-fra-servers-fabric", "GRU servers → FRA servers", "gru-servers", "fra-servers"),
-		fabric("fra-servers-to-gru-servers-fabric", "FRA servers → GRU servers", "fra-servers", "gru-servers"),
-		dashboard("gru-servers", "GRU"), ping("gru-servers", "GRU"), health("gru-servers", "GRU"),
-		dashboard("sfo-servers", "SFO"), ping("sfo-servers", "SFO"), health("sfo-servers", "SFO"),
-		dashboard("fra-servers", "FRA"), ping("fra-servers", "FRA"), health("fra-servers", "FRA"),
-		{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
-			Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
-			Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
-			Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
-		{Name: "operators-to-ts-ops-ping", RenamedFrom: []string{"operators-ping-to-forgejo"},
-			Description: "Operators → ts-ops: ICMP ping",
-			Protocol:    "icmp", Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
-	}
-	d := GRU()
-	if !reflect.DeepEqual(d.Groups, wantGroups) {
-		t.Errorf("groups %+v", d.Groups)
-	}
-	if !reflect.DeepEqual(d.Policies, wantPolicies) {
-		t.Errorf("policies %+v", d.Policies)
-	}
-	if len(d.DNSDisabledGroups) != 0 {
-		t.Errorf("DNS-disabled groups %v", d.DNSDisabledGroups)
 	}
 }
 
@@ -901,10 +821,10 @@ func TestSetupKeyCommandWritesTheKeyOnlyToANewOwnerOnlyFile(t *testing.T) {
 		t.Fatalf("existing file: %v %v", f.mutations, err)
 	}
 	// Another region's key auto-assigns only its own servers group.
-	if err := run("--out", filepath.Join(t.TempDir(), "sfo.key"), "--servers-group", "ts-ops-gateway", "--apply"); err != nil {
+	if err := run("--out", filepath.Join(t.TempDir(), "sfo.key"), "--servers-group", "sfo-servers", "--apply"); err != nil {
 		t.Fatalf("other servers group: %q %v", stdout.String(), err)
 	}
-	if key := f.setupKeys[len(f.setupKeys)-1]; key["name"] != "ts-ops-gateway" || !slices.Equal(key["auto_groups"].([]string), []string{ids.gateway}) {
+	if key := f.setupKeys[len(f.setupKeys)-1]; key["name"] != "sfo-servers" || !slices.Equal(key["auto_groups"].([]string), []string{f.groupByName("sfo-servers").ID}) {
 		t.Fatalf("created key %v", key)
 	}
 	if err := run("--out", filepath.Join(t.TempDir(), "x.key"), "--servers-group", "nobody", "--apply"); err == nil {

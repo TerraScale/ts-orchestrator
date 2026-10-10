@@ -208,6 +208,35 @@ func newCreation(t *testing.T) *creation {
 	return c
 }
 
+func TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey(t *testing.T) {
+	c := newCreation(t)
+	c.failOn = "netbird sync"
+	if err := c.Create(t.Context()); err == nil {
+		t.Fatal("region creation continued after fabric sync failed")
+	}
+	for _, call := range c.calls {
+		if strings.HasPrefix(call, "netbird image-input") || strings.HasPrefix(call, "oci-region attempt") {
+			t.Fatalf("nodes prepared before fabric access: %s", call)
+		}
+	}
+	if _, err := os.Stat(c.path("netbird-setup-key.json")); err != nil {
+		t.Fatalf("setup key receipt was not retained: %v", err)
+	}
+	c.calls, c.failOn = nil, ""
+	c.verifyOK = true
+	if err := c.Create(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.calls) < 2 || c.calls[0] != "netbird sync --apply" || !strings.HasPrefix(c.calls[1], "netbird image-input") {
+		t.Fatalf("retry did not reconcile fabric before image preparation: %v", c.calls)
+	}
+	for _, call := range c.calls {
+		if strings.HasPrefix(call, "netbird setup-key") || strings.HasPrefix(call, "vault put") {
+			t.Fatalf("retry replaced the stored enrollment key: %s", call)
+		}
+	}
+}
+
 func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 	c := newCreation(t)
 	c.failOn = "oci-region dns"
@@ -225,9 +254,9 @@ func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 	state := c.State
 	want := []string{
 		"oci-region foundation --plan " + state + "/plan.json --out " + state + "/bound-plan.json --apply",
-		"netbird sync --apply",
 		"netbird setup-key --servers-group fra-servers --out " + state + "/netbird-setup-key --apply",
 		"vault put --vault-id ocid1.vault.oc1.eu-frankfurt-1.aaaavault --key-id ocid1.key.oc1.eu-frankfurt-1.aaaakey --compartment-id ocid1.compartment.oc1..aaaacontrol --name fra-1-netbird-setup-key --file " + state + "/netbird-setup-key",
+		"netbird sync --apply",
 		"netbird image-input --plan " + state + "/bound-plan.json --setup-key-secret-id ocid1.vaultsecret.oc1.eu-frankfurt-1.aaaanb --out " + state + "/netbird.json",
 		"ts-auth secrets --plan " + state + "/bound-plan.json",
 		"oci-region attempt --config " + state + "/attempt.json up",

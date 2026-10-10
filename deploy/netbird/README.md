@@ -160,12 +160,19 @@ The two `-fabric` policies are the regions' fallback path beside the OCI
 private peering (TS-668): the NATS interregion leafnodes (7422) and
 TerraBase's peer port (9443), both directions.
 
-The desired state derives the `<cell>-servers` group and its policies
-for every cell in `internal/ociregion/catalog` other than GRU, in catalog order.
-Automatic admission must create/discover the regional group, scoped enrollment
-credential and image metadata, with OCI Vault delivery and no region activation
-step. **Current gap (TS-796):** the implementation still has explicit setup-key
-and image-input commands; manual key extraction/upload is retired.
+Each sync reads canonical `<cell>-servers` groups from the authenticated
+NetBird management API and derives their policies. The shared OCI mapping
+validates region names; it does not select the participating regions. API-owned
+groups remain eligible while empty or offline, so fabric access precedes NATS
+readiness. JWT/integration groups and peer names do not grant server access.
+Sync preserves group IDs, memberships and resources. The setup-key operation
+creates a missing canonical server group before issuing its scoped auto-group
+key. Region creation stores that key in Vault before reconciling fabric access
+and starting nodes. GRU's peer hygiene remains limited to its own server group.
+
+**Current gap:** TS-803 still needs to wire automatic first-controller admission,
+verified regional identity and manager-secret delivery. These policy mechanics
+do not prove zero-input enrollment or live cross-region NATS connectivity.
 
 There is no default `All` policy. Do not allow 6222 or 8443 to operators. The
 `netbird-ssh` policy makes the manager enable each server's NetBird SSH

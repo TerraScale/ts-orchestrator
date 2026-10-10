@@ -122,6 +122,25 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) 
 	if err := api.do(ctx, "GET", "/groups", nil, &groups); err != nil {
 		return Report{}, err
 	}
+	var regional []string
+	for _, group := range groups {
+		if !regionServerGroup(group.Name) {
+			continue
+		}
+		// JWT/integration groups are not the server admission groups.
+		if group.ID == "" || group.Issued != "api" {
+			return Report{}, fmt.Errorf("NetBird regional servers group %s has no API-owned identity", group.Name)
+		}
+		regional = append(regional, group.Name)
+	}
+	var err error
+	d, err = d.withServerGroups(regional)
+	if err != nil {
+		return Report{}, err
+	}
+	if err := d.Validate(); err != nil {
+		return Report{}, err
+	}
 	if err := p.planGroups(api, d, groups); err != nil {
 		return Report{}, err
 	}

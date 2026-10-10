@@ -94,20 +94,17 @@ type Desired struct {
 	SetupKeyName string
 }
 
-// GRU returns the canonical desired state of the TerraScale manager.
+// GRU returns the home region's network, access and peer-hygiene state.
+// Sync adds other regions from the authenticated manager's server groups.
 func GRU() Desired {
-	var regionGroups []GroupSpec
-	for _, name := range regionServersGroups() {
-		regionGroups = append(regionGroups, GroupSpec{Name: name})
-	}
 	return Desired{
 		Cell: "gru-1", Region: "sa-saopaulo-1",
-		Groups: append([]GroupSpec{
+		Groups: []GroupSpec{
 			{Name: "operators"},
 			{Name: "ts-ops-gateway", RenamedFrom: []string{"gateway"}},
 			{Name: "gru-servers", RenamedFrom: []string{"ts-orch-servers"}},
 			{Name: "ops-automation"},
-		}, regionGroups...),
+		},
 		ServersGroup: "gru-servers",
 		Network: NetworkSpec{
 			Name: "gru-cell", Description: "TerraScale GRU private cell",
@@ -127,7 +124,7 @@ func GRU() Desired {
 			{Name: "ops-automation-to-gru-servers-ssh",
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
-		}, regionPolicies(), serverAccessPolicies(), []PolicySpec{
+		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{
 			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
 				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
 				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
@@ -153,25 +150,34 @@ func GRU() Desired {
 	}
 }
 
-// regionServersGroups lists the servers group of every catalog region other
-// than the home region, e.g. sfo-servers (TS-640). Their nodes are reached
-// with NetBird SSH only: the routing peer cannot reach another region's
-// private subnet. A new catalog region needs no change here (TS-663).
-func regionServersGroups() []string {
-	var names []string
-	for _, entry := range catalog.Entries() {
-		if entry.Cell != catalog.Bootstrap {
-			names = append(names, entry.Name()+"-servers")
+func regionServerGroup(name string) bool {
+	cell, ok := strings.CutSuffix(name, "-servers")
+	_, known := catalog.LookupName(cell)
+	return ok && known
+}
+
+func (d Desired) withServerGroups(names []string) (Desired, error) {
+	d.Groups, d.Policies = slices.Clone(d.Groups), slices.Clone(d.Policies)
+	names = slices.Clone(names)
+	slices.Sort(names)
+	for _, name := range slices.Compact(names) {
+		if !regionServerGroup(name) {
+			return d, fmt.Errorf("NetBird group %q is not a canonical regional servers group", name)
 		}
+		if slices.ContainsFunc(d.Groups, func(group GroupSpec) bool { return group.Name == name }) {
+			continue
+		}
+		d.Groups = append(d.Groups, GroupSpec{Name: name})
+		d.Policies = slices.Concat(d.Policies, regionPolicies([]string{name}), serverAccessPolicies([]string{name}))
 	}
-	return names
+	return d, nil
 }
 
 // serverAccessPolicies grant dashboard access, DNS visibility and the
 // same-cell service probes used by managed NetBird rollouts.
-func serverAccessPolicies() []PolicySpec {
+func serverAccessPolicies(groups []string) []PolicySpec {
 	var policies []PolicySpec
-	for _, group := range append([]string{"gru-servers"}, regionServersGroups()...) {
+	for _, group := range groups {
 		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
 		policies = append(policies, PolicySpec{Name: "operators-to-" + group + "-dashboard",
 			Description: "Operators and operator automation → " + cell + " servers: operator dashboard 9463 on their NetBird addresses",
@@ -195,9 +201,9 @@ var fabricPorts = []string{"7422", "9443"}
 // regionPolicies grants operators and operator automation NetBird SSH to
 // every other region's servers group, and lets the home region's servers and
 // that group reach each other on fabricPorts.
-func regionPolicies() []PolicySpec {
+func regionPolicies(groups []string) []PolicySpec {
 	var policies []PolicySpec
-	for _, group := range regionServersGroups() {
+	for _, group := range groups {
 		cell := strings.ToUpper(strings.TrimSuffix(group, "-servers"))
 		ports := "NATS leafnodes " + fabricPorts[0] + ", TerraBase peers " + fabricPorts[1]
 		policies = append(policies,

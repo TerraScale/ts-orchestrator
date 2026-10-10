@@ -79,7 +79,7 @@ func (f *fakeManager) api(t *testing.T) *API {
 
 func (f *fakeManager) addGroup(name string) string {
 	id := f.id("g")
-	f.groups = append(f.groups, apiGroup{ID: id, Name: name, Peers: []groupMinimum{}, Resources: []resourceRef{}})
+	f.groups = append(f.groups, apiGroup{ID: id, Name: name, Issued: "api", Peers: []groupMinimum{}, Resources: []resourceRef{}})
 	return id
 }
 
