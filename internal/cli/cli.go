@@ -32,6 +32,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkcheck"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
@@ -66,6 +67,7 @@ Runtime:
 
 Operator tooling:
   usage                  Print regional node and service CPU/memory for a time window
+  cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports
   dashboard              Check every GRU and SFO dashboard over NetBird (read-only)
   network                Check address and DNS coexistence of NetBird and Tailscale (read-only)
@@ -121,6 +123,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	switch args[0] {
 	case "usage":
 		return capacity.Run(ctx, args[1:], output)
+	case "cost":
+		return ocicost.Run(ctx, args[1:], output)
 	case "bench":
 		return benchmark.CLI(ctx, args[1:], output)
 	case "dashboard":

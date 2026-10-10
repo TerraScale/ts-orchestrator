@@ -82,6 +82,7 @@ global. Keys are lowercase tokens separated by dots, most general first
 | `TS_DELIVERY_*`, `OBJ_TS_ARTIFACTS` | stream, KV, object | regional | Signed artifact delivery |
 | `TS_REGION_LIFECYCLE` | KV | home only | Region lifecycle records |
 | `TS_DECISIONS` | stream | regional | Decision journal |
+| `TS_OCI_COST` | KV | regional | The region's OCI cost report (`report`), refreshed hourly by the authority leader ([OCI cost](oci-cost.md)) |
 | `terrabase_backup_leases` | KV | regional, memory, 15 s TTL | TS-633's backup shipper leases, used by TerraBase members ([role identities](#role-identities)) |
 
 A configuration bucket that a rebuilt region must get back also goes into
