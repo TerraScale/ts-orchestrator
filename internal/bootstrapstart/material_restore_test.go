@@ -491,7 +491,7 @@ func TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain(t *testing.T) {
 }
 
 func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles(t *testing.T) {
-	for _, fault := range []string{"none", "root", "baseline", "reference", "immutable", "vault"} {
+	for _, fault := range []string{"none", "response rotation", "root", "baseline", "reference", "immutable", "vault"} {
 		t.Run(fault, func(t *testing.T) {
 			install := newGenerationInstall(t)
 			wire, generationFiles := install.signedGeneration()
@@ -525,6 +525,18 @@ func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles
 			}
 			roots := install.roots
 			switch fault {
+			case "response rotation":
+				name := accepted.Slot + "-response.key"
+				files[name] = []byte("root-authorized fresh response key")
+				ref := refs[name]
+				ref.VersionNumber++
+				ref.SHA256 = digest(files[name])
+				refs[name] = ref
+				for i := range accepted.MaterialReferences {
+					if accepted.MaterialReferences[i].TargetFile == name {
+						accepted.MaterialReferences[i] = ref
+					}
+				}
 			case "root":
 				roots = newGenerationInstall(t).roots
 			case "baseline":
@@ -554,7 +566,7 @@ func TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles
 				return bytes.Clone(files[ref.TargetFile]), nil
 			}
 			contents, err := install.store().ReadIdentityRekeyMaterial(t.Context(), accepted, wire, roots, read, time.Now())
-			if fault == "none" {
+			if fault == "none" || fault == "response rotation" {
 				if err != nil || len(contents) != len(refs) || reads != len(refs) {
 					t.Fatalf("full union: files=%d reads=%d error=%v", len(contents), reads, err)
 				}

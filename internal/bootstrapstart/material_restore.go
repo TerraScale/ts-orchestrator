@@ -32,7 +32,8 @@ const GenerationChainCopy = MarkerDirectory + "/" + MaterialGenerationsFile
 type SecretReader func(context.Context, bootstrap.SecretReference) ([]byte, error)
 
 // ReadIdentityRekeyMaterial reads the full proposed Vault inventory and refuses
-// replacement of existing baseline files outside the signed generation. The
+// replacement of existing baseline files outside the signed generation, except
+// the controller response key rotated by the root-signed host handoff. The
 // installer must verify generation/config semantics together before effects.
 func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, accepted AcceptedIdentity, generationChain []byte, roots trust.Keyring, read SecretReader, now time.Time) (map[string][]byte, error) {
 	target, err := generationTarget(accepted)
@@ -59,6 +60,7 @@ func (store MaterialStore) ReadIdentityRekeyMaterial(ctx context.Context, accept
 	refs := materialReferences(accepted, newest)
 	baseline := materialReferences(accepted, nil)
 	immutable := acceptedMaterialDigests(accepted)
+	delete(immutable, accepted.Slot+"-response.key")
 	if newest != nil {
 		for _, ref := range newest.Generation().Secrets {
 			if ref.Slot == "" || ref.Slot == accepted.Slot {

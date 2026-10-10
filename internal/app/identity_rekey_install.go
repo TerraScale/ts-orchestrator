@@ -175,6 +175,10 @@ func InstallIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		install.generationFiles, install.files[controllerConfigFilename], install.verified.InstallationTime(time.Now().Round(0).UTC())); err != nil {
 		return err
 	}
+	if err := install.material.InstallIdentityRekeyResponseKey(ctx, install.verified, install.inputs,
+		install.contents[install.accepted.Slot+"-response.key"], func(ctx context.Context) error { return install.check(ctx, true) }, time.Now().Round(0).UTC()); err != nil {
+		return err
+	}
 	for _, name := range bootstrap.ControllerConfigFileNames {
 		if err := install.write(ctx, controllerConfigDirectory, name, install.files[name]); err != nil {
 			return err
@@ -334,6 +338,11 @@ func prepareIdentityRekey(ctx context.Context, journal bootstrapstart.IdentityRe
 		return nil, err
 	}
 	if err := verifyIdentityRekeyResponseKey(install.journal, install.accepted, install.files[bootstrapstart.HostEnrollmentFilename], install.contents[install.accepted.Slot+"-response.key"]); err != nil {
+		install.clearMaterial()
+		return nil, err
+	}
+	if err := install.material.VerifyIdentityRekeyResponseKey(ctx, install.verified, install.inputs,
+		install.contents[install.accepted.Slot+"-response.key"], time.Now().Round(0).UTC()); err != nil {
 		install.clearMaterial()
 		return nil, err
 	}
