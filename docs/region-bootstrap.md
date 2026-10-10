@@ -1,26 +1,17 @@
 # Manual regional bootstrap
 
-This runbook describes setup of a regional foundation and its first
-controller, followed by the identity and authority handoff to
-`ts-orchestrator`. The current authorized qualification target is GRU
-(`sa-saopaulo-1`): the assistant operates this runbook for the foundation,
-controller A, and required credential/image prerequisites instead of leaving
-those provisioning steps to the user. Use the OCI CLI to get or create required
-Vault secrets where they are runbook inputs. Publish generated controller
-material through the documented `ts-orch bootstrap provision-controller-material`
-flow, which binds the material to authenticated readback and current cost
-admission. After the explicit controller-A handoff, `ts-orchestrator` alone
-owns B/C, the ARM workload hosts, and signed TerraBase deployment. The
-bootstrap tools accept these fixed cell-to-region
-mappings: GRU / `sa-saopaulo-1`, SFO / `us-sanjose-1`, and FRA /
-`eu-frankfurt-1`. The checked-in regional plan is a concrete GRU example; a
-different mapped cell needs its own reviewed plan populated with that cell's
-live resource IDs and signed genesis. `deploy/oci-region/sfo-1-plan.json` is
-SFO's; see [Second region](#second-region). This is an operating procedure, not
-evidence that a region has been deployed or that the system is
-production-ready. See the [workspace GOAL](../../GOAL.md) and the
-[shared-goal acceptance ledger](evidence/shared-goal-acceptance-20260926.md)
-for current scope and evidence.
+This is legacy implementation and recovery inventory. The required
+[operating contract](zero-configuration.md) automatically admits private NetBird
+nodes, discovers every region and infers local identity. OCI Vault creates,
+delivers and configures first-party production secrets; vendor keys are stored
+once and picked up automatically. There are no regional enable steps.
+
+**Current gap (TS-796):** foundation and first-controller bootstrap still require
+explicit reviewed plans and material. The procedures recorded below do not
+establish automatic production bootstrap and authorize no live operations.
+Historical target/cost approvals do not carry forward to new resources.
+Keep signed authority handoff, exact-ID ownership, cost/quality checks and
+explicit approval for destructive recovery. Fakes belong only in test binaries.
 
 ## Supported scope and ownership
 
@@ -526,7 +517,7 @@ server setup key so subsequent server enrollment remains available.
 For GRU, set `setup_key_secret_id` in the checked-in
 `deploy/image/inputs/netbird-gru.json` to the plan's value and keep its
 `peer_names`, which a test checks against the `ts-orch netbird` desired state
-(see [Fresh cell enrollment](../deploy/netbird/README.md#fresh-cell-enrollment)).
+(see [Fresh cell enrollment](../deploy/netbird/README.md#automatic-cell-admission)).
 Another region's servers enroll in its `<cell>-servers` group, which the
 desired state derives from the catalog. Generate its input from the reviewed
 plan and the Vault secret holding the region's server setup key; its peer

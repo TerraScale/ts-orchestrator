@@ -1,5 +1,12 @@
 # Declarative OCI reconcile
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 `internal/ociresource` reconciles regional OCI resources other than member
 hosts and their data volumes, which stay with the journaled `internal/oci`
 fleet. It is off unless `controller.oci_reconcile.enabled` is set, and it runs

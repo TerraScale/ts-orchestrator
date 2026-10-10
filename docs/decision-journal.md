@@ -1,5 +1,12 @@
 # Decision journal, history, insights and region view
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 The decision journal answers "what did the orchestrator decide, and why".
 Four read-only slices feed the dashboard from it:
 

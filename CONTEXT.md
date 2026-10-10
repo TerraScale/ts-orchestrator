@@ -1,5 +1,12 @@
 # TerraScale Orchestrator terms
 
+The [zero-configuration contract](docs/zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 Use these names in code, issues, tests, and current documentation. The
 implementation is a greenfield Go replacement; prior C# commands, wire
 formats, and stores are not compatibility contracts.

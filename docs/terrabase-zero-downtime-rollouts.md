@@ -1,5 +1,10 @@
 # Zero-downtime TerraBase rollouts (TS-571)
 
+The [zero-configuration contract](zero-configuration.md) requires rollout
+coordination always on. Existing seat/profile switches below are legacy runtime
+inventory pending TS-796; there is no enable step. Drain, current-peer proofs,
+minimum-serving, writer-stop and destructive-operation checks remain mandatory.
+
 Status: design note. Slices 1 to 4 are implemented: the L7 backend-set
 reconciler, seats as backends, `running` needs `/readyz`, and one seat at a
 time behind its drain (`controller.terrabase_seats`). Slice 5's in-process
@@ -192,7 +197,7 @@ so the members and hosts are models; `host.Agent`'s gate is covered by the
 host tests (slice 4a).
 
 **PROPOSED:** the same release on gru-1 under load through
-`gru.api.terrascale.tech`. Enable `controller.terrabase_seats` there only
+`gru.api.terrascale.tech`. The current seat-controller dependency is a TS-796 removal gap. Safe serving requires
 once TS-561 ships and `public_lb.seats` lists both members: while the load
 balancer serves `gru-1-db-1` alone, it is the last healthy seat, the
 controller never drains it, and a release would wait out its gate and roll

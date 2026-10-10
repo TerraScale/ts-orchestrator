@@ -1,5 +1,12 @@
 # ts-auth deployment on gru-1
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 Status: **implemented in source and tested locally with fake OCI Vault,
 the real TerraBase release and fake replicas; not run on OCI.** ts-auth (repository
 `TerraScale/ts-auth`, C# .NET 10) runs as a native single-file workload of
@@ -12,9 +19,7 @@ side is [`internal/host/tsauth.go`](../internal/host/tsauth.go).
 
 | Command | Where | Effect |
 | --- | --- | --- |
-| `ts-orch ts-auth secrets --plan FILE` | operator host, `~/.oci/config` | Generates `TS_AUTH_MASTER_KEY`, `TS_AUTH_AUDIT_SIGNING_KEY`, `TS_AUTH_OPERATOR_KEY` and `TS_AUTH_DASHBOARD_CLIENT_SECRET` once into the cell's Vault. |
 | `ts-orch ouroboros bootstrap --plan FILE --client-url URL --admin-url URL --member NODE --member-ca FILE --dashboard-credential-file FILE [--management-listener client\|admin] [--owner-email EMAIL --ts-auth-instance SLUG --ts-auth-key-file FILE [--ts-auth-url URL]]` | operator host, SSH forward to `gru-1-db-1` | Finds or creates TerraScale's TerraBase organization and the ts-auth, ts-dashboard and atlas (ts-atlas' store, see [Atlas](atlas.md)) projects and databases; stores each project ID and, once, a new API key in the Vault. With `--owner-email` (needs `--management-listener admin`), makes that ts-auth user the organization's owner. |
-| `ts-orch ouroboros fly-secrets --plan FILE` | operator host, `~/.oci/config` | Hands the dashboard's TerraBase settings to Fly app `ts-dashboard`: stages them with `FLY_API_TOKEN`, otherwise prints the non-secret ones. |
 | `ts-orch ts-auth metadata-rules` | operator host, no OCI access | Renders the nftables metadata block installed on each controller in step 3. |
 | `ts-orch service add --role ts-auth --profile F --spec F --out F`, `release sign-spec`, `apply -f` | operator host | Adds ts-auth to a running cell with a signed cell spec; see [cell spec](cell-spec.md). |
 | `ts-orch bootstrap render-controller-config ... --ts-auth-profile F --ts-auth-profile-sha256 H --ts-auth-service F --ts-auth-service-sha256 H --out F` | operator host, before initial controller signing | Includes the reviewed ts-auth profile and service in canonical signed controller configuration. |
@@ -79,82 +84,32 @@ breaks these rules:
 | `TS_AUTH_ACCESS_TOKEN_AUDIENCES` | Exactly `https://<cell>.api.terrascale.tech`, the cell TerraBase's `auth-audience`: every access token names it, so a dashboard user's token reaches TerraBase's Management API (TS-519). |
 | `TS_AUTH_DASHBOARD_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login/callback`, the dashboard's callback. |
 | `TS_AUTH_DASHBOARD_POST_LOGOUT_REDIRECT_URIS` | Exactly `https://dash.terrascale.tech/login`, the `post_logout_redirect_uri` the dashboard sends; ts-auth compares it exactly. |
-| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS`, `TS_AUTH_SMTP_CHECK_REVOCATION` | The [SMTP relay](#smtp-relay): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS), `noreply@terrascale.tech` and `false`. Other non-secret optional settings (OTEL endpoint) may be added. |
+| `TS_AUTH_SMTP_HOST`, `TS_AUTH_SMTP_PORT`, `TS_AUTH_SMTP_FROM_ADDRESS`, `TS_AUTH_SMTP_CHECK_REVOCATION` | The [SMTP relay](#secrets-and-email-delivery): `smtp.email.sa-saopaulo-1.oci.oraclecloud.com`, `587` (STARTTLS), `noreply@terrascale.tech` and `false`. Other non-secret optional settings (OTEL endpoint) may be added. |
 | The secret keys below, `TS_AUTH_LISTEN`, `DOTNET_BUNDLE_EXTRACT_BASE_DIR` | Must not be set in `env`. |
 | `secrets` | Names the six secret keys below, each `{"vault": OCID, "name": NAME}`, and may add `TS_AUTH_SMTP_USERNAME`, `TS_AUTH_SMTP_PASSWORD` and `TS_AUTH_SERVICE_CLIENTS`. The committed profile names both SMTP credentials. |
 | `TS_AUTH_STRIPE_SECRET_KEY`, `TS_AUTH_STRIPE_WEBHOOK_SECRET`, `TS_AUTH_SENTRY_DSN`, `TS_AUTH_AUDIT_VERIFY_KEYS`, `OTEL_EXPORTER_OTLP_HEADERS` | Must not be set: they are secrets, and the profile does not name them yet. |
 | `args` | Must be empty: an argument overrides any setting. |
 
-### Secrets
+### Secrets and email delivery
 
-The profile's `secrets` name six Vault secrets; the host agent reads them
-(see [services](cell-spec.md#vault-secrets)):
+OCI Vault must automatically create, deliver and configure master/audit/operator,
+OIDC client, database and email-delivery credentials. Vendor-issued credentials
+are stored once and discovered automatically. Project selectors travel with the
+narrowed database credential; the host must validate the complete scope before
+publishing a snapshot. Operators do not generate, upload or copy production keys.
 
-| Key | Source | Vault secret |
-| --- | --- | --- |
-| `TS_AUTH_MASTER_KEY` | `ts-auth secrets`: 32 random bytes, base64 | `gru-1-ts-auth-master-key` |
-| `TS_AUTH_AUDIT_SIGNING_KEY` | `ts-auth secrets` | `gru-1-ts-auth-audit-signing-key` |
-| `TS_AUTH_OPERATOR_KEY` | `ts-auth secrets` | `gru-1-ts-auth-operator-key` |
-| `TS_AUTH_DASHBOARD_CLIENT_SECRET` | `ts-auth secrets` | `gru-1-ts-auth-dashboard-client-secret` |
-| `TS_AUTH_TERRASCALE_API_KEY` | `ouroboros bootstrap`: TerraBase `POST /admin/api-keys` | `gru-1-ts-auth-terrascale-api-key` |
-| `TS_AUTH_TERRASCALE_PROJECT_ID` | `ouroboros bootstrap`: the project the key is narrowed to | `gru-1-ts-auth-terrascale-project-id` |
+**Current gap (TS-796):** profile refs and existing bootstrap commands still
+select/create part of this material. Delivery through a profile is evidence only
+for that consumer; it does not prove automatic first-party provisioning.
 
-The project ID is not secret; it travels with the API key because the key
-reaches only that project's database. The host joins it to the profile's
-database as `TS_AUTH_DATABASE=<project-ulid>/auth`, the selector ts-auth
-reads, and does not pass `TS_AUTH_TERRASCALE_PROJECT_ID` itself.
-
-### SMTP relay
-
-ts-auth mails sign-in passcodes through OCI Email Delivery in
-`sa-saopaulo-1`, the shared relay of every cell's ts-auth
-(`TS_AUTH_SMTP_HOST` is not checked against the cell): authenticated SMTP
-with mandatory STARTTLS on port 587, from the approved sender
-`noreply@terrascale.tech` (domain `terrascale.tech` with DKIM
-`terrascale-tech-dkim`). ts-auth needs host, user name, password
-and from address together; without them it logs mail instead of sending it.
-
-`TS_AUTH_SMTP_CHECK_REVOCATION=false` is a documented security exception
-(ts-auth#38). The cell reaches the relay through the service gateway and has
-no route to its CA's OCSP and CRL servers (DigiCert, on Akamai), so ts-auth's
-default online revocation check refuses the relay with an
-`SslHandshakeException` and sends nothing. STARTTLS, the chain and the host
-name are still checked; a revoked relay certificate is accepted. A ts-auth
-release before ts-auth#38 ignores the setting.
-
-| Key | Vault secret | Source |
-| --- | --- | --- |
-| `TS_AUTH_SMTP_USERNAME` | `gru-1-ts-auth-smtp-username` | SMTP credential of IAM user `gru-1-ts-auth-smtp` |
-| `TS_AUTH_SMTP_PASSWORD` | `gru-1-ts-auth-smtp-password` | The same credential's password, shown once at creation |
-
-The IAM user `gru-1-ts-auth-smtp` (Default domain) can use SMTP credentials
-only: no console password, API keys, auth tokens or customer secret keys. Its
-group `gru-1-ts-auth-smtp` has one policy, `gru-1-ts-auth-smtp`:
-
-```text
-Allow group gru-1-ts-auth-smtp to use approved-senders in tenancy where target.approved-sender.emailaddress = 'noreply@terrascale.tech'
-```
-
-Both secrets live in `gru-1-control`, which the controllers read. Store them
-with the password piped from `oci iam smtp-credential create` straight into
-`ts-orch vault put --file /dev/stdin`, never onto a terminal. To rotate,
-create a second credential (a user holds at most two), add a Vault version,
-restart the replicas with a release, then delete the old credential.
-
-A controller or host agent built before TS-573 refuses a
-`TS_AUTH_SMTP_USERNAME` ref: the leader rejects the spec at `diff` and
-`apply`, so nothing changes. Move the controllers and their host agents to a
-build with it first, in place (`selfupdate`), as for any controller release.
-Adding the refs widens authority, so a root signs the amendment. It rolls in
-place, without a re-found: `service update --role ts-auth --profile
-deploy/oci-region/ts-auth-gru-1-profile.json --spec
-deploy/oci-region/ts-auth-gru-1-service.json`, `release sign-spec --root`,
-`apply` ([cell spec](cell-spec.md#commands)), then `operator ts-auth-release`
-with the same release and the new `--profile` (step 5 below). The release
-gate replaces one replica at a time. Plan from the live profile (`ts-orch
-get`), adding only the SMTP keys, when it carries refs the committed file
-lacks, such as `TS_AUTH_SERVICE_CLIENTS`: `service update` replaces the
-whole profile.
+SMTP requires authenticated STARTTLS, an approved sender and valid certificate
+chain/hostname. The current revocation-check exception can accept a revoked
+relay certificate and remains a security limitation to resolve, not a switch
+recipe. Logging-only delivery belongs in test binaries. IAM must grant only the
+approved sender and exact owned secret identities. Credential rotation must
+prove new-version delivery before retiring the old version; uncertain mutations
+must not be blindly replayed. Maintain fenced one-replica-at-a-time rollout,
+verified artifact digests and readiness/native-login checks.
 
 ### Private TerraBase path
 
@@ -461,322 +416,39 @@ The bootstrap actor is never removed. The command prints
 prints `"steps":[]`. Phase A reruns still work afterwards: an admin may list
 and create projects and databases.
 
-## gru-1 live runbook
+## Automatic deployment and recovery boundaries
 
-**Prepared, not executed. Requires human confirmation before every step that
-changes the cell, the Vault or TerraBase.** Blast radius: one controller NSG
-rule, the gru-1 Vault (four generated keys, then four from bootstrap), the
-production TerraBase on `gru-1-db-1` (one organization, two projects, two
-databases and two API keys, and with phase B its ownership), the Fly app
-`ts-dashboard` (eight staged secrets) and the three controllers (`host.json`,
-one ts-auth replica on two of them).
+The manual regional setup, production secret extraction and dashboard handoff
+recipes are retired. The [operating contract](zero-configuration.md) requires
+private NetBird admission, region discovery/inference and Vault creation/delivery
+to be automatic. The current reviewed plan, profile and first-controller paths
+are TS-796 gaps; this documentation does not certify their completion.
 
-### Prerequisites
+Safe serving still requires:
 
-1. **Phase 1.** `deploy/oci-region/plan.json` `resource_ids` names the live
-   `control_compartment`, `vault` and `key` (TS-470).
-2. **TerraBase.** `gru-1-db-1` serves a C# TerraBase release with TS-535 or
-   later ([TerraBase deployment](terrabase-deployment.md)) with
-   `TERRABASE_CLIENT_PORT=9465`, `TERRABASE_REGION` (required outside
-   Development) and a Management service credential:
-   `TERRABASE_MANAGEMENT_CREDENTIAL_FILE` names a file of at least 32
-   characters that the workload user can read. TS-519 removed
-   `TERRABASE_DASHBOARD_CREDENTIAL_FILE`, and TerraBase ignores it, so a
-   member with only that variable answers every bootstrap call with 401. The committed
-   [`terrabase-gru-1-profile.json`](../deploy/oci-region/terrabase-gru-1-profile.json)
-   delivers it from the Vault secret `gru-1-terrabase-management-credential`
-   as an in-memory `_FILE` secret ([secrets](secrets.md#node-credentials-live-in-memory)). It also sets `TERRABASE_AUTH_ISSUER`
-   (`https://gru.auth.terrascale.tech/terrascale`, the issuer ts-auth emits)
-   and `TERRABASE_AUTH_AUDIENCE` (`https://gru.api.terrascale.tech`), so
-   TerraBase accepts ts-auth access tokens.
-3. **Controller hosts.** Each controller VM's own host agent enrolls through
-   a root-signed cell spec [host grant](cell-spec.md#host-grants):
-   `{node: gru-1-ctl-N, private_ip: 10.251.0.1N, roles: [ts-auth], environment: canary}`.
-   `host-setup` runs at boot and on its 12-hour timer. On a controller it
-   finds no host descriptor, names itself after its launch slot
-   (`terrascale-bootstrap`), and enrolls with the public bundle every
-   controller carries. The controller accepts it only from the granted
-   address, and only when OCI shows the running instance of that name holding
-   the address. The registration has role `ts-auth`, the grant's environment,
-   the instance's fault domain, and the `ts-auth` profile's `resources` as
-   capacity (one replica). `host.json` gets `ts_auth_root`
-   `/srv/ts-managed/ts-auth` and the agent's observability listener on
-   `127.0.0.1:9466`, next to the controller's. The host agent starts right
-   after enrollment, so install the metadata firewall in step 3 before the
-   first ts-auth release.
-4. **Load balancer.** TS-486 is merged and applied: `gru-1-api` with the
-   ts-auth backend set and hostname rule, its Origin CA certificate and the
-   proxied DNS record for `gru.auth.terrascale.tech`. Step 0 opens the controller
-   NSG to it.
-5. **Release.** A ts-auth release with `ts-auth-linux-arm64` and its
-   `.sha256` (TS-488).
-6. **Operator grant.** The operator's signer grant lists role `ts-auth`,
-   environment `canary` and repository
-   `https://git.terrascale.tech/TerraScale/ts-auth`.
-7. **Operator OCI access.** The operator's `~/.oci/config` DEFAULT profile
-   may list, create and read secrets (`manage secret-family`) in the control
-   compartment, use the Vault key (`use keys`) and, for step 0, manage the
-   controller NSG's rules; `ts-orch` sends no other OCI request in steps 1
-   and 2.
-8. **Instance metadata blocked.** Step 3 installs the nftables rule and its
-   boot dependency on every controller before the host is restarted. Each
-   host must provide `/usr/sbin/nft` (Ubuntu package `nftables`) and the
-   `systemd-timesync`, `systemd-resolve` and `terrascale-orchestrator` accounts. nft resolves the
-   account names to the actual host UIDs when loading the rule.
+1. Verified deployment identity, exact resource ownership, scoped trust grants,
+   artifact source/digests and a qualified runtime/SDK contract. Do not adopt a
+   resource based on tags or names alone.
+2. A dedicated service dataset and least-privilege database key. Provisioning
+   must not use a ts-auth self-issued token to create its own storage authority.
+   Customer identity, project tenancy and issuer/callback verification remain
+   owned by ts-auth. Never seed a production demo account or memory store.
+3. Protected instance metadata, valid TLS, exclusive retained-volume ownership,
+   storage consistency and fresh readiness. No loopback/bootstrap credential
+   may authenticate public client routes; the backend carries the verified user.
+4. Healthy controller quorum, current peer proofs and single-writer authority.
+   Keep one-replica-at-a-time rollout, rollback artifacts, drain/writer-stop proof
+   and post-rollout health/native-login checks. Discovery alone proves none of
+   the required storage or failover guarantees.
+5. Explicit approval of verified targets for destructive resets, ownership
+   recovery or resource deletion. Record only object IDs, secret-version IDs
+   and redacted evidence. Existing authorization never permits unrelated fleet,
+   infrastructure or operator-host changes.
 
-### Before initial controller bootstrap
-
-A running cell gets ts-auth with a signed cell spec: follow
-[Add a service to a running region](cell-spec.md#add-a-service-to-a-running-region)
-with the two committed files below. Never edit an accepted controller's
-installed JSON or delete its acceptance marker: the installer is write-once,
-and restart admission binds the config digest to the accepted manifest.
-
-A new region gets ts-auth the same way from its first cell spec.
-`ts-orch oci-region attempt` applies it in its `services` phase when its
-`attempt.json` names both files:
-
-```json
-"ts_auth_profile": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-profile.json",
-"ts_auth_service": "/ABSOLUTE/PATH/deploy/oci-region/ts-auth-gru-1-service.json"
-```
-
-It refuses one without the other, and plans, signs (the root, for ts-auth's
-Vault secrets) and applies ts-auth after TerraBase's profile. Without either
-key it derives the same profile and service from the plan and the attempt's
-member CA (see [cell spec](cell-spec.md#commands)), then grants each
-controller node the `ts-auth` role. The signed
-controller configs hold the cell's identity only. Rendering the files into
-a controller config by hand still works but is deprecated: the profile then
-stays generation 0 until a cell spec replaces it.
-
-For each controller slot, use the reviewed candidate, material record,
-operator grant and three sidecars from
-[production role configuration](production-role-config.md). Set the variables
-below to their reviewed paths and SHA-256 pins, choose a new
-`CONTROLLER_CONFIG` output path, and use the reviewed TerraBase profile with
-the dashboard credential setting described above:
-
-```sh
-REPO=$PWD
-ts-orch bootstrap render-controller-config \
-  --candidate "$CANDIDATE" --candidate-sha256 "$CANDIDATE_SHA256" \
-  --material-record "$MATERIAL_RECORD" --material-record-sha256 "$MATERIAL_RECORD_SHA256" \
-  --operator-grant "$OPERATOR_GRANT" --operator-grant-sha256 "$OPERATOR_GRANT_SHA256" \
-  --oci-region-intent "$REGION_INTENT" --oci-region-intent-sha256 "$REGION_INTENT_SHA256" \
-  --oci-region-config "$REGION_CONFIG" --oci-region-config-sha256 "$REGION_CONFIG_SHA256" \
-  --placement-config "$PLACEMENT_CONFIG" --placement-config-sha256 "$PLACEMENT_CONFIG_SHA256" \
-  --terrabase-profile "$TERRABASE_PROFILE" --terrabase-profile-sha256 "$TERRABASE_PROFILE_SHA256" \
-  --ts-auth-profile "$REPO/deploy/oci-region/ts-auth-gru-1-profile.json" --ts-auth-profile-sha256 "$TS_AUTH_PROFILE_SHA256" \
-  --ts-auth-service "$REPO/deploy/oci-region/ts-auth-gru-1-service.json" --ts-auth-service-sha256 "$TS_AUTH_SERVICE_SHA256" \
-  --out "$CONTROLLER_CONFIG"
-sha256sum "$CONTROLLER_CONFIG"
-```
-
-The renderer emits canonical `app.Config` bytes and validates both workload
-profiles and the service. Review the printed digest, then pass the output as
-`--controller-config` and that digest as `--controller-config-sha256` to the
-initial `ts-orch bootstrap sign-manifest` invocation, with the same candidate
-and sidecars. Follow the regional bootstrap runbook to launch the controllers.
-Keep these exact bytes intact; a `jq` rewrite would fail canonical validation.
-
-### Steps after bootstrap
-
-```sh
-# On the operator host, as the operator user whose ~/.oci/config DEFAULT
-# profile may manage secrets in the gru-1 Vault, in a ts-orchestrator checkout
-# of the deployed revision.
-REPO=$PWD
-PLAN=$REPO/deploy/oci-region/plan.json
-VAULT=$(jq -er .resource_ids.vault "$PLAN")
-NSG=$(jq -er .resource_ids.network_security_group "$PLAN")
-CRED=<path that TERRABASE_MANAGEMENT_CREDENTIAL_FILE names on gru-1-db-1>
-WORK=$(mktemp -d)
-```
-
-0. Open the controller NSG to the load balancer subnet unless phase 1
-   already created the rule from `plan.json`:
-
-   ```sh
-   oci network nsg rules list --nsg-id "$NSG" --all |
-     jq -e '.data[] | select(.source == "10.251.0.128/26" and ."tcp-options"."destination-port-range".min == 8080)' ||
-   oci network nsg rules add --nsg-id "$NSG" --security-rules '[{"direction":"INGRESS","protocol":"6",
-     "source":"10.251.0.128/26","sourceType":"CIDR_BLOCK","isStateless":false,
-     "tcpOptions":{"destinationPortRange":{"min":8080,"max":8080}}}]'
-   ```
-
-1. Generate the four keys into the Vault. Expect four lines with
-   `"created":true` (a rerun prints `"created":false`):
-
-   ```sh
-   terrascale-orchestrator ts-auth secrets --plan "$PLAN"
-   ```
-
-2. Bootstrap the TerraBase tenants on `gru-1-db-1`. Keep the forward open in a
-   second terminal, copy the dashboard credential into an owner-only file,
-   run the bootstrap, then delete the copy. If `gru-1-db-1` runs a TerraBase
-   release with TS-519, add `--management-listener admin` (here and in the
-   owner step below): only its loopback admin listener accepts the
-   credential.
-   Agents without a browser run each `netbird ssh ARGS` below as
-   `ts-orch netbird ssh --vault-id "$VAULT" --netbird "$NB" -- ARGS` on the
-   [operator automation peer](../deploy/netbird/README.md#operator-automation-peer).
-
-   ```sh
-   netbird ssh -L 19464:127.0.0.1:9464 -L 19465:127.0.0.1:9465 root@gru-1-db-1.nb.ts.internal   # terminal 2
-   (umask 077; netbird ssh root@gru-1-db-1.nb.ts.internal cat "${CRED:?}" > "$WORK/dashboard-credential")
-   sudo cat /var/lib/terrascale-operator/terrabase-ca-gru-1/member-ca.pem > "$WORK/member-ca.pem"   # public certificate
-   terrascale-orchestrator ouroboros bootstrap --plan "$PLAN" \
-     --client-url https://127.0.0.1:19465 --admin-url http://127.0.0.1:19464 --member gru-1-db-1 \
-     --member-ca "$WORK/member-ca.pem" \
-     --dashboard-credential-file "$WORK/dashboard-credential"
-   shred -u "$WORK/dashboard-credential"
-   ```
-
-   Expect two lines `{"tenant":{...},"secrets":[...]}`, one for `ts-auth`
-   (database `auth`) and one for `ts-dashboard` (database `dashboard`), both
-   with organization `terrascale`'s IDs and both secrets `"created":true`. A
-   rerun prints `"created":false` and issues no key.
-
-3. On each controller, set the ts-auth root in `host.json` (edited on the
-   operator host: the host image has no `jq`), make sure `/srv/ts-managed`
-   exists before the host agent restarts (its unit can write there only if it
-   exists at start), install the metadata firewall and restart the agent. The
-   agent reads ts-auth's secrets from the Vault itself at each launch:
-
-   ```sh
-   (
-   terrascale-orchestrator ts-auth metadata-rules > "$WORK/ts-auth-metadata.nft" || exit 1
-   for n in 1 2 3; do
-     h=root@gru-1-ctl-$n.nb.ts.internal
-     ssh "$h" cat /etc/terrascale-orchestrator/host.json > "$WORK/host-$n.json" &&
-       jq -e '.host.ts_auth_root = "/srv/ts-managed/ts-auth"' "$WORK/host-$n.json" > "$WORK/host-$n.new" &&
-       ssh "$h" 'umask 077 && cat > /etc/terrascale-orchestrator/host.json.new && test -s /etc/terrascale-orchestrator/host.json.new &&
-         mv /etc/terrascale-orchestrator/host.json.new /etc/terrascale-orchestrator/host.json' < "$WORK/host-$n.new" &&
-       ssh "$h" 'test -x /usr/sbin/nft && getent passwd systemd-timesync > /dev/null &&
-         getent passwd terrascale-orchestrator > /dev/null &&
-         if ! test -d /srv/ts-managed; then install -d -m 0755 /srv/ts-managed; fi' &&
-       ssh "$h" 'install -o root -g root -m 0644 /dev/stdin /etc/terrascale-orchestrator/ts-auth-metadata.nft' < "$WORK/ts-auth-metadata.nft" &&
-       ssh "$h" 'install -o root -g root -m 0644 /dev/stdin /etc/systemd/system/terrascale-ts-auth-metadata.service' \
-         < "$REPO/deploy/systemd/terrascale-ts-auth-metadata.service" &&
-       ssh "$h" 'systemctl daemon-reload && systemctl enable terrascale-ts-auth-metadata.service &&
-         test -L /etc/systemd/system/terrascale-orchestrator-host.service.requires/terrascale-ts-auth-metadata.service' &&
-       ssh "$h" rm -f /srv/ts-managed/ts-auth/ts-auth.env &&
-       ssh "$h" 'systemctl restart terrascale-orchestrator-host.service && /usr/sbin/nft list table inet terrascale_metadata' ||
-       { echo "gru-1-ctl-$n failed" >&2; exit 1; }
-   done
-   shred -u "$WORK"/host-*.json "$WORK"/host-*.new
-   )
-   ```
-
-   `ssh` to a NetBird name uses NetBird SSH. `rm -f` removes the env file an
-   earlier version of this step wrote; the host no longer reads it.
-   The nft output must show the output hook, the timesync-only UDP/123
-   exception and `ip daddr 169.254.169.254 meta skuid != { 0, "terrascale-orchestrator" } counter drop`
-   (nft may print the controller's numeric UID).
-   Enabling the firewall dependency does not start it. Restarting the host runs
-   the rule transaction as a prerequisite.
-   The subshell exits unsuccessfully at the first controller failure; it does
-   not prepare any later controller or hide the error with cleanup.
-   This check reads the rules; live enforcement and reboot verification
-   remain TS-470 deployment checks. If nftables is missing, stop this step
-   and have TS-470 provision it before retrying.
-
-4. Confirm the initially signed controller configs already contain the
-   `ts-auth` profile and enabled stateless service from the preparation above.
-   This step changes no controller configuration. `autoscale.enabled` starts
-   the reconciler for every service the signed config lists. The host agent
-   must be prepared before releasing an artifact that can run there.
-
-5. Download, verify and release:
-
-   ```sh
-   TAG=<ts-auth release tag>; COMMIT=<its full commit>
-   cd "$WORK"
-   fj -H git.terrascale.tech release asset download -r TerraScale/ts-auth "$TAG" ts-auth-linux-arm64
-   fj -H git.terrascale.tech release asset download -r TerraScale/ts-auth "$TAG" ts-auth-linux-arm64.sha256
-   sha256sum -c ts-auth-linux-arm64.sha256
-   fj repo clone -H https://git.terrascale.tech TerraScale/ts-auth "$WORK/ts-auth"
-   F=(--nats-forward 10.251.0.11:4222=127.0.0.1:14222)   # Bastion only
-   sudo terrascale-orchestrator operator ts-auth-release \
-     --config /var/lib/terrascale-operator/operator.json "${F[@]}" \
-     --binary "$WORK/ts-auth-linux-arm64" --sha256 "$WORK/ts-auth-linux-arm64.sha256" \
-     --source-checkout "$WORK/ts-auth" --commit "$COMMIT" \
-     --environment canary --profile "$REPO/deploy/oci-region/ts-auth-gru-1-profile.json" \
-     --wait 10m
-   ```
-
-   Expect `{"step":"artifact",...}`, `{"step":"deploy",...}` and
-   `{"step":"ready",...,"members":2}`.
-
-6. Verify:
-
-   ```sh
-   sudo terrascale-orchestrator operator hosts --config /var/lib/terrascale-operator/operator.json "${F[@]}"
-   curl -fsS https://gru.auth.terrascale.tech/readyz
-   curl -fsS https://gru.auth.terrascale.tech/terrascale/.well-known/openid-configuration | jq -e '.issuer == "https://gru.auth.terrascale.tech/terrascale"'
-   ```
-
-   Expect two `ts-auth` reports `running` with the new digest on two
-   different controllers, `{"status":"ready",...}` and `true`.
-
-A later release repeats step 5. A rotated secret reaches each replica when it
-next starts, for example with the next release; no signature changes.
-
-### Ouroboros owner and dashboard handoff
-
-Both follow the numbered steps and are separate confirmations. Reuse the
-forward and member CA of step 2.
-
-Owner (phase B), after ts-auth is live (step 6 passed) and `mariogk@terrascale.tech`
-has signed in once. `<slug>` is the ts-auth instance the person signed in
-to; copy its `sk_` management key into an owner-only file and shred it
-afterwards:
-
-```sh
-(umask 077; cat > "$WORK/ts-auth-sk")   # paste the sk_ key, then Ctrl-D
-(umask 077; netbird ssh root@gru-1-db-1.nb.ts.internal cat "${CRED:?}" > "$WORK/dashboard-credential")
-terrascale-orchestrator ouroboros bootstrap --plan "$PLAN" \
-  --client-url https://127.0.0.1:19465 --admin-url http://127.0.0.1:19464 --member gru-1-db-1 \
-  --member-ca "$WORK/member-ca.pem" \
-  --dashboard-credential-file "$WORK/dashboard-credential" --management-listener admin \
-  --owner-email mariogk@terrascale.tech --ts-auth-instance <slug> \
-  --ts-auth-key-file "$WORK/ts-auth-sk"
-shred -u "$WORK/dashboard-credential" "$WORK/ts-auth-sk"
-```
-
-Expect the two phase A lines with `"created":false`, then
-`{"organization_id":"...","owner":"<user id>","admin":"01M4EB0GDPPHGJPPVY77EMZQKT","steps":[...]}`.
-A rerun prints `"steps":[]`. If the person has not signed in, it stops with
-`ts-auth instance <slug> has no user mariogk@terrascale.tech yet: sign in once
-with that address (for example on the dashboard), then rerun`; sign in and
-rerun.
-
-Dashboard handoff, Fly app `ts-dashboard`. It sets `TERRABASE_URL`
-(`https://gru.api.terrascale.tech`), `TERRABASE_PROJECT_ID` (from the Vault),
-`TERRABASE_DATABASE` (`dashboard`) and `TERRABASE_API_KEY` (from the Vault),
-and the dashboard's ts-auth client: `TS_AUTH_ISSUER`
-(`https://gru.auth.terrascale.tech/terrascale`), `TS_AUTH_CLIENT_ID`
-(`01M4EQ2FRJ8S8B29E8TQVWNW4J`), `TS_AUTH_REDIRECT_URL`
-(`https://dash.terrascale.tech/login/callback`) and `TS_AUTH_CLIENT_SECRET`
-(from the Vault, the secret ts-auth registers).
-
-```sh
-# Without a token: reads only the project ID, prints the six non-secret
-# settings and the Vault secrets that hold the key and the client secret.
-terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
-# Expect {"app":"ts-dashboard","settings":{...},"api_key_secret":"gru-1-ts-dashboard-terrabase-api-key","client_secret_secret":"gru-1-ts-auth-dashboard-client-secret","staged":false}
-
-# With a token (after step 1 created the client secret): reads all three
-# secrets and runs
-# flyctl secrets import --app ts-dashboard --stage, values on stdin.
-FLY_API_TOKEN=<token> terrascale-orchestrator ouroboros fly-secrets --plan "$PLAN"
-# Expect the same line with "staged":true
-```
-
-No secret is in argv, output or logs. Staged secrets take effect at the
-dashboard's next deploy (`fly deploy` or `fly secrets deploy`), which is the
-TS-472 cutover.
+Automatic dashboard provisioning must deliver its database and confidential-client
+credentials directly from Vault, preserve CSRF and exact issuer/redirect bindings,
+and verify persistence and native login. Existing `ouroboros fly-secrets` tooling
+and per-service refs are delivery dependencies to remove, not copy instructions.
 
 ## Qualification
 

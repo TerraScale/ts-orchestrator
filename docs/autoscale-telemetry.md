@@ -1,21 +1,19 @@
 # Autoscale telemetry
 
-Host agents publish resource load to the regional authority leader for
-metric history every fifteen seconds. Using those reports as autoscaling signals is a
-separate signed opt-in.
+Host agents publish measured resource load every fifteen seconds. Autoscaling
+must consume verified evidence without a feature enable step; production
+cadence and bounds have one correct setting in code.
 
-## Collection and autoscaling
+**Current gap (TS-796):** `controller.autoscale.host_telemetry` still guards
+signal consumption. Removing that control is runtime work, not a signed
+opt-in procedure. Collection already runs independently of autoscaling.
 
-| Where | Field | Default | Effect |
-| --- | --- | --- | --- |
-| signed controller config | `controller.autoscale.host_telemetry` | `false` | When autoscaling is enabled, the collected reports also feed its signal source. Scaling policies (`services[].scaling`) are refused without it. |
+Reports require valid regional authority; demotion and a new authority term
+discard cached observations. Failed publications back off exponentially up
+to ten minutes and return to the fixed fifteen-second interval after recovery.
+Missing or stale signals must hold unsafe actions rather than be replaced
+with invented values.
 
-Collection works with absent or disabled autoscaling. Reports are accepted
-only under valid regional authority; demotion and a new authority term
-discard cached reports before they can enter history. Failed publications
-back off exponentially up to ten minutes, returning to the fixed fifteen-second
-interval after recovery. The aggregator treats a five-minute silence of every
-host as a break.
 
 ## What a host reports
 
@@ -79,11 +77,10 @@ change, so a leader returning after a short failover never scales on its
 earlier term's samples. Per service and signal, the aggregator returns no
 samples until they have arrived without a break for the whole signal window
 (less one 5s report interval), and none once the latest is older than 5
-minutes, so a new term, a first enablement, a newly reporting service or a
+minutes, so a new term, a newly reporting service or a
 cell whose hosts went silent holds with `no-signal-data` instead of scaling
 on a partial or stale window. The reconciler's history reset on every term
-change applies the cooldowns from the start of the term on top. Host load
-intervals should therefore stay below 5 minutes. Members that are not the
+change applies the cooldowns from the start of the term on top. The fixed host reporting interval stays below five minutes. Members that are not the
 leader record no autoscale or TerraBase load history, and a demoted leader,
 or one whose re-acquired lease the reconciler has not adopted yet, stops
 presenting its last results.
@@ -97,14 +94,15 @@ signal's `min_samples` counts the samples of all replicas together.
 
 ## Trust decision
 
-With `host_telemetry` on, an authenticated host's self-reported load can
+An authenticated host's self-reported load can
 move a service **within its signed replica bounds**: a compromised host can
 push a service toward its maximum (bounded by the signed `max` and by
 placement capacity) or keep one signal from agreeing to a scale-down. It
 cannot exceed the bounds, write desired state, or affect fencing, signing or
 TerraBase lifecycle decisions; nothing outside the autoscaler and the
-dashboard reads the reports. Turn the flag on only where hosts are trusted
-to that degree.
+dashboard reads the reports. Automatic admission must preserve that trust
+boundary and signed replica limits; always-on telemetry grants no broader
+authority to a compromised host.
 
 ## Where the data shows
 

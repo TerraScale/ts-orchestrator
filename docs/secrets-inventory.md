@@ -1,5 +1,12 @@
 # TS-745 production secrets inventory
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 Observed 2026-10-08 using configured OCI operator authentication, `oci vault secret list` in every active compartment and the tenancy root in GRU and SFO, Forgejo secret-name listings, Fly secret-name listings, and read-only source/host inspection. This file contains names and metadata only. An ACTIVE Vault record proves storage, not that a consumer has stopped keeping plaintext copies.
 
 Regions: `gru` = `sa-saopaulo-1`; `sfo` = `us-sanjose-1`. New names use `<region>-<service>-<purpose>`. Existing `<region>-1-*` and signed bootstrap names remain pinned until an in-place migration verifies the new consumer; never rename signed references or re-found a serving cell.

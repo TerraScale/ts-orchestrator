@@ -1,5 +1,12 @@
 # Observability
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 `internal/observability` is the leaf slice for metrics, health, structured
 logs, the in-memory event bus and cell-wide member snapshots. Everything it
 serves is read-only and none of it is admission evidence.

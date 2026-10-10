@@ -1,5 +1,10 @@
 # Unified orchestrator CLI
 
+The [zero-configuration contract](zero-configuration.md) governs production.
+This is current command inventory, not a per-region setup or tuning recipe.
+Runtime input removal and automatic Vault delivery remain TS-796; read-only
+verification and explicit destructive-operation safeguards still apply.
+
 TerraScale Orchestrator ships one Go executable for controller, host, and
 operator operations. `make build` writes `dist/ts-orch`. Published Linux artifacts and guest
 installation paths retain their existing `terrascale-orchestrator` names;
@@ -83,7 +88,6 @@ Without `--apply` these commands only read.
 | `ts-orch netbird dns [enable] [--apply] --netbird COMMAND` | Plan, or install, native operator DNS with a brief overlay reconnect; use another SSH transport or a detached invocation |
 | `ts-orch netbird dns --config-dir /etc/netbird-wt0/config.d --netbird netbird-wt0 --apply` | Enable NixOS operator DNS and persist an owned `90-ts-orchestrator-dns.json` override |
 | `ts-orch netbird dns --split-resolver --upstream IP --netbird COMMAND --apply` | Route `nb.ts.internal` through a local host-network container's resolver; preserve existing search/options and route other queries to the explicitly supplied current upstream |
-| `ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE` | Write another region's image `netbird.json` from its reviewed plan, offline |
 
 ## Secrets
 
@@ -92,15 +96,12 @@ naming scheme and who may read what.
 
 | Command | Purpose |
 | --- | --- |
-| `ts-orch vault put --vault-id OCID --key-id OCID --compartment-id OCID --name NAME --file FILE` | Store FILE once as secret NAME with the operator's `~/.oci/config`, then prove the stored copy equals FILE |
-| `ts-orch vault render --vault-id OCID --scope SCOPE --template FILE --out FILE` | On a host, as root: fill each `{{KEY}}` with secret `<scope>-<key>` read with the instance principal; write FILE atomically, mode `0600`, in a private tmpfs directory with swap disabled |
 | `ts-orch vault deliver --cell REGION --service SERVICE --refs FILE --dir DIR [--refresh 1m] [--once] [--file-names]` | Fetch CURRENT at startup and atomically refresh private tmpfs files on newer versions; output metadata only |
 | `ts-orch vault version --vault-id OCID --name NAME --secret-id OCID --expect-current N --file /dev/stdin [--instance-principal]` | Publish owner-provided bytes with an ETag and verify CURRENT readback; never generate or blindly retry a value |
 | `ts-orch region plan LABEL OCI_REGION --out FILE [--from PLAN]` | Derive a non-home region's plan from another region's reviewed plan; reads OCI, creates nothing ([new region](new-region.md)) |
 | `ts-orch region create LABEL OCI_REGION --state DIR --attempt-base FILE --home-plan FILE` | Bring the region up: foundation, private peering with gru-1, NetBird, founding attempt, edge, DNS, Atlas, verify; resumable, prints each step's wall time |
 | `ts-orch region verify LABEL --plan BOUND_PLAN [--wait D]` | Fail unless api and auth answer, every load balancer backend is healthy and Atlas lists the region |
-| `ts-orch atlas key --plan FILE` | Store the Atlas publish key once as `<cell>-atlas-publish-key`; print the Worker's `PUBLISH_KEYS` (see [Atlas](atlas.md)) |
-| `ts-orch atlas add-region --config OPERATOR_JSON --cell CELL [--out FILE]` | Plan listing a catalog region in the global home's `atlas` section; `--out` writes the unsigned candidate for `release sign-spec --root` (see [Atlas](atlas.md#add-a-region)) |
+| `ts-orch atlas add-region --config OPERATOR_JSON --cell CELL [--out FILE]` | Plan listing a catalog region in the global home's `atlas` section; `--out` writes the unsigned candidate for `release sign-spec --root` (see [Atlas](atlas.md#automatic-discovery-and-vault-delivery)) |
 | `ts-orch atlas publish --plan FILE --section FILE` | Publish a cell spec `atlas` section to Atlas once, as the leader does every 10 s |
 
 ## Cell spec
@@ -141,8 +142,6 @@ Every command prints the leader's JSON reply.
 | --- | --- |
 | `ts-orch rollout status --config OPERATOR_JSON` | Desired release, the last ten generations, the leader's rollout status and its newest release channel report |
 | `ts-orch rollout publish --config F --receipt F [--delegation F]` | Make a signed release the next generation (upload the binary with `operator artifact-push` first) |
-| `ts-orch rollout pause --config F` | Start no further rollout; one in flight finishes |
-| `ts-orch rollout resume --config F` | Undo pause and retry the rollback of a frozen rollout; units an operator already moved to a third release are not stepped back |
 | `ts-orch rollout rollback --config F --to GEN` | Publish generation GEN again as a new generation and stop the rollout in flight |
 
 ## Root key rotation

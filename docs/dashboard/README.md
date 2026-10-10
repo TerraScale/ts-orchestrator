@@ -1,5 +1,12 @@
 # Operator dashboard
 
+The [zero-configuration contract](../zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 The dashboard is served by every controller on its private, authenticated
 observability listener without an enable setting. It only reads
 providers; it never changes control-plane state.
@@ -12,9 +19,9 @@ region's dashboard token on `/login`; the browser keeps a read-only session
 until sign-out or a dashboard token change, including across controller
 restarts. TCP 9463 is
 private: the NetBird operator policy and host firewall admit it through `wt0`,
-and it has no public listener or OCI ingress rule. The signed cell spec's
-`dashboard.token` enables the listener in place; never re-found a serving cell
-to change access ([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
+and it has no public listener or OCI ingress rule. The current listener still depends on a cell-spec
+`dashboard.token` reference; automatic listener/credential provisioning is pending
+TS-796. Never re-found a serving cell to change access ([listener contract](../observability.md#on-the-netbird-address-cell-spec)).
 
 LINKS: controller topology URLs (verified from mariogk-dev, 2026-10-07 23:03 UTC):
 
@@ -27,38 +34,19 @@ LINKS: controller topology URLs (verified from mariogk-dev, 2026-10-07 23:03 UTC
 | SFO 2 | http://10.200.122.37:9463/topology | http://ts-sfo-2.nb.ts.internal:9463/topology |
 | SFO 3 | http://10.200.63.195:9463/topology | http://ts-sfo-3.nb.ts.internal:9463/topology |
 
-### Fetch the regional tokens
+### Automatic operator credential delivery
 
-Run with the operator's `~/.oci/config` ([Vault access](../secrets.md#read-a-secret)).
-This writes owner-only files without printing the tokens:
-
-```sh
-mkdir -p "$HOME/.config/ts-orch"
-dashboard_token() {
-  oci --region "$1" secrets secret-bundle get-secret-bundle-by-name \
-    --vault-id "$2" --secret-name "$3" \
-    --query 'data."secret-bundle-content".content' --raw-output | base64 --decode
-}
-(
-  set -euo pipefail
-  umask 077
-  dashboard_token sa-saopaulo-1 \
-    ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq \
-    gru-1-orch-dashboard-token > "$HOME/.config/ts-orch/dashboard-gru-token"
-  dashboard_token us-sanjose-1 \
-    ocid1.vault.oc1.us-sanjose-1.grvmmkplaacx6.abzwuljrzcofqki6a5podtjnhvyiol7yqehrd77tp2hoeynxp5wozv54mq6a \
-    sfo-1-orch-dashboard-token > "$HOME/.config/ts-orch/dashboard-sfo-token"
-)
-```
-
-Read the appropriate file locally to enter its token in the login form; never
-put it in a URL, command argument, ticket or PR. Each token is shared by that
-region's three controllers. Token rotation is picked up within five minutes.
+OCI Vault must provision and deliver read-only operator credentials automatically.
+Do not extract tokens into local files or copy them through login/setup recipes.
+The current bearer/session consumer and acceptance checker's token-file inputs
+are TS-796 delivery gaps; this document does not implement the replacement.
+Keep private transport, operator authorization and token-free logs/URLs.
 
 ### Check every controller from this device
 
-Run this only on delta, beta or mariogk-dev with NetBird already connected
-and both token files available. Build once with `nice -n 19 make build`:
+The current checker below requires its legacy token-file inputs. Automatic
+credential delivery is pending; do not manually extract production tokens to
+satisfy it. Its allowed-host, private-network and identity checks remain binding:
 
 ```sh
 scripts/check-dashboard-access.sh \

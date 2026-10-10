@@ -58,7 +58,7 @@ binary-only self-update below replaces the executable, not the image):
 | TerraBase automation grants | Human authorizes new root-bound signed controller config: update actor with `can_place_terrabase`, `can_update_terrabase_runtime`, repository/role/environment limits; separate compatibility actor with `can_certify_terrabase_compatibility`. Installing this config is a separately reviewed operation. |
 | TerraBase per-seat Prepare | Online update key and independent compatibility key on the operator host, only after the approved compatibility policy has been satisfied. Existing `terrabase-update` signs both statements. |
 | Orchestrator binary receipt | Human reviews exact qualified main source/run/job attempt and bytes; offline root issues source/architecture/environment-scoped delegation; local leaf owner runs `ts-orch release sign-binary`. |
-| Orchestrator binary update receipt (opt-in) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes accept these receipts only with `--allow-scoped-auto-sign`. |
+| Orchestrator binary update receipt (current trust inventory) | Offline root issues a time-bounded (at most 31 days) binary update delegation scoped to environment, cells, architectures and descendants of a reviewed main revision (`ts-orch release sign-update-delegation`). The online leaf then signs any `ci.yml`-qualified descendant automatically (`ts-orch release sign-binary-update`). Nodes accept these receipts only with `--allow-scoped-auto-sign`. |
 | Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
 | Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Existing continuity does not supply this authority. Root private keys stay offline. |
 
@@ -359,16 +359,17 @@ batch-soak → … → complete`, or `rolling-back → rolled-back`, `frozen` an
 Executors derive their next step from `NextActions`, whose operation IDs are
 deterministic per rollout, unit, phase and attempt.
 
-When the rollout store is enabled (`controller.rollouts.enabled`), managed
-TerraBase update admission also refuses a candidate the cell's known-bad list
-names (`placement.Config.KnownBad`). An unreadable list, or a store that has
-not opened yet, refuses the update: admission fails closed. With the store
-disabled nothing changes; the operator's `known-bad/` directory still applies.
+The rollout store and known-bad admission must always apply. The current
+`controller.rollouts.enabled` guard remains a TS-796 gap; disabling it is not
+a production option. An unreadable/unopened store must refuse updates, and
+known-bad digests must never be admitted. Retain existing integrity evidence
+and rollback protections during runtime removal.
 
 ### Rollout executor
 
 `internal/rolloutexec` drives the state machine on the authority leader.
-`controller.rollouts.executor` (with `enabled`) starts it on every controller
+The current `controller.rollouts.executor`/`enabled` guards start it on each
+controller; removing them is pending TS-796. This is existing-path inventory
 (see [below](#leader-run-controller-self-update)); the pieces are:
 
 - **Executor.** Each tick, the leader loads the cell's active rollout, adopts
@@ -546,8 +547,9 @@ can never stage bytes no receipt names. With the production default, the
 online update leaf plus its root-signed scoped delegation is enough to run a
 binary as root on every controller of the delegation's cells, architectures
 and environment until the delegation expires: keep it short and narrow. A
-signed config with an explicit `controller.rollouts` block without
-`allow_scoped_auto_sign` opts a cell out.
+signed config can still opt a cell out through `controller.rollouts` and
+`allow_scoped_auto_sign`; those legacy gates must be removed by TS-796.
+Automatic delivery still requires scoped, unexpired trust delegation.
 
 ### Leader-run controller self-update
 
@@ -651,13 +653,11 @@ aborting a release changes what the controllers run.
   admitted only with `controller.rollouts.allow_scoped_auto_sign`, set
   exactly when the nodes accept them. Republishing the newest binary changes
   nothing.
-- `pause` / `resume`: a paused cell starts no further rollout; one in flight
-  runs to completion or rollback, so a pause never strands a half-updated
-  quorum. `resume` also retries the rollback of a frozen rollout. A unit
-  whose fresh proof names a third release (neither the rollback's, nor the
-  target, nor known bad), which an operator installed by hand, is done
-  rather than stepped back; a rollout left with nothing to roll back ends
-  and frees the cell's rollout slot for the next generation.
+- Legacy `pause`/`resume` paths still exist and require removal in TS-796.
+  Automatic delivery must retain quorum, current-peer proof, rollback and
+  known-bad safety holds without exposing an operator kill switch. A verified
+  third release must not be overwritten during recovery.
+
 - `rollback --to GEN`: re-verifies GEN's receipt, publishes its release
   again as a new generation and aborts a rollout in flight towards another
   release (its touched units return to their predecessor and its target
@@ -687,12 +687,13 @@ status.json         the region leader's report: run, state (rolling |
 Release paths and schema identifiers are unversioned. Obsolete release
 storage is discarded and the cell is rebootstrapped, with releases published
 afresh; there is no migration, backfill, or compatibility reader.
-Bootstrap each cell with the updated binary and unversioned regional IAM
-policies before re-enabling fleet deployment or pruning.
+Automatic regional bootstrap must supply the qualified binary and required
+IAM grants before integrity checks can permit delivery or pruning.
 During this reset, discard the previous `TS_RELEASE_CHANNEL` KV bucket and
 obsolete head-bucket release objects for both orchestrator and service roles.
-Keep fleet deployment and pruning paused until every region has the new
-leader, then publish fresh channels and service claims before resuming them.
+Before delivery or deletion proceeds, prove each region has a qualified leader
+and fresh signed release claims. These are integrity/ownership prerequisites,
+not deployment pause switches; destructive resets still require explicit approval.
 
 1. Every green push to `main`, including documentation changes, dispatches
    `deploy.yml` after the image dispatch. No deployment switch is required. It refuses
@@ -1089,9 +1090,12 @@ ts-auth run and keep for rollback (about 128 MB each), so a new release
 never fit. `gru-1-controller-policy` holds exactly
 `ociregion.RequiredControllerStatements`.
 
-To rotate the API key, upload a new public key to the user, replace the
-Vault secret and `TS_RELEASE_OCI_KEY` on both repositories, set the new
-`TS_RELEASE_OCI_FINGERPRINT`, then delete the old key from the user.
+OCI Vault must automatically provision and deliver first-party publication
+credentials and coordinate approved rotation with consumer versions. Vendor
+credentials are stored once in Vault; operators do not copy secrets or update
+per-repository credential settings. The existing CI secret consumers remain a
+TS-796 delivery gap. Preserve least privilege, verified key identity and safe
+retirement of old versions.
 
 The first releases, from the CI job before `deploy` finishing to the
 leader reporting `complete`: ts-auth 31c6bea 15 min 5 s (about 9 of them

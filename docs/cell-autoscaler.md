@@ -1,5 +1,12 @@
 # TerraBase cell autoscaler
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 `internal/cellscale` runs a TerraBase cell without an operator. It reads the
 pressure of every db node, then takes at most one bounded action per
 evaluation:

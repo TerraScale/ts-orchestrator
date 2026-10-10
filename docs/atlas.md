@@ -26,43 +26,24 @@ publishes it with the ts-go Atlas client (`terrascale.tech/sdk/atlas`).
 - Only the global home's spec carries the section: one publisher writes the
   topology of every region.
 
-## Secrets
+## Automatic discovery and Vault delivery
 
-| Secret | Where | Made by |
-| --- | --- | --- |
-| `gru-1-atlas-publish-key` | gru-1 Vault; the controllers read it with their instance principal | `ts-orch atlas key --plan deploy/oci-region/plan.json` (once; prints the public `PUBLISH_KEYS`) |
-| `gru-1-atlas-store-key`, `gru-1-atlas-terrabase-project-id` | gru-1 Vault | `ts-orch ouroboros bootstrap` (project `atlas`, database `atlas` in organization `terrascale`) |
-| Worker `ATLAS_STORE_KEY` | ts-atlas Worker secret | `wrangler secret put`, piped from the Vault secret above |
-| Worker `PIN_SIGNING_KEY` | ts-atlas Worker secret | a new private P-256 JWK, piped into `wrangler secret put`; rotating it only makes SDKs resolve again |
+The publisher must discover every admitted region and its authoritative service
+origins automatically. New regions need no catalog amendment or enable step.
+Local region identity is inferred from location, and private NetBird membership
+admits nodes under the required [operating contract](zero-configuration.md).
 
-`PUBLISH_KEYS` and `ATLAS_STORE_URL`
-(`https://gru.api.terrascale.tech/v1/projects/<atlas project id>/databases/atlas`)
-are vars in ts-atlas `wrangler.toml`; its CI deploys them from `main`.
+OCI Vault must create and deliver publisher/session-pin secrets automatically,
+including the corresponding public trust keys. Vendor publication credentials
+are stored once in Vault and picked up automatically. Operators do not pipe
+secrets into Worker commands or copy regional credentials.
 
-## Bring Atlas up
+**Current gap (TS-796):** the publisher still depends on the global home's
+explicit `atlas` spec, a configured region list and pre-existing Vault key.
+Atlas now stores discovery documents in D1; the older TerraBase store-key
+recipe is retired. Existing signed publication does not prove automatic
+regional admission or secret provisioning.
 
-1. `ts-orch ouroboros bootstrap ...` (see [ts-auth deployment](ts-auth-deployment.md)) creates the atlas project and its key.
-2. `ts-orch atlas key --plan deploy/oci-region/plan.json` stores the publish key and prints `PUBLISH_KEYS`.
-3. Set the Worker secrets, then merge the ts-atlas `wrangler.toml` change with both vars.
-4. `ts-orch atlas publish --plan deploy/oci-region/plan.json --section deploy/oci-region/atlas-gru-1.json` publishes once; `/v1/discovery` answers 200.
-5. Move the controllers to a binary with binary level 11 in place (`selfupdate`), add the section to the spec (`ts-orch get`, add `"atlas"`, `requires_binary: 11`), `diff`, `release sign-spec --root` and `apply` ([cell spec](cell-spec.md#commands)).
-6. Check: `updated` in `/v1/discovery` stays within 10 s of now.
-
-## Add a region
-
-A new region is listed by one planned amendment of the global home's spec,
-never by hand-editing `atlas.regions`:
-
-1. `ts-orch atlas add-region --config <gru-1 operator config> --cell sfo-1 --out sfo-1-atlas.json`
-   reads the running spec from the leader, appends `sfo-1` from the
-   [region catalog](../internal/ociregion/catalog) (name, country, latitude,
-   longitude) with `https://sfo.api.terrascale.tech` and
-   `https://sfo.auth.terrascale.tech`, keeps regions in catalog order, prints
-   the leader's plan and writes the unsigned candidate. A region already
-   listed exactly so prints `"status":"unchanged"` and writes no file; a
-   different entry for the cell is refused.
-2. `ts-orch release sign-spec --root ...` signs it: any `atlas` change needs a
-   root (`cellspec.AuthorityChanges`).
-3. `ts-orch apply --config ... -f <signed>`; within 10 s the region is in
-   `/v1/discovery`. `atlas.Discover` reads that document for commands that
-   must check a region is listed.
+Preserve authority-epoch fencing, monotonic publication ordering, exact publisher
+signature validation and secret-free diagnostics. Stale or missing publication
+must remain visibly unavailable; it must not fabricate healthy regions.

@@ -1,5 +1,12 @@
 # Settings in the cell spec
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 Design note for TS-569. Changing a running cell's settings must never need a
 re-found, and a controller binary must restart cleanly after a self-update or
 a rollback. Today neither holds:

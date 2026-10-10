@@ -66,35 +66,18 @@ policy ts-ops-netbird-manager-secrets (compartment ts-ops), one per secret:
 secret, add one statement; never grant a whole compartment that holds other
 secrets. The cell's own grants live in the [foundation](region-bootstrap.md).
 
-## Store a secret
+## Automatic secret lifecycle
 
-`ts-orch vault put` stores a file, a pipe or `/dev/stdin` once, with the
-operator's `~/.oci/config`:
+OCI Vault must create, deliver and configure every first-party production secret.
+Vendor-issued keys are stored once in Vault and picked up automatically. Manual
+file/stdin upload, secret rendering and credential-copy setup recipes are retired.
 
-```sh
-ts-orch vault put --vault-id "$VAULT" --key-id "$VAULT_KEY" \
-  --compartment-id "$COMPARTMENT" --name gru-1-trust-root-public-key \
-  --file gru-1-root.public.pem
-```
-
-It never replaces an existing secret. It always reads the current version
-back and fails unless it equals the input, so a rerun proves the stored
-copy. It prints `{"secret", "id", "created"}`.
-
-The rotating owner adds a version with an optimistic concurrency check. Supply
-bytes on stdin, never in arguments or a disk staging file:
-
-```sh
-ts-orch vault version --vault-id "$VAULT" --name "$NAME" \
-  --secret-id "$SECRET" --expect-current "$VERSION" --file /dev/stdin
-```
-
-A regional privileged publisher may use `--instance-principal` instead of the
-operator profile. Grant writes only to its owned secret OCIDs. The command
-checks the named target, ACTIVE state and expected CURRENT version, then uses
-OCI `If-Match` while publishing a new CURRENT version. Reread CURRENT on an
-uncertain result; never blindly retry a signing-ring mutation. `put` remains
-create-once and never rotates a value. Historical versions remain retained.
+**Current gap (TS-796):** create-once and versioning commands plus instance-principal
+retrieval exist, but this does not prove complete automatic creation or delivery.
+Preserve exact-secret grants, owner-only in-memory delivery and secret-free logs.
+Rotation must verify the target's ACTIVE identity and expected CURRENT version,
+use optimistic concurrency, and reread uncertain outcomes rather than blindly
+retrying a signing-ring mutation. Existing history is not discarded automatically.
 
 ## TS-703 signing publisher
 
@@ -201,22 +184,15 @@ atomic replacement publishes the entire ring. Every ref is limited to the
 configured service and region; IAM must independently grant only its secret
 OCIDs. Outputs contain directory paths, secret OCIDs and version numbers.
 
-## Render a host file
+## Host-file delivery contract
 
-`ts-orch vault render` runs on a host as root. It replaces each `{{KEY}}` of a
-template with the JSON-quoted current secret `<scope>-<key>`, read with the
-instance principal, and writes the file atomically with mode `0600` in a private tmpfs directory
-with swap disabled:
-
-```sh
-ts-orch vault render --vault-id "$VAULT" --scope gru-1 \
-  --template /opt/ts-ops/netbird/templates/config.yaml.tmpl --out /run/terrascale-netbird/config.yaml
-```
-
-It prints the file and the secret names it read, and refuses to run as any
-other user. Every Vault read or write in `ts-orch`, ts-auth's included,
-refuses to run while an OCI SDK debug, endpoint or TLS override variable is
-set.
+Vault must deliver required files automatically to private owner-only memory
+storage. Consumers must not require an operator to render or copy production
+credentials. Existing renderer/materializer behavior is current implementation
+inventory, not end-to-end provisioning evidence. Keep atomic replacement,
+permissions and secret-free diagnostics, and fail closed on missing inputs.
+Vault operations must still reject OCI SDK debug, endpoint and TLS override
+variables; automatic delivery does not permit an untrusted provider origin.
 
 ## Node credentials live in memory
 

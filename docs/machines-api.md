@@ -80,8 +80,9 @@ A controller serves the API when its config has `controller.machines_api`:
   the internet to hosts that also run the cell's NATS quorum and authority.
 - **Signed production configs refuse `machines_api`**, so a signed config
   can never bind the API onto the host enrollment port or name TLS files
-  that nothing delivers. A production cell turns the API on with the cell
-  spec's `machines_api` section instead (below).
+  that nothing delivers. The current production path depends on a cell-spec
+  `machines_api` section; automatic provisioning and guard removal remain TS-796.
+  Missing TLS/trust material must still fail closed.
 
 ### Production: the cell spec section
 

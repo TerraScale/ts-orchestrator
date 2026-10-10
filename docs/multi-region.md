@@ -1,17 +1,19 @@
 # Multi-region foundation
 
-Status: foundation plus the first operations. Every piece below is off by
-default; a controller without the new configuration blocks behaves exactly as
-before. The only OCI effect is the opt-in region subscription
-(`controller.region_planner.subscribe_regions`).
+Required contract: every admitted region serves, all regions are discovered
+automatically and every feature is always on. The current foundation still
+guards fabric/global/planner behavior with configuration blocks and a region
+subscription switch. TS-796 owns removal and automatic provisioning; this
+document inventories the existing implementation without certifying completion.
 
 ## Topology
 
 Each region stays its own NATS/JetStream cluster with its own operator. Its
 servers follow the [static names](region-bootstrap.md#static-names) of
 `internal/naming` (`gru-1-ctl-N` in GRU, `ts-<region>-N` elsewhere); the JetStream
-domain and NATS cluster name stay the lower-case cell token (`gru`). When
-`nats.embedded.interregion.enabled` is set:
+domain and NATS cluster name stay the lower-case cell token (`gru`). The
+existing interregion path, still guarded by `nats.embedded.interregion.enabled`,
+has these transport properties:
 
 - The JetStream domain is the cell name (`gru`, `sfo`, `fra`).
 - Regions link by NATS leafnodes over mutual TLS, never gateways. The links
@@ -223,7 +225,8 @@ literals elsewhere.
 
 ## Global state
 
-`controller.global` (`enabled`, `home`) turns on the global control plane:
+The current global control plane still consumes `controller.global`
+(`enabled`, `home`), a TS-796 guard-removal gap. Its authority behavior:
 
 - In the home region, a global-scope `authority.Runtime` holds the
   `ts.control.global.lease` lease in the regional control log, and
@@ -298,13 +301,13 @@ capacity and limit errors, and latency rollups into proposals. It only
 proposes; a human or policy approval is always required. Proposal IDs carry
 the target proposal generation (`<cell>-g<generation>-<hash>`), so no two
 attempts on one cell ever share a proposal ID. With
-`controller.region_planner` enabled (global home only, off by default) it runs
-on the global leader and feeds its budgets to the insight engine;
+the current `controller.region_planner` guard, it runs on the global leader
+and feeds budgets to the insight engine. This guard is a TS-796 removal gap;
 `controller.rollouts` likewise opens the rollout store for the dashboard and
 insights.
 
-Its signals are the home's own capacity and limit placement holds and, with
-`peer_signals` (off by default), every interregion peer's: the planner
+Its signals include the home's capacity/limit holds and every interregion peer's
+observations. The current `peer_signals` guard is a TS-796 removal gap; the planner
 queries each peer's decision journal over the observability contract for
 placement `held` decisions and keeps only those about that peer, paging
 back through truncated results (at most 8 pages of 256 per peer and round).

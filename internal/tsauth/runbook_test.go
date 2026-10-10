@@ -2,72 +2,29 @@ package tsauth
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestTSAuthRunbookInstallsFirewallBeforeRestartAndStopsOnFailure(t *testing.T) {
+func TestTSAuthRunbookRequiresAutomaticDeliveryAndFailClosedStartup(t *testing.T) {
 	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "ts-auth-deployment.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, step, ok := strings.Cut(string(doc), "3. On each controller,")
-	if !ok {
-		t.Fatal("missing controller preparation step")
-	}
-	_, step, ok = strings.Cut(step, "```sh\n")
-	if !ok {
-		t.Fatal("missing controller preparation commands")
-	}
-	step, _, ok = strings.Cut(step, "```")
-	if !ok {
-		t.Fatal("unclosed runbook commands")
-	}
-	repo, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, failure := range []string{"", "test -x /usr/sbin/nft", "systemctl enable", "systemctl restart"} {
-		t.Run(failure, func(t *testing.T) {
-			work := t.TempDir()
-			stub := "#!/bin/sh\nprintf '%s\\n' \"$0 $*\" >> \"$TS_AUTH_RUNBOOK_LOG\"\n" +
-				"if [ -n \"$TS_AUTH_RUNBOOK_FAIL\" ]; then case \"$*\" in *\"$TS_AUTH_RUNBOOK_FAIL\"*) exit 1;; esac; fi\nprintf '{}\\n'\n"
-			for _, name := range []string{"ssh", "jq", "shred", "terrascale-orchestrator"} {
-				if err := os.WriteFile(filepath.Join(work, name), []byte(stub), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			}
-			logPath := filepath.Join(work, "calls")
-			command := exec.CommandContext(t.Context(), "bash", "-c", step)
-			command.Env = append(os.Environ(), "PATH="+work+string(os.PathListSeparator)+os.Getenv("PATH"),
-				"REPO="+repo, "WORK="+work, "VAULT=fixture-vault", "TS_AUTH_RUNBOOK_LOG="+logPath, "TS_AUTH_RUNBOOK_FAIL="+failure)
-			output, err := command.CombinedOutput()
-			if (err != nil) != (failure != "") {
-				t.Fatalf("failure %q: err=%v, output=%s", failure, err, output)
-			}
-			calls, err := os.ReadFile(logPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-			log := string(calls)
-			if failure != "" {
-				if strings.Contains(log, "gru-1-ctl-2") || strings.Contains(log, "/shred ") {
-					t.Fatalf("continued after failure:\n%s", log)
-				}
-				return
-			}
-			for _, line := range strings.Split(log, "\n") {
-				if strings.Contains(line, "systemctl restart terrascale-ts-auth-metadata.service") {
-					t.Fatal("restarted the required metadata unit independently")
-				}
-			}
-			// Hosts read the secrets themselves: no env file is written.
-			firewall, restart := strings.Index(log, "systemctl enable terrascale-ts-auth-metadata.service"), strings.Index(log, "systemctl restart terrascale-orchestrator-host.service")
-			if firewall < 0 || restart <= firewall || strings.Contains(log, "env-file") || !strings.Contains(log, "gru-1-ctl-3") {
-				t.Fatalf("firewall was not ready before restart, an env file was written, or a controller was skipped:\n%s", log)
-			}
-		})
+	text := string(doc)
+	for _, requirement := range []string{
+		"OCI Vault must automatically create, deliver and configure",
+		"Operators do not generate, upload or copy production keys.",
+		"private NetBird admission, region discovery/inference and Vault creation/delivery",
+		"loads it before the host service:",
+		"rejected ruleset prevents host startup.",
+		"every host start (including after reboot)",
+		"Stopping the unit leaves the rule installed.",
+		"Do not flush the global nftables ruleset.",
+	} {
+		if !strings.Contains(text, requirement) {
+			t.Errorf("runbook missing requirement %q", requirement)
+		}
 	}
 }

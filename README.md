@@ -1,5 +1,9 @@
 # TerraScale Orchestrator
 
+Read the [required zero-configuration operating contract](docs/zero-configuration.md).
+Current configuration paths described below are implementation limitations, not
+production activation instructions.
+
 TerraScale Orchestrator is a Go control plane distributed as one binary. A
 regional controller embeds its NATS server and JetStream store; hosts connect
 to the regional cell to receive signed, digest-pinned desired state. Forgejo
@@ -14,10 +18,11 @@ automation should call those commands. Operational tools and qualification
 drivers live in Go feature packages; shell wrappers select the environment
 and invoke the CLI. See [contributing](CONTRIBUTING.md) and [CLI boundaries](docs/cli.md).
 
-Regional foundation and first-controller setup are operator-run; after the
-identity and authority handoff, the orchestrator forms that cell's remaining
-controller peers. See the [manual regional bootstrap runbook](docs/region-bootstrap.md)
-for the current supported procedure and its limits.
+The required production path admits private NetBird members automatically,
+discovers every region and infers local identity from execution location.
+**Current gap (TS-796):** first-controller/regional foundation still depends on
+explicit bootstrap inputs. The [legacy bootstrap inventory](docs/region-bootstrap.md)
+records those limits; it is not proof of automatic admission.
 
 `ts-infra` manages shared Email Delivery only. The operator prepares regional
 networking, IAM, and bootstrap inputs and starts controller A; `ts-orchestrator`
@@ -25,12 +30,13 @@ then forms the same-cell B/C peers and manages ARM workload hosts and TerraBase
 deployment. The current `ts-infra` source and guarded workflow do not seed or
 manage regional resources.
 
-Every TerraScale secret lives in OCI Vault; OpenBao is retired. See
-[secrets](docs/secrets.md) for names, who may read what, and
-`ts-orch vault put` and `render`.
+OCI Vault must automatically create, deliver and configure every first-party
+production secret. Vendor keys are stored once and discovered automatically.
+See [secrets](docs/secrets.md) for least-privilege and current delivery limits;
+existing storage/delivery evidence does not prove end-to-end automation.
 
 Open the [operator dashboard over NetBird](docs/dashboard/README.md#netbird-access)
-for the GRU/SFO topology URLs, regional token fetch commands, and the
+for the access contract, current gaps, and the
 `scripts/check-dashboard-access.sh` live check from each operator device.
 
 This is a greenfield Go implementation. It does not promise compatibility with

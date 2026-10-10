@@ -1,5 +1,12 @@
 # Production role configuration
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 The reviewed controller material input is a public description of one deployment, not a source of instance IDs, Vault OCIDs, or private keys. `generate-controller-material` creates a private local source and a public `Record`. The first controller is the only operator-started instance; after its identity and authority are handed off, `ts-orchestrator` launches the signed peers in that same cell. For the full regional setup and seed sequence, use the [manual regional bootstrap runbook](region-bootstrap.md).
 
 `ts-infra` currently manages shared Email Delivery only: four email resource

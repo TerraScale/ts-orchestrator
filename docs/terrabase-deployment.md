@@ -1,5 +1,12 @@
 # TerraBase deployment into a running cell
 
+The [zero-configuration contract](zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
 This is the operator workflow for the C# TerraBase binary. The regional
 bootstrap attempt (`ts-orch oci-region attempt`) brings a cell up end to
 end: controller material that includes the cell's member CA, signed
@@ -218,23 +225,18 @@ The member count is the number of `TERRABASE_PEERS` entries. The command:
    rolled back. A failure to write progress to stdout never counts as a
    gate failure; the command reports it when it exits.
 
-By default all members switch together: the delivery path writes every
-host's desired at once, so every member restarts on the new binary. With
-`controller.terrabase_seats` enabled they restart one at a time instead
-(TS-571, [zero-downtime rollouts](terrabase-zero-downtime-rollouts.md)): a
-host holds its member's restart, reporting it `waiting`, until the leader's
-seat controller permits it, and with `oci_reconcile.public_lb` the seat is
-drained on the public load balancer first and returns once it serves again:
+The current delivery path writes every host's desired state together unless
+legacy seat/load-balancer guards are active. TS-796 must replace those switches
+with always-on coordinated one-member-at-a-time rollout and fixed correct timing.
+No per-controller enable step or duration tuning is part of production policy.
 
-```json
-"terrabase_seats": {"enabled": true, "drain_grace_seconds": 15, "settle_seconds": 10}
-```
+Seat coordination holds a restart until the authority leader provides a permit,
+drains the backend and waits for verified serving evidence before proceeding.
+It must never drain the last healthy seat: a single-member cell cannot qualify
+an uninterrupted rolling release merely by changing a switch. Preserve that
+safety hold, current digest agreement and rollback proof.
 
-Both durations are optional (0 to 300 seconds). Enable it on every
-controller of the cell together: the host restart gate is served by the
-authority leader. The controller never drains the last healthy seat, so a
-cell whose load balancer serves one member (gru-1 until TS-561) must keep it
-off, or every release waits out its gate and rolls back. Old binaries stay
+Old binaries stay
 installed on the hosts, so a rollback reuses the cached file. A member's data
 lives on its host (on the data volume attached to it when
 `terrabase_data_volume` is set), so the controller replaces a failed member in place

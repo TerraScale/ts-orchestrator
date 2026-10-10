@@ -27,9 +27,13 @@ flags but lacks `noatime`. This is best effort and failures are logged.
 A signed `xfs` pin is formatted with `mkfs.xfs -m uuid=<pin>`, which needs
 `xfsprogs` on the host image.
 
-## Opt-in features
+## Current storage guard inventory
 
-Every feature below is off by default.
+Every storage feature must always be available, with fixed correct limits and
+automatic credential delivery. The fields below describe guards still present
+in the current implementation; TS-796 removes them. This is technical inventory,
+not a production activation or tuning table. Ownership, complete observations,
+retention and backup-chain integrity checks still authorize any deletion.
 
 | Setting | Effect | Prerequisite |
 |---|---|---|
@@ -166,30 +170,12 @@ decision journal (`volume_reattached`, rule
 `TS_ROLLOUTS`, `TS_OCI_DESIRED`, `TS_APPS`, `TS_VOLUMES`) in OCI Object Storage, so that a controller set rebuilt
 with empty JetStream stores gets them back without any re-signing.
 
-```json
-"kv_snapshot": {
-  "enabled": true,
-  "region": "sa-saopaulo-1",
-  "namespace": "<tenancy namespace>",
-  "bucket": "gru-1-head",
-  "kms_key_id": "<head bucket KMS key OCID, optional>",
-  "prefix": "kv-snapshot/v1",
-  "interval_seconds": 30
-}
-```
-
-The location is boot configuration because the restore runs before any KV
-bucket exists. Use a bucket with versioning enabled (`gru-1-head` has it);
-the versions are the snapshot history. A cell gets the setting when its
-controller configs are signed: `render-controller-config --kv-snapshot FILE
---kv-snapshot-sha256 H` (the JSON above, validated before it is rendered),
-which `oci-region attempt` passes from its `kv_snapshot` setting. The reviewed
-controller policy statements (`ociregion.RequiredControllerStatements`, which
-the attempt's material phase applies) include the prefix grant:
-
-```
-Allow dynamic-group gru-1-controllers to manage objects in compartment gru-1-control where all {target.bucket.name='gru-1-head', target.object.name='kv-snapshot/v1/*', any {request.permission='OBJECT_READ', request.permission='OBJECT_CREATE', request.permission='OBJECT_OVERWRITE'}}
-```
+Snapshot location, credentials and schedule must be derived/provisioned
+automatically. OCI Vault delivers credentials; the production cadence has one
+correct setting in code. The current `kv_snapshot` block and explicit signing
+inputs are TS-796 dependencies, not a setup recipe. The snapshot bucket must
+retain version history and its identity must be verified. Grant only read,
+create and overwrite on its owned snapshot prefix.
 
 **Snapshots.** Every `interval_seconds` the authority leader reads each
 bucket's stream and, if its last sequence moved, writes the latest value of
@@ -199,8 +185,8 @@ never replaces a snapshot of a newer stream or a higher sequence of the same
 stream, so a deposed leader or an old cell cannot roll it back. Only a
 changed bucket is uploaded. A change reaches Object Storage within about one
 interval; a change made in that window is lost with every controller. The
-[cell spec](cell-spec.md)'s `kv_snapshot` section changes the interval, or
-pauses the uploads (root only), on running controllers.
+[cell spec](cell-spec.md) still exposes interval/pause fields. Their removal
+is pending TS-796; continuous snapshots have no operator tuning or pause step.
 
 **Restore.** After the cluster forms and before authority or any store
 opens, the controller reads the plan in `TS_KV_RESTORE`. A complete plan

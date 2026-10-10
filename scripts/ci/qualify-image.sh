@@ -5,8 +5,7 @@
 # usage: qualify-image.sh
 #
 # TS_QUALIFICATION_SUITES names, separated by spaces, the suites whose
-# fixtures this runner supplies; image.yml passes the repository variable of
-# the same name and skips this step while it is unset. Suites and the
+# fixtures this runner supplies; image.yml always runs every suite. Suites and the
 # environment each one requires:
 #
 #   terrabase-walkthrough    TS_TERRABASE_SERVER: a tb-server for this runner's

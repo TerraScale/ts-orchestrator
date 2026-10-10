@@ -113,10 +113,11 @@ Choose the tier when you add a test:
   `TS_ORCH_RUN_DEPLOYMENT_CONVERGENCE_MEASUREMENT`, as plain opt-ins; they
   are not pass/fail gates.
 
-To enable T2 on a runner, provide the fixture variables listed in
-`scripts/ci/qualify-image.sh` to the image job and set the repository
-variable `TS_QUALIFICATION_SUITES` to the suites it supplies. While the
-variable is unset, `image.yml` skips the step.
+`image.yml` always runs all eight qualification suites listed in
+`scripts/ci/qualify-image.sh`. The runner must supply each suite's fixture
+inputs. Missing prerequisites, skipped suites and empty test selections fail
+qualification; there is no repository opt-in variable. Test-only measurement
+commands remain explicit invocations and do not switch production features.
 
 `scripts/ci/racetest/race-test.sh` runs the race tests. It packs the tests of
 the slowest packages into shards by the estimates in

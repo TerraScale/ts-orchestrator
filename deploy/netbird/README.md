@@ -1,10 +1,18 @@
 # NetBird
 
-Current state: the GRU testing reset removed its server peers, setup keys,
+The [zero-configuration contract](../../docs/zero-configuration.md) is required production policy.
+Configuration fields, manual bootstrap paths and dated observations below are
+legacy implementation inventory, not feature/region activation or credential-copy
+instructions. Removing runtime guards and completing automatic NetBird admission,
+region inference and OCI Vault provisioning/delivery remain TS-796. Integrity,
+authorization, quorum, residency and destructive-operation safeguards still apply.
+
+Historical reset record: the GRU testing reset removed its server peers, setup keys,
 group, access policies, routing network and `gru.ts.internal` zone. The manager,
 ts-ops peer, operator devices and Forgejo access policies are preserved.
-The GRU cell is wiped entirely and rebuilt as `gru-1` while ts-ops (Forgejo
-and the manager) stays: follow [Fresh cell enrollment](#fresh-cell-enrollment).
+This records the past testing reset, not permission to rebuild a serving cell.
+Existing serving cells are updated in place; see
+[automatic cell admission](#automatic-cell-admission).
 See
 [current regional reset](../../docs/region-bootstrap.md#current-gru-reset).
 
@@ -68,10 +76,11 @@ and release it like any other change.
 | `ts-orch netbird inventory` | Prints groups, policies, networks, DNS and peers as the manager reports them |
 | `ts-orch netbird image-input --plan PLAN --setup-key-secret-id OCID --out FILE` | Writes another region's image `netbird.json` to the new FILE from its reviewed plan: OCI region, setup key secret and each host's node name as its peer name. Offline; no PAT |
 
-Without `--apply` the commands only read. Keep the PAT in a root-owned `0600`
-file, never on the command line: `--pat-file` (a regular `0600` file, symlinks
-refused) or the `NB_PAT` environment variable. `--management-url` overrides
-`https://netbird.terrascale.tech` (plain HTTP only on loopback, for tests).
+Without `--apply` the commands only read. The legacy CLI accepts a protected
+PAT file or environment input; these interfaces are TS-796 removal inventory,
+not instructions to create or copy production credentials. Production
+automation must discover its scoped PAT through OCI Vault. The current manager
+origin override and loopback test transport are also legacy configuration gaps.
 `inventory` prints allowlisted JSON and never setup-key values. Objects are
 matched by name; a `renamed_from` list renames legacy objects in place, keeping
 their IDs, members and setup-key auto-groups. Groups, policies, networks and
@@ -107,18 +116,12 @@ existing NetBird policy's statements verbatim):
 Allow dynamic-group terrascale-orchestrator to read secret-bundles in compartment id <secret_compartment_id> where target.secret.id = '<admin PAT secret OCID>'
 ```
 
-If the secret lives in the control compartment, the existing broad
-`read secret-bundles` grant already covers it. Enable it:
-
-1. Store the `ts-orchestrator` service user's PAT (below) as an OCI Vault
-   secret and add the policy.
-2. Run `ts-orch netbird sync`, review, then `sync --apply`; a second `sync`
-   must print no changes. Do the same with `prune-peers`.
-3. Set `admin_pat_secret_id` in `deploy/image/inputs/netbird-gru.json`, update
-   its SHA-256 pin in `deploy/image/image-inputs.json`, and roll the image.
-4. Controller logs show `NetBird manager reconciliation enabled on the cell
-   authority holder`, then `NetBird <step> applied: …` for each change,
-   `NetBird <step> warning: …`, or `NetBird management failed, retrying in …`.
+Automatic provisioning must create/discover the required service credential and
+least-privilege grants, deliver them through OCI Vault, and reconcile every
+admitted node/region. The current optional PAT reference and pinned image inputs
+are TS-796 gaps, not reconciliation enable steps. Missing credentials must hold
+unauthorized mutations. Validate readback and idempotence; never remove unmanaged
+objects without reviewed ownership and explicit deletion approval.
 
 Peers join groups only through setup keys and user auto-groups;
 reconciliation never sets group membership.
@@ -158,17 +161,11 @@ private peering (TS-668): the NATS interregion leafnodes (7422) and
 TerraBase's peer port (9443), both directions.
 
 The desired state derives the `<cell>-servers` group and its policies
-for every cell in `internal/ociregion/catalog` other than
-GRU, in catalog order, so a new region needs no NetBird code change. Give a
-new region NetBird with:
-
-```sh
-ts-orch netbird sync --apply             # creates <cell>-servers and its policies
-ts-orch netbird setup-key --servers-group <cell>-servers --out KEY --apply
-# store KEY as a Vault secret in the region, then:
-ts-orch netbird image-input --plan deploy/oci-region/<cell>-1-plan.json \
-  --setup-key-secret-id <secret OCID> --out deploy/image/inputs/netbird-<cell>.json
-```
+for every cell in `internal/ociregion/catalog` other than GRU, in catalog order.
+Automatic admission must create/discover the regional group, scoped enrollment
+credential and image metadata, with OCI Vault delivery and no region activation
+step. **Current gap (TS-796):** the implementation still has explicit setup-key
+and image-input commands; manual key extraction/upload is retired.
 
 There is no default `All` policy. Do not allow 6222 or 8443 to operators. The
 `netbird-ssh` policy makes the manager enable each server's NetBird SSH
@@ -321,47 +318,21 @@ ssh -p 2022 mariogk@ts-ops.nb.ts.internal hostname
 curl --resolve git.terrascale.tech:443:10.200.106.253 https://git.terrascale.tech/api/v1/version
 ```
 
-Headless NixOS dev VMs use HomeLab `fleet/nix/modules/common/netbird-vm.nix`
-(`homelab.netbird.enable = true`) with a one-off setup key that auto-assigns
-`operators`:
+Managed headless automation peers must enroll with scoped credentials created
+and delivered through OCI Vault. Human operator devices retain their normal
+identity-provider authentication and authorization; network membership never
+grants operator privileges automatically.
 
-```sh
-sudo install -m 0600 /dev/stdin /var/lib/homelab/netbird/setup-key   # paste the key, then Ctrl-D
-sudo systemctl restart netbird-wt0-login.service
-netbird-wt0 status
-sudo rm /var/lib/homelab/netbird/setup-key
-```
+**Current gap (TS-796):** headless client adoption and split DNS still depend on
+manual setup-key and DNS activation interfaces. Those are removal inventory,
+not production setup instructions. Automatic client configuration must preserve
+peer identity, native split DNS, the existing default resolver and coexistence
+with Tailscale. The host-network automation peer must retain its narrow internal
+DNS routes and existing upstream/search domains.
 
-Their NixOS default disables DNS. Enable native split DNS with the
-ts-orch-owned override; it survives the config merge on client restart and
-keeps Tailscale and the existing default resolver:
-
-```sh
-sudo ts-orch netbird dns enable --netbird netbird-wt0 \
-  --config-dir /etc/netbird-wt0/config.d --apply
-```
-
-This briefly reconnects NetBird while preserving the peer identity. Server
-routes and inbound connections remain disabled. On these machines
-`ts-orch netbird ssh --netbird 'sudo netbird-wt0'` also takes peer names
-(below).
-
-For mariogk-dev's host-network automation container, its native DNS server
-already runs inside the container. Install the host's split resolver:
-
-```sh
-sudo ts-orch netbird dns enable \
-  --netbird 'podman exec ts-netbird-ops netbird' \
-  --split-resolver --upstream 100.100.100.100 --apply
-```
-
-The owned systemd service/timer routes only `~nb.ts.internal` to the
-container's current NetBird IP. Tailscale remains the default upstream, with
-the original search domains and resolver options preserved. Persistent units
-live in `/etc/systemd/system.control`, a writable systemd search path on
-NixOS. Check `getent ahostsv4 ts-gru-1.nb.ts.internal` and
-`getent ahostsv4 delta.tail057f.ts.net` before running the
-[dashboard access check](../../docs/dashboard/README.md#check-every-controller-from-this-device).
+Verify both network paths and name resolution before claiming readiness; the
+[dashboard access check](../../docs/dashboard/README.md#check-every-controller-from-this-device)
+must still succeed from each authorized device.
 
 ## Operator automation peer
 
@@ -416,37 +387,18 @@ fresh login, so redirected output stays intact.
 After a reboot, restart the peer with `sudo deploy/netbird/operator-peer.sh`
 (needs `podman` and `jq`); it keeps its identity. The script pins the image by
 digest, keeps the state directory root-owned `0700`, and replaces a container
-created from other arguments. The identity survives in the state directory. To enroll another host:
+created from other arguments. The identity survives in the state directory.
+Automatic adoption must create a one-off key scoped to `ops-automation`, deliver
+it through OCI Vault, verify the enrolled identity and preserve existing state.
+Operators must not extract a PAT, setup key or password into local files.
 
-1. With the [operator automation PAT](#pats), create a one-off setup key that
-   auto-assigns `ops-automation` and expires in an hour, and save only its
-   value to a `0600` file:
-
-   ```sh
-   (umask 077; printf 'Authorization: Token %s\n' "$(cat "$PAT")" > "$WORK/auth.hdr")
-   curl -fsS -H @"$WORK/auth.hdr" -H 'Content-Type: application/json' \
-     -d '{"name":"<host>-ops","type":"one-off","expires_in":3600,"auto_groups":["<ops-automation group ID>"],"usage_limit":1}' \
-     https://netbird.terrascale.tech/api/setup-keys | (umask 077; jq -j .key > "$WORK/setup.key")
-   ```
-
-2. Load `docker.io/netbirdio/netbird:0.79.0` (the digest the script pins) into root's podman storage (on
-   mariogk-dev root's registry mirror refuses it: `podman pull` as the user,
-   then `podman save ... | sudo podman load`), then enroll and shred the key:
-
-   ```sh
-   sudo deploy/netbird/operator-peer.sh --setup-key-file "$WORK/setup.key"
-   shred -u "$WORK/setup.key" "$WORK/auth.hdr"
-   ```
-
-The automation user was created through an invite, because `POST /api/users`
-fails for service-user callers on this manager (it looks up the account's
-original creator, who no longer exists). To recreate it, store a new password
-(at least 8 characters with an uppercase letter, a digit and a symbol) with
-`ts-orch vault put` first, then `POST /api/users/invites` with
-`{"email":"ssh-automation@terrascale.tech","name":"ssh-automation","role":"user","auto_groups":[],"expires_in":3600}`
-and `POST /api/users/invites/<invite_token>/accept` with `{"password": ...}`
-from a `0600` file. Remove access by deleting the peer, or blocking the user
-(`PUT /api/users/<id>` with `"is_blocked": true`).
+The existing automation-user creation uses an invite because the manager's
+service-user `POST /api/users` path references a removed original creator.
+**Current gap (TS-796):** automatic identity creation and credential delivery are
+not yet complete. The reconciler must own the invite lifecycle and generated
+password, store it directly in Vault, and verify the expected role and no
+unintended auto-groups. Access revocation still requires exact peer/user
+ownership and authorization; it must not grant or remove unrelated access.
 
 ## Secrets and tokens
 
@@ -456,8 +408,8 @@ for names, compartments and how to read or rotate one. `install.sh` renders
 [`manager/templates/config.yaml.tmpl`](manager/templates/config.yaml.tmpl)
 with `ts-orch vault render` and ts-ops's instance principal. The server unit
 reads Vault again before each start; the container binds the runtime directory,
-so no rendered configuration is kept in `/etc` on the host. The template's
-three keys are 32 random bytes in base64 (`openssl rand -base64 32`):
+so no rendered configuration is kept in `/etc` on the host. Automatic
+provisioning must generate the template's three keys as 32 random bytes in base64:
 `gru-1-netbird-datastore-encryption-key`, `gru-1-netbird-relay-auth-secret`
 and `gru-1-netbird-session-cookie-encryption-key`, in compartment `ts-ops`,
 readable by the `ts-ops` dynamic group only.
@@ -468,55 +420,48 @@ readable by the `ts-ops` dynamic group only.
 | Operator automation PAT | `gru-1-netbird-automation-user-id`, `-pat`, `-pat-id`, `-pat-expires` (compartment `TerraScale`) | Operator API calls and `ts-orch netbird` by hand |
 | SSH automation login `ssh-automation@terrascale.tech` | `gru-1-netbird-ssh-automation-email`, `-password` (compartment `TerraScale`) | `ts-orch netbird ssh` ([operator automation peer](#operator-automation-peer)) |
 | Controller admin PAT | Service user `ts-orchestrator` (role `admin`: `network_admin` cannot rename or delete peers or change account settings). `gru-1-netbird-admin-pat`, referenced by `admin_pat_secret_id` | Leader controller reconciliation |
-| Server setup key | `gru-1-netbird-setup-key`, referenced by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The reset invalidated the pinned `…zsrdta`; [Fresh cell enrollment](#fresh-cell-enrollment) replaces it | Server enrollment through instance principals |
+| Server setup key | `gru-1-netbird-setup-key`, referenced by `setup_key_secret_id` in `deploy/image/inputs/netbird-gru.json`. The historical reset invalidated the pinned `…zsrdta`; [automatic cell admission](#automatic-cell-admission) requires verified replacement delivery | Server enrollment through instance principals |
 
 ### PATs
 
-API automation uses the admin service user `terrascale-automation`. Its PATs
-last 365 days, the NetBird maximum. The operator automation PAT was created
-2026-10-01; renew it before 2027-10-01:
+Automation owns the `terrascale-automation` service identity and its scoped
+PAT lifecycle. The current NetBird maximum lifetime is 365 days; the recorded
+operator PAT was created on 2026-10-01 and expires on 2027-10-01. The reconciler
+must create replacements before expiry and store the token, token ID and expiry
+directly as new versions of their OCI Vault secrets. Nobody writes token files
+or uploads copied credentials.
 
-1. With a valid PAT, mint the replacement:
-   `POST /api/users/$NETBIRD_AUTOMATION_USER_ID/tokens` with
-   `{"name": "<PAT name>", "expires_in": 365}`. Keep the response in memory
-   or a protected `0600` file.
-2. Add the token, its ID and expiry as new versions of their OCI Vault
-   secrets ([rotate](../../docs/secrets.md#store-a-secret)) and confirm
-   `ts-orch netbird inventory` works with it.
-3. Revoke the old token:
-   `DELETE /api/users/$NETBIRD_AUTOMATION_USER_ID/tokens/<old PAT ID>`.
-   Shred any file from step 1.
+Before revoking an old PAT, verify the new `CURRENT` version by readback and
+prove delivery to every consumer, including a successful `ts-orch netbird
+inventory` with the replacement. If publication or delivery fails, revoke the
+unused replacement and preserve the working old token. The least-privilege
+owner must verify that no consumers remain before retiring `ts-infra-ci` and
+its old `NETBIRD_PAT` reference; credential cleanup must preserve unrelated
+Forgejo services and access.
 
-If step 2 fails, delete the new token and keep the old one.
-
-PAT `ts-infra-ci` (minted 2026-10-02 for the abandoned ts-infra OpenTofu
-adoption) is being retired. Once ts-infra no longer reads it, delete its
-Forgejo secret `NETBIRD_PAT`, revoke the token, and shred its root-only copy:
-`sudo shred -u /root/netbird-ts-infra-ci.pat` on ts-ops. Do not reuse it.
+**Current gap (TS-796):** automatic PAT creation/rotation and complete Vault
+publication/delivery are not yet implemented. Legacy manual procedures are not
+production setup or rotation instructions. See the
+[automatic secret lifecycle](../../docs/secrets.md#automatic-secret-lifecycle).
 
 ### Setup keys
 
-Gateway and operator setup keys are one-off: create them in the dashboard
-with the right auto-group, write them to protected `0600` files, enroll, then
-delete the files.
+Automatic enrollment owns one-off gateway/operator keys with only their intended
+auto-group. Servers use the recorded reusable, nonexpiring `gru-servers` key,
+which assigns only `gru-servers`; other regions derive their own narrow server
+group. No server receives a PAT. Joined peers preserve their identities when a
+setup key is revoked.
 
-GRU servers use one reusable, nonexpiring key named `gru-servers` that
-assigns only `gru-servers`, so every revision and autoscaled host enrolls with
-it. The testing reset deleted the legacy `gru-ts-orch-servers` key. No server
-receives a PAT. Joined peers keep their identities when a key is revoked.
-Create or rotate it:
+The reconciler must create/discover each scoped key, store it directly in OCI
+Vault, verify new-version `CURRENT` readback and deliver it to enrollment
+consumers automatically. Verify an enrolled server's identity/group using the
+replacement before revoking an old key. Preserve the working key if delivery
+fails, and report duplicate valid key names until safe retirement completes.
 
-1. `ts-orch netbird setup-key --pat-file PAT --out /root/netbird-gru-servers.key`,
-   review the plan, then rerun with `--apply`. The value goes only to the new
-   `0600` file; the command fails before creating a key if the file exists.
-2. Store it as `gru-1-netbird-setup-key`
-   ([Fresh cell enrollment](#fresh-cell-enrollment) step 3; for a rotation
-   add a version ([rotate](../../docs/secrets.md#store-a-secret)) and rerun
-   `ts-orch vault put` to prove `CURRENT` is the new key), then shred the
-   file.
-3. Enroll one test server with the Vault key, then revoke the old key
-   (`PUT /api/setup-keys/<old ID>` with `"revoked": true`). Until then `sync`
-   warns that two valid keys carry the name.
+**Current gap (TS-796):** explicit setup-key references and manual provisioning
+interfaces remain. The testing reset deleted the legacy `gru-ts-orch-servers`
+key; this is inventory, not permission to re-found a serving cell. See
+[automatic cell admission](#automatic-cell-admission).
 
 ## Manager on ts-ops
 
@@ -555,39 +500,26 @@ The installer renders the config from Vault, and refuses to run without
 installs the backup timer, and adds ntfy OnFailure hooks when the alerting
 bundle is present.
 
-Create the owner over loopback before Caddy publishes the name, so the public
-setup page is never reachable. The request carries the owner email, a
-generated password, and `"create_pat": true, "pat_expire_in": 30`:
+Automatic owner provisioning must run over loopback before the public manager
+name is exposed, so its unauthenticated setup page is never reachable. The
+reconciler owns generated owner credentials and the temporary setup PAT, stores
+owner email/password directly in the scoped OCI Vault secrets, verifies
+readback/delivery, creates the least-privilege automation identity and retires
+the temporary PAT only after verification. No request/response credential files
+or manual Vault upload belongs in this production path.
 
-```sh
-sudo /opt/ts-ops/netbird/setup-owner.sh < owner-request.json > owner-response.json
-```
-
-Store the login as `gru-1-netbird-owner-email` and
-`gru-1-netbird-owner-password` with `ts-orch vault put` (compartment
-`TerraScale`, [secrets](../../docs/secrets.md)) and shred both files. Add the Caddy
-block to `/etc/caddy/Caddyfile`, then:
-
-```sh
-sudo podman exec caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-sudo podman exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
-```
-
-With the setup PAT, create the admin service user `terrascale-automation`,
-mint its PATs ([PATs](#pats)), and delete the setup PAT. Delete the default
-`All` policy before any peer joins, then run `ts-orch netbird sync --apply`.
+**Current gap (TS-796):** owner provisioning and automatic delivery are not
+complete; existing setup helpers are legacy interfaces. Publication must still
+validate the manager/TLS configuration and owned network policy before admitting
+peers. The broad default `All` policy must never grant unintended access.
 
 ### Routing peer
 
-After [Operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering)
-has connected the LPGs, open UDP 51820 in the Forgejo NSG and create a
-one-off setup key that auto-assigns `ts-ops-gateway`:
-
-```sh
-sudo bash /opt/ts-ops/netbird/install-routing-peer.sh --setup-key-file /root/netbird-gateway.key --dry-run
-sudo bash /opt/ts-ops/netbird/install-routing-peer.sh --setup-key-file /root/netbird-gateway.key
-sudo shred -u /root/netbird-gateway.key
-```
+After [operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering),
+automatic enrollment must obtain a one-off key scoped to `ts-ops-gateway` through
+OCI Vault and verify the resulting peer identity before publishing the route.
+**Current gap (TS-796):** the legacy routing-peer installer still requires an
+explicit key-file interface. Manual key creation/copying is retired.
 
 The script verifies the NetBird apt key fingerprint, installs and holds
 `netbird=0.79.0`, enables IPv4 forwarding, and opens UDP 51820 with
@@ -730,72 +662,27 @@ That record attests the enrollment config before `peer_names`
 (`verified_enrollment_config_sha256` `ada24468…`). The shipped
 `deploy/image/inputs/netbird-gru.json` (`f6124f6f…`) adds the static peer
 names and is not yet covered: refresh the record after its first verified
-rollout, and again once [Fresh cell enrollment](#fresh-cell-enrollment) step 5
-sets the new setup-key secret.
+rollout, and again after [automatic cell admission](#automatic-cell-admission)
+verifies delivery of the replacement setup-key secret.
 
-## Fresh cell enrollment
+## Automatic cell admission
 
-The procedure for a rebuilt cell, first the wiped GRU cell rebuilt as
-`gru-1`: the manager, the `ts-ops` routing peer and operator devices exist;
-GRU's group, policies, network, zone, setup key and server peers do not. If
-`ts-orch netbird inventory` still lists server peers of the wiped cell, remove
-them first ([decommission](#decommission)). Every step that
-changes the manager, OCI or an image is a live action that needs the
-owner's approval. Keep the automation PAT in a root-owned `0600` file `$PAT`.
+Private NetBird network membership admits a node automatically. The node
+must discover every region, infer its own region from execution location and
+start serving without a cell setup-key/feature enable step. OCI Vault must
+provision and deliver first-party enrollment secrets and pick up vendor-issued
+management credentials stored once.
 
-1. Reconcile the manager objects:
-   `ts-orch netbird sync --pat-file "$PAT"`. The plan creates `gru-servers`,
-   the four policies, network `gru-cell` with its resource and the `ts-ops`
-   router, the DNS settings and the `gru.ts.internal` zone with its records;
-   it warns that no `gru-servers` setup key exists and about any unmanaged
-   policy. Rerun with `--apply`. Delete every policy it flags as outside the
-   desired state in the dashboard (a default `All` policy would open the
-   servers to everything); a third `sync` must print only the setup-key
-   warning.
-2. Create the server setup key ([Setup keys](#setup-keys)):
+**Current gap (TS-796):** bootstrap still requires setup-key/PAT secret references
+and explicit reviewed regional inputs. The retired manual key-generation,
+Vault-file upload and image-reference recipe is not automatic admission evidence.
 
-   ```sh
-   umask 077
-   ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key
-   ts-orch netbird setup-key --pat-file "$PAT" --out netbird-gru-servers.key --apply
-   ```
-
-3. Store the key as the cell's setup-key secret in its control compartment,
-   never on a command line, then shred the file. `put` prints the secret
-   OCID for step 5:
-
-   ```sh
-   ts-orch vault put --vault-id "$VAULT" --key-id "$VAULT_KEY" \
-     --compartment-id "$CONTROL_COMPARTMENT" --name gru-1-netbird-setup-key \
-     --file netbird-gru-servers.key
-   shred -u netbird-gru-servers.key
-   ```
-
-   For the TS-470 rebuild this is done: `gru-1-netbird-setup-key` exists.
-   The old OpenBao entry `secret/homelab/infra/netbird/servers-gru` stays
-   unread and unchanged; the checked-in image's old secret OCID must not be
-   reused ([rebuild proposal](../../docs/evidence/gru-rebuild-plan-20261004.md)).
-
-4. After the [operator gateway peering](../../docs/region-bootstrap.md#operator-gateway-peering),
-   grant the cell's controller and host dynamic groups read access to exactly
-   that secret and record it in `plan.netbird`
-   ([automatic server enrollment](../../docs/region-bootstrap.md#automatic-server-enrollment)).
-5. Set the secret OCID as `setup_key_secret_id` in
-   `deploy/image/inputs/netbird-gru.json`, and the controller admin PAT secret
-   as `admin_pat_secret_id` ([Desired state and reconciliation](#desired-state-and-reconciliation)
-   step 1) so one image enables controller reconciliation; update its SHA-256
-   (`sha256sum deploy/image/inputs/netbird-gru.json`) in
-   `deploy/image/image-inputs.json`, run
-   `go test ./internal/netbird/... ./tests/deploy/`, and build the image.
-   Keep `peer_names`: the test checks them against the desired state.
-6. Launch the cell from that image. Each controller and host enrolls through
-   `terrascale-netbird-enroll.service` under its slot name
-   (`ts-gru-1`..`3`, `gru-1-db-1`..`2`); NetBird SSH works once it
-   is connected.
-7. Verify: `ts-orch netbird inventory` lists the five server peers under slot
-   names in `gru-servers`, `sync` and `prune-peers` print `no changes` without
-   warnings, and the [Verify](#verify) checks pass. Controller logs show
-   `NetBird manager reconciliation enabled on the cell authority holder`.
+Keep identity/role checks, least-privilege network policy, private authenticated
+transport and verified artifact hashes. Automatic membership grants no operator
+or customer privilege, residency exemption or destructive permission. Inspect
+actual peer identity/readback before claiming enrollment; unknown/disconnected
+nodes must remain visibly unavailable. Decommission still needs exact ownership
+and explicit approval before peers or resources are deleted.
 
 ### Decommission
 

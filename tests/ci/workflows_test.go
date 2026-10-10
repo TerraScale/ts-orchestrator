@@ -89,7 +89,7 @@ func TestWorkflowContracts(t *testing.T) {
 	})
 	t.Run("release_admission_job", func(t *testing.T) {
 		const name = "verify/go + artifact/linux-amd64-arm64"
-		if got := matches(ci, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{name}) {
+		if got := matches(ci, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"Reject new configuration switches", name}) {
 			t.Fatalf("jobs: %v", got)
 		}
 		for _, path := range []string{"scripts/ci/publish-qualification.sh", "deploy/image/build-image.sh"} {
@@ -98,7 +98,7 @@ func TestWorkflowContracts(t *testing.T) {
 	})
 	t.Run("image_provenance_job", func(t *testing.T) {
 		const name = "build/qualified-gru-arm64-image"
-		if got := matches(image, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{name}) {
+		if got := matches(image, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"Reject new configuration switches", name}) {
 			t.Fatalf("jobs: %v", got)
 		}
 		requireText(t, workflowText(t, "deploy/image/build-image.sh"), "image_job='"+name+"'")
@@ -115,7 +115,9 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		_, qualifyStep, _ := strings.Cut(image, "- name: Qualify the revision against real infrastructure")
 		qualifyStep, _, _ = strings.Cut(qualifyStep, "- name:")
-		requireText(t, qualifyStep, "if: ${{ steps.gate.outputs.skip != 'true' && vars.TS_QUALIFICATION_SUITES != '' }}")
+		requireText(t, qualifyStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
+		forbidText(t, qualifyStep, "vars.TS_QUALIFICATION_SUITES")
+		requireText(t, qualifyStep, "TS_QUALIFICATION_SUITES: terrabase-walkthrough terrabase-successor native-validator rendered-sfo-enrollment terrabase-binary terrabase-release cellscale-oci-readonly ts-auth-terrabase")
 		requireText(t, qualifyStep, "TS_TEST_TIER: qualification\n")
 		requireText(t, qualifyStep, "run: bash scripts/ci/qualify-image.sh")
 		_, dispatch, ok := strings.Cut(image, "workflow_dispatch:")
@@ -130,7 +132,7 @@ func TestWorkflowContracts(t *testing.T) {
 	t.Run("deploy_waits_for_ci_without_an_opt_in", func(t *testing.T) {
 		deploy := workflowText(t, ".forgejo/workflows/deploy.yml")
 		forbidText(t, deploy, "  push:")
-		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"deploy/every-region"}) {
+		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"Reject new configuration switches", "deploy/every-region"}) {
 			t.Fatalf("jobs: %v", got)
 		}
 		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' }}\n")
@@ -142,7 +144,8 @@ func TestWorkflowContracts(t *testing.T) {
 		if got := matches(dispatch, `(?m)^      ([a-z_]+):$`); !reflect.DeepEqual(got, []string{"source_revision", "source_ci_run_id", "source_ci_run_number", "trigger"}) {
 			t.Fatalf("inputs: %v", got)
 		}
-		steps := matches(deploy, `(?m)^      - name: (.+)$`)
+		_, deployJob, _ := strings.Cut(deploy, "\n  deploy:\n")
+		steps := matches(deployJob, `(?m)^      - name: (.+)$`)
 		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
 		roll := slices.Index(steps, "Sign and deploy every region concurrently")
 		if gate < 0 || roll != gate+1 || roll != len(steps)-1 {

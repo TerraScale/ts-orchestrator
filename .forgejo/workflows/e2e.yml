@@ -25,7 +25,7 @@ concurrency:
 
 env:
   CI: 'true'
-  SOURCE_SHA: ${{ forgejo.sha }}
+  SOURCE_SHA: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
   GOCACHE: /cache/go/build
   GOMODCACHE: /cache/go/mod
   GOFLAGS: -p=4
@@ -38,7 +38,41 @@ defaults:
     working-directory: e2e
 
 jobs:
+  zero-config:
+    name: Reject new configuration switches
+    runs-on: terrascale-builder
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact change with its history
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: https://git.terrascale.tech
+          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check out the shared TerraScale policy
+        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          github-server-url: https://git.terrascale.tech
+          repository: TerraScale/ts-builder
+          ref: 4abae826a08090c4505d7c8f3d7adcd78be616ef
+          path: .zero-config-policy
+          token: ${{ secrets.TERRASCALE_BOT_TOKEN }}
+          persist-credentials: false
+      - name: Check the added lines
+        working-directory: .
+        env:
+          ZERO_CONFIG_BASE: ${{ forgejo.event.pull_request.base.sha || forgejo.event.before }}
+          ZERO_CONFIG_HEAD: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+        run: |
+          set -eu
+          if [ -z "$ZERO_CONFIG_BASE" ]; then
+            ZERO_CONFIG_BASE=$(git rev-parse "$ZERO_CONFIG_HEAD^")
+          fi
+          python3 .zero-config-policy/scripts/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
+
   local:
+    needs: [zero-config]
     name: local E2E
     if: ${{ forgejo.event_name != 'workflow_dispatch' || inputs.target == 'local' }}
     runs-on: terrascale-builder
@@ -52,7 +86,7 @@ jobs:
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.sha }}
+          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -90,6 +124,7 @@ jobs:
           retention-days: 30
 
   prod:
+    needs: [zero-config]
     name: production E2E (manual only)
     if: ${{ forgejo.event_name == 'workflow_dispatch' && inputs.target == 'prod' }}
     runs-on: terrascale-builder
@@ -103,7 +138,7 @@ jobs:
         uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.sha }}
+          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
           fetch-depth: 1
           persist-credentials: false
 

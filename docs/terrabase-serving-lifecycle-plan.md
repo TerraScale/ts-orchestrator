@@ -1,5 +1,10 @@
 # TerraBase serving lifecycle
 
+This is a proposed safety design, not implemented automation. The
+[zero-configuration contract](zero-configuration.md) supersedes manual peer-list
+updates: membership must be discovered automatically. TS-796/TS-773 must preserve
+exclusive writer-stop, placement and residency evidence during that replacement.
+
 Status: the health gate, drain and rollback below are implemented and
 tested locally against the real C# binary; nothing here has run on OCI.
 Sections marked **PROPOSED** are not implemented and are not deployment

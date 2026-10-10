@@ -130,7 +130,7 @@ and its settings prefix; today only `terrabase` has one.
   (`agent.<hash>.role-identity`) with a fresh nkey and P-256 key, and writes
   the files described in
   [TerraBase's role files](terrabase-runtime-contract.md#role-files).
-- **Turning it on in a region.** The leader issues nothing until the
+- **Required transport trust.** The leader issues nothing until the
   brokers' cell account holds the signer. A region founded from material
   generated since TS-663 holds it from the start; a cell founded before
   needs [the role claim](broker-claim-rotation.md#role-claim) once.
