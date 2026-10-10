@@ -12,6 +12,7 @@ These pages describe the current greenfield Go implementation.
 | [Architecture and boundaries](architecture.md) | Regional NATS, authority, host delivery, OCI scope, and current limits |
 | [Unified CLI](cli.md) | Prefer Go `ts-orch` commands for operational tooling; bootstrap/release migration and remaining scripts |
 | [Contributing](../CONTRIBUTING.md) | CLI-first Go feature development, automation boundaries, and verification |
+| [Region-agnostic multi-region](region-agnostic.md) | TS-803 design: one trust root and release identity, role/pattern NATS permissions, automatic region discovery, registry deploy targets |
 | [Multi-region foundation](multi-region.md) | Automatic interregion operating contract; current fabric, lifecycle and planner gaps |
 | [NetBird control-plane path](network/netbird-control-plane.md) | TS-676 live root cause, private preferred policy prerequisites and read-only path audit |
 | [NATS fabric](nats-fabric.md) | Orchestrator-to-orchestrator transport: subject, stream and KV naming, which pattern to use, global documents |
