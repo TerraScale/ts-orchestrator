@@ -62,6 +62,8 @@ type Point struct {
 	Value float64   `json:"v"`
 	Min   float64   `json:"min"`
 	Max   float64   `json:"max"`
+	// Samples lets in-process charts detect omitted observations within a bucket.
+	Samples uint32 `json:"-"`
 }
 
 // bucket accumulates the samples of one tier step.
@@ -410,7 +412,7 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 		}
 		tierName := chosen
 		if query.Tier == "" {
-			tierName = current.coveringTier(chosen, start)
+			tierName = current.coveringTier(chosen, start, end, cutoff)
 		}
 		t, ok := current.tiers[tierName]
 		if !ok {
@@ -449,7 +451,7 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 				value = b.Last
 			}
 			out.Points = append(out.Points, Point{Time: time.UnixMilli(b.Start).UTC(), Value: value,
-				Min: b.Min, Max: b.Max})
+				Min: b.Min, Max: b.Max, Samples: b.Count})
 		}
 		// A stored series without points in the range does not take one
 		// of the result's slots.
@@ -469,7 +471,7 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 // on whose data reaches back to start; restored history has no raw tier and
 // may lack the 1m one, so a fresh tier must not hide older restored data.
 // Without full coverage it takes the tier reaching furthest back.
-func (current *series) coveringTier(chosen string, start int64) string {
+func (current *series) coveringTier(chosen string, start, end, cutoff int64) string {
 	order := []string{TierRaw, Tier1m, Tier5m, Tier1h}
 	best, bestOldest := chosen, int64(math.MaxInt64)
 	for _, name := range order[max(slices.Index(order, chosen), 0):] {
@@ -484,10 +486,32 @@ func (current *series) coveringTier(chosen string, start int64) string {
 		// Rounded bucket starts can predate ingestion; compare known sample
 		// times so coarser tiers do not manufacture earlier coverage.
 		if oldest <= start {
-			return name
+			best = name
+			break
 		}
 		if oldest < bestOldest {
 			best, bestOldest = name, oldest
+		}
+	}
+	// Coarser buckets may retain samples lost from finer tiers across restarts.
+	for _, name := range order[max(slices.Index(order, best)+1, 0):] {
+		coarser := current.tiers[name]
+		if coarser == nil {
+			continue
+		}
+		step := coarser.step.Milliseconds()
+		oldest, _ := current.tiers[best].oldest()
+		counts := map[int64]uint64{}
+		for _, b := range current.tiers[best].buckets() {
+			counts[b.Start-b.Start%step] += uint64(b.Count)
+		}
+		for _, b := range coarser.buckets() {
+			// Missing samples before a covering fine tier are outside the requested range.
+			if (b.Start >= start || oldest > start) && b.lastAt() >= cutoff &&
+				b.Start >= start-step && b.Start <= end && uint64(b.Count) > counts[b.Start] {
+				best = name
+				break
+			}
 		}
 	}
 	return best

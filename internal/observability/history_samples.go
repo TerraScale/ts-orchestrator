@@ -55,6 +55,14 @@ const (
 	HistDeliveryDeferred = "delivery_deferred_total"
 )
 
+// Directed route measurements and coverage use member, server, peer labels.
+const (
+	HistNATSRouteRTT                 = "nats_route_rtt_seconds"
+	HistNATSRouteConnections         = "nats_route_connections"
+	HistNATSRouteMeasuredConnections = "nats_route_measured_connections"
+	HistNATSRouteRTTsTruncated       = "nats_route_rtts_truncated" // member, server
+)
+
 // History metric names the controller's autoscaler and host load
 // aggregator add on the authority leader (they are not part of cluster
 // snapshots, so other members do not record them).
@@ -224,6 +232,15 @@ func (sampler *SnapshotSampler) Samples(cluster ClusterSnapshot) []Sample {
 			counter(HistNATSInBytes, float64(nats.InBytes), "member", name)
 			counter(HistNATSOutBytes, float64(nats.OutBytes), "member", name)
 			gauge(HistNATSSlow, float64(nats.SlowConsumers), "member", name)
+			gauge(HistNATSRouteRTTsTruncated, Bool(nats.RouteRTTsTruncated), "member", name, "server", nats.ServerName)
+			for _, route := range nats.RouteRTTs {
+				labels := []string{"member", name, "server", nats.ServerName, "peer", route.RemoteName}
+				gauge(HistNATSRouteConnections, float64(route.Connections), labels...)
+				gauge(HistNATSRouteMeasuredConnections, float64(route.MeasuredConnections), labels...)
+				if route.RTTSeconds != nil {
+					gauge(HistNATSRouteRTT, *route.RTTSeconds, labels...)
+				}
+			}
 			gauge(HistJSStoreUsed, float64(nats.StoreUsedBytes), "member", name)
 			if nats.StoreLimitBytes > 0 {
 				gauge(HistJSStoreLimit, float64(nats.StoreLimitBytes), "member", name)

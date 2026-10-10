@@ -193,7 +193,7 @@ func TestCoveringTierNeedsABucketAtOrBeforeStart(t *testing.T) {
 	five := newTier(5*time.Minute, time.Hour, time.Second)
 	five.open, five.opened = bucket{Start: start}, true
 	current := &series{tiers: map[string]*tier{TierRaw: newTier(0, time.Minute, time.Second), Tier1m: minute, Tier5m: five}}
-	if got := current.coveringTier(Tier1m, start); got != Tier5m {
+	if got := current.coveringTier(Tier1m, start, start, start-HistoryRetention.Milliseconds()); got != Tier5m {
 		t.Fatalf("covering tier = %s, want the 5m tier holding the start", got)
 	}
 }
@@ -210,11 +210,24 @@ func TestCoveringTierDoesNotInventLiveCoverage(t *testing.T) {
 		current := history.series["c"]
 		for _, chosen := range []string{TierRaw, Tier1m} {
 			for _, start := range []time.Time{first.Add(-30 * time.Minute), first.Add(-10 * time.Second)} {
-				if got := current.coveringTier(chosen, start.UnixMilli()); got != chosen {
+				if got := current.coveringTier(chosen, start.UnixMilli(), current.last, base.Add(-HistoryRetention).UnixMilli()); got != chosen {
 					t.Errorf("first=%s start=%s chosen=%s: tier=%s, want finest live tier", first, start, chosen, got)
 				}
 			}
 		}
+	}
+}
+
+func TestCoveringTierKeepsFreshResolutionAcrossHourBoundary(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Hour).Add(-50 * time.Minute)
+	history := NewHistory(HistoryConfig{})
+	for step := range 721 {
+		history.Append(now.Add(time.Duration(step-720)*10*time.Second), []Sample{{Metric: "g", Value: 1}})
+	}
+	current := history.series["g"]
+	if got := current.coveringTier(TierRaw, now.Add(-15*time.Minute).UnixMilli(), now.UnixMilli(), now.Add(-HistoryRetention).UnixMilli()); got != TierRaw {
+		t.Fatalf("complete recent samples were hidden by expired pre-range samples: tier=%s", got)
 	}
 }
 

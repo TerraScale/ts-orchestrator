@@ -20,7 +20,7 @@ type chartSpec struct {
 	// timeline.
 	Kind string `json:"kind"`
 	// Unit formats axis labels and tooltips: percent (0..1), bytes,
-	// bytes_rate, rate, seconds, count or score.
+	// bytes_rate, rate, seconds, latency (seconds), count or score.
 	Unit   string        `json:"unit,omitempty"`
 	Series []chartSeries `json:"series,omitempty"`
 	// Categories are bar categories or heatmap rows.
@@ -130,10 +130,17 @@ func historyChartSeries(result observability.HistoryResult, metric, nameBy strin
 		}
 		points := make([][2]float64, 0, len(found.Points))
 		for _, point := range found.Points {
-			if math.IsNaN(point.Value) || math.IsInf(point.Value, 0) {
+			value := point.Value
+			if metric == observability.HistNATSRouteRTT {
+				value = point.Max
+			}
+			if math.IsNaN(value) || math.IsInf(value, 0) {
 				continue
 			}
-			points = append(points, [2]float64{float64(point.Time.UnixMilli()), round(point.Value)})
+			if metric != observability.HistNATSRouteRTT {
+				value = round(value)
+			}
+			points = append(points, [2]float64{float64(point.Time.UnixMilli()), value})
 		}
 		series = append(series, chartSeries{Name: name, Points: points})
 	}

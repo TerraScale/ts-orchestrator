@@ -37,8 +37,48 @@ templ natsBody(current view) {
 				}
 			</article>
 			<article>
-				<h2>Route RTT <small>server × server</small></h2>
-				@unavailable("Route round-trip times are not sampled yet; the natscell slice exports them through Routez in a later change. Route counts per server are in the table below.")
+				<h2>Route RTT <small>maximum per directed server pair</small></h2>
+				@chart("", current.natsRouteChart())
+				<p class="note">Maximum measured RTT across each peer's route connections. Only observed servers are included. Snapshot time is collection time; the last ping time is unavailable.</p>
+				<div class="table-scroll">
+					<table class="striped">
+						<thead><tr><th>Server → peer</th><th>Max RTT</th><th>Measured connections</th><th>Snapshot observed</th></tr></thead>
+						<tbody>
+							for _, member := range current.members() {
+								if nats := member.NATS; nats != nil {
+									for _, route := range nats.RouteRTTs {
+										<tr>
+											<td>{ nats.ServerName + " → " + route.RemoteName }</td>
+											<td>{ current.routeRTTText(member, route) }</td>
+											<td class={ templ.KV("warn", route.MeasuredConnections < route.Connections) }>{ itoa(route.MeasuredConnections) + " / " + itoa(route.Connections) }</td>
+											<td>
+												@ago(member.ObservedAt)
+											</td>
+										</tr>
+									}
+									if len(nats.RouteRTTs) == 0 {
+										<tr>
+											<td>{ nats.ServerName }</td>
+											<td colspan="2" class="muted">
+												if nats.Routes == 0 && !nats.RouteRTTsTruncated && member.Errors["nats"] == "" {
+													No route connections reported.
+												} else {
+													Route inventory unavailable.
+												}
+											</td>
+											<td>
+												@ago(member.ObservedAt)
+											</td>
+										</tr>
+									}
+									if nats.RouteRTTsTruncated {
+										<tr><td colspan="4" class="warn">Route inventory is partial; omitted peers have unknown RTT.</td></tr>
+									}
+								}
+							}
+						</tbody>
+					</table>
+				</div>
 			</article>
 		</div>
 		<article>

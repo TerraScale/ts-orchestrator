@@ -203,8 +203,10 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 // A wave's prepare phase gets ProofDeadlineSeconds: under the race detector
 // on a loaded CI runner, staging six controllers took longer than 8 s and a
 // good release rolled back.
+// Rollback also needs gate recovery, an accepted step and a newer proof;
+// the six-broker race lab can spend more than 20 s recovering on loaded CI.
 var rolloutTestPolicy = rollout.Policy{CanaryUnits: 1, BatchSize: 1, CanarySoakSeconds: 1, BatchSoakSeconds: 1,
-	MinHealthyReports: 2, ProofDeadlineSeconds: 30, RollbackDeadlineSeconds: 20, PreflightSeconds: 20,
+	MinHealthyReports: 2, ProofDeadlineSeconds: 30, RollbackDeadlineSeconds: 60, PreflightSeconds: 20,
 	MaxAttempts: 1, MaxRollbackRetries: 1}
 
 type rolloutTestCellConfig struct {

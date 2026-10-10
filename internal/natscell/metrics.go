@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/nats-io/nats-server/v2/server"
@@ -15,8 +16,9 @@ import (
 // streams. A view cut at either bound sets NATSView.Truncated, so a missing
 // row is never read as an absent stream or consumer.
 const (
-	maxObservedStreams   = 128
-	maxObservedConsumers = 128
+	maxObservedStreams    = 128
+	maxObservedConsumers  = 128
+	maxObservedRoutePeers = 128 // RouteRTTsTruncated marks omitted peer rows.
 )
 
 // Observe reads embedded broker and JetStream health in process through the
@@ -24,7 +26,7 @@ const (
 // monitor port, which would be another listener on the broker address.
 // Callers cache the result: Jsz walks every hosted stream and consumer.
 func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
-	if r == nil || r.server == nil {
+	if r == nil || r.server == nil || !r.server.Running() {
 		return observability.NATSView{}, errors.New("embedded NATS server is not running")
 	}
 	if err := ctx.Err(); err != nil {
@@ -34,11 +36,17 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 	if err != nil {
 		return observability.NATSView{}, err
 	}
+	// shortcut: Routez has no read limit, use pagination if the embedded API adds it.
+	routes, err := r.server.Routez(nil)
+	if err != nil {
+		return observability.NATSView{}, err
+	}
 	view := observability.NATSView{
 		ServerName: varz.Name, RaftNodeID: r.server.NodeName(), Connections: varz.Connections, Routes: varz.Routes,
-		ClusterPeers: r.peerCount(), SlowConsumers: varz.SlowConsumers,
-		InMsgs: varz.InMsgs, OutMsgs: varz.OutMsgs, InBytes: varz.InBytes, OutBytes: varz.OutBytes,
+		SlowConsumers: varz.SlowConsumers,
+		InMsgs:        varz.InMsgs, OutMsgs: varz.OutMsgs, InBytes: varz.InBytes, OutBytes: varz.OutBytes,
 	}
+	observeRoutes(&view, routes)
 	if varz.JetStream.Config != nil {
 		view.StoreLimitBytes = varz.JetStream.Config.MaxStore
 	}
@@ -99,6 +107,56 @@ func (r *Runtime) Observe(ctx context.Context) (observability.NATSView, error) {
 		return cmp.Compare(a.Name, b.Name)
 	})
 	return view, nil
+}
+
+func observeRoutes(view *observability.NATSView, routes *server.Routez) {
+	ids := map[string]struct{}{routes.ID: {}}
+	peers := map[[2]string]*observability.RouteRTTView{}
+	for _, route := range routes.Routes {
+		if route == nil {
+			continue
+		}
+		key := [2]string{route.RemoteID, ""}
+		if route.RemoteID != "" {
+			ids[route.RemoteID] = struct{}{}
+		} else {
+			key[1] = route.RemoteName
+		}
+		if key == [2]string{} {
+			view.RouteRTTsTruncated = true
+			continue
+		}
+		peer := peers[key]
+		if peer == nil {
+			peer = &observability.RouteRTTView{}
+			peers[key] = peer
+		}
+		// Prefer the observed name; use the observed ID only when no name exists.
+		if route.RemoteName != "" && (peer.RemoteName == "" || route.RemoteName < peer.RemoteName) {
+			peer.RemoteName = route.RemoteName
+		}
+		peer.Connections++
+		if rtt, err := time.ParseDuration(route.RTT); err == nil && rtt > 0 {
+			peer.MeasuredConnections++
+			if peer.RTTSeconds == nil || rtt.Seconds() > *peer.RTTSeconds {
+				peer.RTTSeconds = new(rtt.Seconds())
+			}
+		}
+	}
+	view.ClusterPeers = len(ids)
+	for key, peer := range peers {
+		if peer.RemoteName == "" {
+			peer.RemoteName = key[0]
+		}
+		view.RouteRTTs = append(view.RouteRTTs, *peer)
+	}
+	slices.SortFunc(view.RouteRTTs, func(a, b observability.RouteRTTView) int {
+		return cmp.Compare(a.RemoteName, b.RemoteName)
+	})
+	if len(view.RouteRTTs) > maxObservedRoutePeers {
+		view.RouteRTTs = view.RouteRTTs[:maxObservedRoutePeers]
+		view.RouteRTTsTruncated = true
+	}
 }
 
 // LocalStoreUsedBytes reports the JetStream file storage this embedded

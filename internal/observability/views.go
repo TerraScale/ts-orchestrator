@@ -78,8 +78,20 @@ type NATSView struct {
 	StoreLimitBytes int64          `json:"store_limit_bytes"`
 	Streams         []StreamView   `json:"streams,omitempty"`
 	Consumers       []ConsumerView `json:"consumers,omitempty"`
+	RouteRTTs       []RouteRTTView `json:"route_rtts,omitempty"`
+	// RouteRTTsTruncated reports omitted peers or routes without an identity.
+	RouteRTTsTruncated bool `json:"route_rtts_truncated"`
 	// Truncated reports that the stream or consumer list hit its bound.
 	Truncated bool `json:"truncated,omitzero"`
+}
+
+// RouteRTTView aggregates this server's pooled and dedicated routes to one peer.
+// RTTSeconds is the largest positive measurement, nil when none is available.
+type RouteRTTView struct {
+	RemoteName          string   `json:"remote_name"`
+	Connections         int      `json:"connections"`
+	MeasuredConnections int      `json:"measured_connections"`
+	RTTSeconds          *float64 `json:"rtt_seconds"`
 }
 
 // PeerView is one JetStream metadata peer as seen by this member.

@@ -34,6 +34,15 @@ func WriteNATSMetrics(w io.Writer, view NATSView) {
 	WriteGauge(w, MetricPrefix+"js_meta_leader", Bool(view.IsMetaLeader))
 	WriteGauge(w, MetricPrefix+"js_meta_cluster_size", float64(view.MetaClusterSize))
 	WriteGauge(w, MetricPrefix+"nats_view_truncated", Bool(view.Truncated))
+	WriteGauge(w, Series(MetricPrefix+"nats_route_rtts_truncated", "server", view.ServerName), Bool(view.RouteRTTsTruncated))
+	for _, route := range view.RouteRTTs {
+		labels := []string{"server", view.ServerName, "peer", route.RemoteName}
+		WriteGauge(w, Series(MetricPrefix+"nats_route_connections", labels...), float64(route.Connections))
+		WriteGauge(w, Series(MetricPrefix+"nats_route_measured_connections", labels...), float64(route.MeasuredConnections))
+		if route.RTTSeconds != nil {
+			WriteGauge(w, Series(MetricPrefix+"nats_route_rtt_seconds", labels...), *route.RTTSeconds)
+		}
+	}
 	offline := 0
 	for _, peer := range view.MetaPeers {
 		if peer.Offline {

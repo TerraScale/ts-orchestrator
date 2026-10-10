@@ -3,12 +3,14 @@ package dashboard
 import (
 	"cmp"
 	"maps"
+	"math"
 	"slices"
 	"strings"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // hostFilter narrows member series to the host drill-down, if any.
@@ -86,6 +88,96 @@ func (current view) natsRateChart(inMetric, outMetric, unit string) chartSpec {
 		series = append(series, out...)
 	}
 	return current.lineChart("area", unit, series, "No NATS traffic history yet.")
+}
+
+func (current view) natsRouteChart() chartSpec {
+	var result observability.HistoryResult
+	partial := false
+	if current.Journal != nil && current.Journal.History != nil {
+		query := observability.HistoryQuery{Start: current.Now.Add(-current.State.Range.Duration), End: current.Now, MaxSeries: 64}
+		results := map[string]observability.HistoryResult{}
+		tiers := []string{observability.TierRaw, observability.Tier1m, observability.Tier5m, observability.Tier1h}
+		chosen := slices.Index(tiers, observability.TierFor(query.Start, time.Now()))
+		common := chosen
+		for _, metric := range []string{observability.HistNATSRouteRTT, observability.HistNATSRouteRTTsTruncated,
+			observability.HistNATSRouteConnections, observability.HistNATSRouteMeasuredConnections} {
+			query.Metric = metric
+			results[metric] = current.Journal.History.Range(query)
+			partial = partial || results[metric].Truncated || results[metric].Incomplete
+			for _, series := range results[metric].Series {
+				common = max(common, slices.Index(tiers, series.Tier))
+			}
+		}
+		if common > chosen {
+			// Restored and fresh series must use the same buckets for coverage comparisons.
+			query.Tier = tiers[common]
+			for metric := range results {
+				query.Metric = metric
+				results[metric] = current.Journal.History.Range(query)
+			}
+		}
+		result = results[observability.HistNATSRouteRTT]
+		for _, coverage := range results {
+			partial = partial || coverage.Truncated || coverage.Incomplete
+		}
+		for _, series := range results[observability.HistNATSRouteRTTsTruncated].Series {
+			for _, point := range series.Points {
+				partial = partial || point.Max > 0
+			}
+		}
+		type routePoint struct {
+			member, server, peer, tier string
+			at                         time.Time
+		}
+		key := func(series observability.HistorySeries, point observability.Point) routePoint {
+			return routePoint{series.Labels["member"], series.Labels["server"], series.Labels["peer"], series.Tier, point.Time}
+		}
+		totals := map[routePoint]observability.Point{}
+		rtts := map[routePoint]uint32{}
+		for _, series := range results[observability.HistNATSRouteConnections].Series {
+			for _, point := range series.Points {
+				totals[key(series, point)] = point
+			}
+		}
+		for _, series := range result.Series {
+			for _, point := range series.Points {
+				partial = partial || totals[key(series, point)].Value <= 0
+				if point.Max > 0 && !math.IsNaN(point.Max) && !math.IsInf(point.Max, 0) {
+					rtts[key(series, point)] = point.Samples
+				}
+			}
+		}
+		for _, series := range results[observability.HistNATSRouteMeasuredConnections].Series {
+			for _, point := range series.Points {
+				identity := key(series, point)
+				total, present := totals[identity]
+				// Paired counts have equal averages only when every connection was measured.
+				partial = partial || !present || total.Value != point.Value || total.Samples != point.Samples ||
+					point.Value > 0 && rtts[identity] != point.Samples
+				delete(totals, identity)
+			}
+		}
+		partial = partial || len(totals) > 0
+	}
+	spec := current.lineChart("line", "latency", historyChartSeries(result, observability.HistNATSRouteRTT, "server,peer"),
+		"No route RTT measurements in this time range.")
+	spec.Min = new(0.0)
+	if partial {
+		spec.Warning = "Route RTT history is partial; omitted observations remain unknown."
+	}
+	return spec
+}
+
+func (current view) routeRTTText(member observability.MemberSnapshot, route observability.RouteRTTView) string {
+	if member.Errors["nats"] != "" || route.RTTSeconds == nil || *route.RTTSeconds <= 0 ||
+		math.IsNaN(*route.RTTSeconds) || math.IsInf(*route.RTTSeconds, 0) {
+		return "unavailable"
+	}
+	text := time.Duration(*route.RTTSeconds * float64(time.Second)).String()
+	if member.ObservedAt.IsZero() || member.ObservedAt.After(current.Now) || current.Now.Sub(member.ObservedAt) > regionview.ResourceFreshFor {
+		text += " (stale)"
+	}
+	return text
 }
 
 // stageChart stacks TerraBase seats by stage over time.

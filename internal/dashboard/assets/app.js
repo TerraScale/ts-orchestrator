@@ -36,6 +36,11 @@ const units = {
   bytes_rate: (v) => bytes(v) + "/s",
   rate: (v) => compact(v) + "/s",
   seconds: (v) => duration(v),
+  latency: (v) => {
+    if (v < 0.001) return (v * 1e6).toPrecision(3) + "µs";
+    if (v < 1) return (v * 1000).toPrecision(3) + "ms";
+    return v.toPrecision(3) + "s";
+  },
   count: (v) => compact(v),
   score: (v) => Math.round(v).toString(),
 };

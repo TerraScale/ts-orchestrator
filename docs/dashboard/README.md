@@ -174,6 +174,20 @@ Path values are validated like the query parameters; anything else is a 404.
 
 The NATS page's leadership timeline shows authority lease changes, JetStream meta leader elections and quorum losses and recoveries, as the controllers journal them. NATS, TerraBase and Storage with another region selected label their live sections as this member's region; only their decision timelines follow the selection. Pages that only show this member (Hosts, OCI, Events, Rollouts) and the all-region pages (Releases, Qualification, Topology) send the region switcher to that region's overview. Empty histories say whether nothing happened or the query failed or was partial.
 
+The NATS route RTT panel reads the embedded broker's existing PING/PONG
+measurements through `Routez`. Each directed server pair shows the maximum
+positive RTT across its pooled and dedicated connections, with measured/total
+connection coverage. Unset readings remain unavailable; old snapshots are
+marked stale. Snapshot time is collection time: NATS does not expose the last
+ping's timestamp. Current peer inventory is bounded to 128 rows; the history
+chart is bounded to 64 series, with visible completeness warnings.
+`/v1/snapshot` carries `nats.route_rtts`; `/metrics` exports
+`ts_orch_nats_route_rtt_seconds`, `ts_orch_nats_route_connections`,
+`ts_orch_nats_route_measured_connections` and `ts_orch_nats_route_rtts_truncated`.
+The existing `/v1/history` API uses the same names without `ts_orch_` and
+labels RTT/coverage by `member`, `server` and `peer`. These observations cover
+the local cell; global dashboard fan-out remains TS-794 work.
+
 Every page carries the time range (`range=15m|1h|6h|24h`), the selected
 region (`r=`) and the live toggle (`live=0`) in its URL. Ctrl/⌘+K or `/`
 opens the command palette.

@@ -24,6 +24,7 @@
 rest - 130/60
 
 ./internal/natscell TestPrepareNodeIdentityPreservesR3State 35/1 idle
+./internal/natscell TestEmbeddedRouteRTTFlowsToMetricsAndHistory 5 idle
 
 # Multi-process controller and host labs: real 10-30s lease and session
 # timers, little CPU. tier.Integration skips them under -short.
