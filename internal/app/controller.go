@@ -819,8 +819,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("start rollout store: %w", err)
 	}
+	var rolloutStore *rollout.Store
 	var rolloutExecutor func(context.Context) error
 	if store, ok := rollouts.(*rollout.Store); ok {
+		rolloutStore = store
 		policy.rollouts.store.Store(store)
 		if cfg.Controller.Rollouts.Executor {
 			rolloutExecutor, err = policy.rollouts.start(runCtx, cfg, runtime, control, responseKey, hostController)
@@ -845,7 +847,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore, managed: managed != nil,
 		holds: placementHolds, autoscalers: workloadReconciler, hostLoad: hostLoad, linkedPeers: globalMirrorPeers(cfg.NATS),
-		rollouts: rollouts, budgets: budgets, ociResources: ociReconcile.resources(),
+		rollouts: rolloutStore, budgets: budgets, ociResources: ociReconcile.resources(),
 		credentials: controllerCredentialFiles(cfg),
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes)},

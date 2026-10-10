@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
@@ -32,10 +33,19 @@ type Journal struct {
 	// The providers below belong to slices built in parallel (rollout,
 	// storage, CI, OCI inventory). They stay nil until those slices land.
 	Versions      VersionSource
-	Rollouts      insights.RolloutProvider
+	Rollouts      RolloutSource
 	Volumes       insights.VolumeProvider
 	Qualification QualificationSource
 	Inventory     InventorySource
+}
+
+// ErrRolloutNotFound means no retained release record exists for this exact ID.
+var ErrRolloutNotFound = errors.New("rollout record not found")
+
+// RolloutSource supplies recent regional stages and an independent exact lookup.
+type RolloutSource interface {
+	insights.RolloutProvider
+	Rollout(ctx context.Context, id string) (insights.Rollout, error)
 }
 
 // SummarySource writes a deterministic summary of a window ending now.

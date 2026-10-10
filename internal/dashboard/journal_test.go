@@ -150,6 +150,15 @@ func (rollouts fakeRollouts) Rollouts(context.Context) ([]insights.Rollout, erro
 	return rollouts, nil
 }
 
+func (rollouts fakeRollouts) Rollout(_ context.Context, id string) (insights.Rollout, error) {
+	for _, record := range rollouts {
+		if record.ID == id {
+			return record, nil
+		}
+	}
+	return insights.Rollout{}, ErrRolloutNotFound
+}
+
 type fakeQualification []Qualification
 
 func (runs fakeQualification) Qualifications(context.Context) ([]Qualification, error) {

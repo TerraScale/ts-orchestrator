@@ -28,6 +28,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -185,7 +186,7 @@ type controllerObservation struct {
 	linkedPeers []string
 	// rollouts and budgets are the rollout store and the region planner's
 	// budgets, when their feature flags enable them.
-	rollouts insights.RolloutProvider
+	rollouts *rollout.Store
 	budgets  insights.BudgetProvider
 	// ociResources is the OCI reconcile's last observations, when enabled.
 	ociResources insights.OCIResourceProvider

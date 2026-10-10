@@ -192,21 +192,19 @@ Every page carries the time range (`range=15m|1h|6h|24h`), the selected
 region (`r=`) and the live toggle (`live=0`) in its URL. Ctrl/⌘+K or `/`
 opens the command palette.
 
-## Local preview with fake data
+## Dashboard fixtures
 
 ```sh
-nice -n 19 make dashboard-preview   # http://127.0.0.1:8099/
+nice -n 19 mise exec -- go test ./internal/dashboard/devfake
 ```
 
-This runs `cmd/ts-dashboard-preview`, which builds only with the
-`dashboardpreview` tag and serves the dashboard over `internal/dashboard/devfake`:
-a moving three-region world (GRU, SFO, FRA) driven through the real history
-sampler, insight engine, region provider and summarizer. The orchestrator
-binary never links it; a test enforces that.
+The moving three-region fixtures (GRU, SFO, FRA) drive the real history sampler,
+insight engine, region provider and summarizer in tests. All fixture sources
+live in `_test.go` files; executable builds cannot import them.
 
 ## Screenshots
 
-Taken from the preview with headless Chromium.
+Historical screenshots of fixture data, taken with headless Chromium.
 
 ![Global view](global.png)
 ![Global view, dark](global-dark.png)

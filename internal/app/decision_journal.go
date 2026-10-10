@@ -130,7 +130,9 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	if observed.autoscalers != nil {
 		insightConfig.Autoscalers = workloadAutoscalers{reconciler: observed.autoscalers}
 	}
+	var rolloutSource dashboard.RolloutSource
 	if observed.rollouts != nil {
+		rolloutSource = dashboardRollouts{store: observed.rollouts}
 		insightConfig.Rollouts = observed.rollouts
 	}
 	if observed.budgets != nil {
@@ -159,7 +161,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	runtime.attachBoards(func() {
 		runtime.boardJournal = &dashboard.Journal{Decisions: providers.Decisions, Live: providers.Live,
 			History: providers.History, Insights: providers.Insights, Summaries: providers.Summarizer,
-			Regions: providers.Regions, Volumes: volumes, Rollouts: observed.rollouts}
+			Regions: providers.Regions, Volumes: volumes, Rollouts: rolloutSource}
 	})
 }
 

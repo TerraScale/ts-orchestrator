@@ -51,6 +51,7 @@ const (
 	needSummaries
 	needVersions
 	needRollouts
+	needRollout
 	needVolumes
 	needQualification
 	needInventory
@@ -151,6 +152,7 @@ type view struct {
 	Versions   []UnitVersion
 	// VersionsDerived reports that Versions came from region summaries.
 	VersionsDerived bool
+	Rollout         *insights.Rollout
 	Rollouts        []insights.Rollout
 	Volumes         []insights.Volume
 	Qualifications  []Qualification

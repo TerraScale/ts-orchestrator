@@ -50,6 +50,6 @@ func (cache *keyedCache[V]) get(ctx context.Context, key string, load func(conte
 			}
 		}
 	}
-	cache.entries[key] = cacheEntry[V]{at: now, value: value, err: err}
+	cache.entries[key] = cacheEntry[V]{at: time.Now(), value: value, err: err}
 	return value, err
 }

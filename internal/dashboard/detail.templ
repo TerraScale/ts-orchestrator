@@ -344,9 +344,11 @@ templ rolloutDetailBody(current view) {
 				</article>
 			</div>
 		} else if current.failed("rollouts") {
-			<p class="note warn">The rollout provider did not answer, so this rollout's live phase is unknown. Its decisions are listed if the journal has any.</p>
+			<p class="note warn">Rollout records are unavailable, so this rollout’s phase is unknown. Its decisions are listed if the journal has any.</p>
+		} else if current.Journal == nil || current.Journal.Rollouts == nil {
+			<p class="note">The rollout record provider is not attached, so this rollout’s recorded phase is unknown.</p>
 		} else {
-			<p class="note">No active rollout or managed update has this ID in { upper(current.localRegion()) }; it may have finished. Its decisions are listed if the journal has any.</p>
+			<p class="note">No retained rollout record or managed update has this ID in { upper(current.localRegion()) }. Its decisions are listed if the journal has any.</p>
 		}
 		@entityAttention(current, "rollout")
 		@entityJournal(current, "Rollout decisions")

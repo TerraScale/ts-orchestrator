@@ -89,7 +89,7 @@ func transitionDecision(previous, next Record) (decisionlog.Kind, decisionlog.St
 }
 
 // Rollouts lists the cell's active rollout for the insight engine's deadline
-// rule and the dashboard. It implements insights.RolloutProvider.
+// rule. It implements insights.RolloutProvider.
 func (s *Store) Rollouts(ctx context.Context) ([]insights.Rollout, error) {
 	record, _, active, err := s.Active(ctx)
 	if err != nil || !active {

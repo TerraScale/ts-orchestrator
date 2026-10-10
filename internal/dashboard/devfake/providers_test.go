@@ -35,6 +35,19 @@ func (source rollouts) Rollouts(context.Context) ([]insights.Rollout, error) {
 	return nil, nil
 }
 
+func (source rollouts) Rollout(ctx context.Context, id string) (insights.Rollout, error) {
+	rows, err := source.Rollouts(ctx)
+	if err != nil {
+		return insights.Rollout{}, err
+	}
+	for _, record := range rows {
+		if record.ID == id {
+			return record, nil
+		}
+	}
+	return insights.Rollout{}, dashboard.ErrRolloutNotFound
+}
+
 type holds struct{ region string }
 
 func (source holds) Holds(now time.Time) []insights.Hold {

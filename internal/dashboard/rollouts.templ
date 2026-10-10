@@ -6,7 +6,7 @@ templ rolloutsBody(current view) {
 		@notes(current)
 		<article>
 			<div class="chart-title">
-				<h2>Rollout phases</h2>
+				<h2>Rollout phases <small>regional · latest 64 release generations plus active</small></h2>
 				<a href={ safe(current.State.link("/releases")) }>Release timelines →</a>
 			</div>
 			if current.Journal == nil || current.Journal.Rollouts == nil {
@@ -14,7 +14,7 @@ templ rolloutsBody(current view) {
 			} else if current.failed("rollouts") {
 				<p class="empty unavailable">Release rollout phases are unavailable right now: the rollout provider did not answer.</p>
 			} else if len(current.Rollouts) == 0 {
-				<p class="empty">No release rollout is known in this region.</p>
+				<p class="empty">No recorded release rollout in this region’s latest 64 release generations or active slot.</p>
 			} else {
 				for _, rollout := range current.Rollouts {
 					<div>

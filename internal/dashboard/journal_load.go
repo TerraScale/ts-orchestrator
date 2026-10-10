@@ -82,10 +82,21 @@ func (dashboard *Dashboard) loadJournal(ctx context.Context, current *view) {
 		current.loadVersions(ctx)
 	}
 	if needs&needRollouts != 0 && journal.Rollouts != nil {
-		if rollouts, err := journal.Rollouts.Rollouts(ctx); err != nil {
+		if rollouts, err := dashboard.rollouts.get(ctx, "recent", journal.Rollouts.Rollouts); err != nil {
 			current.Unavailable = append(current.Unavailable, "rollouts")
 		} else {
 			current.Rollouts = rollouts
+		}
+	}
+	if needs&needRollout != 0 && journal.Rollouts != nil {
+		rollout, err := dashboard.rollout.get(ctx, current.Path["id"], func(ctx context.Context) (insights.Rollout, error) {
+			return journal.Rollouts.Rollout(ctx, current.Path["id"])
+		})
+		switch {
+		case err == nil:
+			current.Rollout = &rollout
+		case !errors.Is(err, ErrRolloutNotFound):
+			current.Unavailable = append(current.Unavailable, "rollouts")
 		}
 	}
 	if needs&needVolumes != 0 && journal.Volumes != nil {

@@ -26,7 +26,7 @@ var detailPages = []page{
 		group: "Infrastructure", needs: needRegions | needInsights | needChain, decisions: partitionDetailDecisions,
 		chain: newestDecision, body: partitionDetailBody},
 	{slug: "rollout", parent: "rollouts", pattern: "/rollouts/{id}", title: "Rollout", group: "Delivery",
-		needs: needRegions | needInsights | needRollouts | needChain, decisions: rolloutDetailDecisions,
+		needs: needRegions | needInsights | needRollout | needChain, decisions: rolloutDetailDecisions,
 		chain: newestDecision, body: rolloutDetailBody},
 	{slug: "volume", parent: "storage", pattern: "/volumes/{id}", title: "Volume", group: "Infrastructure",
 		needs: needRegions | needInsights | needVolumes | needChain, decisions: volumeDetailDecisions,
@@ -380,12 +380,7 @@ func (current view) partitionChart() chartSpec {
 // detailRollout is the release rollout a rollout page shows, if the rollout
 // provider knows it.
 func (current view) detailRollout() *insights.Rollout {
-	for index := range current.Rollouts {
-		if current.Rollouts[index].ID == current.Path["id"] {
-			return &current.Rollouts[index]
-		}
-	}
-	return nil
+	return current.Rollout
 }
 
 // managedUpdate is the managed TerraBase update whose operation ID the

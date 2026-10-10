@@ -122,9 +122,7 @@ func TestEveryPageAndStreamRendersTheFakeWorld(t *testing.T) {
 	t.Fatalf("the global stream never patched the page: %v", scanner.Err())
 }
 
-// TestProductionBinaryDoesNotLinkTheFake keeps fake data out of the
-// orchestrator: only the dashboardpreview-tagged preview command may import
-// this package.
+// TestProductionBinaryDoesNotLinkTheFake keeps fixtures confined to tests.
 func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
 	if testing.Short() {
 		t.Skip("lists the production binary's dependencies with the go tool")
@@ -140,8 +138,11 @@ func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
 	if !strings.Contains(string(output), "internal/dashboard\n") {
 		t.Fatal("go list did not list the dashboard; the check is not looking at the right binary")
 	}
-	preview, err := exec.Command("go", "list", "-deps", "git.terrascale.tech/TerraScale/ts-orchestrator/cmd/ts-dashboard-preview").CombinedOutput()
-	if err == nil && strings.Contains(string(preview), "devfake") {
-		t.Fatal("the preview command builds without the dashboardpreview tag")
+	sources, err := exec.Command("go", "list", "-f", "{{join .GoFiles \"\\n\"}}", "git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/devfake").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list fixture sources: %v\n%s", err, sources)
+	}
+	if strings.TrimSpace(string(sources)) != "" {
+		t.Fatalf("fake sources must be test-only: %s", sources)
 	}
 }

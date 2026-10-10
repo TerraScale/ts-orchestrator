@@ -30,6 +30,10 @@ func (failingRollouts) Rollouts(context.Context) ([]insights.Rollout, error) {
 	return nil, errors.New("rollout provider: secret upstream detail")
 }
 
+func (failingRollouts) Rollout(context.Context, string) (insights.Rollout, error) {
+	return insights.Rollout{}, errors.New("rollout provider: secret upstream detail")
+}
+
 func withoutRollbacks(decisions []decisionlog.Decision) []decisionlog.Decision {
 	return slices.DeleteFunc(slices.Clone(decisions), func(decision decisionlog.Decision) bool {
 		return decision.Kind == decisionlog.KindRollback
