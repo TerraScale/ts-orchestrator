@@ -465,8 +465,9 @@ func (runtime backupOperationRuntime) Run(ctx context.Context) error {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if err := runtime.reconcileAll(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("backup operation reconciliation held", observability.ComponentKey, "backup", "error", err)
+			slog.WarnContext(ctx, "backup operation reconciliation held", observability.ComponentKey, "backup", "error", err)
 		}
 		select {
 		case <-ctx.Done():

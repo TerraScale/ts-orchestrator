@@ -1,11 +1,13 @@
 package observability
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -59,16 +61,40 @@ func ParseLogConfig(format, level string) (LogConfig, slog.Level, error) {
 	return config, parsed, nil
 }
 
+// journalStream reports whether stderr goes to journald, which systemd signals
+// with JOURNAL_STREAM. Tests replace it.
+var journalStream = func() bool { return os.Getenv("JOURNAL_STREAM") != "" }
+
+// UnderJournal reports whether this process logs to journald.
+func UnderJournal() bool { return journalStream() }
+
+// Identity returns the static attributes that tell one process's records
+// apart: the service, the node, the region when the process serves a cell,
+// and the process role.
+func Identity(process, region string) []slog.Attr {
+	attrs := []slog.Attr{slog.String("service", "ts-orchestrator")}
+	if region != "" {
+		attrs = append(attrs, slog.String("region", region))
+	}
+	if host, err := os.Hostname(); err == nil {
+		attrs = append(attrs, slog.String("node", strings.ToLower(host)))
+	}
+	return append(attrs, slog.String("process", process))
+}
+
 // NewLogger builds the structured logger for one runtime role. Records at
 // WARN and above, and records carrying EventKey=true, are also published to
-// bus when it is non-nil. Static attributes such as cell, member and role are
-// attached to every record.
+// bus when it is non-nil. Static attributes such as Identity are attached to
+// every record.
 // This path bounds and redacts known credential forms before either sink;
 // direct EventBus.Publish callers do not pass through this preparation.
 func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.Attr) (*slog.Logger, error) {
 	config, level, err := ParseLogConfig(config.Format, config.Level)
 	if err != nil {
 		return nil, err
+	}
+	if journalStream() {
+		output = journalWriter{next: output}
 	}
 	options := &slog.HandlerOptions{Level: level}
 	var handler slog.Handler
@@ -85,6 +111,38 @@ func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.
 		handler = handler.WithAttrs(attrs)
 	}
 	return slog.New(handler), nil
+}
+
+// journalWriter prefixes each record with its syslog priority, which journald
+// stores as PRIORITY and strips from the message. slog writes a record in one
+// Write call, so the prefix and the record reach journald together.
+type journalWriter struct{ next io.Writer }
+
+func (w journalWriter) Write(record []byte) (int, error) {
+	if _, err := w.next.Write(append([]byte(journalPriority(record)), record...)); err != nil {
+		return 0, err
+	}
+	return len(record), nil
+}
+
+var journalPriorities = []struct{ level, prefix string }{
+	{"ERROR", "<3>"}, {"WARN", "<4>"}, {"INFO", "<5>"}, {"DEBUG", "<7>"},
+}
+
+// journalPriority reads the level of a JSON or logfmt record. The level comes
+// before the message, so the earliest marker is the real level, not text that
+// a message repeats. INFO is notice (<5>), not info, because INFO records are
+// state changes and the watchdog drop-in's LogLevelMax=notice must keep them.
+func journalPriority(record []byte) string {
+	best, prefix := len(record), "<5>"
+	for _, priority := range journalPriorities {
+		for _, marker := range []string{`"level":"` + priority.level + `"`, "level=" + priority.level + " "} {
+			if at := bytes.Index(record, []byte(marker)); at >= 0 && at < best {
+				best, prefix = at, priority.prefix
+			}
+		}
+	}
+	return prefix
 }
 
 // ConfigureDefault installs logger as the process default. The standard

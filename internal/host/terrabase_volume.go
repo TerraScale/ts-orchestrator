@@ -163,7 +163,7 @@ func (a *Agent) fenceTerraBaseMember(ctx context.Context, role string) (stopped 
 		return false, errors.Join(fmt.Errorf("stop the terrabase member: data volume: %w", lost), observeErr, err)
 	}
 	delete(a.terraBase, role)
-	slog.Warn("terrabase member stopped: its data volume is not intact", "error", lost)
+	slog.WarnContext(ctx, "terrabase member stopped: its data volume is not intact", "error", lost)
 	return true, nil
 }
 
@@ -181,7 +181,7 @@ func (a *Agent) establishTerraBaseDataVolume(ctx context.Context) error {
 		maintenance, cancel := context.WithTimeout(ctx, terraBaseMaintenanceTimeout)
 		defer cancel()
 		if err := requestTerraBaseDataVolume(maintenance, a.cfg.VolumeInitSocket, nil); err != nil {
-			slog.Warn("terrabase data volume maintenance failed", "error", err)
+			slog.WarnContext(maintenance, "terrabase data volume maintenance failed", "error", err)
 		}
 		return verifyDataMount(data, a.cfg.WorkloadIdentity)
 	}
@@ -309,9 +309,9 @@ func prepareTerraBaseDataVolume(ctx context.Context, cfg VolumeInitConfig, grant
 	// ponytail: growth runs only when the agent asks, at most every
 	// terraBaseVolumeRecheck; a udev or resize event trigger can replace that.
 	if grown, err := hostvolume.Grow(ctx, target, device.stat.Rdev, storage.FileSystemExt4); err != nil {
-		slog.Warn("terrabase data volume online grow failed", "mount", target, "error", err)
+		slog.WarnContext(ctx, "terrabase data volume online grow failed", "mount", target, "error", err)
 	} else if grown {
-		slog.Info("terrabase data volume filesystem grown to its device size", "mount", target)
+		slog.InfoContext(ctx, "terrabase data volume filesystem grown to its device size", "mount", target)
 	}
 	return nil
 }

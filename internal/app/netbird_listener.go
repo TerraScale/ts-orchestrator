@@ -49,7 +49,7 @@ func (n *netbirdRollout) meshListenerLoop(ctx context.Context, localAddress func
 			return
 		}
 		if err != nil && err.Error() != last {
-			slog.Warn("NetBird NATS listener held; retrying", "error", err)
+			slog.WarnContext(ctx, "NetBird NATS listener held; retrying", "error", err)
 		}
 		last = ""
 		if err != nil {

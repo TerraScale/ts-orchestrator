@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -97,7 +98,7 @@ func runProbeSupervisor() {
 	_ = ack.Close()
 	_ = cgroup.Close()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "native probe supervisor launch failed class=%s\n", nativeProbeFailureClass(err))
+		slog.WarnContext(ctx, "native probe supervisor launch failed", "class", nativeProbeFailureClass(err))
 		os.Exit(112)
 	}
 	release()
@@ -107,7 +108,7 @@ func runProbeSupervisor() {
 		if command.ProcessState != nil {
 			status, _ = command.ProcessState.Sys().(syscall.WaitStatus)
 		}
-		fmt.Fprintf(os.Stderr, "native probe supervisor kill confirmation failed class=%s status=%d\n", nativeProbeFailureClass(waitErr), status)
+		slog.WarnContext(ctx, "native probe supervisor kill confirmation failed", "class", nativeProbeFailureClass(waitErr), "status", status)
 		os.Exit(112)
 	}
 	os.Exit(0)

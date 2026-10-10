@@ -16,6 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
@@ -172,15 +173,16 @@ func startBrokerGate(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 		defer ticker.Stop()
 		lastError := ""
 		for {
+			ctx := observability.StartTrace(ctx)
 			if err := gate.renew(ctx); err != nil {
 				runtime.Bridge().Fence()
 				cause := err.Error()
 				if cause != lastError {
-					slog.Warn("regional broker gate closed", "cause", cause)
+					slog.WarnContext(ctx, "regional broker gate closed", "cause", cause)
 					lastError = cause
 				}
 			} else if lastError != "" {
-				slog.Info("regional broker gate renewed")
+				slog.InfoContext(ctx, "regional broker gate renewed")
 				lastError = ""
 			}
 			select {

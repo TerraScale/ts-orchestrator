@@ -503,7 +503,8 @@ func (n *netbirdRollout) healthyMesh(ctx context.Context, node string, status ne
 	if n.nodes != nil && n.nodes.controllers != nil && n.nodes.controllers(node) {
 		options := []nats.Option{nats.Timeout(3 * time.Second), nats.NoReconnect(), nats.TLSHandshakeFirst(),
 			nats.RootCAs(n.cfg.NATS.TLS.CAFile), nats.ClientCert(n.cfg.NATS.TLS.CertFile, n.cfg.NATS.TLS.KeyFile),
-			nats.SetCustomDialer(meshDialer{ctx: ctx, address: net.JoinHostPort(status.IP, "4222")})}
+			nats.SetCustomDialer(meshDialer{ctx: ctx, address: net.JoinHostPort(status.IP, "4222")}),
+			nats.ErrorHandler(natscell.ErrorHandler)}
 		if n.cfg.NATS.CredentialsFile != "" {
 			options = append(options, nats.UserCredentials(n.cfg.NATS.CredentialsFile))
 		} else {
@@ -593,13 +594,13 @@ func (n *netbirdRollout) run(ctx context.Context) {
 			epoch = n.fence.fencer.Current().Epoch
 			if pin, err := n.target(ctx); err != nil {
 				if err.Error() != last {
-					slog.Warn("NetBird transaction held", "error", err)
+					slog.WarnContext(ctx, "NetBird transaction held", "error", err)
 					last = err.Error()
 				}
 			} else if pin != nil {
 				if err := n.refreshInventory(ctx); err != nil {
 					if err.Error() != last {
-						slog.Warn("NetBird inventory held", "error", err)
+						slog.WarnContext(ctx, "NetBird inventory held", "error", err)
 						last = err.Error()
 					}
 					select {
@@ -617,7 +618,7 @@ func (n *netbirdRollout) run(ctx context.Context) {
 				nodes = n.orderNodes(nodes)
 				err := reconciler.Tick(ctx, network.Target{Pin: pin.Pin, Enrollment: pin.Enrollment}, nodes)
 				if err != nil && err.Error() != last {
-					slog.Warn("NetBird rollout held", "error", err)
+					slog.WarnContext(ctx, "NetBird rollout held", "error", err)
 					last = err.Error()
 				}
 				if err == nil {
@@ -720,7 +721,7 @@ func hostNetBird(cfg Config, public ed25519.PublicKey) func(context.Context, hos
 				}
 			}
 			if err != nil && !errors.Is(err, os.ErrNotExist) && err.Error() != last {
-				slog.Warn("NetBird relay held", "node", settings.Node, "error", err)
+				slog.WarnContext(ctx, "NetBird relay held", "node", settings.Node, "error", err)
 				last = err.Error()
 			} else if err == nil {
 				last = ""

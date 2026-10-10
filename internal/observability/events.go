@@ -180,6 +180,8 @@ func eventFromRecord(record slog.Record, scoped []slog.Attr, groups []string) Ev
 		delete(attrs, ComponentKey)
 	}
 	delete(attrs, EventKey)
+	// A trace is new on every pass, so keeping its ID would defeat the repeat window.
+	delete(attrs, TraceIDKey)
 	if len(attrs) > 0 {
 		event.Attrs = attrs
 	}

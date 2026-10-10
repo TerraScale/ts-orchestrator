@@ -510,6 +510,10 @@ func controllerChildCandidateID(t *testing.T, child *controllerChild) string {
 		t.Fatal(err)
 	}
 	for _, line := range strings.Split(string(data), "\n") {
+		// Under journald each record starts with its syslog priority, such as <5>.
+		if len(line) > 3 && line[0] == '<' && line[2] == '>' {
+			line = line[3:]
+		}
 		var record struct {
 			CandidateID string `json:"candidate_id"`
 		}

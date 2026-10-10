@@ -369,7 +369,7 @@ nodes:
 				baseline := target
 				baseline.Baseline = true
 				canary.Baseline = slices.Sorted(maps.Keys(gate(ctx, baseline)))
-				slog.Info("release canary baseline", observability.ComponentKey, "rollout", "role", role,
+				slog.InfoContext(ctx, "release canary baseline", observability.ComponentKey, "rollout", "role", role,
 					"release", release, "node", node, "failing", canary.Baseline)
 			}
 			if err := f.saveCanary(ctx, epoch, role, release, *canary); err != nil {
@@ -386,7 +386,7 @@ nodes:
 			if _, err := f.kv.Put(ctx, permitKey(role, release, node), []byte("{}")); err != nil {
 				return err
 			}
-			slog.Info("release fence permits a node", observability.ComponentKey, "rollout", "role", role,
+			slog.InfoContext(ctx, "release fence permits a node", observability.ComponentKey, "rollout", "role", role,
 				"release", release, "node", node)
 			for state != "running" {
 				if state == "failed" {
@@ -401,7 +401,7 @@ nodes:
 					// The reconciler withdrew the replica: its node's other
 					// workloads return to rotation, and the next node may be
 					// its replacement.
-					slog.Info("release fence returns a withdrawn node", observability.ComponentKey, "rollout", "role", role,
+					slog.InfoContext(ctx, "release fence returns a withdrawn node", observability.ComponentKey, "rollout", "role", role,
 						"release", release, "node", node)
 					if _, err := f.restore(ctx, api, epoch, node, holdRelease, false); err != nil {
 						return err
@@ -512,7 +512,7 @@ func (f *releaseFence) gateCanary(ctx context.Context, epoch uint64, gate canary
 	failed := gate(ctx, target)
 	regressions := canary.regressions(failed)
 	for attempt := 1; len(regressions) > 0 && attempt < canaryAttempts; attempt++ {
-		slog.Warn("release canary failed a check; retrying", observability.ComponentKey, "rollout", "role", target.Role,
+		slog.WarnContext(ctx, "release canary failed a check; retrying", observability.ComponentKey, "rollout", "role", target.Role,
 			"release", release, "node", target.Node, "failed", regressions)
 		if err := f.wait(ctx, epoch, canaryRetry); err != nil {
 			return err
@@ -525,7 +525,7 @@ func (f *releaseFence) gateCanary(ctx context.Context, epoch uint64, gate canary
 			target.Role, target.Node, release, strings.Join(regressions, "; "))
 	}
 	canary.Passed = true
-	slog.Info("release canary passed", observability.ComponentKey, "rollout", "role", target.Role, "release", release,
+	slog.InfoContext(ctx, "release canary passed", observability.ComponentKey, "rollout", "role", target.Role, "release", release,
 		"node", target.Node, "took", time.Since(started).Round(time.Second), "failing_before", canary.Baseline,
 		"failing", slices.Sorted(maps.Keys(failed)))
 	return f.saveCanary(ctx, epoch, target.Role, release, *canary)
@@ -719,7 +719,7 @@ func (f *releaseFence) takeOutRecord(ctx context.Context, api lb.API, epoch uint
 	if err := f.save(ctx, epoch, node, record); err != nil {
 		return err
 	}
-	slog.Info("release fence took a node out of rotation", observability.ComponentKey, "rollout", "node", node,
+	slog.InfoContext(ctx, "release fence took a node out of rotation", observability.ComponentKey, "rollout", "node", node,
 		"backends", len(record.Backends))
 	return nil
 }
@@ -882,7 +882,7 @@ func (f *releaseFence) restoreLocked(ctx context.Context, api lb.API, epoch uint
 	if err := f.fencer.Guard(ctx, epoch); err != nil {
 		return false, err
 	}
-	slog.Info("release fence returned a node to rotation", observability.ComponentKey, "rollout", "node", node)
+	slog.InfoContext(ctx, "release fence returned a node to rotation", observability.ComponentKey, "rollout", "node", node)
 	return len(record.Backends) > 0, f.kv.Delete(ctx, fencedKey(node))
 }
 

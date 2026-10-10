@@ -41,14 +41,14 @@ func restoreControllerKV(ctx context.Context, cfg Config, js jetstream.JetStream
 		report, err := kvsnapshot.Restore(attemptCtx, js, objects, kvsnapshot.Buckets, cfg.NATS.Replicas, time.Now())
 		cancel()
 		if err == nil {
-			slog.Info("KV snapshot restore complete", observability.ComponentKey, "kvsnapshot",
+			slog.InfoContext(attemptCtx, "KV snapshot restore complete", observability.ComponentKey, "kvsnapshot",
 				"buckets", report.Buckets, "written", report.Written, "kept", report.Kept)
 			return nil
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Warn("KV snapshot restore retrying", observability.ComponentKey, "kvsnapshot",
+		slog.WarnContext(attemptCtx, "KV snapshot restore retrying", observability.ComponentKey, "kvsnapshot",
 			"attempt", attempt, "error", err)
 		select {
 		case <-ctx.Done():

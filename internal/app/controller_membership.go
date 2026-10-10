@@ -438,6 +438,6 @@ func stepDownMetaLeaderOnShutdown(runtime *natscell.Runtime, credentials string)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := admin.StepDownMetaLeader(ctx); err != nil {
-		slog.Warn("JetStream metadata leader step-down before shutdown failed", "error", err)
+		slog.WarnContext(ctx, "JetStream metadata leader step-down before shutdown failed", "error", err)
 	}
 }

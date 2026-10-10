@@ -24,6 +24,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -142,7 +143,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	} else {
 		handler.pool = pool
 	}
-	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second,
+	server := &http.Server{Handler: observability.TraceHTTP(handler), ReadHeaderTimeout: 5 * time.Second,
 		MaxHeaderBytes: 4096, TLSConfig: tlsConfig}
 	errors := make(chan error, 1)
 	go func() { errors <- server.Serve(tls.NewListener(listener, server.TLSConfig)) }()

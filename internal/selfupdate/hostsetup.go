@@ -100,24 +100,24 @@ ExecStartPre=+/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-
 // one with the host-setup unit, and reports whether it changed it. systemd
 // reads it from the next boot.
 func InstallHostSetupDropin(systemdDir string) (bool, error) {
-	return installDropin(systemdDir, HostSetupUnit, HostSetupDropin)
+	return installDropin(systemdDir, HostSetupUnit, "60-selfupdate.conf", HostSetupDropin)
 }
 
 // InstallBootstrapDropin writes BootstrapDropin below systemdDir on a
 // controller, one with the bootstrap unit, and reports whether it changed it.
 // systemd reads it from the next boot.
 func InstallBootstrapDropin(systemdDir string) (bool, error) {
-	return installDropin(systemdDir, BootstrapUnit, BootstrapDropin)
+	return installDropin(systemdDir, BootstrapUnit, "60-selfupdate.conf", BootstrapDropin)
 }
 
-func installDropin(systemdDir, unit, dropin string) (bool, error) {
+func installDropin(systemdDir, unit, file, dropin string) (bool, error) {
 	if _, err := os.Stat(filepath.Join(systemdDir, unit)); errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	} else if err != nil {
 		return false, err
 	}
 	dir := filepath.Join(systemdDir, unit+".d")
-	path := filepath.Join(dir, "60-selfupdate.conf")
+	path := filepath.Join(dir, file)
 	if current, err := os.ReadFile(path); err == nil && string(current) == dropin {
 		return false, nil
 	}

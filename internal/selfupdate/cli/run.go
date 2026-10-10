@@ -28,6 +28,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
@@ -304,7 +305,8 @@ func (c command) prepare(args []string) error {
 	for _, dropin := range []struct {
 		name    string
 		install func(string) (bool, error)
-	}{{"host-setup", selfupdate.InstallHostSetupDropin}, {"bootstrap", selfupdate.InstallBootstrapDropin}} {
+	}{{"host-setup", selfupdate.InstallHostSetupDropin}, {"bootstrap", selfupdate.InstallBootstrapDropin},
+		{"watchdog", selfupdate.InstallWatchdogLoggingDropin}} {
 		if installed, err := dropin.install(*systemd); err != nil {
 			slog.Warn("self-update could not install the "+dropin.name+" drop-in", "error", err)
 		} else if installed {
@@ -371,7 +373,7 @@ func (c command) installNetBirdAgent(binary, systemd string, start bool) error {
 		}
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && exit.ExitCode() >= 0 {
-			slog.Debug("self-update current release does not support the NetBird worker", "binary", binary,
+			slog.DebugContext(ctx, "self-update current release does not support the NetBird worker", "binary", binary,
 				"error", err, "output", strings.TrimSpace(string(output)))
 			return nil
 		}
@@ -477,23 +479,31 @@ func (c command) watchdog(args []string) error {
 	if err != nil {
 		return err
 	}
-	var printErr error
-	if !delegated || outcome == selfupdate.OutcomeRolledBack {
-		_, printErr = fmt.Fprintf(c.output, "selfupdate watchdog unit=%s outcome=%s activation=%s target=%s\n",
-			*unit, outcome, activation.ActivationID, activation.Target)
+	// An idle run runs every 15 s and says nothing. A pending run also repeats
+	// every 15 s while an activation waits, so it is debug; rollbacks are warnings.
+	if outcome != selfupdate.OutcomeIdle {
+		level := slog.LevelInfo
+		switch outcome {
+		case selfupdate.OutcomePending:
+			level = slog.LevelDebug
+		case selfupdate.OutcomeRolledBack:
+			level = slog.LevelWarn
+		}
+		slog.Log(c.ctx, level, "selfupdate watchdog", observability.ComponentKey, "selfupdate",
+			"unit", *unit, "outcome", string(outcome), "activation", activation.ActivationID, "target", activation.Target)
 	}
 	if owed {
 		if err := c.restart(c.ctx, *unit); err != nil {
-			return errors.Join(err, printErr)
+			return err
 		}
 		unlock, err := layout.layout().Lock()
 		if err != nil {
-			return errors.Join(err, printErr)
+			return err
 		}
 		defer unlock()
-		return errors.Join(layout.layout().ClearRestartPending(*unit), printErr)
+		return layout.layout().ClearRestartPending(*unit)
 	}
-	return printErr
+	return nil
 }
 
 func (c command) stage(args []string) error {
@@ -728,7 +738,7 @@ func (c command) delegate(layout selfupdate.Layout, args []string) bool {
 	step.Stdout, step.Stderr = c.output, os.Stderr
 	step.WaitDelay = time.Second
 	if err := step.Run(); err != nil {
-		slog.Warn("self-update known-good release failed the step; the image-baked binary runs it", "release", digest, "error", err)
+		slog.WarnContext(ctx, "self-update known-good release failed the step; the image-baked binary runs it", "release", digest, "error", err)
 		return false
 	}
 	return true

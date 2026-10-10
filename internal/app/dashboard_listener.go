@@ -67,6 +67,7 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 	ticker := time.NewTicker(dashboardCheck)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		section, generation := current()
 		var err error
 		if section == nil {
@@ -102,13 +103,13 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 				}
 				if err == nil {
 					running = want
-					slog.Info("dashboard serving on the NetBird address", observability.ComponentKey, "dashboard",
+					slog.InfoContext(ctx, "dashboard serving on the NetBird address", observability.ComponentKey, "dashboard",
 						"addresses", want.addresses.listen())
 				}
 			}
 		}
 		if err != nil && err.Error() != failure {
-			slog.Warn("dashboard is not serving on the NetBird address; retrying", observability.ComponentKey, "dashboard",
+			slog.WarnContext(ctx, "dashboard is not serving on the NetBird address; retrying", observability.ComponentKey, "dashboard",
 				"error", err)
 		}
 		failure = ""
@@ -119,7 +120,7 @@ func (runtime *runtimeObservability) dashboardLoop(ctx context.Context, current 
 		case <-ctx.Done():
 			return
 		case err := <-serving:
-			slog.Warn("dashboard NetBird listener stopped; restarting", observability.ComponentKey, "dashboard", "error", err)
+			slog.WarnContext(ctx, "dashboard NetBird listener stopped; restarting", observability.ComponentKey, "dashboard", "error", err)
 			stop()
 			stop, running, serving = func() {}, dashboardListener{}, nil
 		case <-ticker.C:

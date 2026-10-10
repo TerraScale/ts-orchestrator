@@ -112,7 +112,7 @@ func (r *Reader) Follow(ctx context.Context, kind Kind, cell string, recheck tim
 			err = nil
 		}
 		if err = errors.Join(watchErr, err); err != nil && err.Error() != failure && ctx.Err() == nil {
-			slog.Warn("global document unavailable", observability.ComponentKey, "globalcontrol",
+			slog.WarnContext(ctx, "global document unavailable", observability.ComponentKey, "globalcontrol",
 				"kind", kind, "cell", cell, "error", err)
 		}
 		failure = ""

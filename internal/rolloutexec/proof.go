@@ -20,6 +20,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
@@ -342,6 +343,7 @@ func (p Publisher) Run(ctx context.Context) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if p.Healthy() {
 			at := now().UTC()
 			proof := identity
@@ -349,7 +351,7 @@ func (p Publisher) Run(ctx context.Context) error {
 			if wire, err := SignHealthProof(proof, p.Key, at); err != nil {
 				return err
 			} else if err := p.Conn.Publish(subject, wire); err != nil {
-				slog.Debug("rollout health proof not published", "component", "rollout", "error", err)
+				slog.DebugContext(ctx, "rollout health proof not published", "component", "rollout", "error", err)
 			}
 		}
 		select {

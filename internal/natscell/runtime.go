@@ -384,7 +384,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool) (_ *Runtime, err
 		if err := pinNodeIdentity(cfg.Embedded.StoreDir, cfg.Cell, cfg.Instance, r.server.NodeName()); err != nil {
 			return nil, fmt.Errorf("pin embedded NATS Raft identity: %w", err)
 		}
-		r.server.ConfigureLogger()
+		r.server.SetLoggerV2(natsLogger{}, false, false, false)
 		r.serverName = options.ServerName
 		for _, id := range cfg.Embedded.BrokerIDs {
 			r.brokerNames = append(r.brokerNames, ServerName(cfg.Cell, id))
@@ -801,7 +801,8 @@ func clientOptions(cfg Config) ([]nats.Option, error) {
 	if cfg.ClientRole == "host" {
 		connectTimeout = 3 * time.Second
 	}
-	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout)}
+	options := []nats.Option{nats.Name("terrascale-" + cfg.Cell + "-" + cfg.Instance), nats.Timeout(connectTimeout),
+		nats.ErrorHandler(ErrorHandler)}
 	// Renewal applies to every authentication mode: an NKey-seed client has
 	// no JWT to reload but must still present a renewed certificate.
 	var materials *clientMaterialSource

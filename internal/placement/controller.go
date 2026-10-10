@@ -18,6 +18,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/lifecycle"
 )
@@ -169,6 +170,7 @@ func (controller *Controller) Run(ctx context.Context) error {
 	ticker := time.NewTicker(controller.config.TickInterval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		started, standby := time.Now(), !controller.fencer.Current().CanMutate()
 		err := controller.Tick(ctx)
 		if ctx.Err() == nil {

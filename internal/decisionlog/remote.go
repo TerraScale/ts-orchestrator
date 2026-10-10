@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 )
@@ -110,7 +111,7 @@ func ServeQueries(ctx context.Context, conn *nats.Conn, cell string, source Sour
 		if message.Reply == "" || len(message.Data) > maxQueryRequestBytes {
 			return
 		}
-		reply, requested := answer(ctx, region, source, message.Data)
+		reply, requested := answer(observability.ContinueTrace(ctx, message.Header.Get("traceparent")), region, source, message.Data)
 		data, err := encodeReply(reply, requested, conn.MaxPayload())
 		if err != nil {
 			return

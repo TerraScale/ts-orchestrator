@@ -34,8 +34,9 @@ func (runtime *managedTerminalRuntime) Run(ctx context.Context) error {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if err := runtime.reconcile(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("managed terminal reconciliation failed", observability.ComponentKey, "terminal", "error", err)
+			slog.WarnContext(ctx, "managed terminal reconciliation failed", observability.ComponentKey, "terminal", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -92,7 +93,7 @@ func (runtime *managedTerminalRuntime) reconcileIntent(ctx context.Context, inte
 ) error {
 	if runtime.hosts != nil {
 		if err := runtime.withdrawActiveDesired(ctx, intent); err != nil {
-			slog.Warn("managed terminal optional desired withdrawal failed", observability.ComponentKey, "terminal",
+			slog.WarnContext(ctx, "managed terminal optional desired withdrawal failed", observability.ComponentKey, "terminal",
 				"database", intent.DatabaseID, "partition", intent.PartitionID, "error", err)
 		}
 	}

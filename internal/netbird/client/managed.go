@@ -780,7 +780,7 @@ func (m managedClient) install(ctx context.Context, pin Pin, cfg netbird.Config,
 		if err := m.pruneTransactions(transaction); err != nil {
 			// The committed journal owns rollback now. Retry cleanup before
 			// the next preparation; it cannot gate this node's recovery.
-			slog.Warn("NetBird rollback history cleanup deferred", "error", err)
+			slog.WarnContext(ctx, "NetBird rollback history cleanup deferred", "error", err)
 		}
 	} else {
 		if err := m.retainRollbackExecutable(ctx, &transaction); err != nil {

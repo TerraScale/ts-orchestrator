@@ -279,7 +279,7 @@ func (server *Server) Start(ctx context.Context, config Config) (<-chan error, e
 	}
 	// No WriteTimeout: dashboard streams are long-lived. Headers and request
 	// bodies are bounded as for the host enrollment listener.
-	server.http = &http.Server{Handler: server, ReadHeaderTimeout: 5 * time.Second,
+	server.http = &http.Server{Handler: TraceHTTP(server), ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout: 10 * time.Second, IdleTimeout: time.Minute, MaxHeaderBytes: 4096}
 	server.listen = listener
 	if server.token != nil {

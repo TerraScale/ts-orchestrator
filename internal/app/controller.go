@@ -245,7 +245,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	defer stopFounder()
 	if admission.offline {
-		slog.Info("controller joined the regional NATS quorum; holding authority until full restart admission passes",
+		slog.InfoContext(ctx, "controller joined the regional NATS quorum; holding authority until full restart admission passes",
 			observability.ComponentKey, "controller", "instance", cfg.NATS.Instance)
 		// Full admission may retry for a long time; a dead broker must still
 		// end the process so the service manager restarts it. The broker
@@ -635,7 +635,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			err := hostController.InitializeUsageHistory(attempt)
 			cancel()
 			if err != nil {
-				slog.Debug("capacity inventory baseline unavailable", observability.ComponentKey, "capacity", "error", err)
+				slog.DebugContext(attempt, "capacity inventory baseline unavailable", observability.ComponentKey, "capacity", "error", err)
 			}
 			select {
 			case <-inventoryCtx.Done():
@@ -650,7 +650,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	services.changed = func(profiles map[string]WorkloadProfile, specs []workload.ServiceSpec) {
 		resources := profileResources(profiles)
 		if err := workloadReconciler.SetServices(specs, resources); err != nil {
-			slog.Error("reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
+			slog.ErrorContext(ctx, "reconciler refused the adopted cell spec", observability.ComponentKey, "cellspec", "error", err)
 		}
 	}
 	if materialService != nil && managed != nil {
@@ -668,12 +668,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		placementConfig := withKnownBad(managed.placementConfig(cfg.NATS.Cell,
 			func(err error) {
 				changed := placementHolds.recordChange("reconciliation error: " + err.Error())
-				slog.Warn("TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
+				slog.WarnContext(ctx, "TerraBase placement reconciliation failed", observability.ComponentKey, "placement",
 					"error", err, "repeated", !changed)
 			},
 			func(reason string) {
 				changed := placementHolds.recordChange(reason)
-				slog.Info("TerraBase placement held", observability.ComponentKey, "placement",
+				slog.InfoContext(ctx, "TerraBase placement held", observability.ComponentKey, "placement",
 					"reason", reason, observability.EventKey, changed)
 				holdDecisions.record(ctx, reason, time.Now())
 			}), rolloutKnownBadReleases)
@@ -997,10 +997,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	}
 	telemetry.markStarted()
 	policy.rollouts.ready.Store(true)
-	slog.Info("controller ready", observability.ComponentKey, "controller", observability.EventKey, true, "candidate_id", candidateID)
+	slog.InfoContext(ctx, "controller ready", observability.ComponentKey, "controller", observability.EventKey, true, "candidate_id", candidateID)
 	fmt.Fprintf(output, "controller %s ready in cell %s via %s\n", cfg.NATS.Instance, cfg.NATS.Cell, runtime.URL())
 	if err := notifier.Ready("controller " + cfg.NATS.Instance + " ready in cell " + cfg.NATS.Cell); err != nil {
-		slog.Warn("systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)
+		slog.WarnContext(ctx, "systemd readiness notification failed", observability.ComponentKey, "controller", "error", err)
 	}
 	// Watchdog keepalives stop when the embedded broker or its in-process
 	// client is no longer usable, so WatchdogSec= restarts a wedged
@@ -1067,7 +1067,7 @@ func retryControllerOpen[T any](ctx context.Context, name string, fullClusterRea
 			noSuitable && noSuitableAttempts >= 10 && fullClusterReady() {
 			return zero, nil, fmt.Errorf("%s: %w", name, err)
 		}
-		slog.Warn("controller startup step retrying with embedded NATS running",
+		slog.WarnContext(attemptCtx, "controller startup step retrying with embedded NATS running",
 			observability.ComponentKey, "controller", "step", name, "attempt", attemptNumber, "error", err)
 		backoff := min(time.Duration(attemptNumber)*250*time.Millisecond, 2*time.Second)
 		backoff += time.Duration(rand.IntN(250)) * time.Millisecond

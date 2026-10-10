@@ -72,17 +72,17 @@ func (snapshotter *Snapshotter) Run(ctx context.Context) error {
 			interval, pause = snapshotter.Schedule()
 		}
 		if pause != paused {
-			slog.Warn("kv snapshot schedule changed", "paused", pause)
+			slog.WarnContext(ctx, "kv snapshot schedule changed", "paused", pause)
 			paused = pause
 		}
 		if !paused && snapshotter.Leader() && time.Since(last) >= interval {
 			last = time.Now()
 			written, err := snapshotter.SnapshotOnce(ctx)
 			if err != nil && ctx.Err() == nil {
-				slog.Warn("kv snapshot failed", "error", err)
+				slog.WarnContext(ctx, "kv snapshot failed", "error", err)
 			}
 			if len(written) > 0 {
-				slog.Info("kv snapshots written", "buckets", written)
+				slog.InfoContext(ctx, "kv snapshots written", "buckets", written)
 			}
 		}
 		select {

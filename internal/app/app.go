@@ -252,7 +252,7 @@ func runHost(ctx context.Context, cfg Config, configPath string, output io.Write
 	// keepalives: a restart of this process stops every supervised member,
 	// so it must never follow from a transient controller outage.
 	if err := notifier.Ready("host " + cfg.Host.Node + " connected to cell " + cfg.NATS.Cell); err != nil {
-		slog.Warn("systemd readiness notification failed", "error", err)
+		slog.WarnContext(ctx, "systemd readiness notification failed", "error", err)
 	}
 	defer func() { _ = notifier.Stopping() }()
 	if err := hostRunResult(ctx, agent.Run(ctx)); err != nil {

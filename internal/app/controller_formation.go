@@ -169,7 +169,7 @@ func superviseFounderAndWaitCluster(ctx context.Context, waitCluster, foundPeers
 			select {
 			case <-done:
 			case <-timer.C:
-				slog.Warn("founder did not stop within its join bound; continuing shutdown",
+				slog.WarnContext(ctx, "founder did not stop within its join bound; continuing shutdown",
 					observability.ComponentKey, "founder", "bound", controllerFounderJoinTimeout)
 			}
 		})

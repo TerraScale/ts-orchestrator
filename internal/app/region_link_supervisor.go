@@ -79,6 +79,7 @@ func (supervisor *regionLinkSupervisor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(regionLinkProbeInterval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		supervisor.round(ctx)
 		select {
 		case <-ctx.Done():

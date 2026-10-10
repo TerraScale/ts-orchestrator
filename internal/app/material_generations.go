@@ -91,7 +91,7 @@ func serveMaterialGenerations(ctx context.Context, wire []byte, policy signerPol
 	if err != nil {
 		return generationinstall.Report{}, err
 	}
-	slog.Info("material generation request", observability.ComponentKey, "trust", "actor", actor,
+	slog.InfoContext(ctx, "material generation request", observability.ComponentKey, "trust", "actor", actor,
 		"kind", envelope.Kind, "slot", request.Slot, "status", status)
 	report, err := leader.Report(ctx, roots.historical())
 	report.Status = status
@@ -189,7 +189,7 @@ func (flags *controllerConfigFlags) Set(value string) error {
 func runMaterialGenerationStager(ctx context.Context, roots *rootRegistry) {
 	target, err := materialGenerationTarget()
 	if err != nil {
-		slog.Warn("material generation stager is off", observability.ComponentKey, "trust", "error", err)
+		slog.WarnContext(ctx, "material generation stager is off", observability.ComponentKey, "trust", "error", err)
 		return
 	}
 	stager := &generationinstall.Stager{KV: roots.kv, Target: target, Roots: roots.current,

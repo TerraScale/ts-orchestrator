@@ -180,7 +180,7 @@ func (stream *Stream) Tail(ctx context.Context, journal *Journal, warm int) erro
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Debug("decision stream tail restarting", observability.ComponentKey, "decision", "error", err)
+		slog.DebugContext(ctx, "decision stream tail restarting", observability.ComponentKey, "decision", "error", err)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

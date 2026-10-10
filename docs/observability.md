@@ -226,8 +226,10 @@ dashboard; no channel pushes them to a person yet (TS-625, ntfy).
 The record keys, level rules, trace IDs and the per-region log summary are
 designed in [production logs](logging.md) (TS-808).
 
-The runtime installs one `slog` default handler tagged with `cell`, `member`
-and `role`; stdlib `log` output goes through the same handler. Records at WARN
+The runtime installs one `slog` default handler tagged with `service`,
+`region`, `node` and `process` (`observability.Identity`); stdlib `log` output
+goes through the same handler. Under journald each record starts with its
+syslog priority, so journald stores `PRIORITY`. Records at WARN
 and above, and records carrying `"event", true`, are also published into a
 2048-entry in-memory ring (`observability.EventBus`) that the dashboard lists
 and streams. Feature slices tag records with `"component", "<slice>"`.
@@ -238,6 +240,13 @@ though the log output omits it. An event identical to one published in the
 last five minutes (same level, component, message and attributes) is kept off
 the bus, so a loop that logs the same warning every tick cannot push every
 other event out of the ring; every such record is still written to the log.
+
+Each HTTP request, NATS request and background loop pass runs under a trace.
+ts-orchestrator mints its ID from a ULID, so IDs sort by time, and renders it as
+a 32-character lowercase W3C trace ID. The `traceparent` header carries it on HTTP
+and NATS messages. A receiver continues a valid incoming trace and starts a new
+one otherwise. Records logged with a `slog.XxxContext` call under a traced context
+carry `trace_id`; the event bus copy leaves it out, so repeated events still collapse.
 
 ### Structured log content
 
@@ -260,9 +269,10 @@ Typed time attributes keep their instant and offset, with zone names redacted
 and bounded to 64 bytes before formatting.
 
 This TS-718 slice prepares structured runtime logs for central collection. It does
-not add retention or search of archived logs. Embedded NATS output, workload
-stdout/stderr and events published directly to `EventBus` bypass this handler;
-their collection and sanitization remain follow-up work.
+not add retention or search of archived logs. Embedded NATS server output and
+nats.go client errors are logged here with `component` `nats` and `nats-client`.
+Workload stdout/stderr and events published directly to `EventBus` bypass this
+handler; their collection and sanitization remain follow-up work.
 
 ### Log scan
 

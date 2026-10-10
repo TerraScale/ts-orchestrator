@@ -12,6 +12,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
@@ -108,8 +109,9 @@ func (e *Executor) Run(ctx context.Context) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if err := e.Tick(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("rollout executor tick failed", "component", "rollout", "error", err)
+			slog.WarnContext(ctx, "rollout executor tick failed", "component", "rollout", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -207,7 +209,7 @@ func (e *Executor) Tick(ctx context.Context) error {
 func (e *Executor) apply(ctx context.Context, record *rollout.Record, revision *uint64, event rollout.Event) error {
 	next, err := rollout.Apply(*record, event)
 	if errors.Is(err, rollout.ErrInvalidTransition) || errors.Is(err, rollout.ErrInvalid) || errors.Is(err, rollout.ErrTerminal) {
-		slog.Debug("rollout event dropped", "component", "rollout", "rollout", record.RolloutID,
+		slog.DebugContext(ctx, "rollout event dropped", "component", "rollout", "rollout", record.RolloutID,
 			"event", event.Kind, "unit", event.Unit, "error", err)
 		return nil
 	}
@@ -224,7 +226,7 @@ func (e *Executor) apply(ctx context.Context, record *rollout.Record, revision *
 	if err != nil {
 		// The record is committed; the cell slot catches up on a later
 		// commit or Settle.
-		slog.Warn("rollout cell slot update is pending", "component", "rollout", "rollout", record.RolloutID, "error", err)
+		slog.WarnContext(ctx, "rollout cell slot update is pending", "component", "rollout", "rollout", record.RolloutID, "error", err)
 	}
 	*record, *revision = next, committed
 	return nil
@@ -349,7 +351,7 @@ func (e *Executor) prepare(ctx context.Context, record rollout.Record, action ro
 	case errors.Is(err, ErrLeaseLost):
 		return nil, err
 	case err != nil:
-		slog.Warn("rollout step was not delivered", "component", "rollout", "rollout", record.RolloutID,
+		slog.WarnContext(ctx, "rollout step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 			"unit", action.Unit, "error", err)
 		e.hold(record, action.Unit, "the unit's step agent did not answer")
 		return nil, nil
@@ -433,7 +435,7 @@ func (e *Executor) rollback(ctx context.Context, record rollout.Record, action r
 		case errors.Is(err, ErrLeaseLost):
 			return nil, err
 		case err != nil:
-			slog.Warn("rollout rollback step was not delivered", "component", "rollout", "rollout", record.RolloutID,
+			slog.WarnContext(ctx, "rollout rollback step was not delivered", "component", "rollout", "rollout", record.RolloutID,
 				"unit", action.Unit, "error", err)
 			e.hold(record, action.Unit, "the unit's step agent did not answer")
 			return nil, nil

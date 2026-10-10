@@ -278,7 +278,7 @@ func (r plannerRunner) tick(ctx context.Context, now time.Time) []string {
 	}
 	submitted, err := r.plan(ctx, snapshot.Epoch, now)
 	if err != nil {
-		slog.Warn("region planner run failed", observability.ComponentKey, "regionplanner", "error", err)
+		slog.WarnContext(ctx, "region planner run failed", observability.ComponentKey, "regionplanner", "error", err)
 	}
 	return submitted
 }

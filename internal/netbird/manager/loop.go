@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // Loop lets the cell's leading controller keep the manager reconciled. It
@@ -66,6 +68,7 @@ func (l Loop) Run(ctx context.Context) {
 	retry := firstRetry
 	warned := map[string]bool{}
 	for {
+		ctx := observability.StartTrace(ctx)
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

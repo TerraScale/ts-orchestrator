@@ -705,7 +705,7 @@ func Serve(ctx context.Context, conn *nats.Conn, cell string, provider *Provider
 		if message.Reply == "" || !validSummaryRequest(message.Data) {
 			return
 		}
-		answerCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		answerCtx, cancel := context.WithTimeout(observability.ContinueTrace(ctx, message.Header.Get("traceparent")), 2*time.Second)
 		defer cancel()
 		data, err := json.Marshal(provider.Local(answerCtx))
 		if err != nil || int64(len(data)) > conn.MaxPayload() {

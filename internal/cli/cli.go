@@ -32,6 +32,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/pathaudit"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkcheck"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
@@ -110,6 +111,14 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(commandio.NewWriter(output), usage)
 		return err
+	}
+	if observability.UnderJournal() {
+		// Runtime roles replace this logger with their own; operators keep plain output.
+		logger, err := observability.NewLogger(os.Stderr, observability.LogConfig{}, nil, observability.Identity(args[0], "")...)
+		if err != nil {
+			return err
+		}
+		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
 	case "usage":

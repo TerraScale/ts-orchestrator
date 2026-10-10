@@ -114,7 +114,7 @@ func (r *rolloutFence) run(node string) {
 			durationOr(spec.DrainGraceSeconds, defaultFenceGrace), holdRollout)
 	}()
 	if err != nil {
-		slog.Warn("rollout fence", observability.ComponentKey, "rollout", "node", node, "error", err)
+		slog.WarnContext(ctx, "rollout fence", observability.ComponentKey, "rollout", "node", node, "error", err)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -161,9 +161,10 @@ func (r *rolloutFence) returnLoop(ctx context.Context, store *rollout.Store, pro
 	ticker := time.NewTicker(fencePoll)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if fencer.Current().CanMutate() {
 			if err := r.returnNodes(ctx, store, proofs); err != nil && ctx.Err() == nil {
-				slog.Warn("rollout fence", observability.ComponentKey, "rollout", "error", err)
+				slog.WarnContext(ctx, "rollout fence", observability.ComponentKey, "rollout", "error", err)
 			}
 		}
 		select {
@@ -220,7 +221,7 @@ func (r *rolloutFence) returnNodes(ctx context.Context, store *rollout.Store, pr
 		r.mu.Lock()
 		delete(r.restarted, node)
 		r.mu.Unlock()
-		slog.Info("rollout fence returned a node", observability.ComponentKey, "rollout", "node", node)
+		slog.InfoContext(restoreCtx, "rollout fence returned a node", observability.ComponentKey, "rollout", "node", node)
 	}
 	return nil
 }

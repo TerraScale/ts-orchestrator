@@ -319,6 +319,7 @@ func (a *Agent) publishLoad(ctx context.Context) {
 			return
 		case <-time.After(wait):
 		}
+		ctx := observability.StartTrace(ctx)
 		if a.sessionLost.Load() {
 			return
 		}
@@ -331,14 +332,14 @@ func (a *Agent) publishLoad(ctx context.Context) {
 		}
 		if err := loadOutcome(err, ack); err != nil {
 			if !failing {
-				slog.Info("host load telemetry not accepted; backing off", "error_class", loadErrorClass(err))
+				slog.InfoContext(ctx, "host load telemetry not accepted; backing off", "error_class", loadErrorClass(err))
 			}
 			failing = true
 			wait = nextLoadWait(wait)
 			continue
 		}
 		if failing {
-			slog.Info("host load telemetry accepted")
+			slog.InfoContext(ctx, "host load telemetry accepted")
 		}
 		failing, wait = false, loadInterval
 	}

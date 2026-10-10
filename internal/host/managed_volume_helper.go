@@ -160,7 +160,7 @@ func RunVolumeInitializer(ctx context.Context, cfg VolumeInitConfig) error {
 		if unixConnection, ok := connection.(*net.UnixConn); ok {
 			// The caller only sees a closed connection; the journal keeps the cause.
 			if err := serveVolumeInitConnection(ctx, cfg, unixConnection); err != nil {
-				slog.Warn("volume initialization request failed", "error", err)
+				slog.WarnContext(ctx, "volume initialization request failed", "error", err)
 			}
 		}
 		_ = connection.Close()
@@ -682,13 +682,13 @@ func formatManagedFilesystem(ctx context.Context, device *managedDevice, fsType,
 func maintainManagedMount(ctx context.Context, paths managedRuntimePaths, mount managedMount, device *managedDevice) {
 	if err := hostvolume.RequireHardened("/proc/self/mountinfo", mount.id); err != nil {
 		if err := hostvolume.HardenRemount(paths.mount); err != nil {
-			slog.Warn("managed volume mount hardening failed", "mount", paths.mount, "error", err)
+			slog.WarnContext(ctx, "managed volume mount hardening failed", "mount", paths.mount, "error", err)
 		}
 	}
 	if grown, err := hostvolume.Grow(ctx, paths.mount, device.stat.Rdev, mount.fsType); err != nil {
-		slog.Warn("managed volume online grow failed", "mount", paths.mount, "error", err)
+		slog.WarnContext(ctx, "managed volume online grow failed", "mount", paths.mount, "error", err)
 	} else if grown {
-		slog.Info("managed volume filesystem grown to its device size", "mount", paths.mount)
+		slog.InfoContext(ctx, "managed volume filesystem grown to its device size", "mount", paths.mount)
 	}
 }
 

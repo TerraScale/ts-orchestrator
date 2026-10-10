@@ -19,6 +19,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -83,8 +84,9 @@ func (r *Relay) Run(ctx context.Context) error {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if err := r.Pass(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("rollout step relay", "component", "rollout", "unit", r.Unit, "error", err)
+			slog.WarnContext(ctx, "rollout step relay", "component", "rollout", "unit", r.Unit, "error", err)
 		}
 		select {
 		case <-ctx.Done():

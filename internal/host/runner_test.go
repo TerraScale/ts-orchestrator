@@ -183,7 +183,7 @@ func TestWorkloadCgroupMemoryMaxValidation(t *testing.T) {
 			}
 			// Invalid limits must fail before Stop or process launch, even when
 			// the runner has not yet recovered or the executable is absent.
-			runner := NewProcessRunner(t.TempDir(), testWorkloadIdentity)
+			runner := NewProcessRunner(t.TempDir(), testWorkloadIdentity, "gru", "gru-1")
 			workload := Workload{
 				Role: "terrabase", Digest: strings.Repeat("a", 64), Fingerprint: strings.Repeat("b", 64),
 				CgroupMemoryMaxBytes: tc.limit,
@@ -200,7 +200,7 @@ func TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery(t *testing.T) {
 		t.Skip("requires root supervisor in a delegated cgroup v2 service")
 	}
 	state := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(state, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(state, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -222,7 +222,7 @@ func TestNativeTenantReadsFiniteCgroupAccountingAfterRecovery(t *testing.T) {
 	if err := os.Chown(root, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	runner = NewProcessRunner(state, testWorkloadIdentity).(*processRunner)
+	runner = NewProcessRunner(state, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		t.Fatalf("Recover did not repair legacy cgroup traversal: %v", err)
 	}
@@ -377,7 +377,7 @@ func (c *cancelAfterErrContext) Err() error {
 
 func TestApplyDoesNotLaunchAfterCancellation(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(root, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -421,7 +421,7 @@ func TestApplyDoesNotLaunchAfterCancellation(t *testing.T) {
 
 func TestCloseInvalidatesOpenedCgroupFD(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(root, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -483,7 +483,7 @@ func TestCloseInvalidatesOpenedCgroupFD(t *testing.T) {
 
 func TestNativeReplacementStartsAfterCgroupKill(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(root, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -539,7 +539,7 @@ func TestNativeReplacementStartsAfterCgroupKill(t *testing.T) {
 // killed once the timeout passes.
 func TestNativeDrainSendsTermBeforeKill(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(root, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -596,7 +596,7 @@ func TestNativeDrainSendsTermBeforeKill(t *testing.T) {
 
 func TestNativeWorkloadReceivesOnlyExplicitEnvironment(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
-	runner := NewProcessRunner(root, testWorkloadIdentity).(*processRunner)
+	runner := NewProcessRunner(root, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 	if err := runner.Recover(t.Context()); err != nil {
 		if runner.lock != nil {
 			_ = syscall.Flock(int(runner.lock.Fd()), syscall.LOCK_UN)
@@ -629,7 +629,8 @@ func TestNativeWorkloadReceivesOnlyExplicitEnvironment(t *testing.T) {
 		data, err := os.ReadFile(marker)
 		if err == nil && len(data) != 0 {
 			environment := string(data)
-			if strings.Contains(environment, "TS_SUPERVISOR_SECRET=") || !strings.Contains(environment, "TS_DESIRED=present") || !strings.Contains(environment, "PATH=/usr/bin:/bin") {
+			if strings.Contains(environment, "TS_SUPERVISOR_SECRET=") || !strings.Contains(environment, "TS_DESIRED=present") || !strings.Contains(environment, "PATH=/usr/bin:/bin") ||
+				!strings.Contains(environment, "\nTS_NODE=gru-1\n") || !strings.Contains(environment, "\nTS_REGION=gru\n") || !strings.Contains(environment, "\nTS_SERVICE=terrabase\n") {
 				t.Fatalf("native workload environment is unsafe: %q", environment)
 			}
 			break
@@ -647,7 +648,7 @@ func TestNativeTenantWorkloadDiesWithSupervisor(t *testing.T) {
 		script := os.Getenv("TS_NATIVE_TENANT_SCRIPT")
 		diagnostic := os.Getenv("TS_NATIVE_TENANT_DIAGNOSTIC")
 		report := os.Getenv("TS_NATIVE_TENANT_REPORT")
-		runner := NewProcessRunner(state, testWorkloadIdentity).(*processRunner)
+		runner := NewProcessRunner(state, testWorkloadIdentity, "gru", "gru-1").(*processRunner)
 		if err := runner.Recover(t.Context()); err != nil {
 			t.Fatal(err)
 		}

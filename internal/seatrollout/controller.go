@@ -91,7 +91,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	defer ticker.Stop()
 	for {
 		if err := c.Tick(ctx); err != nil && ctx.Err() == nil {
-			slog.Warn("terrabase seat rollout tick failed", "component", "seatrollout", "error", err)
+			slog.WarnContext(ctx, "terrabase seat rollout tick failed", "component", "seatrollout", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -214,7 +214,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 			return err
 		}
 		if reason != "" {
-			slog.Debug("terrabase seats wait: "+reason, "component", "seatrollout")
+			slog.DebugContext(ctx, "terrabase seats wait: "+reason, "component", "seatrollout")
 			return nil
 		}
 	}
@@ -249,7 +249,7 @@ func (c *Controller) Tick(ctx context.Context) error {
 			continue
 		}
 		if !slices.ContainsFunc(views, func(other view) bool { return other.seat.Node != v.seat.Node && other.serving() }) {
-			slog.Debug("terrabase seat waits: draining it would leave no healthy seat", "component", "seatrollout", "seat", v.seat.Node)
+			slog.DebugContext(ctx, "terrabase seat waits: draining it would leave no healthy seat", "component", "seatrollout", "seat", v.seat.Node)
 			continue
 		}
 		record.Drain, record.DrainedAt = true, now
@@ -268,7 +268,7 @@ func (c *Controller) put(ctx context.Context, epoch uint64, v view, record Seat,
 	if c.Wake != nil {
 		c.Wake()
 	}
-	slog.Info("terrabase seat "+what, "component", "seatrollout", "seat", v.seat.Node, "generation", v.desired.Generation, "epoch", epoch)
+	slog.InfoContext(ctx, "terrabase seat "+what, "component", "seatrollout", "seat", v.seat.Node, "generation", v.desired.Generation, "epoch", epoch)
 	return nil
 }
 

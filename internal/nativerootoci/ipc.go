@@ -138,7 +138,7 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service *
 				cause, remaining = "lease_expired", max(0, time.Until(leaseDeadline))
 			}
 		}
-		slog.Warn("native OCI root IPC rejected", "stage", "authorize",
+		slog.WarnContext(ctx, "native OCI root IPC rejected", "stage", "authorize",
 			"cause", cause, "lease_remaining", remaining)
 		return
 	}

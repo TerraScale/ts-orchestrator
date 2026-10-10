@@ -45,7 +45,7 @@ func TestWatchdogRetriesAnOwedRestartAndToleratesAnUnusableProofKey(t *testing.T
 	// error only disables confirmation.
 	proof := []string{"--proof-file", filepath.Join(dir, "proof.json"), "--proof-key-file", filepath.Join(dir, "missing.key")}
 	watchdog := append([]string{"watchdog", "--root", root, "--owner", owner, "--unit", unit}, proof...)
-	if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=idle") || len(restarted) != 0 {
+	if output, err := invoke(watchdog...); err != nil || output != "" || len(restarted) != 0 {
 		t.Fatalf("watchdog with an unusable key = %q %v", output, err)
 	}
 	// A rollback committed but its restart failed: the obligation remains.

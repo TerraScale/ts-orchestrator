@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"os/exec"
@@ -19,6 +20,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type Workload struct {
@@ -72,6 +75,8 @@ type processRecord struct {
 type processRunner struct {
 	root      string
 	cgroups   string
+	cell      string
+	node      string
 	identity  WorkloadIdentity
 	mu        sync.Mutex
 	closeOnce sync.Once
@@ -81,8 +86,8 @@ type processRunner struct {
 	commands  map[string]*exec.Cmd
 }
 
-func NewProcessRunner(stateRoot string, identity WorkloadIdentity) Runner {
-	return &processRunner{root: stateRoot, identity: identity, closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
+func NewProcessRunner(stateRoot string, identity WorkloadIdentity, cell, node string) Runner {
+	return &processRunner{root: stateRoot, cell: cell, node: node, identity: identity, closing: make(chan struct{}), records: make(map[string]processRecord), commands: make(map[string]*exec.Cmd)}
 }
 
 func nativeCgroupName(stateRoot string) string {
@@ -286,6 +291,10 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	for key, value := range w.Env {
 		environment[key] = value
 	}
+	// Set last, so the workload reports the identity the agent gave it.
+	environment["TS_SERVICE"] = w.Role
+	environment["TS_REGION"] = p.cell
+	environment["TS_NODE"] = p.node
 	for key, value := range environment {
 		target.Env = append(target.Env, key+"="+value)
 	}
@@ -353,11 +362,12 @@ func (p *processRunner) Apply(ctx context.Context, w Workload) error {
 	}
 	release()
 	go func() {
-		result := "exit status 0"
+		level, result := slog.LevelInfo, "exit status 0"
 		if err := <-waited; err != nil {
-			result = err.Error()
+			level, result = slog.LevelWarn, err.Error()
 		}
-		fmt.Fprintf(os.Stderr, "native workload exited role=%s pid=%d digest=%s result=%q\n", w.Role, record.PID, w.Digest[:12], result)
+		slog.Log(ctx, level, "native workload exited", observability.ComponentKey, "host",
+			"role", w.Role, "pid", record.PID, "digest", w.Digest[:12], "result", result)
 	}()
 	return nil
 }

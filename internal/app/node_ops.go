@@ -368,7 +368,7 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 	if err := o.save(ctx, epoch, op); err != nil {
 		return nodeOp{}, err
 	}
-	slog.Info("node operation queued", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op, "actor", actor)
+	slog.InfoContext(ctx, "node operation queued", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op, "actor", actor)
 	select {
 	case o.wake <- struct{}{}:
 	default:
@@ -503,7 +503,7 @@ func (o *nodeOps) run(ctx context.Context) {
 	for ctx.Err() == nil {
 		if o.fence.fencer.Current().CanMutate() {
 			if err := o.pass(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("node operation", observability.ComponentKey, "nodes", "error", err)
+				slog.WarnContext(ctx, "node operation", observability.ComponentKey, "nodes", "error", err)
 			}
 		}
 		select {
@@ -535,9 +535,9 @@ func (o *nodeOps) pass(ctx context.Context) error {
 		op.State, op.Step = nodeOpDone, ""
 		if err != nil {
 			op.State, op.Reason = nodeOpFailed, err.Error()
-			slog.Error("node operation failed", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op, "error", err)
+			slog.ErrorContext(runCtx, "node operation failed", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op, "error", err)
 		} else {
-			slog.Info("node operation done", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op)
+			slog.InfoContext(runCtx, "node operation done", observability.ComponentKey, "nodes", "node", op.Node, "op", op.Op)
 		}
 		if err := o.save(ctx, epoch, op); err != nil {
 			return err
@@ -690,7 +690,7 @@ func (o *nodeOps) act(ctx context.Context, op *nodeOp) error {
 	if op.Session, err = nodeSession(ctx, o.fence.hosts, op.Node); err != nil {
 		return err
 	}
-	slog.Info("node operation changes the instance", observability.ComponentKey, "nodes", "node", op.Node,
+	slog.InfoContext(ctx, "node operation changes the instance", observability.ComponentKey, "nodes", "node", op.Node,
 		"op", op.Op, "instance", instance.ID)
 	if op.Op == nodeOpResize {
 		return api.Resize(ctx, instance.ID, op.OCPUs, op.MemoryGB)
@@ -798,7 +798,7 @@ func (o *nodeOps) retire(ctx context.Context, epoch uint64, api lb.API, spec cel
 				return err
 			}
 		}
-		slog.Info("node operation terminates an instance", observability.ComponentKey, "nodes", "node", op.Node,
+		slog.InfoContext(ctx, "node operation terminates an instance", observability.ComponentKey, "nodes", "node", op.Node,
 			"instance", instance.ID, "backup", op.Backup)
 		if err := instances.Terminate(ctx, instance.ID); err != nil {
 			return err
@@ -877,7 +877,7 @@ func (o *nodeOps) rename(ctx context.Context, epoch uint64, api lb.API, spec cel
 		if o.forget == nil || o.desired == nil {
 			return errors.New("this leader cannot re-enroll a renamed host")
 		}
-		slog.Info("node operation renames an instance", observability.ComponentKey, "nodes", "node", op.From,
+		slog.InfoContext(ctx, "node operation renames an instance", observability.ComponentKey, "nodes", "node", op.From,
 			"to", op.Node, "instance", op.Instance)
 		if err := instances.Rename(ctx, op.Instance, op.Node); err != nil {
 			return err

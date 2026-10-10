@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nativerootoci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type managedNativeRoot struct {
@@ -97,6 +98,7 @@ func (a *Agent) refreshNativeRootPins(ctx context.Context) {
 			return
 		case <-ticker.C:
 		}
+		ctx := observability.StartTrace(ctx)
 		for _, role := range a.cfg.Roles {
 			a.nativeRootMu.Lock()
 			pin, pinned := a.nativeDesired[role]

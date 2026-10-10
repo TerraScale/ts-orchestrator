@@ -161,7 +161,7 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 		// summary supplies total elapsed time, including permit wait and
 		// multiple SDK operations for probe_update.
 		if response.Status == "uncertain" && !rejected {
-			slog.Warn("native OCI root request uncertain", "operation", request.Operation,
+			slog.WarnContext(ctx, "native OCI root request uncertain", "operation", request.Operation,
 				"elapsed", time.Since(started))
 		}
 	}()
@@ -189,7 +189,7 @@ func (service *Service) Execute(ctx context.Context, request Request, authorize 
 		if err != nil || len(body) == 0 || len(body) > MaxRootBytes ||
 			base64.StdEncoding.EncodeToString(body) != request.RootBase64 {
 			rejected = true
-			slog.Warn("native OCI root request rejected", "operation", request.Operation,
+			slog.WarnContext(ctx, "native OCI root request rejected", "operation", request.Operation,
 				"cause", "invalid_root_payload")
 			return response
 		}
@@ -315,7 +315,7 @@ func logNativeRootFailure(ctx context.Context, operation, stage string, err erro
 		remaining = time.Until(deadline)
 	}
 	requestOperation, _ := ctx.Value(requestOperationKey{}).(string)
-	slog.Warn("native OCI root operation uncertain", "operation", operation,
+	slog.WarnContext(ctx, "native OCI root operation uncertain", "operation", operation,
 		"request_operation", requestOperation, "stage", stage,
 		"cause", cause, "http_status", status, "deadline_remaining", remaining)
 }

@@ -71,7 +71,7 @@ func (s *Service) Run(ctx context.Context) error {
 	pace := cmp.Or(s.recovery, deliveryConsumerRecovery)
 	recovery := pace.initial
 	recoverConsumer := func(stage string, err error) error {
-		slog.Error("delivery intent consumer failed; recreating it", "stage", stage, "error", err, "retry_in", recovery)
+		slog.ErrorContext(ctx, "delivery intent consumer failed; recreating it", "stage", stage, "error", err, "retry_in", recovery)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -85,7 +85,7 @@ func (s *Service) Run(ctx context.Context) error {
 		defer cancel()
 		consumer, createErr := s.js.CreateOrUpdateConsumer(createCtx, IntentStream, intentConsumerConfig(s.config.Cell))
 		if createErr != nil {
-			slog.Error("delivery intent consumer recreation failed", "error", createErr)
+			slog.ErrorContext(createCtx, "delivery intent consumer recreation failed", "error", createErr)
 			return nil
 		}
 		s.consumer = consumer
@@ -303,7 +303,7 @@ func retryDeliveryTransport(ctx context.Context, err error) (bool, error) {
 	}
 	if !quiet {
 		transportRetries.Inc()
-		slog.Warn("delivery intent transport temporarily unavailable; retrying",
+		slog.WarnContext(ctx, "delivery intent transport temporarily unavailable; retrying",
 			observability.ComponentKey, "delivery", "error", err)
 	}
 	select {

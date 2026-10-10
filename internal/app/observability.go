@@ -104,7 +104,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		events: observability.NewEventBus(observability.DefaultEventCapacity)}
 	logger, err := observability.NewLogger(os.Stderr,
 		observability.LogConfig{Format: settings.LogFormat, Level: settings.LogLevel}, runtime.events,
-		slog.String("cell", cfg.NATS.Cell), slog.String("member", member), slog.String("role", role))
+		observability.Identity(role, cfg.NATS.Cell)...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 		// An unusable bearer token file (missing, shared or malformed) fails
 		// closed for the listener only: nothing is served, and the role
 		// keeps running exactly as when the port cannot be bound.
-		slog.Warn("observability listener unusable; continuing without it",
+		slog.WarnContext(ctx, "observability listener unusable; continuing without it",
 			observability.ComponentKey, "observability", "error", err)
 		return runtime, nil
 	}
@@ -138,14 +138,14 @@ func startRuntimeObservability(ctx context.Context, cfg Config, role, member str
 	board.Mount(server)
 	serveErrors, err := server.Start(ctx, settings)
 	if err != nil {
-		slog.Warn("observability listener unavailable; continuing without it",
+		slog.WarnContext(ctx, "observability listener unavailable; continuing without it",
 			observability.ComponentKey, "observability", "address", settings.Address(), "error", err)
 		return runtime, nil
 	}
 	go watchObservabilityListener(serveErrors)
 	runtime.server = server
 	runtime.addBoard(board)
-	slog.Info("observability listener ready", observability.ComponentKey, "observability",
+	slog.InfoContext(ctx, "observability listener ready", observability.ComponentKey, "observability",
 		"address", server.Addr().String())
 	return runtime, nil
 }
@@ -282,7 +282,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 			}
 			mu.Lock()
 			if text != "" && text != last {
-				slog.Warn("credential expiry scan incomplete", observability.ComponentKey, "maintenance", "error", err)
+				slog.WarnContext(ctx, "credential expiry scan incomplete", observability.ComponentKey, "maintenance", "error", err)
 			}
 			last = text
 			mu.Unlock()
@@ -298,7 +298,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	// refuses (for example credentials without the obs grant) leaves this
 	// member's own view in place instead of stopping the controller.
 	if _, err := observability.ServeSnapshots(ctx, observed.nats.Conn(), runtime.cell, collector); err != nil {
-		slog.Warn("cell-wide observability unavailable; serving the local view only",
+		slog.WarnContext(ctx, "cell-wide observability unavailable; serving the local view only",
 			observability.ComponentKey, "observability", "error", err)
 		runtime.attachJournal(ctx, observed, collector, nil)
 		return nil
@@ -306,7 +306,7 @@ func (runtime *runtimeObservability) attachController(ctx context.Context, obser
 	aggregator, err := observability.NewAggregator(observed.nats.Conn(), runtime.cell, observed.brokerIDs,
 		observability.DefaultAggregationTimeout)
 	if err != nil {
-		slog.Warn("cell-wide observability unavailable; serving the local view only",
+		slog.WarnContext(ctx, "cell-wide observability unavailable; serving the local view only",
 			observability.ComponentKey, "observability", "error", err)
 		runtime.attachJournal(ctx, observed, collector, nil)
 		return nil

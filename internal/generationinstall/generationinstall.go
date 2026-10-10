@@ -314,7 +314,7 @@ func (s *Stager) Run(ctx context.Context) {
 	for {
 		status := s.Pass(ctx)
 		if err := s.report(ctx, status); err != nil && ctx.Err() == nil {
-			slog.Warn("report material generation status", "component", "trust", "error", err)
+			slog.WarnContext(ctx, "report material generation status", "component", "trust", "error", err)
 		}
 		select {
 		case <-ctx.Done():

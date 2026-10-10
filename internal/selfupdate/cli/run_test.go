@@ -11,12 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
@@ -66,12 +68,27 @@ func TestPrepareActivateWatchdogRestart(t *testing.T) {
 		t.Fatal("half-configured proof accepted")
 	}
 	if output, err := invoke(append([]string{"watchdog", "--root", root, "--owner", owner, "--unit", unit}, proof...)...); err != nil ||
-		!strings.Contains(output, "outcome=idle") || len(restarted) != 0 {
+		output != "" || len(restarted) != 0 {
 		t.Fatalf("idle watchdog = %q %v %v", output, err, restarted)
 	}
 	if _, err := invoke("bogus"); err == nil {
 		t.Fatal("unknown command accepted")
 	}
+}
+
+// captureLog routes the default logger into the returned buffer for one test.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	t.Setenv("JOURNAL_STREAM", "")
+	var output bytes.Buffer
+	logger, err := observability.NewLogger(&output, observability.LogConfig{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := slog.Default()
+	observability.ConfigureDefault(logger)
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &output
 }
 
 func TestReadKeys(t *testing.T) {
@@ -155,6 +172,7 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 				t.Fatal(err)
 			}
 			now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+			logs := captureLog(t)
 			var restarted []string
 			invoke := func(args ...string) (string, error) {
 				var output bytes.Buffer
@@ -225,25 +243,25 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 			if _, err := invoke(append(watchdog, "--proof-file", proofFile)...); err == nil {
 				t.Fatal("--config combined with --proof-file was accepted")
 			}
-			output, err := invoke(watchdog...)
-			if err != nil {
+			if _, err := invoke(watchdog...); err != nil {
 				t.Fatal(err)
 			}
 			if tc.confirmed {
-				if !strings.Contains(output, "outcome=confirmed") {
-					t.Fatalf("watchdog = %q", output)
+				if !strings.Contains(logs.String(), `"outcome":"confirmed"`) {
+					t.Fatalf("watchdog log = %q", logs)
 				}
 				if current, err := layout.Current(); err != nil || current != digest || len(restarted) != 1 || restarted[0] != tc.unit {
 					t.Fatalf("confirmed current = %s %v, restarted %v", current, err, restarted)
 				}
 				return
 			}
-			if !strings.Contains(output, "outcome=pending") {
-				t.Fatalf("watchdog before the deadline = %q", output)
+			// Pending repeats every 15 s, so it is debug and stays out of the info log.
+			if strings.Contains(logs.String(), `"outcome":"pending"`) {
+				t.Fatalf("watchdog pending logged above debug = %q", logs)
 			}
 			now = activation.Deadline.Add(time.Second)
-			if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=rolled-back") {
-				t.Fatalf("watchdog after the deadline = %q %v", output, err)
+			if _, err := invoke(watchdog...); err != nil || !strings.Contains(logs.String(), `"outcome":"rolled-back"`) {
+				t.Fatalf("watchdog after the deadline log = %q %v", logs, err)
 			}
 			if current, err := layout.Current(); err != nil || current != previous || len(restarted) != 2 || restarted[0] != tc.unit || restarted[1] != tc.unit {
 				t.Fatalf("rolled back current = %s %v (want %s), restarted %v", current, err, previous, restarted)
@@ -260,6 +278,7 @@ func TestWatchdogConfirmsOrRollsBackFromTheRoleConfig(t *testing.T) {
 // confirmed releases. It runs a step itself when that release fails it, or
 // when it is already the delegate.
 func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
+	logs := captureLog(t)
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
 	owner := fmt.Sprint(os.Getuid())
@@ -331,7 +350,7 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	}
 	// A release that fails the step leaves it to the image-baked binary.
 	t.Setenv("DELEGATE_EXIT", "1")
-	if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=idle") || len(calls()) != 3 {
+	if output, err := invoke(watchdog...); err != nil || output != "" || len(calls()) != 3 {
 		t.Fatalf("fallback after a failed delegate = %q %v, calls %q", output, err, calls())
 	}
 	// A release that hangs is stopped, and the image-baked binary runs the
@@ -345,14 +364,14 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 	defer func() { delegateTimeout = timeout }()
 	delegateTimeout = 2 * time.Second
 	started := time.Now()
-	if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=idle") || len(calls()) != 4 || time.Since(started) > 10*time.Second {
+	if output, err := invoke(watchdog...); err != nil || output != "" || len(calls()) != 4 || time.Since(started) > 10*time.Second {
 		t.Fatalf("fallback after a hung delegate = %q %v in %s, calls %q", output, err, time.Since(started), calls())
 	}
 	delegateTimeout = timeout
 	// The delegate itself runs the step; it never delegates again.
 	knownGood()
 	t.Setenv(delegatedEnv, "1")
-	if output, err := invoke(watchdog...); err != nil || !strings.Contains(output, "outcome=idle") || len(calls()) != 4 {
+	if output, err := invoke(watchdog...); err != nil || output != "" || len(calls()) != 4 {
 		t.Fatalf("delegated run = %q %v, calls %q", output, err, calls())
 	}
 	// A release whose watchdog succeeds without enforcing a deadline cannot
@@ -373,9 +392,8 @@ func TestRootStepsRunTheKnownGoodRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	now = now.Add(time.Minute + selfupdate.OrphanedActivationGrace)
-	output, err := invoke(watchdog...)
-	if err != nil || !strings.Contains(output, "outcome=rolled-back") || len(calls()) != 5 || len(restarted) != 2 || restarted[0] != unit || restarted[1] != unit {
-		t.Fatalf("backstop after a delegate ignored the deadline = %q %v, calls %q, restarted %v", output, err, calls(), restarted)
+	if _, err := invoke(watchdog...); err != nil || !strings.Contains(logs.String(), `"outcome":"rolled-back"`) || len(calls()) != 5 || len(restarted) != 2 || restarted[0] != unit || restarted[1] != unit {
+		t.Fatalf("backstop after a delegate ignored the deadline = %q, calls %q, restarted %v", logs, calls(), restarted)
 	}
 	if current, err := layout.Current(); err != nil || current == unproven {
 		t.Fatalf("unproven target still current: %v", err)

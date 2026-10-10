@@ -78,7 +78,7 @@ func (service *seedReplacementService) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("serve controller slot replacement requests: %w", err)
 	}
-	slog.Info("seed serves routed controller slot replacement requests", "component", "membership",
+	slog.InfoContext(ctx, "seed serves routed controller slot replacement requests", "component", "membership",
 		"subject", service.subject)
 	<-ctx.Done()
 	_ = subscription.Unsubscribe()

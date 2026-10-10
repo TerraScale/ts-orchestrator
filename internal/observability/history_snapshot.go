@@ -255,7 +255,7 @@ func (sampler HistorySampler) Run(ctx context.Context) error {
 			err = sampler.Store.Import(data)
 		}
 		if err != nil {
-			slog.Debug("metric history snapshot not restored", ComponentKey, "observability", "error", err)
+			slog.DebugContext(loadCtx, "metric history snapshot not restored", ComponentKey, "observability", "error", err)
 		}
 	}
 	ticker := time.NewTicker(interval)
@@ -286,6 +286,6 @@ func (sampler HistorySampler) save(ctx context.Context) {
 		cancel()
 	}
 	if err != nil {
-		slog.Debug("metric history snapshot not saved", ComponentKey, "observability", "error", err)
+		slog.DebugContext(ctx, "metric history snapshot not saved", ComponentKey, "observability", "error", err)
 	}
 }

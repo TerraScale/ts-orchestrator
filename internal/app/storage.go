@@ -50,7 +50,7 @@ func ownedLoop(parent context.Context, name string, run func(context.Context) er
 	go func() {
 		defer close(done)
 		if err := run(ctx); err != nil && ctx.Err() == nil {
-			slog.Error(name+" stopped", "error", err)
+			slog.ErrorContext(ctx, name+" stopped", "error", err)
 		}
 	}()
 	return func() {
@@ -94,7 +94,7 @@ func placementVolumeIDs(ctx context.Context, store placement.Store) ([]string, e
 		volumes = append(volumes, member.VolumeID)
 	}
 	if len(skipped) > 0 {
-		slog.Warn("volume backup listing skipped unreadable partitions", "error", errors.Join(skipped...))
+		slog.WarnContext(ctx, "volume backup listing skipped unreadable partitions", "error", errors.Join(skipped...))
 		return volumes, fmt.Errorf("%w: %w", backup.ErrPartialVolumes, errors.Join(skipped...))
 	}
 	return volumes, nil

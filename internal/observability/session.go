@@ -224,7 +224,7 @@ func (server *Server) SetSessionStore(ctx context.Context, store *SessionStore) 
 		if err := binding.collect(ctx); err != nil {
 			server.sessions.reclaim.Store(binding)
 			if !errors.Is(err, context.Canceled) {
-				slog.Warn("dashboard session reclamation deferred", ComponentKey, "dashboard", "error", err)
+				slog.WarnContext(ctx, "dashboard session reclamation deferred", ComponentKey, "dashboard", "error", err)
 			}
 		}
 		return nil
@@ -270,7 +270,7 @@ func (manager *sessions) retryCleanup(ctx context.Context) {
 			// A concurrent failed registration must retain its own retry request.
 			manager.reclaim.CompareAndSwap(pending, nil)
 		} else if ctx.Err() == nil && (err.Error() != lastError || time.Now().After(nextWarning)) {
-			slog.Warn("dashboard session reclamation retry failed", ComponentKey, "dashboard", "error", err)
+			slog.WarnContext(attempt, "dashboard session reclamation retry failed", ComponentKey, "dashboard", "error", err)
 			lastError, nextWarning = err.Error(), time.Now().Add(time.Minute)
 		}
 		delay = min(2*delay, 5*time.Second)

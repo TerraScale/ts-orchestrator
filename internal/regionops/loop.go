@@ -118,9 +118,10 @@ func (loop *Loop) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		report := loop.Tick(ctx)
 		for _, err := range report.Errors {
-			slog.Warn("region operations tick failed", observability.ComponentKey, "regionops", "error", err)
+			slog.WarnContext(ctx, "region operations tick failed", observability.ComponentKey, "regionops", "error", err)
 		}
 		select {
 		case <-ctx.Done():

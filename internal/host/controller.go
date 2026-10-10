@@ -18,6 +18,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go"
@@ -753,6 +754,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	ticker := time.NewTicker(hostLeaderPoll)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		leader := c.authorityLeader == nil || c.authorityLeader()
 		if leader && subscriptions == nil {
 			var err error
@@ -807,7 +809,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		strings.Contains(msg.Subject, ".volume-init")) {
 		deadline = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(parent, deadline)
+	ctx, cancel := context.WithTimeout(observability.ContinueTrace(parent, msg.Header.Get("traceparent")), deadline)
 	defer cancel()
 	var envelope protocol.Envelope
 	if err := protocol.DecodeStrict(msg.Data, &envelope, 64<<10); err != nil {

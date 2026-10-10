@@ -22,7 +22,7 @@ func ControllerPass[S, O any](controller *Controller[S, O]) Pass {
 	return Pass{Name: controller.Resource.Kind(), Run: func(ctx context.Context, epoch uint64) error {
 		result, err := controller.Reconcile(ctx, epoch)
 		if result.Observed > 0 {
-			slog.Debug("OCI resources reconciled", "kind", controller.Resource.Kind(), "observed", result.Observed,
+			slog.DebugContext(ctx, "OCI resources reconciled", "kind", controller.Resource.Kind(), "observed", result.Observed,
 				"in_sync", result.InSync, "drifted", result.Drifted, "applied", result.Applied,
 				"deleted", result.Deleted, "foreign", result.Foreign, "failed", result.Failed)
 		}
@@ -85,10 +85,10 @@ func (r Runner) Tick(ctx context.Context) {
 		}
 		if err := pass.Run(ctx, snapshot.Epoch); err != nil {
 			if errors.Is(err, ErrFenced) {
-				slog.Warn("OCI resource reconcile lost authority", "pass", pass.Name, "error", err)
+				slog.WarnContext(ctx, "OCI resource reconcile lost authority", "pass", pass.Name, "error", err)
 				return
 			}
-			slog.Warn("OCI resource reconcile pass failed", "pass", pass.Name, "error", err)
+			slog.WarnContext(ctx, "OCI resource reconcile pass failed", "pass", pass.Name, "error", err)
 		}
 	}
 }

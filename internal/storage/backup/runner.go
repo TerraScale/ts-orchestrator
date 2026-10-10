@@ -215,9 +215,9 @@ func (runner Runner) Run(ctx context.Context) error {
 		switch {
 		case errors.Is(err, authority.ErrNotLeader):
 		case err != nil && ctx.Err() == nil:
-			slog.Warn("volume backup evaluation failed", "error", err)
+			slog.WarnContext(ctx, "volume backup evaluation failed", "error", err)
 		case len(report.Created)+len(report.Deleted) > 0:
-			slog.Info("volume backup policy applied", "created", report.Created, "deleted", report.Deleted)
+			slog.InfoContext(ctx, "volume backup policy applied", "created", report.Created, "deleted", report.Deleted)
 		}
 		select {
 		case <-ctx.Done():

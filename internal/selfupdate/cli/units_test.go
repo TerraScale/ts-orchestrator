@@ -113,7 +113,8 @@ func TestImageUnitArgumentsStillRun(t *testing.T) {
 			if err := run(t.Context(), args, &output, time.Now, func(context.Context, string) error { return nil }); err != nil {
 				t.Fatalf("%s: %v", line, err)
 			}
-			if want := "selfupdate " + args[0] + " unit=" + unit + " outcome="; !strings.HasPrefix(output.String(), want) {
+			// The watchdog prints nothing while idle; prepare always reports its outcome.
+			if want := "selfupdate " + args[0] + " unit=" + unit + " outcome="; args[0] == "prepare" && !strings.HasPrefix(output.String(), want) {
 				t.Fatalf("%s printed %q, want %q", line, output.String(), want)
 			}
 		}

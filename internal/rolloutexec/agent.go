@@ -128,7 +128,7 @@ func (a *Agent) apply(ctx context.Context, command StepCommand, expires time.Tim
 		return outcome, reason
 	}
 	if err := a.restart(ctx); err != nil {
-		slog.Warn("rollout agent could not restart its unit", "component", "rollout", "unit", a.Unit, "error", err)
+		slog.WarnContext(ctx, "rollout agent could not restart its unit", "component", "rollout", "unit", a.Unit, "error", err)
 		return OutcomeRetry, "unit restart failed"
 	}
 	a.served = command.OperationID
@@ -180,7 +180,7 @@ func (a *Agent) ensureStaged(ctx context.Context, command StepCommand) (StepOutc
 	}
 	staged, err := a.Fetch.Fetch(ctx, a.Layout, command.Receipt, command.Delegation)
 	if err != nil {
-		slog.Warn("rollout agent could not stage a release", "component", "rollout", "unit", a.Unit,
+		slog.WarnContext(ctx, "rollout agent could not stage a release", "component", "rollout", "unit", a.Unit,
 			"digest", command.Digest, "error", err)
 		return OutcomeRetry, "release staging failed"
 	}

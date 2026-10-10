@@ -121,7 +121,7 @@ func (r *Runtime) OpenMembershipAdmin(path string) (*MembershipAdmin, error) {
 	}
 	inbox := inboxPrefix(r.cell, public)
 	options := []nats.Option{nats.UserCredentials(path), nats.InProcessServer(r.server),
-		nats.CustomInboxPrefix(inbox), nats.Name("ts-orch-membership"), nats.NoReconnect()}
+		nats.CustomInboxPrefix(inbox), nats.Name("ts-orch-membership"), nats.NoReconnect(), nats.ErrorHandler(ErrorHandler)}
 	conn, err := nats.Connect(r.server.ClientURL(), options...)
 	if err != nil {
 		return nil, fmt.Errorf("connect membership system user: %w", err)

@@ -117,9 +117,10 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if r.fencer.Current().CanMutate() {
 			if err := r.fences.reconcile(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("release fence", observability.ComponentKey, "rollout", "error", err)
+				slog.WarnContext(ctx, "release fence", observability.ComponentKey, "rollout", "error", err)
 			}
 		}
 		for _, role := range serviceReleaseRoles {
@@ -127,7 +128,7 @@ func (r *serviceReleases) run(ctx context.Context, js jetstream.JetStream, repli
 				break
 			}
 			if err := r.pass(ctx, kv, role); err != nil && ctx.Err() == nil {
-				slog.Warn("service release channel", observability.ComponentKey, "rollout", "role", role, "error", err)
+				slog.WarnContext(ctx, "service release channel", observability.ComponentKey, "rollout", "role", role, "error", err)
 			}
 		}
 		select {
@@ -655,7 +656,7 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 // telemetry, and the next pass writes it again.
 func (r *serviceReleases) reportQuietly(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) {
 	if err := r.report(ctx, kv, role, state); err != nil && ctx.Err() == nil {
-		slog.Warn("service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
+		slog.WarnContext(ctx, "service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
 	}
 }
 
@@ -737,7 +738,7 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil
 	}
-	slog.Info("service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
+	slog.InfoContext(ctx, "service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("this controller no longer holds the authority lease")

@@ -140,11 +140,11 @@ func Run(ctx context.Context, collector Collector, publisher Publisher, policy P
 	for {
 		usages, err := collector.Collect(ctx)
 		if err != nil {
-			slog.Warn("storage capacity measurement failed", "error", err)
+			slog.WarnContext(ctx, "storage capacity measurement failed", "error", err)
 		}
 		for _, usage := range usages {
 			if err := publisher.Publish(ctx, usage); err != nil && ctx.Err() == nil {
-				slog.Warn("storage capacity publish failed", "role", usage.Role, "path", usage.MountPath, "error", err)
+				slog.WarnContext(ctx, "storage capacity publish failed", "role", usage.Role, "path", usage.MountPath, "error", err)
 			}
 			if signal := Evaluate(usage, policy); signal.Level != LevelOK && onSignal != nil {
 				onSignal(signal)

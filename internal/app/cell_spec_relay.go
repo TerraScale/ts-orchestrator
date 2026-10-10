@@ -184,7 +184,7 @@ func relayCellSpec(ctx context.Context, wire []byte, policy signerPolicy, global
 		olderThanWaiting); err != nil {
 		return specReply{}, err
 	}
-	slog.Info("cell spec relayed", observability.ComponentKey, "cellspec", "actor", actor, "cell", target,
+	slog.InfoContext(ctx, "cell spec relayed", observability.ComponentKey, "cellspec", "actor", actor, "cell", target,
 		"generation", generation)
 	return specReply{Spec: spec, Status: "relayed"}, nil
 }
@@ -207,7 +207,7 @@ func (r *specRegistry) followRelayedSpecs(ctx context.Context, reader *globalcon
 			}
 			outcome := fmt.Sprint(document.Sequence, err)
 			if err != nil && outcome != reported {
-				slog.Error("relayed cell spec refused; keeping the current spec", observability.ComponentKey, "cellspec",
+				slog.ErrorContext(ctx, "relayed cell spec refused; keeping the current spec", observability.ComponentKey, "cellspec",
 					"sequence", document.Sequence, "error", err)
 			}
 			reported = outcome

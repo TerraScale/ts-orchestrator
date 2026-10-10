@@ -249,7 +249,7 @@ func (r *specRegistry) reverify(ctx context.Context) {
 	entry, err := r.kv.Get(ctx, cellSpecKey)
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrKeyNotFound) {
-			slog.Error("reread cell spec after a root rotation", observability.ComponentKey, "cellspec", "error", err)
+			slog.ErrorContext(ctx, "reread cell spec after a root rotation", observability.ComponentKey, "cellspec", "error", err)
 		}
 		return
 	}
@@ -778,7 +778,7 @@ func (r *specRegistry) amended(ctx context.Context) (current cellspec.Spec, revi
 		return current, entry.Revision(), false, fmt.Errorf("the stored %w; update this controller's binary first", newer)
 	}
 	if err != nil {
-		slog.Error("stored cell spec is invalid; amending the adopted spec", observability.ComponentKey, "cellspec",
+		slog.ErrorContext(ctx, "stored cell spec is invalid; amending the adopted spec", observability.ComponentKey, "cellspec",
 			"revision", entry.Revision(), "error", err)
 		return current, entry.Revision(), false, nil
 	}
@@ -933,7 +933,7 @@ func (r *specRegistry) serve(ctx context.Context, wire []byte, policy signerPoli
 	}
 	reply, err := r.apply(ctx, envelope.Payload, envelope.KeyID, envelope.Epoch, fencer, hosts)
 	if err == nil {
-		slog.Info("cell spec request", observability.ComponentKey, "cellspec", "actor", actor,
+		slog.InfoContext(ctx, "cell spec request", observability.ComponentKey, "cellspec", "actor", actor,
 			"generation", reply.Spec.Generation, "status", reply.Status)
 	}
 	return reply, err

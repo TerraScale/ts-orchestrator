@@ -507,7 +507,7 @@ func (stream *HostMetricStream) Tail(ctx context.Context, history *History) erro
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		slog.Debug("host metric stream tail restarting", ComponentKey, "observability", "error", err)
+		slog.DebugContext(ctx, "host metric stream tail restarting", ComponentKey, "observability", "error", err)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():

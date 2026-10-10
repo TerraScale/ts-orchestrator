@@ -107,6 +107,7 @@ func (c *rolloutControl) admitChannel(channel releasechannel.Channel, now time.T
 // retries until ctx ends.
 func openChannelBucket(ctx context.Context, js jetstream.JetStream, replicas int) (jetstream.KeyValue, error) {
 	for {
+		ctx := observability.StartTrace(ctx)
 		kv, err := js.KeyValue(ctx, releasechannel.Bucket)
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
 			kv, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: releasechannel.Bucket,
@@ -115,7 +116,7 @@ func openChannelBucket(ctx context.Context, js jetstream.JetStream, replicas int
 		if err == nil {
 			return kv, nil
 		}
-		slog.Warn("open the release channel bucket", observability.ComponentKey, "rollout", "error", err)
+		slog.WarnContext(ctx, "open the release channel bucket", observability.ComponentKey, "rollout", "error", err)
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
@@ -138,7 +139,7 @@ func (c *rolloutControl) followChannel(ctx context.Context, store *rollout.Store
 	for ctx.Err() == nil {
 		watcher, err := kv.Watch(ctx, releasechannel.ChannelKey(strings.ToUpper(c.cell)))
 		if err != nil {
-			slog.Warn("watch the release channel", observability.ComponentKey, "rollout", "error", err)
+			slog.WarnContext(ctx, "watch the release channel", observability.ComponentKey, "rollout", "error", err)
 			select {
 			case <-ctx.Done():
 			case <-time.After(5 * time.Second):
@@ -179,6 +180,7 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 		case <-c.ticks:
 		case <-refresh.C:
 		}
+		ctx := observability.StartTrace(ctx)
 		if !initialized {
 			continue
 		}
@@ -188,7 +190,7 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 			continue
 		}
 		if err := c.consumeChannel(ctx, store, kv, snapshot.Epoch, latest, time.Now().UTC()); err != nil && ctx.Err() == nil {
-			slog.Warn("release channel", observability.ComponentKey, "rollout", "error", err)
+			slog.WarnContext(ctx, "release channel", observability.ComponentKey, "rollout", "error", err)
 		}
 	}
 }
@@ -251,10 +253,10 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 	}
 	if c.conn != nil {
 		if err := c.conn.Publish(protocol.ReleaseStatusSubject(c.cell), wire); err != nil {
-			slog.Warn("publish the release channel status", observability.ComponentKey, "rollout", "error", err)
+			slog.WarnContext(ctx, "publish the release channel status", observability.ComponentKey, "rollout", "error", err)
 		}
 	}
-	slog.Info("release channel status", observability.ComponentKey, "rollout", "run", status.RunNumber,
+	slog.InfoContext(ctx, "release channel status", observability.ComponentKey, "rollout", "run", status.RunNumber,
 		"state", status.State, "reason", status.Reason)
 	c.reported.Store(&status)
 	return nil
@@ -282,9 +284,10 @@ func (c *rolloutControl) bridgeChannel(ctx context.Context, fencer authority.Fen
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if fencer.Current().CanMutate() {
 			if err := c.bridgePass(ctx, kv); err != nil && ctx.Err() == nil {
-				slog.Warn("release channel bridge", observability.ComponentKey, "rollout", "error", err)
+				slog.WarnContext(ctx, "release channel bridge", observability.ComponentKey, "rollout", "error", err)
 			}
 		}
 		select {
@@ -389,7 +392,7 @@ func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, 
 	case err != nil:
 		return rollout.Release{}, "", err
 	}
-	slog.Info("release channel published a generation", observability.ComponentKey, "rollout",
+	slog.InfoContext(ctx, "release channel published a generation", observability.ComponentKey, "rollout",
 		"generation", published.Generation, "run", published.RunNumber, "digest", published.Digest)
 	return published, "", nil
 }

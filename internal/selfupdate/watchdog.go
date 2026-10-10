@@ -356,3 +356,20 @@ func (layout Layout) PruneReleases(now time.Time) ([]string, error) {
 	}
 	return removed, nil
 }
+
+// WatchdogUnit is the template unit that runs the watchdog for each role.
+const WatchdogUnit = "terrascale-orchestrator-selfupdate-watchdog@.service"
+
+// WatchdogLoggingDropin keeps systemd's own lines for each 15 s run out of the journal.
+const WatchdogLoggingDropin = `[Service]
+# Each 15 s run would log six systemd lines; keep notices and above.
+LogLevelMax=notice
+SyslogLevel=notice
+`
+
+// InstallWatchdogLoggingDropin writes WatchdogLoggingDropin below systemdDir
+// on a host, one with the watchdog unit, and reports whether it changed it.
+// systemd reads it from the next run.
+func InstallWatchdogLoggingDropin(systemdDir string) (bool, error) {
+	return installDropin(systemdDir, WatchdogUnit, "10-logging.conf", WatchdogLoggingDropin)
+}

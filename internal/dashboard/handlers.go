@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"hash/fnv"
 	"log/slog"
 	"net/http"
@@ -41,7 +42,12 @@ func (dashboard *Dashboard) login(writer http.ResponseWriter, request *http.Requ
 func render(writer http.ResponseWriter, request *http.Request, component templ.Component) {
 	var body bytes.Buffer
 	if err := component.Render(request.Context(), &body); err != nil {
-		slog.Warn("dashboard render failed", observability.ComponentKey, "dashboard", "error", err)
+		level := slog.LevelWarn
+		if errors.Is(err, context.Canceled) {
+			// The client went away; nothing is wrong with the dashboard.
+			level = slog.LevelDebug
+		}
+		slog.Log(request.Context(), level, "dashboard render failed", observability.ComponentKey, "dashboard", "error", err)
 		http.Error(writer, "render failed", http.StatusInternalServerError)
 		return
 	}

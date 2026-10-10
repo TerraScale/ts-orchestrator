@@ -78,6 +78,7 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	ticker := time.NewTicker(machinesAPICheck)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if want := current(); !reflect.DeepEqual(want, running) {
 			stop()
 			running, serving = nil, nil
@@ -103,11 +104,11 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 					cancel()
 				} else {
 					stop, running = cancel, want
-					slog.Info("Machines API serving", "address", want.Config(embedded.Host, "", "").ListenAddress)
+					slog.InfoContext(serveCtx, "Machines API serving", "address", want.Config(embedded.Host, "", "").ListenAddress)
 				}
 			}
 			if err != nil && err.Error() != failure {
-				slog.Warn("Machines API is not serving; retrying", "error", err)
+				slog.WarnContext(ctx, "Machines API is not serving; retrying", "error", err)
 			}
 			failure = ""
 			if err != nil {
@@ -118,7 +119,7 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 		case <-ctx.Done():
 			return nil
 		case err := <-serving:
-			slog.Warn("Machines API stopped; restarting", "error", err)
+			slog.WarnContext(ctx, "Machines API stopped; restarting", "error", err)
 			stop()
 			running, serving = nil, nil
 		case <-ticker.C:

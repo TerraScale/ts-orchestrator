@@ -124,7 +124,7 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 		// Never adopt, mutate, or delete an object this controller cannot prove
 		// it owns; surface it for an operator instead.
 		status.Found, status.Foreign = true, true
-		slog.Warn("withholding foreign OCI resource", "key", desired.Key.String())
+		slog.WarnContext(ctx, "withholding foreign OCI resource", "key", desired.Key.String())
 		return status, nil
 	}
 	if err != nil {
@@ -141,7 +141,7 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	status.InSync = plan.Empty()
 	if plan.Empty() || desired.Policy != PolicyEnforce {
 		if !plan.Empty() {
-			slog.Info("OCI resource drift reported", "key", desired.Key.String(), "plan", plan.String())
+			slog.InfoContext(ctx, "OCI resource drift reported", "key", desired.Key.String(), "plan", plan.String())
 		}
 		return status, nil
 	}
@@ -152,7 +152,7 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 		return status, fmt.Errorf("apply: %w", err)
 	}
 	status.Applied = true
-	slog.Info("OCI resource drift corrected", "key", desired.Key.String(), "plan", plan.String())
+	slog.InfoContext(ctx, "OCI resource drift corrected", "key", desired.Key.String(), "plan", plan.String())
 	recordDecision(ctx, desired, epoch, decisionlog.KindOCIDriftCorrected,
 		fmt.Sprintf("Corrected drift on %s (%d changes)", desired.Key, len(plan.Changes)),
 		"The observed OCI resource differed from its enforced desired spec.", plan)
@@ -170,7 +170,7 @@ func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired 
 		// Report mode never mutates the cloud, deletes included: the pending
 		// delete is drift until an operator switches the record to enforce.
 		status.Drift = []Change{{Op: "delete", Detail: "tombstoned; report-only policy withholds the cloud delete"}}
-		slog.Info("OCI resource delete reported", "key", desired.Key.String())
+		slog.InfoContext(ctx, "OCI resource delete reported", "key", desired.Key.String())
 		return status, nil
 	}
 	if err := c.guard(ctx, epoch); err != nil {

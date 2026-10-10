@@ -84,14 +84,14 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	conn := observed.nats.Conn()
 	go openDecisionStream(ctx, observed.nats.JetStream(), runtime.cell, observed.replicas, journal)
 	if _, err := decisionlog.ServeQueries(ctx, conn, runtime.cell, journal); err != nil {
-		slog.Warn("decision query responder unavailable", observability.ComponentKey, "decision", "error", err)
+		slog.WarnContext(ctx, "decision query responder unavailable", observability.ComponentKey, "decision", "error", err)
 	}
 	if observed.nats != nil {
 		go watchControlPlane(ctx, runtime.cell, runtime.member, observed.authority, observed.nats, observed.replicas)
 	}
 	links, err := regionlink.New(runtime.cell, conn, configuredRegions(runtime.cell), regionRequestTimeout)
 	if err != nil {
-		slog.Warn("region links unavailable", observability.ComponentKey, "regionview", "error", err)
+		slog.WarnContext(ctx, "region links unavailable", observability.ComponentKey, "regionview", "error", err)
 		return
 	}
 	// Interregion peers are reachable through the cell connection: the
@@ -100,7 +100,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	// not_linked.
 	for _, peer := range observed.linkedPeers {
 		if err := links.Link(peer, conn); err != nil {
-			slog.Warn("region link unavailable", observability.ComponentKey, "regionview", "region", peer, "error", err)
+			slog.WarnContext(ctx, "region link unavailable", observability.ComponentKey, "regionview", "region", peer, "error", err)
 		}
 	}
 	if cluster != nil {
@@ -147,7 +147,7 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 	go func() { _ = engine.Run(ctx) }()
 	globalView := runtime.startGlobalView(ctx, observed, links, cluster, volumes)
 	if _, err := regionview.Serve(ctx, conn, runtime.cell, regions); err != nil {
-		slog.Warn("region summary responder unavailable", observability.ComponentKey, "regionview", "error", err)
+		slog.WarnContext(ctx, "region summary responder unavailable", observability.ComponentKey, "regionview", "error", err)
 	}
 	federation := decisionlog.Federation{Local: journal, Links: links}
 	providers := journalProviders{Decisions: federation, Live: journal, History: sharedHistory, Insights: engine,
@@ -194,7 +194,7 @@ func openDecisionStream(ctx context.Context, js jetstream.JetStream, cell string
 			return
 		}
 		if attempt == 1 || attempt%12 == 0 {
-			slog.Warn("decision stream not open yet; decisions stay in memory", observability.ComponentKey,
+			slog.WarnContext(openCtx, "decision stream not open yet; decisions stay in memory", observability.ComponentKey,
 				"decision", "attempt", attempt, "error", err)
 		}
 		select {
@@ -217,7 +217,7 @@ func runHistorySampler(ctx context.Context, observed controllerObservation, memb
 		if err == nil {
 			sampler.Snapshots, sampler.SnapshotLimit = snapshots, int(limit)
 		} else {
-			slog.Info("metric history snapshots unavailable; history restarts empty", observability.ComponentKey,
+			slog.InfoContext(openCtx, "metric history snapshots unavailable; history restarts empty", observability.ComponentKey,
 				"observability", "error", err)
 		}
 	}
@@ -253,6 +253,7 @@ func watchControlPlane(ctx context.Context, cell, member string, fencer authorit
 	healthy, everHealthy := false, false
 	var lastHealthCheck time.Time
 	for {
+		ctx := observability.StartTrace(ctx)
 		snapshot := fencer.Current()
 		leading := snapshot.Leader && snapshot.Ready
 		if leading && (!wasLeader || snapshot.Epoch != observedEpoch) {

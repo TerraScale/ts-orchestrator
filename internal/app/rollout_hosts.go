@@ -193,16 +193,16 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 	return func(ctx context.Context, session host.RolloutSession) {
 		identity, err := rolloutexec.ProcessIdentity(h.cell, h.node, "")
 		if err != nil {
-			slog.Warn("host rollouts disabled", "error", err)
+			slog.WarnContext(ctx, "host rollouts disabled", "error", err)
 			return
 		}
 		leaders, err := trust.ParseKeyring(h.controller)
 		if err != nil {
-			slog.Warn("host rollouts disabled", "error", err)
+			slog.WarnContext(ctx, "host rollouts disabled", "error", err)
 			return
 		}
 		if err := os.MkdirAll(h.spool, 0o700); err != nil {
-			slog.Warn("host rollouts disabled", "error", err)
+			slog.WarnContext(ctx, "host rollouts disabled", "error", err)
 			return
 		}
 		relay := &rolloutexec.Relay{Cell: h.cell, Unit: h.node, SystemdUnit: selfupdate.HostUnit, Leaders: leaders,
@@ -222,12 +222,12 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 			proof.ObservedAt = now
 			wire, err := rolloutexec.SignHealthProof(proof, h.identity, now)
 			if err != nil {
-				slog.Warn("host rollouts stopped", "error", err)
+				slog.WarnContext(ctx, "host rollouts stopped", "error", err)
 				return
 			}
 			reply, err := relay.Reply()
 			if err != nil {
-				slog.Warn("host rollout reply is unreadable", "error", err)
+				slog.WarnContext(ctx, "host rollout reply is unreadable", "error", err)
 			}
 			// An operator holding a restart here (TS-578) holds the host's
 			// step too: the leader sends none, and none is spooled.
@@ -238,7 +238,7 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 				// A controller without rollouts answers every exchange the
 				// same way; say so once.
 				if !refused && ctx.Err() == nil {
-					slog.Info("host rollout exchange not accepted", "error", err)
+					slog.InfoContext(ctx, "host rollout exchange not accepted", "error", err)
 				}
 				refused = true
 				continue
@@ -248,7 +248,7 @@ func followHostRollouts(h hostRollout) func(context.Context, host.RolloutSession
 				continue
 			}
 			if err := relay.Spool(ctx, step.Step); err != nil && ctx.Err() == nil {
-				slog.Warn("host rollout step not spooled", "error", err)
+				slog.WarnContext(ctx, "host rollout step not spooled", "error", err)
 			}
 		}
 	}

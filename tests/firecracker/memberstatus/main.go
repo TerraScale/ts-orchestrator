@@ -124,7 +124,7 @@ func run() (resultErr error) {
 	}
 	reportPhase("inputs_staged")
 	stateRoot := filepath.Join(root, "state")
-	runner := host.NewProcessRunner(stateRoot, identity)
+	runner := host.NewProcessRunner(stateRoot, identity, "", "")
 	reportPhase("runner_recover_begin")
 	if err := runner.Recover(ctx); err != nil {
 		return fmt.Errorf("recover native process runner: %w", err)

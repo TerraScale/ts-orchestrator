@@ -321,7 +321,7 @@ func (l *Loop) tick(ctx context.Context, now time.Time) {
 	}
 	if err == nil {
 		if l.alerted {
-			slog.Info("Atlas topology is current again", observability.ComponentKey, "atlas", observability.EventKey, true)
+			slog.InfoContext(ctx, "Atlas topology is current again", observability.ComponentKey, "atlas", observability.EventKey, true)
 		}
 		l.since, l.alerted = now, false
 		return
@@ -329,10 +329,10 @@ func (l *Loop) tick(ctx context.Context, now time.Time) {
 	if errors.Is(err, ErrUnauthorized) {
 		l.Key = nil // re-read a rotated key
 	}
-	slog.Warn("Atlas publish failed", observability.ComponentKey, "atlas", "error", err)
+	slog.WarnContext(ctx, "Atlas publish failed", observability.ComponentKey, "atlas", "error", err)
 	if !l.alerted && now.Sub(l.since) >= StaleAfter {
 		l.alerted = true
-		slog.Error("ALERT Atlas topology is stale: no publish succeeded", observability.ComponentKey, "atlas",
+		slog.ErrorContext(ctx, "ALERT Atlas topology is stale: no publish succeeded", observability.ComponentKey, "atlas",
 			"since", l.since, "error", err, observability.EventKey, true)
 	}
 }

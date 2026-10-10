@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nkeys"
 )
@@ -163,7 +164,7 @@ func NewAgent(cfg AgentConfig) (*Agent, error) {
 	}
 	runner := cfg.Runner
 	if runner == nil {
-		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node), cfg.WorkloadIdentity)
+		runner = NewProcessRunner(filepath.Join(cfg.StateRoot, cfg.Cell, cfg.Node), cfg.WorkloadIdentity, cfg.Cell, cfg.Node)
 	}
 	id, err := randomID()
 	if err != nil {
@@ -336,6 +337,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	failures := make(map[string]roleFailure)
 	for {
+		ctx := observability.StartTrace(ctx)
 		for _, role := range a.cfg.Roles {
 			if err := work.Err(); err != nil {
 				break
@@ -349,7 +351,7 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 			if err == nil {
 				if _, failed := failures[role]; failed {
-					slog.Info("managed host reconciliation recovered", "role", role)
+					slog.InfoContext(ctx, "managed host reconciliation recovered", "role", role)
 					delete(failures, role)
 				}
 				continue
@@ -357,7 +359,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			class := managedReconcileErrorClass(err)
 			previous := failures[role]
 			if class != previous.class || time.Since(previous.at) >= 10*time.Second {
-				slog.Warn("managed host reconciliation deferred", "role", role, "cause_class", class)
+				// A repeated cause is still logged, but only at DEBUG.
+				level := slog.LevelDebug
+				if class != previous.class {
+					level = slog.LevelWarn
+				}
+				slog.Log(ctx, level, "managed host reconciliation deferred", "role", role, "cause_class", class)
 				failures[role] = roleFailure{class: class, at: time.Now()}
 			}
 		}
@@ -481,6 +488,7 @@ func (a *Agent) waitForSession(ctx context.Context) error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if err := a.acquire(ctx); err == nil {
 			a.sessionRecovered()
 			return nil
@@ -585,6 +593,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		current, deadline, err := a.executionLease()
 		if err != nil {
 			a.failSession(cancel, lost, err)
@@ -652,13 +661,17 @@ func (a *Agent) logSessionFailure(stage string, err error, remaining time.Durati
 		a.diagMu.Unlock()
 		return
 	}
+	level := slog.LevelDebug
+	if key != a.diagClass {
+		level = slog.LevelWarn
+	}
 	a.diagClass, a.diagAt, a.diagFailed = key, now, true
 	a.diagMu.Unlock()
 	endpoint := ""
 	if parsed, parseErr := url.Parse(a.cfg.Conn.ConnectedUrl()); parseErr == nil {
 		endpoint = parsed.Host
 	}
-	slog.Warn("host session exchange deferred", "stage", stage, "cause_class", class,
+	slog.Log(context.Background(), level, "host session exchange deferred", "stage", stage, "cause_class", class,
 		"endpoint", endpoint, "remaining_seconds", max(0, int(remaining.Seconds())))
 }
 
@@ -1149,6 +1162,7 @@ func (a *Agent) fetchArtifact(ctx context.Context, role, digest string) (string,
 	hash := sha256.New()
 	var offset, total int64
 	for {
+		ctx := observability.StartTrace(ctx)
 		var part artifactReply
 		if err := a.request(ctx, "artifact", artifactQuery{Role: role, Digest: digest, Offset: offset, Length: artifactChunkBytes}, &part); err != nil {
 			if errors.Is(err, errArtifactPreparing) || errors.Is(err, errSessionContention) {

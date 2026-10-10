@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,7 +14,12 @@ import (
 func main() {
 	ctx, cancel := commandContext(os.Args[1:])
 	defer cancel()
-	if err := cli.Run(ctx, os.Args[1:], os.Stdout); err != nil {
+	err := cli.Run(ctx, os.Args[1:], os.Stdout)
+	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+		// A signal stopped the command; that is the normal way a service ends.
+		return
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

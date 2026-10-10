@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/nats-io/nats.go"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
@@ -155,7 +156,7 @@ func (links *Links) Request(ctx context.Context, region, leaf string, payload []
 	// deadline still wins, a later one does not stretch it.
 	ctx, cancel := context.WithTimeout(ctx, links.timeout)
 	defer cancel()
-	message, err := conn.RequestWithContext(ctx, subject, payload)
+	message, err := conn.RequestMsgWithContext(ctx, &nats.Msg{Subject: subject, Data: payload, Header: observability.TraceHeader(ctx, nil)})
 	if err != nil {
 		return nil, err
 	}

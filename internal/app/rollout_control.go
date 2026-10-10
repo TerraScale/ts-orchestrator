@@ -274,7 +274,7 @@ func (c *rolloutControl) start(ctx context.Context, cfg Config, runtime *natscel
 		defer workers.Wait()
 		workers.Go(func() {
 			if err := relay.Run(ctx); ctx.Err() == nil {
-				slog.Error("rollout step relay stopped", observability.ComponentKey, "rollout", "error", err)
+				slog.ErrorContext(ctx, "rollout step relay stopped", observability.ComponentKey, "rollout", "error", err)
 			}
 		})
 		workers.Go(func() { wakeOnRolloutChanges(ctx, board, wake) })
@@ -328,7 +328,7 @@ func wakeOnRolloutChanges(ctx context.Context, board jetstream.KeyValue, wake ch
 			}
 			_ = watcher.Stop()
 		} else {
-			slog.Warn("watch the rollout bucket", observability.ComponentKey, "rollout", "error", err)
+			slog.WarnContext(ctx, "watch the rollout bucket", observability.ComponentKey, "rollout", "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -374,7 +374,7 @@ func (c *rolloutControl) publishProofs(ctx context.Context, cfg Config, runtime 
 	publisher := rolloutexec.Publisher{Conn: runtime.Conn(), Cell: cfg.NATS.Cell, Unit: cfg.NATS.Instance,
 		Key: responseKey, Healthy: func() bool { return c.ready.Load() && runtime.Ready() }}
 	if err := publisher.Run(ctx); ctx.Err() == nil {
-		slog.Error("rollout health proofs stopped", observability.ComponentKey, "rollout", "error", err)
+		slog.ErrorContext(ctx, "rollout health proofs stopped", observability.ComponentKey, "rollout", "error", err)
 	}
 }
 
@@ -516,7 +516,7 @@ func (c *rolloutControl) serve(ctx context.Context, wire []byte, policy signerPo
 		return rolloutReply{}, err
 	}
 	if envelope.Kind != rolloutStatusKind {
-		slog.Info("rollout request", observability.ComponentKey, "rollout", "actor", trusted.Actor,
+		slog.InfoContext(ctx, "rollout request", observability.ComponentKey, "rollout", "actor", trusted.Actor,
 			"kind", envelope.Kind, "status", reply.Status)
 	}
 	reply, err = c.view(ctx, store, reply)

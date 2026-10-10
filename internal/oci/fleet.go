@@ -299,7 +299,7 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 		createKey := tags[tagCreateKey]
 		if tags[tagRegion] != string(f.config.Region) || tags[tagGeneration] != fmt.Sprint(f.config.Generation) ||
 			tags[tagResource] != resourceMemberHost || !validCreateKey(createKey) || tags[tagHostNode] != hostNode(f.config, createKey) {
-			slog.Warn("withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
+			slog.WarnContext(ctx, "withholding OCI instance with out-of-scope identity tags", "instance_id", listed.ID, "region", f.config.Region)
 			continue
 		}
 		tally.instance(listed.LifecycleState)
@@ -309,7 +309,7 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 		cloud, identity, err := f.reobserveInstance(ctx, listed.ID)
 		if err != nil {
 			if errors.Is(err, ErrForeignResource) {
-				slog.Warn("withholding OCI instance without a verified regional identity", "instance_id", listed.ID, "region", f.config.Region)
+				slog.WarnContext(ctx, "withholding OCI instance without a verified regional identity", "instance_id", listed.ID, "region", f.config.Region)
 				continue
 			}
 			return nil, err
@@ -319,7 +319,7 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			return nil, fmt.Errorf("read OCI host ownership journal: %w", err)
 		}
 		if !owned {
-			slog.Warn("withholding OCI instance without durable controller ownership", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
+			slog.WarnContext(ctx, "withholding OCI instance without durable controller ownership", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
 			continue
 		}
 		profileIntent, found, err := f.journal.GetOperation(ctx, OperationScope{
@@ -330,14 +330,14 @@ func (f *fleet) observe(ctx context.Context, selectInstance func(id, node string
 			return nil, fmt.Errorf("read OCI host placement profile: %w", err)
 		}
 		if !found || profileIntent.Shape != f.config.Shape || !cloudMatchesLaunchBinding(cloud, profileIntent) {
-			slog.Warn("withholding OCI instance that does not match its signed placement compute profile", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
+			slog.WarnContext(ctx, "withholding OCI instance that does not match its signed placement compute profile", "instance_id", cloud.ID, "region", f.config.Region, "create_key", identity.CreateKey)
 			continue
 		}
 		instance, err := f.instanceFromCloud(ctx, cloud, identity, profileIntent)
 		if err != nil {
 			if errors.Is(err, ErrAttachmentRecoveryHold) || errors.Is(err, ErrForeignResource) ||
 				errors.Is(err, ErrRetainedVolumeUnknown) {
-				slog.Warn("withholding OCI instance with an unverified retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region, "error", err)
+				slog.WarnContext(ctx, "withholding OCI instance with an unverified retained volume attachment", "instance_id", cloud.ID, "region", f.config.Region, "error", err)
 				continue
 			}
 			return nil, err

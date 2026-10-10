@@ -200,7 +200,7 @@ func (s *Server) Start(ctx context.Context) (<-chan error, error) {
 		listener = tls.NewListener(listener, &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}})
 	}
 	// No WriteTimeout: log streams (a later slice) are long-lived.
-	s.http = &http.Server{Handler: s, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
+	s.http = &http.Server{Handler: observability.TraceHTTP(s), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
 		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 16 << 10}
 	result := make(chan error, 1)
 	go func() {
@@ -236,7 +236,7 @@ func (s *Server) authorized(scope string, next func(http.ResponseWriter, *http.R
 		}
 		if err != nil {
 			// Debug: the internet can send any number of bad tokens.
-			slog.Debug("machines API token rejected", observability.ComponentKey, "machinesapi", "error", err)
+			slog.DebugContext(r.Context(), "machines API token rejected", observability.ComponentKey, "machinesapi", "error", err)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="ts-orch", error="invalid_token"`)
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "the access token was rejected")
 			return

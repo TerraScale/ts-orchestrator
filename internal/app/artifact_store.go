@@ -59,6 +59,7 @@ func (k artifactStoreKeeper) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 		}
+		ctx := observability.StartTrace(ctx)
 		if k.control.Current().CanMutate() {
 			k.pass(ctx)
 		}
@@ -71,7 +72,7 @@ func (k artifactStoreKeeper) pass(ctx context.Context) {
 	epoch := k.control.Current().Epoch
 	guard := func(ctx context.Context) error { return k.control.Guard(ctx, epoch) }
 	if err := k.resize(ctx, guard); err != nil && ctx.Err() == nil {
-		slog.Warn("artifact store quota not applied", observability.ComponentKey, "delivery", "error", err)
+		slog.WarnContext(ctx, "artifact store quota not applied", observability.ComponentKey, "delivery", "error", err)
 	}
 	collection, err := k.service.CollectArtifacts(ctx, func(ctx context.Context) ([]delivery.ArtifactUse, error) {
 		uses, err := artifactsInUse(ctx, k.hosts)
@@ -87,11 +88,11 @@ func (k artifactStoreKeeper) pass(ctx context.Context) {
 		return append(uses, network...), err
 	}, time.Now(), guard)
 	if len(collection.Deleted)+len(collection.Purged) > 0 {
-		slog.Info("artifact store collected", observability.ComponentKey, "delivery",
+		slog.InfoContext(ctx, "artifact store collected", observability.ComponentKey, "delivery",
 			"deleted", collection.Deleted, "purged", collection.Purged)
 	}
 	if err != nil && ctx.Err() == nil {
-		slog.Warn("artifact store collection failed", observability.ComponentKey, "delivery", "error", err)
+		slog.WarnContext(ctx, "artifact store collection failed", observability.ComponentKey, "delivery", "error", err)
 	}
 }
 
@@ -118,7 +119,7 @@ func (k artifactStoreKeeper) resize(ctx context.Context, guard func(context.Cont
 	if err := k.service.ResizeArtifactStore(ctx, want); err != nil {
 		return err
 	}
-	slog.Info("artifact store quota set", observability.ComponentKey, "delivery", "max_bytes", want, "previous", current)
+	slog.InfoContext(ctx, "artifact store quota set", observability.ComponentKey, "delivery", "max_bytes", want, "previous", current)
 	return nil
 }
 

@@ -58,6 +58,11 @@ func (h *redactingHandler) Handle(ctx context.Context, record slog.Record) error
 		s.remaining--
 	}
 	clean := slog.NewRecord(record.Time, record.Level, s.text(record.Message, maxLogMessageBytes), record.PC)
+	// The trace ID follows the static attributes and precedes the call's own.
+	if trace := TraceID(ctx); trace != "" {
+		s.remaining--
+		clean.AddAttrs(slog.String(TraceIDKey, trace))
+	}
 	// Preserve selection and component even when ordinary attributes exhaust
 	// the budget. This scan does not resolve or format application values.
 	var event, component slog.Attr

@@ -15,6 +15,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -213,7 +214,7 @@ func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, con
 	}
 	deadline, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	msg, err := conn.RequestWithContext(deadline, subject, data)
+	msg, err := conn.RequestMsgWithContext(deadline, &nats.Msg{Subject: subject, Data: data, Header: observability.TraceHeader(ctx, nil)})
 	if err != nil {
 		return err
 	}

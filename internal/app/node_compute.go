@@ -148,7 +148,7 @@ func (c *ociNodeCompute) Rename(ctx context.Context, id, name string) error {
 		return err
 	}
 	if err := c.renameHostname(ctx, instance.Instance, name); err != nil {
-		slog.Warn("node rename kept the OS hostname", observability.ComponentKey, "nodes", "instance", id, "error", err)
+		slog.WarnContext(ctx, "node rename kept the OS hostname", observability.ComponentKey, "nodes", "instance", id, "error", err)
 	}
 	return nil
 }

@@ -72,9 +72,10 @@ func (e *edgeReconciler) run(ctx context.Context) {
 	ticker := time.NewTicker(e.interval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		if e.fence.fencer.Current().CanMutate() {
 			if err := e.pass(ctx); err != nil && ctx.Err() == nil {
-				slog.Warn("edge reconcile", observability.ComponentKey, "edge", "error", err)
+				slog.WarnContext(ctx, "edge reconcile", observability.ComponentKey, "edge", "error", err)
 			}
 		}
 		select {
@@ -211,7 +212,7 @@ func (e *edgeReconciler) alert(ctx context.Context, epoch uint64, held map[strin
 		if e.alerted[condition] {
 			continue
 		}
-		slog.Warn("edge reconcile leaves a backend to an operator", observability.ComponentKey, "edge", "condition", condition)
+		slog.WarnContext(ctx, "edge reconcile leaves a backend to an operator", observability.ComponentKey, "edge", "condition", condition)
 		decisionlog.Record(ctx, decisionlog.Decision{Region: e.cell, Actor: decisionlog.Actor{Slice: "edge"},
 			Kind: decisionlog.KindHeld, Subject: decisionlog.Subject{Kind: "load-balancer", ID: condition},
 			Summary: "Left a load balancer backend for an operator", Reason: "The change is ambiguous: " + condition,
@@ -221,7 +222,7 @@ func (e *edgeReconciler) alert(ctx context.Context, epoch uint64, held map[strin
 }
 
 func (e *edgeReconciler) corrected(ctx context.Context, epoch uint64, node, summary string) {
-	slog.Info("edge reconcile", observability.ComponentKey, "edge", "node", node, "change", summary)
+	slog.InfoContext(ctx, "edge reconcile", observability.ComponentKey, "edge", "node", node, "change", summary)
 	decisionlog.Record(ctx, decisionlog.Decision{Region: e.cell, Actor: decisionlog.Actor{Slice: "edge"},
 		Kind: decisionlog.KindOCIDriftCorrected, Subject: decisionlog.Subject{Kind: "node", ID: node},
 		Summary: summary, Status: decisionlog.StatusSucceeded, Epoch: epoch})

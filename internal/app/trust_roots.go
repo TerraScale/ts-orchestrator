@@ -144,6 +144,7 @@ func (r *rootRegistry) Run(ctx context.Context) error {
 	ticker := time.NewTicker(rootRepairInterval)
 	defer ticker.Stop()
 	for {
+		ctx := observability.StartTrace(ctx)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -177,7 +178,7 @@ func (r *rootRegistry) load(ctx context.Context, entry jetstream.KeyValueEntry) 
 		r.repairPending.Store(false)
 		return
 	}
-	slog.Error("stored root chain rejected; keeping the adopted roots", observability.ComponentKey, "trust",
+	slog.ErrorContext(ctx, "stored root chain rejected; keeping the adopted roots", observability.ComponentKey, "trust",
 		"revision", entry.Revision(), "error", err)
 	r.repairPending.Store(true)
 	r.startRepair(ctx)
@@ -198,7 +199,7 @@ func (r *rootRegistry) startRepair(ctx context.Context) {
 			cancel()
 			if err != nil {
 				r.repairPending.Store(true)
-				slog.Error("rewrite rejected root chain", observability.ComponentKey, "trust", "error", err)
+				slog.ErrorContext(repairCtx, "rewrite rejected root chain", observability.ComponentKey, "trust", "error", err)
 				return
 			}
 		}
@@ -323,7 +324,7 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 			}
 		}
 		if err != nil {
-			slog.Error("stored root chain is invalid; extending the adopted chain", observability.ComponentKey, "trust",
+			slog.ErrorContext(ctx, "stored root chain is invalid; extending the adopted chain", observability.ComponentKey, "trust",
 				"revision", revision, "error", err)
 		}
 	case !errors.Is(err, jetstream.ErrKeyNotFound):
@@ -378,7 +379,7 @@ func (r *rootRegistry) apply(ctx context.Context, wire []byte, epoch uint64, fen
 		return rootChainReply{}, err
 	}
 	if !onChain {
-		slog.Info("root rotation applied", observability.ComponentKey, "trust", "sequence", rotation.Sequence, "epoch", epoch)
+		slog.InfoContext(ctx, "root rotation applied", observability.ComponentKey, "trust", "sequence", rotation.Sequence, "epoch", epoch)
 	}
 	return r.reply(status), nil
 }
@@ -395,7 +396,7 @@ func (r *rootRegistry) serve(ctx context.Context, wire []byte, policy signerPoli
 	}
 	reply, err := r.apply(ctx, envelope.Payload, envelope.Epoch, fencer)
 	if err == nil {
-		slog.Info("root rotation request", observability.ComponentKey, "trust", "actor", actor,
+		slog.InfoContext(ctx, "root rotation request", observability.ComponentKey, "trust", "actor", actor,
 			"sequence", reply.Sequence, "status", reply.Status)
 	}
 	return reply, err
