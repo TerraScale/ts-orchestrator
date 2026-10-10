@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
 )
 
@@ -18,7 +17,7 @@ func TestExecutorRollbackDeadlineIncludesGateRecovery(t *testing.T) {
 				h.program[i].Policy.RollbackDeadlineSeconds = budget
 			}
 			h.fleet.wrongBinary["ctl-b"] = true
-			id := entityid.Derive("release-controllers", "rel1")
+			id := h.program[0].RolloutID
 			tick := func(delay time.Duration, want rollout.Phase) rollout.Record {
 				t.Helper()
 				h.clock.Advance(delay)
@@ -82,7 +81,7 @@ func TestExecutorRollbackDeadlineIncludesGateRecovery(t *testing.T) {
 			if got := h.fleet.stepLog(); !slices.Equal(got, steps) {
 				t.Fatalf("later units moved or rollback was retried after termination: %v", got)
 			}
-			if _, exists := h.load(entityid.Derive("release-hosts", "rel1")); exists {
+			if _, exists := h.load(h.program[1].RolloutID); exists {
 				t.Fatal("host rollout started after the failed controller canary")
 			}
 			if bad, err := h.store.IsKnownBad(t.Context(), toDigest); err != nil || !bad {

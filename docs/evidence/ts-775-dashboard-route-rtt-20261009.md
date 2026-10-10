@@ -140,6 +140,72 @@ in-process query metadata excluded from JSON;
 they already exist in the stored buckets. These remain local checks; the
 generic history format, v1 APIs and broker producer are unchanged.
 
+## #362 merge validation (2026-10-10)
+
+#362 merged as `6b2474212684874b000edfccf400917391ac00d1`. Its exact
+main CI [#2032](https://git.terrascale.tech/TerraScale/ts-orchestrator/actions/runs/2032)
+failed both `TestExecutorRollbackDeadlineIncludesGateRecovery` cases;
+`deploy.yml` did not start. The executor had correctly moved the canary,
+but the test loaded a different rollout ID and saw an empty record. TS-783
+had changed the shared harness to use the canonical release-generation ID;
+the new regression still derived controller and host IDs from `rel1`.
+
+The failure reproduced locally with the race detector. The correction reads
+both IDs directly from the harness's generated program. It preserves the
+20/60-second budgets, gate-recovery delay, acknowledged rollback, cached/stale
+proof rejection, fixed deadline, known-bad assertion and later-unit checks.
+
+Authenticated reads from delta at 04:53–04:57 UTC verified every target as
+one Connected NetBird peer with the expected FQDN/IP and route through
+`nb-wt0`. Curl bound to that interface, bypassed proxies and redirects, and
+received credentials through stdin. All fourteen sidebar pages returned
+HTTP 200 on all six controllers; this proves availability, not correct data.
+`/metrics` and `/readyz` also returned 200, while `/v1/snapshot` and
+`/v1/regions` returned 404 everywhere. Both regional `/nats` pages still
+said route round-trip times are not sampled.
+
+Read-only Object Storage metadata also confirmed four configuration snapshot
+objects in each verified regional head bucket, `gru-1-head` and `sfo-1-head`,
+under `kv-snapshot/v1/gru/` and `kv-snapshot/v1/sfo/`. Object contents were
+not read. Their presence does not establish the new snapshot-health checks;
+those still require the merged binary.
+
+The following percentages are the final CPU, memory and disk points in each
+serving controller's real `/members` chart payload. They prove the earlier
+systemd collection repair remains effective; they do not prove deployment of
+the merged host/filesystem/storage/RTT model.
+
+| Controller | Serving revision | CPU | Memory used | Disk used |
+| --- | --- | --- | --- | --- |
+| GRU 1 | `1e57e6c17362` | 36.53% | 37.22% | 28.01% |
+| GRU 2 | `93c6b7e3df4f` | 23.14% | 26.55% | 25.54% |
+| GRU 3 | `93c6b7e3df4f` | 26.54% | 24.97% | 24.17% |
+| SFO 1 | `107e060af74f` | 39.41% | 30.41% | 11.56% |
+| SFO 2 | `107e060af74f` | 23.63% | 24.81% | 9.835% |
+| SFO 3 | `107e060af74f` | 21.95% | 21.93% | 9.881% |
+
+All six system collectors reported success. Host-history replay readiness
+was zero on GRU 3 and one elsewhere; archive-incomplete was zero everywhere.
+Transient captures remain in `/tmp/ts775-post362-pages-before` on delta and
+contain no captured request headers. No archive reset ran with old writers.
+
+Read-only `ts-orch release fleet-status --namespace grxnmoqvrcdv` additionally
+found GRU still targeting `d7a257ec`/run 1835 with reason "the cell's rollouts
+are paused", without environment/architecture scope. SFO reported the older
+`107e060af74f`/run 1849 complete with `canary`/`arm64` scope. These deployment
+conditions predate #362. The deployment-lag guard's 19 lag/proof failures are
+not attributed solely to this new merge. TS-774 retains the root-signed
+identity/telemetry handoff and TS-746 the existing GRU recovery; no manual
+deployment bypass was attempted.
+
+Post-merge evidence was posted on TS-775 as Ku comment
+`7363514c-a644-41e2-8511-20fd34dc63ce`. The follow-up audit retained four
+defects: unobserved volume-backup completion, unattached CI run inventory,
+missing host/TerraBase version inventory, and completed rollout phase details
+lost after active-slot release. The next storage slice is on
+`cos/ts-775-volume-backup-completion`; its switch-adjacent overlap was reported
+to TS-796. Global fan-out remains TS-794 work.
+
 ## Remaining acceptance work
 
 The [fourteen-page audit](ts-775-dashboard-metrics-storage-20261009.md#dashboard-and-api-audit)
