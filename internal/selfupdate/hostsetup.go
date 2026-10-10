@@ -96,6 +96,24 @@ ExecStartPre=
 ExecStartPre=+/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator; [ -x "$$b" ] || b=/usr/local/bin/terrascale-orchestrator; "$$b" --help 2>/dev/null | grep -q restore-controller-material || exit 0; exec "$$b" restore-controller-material'
 `
 
+// ControllerInstallUnit installs the root-signed controller configuration before admission.
+const ControllerInstallUnit = "terrascale-orchestrator-controller-install.service"
+
+// ControllerInstallDropin makes controller config installation run the current
+// release, the one the controller runs, so an identity or config a newer
+// release installed survives a reboot: the image-baked binary may refuse it.
+// The baked binary runs it until prepare seeds a current release. Only prepare
+// installs it; the image does not carry it.
+const ControllerInstallDropin = `# Binary-only A/B self-update (docs/continuous-delivery.md), installed by
+# selfupdate prepare.
+[Service]
+# Config installation runs the current release, the one the controller runs,
+# so an identity or config a newer release installed survives a reboot; the
+# image-baked binary runs it until prepare seeds a current release.
+ExecStart=
+ExecStart=/bin/sh -c 'b=/var/lib/terrascale-orchestrator/current/terrascale-orchestrator; [ -x "$$b" ] || b=/usr/local/bin/terrascale-orchestrator; exec "$$b" install-controller-config'
+`
+
 // InstallHostSetupDropin writes HostSetupDropin below systemdDir on a host,
 // one with the host-setup unit, and reports whether it changed it. systemd
 // reads it from the next boot.
@@ -108,6 +126,13 @@ func InstallHostSetupDropin(systemdDir string) (bool, error) {
 // systemd reads it from the next boot.
 func InstallBootstrapDropin(systemdDir string) (bool, error) {
 	return installDropin(systemdDir, BootstrapUnit, "60-selfupdate.conf", BootstrapDropin)
+}
+
+// InstallControllerInstallDropin writes ControllerInstallDropin below systemdDir
+// on a controller, one with the controller-install unit, and reports whether it
+// changed it. systemd reads it from the next boot.
+func InstallControllerInstallDropin(systemdDir string) (bool, error) {
+	return installDropin(systemdDir, ControllerInstallUnit, "60-selfupdate.conf", ControllerInstallDropin)
 }
 
 func installDropin(systemdDir, unit, file, dropin string) (bool, error) {

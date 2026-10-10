@@ -306,7 +306,7 @@ func (c command) prepare(args []string) error {
 		name    string
 		install func(string) (bool, error)
 	}{{"host-setup", selfupdate.InstallHostSetupDropin}, {"bootstrap", selfupdate.InstallBootstrapDropin},
-		{"watchdog", selfupdate.InstallWatchdogLoggingDropin}} {
+		{"controller-install", selfupdate.InstallControllerInstallDropin}, {"watchdog", selfupdate.InstallWatchdogLoggingDropin}} {
 		if installed, err := dropin.install(*systemd); err != nil {
 			slog.Warn("self-update could not install the "+dropin.name+" drop-in", "error", err)
 		} else if installed {
@@ -319,7 +319,7 @@ func (c command) prepare(args []string) error {
 	if err := c.installCurrentNetBirdAgent(layout.layout(), *systemd, *unit); err != nil {
 		slog.Warn("self-update could not prepare the NetBird worker", "error", err)
 	}
-	// Both drop-ins belong to other units, which read them at their next
+	// The drop-ins belong to other units, which read them at their next
 	// start once systemd reloads.
 	if changed {
 		if err := daemonReload(c.ctx); err != nil {

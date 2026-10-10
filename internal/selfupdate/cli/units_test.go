@@ -142,6 +142,13 @@ func TestBootstrapDropinRunsTheCurrentRelease(t *testing.T) {
 		selfupdate.InstallBootstrapDropin)
 }
 
+// Config installation runs the current release too, so an identity or config a
+// newer release installed survives a reboot (TS-803).
+func TestControllerInstallDropinRunsTheCurrentRelease(t *testing.T) {
+	checkCurrentReleaseDropin(t, selfupdate.ControllerInstallUnit, "install-controller-config", selfupdate.ControllerInstallDropin,
+		selfupdate.InstallControllerInstallDropin)
+}
+
 // checkCurrentReleaseDropin checks that dropin runs the image unit's own
 // command with the current release, or the baked binary while there is none,
 // and that install writes it once, only beside the unit.
@@ -149,7 +156,7 @@ func checkCurrentReleaseDropin(t *testing.T, unit, command, dropin string, insta
 	t.Helper()
 	deploy := filepath.Join("..", "..", "..", "deploy", "systemd")
 	base := execLines(t, filepath.Join(deploy, unit), "ExecStart")
-	if len(base) != 1 || !strings.HasPrefix(base[0], selfupdate.DefaultBakedBinary+" "+command+" ") {
+	if len(base) != 1 || !strings.HasPrefix(base[0], selfupdate.DefaultBakedBinary+" "+command) {
 		t.Fatalf("%s ExecStart = %q", unit, base)
 	}
 	args := strings.TrimPrefix(base[0], selfupdate.DefaultBakedBinary)

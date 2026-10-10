@@ -314,6 +314,7 @@ controller (TS-668): it runs `bootstrap-controller` with `current`, or the
 baked binary until one is seeded, so a `controller.json` a newer release
 installed (a material generation) is admitted at boot. The image does not
 carry it: the first controller start after a release with it installs it.
+Controller config installation (`terrascale-orchestrator-controller-install.service`) gets one too, so an identity or config a newer release installed survives a reboot.
 Nodes that installed the earlier opt-in drop-ins by hand keep their
 `selfupdate-<unit>.env` files and `@<unit>` timers until they are rebuilt
 from this image.
