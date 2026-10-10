@@ -78,7 +78,7 @@ var _ insights.BudgetProvider = Budgets{}
 // a product cell without a cost is left out.
 func CatalogFromRegions(monthlyCents map[string]uint64, overflow map[string]string) map[string]CatalogEntry {
 	out := make(map[string]CatalogEntry)
-	for _, entry := range catalog.Entries() {
+	for _, entry := range catalog.Founded() {
 		cell := entry.Name()
 		cents := monthlyCents[cell]
 		if cents == 0 {

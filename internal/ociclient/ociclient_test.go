@@ -141,7 +141,7 @@ func testProvider(t *testing.T) common.ConfigurationProvider {
 
 func TestFactoryRejectsUncataloguedRegionsAndBadLimits(t *testing.T) {
 	provider := testProvider(t)
-	if _, err := New(provider, Options{Region: "uk-london-1"}); err == nil {
+	if _, err := New(provider, Options{Region: "xx-nowhere-1"}); err == nil {
 		t.Fatal("accepted a region outside the catalog")
 	}
 	if _, err := New(nil, Options{Region: "sa-saopaulo-1"}); err == nil {
@@ -264,7 +264,7 @@ func TestTenancyHomeRegionComesFromTheCatalog(t *testing.T) {
 			t.Errorf("%s = %q, %v", key, got, err)
 		}
 	}
-	unknown := "IAD"
+	unknown := "XXX"
 	if _, err := TenancyHomeRegion(&unknown); err == nil {
 		t.Error("a home region outside the catalog was accepted")
 	}

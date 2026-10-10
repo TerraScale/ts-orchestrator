@@ -24,7 +24,7 @@ func TestBackendSet(t *testing.T) {
 			t.Fatalf("%s backend set %+v: %v", cell, set, err)
 		}
 	}
-	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "LHR", "hosts": hosts}); err == nil {
+	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "XXX", "hosts": hosts}); err == nil {
 		t.Fatal("accepted a cell outside the catalog")
 	}
 	if _, err := tsauth.BackendSet(ociregion.Object{"cell": "GRU", "hosts": []any{host("controller-a", "10.251.0.11"), host("0000000000WM3QQGQPMW5X58P9", "10.251.0.21")}}); err == nil {

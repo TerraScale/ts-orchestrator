@@ -176,7 +176,7 @@ func TestValidateProfile(t *testing.T) {
 			}
 		}
 	}
-	for _, cell := range []string{"", "lhr", "GRU", "gru-1"} {
+	for _, cell := range []string{"", "xxx", "GRU", "gru-1"} {
 		if err := ValidateProfile(cell, nil, cellProfile(cell), validRefs()); err == nil {
 			t.Errorf("accepted cell %q outside the catalog", cell)
 		}

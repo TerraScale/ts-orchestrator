@@ -387,6 +387,9 @@ func validateRegistration(r Registration, cell string) error {
 		if err := validateManagedOCIBinding(*r.ManagedOCI, r.FailureDomain); err != nil {
 			return err
 		}
+		if !strings.EqualFold(r.ManagedOCI.Region, cell) {
+			return errors.New("managed OCI region is not this cell's region")
+		}
 		if r.ManagedMember == nil || r.SystemReserveBytes <= 0 || r.Capacity.MemoryBytes <= 0 ||
 			r.Capacity.MemoryBytes > math.MaxInt64-r.SystemReserveBytes ||
 			len(r.Roles) != 1 || r.Roles[0] != "terrabase" {

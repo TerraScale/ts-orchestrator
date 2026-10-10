@@ -245,7 +245,7 @@ func TestDigestRejectsBeforeCloudEffects(t *testing.T) {
 }
 
 func TestOptionsRejectUncataloguedOrRepeatedRegionsBeforeEffects(t *testing.T) {
-	for _, regions := range [][]string{{"uk-london-1"}, {"sa-saopaulo-1", "sa-saopaulo-1"}, {"GRU"}} {
+	for _, regions := range [][]string{{"xx-nowhere-1"}, {"sa-saopaulo-1", "sa-saopaulo-1"}, {"GRU"}} {
 		o := qualified(t)
 		o.Regions = regions
 		called := false

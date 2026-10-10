@@ -21,8 +21,10 @@ region's evidence PR.
 ## Before you start
 
 1. The region is in the catalog,
-   [`internal/ociregion/catalog`](../internal/ociregion/catalog/catalog.go):
-   `gru`, `sfo` and `fra` today. A new label is one reviewed entry (cell,
+   [`internal/ociregion/catalog`](../internal/ociregion/catalog/catalog.go).
+   The catalog lists every OCI commercial region, so any of them is a valid
+   cell; which regions serve is the live roster
+   ([region registry](region-registry.md)). A new label is one reviewed entry (cell,
    OCI region and key, city, country, latitude, longitude). The home region,
    GRU, is founded by [the manual runbook](region-bootstrap.md), never by
    `create`.

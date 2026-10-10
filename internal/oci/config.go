@@ -27,11 +27,13 @@ const (
 	RegionFRA Region = catalog.FRA
 )
 
-// Regions returns the supported product regions in catalog order.
+// Regions returns the founded regions (catalog.Founded) in catalog order:
+// the regions with a reserved address plan that placement assigns seats in.
 func Regions() []Region {
-	regions := make([]Region, 0, catalog.Len)
-	for _, cell := range catalog.Cells() {
-		regions = append(regions, Region(cell))
+	founded := catalog.Founded()
+	regions := make([]Region, 0, len(founded))
+	for _, entry := range founded {
+		regions = append(regions, Region(entry.Cell))
 	}
 	return regions
 }
@@ -113,7 +115,7 @@ func ParseRegionConfig(data []byte) (RegionConfig, error) {
 // to remain the bootstrap region until a separately reviewed migration exists.
 func (intent RegionIntent) Validate() error {
 	if intent.SchemaVersion != 1 || intent.Generation == 0 || intent.BootstrapRegion != Region(catalog.Bootstrap) ||
-		len(intent.Regions) == 0 || len(intent.Regions) > catalog.Len {
+		len(intent.Regions) == 0 || len(intent.Regions) > catalog.MaxRegions {
 		return errors.New("OCI region intent has an unsupported version, generation, or region set")
 	}
 	seen := make(map[Region]struct{}, len(intent.Regions))

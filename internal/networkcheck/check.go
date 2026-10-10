@@ -362,7 +362,8 @@ func check(ctx context.Context, t target, s snapshot, read fetch) error {
 }
 
 func serverRegion(name string) string {
-	for _, region := range catalog.Names() {
+	for _, entry := range catalog.Founded() {
+		region := entry.Name()
 		if strings.HasPrefix(name, "ts-"+region+"-") || strings.HasPrefix(name, region+"-1-") {
 			return region
 		}

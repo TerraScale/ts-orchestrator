@@ -75,7 +75,7 @@ func TestAddRegionRefusesConflictsAndUnknownCells(t *testing.T) {
 	if _, _, err := conflicting.AddRegion("sfo-1"); err == nil || !strings.Contains(err.Error(), "already lists") {
 		t.Fatalf("conflicting entry: %v", err)
 	}
-	for _, cell := range []string{"iad-1", "sfo", "sfo-0", "sfo-01", "SFO-1", "sfo-1-a", ""} {
+	for _, cell := range []string{"xxx-1", "sfo", "sfo-0", "sfo-01", "SFO-1", "sfo-1-a", ""} {
 		if _, _, err := gru.AddRegion(cell); err == nil {
 			t.Errorf("%q was accepted", cell)
 		}

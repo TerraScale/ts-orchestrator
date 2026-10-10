@@ -98,8 +98,8 @@ func TestNativeOCIRootRejectsInvalidNamespaceAndEndpoint(t *testing.T) {
 		{"uppercase bucket", func(target *LiveS3Target) { target.Bucket = "Uppercase" }},
 		{"bucket leading hyphen", func(target *LiveS3Target) { target.Bucket = "-bucket" }},
 		{"unsupported region", func(target *LiveS3Target) {
-			target.Region = "ap-tokyo-1"
-			target.Endpoint = "https://grxnmoqvrcdv.compat.objectstorage.ap-tokyo-1.oci.customer-oci.com"
+			target.Region = "xx-nowhere-1"
+			target.Endpoint = "https://grxnmoqvrcdv.compat.objectstorage.xx-nowhere-1.oci.customer-oci.com"
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -38,7 +38,7 @@ func TestCellAndServerNames(t *testing.T) {
 
 func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 	for _, call := range []func() (string, error){
-		func() (string, error) { return RegionCell("LHR").Name() },
+		func() (string, error) { return RegionCell("XXX").Name() },
 		func() (string, error) { return RegionCell("sa-saopaulo-1").Name() },
 		func() (string, error) { return Cell{Region: "GRU"}.Name() },
 		func() (string, error) { return RegionCell("GRU").Server("host", 1) },
@@ -46,10 +46,10 @@ func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 		func() (string, error) { return RegionCell("GRU").ControllerSlot("member-a") },
 		func() (string, error) { return RegionCell("GRU").ControllerSlot("controller-ab") },
 		func() (string, error) { return RegionCell("SFO").ControllerSlot("member-a") },
-		func() (string, error) { return RegionCell("LHR").ControllerSlot("controller-a") },
+		func() (string, error) { return RegionCell("XXX").ControllerSlot("controller-a") },
 		func() (string, error) { return RegionCell("GRU").MemberSlot("controller-a") },
 		func() (string, error) { return Data("gru-1") },
-		func() (string, error) { return RegionCell("LHR").API("") },
+		func() (string, error) { return RegionCell("XXX").API("") },
 		func() (string, error) { return RegionCell("GRU").API("Subnet-1") },
 		func() (string, error) { return Data("gru-1-db-1-data") },
 		func() (string, error) { return RegionCell("GRU").PoolServer("a", 1) },
@@ -57,7 +57,7 @@ func TestGenerationRejectsOutOfSchemeInput(t *testing.T) {
 		func() (string, error) { return RegionCell("GRU").PoolServer("app", 0) },
 		func() (string, error) { return Data("gru-1-pool-app-1") },
 		func() (string, error) { return RegionCell("GRU").Node(0) },
-		func() (string, error) { return RegionCell("LHR").Node(1) },
+		func() (string, error) { return RegionCell("XXX").Node(1) },
 		func() (string, error) { return RegionCell("GRU").Node(1000) },
 		func() (string, error) { return Data("ts-gru-1-data") },
 	} {
@@ -75,14 +75,14 @@ func TestValidateRejectsReleaseDerivedAndLegacyNames(t *testing.T) {
 		}
 	}
 	for _, name := range []string{
-		"", "gru", "GRU-1", "gru-0", "gru-01", "lhr-1", "gru-1-ctl", "gru-1-ctl-0", "gru-1-host-1",
+		"", "gru", "GRU-1", "gru-0", "gru-01", "xxx-1", "gru-1-ctl", "gru-1-ctl-0", "gru-1-host-1",
 		"gru-1-ctl-1-data", "gru-1-gw-1-data", "gru-1-db-1-boot", " gru-1", "gru-1-ctl-1.", "gru-1-mem-1",
 		"gru-1-pool-app", "gru-1-pool-app-0", "gru-1-pool-1app-1", "gru-1-pool-thirteenchars-1", "gru-1-pool-app-1-data",
 		// Names the cell carried before this scheme: slot, deployment and digest derived.
 		"gru-controller-a", "controller-b", "gru-member-1",
 		"ts-preview-gru-20260929-r4-controller-a", "ts-preview-gru-20260926-host-0123456789abcdef01234567",
 		"ts-member-data-0123456789ab",
-		"ts-gru", "ts-gru-0", "ts-gru-01", "ts-lhr-1", "ts-gru-1000", "ts-gru-1-1", "ts-gru-1-ctl-1", "TS-gru-1", "ts-gru-1-data-data",
+		"ts-gru", "ts-gru-0", "ts-gru-01", "ts-xxx-1", "ts-gru-1000", "ts-gru-1-1", "ts-gru-1-ctl-1", "TS-gru-1", "ts-gru-1-data-data",
 	} {
 		if err := Validate(name); !errors.Is(err, ErrName) {
 			t.Fatalf("accepted %q", name)

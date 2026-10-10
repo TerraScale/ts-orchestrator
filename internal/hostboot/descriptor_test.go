@@ -117,7 +117,7 @@ func TestDescriptorRejectsInvalidBindingsAndSecretLikeValues(t *testing.T) {
 	}{
 		{name: "schema", mutate: func(descriptor *Descriptor) { descriptor.SchemaVersion++ }},
 		{name: "cell region mismatch", mutate: func(descriptor *Descriptor) { descriptor.Cell = "sfo" }},
-		{name: "unknown region", mutate: func(descriptor *Descriptor) { descriptor.Region = "IAD" }},
+		{name: "unknown region", mutate: func(descriptor *Descriptor) { descriptor.Region = "XXX" }},
 		{name: "node", mutate: func(descriptor *Descriptor) { descriptor.Node = "https://host.invalid" }},
 		{name: "owner", mutate: func(descriptor *Descriptor) { descriptor.Owner = "private key" }},
 		{name: "create key whitespace", mutate: func(descriptor *Descriptor) { descriptor.CreateKey = "host key" }},

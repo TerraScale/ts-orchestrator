@@ -25,7 +25,7 @@ func TestMaterialRegionsFollowTheRegionCatalog(t *testing.T) {
 			t.Fatalf("catalog region %s rejected", entry.OCIRegion)
 		}
 	}
-	for _, region := range []string{"", "us-ashburn-1", "SA-SAOPAULO-1", "GRU"} {
+	for _, region := range []string{"", "xx-nowhere-1", "SA-SAOPAULO-1", "GRU"} {
 		if supportedMaterialRegion(region) {
 			t.Fatalf("uncataloged region %q admitted", region)
 		}

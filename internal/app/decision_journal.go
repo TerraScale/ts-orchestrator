@@ -174,7 +174,10 @@ func (runtime *runtimeObservability) attachJournal(ctx context.Context, observed
 // configuredRegions lists the product regions a product cell can link to.
 // A lab or test cell sees only itself.
 func configuredRegions(cell string) []string {
-	all := catalog.Names()
+	var all []string
+	for _, entry := range catalog.Founded() {
+		all = append(all, entry.Name())
+	}
 	if !slices.ContainsFunc(all, func(region string) bool { return strings.EqualFold(region, cell) }) {
 		return nil
 	}

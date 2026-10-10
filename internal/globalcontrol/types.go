@@ -14,6 +14,7 @@ import (
 	"slices"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -44,7 +45,7 @@ const (
 	maxRecordBytes = 64 << 10
 	// maxMessageBytes bounds a stored record: its payload is base64 in JSON.
 	maxMessageBytes = 96 << 10
-	maxRegions      = 32
+	maxRegions      = catalog.MaxRegions
 	maxActive       = 5
 )
 

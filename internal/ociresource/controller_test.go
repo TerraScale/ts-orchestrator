@@ -259,7 +259,7 @@ func TestApplyFailureIsRecordedAndOtherRecordsContinue(t *testing.T) {
 }
 
 func TestDesiredRecordsAreValidatedAndGenerationsMonotonic(t *testing.T) {
-	if _, err := NewDesired(Key{Region: "LHR", Kind: "widget", Name: "a"}, 1, PolicyEnforce, widgetSpec{}); err == nil {
+	if _, err := NewDesired(Key{Region: "XXX", Kind: "widget", Name: "a"}, 1, PolicyEnforce, widgetSpec{}); err == nil {
 		t.Fatal("accepted an uncatalogued region")
 	}
 	if _, err := NewDesired(Key{Region: "GRU", Kind: "Widget", Name: "a"}, 1, PolicyEnforce, widgetSpec{}); err == nil {
