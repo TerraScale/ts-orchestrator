@@ -640,7 +640,7 @@ func TestProcessGroupKillsTermIgnoringChildBeforeReapingLeader(t *testing.T) {
 		}
 		for _, pid := range []int{p.PID(), child} {
 			b, e := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-			if os.IsNotExist(e) {
+			if processStatGone(e) {
 				continue
 			}
 			if e != nil {
@@ -662,4 +662,19 @@ func TestProcessGroupKillsTermIgnoringChildBeforeReapingLeader(t *testing.T) {
 		t.Fatal(members, e)
 	}
 	requireEqual(t, observations, 1)
+}
+
+func TestProcessStatGone(t *testing.T) {
+	for _, test := range []struct {
+		err  error
+		gone bool
+	}{{syscall.ENOENT, true}, {syscall.ESRCH, true}, {syscall.EACCES, false}, {syscall.EIO, false}, {nil, false}} {
+		err := test.err
+		if err != nil {
+			err = &os.PathError{Op: "read", Path: "/proc/123/stat", Err: err}
+		}
+		if got := processStatGone(err); got != test.gone {
+			t.Errorf("stat error %v: gone=%v, want %v", err, got, test.gone)
+		}
+	}
 }
