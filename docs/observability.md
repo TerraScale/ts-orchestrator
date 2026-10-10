@@ -222,6 +222,9 @@ dashboard; no channel pushes them to a person yet (TS-625, ntfy).
 
 ## Logs and events
 
+The record keys, level rules, trace IDs and the per-region log summary are
+designed in [production logs](logging.md) (TS-808).
+
 The runtime installs one `slog` default handler tagged with `cell`, `member`
 and `role`; stdlib `log` output goes through the same handler. Records at WARN
 and above, and records carrying `"event", true`, are also published into a
