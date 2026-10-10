@@ -1,5 +1,7 @@
 # TerraBase cell autoscaler
 
+> Superseded by [capacity](capacity.md) (TS-804) for the TerraBase cell autoscaler. This page and its code are deleted in TS-804's last slice.
+
 The [zero-configuration contract](zero-configuration.md) is required production policy.
 Configuration fields, manual bootstrap paths and dated observations below are
 legacy implementation inventory, not feature/region activation or credential-copy

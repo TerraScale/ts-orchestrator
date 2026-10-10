@@ -1,5 +1,7 @@
 # Autoscaling
 
+> Superseded by [capacity](capacity.md) (TS-804) for node pools and the budget cap. This page and its code are deleted in TS-804's last slice.
+
 TS-565 makes ts-orch scale on its own: replicas follow load, and node
 pools of OCI A1 hosts follow the replicas, within a monthly budget cap from
 the cell spec. This note records the design and the slice order.
