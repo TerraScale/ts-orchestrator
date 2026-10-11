@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -151,6 +152,10 @@ func (a *Agent) refreshRoleFiles(ctx context.Context, d Desired) error {
 		a.roleFilesFailures = map[string]roleFilesFailure{}
 	}
 	if err != nil {
+		// Logged once per distinct error, so a renewal that keeps failing is not silent.
+		if previous, failed := a.roleFilesFailures[d.Role]; !failed || previous.err.Error() != err.Error() {
+			slog.Warn("role files renewal failed", "component", "roles", "role", d.Role, "error", err)
+		}
 		a.roleFilesFailures[d.Role] = roleFilesFailure{at: time.Now(), err: err}
 	} else {
 		delete(a.roleFilesFailures, d.Role)

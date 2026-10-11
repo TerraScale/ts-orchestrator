@@ -850,6 +850,12 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 	if (a.terraBaseMember(d) || a.tsAuthReplica(d)) && a.terraBaseExited(current, d, fingerprint) {
 		return errors.New(role + " exited; it is relaunched on the next poll")
 	}
+	// A running workload renews its identity on every pass, held or not, so
+	// it cannot expire while a release waits behind a restart hold (TS-803).
+	var filesErr error
+	if current.Running {
+		filesErr = a.refreshRoleFiles(ctx, d)
+	}
 	if current.Running && current.Digest == d.Digest && current.Fingerprint == fingerprint {
 		if hasPending {
 			pending.query.Succeeded = true
@@ -859,7 +865,6 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 				return err
 			}
 		}
-		filesErr := a.refreshRoleFiles(ctx, d)
 		report := a.reportFor(d, "running", nil)
 		if a.terraBaseMember(d) {
 			report = a.terraBaseRunningReport(ctx, d)
@@ -878,7 +883,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		cycle = cycleReply{CycleID: query.CycleID, Fence: query.Fence, State: "active"}
 	} else {
 		if current.Running && a.restartHeld(d) {
-			return a.publishReport(ctx, a.reportFor(d, "waiting", nil))
+			return a.publishReport(ctx, a.reportFor(d, "waiting", filesErr))
 		}
 		attempt, err := randomID()
 		if err != nil {
@@ -891,7 +896,7 @@ func (a *Agent) reconcile(ctx context.Context, role string) (resultErr error) {
 		if cycle.State == "held" {
 			// The running workload keeps serving until the controller
 			// grants the restart (a TerraBase seat waits for its drain).
-			return a.publishReport(ctx, a.reportFor(d, "waiting", nil))
+			return a.publishReport(ctx, a.reportFor(d, "waiting", filesErr))
 		}
 		if cycle.State != "active" {
 			return nil

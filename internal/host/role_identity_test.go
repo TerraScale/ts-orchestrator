@@ -149,3 +149,95 @@ func TestRoleFilesDeliverSecretsAndNATSIdentity(t *testing.T) {
 		t.Fatalf("a failed renewal was retried at once: %v", err)
 	}
 }
+
+// A running member renews its NATS identity past half its lifetime even while
+// a staged release waits behind a restart hold: the identity is re-requested
+// and replaced, and the member is not restarted (TS-803).
+func TestRunningRoleIdentityRenewsWhileReleaseHeld(t *testing.T) {
+	issued := 0
+	c, conn, store, _, controllerKey := testControllerWithVerifier(t, nil, func(config *ControllerConfig) {
+		config.RoleIdentity = fakeRoleIssuer(t, &issued)
+	})
+	hostKey := registerTestHost(t, c)
+	running, staged := []byte("member"), []byte("staged member")
+	runningDigest, stagedDigest := sha256.Sum256(running), sha256.Sum256(staged)
+	for _, data := range [][]byte{running, staged} {
+		hash := sha256.Sum256(data)
+		if _, err := store.PutBytes(t.Context(), "sha256-"+hex.EncodeToString(hash[:]), data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := c.ApplyDesired(t.Context(), Desired{Cell: "gru", Node: "node-a", Environment: "production", Role: "terrabase",
+		Digest: hex.EncodeToString(stagedDigest[:]), Generation: 2, AuthorityEpoch: 1}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- c.Run(ctx) }()
+	t.Cleanup(func() { cancel(); <-done })
+	<-c.Ready()
+
+	root := traversableTempDir(t)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, []byte("cell CA"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &memoryRunner{observed: map[string]Observation{"terrabase": {Running: true, Digest: hex.EncodeToString(runningDigest[:])}}}
+	stateRoot := testAgentStateRoot(t)
+	agent, err := NewAgent(AgentConfig{NATSUserPublicKey: testNATSUserKey("node-a"), ClockCheck: func() error { return nil },
+		WorkloadIdentity: testAgentIdentity(), Cell: "gru", Node: "node-a", Environment: "production", Roles: []string{"terrabase"},
+		Conn: conn, Identity: hostKey, ControllerPublicKey: controllerKey.Public().(ed25519.PublicKey),
+		Runner: runner, InstallRoot: testAgentInstallRoot(t), StateRoot: stateRoot,
+		ManagedRuntimeRoot: root, NATSURL: "tls://10.0.0.1:4222", NATSCAFile: caFile})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateRoot, "terrabase"+RestartHoldSuffix), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, err := agent.ensureRoleDir("terrabase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An identity 47 of its 48 hours old: past half its lifetime.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aged := &x509.Certificate{SerialNumber: big.NewInt(3), Subject: pkix.Name{CommonName: "aged"},
+		NotBefore: time.Now().Add(-47 * time.Hour), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, aged, aged, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agedPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	if err := os.WriteFile(filepath.Join(dir, "nats.pem"), agedPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := agent.reconcile(t.Context(), "terrabase"); err != nil {
+		t.Fatalf("reconcile while held: %v", err)
+	}
+	renewed, err := os.ReadFile(filepath.Join(dir, "nats.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if issued != 1 || string(renewed) == string(agedPEM) {
+		t.Fatalf("held member's identity was not renewed (%d issued)", issued)
+	}
+	if _, current := roleIdentityExpiry(dir); !current {
+		t.Fatal("renewed identity is not current")
+	}
+	runner.mu.Lock()
+	applied := runner.applied
+	runner.mu.Unlock()
+	if applied != 0 {
+		t.Fatalf("held member was restarted %d times", applied)
+	}
+}
