@@ -6,8 +6,9 @@ Status: design for TS-804. ts-orchestrator manages capacity by itself:
    request load, without flapping. Scale-down drains a node first.
 2. A monthly OCI budget, set on the dashboard, caps growth. Spending 80% of
    it alerts on the dashboard and on ts-status.
-3. The orchestrator adds and removes whole regions when load and latency say
-   so, inside guardrails.
+3. Only the user adds or removes a region (user decision 2026-10-11): one
+   explicit call provisions or retires everything, with no manual step. The
+   orchestrator only suggests regions, as information.
 
 There is one code path for any number of regions. Nothing in this design has
 an on/off switch, a per-region setting or a tuning knob: every value below is
@@ -30,7 +31,7 @@ them).
 | --- | --- | --- |
 | How many nodes a region wants | the region's authority leader | it sees its own load and keeps scaling down and repairing when cut off from the home |
 | How many nodes a region may have (its allowance) | the home's global leader | one writer spends the one budget, so two regions can never both take the last headroom |
-| Which regions exist | the home's global leader | the same writer, the same budget |
+| Which regions exist | the user, through one `ts-orch region create` or `remove` that COS runs | a region is a business decision; the root key and tenancy-wide rights stay with the operator, never with always-on controllers |
 | Launching, draining and removing a node | the region's authority leader | only it can drain its own TerraBase, NATS and workloads |
 
 A region grows only up to its allowance. A region that cannot read a fresh
@@ -223,7 +224,7 @@ growth stops (`nodescale.budget-capped`) and the insight turns critical.
 Each regional leader publishes its status in the region rollup it pushes
 every 5 seconds (`globalview.Rollup.Scale` on
 `ts.orch.v1.<cell>.region.rollup`, TS-805). Every region follows every
-rollup, so the home's allocator and planner read all statuses from memory,
+rollup, so the home's allocator and suggestions read all statuses from memory,
 with no fan-out and no new subject or grant. A status that does not
 validate or names another region is dropped. A region running an older
 build has no status: its spend is unknown and growth holds.
@@ -240,78 +241,79 @@ build has no status: its spend is unknown and growth holds.
 
 `rtt_ms` is the region's measured TCP connect time to every OCI region's
 public endpoint (`objectstorage.<region>.oraclecloud.com:443`), refreshed
-every 10 minutes; the region planner uses it.
+every 10 minutes; region suggestions use it.
 
 ## Regions
 
-The home's global leader runs the region planner every 10 minutes, after the
-allowances, on the same inputs. It reuses `regionlifecycle` (records, phases,
-steps, effectors) and `regionops` (the loop and the subscription effector).
+Only the user adds or removes a region. No code path in the controllers
+creates or retires one: there is no planner that acts, no lifecycle loop, no
+switch and no threshold that starts a region change. COS runs one command on
+the user's order, from an operator host with the OCI operator profile:
 
-### When
+```
+ts-orch region create <region>   # a cell token (fra) or an OCI region name (eu-frankfurt-1)
+ts-orch region remove <region>
+```
 
-- **Add** a region when a serving region is saturated: it has 12 nodes and
-  has wanted more for an hour. The new region is the OCI region (from OCI's
-  own region list, `identity.ListRegions`) not serving yet with the lowest
-  measured RTT from the saturated region; when egress blocks every probe,
-  the nearest one by great-circle distance between the catalog's region
-  coordinates. Client latency joins the same signal set when TS-805/TS-808
-  provide where clients are.
-- **Remove** a region that is not the home, has had 3 nodes and every signal
-  below 0.15 for 14 days, and homes no database partition
-  (`globalcontrol.Directory`).
+`create` is the region tool that exists today (`internal/region`): plan,
+foundation, peer, NetBird, ts-auth secrets, found, edge certificate, edge,
+DNS, Atlas and verify. To make it one call with no manual step, it:
+
+- subscribes the tenancy to the region first (moved from `regionops`);
+- reads every secret it needs from OCI Vault (Cloudflare token, NetBird admin
+  PAT, root key) instead of environment variables;
+- derives the home's plan from OCI instead of a `--home-plan` file;
+- keeps its plan, state and journal in the home's Object Storage, so any
+  operator host resumes an interrupted run;
+- uses only published release artifacts and images, and builds nothing;
+- finds before it creates at every step, so a rerun is safe.
+
+The new region joins the roster with its first heartbeat (TS-803). From then
+on it serves and autoscales like every region. `remove` drains the region,
+refuses while it homes a database partition (`globalcontrol.Directory`),
+unlinks it, terminates its nodes and deletes its foundation.
+
+The in-cluster lifecycle (`regionlifecycle`, `regionops`) and the planner's
+actions are deleted. The root key and tenancy-wide IAM stay with the operator.
 
 ### Guardrails
 
-- The budget: a new region needs headroom for its 3 nodes for a whole month,
-  each at the highest node price any region reports.
-- Never fewer than two serving regions, and never the home.
-- One region action at a time; 24 hours between region actions; 30 days
-  before a removed region is added again.
-- Every action is a decision journal entry (`regionplanner.*`) with a written
-  reason (the signals that caused it) and shows on the dashboard's capacity
-  page. The planner's current decision, including "hold" and why, is always
-  visible there.
-- OCI region subscriptions cannot be undone. The planner subscribes only when
-  it adds a region, journals the region key, name and OCI request ID (a
-  subscription has no OCID), and a removed region keeps its subscription for
-  a later re-add.
+- `create` accepts a region from the catalog of every OCI region
+  (`ociregion/catalog`) that is not serving yet. The user's call is the spend
+  decision: the new region's 3 quorum nodes are fixed, and only its pool
+  nodes grow under the budget cap.
+- `remove` never removes the home and never goes below two serving regions.
+- OCI region subscriptions cannot be undone. `create` logs the region key,
+  name and OCI request ID (a subscription has no OCID); a removed region
+  keeps its subscription for a later `create`.
 
-The planner approves its own proposals inside these guardrails (user
-decision 2026-10-10); signed approvals and `Approvers` are deleted.
+### Suggestions
 
-### Adding
+Every 10 minutes the home's global leader also computes a suggestion from the
+signals regions already report, and the capacity page shows it as
+information only. Nothing acts on it and nothing journals it.
 
-Lifecycle steps, each an effector driven by `regionops`:
-
-1. **Subscribe** the tenancy to the region (exists).
-2. **Network**: compartments, VCN, private subnet, NSGs, gateways, Vault and
-   buckets (`ociregion/foundation`, as an effector).
-3. **NetBird**: groups, routes and a setup key in Vault (`netbird/manager`).
-4. **First nodes**: the 3 quorum nodes, with material issued under the
-   region's derived identity (TS-803 trust root).
-5. **Join**: the region's first heartbeat puts it in the roster (TS-803); it
-   then serves and autoscales like every region.
-
-### Removing
-
-1. **Drain**: hold placement in the region; wait until it homes no
-   partition and serves no traffic (TerraBase moves data; TS-677/TS-806).
-2. **Pool**: drain and remove every pool node (scale-down above).
-3. **Unlink** and **terminate** the quorum nodes; the roster drops it.
-4. **Network**: delete the foundation (`ociregion/teardown`).
+- **Add** when a serving region is saturated: it has 12 nodes and has wanted
+  more for an hour. The suggested region is the OCI region not serving yet
+  with the lowest measured RTT from the saturated region; when egress blocks
+  every probe, the nearest one by great-circle distance between the catalog's
+  region coordinates.
+- **Remove** a region that is not the home, has had 3 nodes and every signal
+  below 0.15 for 14 days, and homes no database partition.
+- The suggestion shows the monthly cost of the new region against the
+  budget's headroom.
 
 ## Simulation
 
 `internal/capacitysim` (test-only package) runs 20 regions in one process: a
 fake OCI (pools, instance configurations, region subscriptions, region list,
 prices), fake load per region, one regional scaler per region and one home
-allocator and planner. Tests assert: every region stays within 3..12, no
+allocator. Tests assert: every region stays within 3..12, no
 region scales up within 10 minutes, or down within 30 minutes, of its last
-change, projected spend never exceeds the cap, the last two regions are never
-removed, cooldowns hold, and a partitioned region holds its size. The fake
-lives in `_test.go` files only. A second, planner-only run covers 40 days so
-idle regions reach the 14-day removal.
+change, projected spend never exceeds the cap, and a partitioned region holds
+its size. The fake lives in `_test.go` files only. A second run covers 40
+days of load: suggestions appear for saturated and idle regions, and nothing
+but the suggestion changes.
 
 ## Slices
 
@@ -324,19 +326,23 @@ idle regions reach the 14-day removal.
 5. Regional scaler: leader loop, scale-up, drain-first scale-down, journal,
    capacity status responder.
 6. Budget: documents, dashboard capacity page, allowances and 80% alerts.
-7. Region planner: signals, guardrails, automatic approval, RTT probe,
-   journal and dashboard; switches and knobs deleted.
-8. Region effectors: network, NetBird, first nodes, removal (with TS-803).
-9. 20-region simulation.
-10. Deleted: `cellscale`, `hostpool`, the cell spec budget and old settings.
+7. Manual regions (user decision 2026-10-11): `regionlifecycle`, `regionops`
+   and the planner's actions deleted; the planner's decision kept as an
+   information-only suggestion on the capacity page.
+8. `ts-orch region create` as one call: subscribe, secrets from Vault, the
+   home plan from OCI, state in Object Storage, release artifacts only.
+9. `ts-orch region remove`: drain, unlink, terminate and teardown (with
+   TS-803).
+10. 20-region simulation.
+11. Deleted: `cellscale`, `hostpool`, the cell spec budget and old settings.
 
 ## Live
 
 GRU and SFO run it in place as soon as a release reaches them (TS-803's
 adoption). Proof for one region: a scale-up to 4 nodes under synthetic CPU
 load and the drain-first scale-down back to 3, with the OCI pool, instance
-and work request IDs and the decision journal entries, plus the planner's
-current decision. No new region is expected.
+and work request IDs and the decision journal entries, plus the current
+region suggestion. No region is added or removed.
 
 ## Coordination
 

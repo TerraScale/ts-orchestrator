@@ -305,75 +305,20 @@ Before the global lease starts, the home controller checks its credentials
 `ErrMissingGlobalGrants`. Existing controllers require a current-root signed
 credential rotation to acquire these grants. Global control runs automatically.
 
-## Region lifecycle
+## Adding and removing regions
 
-`internal/regionlifecycle` is the state machine from the region auto-start
-review: Proposed, Approved, Admitted, one journaled step per effect up to
-Active, then RetireProposed, RetireApproved and reverse steps to Retired, plus
-Held, RollingBack and Rejected. There are no signed approvals: the region
-planner approves its own proposals inside the budget guardrails of
-docs/capacity.md (TS-804); until those land, proposals stay Proposed. Spending steps need a cost
-admission younger than 15 minutes; admission also enforces the region maximum
-and the monthly budget headroom. Records live in the `TS_REGION_LIFECYCLE` KV
-bucket and are advanced with compare-and-set under the global lease. The step intent, with a
-deterministic create key used as the OCI retry token and ownership tag, is
-stored before each effect; after a crash the driver observes before retrying.
-Every effect is fenced: the intent is stamped with the leader's epoch by a
-compare-and-set before `Execute`, and the lease is guarded again immediately
-before it; a recovered intent is re-claimed through `Machine.ClaimStep`,
-which re-checks admission freshness. A region that fails after the seed launch
-is removed through `ProposeFailedRetire` and the retirement path; its pending
-intent is settled by observation before any teardown step. The global home
-counts toward the region maximum, budget sums saturate instead of wrapping,
-and a held unapproved proposal takes no slot.
-
-`internal/regionplanner` runs on the global home's leader every 10 minutes and
-decides from load and budget: it adds a region when a serving region has been
-saturated for an hour, and removes an idle one. The rules, guardrails and
-their numbers are in code and summarized in docs/capacity.md (TS-804). It
-approves its own proposals inside those guardrails, so nothing waits for a
-signed approval. Proposal IDs carry the target proposal generation
-(`<cell>-g<generation>-<hash>`), so no two attempts on one cell ever share a
-proposal ID. Its latest decision, holds included, is saved in the
-`TS_REGION_PLANNER` bucket for the dashboard.
-
-### Region operations loop
-
-`internal/regionops` is the global leader's loop, run every
-10 minutes while the controller holds the global lease. Each tick it:
-
-1. runs the planner;
-2. admits an Approved region at its proposal's estimated price under the region maximum and the budget headroom, and
-   readmits an in-flight region before it starts a new spending step once
-   its admission is in the last third of its TTL. A refused readmission
-   blocks that step even while the older admission is still fresh. A
-   journaled (recovered) spending intent is observed first: an existing
-   effect is recorded regardless of budget, and an absent one is re-run
-   only after a successful readmission. The price is the planner's estimate,
-   not a live quote; the admission is re-evaluated against the current fleet each
-   time;
-3. calls `Driver.Advance` once per region whose next step has
-   an effector, and resumes a Held region only when an observation finds
-   its pending effect (an absent effect stays held for an operator).
-
-Waits (stale admission, no effector, an OCI effect in progress) and refusals
-are journaled once per region and reason.
-
-The only effector so far is the subscription (always on): the home's
-instance principal subscribes the tenancy to the proposal's catalog region
-(`catalog.Entry.OCIRegionKey`, for example `SJC`), with the step's create key
-as the `opc-retry-token`. An accepted but not yet READY subscription holds
-the step, and the loop completes it once a later observation finds it READY.
-Every other step waits, journaled.
+Only the user adds or removes a region (user decision 2026-10-11). COS runs
+`ts-orch region create <region>` or `ts-orch region remove <region>` from an
+operator host; nothing in the controllers creates or retires a region. The
+design is in docs/capacity.md (TS-804). `internal/regionsuggest` computes an
+information-only suggestion every 10 minutes for the capacity page; nothing
+acts on it.
 
 ## Not yet done
 
-- Effectors for the remaining lifecycle steps. Foundation (inspect then
-  provision) and image import can reuse `internal/ociregion` and
-  `internal/ociregion/imageimport`, but those are operator tools built on
-  plan files and an admission inventory, not on lifecycle records; they need
-  a record-to-plan mapping and ownership tags by create key first. Material,
-  seed, link, public API, handoff, activation and teardown are not started.
+- `ts-orch region create` with no manual step (secrets from Vault, the home
+  plan from OCI, state in Object Storage, release artifacts only) and
+  `ts-orch region remove` (docs/capacity.md slices 8 and 9).
 - Appending interregion material's `ledgerDigest` to the OCI bootstrap
   ledger as its own record kind, and rendering controller configuration
   (cell/system JWT paths, listener, subtrees, topology, remotes) from the
@@ -383,10 +328,6 @@ Every other step waits, journaled.
   health heartbeats (`internal/regionhealth`), and directory-gated placement
   admission.
 - Home-region transfer and cross-region disaster recovery.
-- Fencing admission across records: each lifecycle write is a per-record
-  compare-and-set under the lease, so during a lease handover an old leader
-  and the new one could each admit a different region against the same fleet
-  snapshot and together exceed the region maximum or the ceiling.
 - `TS_GLOBAL_CONTROL` records written before the `Ts-Global-Epoch` header
   existed read as corrupt. Global control is off by default; a region that
   ever enabled it must recreate the stream (there is no migration).

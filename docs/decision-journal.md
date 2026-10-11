@@ -110,9 +110,6 @@ chain's status).
 | Volume reattach on host loss | `volume_reattached` | `failover.Reattacher.Step`, after the replacement attach |
 | Volume auto-grow | `volume_resized` | `placement.Controller.growVolume`, after the journaled resize |
 | Controller slot replacement | `controller_replaced` | `membership.Reconciler`, after the founder (or the seed, when routed) accepted the replacement; `membership.SeedServer` on the seed when a routed replacement finishes or fails (rule `membership.seed_routed`) |
-| Region proposals | `region_proposed` (a proposal or a retirement), `region_approved` (the planner's approval, inside its guardrails) | `regionplanner.Runner`, after the lifecycle record was stored |
-| Region admissions | `region_admitted` (admitted or readmitted, with the estimate and committed spend), `held` (refused by the region maximum or the budget headroom; once per cell and reason) | `regionops.Loop`, after the lifecycle record was stored |
-| Region lifecycle steps | `region_step` (in progress, succeeded, or failed when held), `held` (waiting for an approval, a fresh admission, an effector or an OCI effect in progress; once per cell and reason) | `regionops.Loop`, after `Driver.Advance` or an observed resume |
 | OCI declarative reconcile | `oci_desired_published`, `oci_drift_corrected`, `oci_resource_deleted`, `oci_resource_released` | `app.desiredPass` after the KV writes; `ociresource.Controller` after the cloud write or the purge |
 
 ### Providers of the other slices
@@ -134,8 +131,6 @@ chain's status).
 | autoscale | `scale_up`, `scale_down`, `held` | Record the metric that crossed its target. Implement `insights.AutoscalerProvider`. |
 | storage | `volume_resized`, `volume_reattached`, `backup_taken` | Subject `volume/<ocid>`. Implement `insights.VolumeProvider`. |
 | membership | `member_replaced`, `controller_replaced`, `host_reclaimed` | Subject `member/<name>` or `host/<ocid>`. |
-| regionplanner | `region_proposed`, `region_approved`, `held` | Region in `Region`; a hold is journaled when its reason changes. |
-| regionops | `region_admitted`, `region_step`, `held` | Region in `Region`, subject `region/<cell>`; proposal, phases, step and create key in `Attrs`. |
 
 Every provider is optional: the insights engine and the region view take
 nil for anything not built yet, and the rules that need it stay silent
