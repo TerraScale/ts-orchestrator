@@ -377,12 +377,21 @@ func buildScaling(results map[string]workload.Result) []Scaling {
 	return out
 }
 
+// buildDatabases keeps the busiest databases, each with its busiest peers.
 func buildDatabases(databases []Database, truncated *bool) []Database {
 	out := slices.Clone(databases)
 	slices.SortStableFunc(out, func(a, b Database) int {
 		return cmp.Compare(b.ReplicationBytesPerSecond, a.ReplicationBytesPerSecond)
 	})
-	return keep(out, maxDatabases, truncated)
+	out = keep(out, maxDatabases, truncated)
+	for i := range out {
+		peers := slices.Clone(out[i].Peers)
+		slices.SortStableFunc(peers, func(a, b DatabasePeer) int {
+			return cmp.Or(cmp.Compare(b.SentBytesPerSecond+b.ReceivedBytesPerSecond, a.SentBytesPerSecond+a.ReceivedBytesPerSecond), cmp.Compare(a.Region, b.Region))
+		})
+		out[i].Peers = keep(peers, maxDatabasePeers, truncated)
+	}
+	return out
 }
 
 // buildErrors prefers the error source. Otherwise it takes ERROR events, one

@@ -240,7 +240,9 @@ func TestDatabaseAndErrorTablesShowFields(t *testing.T) {
 	const databaseID = "01HZDB4Q7MXYABCDEFGHJKMNPQ"
 	const projectID = "01HZPRJ0000000000000000000"
 	gru := overviewRollup("gru", testNow, nil)
-	gru.Databases = []globalview.Database{{ID: databaseID, Project: projectID, ReplicationBytesPerSecond: 2048, LagSeconds: 1.5}}
+	gru.Databases = []globalview.Database{{ID: databaseID, Project: projectID, ReplicationBytesPerSecond: 3072, SentBytesPerSecond: 2048,
+		ReceivedBytesPerSecond: 1024, Peers: []globalview.DatabasePeer{{Region: "sfo", SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024}},
+		StorageBytes: 3 << 30, ReadsPerSecond: 12.5, WritesPerSecond: 2, LagSeconds: 1.5}}
 	gru.Errors = []globalview.Error{
 		{At: testNow, Level: "WARN", Service: "terrabase", Component: "wan", Message: "lag rising", Count: 7, Nodes: []string{"gru-n01", "gru-n02"}},
 		{At: testNow.Add(-time.Minute), Level: "ERROR", Message: "boom", Count: 1},
@@ -256,6 +258,12 @@ func TestDatabaseAndErrorTablesShowFields(t *testing.T) {
 	}
 	if got := databases[0][2]; got.Text != "01HZPRJ00000" || got.Title != projectID {
 		t.Fatalf("project cell = %+v, want short ID with full ID in title", got)
+	}
+	want := []string{"2.0 KiB/s", "1.0 KiB/s", "SFO 2.0 KiB/s / 1.0 KiB/s", "3.0 GiB", "12.5 / 2", "1.5 s"}
+	for index, text := range want {
+		if got := databases[0][index+3]; got.Text != text {
+			t.Fatalf("database cell %d = %q, want %q", index+3, got.Text, text)
+		}
 	}
 
 	errs := errorTable(recentErrors(regions)).Rows
@@ -479,5 +487,23 @@ func TestOverviewBudgetTwentyRegions(t *testing.T) {
 	}
 	if htmlGzip+cssGzip >= 100*1024 {
 		t.Errorf("overview wire size %d bytes, budget is 100 KiB", htmlGzip+cssGzip)
+	}
+}
+
+func TestPeersCellShowsBusiestThreeAndTitlesAll(t *testing.T) {
+	t.Parallel()
+	var peers []globalview.DatabasePeer
+	for _, region := range []string{"sfo", "lhr", "gru", "nrt"} {
+		peers = append(peers, globalview.DatabasePeer{Region: region, SentBytesPerSecond: 1024})
+	}
+	got := peersCell(peers)
+	if got.Text != "SFO 1.0 KiB/s / 0 B/s, LHR 1.0 KiB/s / 0 B/s, GRU 1.0 KiB/s / 0 B/s" {
+		t.Fatalf("peers text = %q, want the first three", got.Text)
+	}
+	if !strings.Contains(got.Title, "NRT 1.0 KiB/s / 0 B/s") {
+		t.Fatalf("peers title = %q, want all four", got.Title)
+	}
+	if storageText(0) != "—" {
+		t.Fatalf("storage of zero = %q, want a dash", storageText(0))
 	}
 }

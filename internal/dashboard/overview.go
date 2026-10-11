@@ -17,6 +17,9 @@ import (
 // overviewTop bounds the merged database and error lists.
 const overviewTop = 10
 
+// overviewPeers bounds the peer regions a database row lists in its cell.
+const overviewPeers = 3
+
 // freshRegion reports a rollup inside its freshness window. Totals and merged
 // lists sum only fresh regions; stale ones show last-known values in the table.
 func freshRegion(region globalview.Region) bool { return region.Rollup != nil && !region.Stale }
@@ -413,13 +416,32 @@ func topDatabases(regions []globalview.Region) []regionDatabase {
 // IDs are shortened in the cell; the full ID is its tooltip.
 func databaseTable(rows []regionDatabase) table {
 	databases := table{Caption: "Top databases by replication bandwidth", Empty: "No region reports database replication yet.",
-		Headers: []string{"Region", "Database", "Project", "Replication", "Lag"}}
+		Headers: []string{"Region", "Database", "Project", "Replication out", "Replication in", "Top peers (out / in)", "Storage", "Ops/s (reads / writes)", "Lag"}}
 	for _, row := range rows {
 		databases.Rows = append(databases.Rows, []cell{textCell(upper(row.Region)),
 			{Text: orDash(shortID(row.ID)), Title: row.ID}, {Text: orDash(shortID(row.Project)), Title: row.Project},
-			textCell(rate(row.ReplicationBytesPerSecond)), textCell(tenths(row.LagSeconds) + " s")})
+			textCell(rate(row.SentBytesPerSecond)), textCell(rate(row.ReceivedBytesPerSecond)), peersCell(row.Peers),
+			textCell(storageText(row.StorageBytes)), textCell(tenths(row.ReadsPerSecond) + " / " + tenths(row.WritesPerSecond)),
+			textCell(tenths(row.LagSeconds) + " s")})
 	}
 	return databases
+}
+
+// peersCell lists the busiest peers of a database. The tooltip lists them all.
+func peersCell(peers []globalview.DatabasePeer) cell {
+	var all []string
+	for _, peer := range peers {
+		all = append(all, upper(peer.Region)+" "+rate(peer.SentBytesPerSecond)+" / "+rate(peer.ReceivedBytesPerSecond))
+	}
+	return cell{Text: orDash(strings.Join(all[:min(len(all), overviewPeers)], ", ")), Title: strings.Join(all, "\n")}
+}
+
+// storageText renders a replica size; zero is unknown.
+func storageText(bytes int64) string {
+	if bytes == 0 {
+		return "—"
+	}
+	return formatBytes(bytes)
 }
 
 // shortID is the first twelve characters of a catalog ID.

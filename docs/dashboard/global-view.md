@@ -99,7 +99,7 @@ rollup v1. Adding a field is compatible; renaming or removing a field is not.
 
 | Section | Owner | Type |
 | --- | --- | --- |
-| `databases` | TS-806 | `[]Database{Name, ReplicationBytesPerSecond, LagSeconds}` |
+| `databases` | TS-806 | `[]Database{ID, Org, Project, ReplicationBytesPerSecond, SentBytesPerSecond, ReceivedBytesPerSecond, Peers, StorageBytes, ReadsPerSecond, WritesPerSecond, LagSeconds}`; `Peers` is `[]DatabasePeer{Region, SentBytesPerSecond, ReceivedBytesPerSecond}`, at most 32 |
 | `cost` | TS-807 | `Cost{Currency, PerHour, MonthToDate, MonthForecast}`: this region's resources only |
 | `errors` | TS-808 | `[]Error{At, Node, Component, Message}` |
 

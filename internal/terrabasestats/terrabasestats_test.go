@@ -110,9 +110,45 @@ func TestDatabasesMergeAcrossMembers(t *testing.T) {
 		{ID: "db-3", Org: "org-a", Project: "proj-a", ReplicationBytesPerSecond: 600, LagSeconds: 0},
 	}
 	for i := range want {
-		if list[i] != want[i] {
+		if list[i].ID != want[i].ID || list[i].ReplicationBytesPerSecond != want[i].ReplicationBytesPerSecond || list[i].LagSeconds != want[i].LagSeconds {
 			t.Fatalf("databases[%d] = %+v, want %+v", i, list[i], want[i])
 		}
+	}
+}
+
+func TestDatabasesMergeRatesPeersStorageAndOps(t *testing.T) {
+	conn := startNATS(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	clk := &clock{now: start}
+	f := follow(ctx, conn, "gru", clk.Now)
+
+	// Each window is 5 s, so every counter divides by 5 to a rate.
+	publish(t, conn, "gru", member("gru-1-db-1", start, entry{Database: "db-1", SentBytes: 5000, ReceivedBytes: 10000,
+		Reads: 500, Writes: 250, StorageBytes: 300, Peers: []peer{
+			{Region: "sfo", SentBytes: 5000, ReceivedBytes: 10000},
+			{Region: "lhr", ReceivedBytes: 5000},
+		}}))
+	publish(t, conn, "gru", member("gru-1-db-2", start, entry{Database: "db-1", ReceivedBytes: 5000,
+		Reads: 1000, StorageBytes: 700, Peers: []peer{{Region: "sfo", SentBytes: 2500, ReceivedBytes: 5000}}}))
+
+	list := awaitDatabases(t, f, func(list []globalview.Database) bool {
+		return len(list) == 1 && list[0].ReceivedBytesPerSecond == 3000
+	})
+	d := list[0]
+	if d.SentBytesPerSecond != 1000 || d.ReplicationBytesPerSecond != 4000 || d.ReadsPerSecond != 300 || d.WritesPerSecond != 50 {
+		t.Fatalf("rates = sent %v, replication %v, reads %v, writes %v; want 1000, 4000, 300, 50", d.SentBytesPerSecond, d.ReplicationBytesPerSecond, d.ReadsPerSecond, d.WritesPerSecond)
+	}
+	if d.StorageBytes != 700 {
+		t.Fatalf("storage = %d, want the maximum 700", d.StorageBytes)
+	}
+	peers := map[string]globalview.DatabasePeer{}
+	for _, p := range d.Peers {
+		peers[p.Region] = p
+	}
+	if len(peers) != 2 || peers["sfo"].SentBytesPerSecond != 1500 || peers["sfo"].ReceivedBytesPerSecond != 3000 ||
+		peers["lhr"].SentBytesPerSecond != 0 || peers["lhr"].ReceivedBytesPerSecond != 1000 {
+		t.Fatalf("peers = %+v, want sfo 1500/3000 and lhr 0/1000", d.Peers)
 	}
 }
 

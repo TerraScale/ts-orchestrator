@@ -30,17 +30,18 @@ const (
 	// hosts report every 15 s.
 	NodeDownAfter = time.Minute
 
-	maxNodes       = 64
-	maxServices    = 16
-	maxFilesystems = 8
-	maxVolumes     = 256
-	maxLinks       = 32
-	maxRoutes      = 64
-	maxDatabases   = 10
-	maxErrors      = 10
-	maxErrorNodes  = 8
-	maxReasons     = 5
-	maxMessage     = 200
+	maxNodes         = 64
+	maxServices      = 16
+	maxFilesystems   = 8
+	maxVolumes       = 256
+	maxLinks         = 32
+	maxRoutes        = 64
+	maxDatabases     = 10
+	maxDatabasePeers = 32
+	maxErrors        = 10
+	maxErrorNodes    = 8
+	maxReasons       = 5
+	maxMessage       = 200
 )
 
 // Health states of a region and of a node.
@@ -214,11 +215,24 @@ type Cost struct {
 
 // Database is one TerraBase database by replication bandwidth (TS-806).
 type Database struct {
-	ID                        string  `json:"id"`      // catalog ULID
-	Org                       string  `json:"org"`     // catalog ULID
-	Project                   string  `json:"project"` // catalog ULID
-	ReplicationBytesPerSecond float64 `json:"replication_bps"`
-	LagSeconds                float64 `json:"lag_s"`
+	ID                        string         `json:"id"`                      // catalog ULID
+	Org                       string         `json:"org"`                     // catalog ULID
+	Project                   string         `json:"project"`                 // catalog ULID
+	ReplicationBytesPerSecond float64        `json:"replication_bps"`         // sent plus received
+	SentBytesPerSecond        float64        `json:"sent_bps"`                // replication bytes sent to peer regions
+	ReceivedBytesPerSecond    float64        `json:"received_bps"`            // replication bytes received from peer regions
+	Peers                     []DatabasePeer `json:"peers,omitempty"`         // busiest first, capped at maxDatabasePeers
+	StorageBytes              int64          `json:"storage_bytes,omitempty"` // this region's replica; 0 is unknown
+	ReadsPerSecond            float64        `json:"reads_per_s"`             // reads served
+	WritesPerSecond           float64        `json:"writes_per_s"`            // writes committed
+	LagSeconds                float64        `json:"lag_s"`
+}
+
+// DatabasePeer is one database's replication bandwidth with one peer region.
+type DatabasePeer struct {
+	Region                 string  `json:"region"`
+	SentBytesPerSecond     float64 `json:"sent_bps"`
+	ReceivedBytesPerSecond float64 `json:"received_bps"`
 }
 
 // Error is one recent error class in the region (TS-808).

@@ -336,6 +336,26 @@ func TestBuildDatabasesSortedAndCapped(t *testing.T) {
 	}
 }
 
+func TestBuildDatabasePeersSortedAndCapped(t *testing.T) {
+	in := healthyRegion()
+	db := Database{ID: "db-1", ReplicationBytesPerSecond: 3000}
+	for i := range 40 {
+		db.Peers = append(db.Peers, DatabasePeer{Region: fmt.Sprintf("r%02d", i), SentBytesPerSecond: float64(i)})
+	}
+	in.Databases = []Database{db}
+	rollup := Build(in)
+	peers := rollup.Databases[0].Peers
+	if len(peers) != maxDatabasePeers || peers[0].Region != "r39" || peers[31].Region != "r08" {
+		t.Fatalf("peers = %d, first %s, last %s; want 32 from r39 down to r08", len(peers), peers[0].Region, peers[len(peers)-1].Region)
+	}
+	if !rollup.Truncated {
+		t.Fatal("truncated = false, want true")
+	}
+	if db.Peers[0].Region != "r00" {
+		t.Fatal("Build reordered the input peers")
+	}
+}
+
 func TestBuildAutoscaleSkipsAwaitingRelease(t *testing.T) {
 	in := healthyRegion()
 	in.Autoscale = map[string]workload.Result{

@@ -29,6 +29,8 @@ const (
 	maxMembers = 64
 	// maxTop is the most databases a member lists, the producer's cap. It bounds memory.
 	maxTop = 60
+	// maxPeers is the most peer regions a member lists per database. It bounds memory.
+	maxPeers = 64
 	// maxDatabases matches globalview's cap on the dashboard list.
 	maxDatabases = 10
 	// staleAfter drops a member whose rollup is older: six missed publishes.
@@ -52,8 +54,22 @@ type entry struct {
 	Database      string  `json:"database"`
 	SentBytes     uint64  `json:"sentBytes"`
 	ReceivedBytes uint64  `json:"receivedBytes"`
+	Reads         uint64  `json:"reads"`
+	Writes        uint64  `json:"writes"`
+	StorageBytes  uint64  `json:"storageBytes"` // zero when the member does not know it
 	LagSeconds    float64 `json:"lagSeconds"`
+	Peers         []peer  `json:"peers"`
 }
+
+// peer is one peer region's share of a database over the member's window.
+type peer struct {
+	Region        string `json:"region"`
+	SentBytes     uint64 `json:"sentBytes"`
+	ReceivedBytes uint64 `json:"receivedBytes"`
+}
+
+// peerKey names one peer region's share of one database.
+type peerKey struct{ database, region string }
 
 // Follower holds the newest rollup of each TerraBase member of one cell.
 type Follower struct {
@@ -94,6 +110,9 @@ func (f *Follower) accept(cell string, data []byte) {
 		return
 	}
 	r.Top = r.Top[:min(len(r.Top), maxTop)]
+	for i := range r.Top {
+		r.Top[i].Peers = r.Top[i].Peers[:min(len(r.Top[i].Peers), maxPeers)]
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if old, ok := f.members[r.Member]; ok {
@@ -120,14 +139,16 @@ func (f *Follower) prune(now time.Time) {
 	}
 }
 
-// Databases merges the fresh members' rollups by database. Replication
-// bytes per second are summed over the members, lag is the maximum, and the
-// list is the top maxDatabases by bytes per second, then by ID. It does no I/O.
+// Databases merges the fresh members' rollups by database. Rates are summed
+// over the members, per peer region too. Storage is the maximum, since every
+// member holds a replica, and lag is the maximum. The list is the top
+// maxDatabases by bytes per second, then by ID. It does no I/O.
 func (f *Follower) Databases() []globalview.Database {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prune(f.now())
 	merged := map[string]*globalview.Database{}
+	peers := map[peerKey]*globalview.DatabasePeer{}
 	for _, r := range f.members {
 		seconds := float64(r.WindowMs) / 1000
 		for _, e := range r.Top {
@@ -140,8 +161,26 @@ func (f *Follower) Databases() []globalview.Database {
 				merged[e.Database] = d
 			}
 			d.ReplicationBytesPerSecond += float64(e.SentBytes+e.ReceivedBytes) / seconds
+			d.SentBytesPerSecond += float64(e.SentBytes) / seconds
+			d.ReceivedBytesPerSecond += float64(e.ReceivedBytes) / seconds
+			d.ReadsPerSecond += float64(e.Reads) / seconds
+			d.WritesPerSecond += float64(e.Writes) / seconds
+			d.StorageBytes = max(d.StorageBytes, int64(e.StorageBytes))
 			d.LagSeconds = max(d.LagSeconds, e.LagSeconds)
+			for _, p := range e.Peers {
+				key := peerKey{database: e.Database, region: p.Region}
+				sum, ok := peers[key]
+				if !ok {
+					sum = &globalview.DatabasePeer{Region: p.Region}
+					peers[key] = sum
+				}
+				sum.SentBytesPerSecond += float64(p.SentBytes) / seconds
+				sum.ReceivedBytesPerSecond += float64(p.ReceivedBytes) / seconds
+			}
 		}
+	}
+	for key, sum := range peers {
+		merged[key.database].Peers = append(merged[key.database].Peers, *sum)
 	}
 	out := make([]globalview.Database, 0, len(merged))
 	for _, d := range merged {
