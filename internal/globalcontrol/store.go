@@ -52,6 +52,9 @@ func subject(kind Kind, key string) string { return protocol.GlobalState(string(
 // Reader serves global records from the home stream or a regional mirror.
 type Reader struct {
 	stream jetstream.Stream
+	// js reads the stream's info through a fresh handle: Info on stream
+	// would rewrite the handle's cached info, which concurrent reads use.
+	js jetstream.JetStream
 	// mirror makes every read prove that the mirror holds a gap-free prefix
 	// of the home stream (see ErrMirrorGap).
 	mirror bool
@@ -126,7 +129,7 @@ func (r *Reader) read(ctx context.Context, kind Kind, key string) (record, uint6
 // to its last one. Skipped sequences show up as deleted messages or as a
 // first sequence beyond 1.
 func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
-	info, err := r.stream.Info(ctx)
+	info, err := r.info(ctx)
 	if err != nil {
 		return fmt.Errorf("inspect global mirror: %w", err)
 	}
@@ -145,6 +148,15 @@ func (r *Reader) checkMirrorGapFree(ctx context.Context) error {
 		return ErrMirrorGap
 	}
 	return nil
+}
+
+// info is the stream's current info, read without touching r.stream.
+func (r *Reader) info(ctx context.Context) (*jetstream.StreamInfo, error) {
+	stream, err := r.js.Stream(ctx, r.stream.CachedInfo().Config.Name)
+	if err != nil {
+		return nil, err
+	}
+	return stream.CachedInfo(), nil
 }
 
 // EpochHeader carries the global authority epoch of every record the writer
@@ -190,7 +202,6 @@ type Writer struct {
 	Reader
 	home   string
 	fencer authority.Fencer
-	js     jetstream.JetStream
 	// replicas is the replica count OpenHome verified; every append
 	// re-verifies the stream against it, so later drift is detected.
 	replicas int
@@ -228,7 +239,7 @@ func OpenHome(ctx context.Context, js jetstream.JetStream, cell string, peers []
 	if err := removeStaleMirrorConsumers(ctx, stream, peers); err != nil {
 		return nil, err
 	}
-	return &Writer{Reader: Reader{stream: stream}, home: cell, fencer: fencer, js: js, replicas: replicas}, nil
+	return &Writer{Reader: Reader{stream: stream, js: js}, home: cell, fencer: fencer, replicas: replicas}, nil
 }
 
 // validMirrorPeers requires every peer to be a regional cell other than home.
@@ -336,7 +347,7 @@ func readTerm(ctx context.Context, stream jetstream.Stream) (uint64, uint64, err
 func (w *Writer) establishTerm(ctx context.Context, epoch uint64) (uint64, error) {
 	for range maxAppendAttempts {
 		readCtx, cancel := context.WithTimeout(ctx, apiTimeout)
-		info, err := w.stream.Info(readCtx)
+		info, err := w.info(readCtx)
 		if err != nil {
 			cancel()
 			return 0, fmt.Errorf("read global stream sequence: %w", err)

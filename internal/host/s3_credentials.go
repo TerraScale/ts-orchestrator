@@ -5,12 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
+	"os"
 	"strings"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 )
 
@@ -44,7 +45,16 @@ func NewOCIS3CredentialResolver(region oci.Region) (*OCIS3CredentialResolver, er
 	if err != nil {
 		return nil, errors.New("managed S3 resolver region is invalid")
 	}
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	// The resolver moves S3 keys and the backup data key through the SDK.
+	for _, name := range ociclient.SecretUnsafeEnv {
+		if _, overridden := os.LookupEnv(name); overridden {
+			return nil, errors.New("managed S3 Vault access does not permit OCI debug logging, endpoint or TLS overrides")
+		}
+	}
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion),
+		func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+			return bootstrap.NewInstancePrincipalSDKHTTPClient()
+		})
 	if err != nil {
 		return nil, errors.New("managed S3 instance principal is unavailable")
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -181,6 +182,40 @@ func TestConcurrentWritersNeverInterleaveTerms(t *testing.T) {
 	}
 }
 
+// TestConcurrentReadsAndAppends: a writer's appends and reads through its Reader
+// share one stream handle, so appends must not rewrite that handle's cached
+// info while reads use it (-race).
+func TestConcurrentReadsAndAppends(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+	defer cancel()
+	js := newTestJetStream(t)
+	writer, err := OpenHome(ctx, js, "gru", nil, 1, &pausedFencer{epoch: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.PutRoster(ctx, 1, testRoster(1)); err != nil {
+		t.Fatal(err)
+	}
+	var wait sync.WaitGroup
+	wait.Go(func() {
+		for index := range 20 {
+			entry := DirectoryEntry{DatabaseID: "0000000000B703KMD4B8J6EWBB", PartitionID: entityid.Derive("test-partition", strconv.Itoa(index)),
+				HomeRegion: "gru", ActiveRegions: []string{"gru"}, Generation: 1}
+			if _, err := writer.PutDirectory(ctx, 1, entry); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	wait.Go(func() {
+		for range 40 {
+			if _, _, err := writer.Roster(ctx); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	wait.Wait()
+}
+
 // TestForgedRecordsAreRejected: records without a matching epoch header and a
 // forged term barrier are corruption, never state.
 func TestForgedRecordsAreRejected(t *testing.T) {
@@ -310,7 +345,7 @@ func TestEmptyMirrorWithoutHomeContactFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := &Reader{stream: stream, mirror: true}
+	reader := &Reader{stream: stream, js: js, mirror: true}
 	if _, _, err := reader.Roster(ctx); !errors.Is(err, ErrMirrorNotCaughtUp) {
 		t.Fatalf("empty unconfirmed mirror read = %v, want ErrMirrorNotCaughtUp", err)
 	}

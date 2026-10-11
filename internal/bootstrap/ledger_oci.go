@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
@@ -45,7 +45,7 @@ func NewInstancePrincipalLedger(region oci.Region, config LedgerConfig) (*Ledger
 	return newInstancePrincipalLedger(
 		region,
 		config,
-		auth.InstancePrincipalConfigurationForRegionWithCustomClient,
+		ociclient.InstancePrincipalProvider,
 	)
 }
 
@@ -55,7 +55,7 @@ func NewHistoricalInstancePrincipalLedger(region oci.Region, config LedgerConfig
 	return newHistoricalInstancePrincipalLedger(
 		region,
 		config,
-		auth.InstancePrincipalConfigurationForRegionWithCustomClient,
+		ociclient.InstancePrincipalProvider,
 	)
 }
 
@@ -84,7 +84,7 @@ func NewInstancePrincipalConfigurationProvider(region oci.Region, config LedgerC
 	return newInstancePrincipalConfigurationProvider(
 		region,
 		config,
-		auth.InstancePrincipalConfigurationForRegionWithCustomClient,
+		ociclient.InstancePrincipalProvider,
 	)
 }
 
@@ -98,7 +98,7 @@ func NewRegionalInstancePrincipalConfigurationProvider(region oci.Region) (commo
 	if err := validateInstancePrincipalSDKOverrides(); err != nil {
 		return nil, err
 	}
-	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(ociRegion), boundInstancePrincipalDispatcher)
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), boundInstancePrincipalDispatcher)
 	if err != nil {
 		return nil, fmt.Errorf("create accepted regional Instance Principal provider: %w", err)
 	}

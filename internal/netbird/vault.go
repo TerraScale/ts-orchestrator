@@ -16,7 +16,6 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 )
 
@@ -84,7 +83,7 @@ func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes
 		return nil, errors.New("NetBird OCI Vault read was canceled")
 	}
 	client, err := initializeSecretsClient(ctx, func() (secrets.SecretsClient, error) {
-		provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(region), func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+		provider, err := ociclient.InstancePrincipalProvider(common.Region(region), func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
 			bounded, err := boundedInstancePrincipalDispatcher(dispatcher)
 			if err != nil {
 				return nil, err

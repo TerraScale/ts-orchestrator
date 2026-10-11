@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -116,7 +116,7 @@ func constructInstancePrincipalClient(region string) (ObjectClient, error) {
 			return nil, errors.New("native OCI root SDK override is unavailable")
 		}
 	}
-	provider, err := auth.InstancePrincipalConfigurationForRegionWithCustomClient(common.Region(region),
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(region),
 		func(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
 			if client, ok := dispatcher.(*http.Client); !ok || client == nil {
 				return nil, errors.New("native OCI root metadata transport is invalid")

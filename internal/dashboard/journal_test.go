@@ -517,7 +517,7 @@ func TestPausedPagesDoNotStream(t *testing.T) {
 
 func TestEveryPageStreamCarriesChrome(t *testing.T) {
 	t.Parallel()
-	dashboard, _, _ := journalDashboard(Options{})
+	dashboard, _, _ := journalDashboard(Options{MaxStreams: len(pages) + 1})
 	server := newStreamServer(t, dashboard)
 	for _, page := range pages {
 		if page.slug == "events" {

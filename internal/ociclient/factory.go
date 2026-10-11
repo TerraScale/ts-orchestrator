@@ -137,9 +137,9 @@ var (
 
 // InstancePrincipal returns the process-wide instance-principal factory for
 // region, creating it on first use so every in-binary caller shares limiters.
-// The provider is fetched from the metadata service outside the lock, so one
-// slow or hung fetch never serializes every other region's factory; a racing
-// creator's factory is discarded and the installed one returned.
+// The provider is fetched from the metadata service outside the map lock, so a
+// cached region never waits for a fetch; a racing creator's factory is
+// discarded and the installed one returned.
 func InstancePrincipal(region string) (*Factory, error) {
 	sharedMu.Lock()
 	factory := sharedPrincipal[region]
@@ -150,7 +150,7 @@ func InstancePrincipal(region string) (*Factory, error) {
 	if !catalog.IsOCIRegion(region) {
 		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
 	}
-	provider, err := newInstancePrincipalProvider(common.Region(region))
+	provider, err := InstancePrincipalProvider(common.Region(region), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create OCI instance-principal provider: %w", err)
 	}
@@ -167,11 +167,23 @@ func InstancePrincipal(region string) (*Factory, error) {
 	return created, nil
 }
 
-// newInstancePrincipalProvider fetches instance-principal credentials; tests
-// replace it.
-var newInstancePrincipalProvider = func(region common.Region) (common.ConfigurationProvider, error) {
-	return auth.InstancePrincipalConfigurationProviderForRegion(region)
+// InstancePrincipalProvider fetches instance-principal credentials for region
+// from the metadata service, with modifier wrapping the SDK's HTTP client (nil
+// keeps it). Every in-binary instance-principal provider must be built here:
+// the SDK writes package-level metadata URLs on every provider it builds, so
+// builds take one process-wide lock.
+func InstancePrincipalProvider(region common.Region,
+	modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
+) (common.ConfigurationProvider, error) {
+	providerMu.Lock()
+	defer providerMu.Unlock()
+	return newInstancePrincipalProvider(region, modifier)
 }
+
+var providerMu sync.Mutex
+
+// newInstancePrincipalProvider is the SDK's constructor; tests replace it.
+var newInstancePrincipalProvider = auth.InstancePrincipalConfigurationForRegionWithCustomClient
 
 // OperatorConfig returns a factory over the operator's ~/.oci/config DEFAULT
 // profile, the same credentials the retired Python CLI used.

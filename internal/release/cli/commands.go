@@ -23,8 +23,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
@@ -125,7 +125,7 @@ func (c command) publish(args []string) error {
 		return err
 	}
 	ociRegion := catalog.OCIRegion(*region)
-	provider, err := auth.InstancePrincipalConfigurationProviderForRegion(common.Region(ociRegion))
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), nil)
 	if err != nil {
 		return fmt.Errorf("create OCI instance-principal provider: %w", err)
 	}

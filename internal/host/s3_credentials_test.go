@@ -100,3 +100,12 @@ func TestManagedBackupDataKeyResolverPinsRawKeyVersion(t *testing.T) {
 		t.Fatalf("provider error leaked backup key: %v", err)
 	}
 }
+
+// The resolver moves secrets through the SDK, so it refuses to start while an
+// SDK variable could log them or redirect their requests.
+func TestOCIS3CredentialResolverRefusesSecretUnsafeEnv(t *testing.T) {
+	t.Setenv("OCI_GO_SDK_DEBUG", "1")
+	if _, err := NewOCIS3CredentialResolver(oci.Region("GRU")); err == nil || !strings.Contains(err.Error(), "does not permit") {
+		t.Fatalf("resolver with OCI_GO_SDK_DEBUG set: %v", err)
+	}
+}

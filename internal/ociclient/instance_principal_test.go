@@ -10,9 +10,9 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
-func TestInstancePrincipalFetchesOutsideTheSharedLock(t *testing.T) {
+func TestInstancePrincipalSerializesFetchesButNotCachedRegions(t *testing.T) {
 	provider := testProvider(t)
-	slow, fast := catalog.OCIRegion("GRU"), catalog.OCIRegion("FRA")
+	slow, cached := catalog.OCIRegion("GRU"), catalog.OCIRegion("FRA")
 	release := make(chan struct{})
 	original := newInstancePrincipalProvider
 	sharedMu.Lock()
@@ -25,11 +25,20 @@ func TestInstancePrincipalFetchesOutsideTheSharedLock(t *testing.T) {
 		sharedPrincipal = saved
 		sharedMu.Unlock()
 	})
-	newInstancePrincipalProvider = func(region common.Region) (common.ConfigurationProvider, error) {
+	// The SDK writes package-level state on every provider it builds; this
+	// fake does the same, so -race fails if two fetches ever overlap.
+	var sdkGlobal string
+	newInstancePrincipalProvider = func(region common.Region,
+		_ func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error),
+	) (common.ConfigurationProvider, error) {
+		sdkGlobal = string(region)
 		if string(region) == slow {
 			<-release
 		}
 		return provider, nil
+	}
+	if _, err := InstancePrincipal(cached); err != nil {
+		t.Fatal(err)
 	}
 	var wait sync.WaitGroup
 	results := make([]*Factory, 2)
@@ -42,10 +51,10 @@ func TestInstancePrincipalFetchesOutsideTheSharedLock(t *testing.T) {
 			results[index] = factory
 		})
 	}
-	// A hung metadata fetch for one region must not block another region.
+	// A cached region never waits for another region's fetch.
 	done := make(chan error, 1)
 	go func() {
-		_, err := InstancePrincipal(fast)
+		_, err := InstancePrincipal(cached)
 		done <- err
 	}()
 	select {
@@ -54,11 +63,12 @@ func TestInstancePrincipalFetchesOutsideTheSharedLock(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("a slow region's provider fetch blocked another region")
+		t.Fatal("a slow region's provider fetch blocked a cached region")
 	}
 	close(release)
 	wait.Wait()
 	if results[0] == nil || results[0] != results[1] {
 		t.Fatal("concurrent creators did not converge on one shared factory")
 	}
+	_ = sdkGlobal
 }
