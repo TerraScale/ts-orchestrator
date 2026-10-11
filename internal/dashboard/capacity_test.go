@@ -12,7 +12,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 // fakeCapacity records budget changes and answers reads with view.
@@ -143,7 +143,7 @@ func TestSetBudgetOutsideTheHomeConflictsAndSilentLeaderIsUnavailable(t *testing
 	}
 }
 
-func TestCapacityPageShowsBudgetCapacityScalingAndPlanner(t *testing.T) {
+func TestCapacityPageShowsBudgetCapacityScalingAndSuggestion(t *testing.T) {
 	t.Parallel()
 	at := testNow.Add(-time.Minute)
 	source := &fakeCapacity{view: CapacityView{Home: true,
@@ -158,14 +158,14 @@ func TestCapacityPageShowsBudgetCapacityScalingAndPlanner(t *testing.T) {
 			Signals:    map[nodescale.Signal]float64{nodescale.SignalCPU: 0.91, nodescale.SignalMemory: 0.4},
 			InFlight:   &nodescale.InFlight{ID: "op-1", Kind: nodescale.Up, Step: "launch", Node: "ts-gru-node-7", Started: at},
 			LastChange: at},
-		Planner: &regionplanner.Decision{Action: "hold", Reason: "no region is saturated", At: at},
+		Suggestion: &regionsuggest.Suggestion{Action: "none", Reason: "no region is saturated", At: at},
 	}}
 	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
 	for _, want := range []string{
 		"Capacity", "Monthly budget", "BRL 500.00", "dashboard 192.0.2.7", `action="/capacity/budget"`,
 		`value="500.00"`, `value="BRL"`, "BRL 420.00", "84", "projected spend is 84% of the cap",
 		"GRU", "4 nodes (3 quorum, 1 pool)", "cpu above target for ten minutes", "0.91",
-		"launch", "ts-gru-node-7", "no region is saturated",
+		"launch", "ts-gru-node-7", "no region is saturated", "Information only: regions change only when the user runs ts-orch region create or remove.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("capacity page lacks %q", want)
@@ -179,21 +179,21 @@ func TestCapacityPageExplainsAnEmptyHome(t *testing.T) {
 	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
 	for _, want := range []string{"No monthly budget is set; nothing grows past its current size.",
 		"No capacity document has been written yet.", "This region has no node scaling status yet.",
-		"The region planner has not decided yet.", `action="/capacity/budget"`} {
+		"The region suggestion has not been computed yet.", `action="/capacity/budget"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("empty home capacity page lacks %q", want)
 		}
 	}
 }
 
-func TestCapacityPageOutsideTheHomeHidesTheFormAndPlanner(t *testing.T) {
+func TestCapacityPageOutsideTheHomeHidesTheFormAndSuggestion(t *testing.T) {
 	t.Parallel()
 	source := &fakeCapacity{view: CapacityView{Unavailable: []string{"capacity document"},
 		Budget: &budget.Budget{Schema: budget.Schema, ID: "00000000009DQWP5T1WY4KP1TS", MonthlyCapCents: 50000,
 			Currency: "BRL", SetBy: "dashboard 192.0.2.7", SetAt: testNow}}}
 	body := get(t, newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler(), "/capacity").Body.String()
 	for _, want := range []string{"The budget is set on the home region's dashboard.",
-		"The region planner runs in the home region.", "could not be read", "BRL 500.00"} {
+		"The region suggestion is computed in the home region.", "could not be read", "BRL 500.00"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("mirror capacity page lacks %q", want)
 		}

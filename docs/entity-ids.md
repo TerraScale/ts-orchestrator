@@ -69,7 +69,7 @@ data and recreates bootstrap state through the current startup path.
    `TS_MACHINE_STATUS`, `TS_TENANTS`, `TS_VOLUMES`, `TS_ROLLOUTS`,
    `TS_HOST_ENROLLMENT`, `TS_HOST_STATE`, `TS_OCI_OPERATIONS`,
    `TS_DELIVERY_OPERATIONS`, `TS_PLACEMENT_STATE`, `TS_STORAGE_USAGE`,
-   `TS_REGION_LIFECYCLE`, `TS_DASHBOARD_SESSIONS` and entity-bearing
+   `TS_DASHBOARD_SESSIONS` and entity-bearing
    control-log/release-channel records.
    In `TS_CONTROL_LOG`, inventory retained authority leases and owner/transition
    references, barriers, lifecycle pending intents/approvals and NetBird

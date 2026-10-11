@@ -11,7 +11,7 @@ import (
 )
 
 // The providers below stand in for slices that are still being built
-// (rollout, storage, trust, netbird, autoscale, regionplanner, CI, OCI
+// (rollout, storage, trust, netbird, autoscale, regionsuggest, CI, OCI
 // inventory), with data shaped like what those slices will report.
 
 type rollouts struct{ region string }

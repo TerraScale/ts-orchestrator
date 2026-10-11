@@ -90,7 +90,7 @@ type Autoscaler struct {
 	AtMaxSince time.Time `json:"at_max_since,omitzero"`
 }
 
-// BudgetProvider lists spending or quota budgets (regionplanner slice).
+// BudgetProvider lists spending or quota budgets.
 type BudgetProvider interface {
 	Budgets(ctx context.Context) ([]Budget, error)
 }

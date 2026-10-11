@@ -20,8 +20,7 @@ type GlobalControlConfig struct {
 
 // globalControl is this controller's view of global state: the fenced writer
 // and global-scope authority in the home region, or a read-only mirror reader
-// everywhere else. Consumers (directory admission, the region planner) are
-// wired in follow-up changes.
+// everywhere else. The budget allocator and region suggestions read it.
 type globalControl struct {
 	authority *authority.Runtime
 	stop      context.CancelFunc

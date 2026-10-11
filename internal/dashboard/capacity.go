@@ -17,7 +17,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 const (
@@ -45,14 +45,14 @@ type CapacitySource interface {
 // or not set; Unavailable names reads that failed.
 type CapacityView struct {
 	// Home reports that this controller is in the home region, where the
-	// budget is set and the region planner runs.
+	// budget is set and the region suggestion is computed.
 	Home     bool
 	Budget   *budget.Budget
 	Capacity *budget.Capacity
 	// Scale is this region's node scaling status.
 	Scale *nodescale.Status
-	// Planner is the region planner's latest decision; nil before it decides.
-	Planner     *regionplanner.Decision
+	// Suggestion is the region suggestion's latest result; nil before it is computed.
+	Suggestion  *regionsuggest.Suggestion
 	Unavailable []string
 }
 
@@ -115,7 +115,7 @@ func capacityStatus(state budget.State) string {
 	}
 }
 
-// actionStatus colors a scale or planner action: growth runs, shrinking warns, a hold is idle.
+// actionStatus colors a scale or suggested action: growth runs, shrinking warns, none is idle.
 func actionStatus(action string) string {
 	switch action {
 	case string(nodescale.Up), "add":

@@ -16,7 +16,7 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 // followerLeader is a global authority that is not the leader.
@@ -101,7 +101,7 @@ func TestBudgetSetOutsideTheHomeIsRefused(t *testing.T) {
 	}
 }
 
-func TestCapacityPageReadsBudgetCapacityAndPlannerAtHome(t *testing.T) {
+func TestCapacityPageReadsBudgetCapacityAndSuggestionAtHome(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	global, conn, _ := startGlobalHome(t, ctx)
@@ -120,11 +120,11 @@ func TestCapacityPageReadsBudgetCapacityAndPlannerAtHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := regionplanner.OpenStore(ctx, js, 1, global.authority)
+	store, err := regionsuggest.OpenStore(ctx, js, 1, global.authority)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Save(ctx, epoch, regionplanner.State{Decision: regionplanner.Decision{Action: "hold",
+	if _, err := store.Save(ctx, epoch, regionsuggest.State{Suggestion: regionsuggest.Suggestion{Action: "none",
 		Reason: "no region is saturated", At: now}}, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -132,20 +132,20 @@ func TestCapacityPageReadsBudgetCapacityAndPlannerAtHome(t *testing.T) {
 		return &nodescale.Status{Schema: nodescale.StatusSchema, Cell: "gru", At: now, Reason: "steady"}
 	}
 	page := &capacityPage{conn: conn, global: global, scale: scale}
-	page.planner.Store(store)
+	page.suggestions.Store(store)
 
 	data := page.Capacity(ctx)
 	if !data.Home || data.Budget == nil || data.Budget.MonthlyCapCents != 50000 || data.Capacity == nil ||
-		data.Scale == nil || data.Planner == nil || data.Planner.Reason != "no region is saturated" ||
+		data.Scale == nil || data.Suggestion == nil || data.Suggestion.Reason != "no region is saturated" ||
 		len(data.Unavailable) != 0 {
-		t.Fatalf("home capacity page = %+v, want the budget, capacity, scale and planner", data)
+		t.Fatalf("home capacity page = %+v, want the budget, capacity, scale and suggestion", data)
 	}
 
-	// A region that only mirrors the global control reads the budget and capacity, never the planner.
+	// A region that only mirrors the global control reads the budget and capacity, never the suggestion.
 	mirror := &capacityPage{conn: conn, global: &globalControl{reader: global.reader}, scale: scale}
-	mirror.planner.Store(store)
+	mirror.suggestions.Store(store)
 	data = mirror.Capacity(ctx)
-	if data.Home || data.Planner != nil || data.Budget == nil || data.Capacity == nil {
-		t.Fatalf("mirror capacity page = %+v, want the budget and capacity without the planner", data)
+	if data.Home || data.Suggestion != nil || data.Budget == nil || data.Capacity == nil {
+		t.Fatalf("mirror capacity page = %+v, want the budget and capacity without the suggestion", data)
 	}
 }

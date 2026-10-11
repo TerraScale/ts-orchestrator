@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 
 // capacityBody is the capacity page: the monthly budget and its form, the
-// capacity document, this region's node scaling and the region planner.
+// capacity document, this region's node scaling and the region suggestion.
 func capacityBody(current view) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -46,7 +46,7 @@ func capacityBody(current view) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = unavailable("The budget, capacity and planner appear once this controller's capacity provider is attached.").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = unavailable("The budget, capacity and suggestion appear once this controller's capacity provider is attached.").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -87,11 +87,11 @@ func capacityBody(current view) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</article><article><h2>Region planner</h2>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</article><article><h2>Region suggestion</h2>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = plannerSection(current.capacityData(), current.failed("region planner")).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = suggestionSection(current.capacityData(), current.failed("region suggestion")).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -690,7 +690,7 @@ func scaleSection(data CapacityView) templ.Component {
 	})
 }
 
-func plannerSection(data CapacityView, unreadable bool) templ.Component {
+func suggestionSection(data CapacityView, unreadable bool) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -712,38 +712,38 @@ func plannerSection(data CapacityView, unreadable bool) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if !data.Home {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<p class=\"empty\">The region planner runs in the home region.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "<p class=\"empty\">The region suggestion is computed in the home region.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else if unreadable {
-			templ_7745c5c3_Err = unavailable("The region planner's state could not be read.").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = unavailable("The region suggestion could not be read.").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-		} else if data.Planner == nil {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<p class=\"empty\">The region planner has not decided yet.</p>")
+		} else if data.Suggestion == nil {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<p class=\"empty\">The region suggestion has not been computed yet.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<p class=\"muted\">Information only: regions change only when the user runs ts-orch region create or remove.</p><p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = statusPill(actionStatus(data.Planner.Action), data.Planner.Action).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = statusPill(actionStatus(data.Suggestion.Action), data.Suggestion.Action).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.Planner.Cell != "" {
+			if data.Suggestion.Cell != "" {
 				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<strong>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var29 string
-				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(upper(data.Planner.Cell))
+				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(upper(data.Suggestion.Cell))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/capacity.templ`, Line: 181, Col: 38}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/capacity.templ`, Line: 182, Col: 41}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 				if templ_7745c5c3_Err != nil {
@@ -755,19 +755,19 @@ func plannerSection(data CapacityView, unreadable bool) templ.Component {
 				}
 			}
 			var templ_7745c5c3_Var30 string
-			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(data.Planner.Reason)
+			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(data.Suggestion.Reason)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/capacity.templ`, Line: 183, Col: 24}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/dashboard/capacity.templ`, Line: 184, Col: 27}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</p><p class=\"muted\">Decided  <small>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</p><p class=\"muted\">Computed  <small>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = ago(data.Planner.At).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = ago(data.Suggestion.At).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

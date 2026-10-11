@@ -235,8 +235,7 @@ same boundary as the bootstrap ledger prefixes.
 
 **Not covered.** `TS_CONTROL_LOG` (authority leases, the operation journal,
 placement intents) and the KV state bound to its epochs (`TS_OCI_OPERATIONS`,
-`TS_PLACEMENT_STATE`, `TS_HOST_STATE`, `TS_DELIVERY_*`,
-`TS_REGION_LIFECYCLE`) are not snapshotted: a rebuilt cell starts its
+`TS_PLACEMENT_STATE`, `TS_HOST_STATE`, `TS_DELIVERY_*`) are not snapshotted: a rebuilt cell starts its
 authority epochs afresh, so restoring them needs epoch continuity first.
 
 ## Follow-ups

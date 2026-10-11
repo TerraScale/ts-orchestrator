@@ -1,23 +1,11 @@
 package app
 
 import (
-	"context"
-	"errors"
 	"strings"
 	"testing"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
 )
-
-// A region the identity cannot resolve is retried until the context ends, so
-// shutdown is never blocked by the retry.
-func TestRegionPlannerIdentityRetryStopsWithContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, _, err := retryHomeIdentity(ctx, "xyz"); !errors.Is(err, context.Canceled) {
-		t.Fatalf("retryHomeIdentity = %v; want the context's cancellation", err)
-	}
-}
 
 func TestRolloutKnownBadFailsClosedUntilTheStoreOpens(t *testing.T) {
 	t.Parallel()

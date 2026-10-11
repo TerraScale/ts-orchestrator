@@ -53,8 +53,7 @@ var (
 	cellToken = regexp.MustCompile(`^[a-z][a-z0-9-]{0,30}$`)
 )
 
-// RegionState is the roster's view of a region's lifecycle. It mirrors the
-// coarse phases of internal/regionlifecycle; only Active regions are placeable.
+// RegionState is the roster's view of a region's lifecycle; only active regions are placeable.
 type RegionState string
 
 const (

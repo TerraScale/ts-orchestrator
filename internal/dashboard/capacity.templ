@@ -3,14 +3,14 @@ package dashboard
 import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
 
 // capacityBody is the capacity page: the monthly budget and its form, the
-// capacity document, this region's node scaling and the region planner.
+// capacity document, this region's node scaling and the region suggestion.
 templ capacityBody(current view) {
 	<div id="content">
 		<h1>Capacity</h1>
 		@notes(current)
 		if current.Journal == nil || current.Journal.Capacity == nil {
 			<article>
-				@unavailable("The budget, capacity and planner appear once this controller's capacity provider is attached.")
+				@unavailable("The budget, capacity and suggestion appear once this controller's capacity provider is attached.")
 			</article>
 		} else {
 			<div class="cols">
@@ -32,8 +32,8 @@ templ capacityBody(current view) {
 				@scaleSection(current.capacityData())
 			</article>
 			<article>
-				<h2>Region planner</h2>
-				@plannerSection(current.capacityData(), current.failed("region planner"))
+				<h2>Region suggestion</h2>
+				@suggestionSection(current.capacityData(), current.failed("region suggestion"))
 			</article>
 		}
 	</div>
@@ -167,25 +167,26 @@ templ scaleSection(data CapacityView) {
 	}
 }
 
-templ plannerSection(data CapacityView, unreadable bool) {
+templ suggestionSection(data CapacityView, unreadable bool) {
 	if !data.Home {
-		<p class="empty">The region planner runs in the home region.</p>
+		<p class="empty">The region suggestion is computed in the home region.</p>
 	} else if unreadable {
-		@unavailable("The region planner's state could not be read.")
-	} else if data.Planner == nil {
-		<p class="empty">The region planner has not decided yet.</p>
+		@unavailable("The region suggestion could not be read.")
+	} else if data.Suggestion == nil {
+		<p class="empty">The region suggestion has not been computed yet.</p>
 	} else {
+		<p class="muted">Information only: regions change only when the user runs ts-orch region create or remove.</p>
 		<p>
-			@statusPill(actionStatus(data.Planner.Action), data.Planner.Action)
-			if data.Planner.Cell != "" {
-				<strong>{ upper(data.Planner.Cell) }</strong>
+			@statusPill(actionStatus(data.Suggestion.Action), data.Suggestion.Action)
+			if data.Suggestion.Cell != "" {
+				<strong>{ upper(data.Suggestion.Cell) }</strong>
 			}
-			{ data.Planner.Reason }
+			{ data.Suggestion.Reason }
 		</p>
 		<p class="muted">
-			Decided 
+			Computed 
 			<small>
-				@ago(data.Planner.At)
+				@ago(data.Suggestion.At)
 			</small>
 		</p>
 	}

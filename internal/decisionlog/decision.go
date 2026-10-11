@@ -19,7 +19,7 @@ const Version = 1
 type Kind string
 
 // Known decision kinds. Parallel slices (rollout, selfupdate, autoscale,
-// storage, membership, regionplanner) use these names so the dashboard and
+// storage, membership) use these names so the dashboard and
 // the insight rules can recognise their decisions.
 const (
 	KindReleaseAdmitted    Kind = "release_admitted"
@@ -41,10 +41,6 @@ const (
 	KindVolumeResized      Kind = "volume_resized"
 	KindVolumeReattached   Kind = "volume_reattached"
 	KindBackupTaken        Kind = "backup_taken"
-	KindRegionProposed     Kind = "region_proposed"
-	KindRegionApproved     Kind = "region_approved"
-	KindRegionAdmitted     Kind = "region_admitted"
-	KindRegionStep         Kind = "region_step"
 	KindLeaderChanged      Kind = "leader_changed"
 	KindQuorumDegraded     Kind = "quorum_degraded"
 	KindQuorumRestored     Kind = "quorum_restored"
@@ -80,7 +76,7 @@ func (status Status) Terminal() bool {
 // Actor names the slice of the orchestrator that decided, on which member.
 type Actor struct {
 	// Slice is the deciding feature slice, for example rollout, selfupdate,
-	// autoscale, placement, membership, storage, regionplanner, delivery,
+	// autoscale, placement, membership, storage, delivery,
 	// authority, bootstrap, netbird or cluster.
 	Slice string `json:"slice"`
 	// Member is the deciding member's name. Journal fills it when empty.

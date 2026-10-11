@@ -945,7 +945,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return errors.New("controller region link probe source is missing")
 	}
 	linkSupervisor.source = regions
-	startRegionPlanner(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady, capacitySource)
+	startRegionSuggestions(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady, capacitySource)
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })

@@ -11,7 +11,7 @@ import (
 // knownSlices are the deciding slices the journal filter offers even before
 // they recorded anything.
 var knownSlices = []string{"authority", "autoscale", "bootstrap", "cluster", "delivery", "membership", "netbird", "nodescale",
-	"placement", "regionplanner", "rollout", "selfupdate", "storage"}
+	"placement", "rollout", "selfupdate", "storage"}
 
 var knownKinds = []decisionlog.Kind{decisionlog.KindReleaseAdmitted, decisionlog.KindUpgradeStarted,
 	decisionlog.KindCanaryPromoted, decisionlog.KindBatchPromoted, decisionlog.KindRolloutCompleted,
@@ -19,7 +19,6 @@ var knownKinds = []decisionlog.Kind{decisionlog.KindReleaseAdmitted, decisionlog
 	decisionlog.KindScaleUp, decisionlog.KindScaleDown, decisionlog.KindHostLaunched, decisionlog.KindHostReclaimed,
 	decisionlog.KindMemberReplaced, decisionlog.KindControllerReplaced, decisionlog.KindStageChanged,
 	decisionlog.KindVolumeResized, decisionlog.KindVolumeReattached, decisionlog.KindBackupTaken,
-	decisionlog.KindRegionProposed, decisionlog.KindRegionApproved, decisionlog.KindRegionAdmitted, decisionlog.KindRegionStep,
 	decisionlog.KindLeaderChanged, decisionlog.KindQuorumDegraded,
 	decisionlog.KindQuorumRestored, decisionlog.KindDeliveryApplied, decisionlog.KindDeliveryHeld,
 	decisionlog.KindDeliveryRejected, decisionlog.KindFounderLaunched, decisionlog.KindPeerEnrolled}

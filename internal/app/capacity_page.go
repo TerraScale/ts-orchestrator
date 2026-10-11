@@ -12,18 +12,18 @@ import (
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionplanner"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 // capacityPage is the capacity page's source. Every region reads the budget and
 // capacity document it mirrors and its own scaling status. The home also sends
-// budget changes to its global leader and reads the planner's decision.
+// budget changes to its global leader and reads the region suggestion.
 type capacityPage struct {
 	conn   *nats.Conn
 	global *globalControl
 	scale  func() *nodescale.Status
-	// planner is set once the home opens the planner's store.
-	planner atomic.Pointer[regionplanner.Store]
+	// suggestions is set once the home opens the suggester's store.
+	suggestions atomic.Pointer[regionsuggest.Store]
 }
 
 // Capacity reads everything the page shows. A failed read is named, not fatal.
@@ -42,13 +42,13 @@ func (page *capacityPage) Capacity(ctx context.Context) dashboard.CapacityView {
 	if page.scale != nil {
 		data.Scale = page.scale()
 	}
-	if store := page.planner.Load(); data.Home && store != nil {
-		decision, found, err := store.Decision(ctx)
+	if store := page.suggestions.Load(); data.Home && store != nil {
+		suggestion, found, err := store.Suggestion(ctx)
 		switch {
 		case err != nil:
-			data.Unavailable = append(data.Unavailable, "region planner")
+			data.Unavailable = append(data.Unavailable, "region suggestion")
 		case found:
-			data.Planner = &decision
+			data.Suggestion = &suggestion
 		}
 	}
 	return data
