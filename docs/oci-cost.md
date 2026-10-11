@@ -67,11 +67,13 @@ like the cell's other buckets, history 1:
 Followers never call OCI. A report older than six hours (`MaxReportAge`) is
 stale: the dashboard says so.
 
-The controllers need one tenancy statement that names no region:
-`Allow dynamic-group <every region's controllers> to read usage-report in tenancy`.
-TS-803 owns that region-agnostic controller group. Until it exists the
-region shows "no OCI cost report yet" on the dashboard and the collector logs
-the IAM error once (component `ocicost`); no per-region statement is added.
+The controllers need the tenancy statement
+`Allow dynamic-group <cell>-1-controllers to read usage-report in tenancy`.
+Region founding grants it per region: it creates `<cell>-1-controller-usage`
+in the tenancy root compartment, so a new region needs no manual IAM step and
+no other region changes. Until that policy exists the region shows "no OCI
+cost report yet" on the dashboard and the collector logs the IAM error once
+(component `ocicost`).
 
 ## Forecast
 

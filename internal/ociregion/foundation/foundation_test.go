@@ -334,7 +334,7 @@ var creates = []string{
 	"network vcn create", "network service-gateway create", "network route-table create", "network security-list create",
 	"network subnet create", "network nsg create", "network nsg rules add", "network nsg create", "network nsg rules add",
 	"kms management vault create", "kms management key create",
-	"iam dynamic-group create", "iam dynamic-group create", "iam policy create", "iam policy create", "iam policy create",
+	"iam dynamic-group create", "iam dynamic-group create", "iam policy create", "iam policy create", "iam policy create", "iam policy create",
 	"os bucket create", "os retention-rule create", "os bucket create", "os bucket create", "os retention-rule create", "os bucket create",
 }
 
@@ -400,6 +400,11 @@ func TestApplyCreatesEveryResourceOnceThenRerunIsANoOp(t *testing.T) {
 	netbird := f.find("policy", home, func(o Object) bool { return o["name"] == "sfo-1-netbird-enrollment" })
 	if len(netbird) != 1 || !strings.Contains(fmt.Sprint(netbird[0].data["statements"]), "target.secret.name = 'sfo-1-netbird-setup-key'") {
 		t.Fatalf("NetBird enrollment policy: %v", netbird)
+	}
+	usage := f.find("policy", home, func(o Object) bool { return o["name"] == "sfo-1-controller-usage" })
+	if len(usage) != 1 || usage[0].data["compartment-id"] != loadPlan(t)["tenancy_id"] ||
+		!slices.Equal(clone(usage[0].data["statements"]).([]any), []any{"Allow dynamic-group sfo-1-controllers to read usage-report in tenancy"}) {
+		t.Fatalf("usage policy is not a tenancy-root statement for the controllers: %v", usage)
 	}
 	before, _ := os.ReadFile(out)
 	f.writes = nil

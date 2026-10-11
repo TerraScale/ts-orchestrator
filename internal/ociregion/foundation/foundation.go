@@ -474,7 +474,10 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 	}
 	control := text(ids["control_compartment"])
 	policies := []policy{{"objectstorage_key_policy", text(identity["objectstorage_key_policy_name"]), control, []string{ociregion.ObjectStorageKeyStatement(plan, ids)}},
-		{"controller_policy", text(identity["controller_policy_name"]), parent, controller}}
+		{"controller_policy", text(identity["controller_policy_name"]), parent, controller},
+		// Usage API statements must name the tenancy, so this one sits in
+		// the root compartment; the controller policy's parent is not it.
+		{"", cell + "-controller-usage", tenancy, []string{fmt.Sprintf("Allow dynamic-group %s to read usage-report in tenancy", text(identity["controller_dynamic_group_name"]))}}}
 	if plan["netbird"] == nil {
 		// Without a plan-bound NetBird secret, both dynamic groups may read
 		// the setup key by its static name once it is stored. No resource ID
