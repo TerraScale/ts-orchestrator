@@ -34,6 +34,8 @@ const (
 	// maxCents bounds an amount; more is a corrupt answer, not a bill.
 	maxCents     = 1 << 40
 	maxNameBytes = 64
+	// maxUnitPrice bounds one SKU unit's price in currency units, as maxCents bounds an amount.
+	maxUnitPrice = 1e6
 	day          = 24 * time.Hour
 )
 
@@ -61,6 +63,13 @@ type Line struct {
 	Cents uint64 `json:"cents"`
 }
 
+// Price is one SKU's unit price in the region: what it billed over what it
+// metered in the rate window. Always Free usage prices at zero.
+type Price struct {
+	SKU     string  `json:"sku"`
+	PerUnit float64 `json:"per_unit"`
+}
+
 // Report is one OCI region's cost as the Usage API last answered it.
 // Amounts are whole cents of Currency, rounded up; credits count as zero.
 type Report struct {
@@ -79,6 +88,8 @@ type Report struct {
 	// Components hold only tagged cost; the rest is untagged.
 	Services   []Line `json:"services,omitempty"`
 	Components []Line `json:"components,omitempty"`
+	// Prices are sorted by SKU; a SKU absent from them has no usage yet.
+	Prices []Price `json:"prices,omitempty"`
 }
 
 // Empty reports whether OCI answered without a single day of usage.
@@ -96,7 +107,7 @@ func (r Report) Validate() error {
 		return fmt.Errorf("%w: currency %q", ErrInvalidReport, r.Currency)
 	case r.ObservedAt.IsZero() || !midnight(r.Through) || r.Through.After(r.ObservedAt):
 		return fmt.Errorf("%w: needs an observation time after a UTC-midnight through", ErrInvalidReport)
-	case len(r.Days) > maxDays || len(r.Services) > maxLines || len(r.Components) > maxLines:
+	case len(r.Days) > maxDays || len(r.Services) > maxLines || len(r.Components) > maxLines || len(r.Prices) > maxLines:
 		return fmt.Errorf("%w: more than %d days or %d lines", ErrInvalidReport, maxDays, maxLines)
 	}
 	var total uint64
@@ -118,6 +129,12 @@ func (r Report) Validate() error {
 	for _, line := range r.Components {
 		if !slices.Contains(Components, line.Name) {
 			return fmt.Errorf("%w: unknown component %q", ErrInvalidReport, line.Name)
+		}
+	}
+	for index, price := range r.Prices {
+		if price.SKU == "" || len(price.SKU) > maxNameBytes || index > 0 && r.Prices[index-1].SKU >= price.SKU ||
+			!(price.PerUnit >= 0 && price.PerUnit <= maxUnitPrice) {
+			return fmt.Errorf("%w: prices need sorted unique SKUs and unit prices within bounds", ErrInvalidReport)
 		}
 	}
 	if r.Currency == "" && total != 0 {

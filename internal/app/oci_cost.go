@@ -2,12 +2,15 @@ package app
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ocicost"
@@ -32,7 +35,7 @@ func ociCostView(ctx context.Context, cell string, store *ocicost.Store, hosts [
 type ociCostViews struct {
 	cell    string
 	store   *ocicost.Store
-	hosts   func() []ocicost.Host
+	pool    atomic.Pointer[[]ocicost.Host]
 	current atomic.Pointer[ocicost.View]
 }
 
@@ -50,12 +53,52 @@ func (views *ociCostViews) run(ctx context.Context) {
 	}
 }
 
-// nodes are the region's autoscaled nodes for the forecast; none when hosts is nil.
+// nodes are the pool nodes nodeCost last priced for the forecast; none before that.
 func (views *ociCostViews) nodes() []ocicost.Host {
-	if views.hosts == nil {
-		return nil
+	if hosts := views.pool.Load(); hosts != nil {
+		return *hosts
 	}
-	return views.hosts()
+	return nil
+}
+
+// nodeCost is the node scaler's Cost: this region's forecast with the pool's
+// nodes pending at one node's price, the price the home allocator grants
+// growth against. The same pending nodes feed the cost view, so /cost and the
+// allocator show the same projection. The recipe is read once; a node's shape
+// is the leader's own and never changes.
+func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Recipe, error), now func() time.Time,
+) func(context.Context, nodescale.PoolState) (nodescale.Cost, error) {
+	var shape *nodescale.Recipe
+	return func(ctx context.Context, state nodescale.PoolState) (nodescale.Cost, error) {
+		if shape == nil {
+			read, err := recipe(ctx)
+			if err != nil {
+				return nodescale.Cost{}, err
+			}
+			shape = &read
+		}
+		report, err := views.store.Report(ctx)
+		if err != nil {
+			return nodescale.Cost{}, err
+		}
+		at := now()
+		if at.Sub(report.ObservedAt) > ocicost.MaxReportAge {
+			return nodescale.Cost{}, fmt.Errorf("OCI cost report is %s old", at.Sub(report.ObservedAt))
+		}
+		price, known := ocicost.NodeMonthlyCents(report.Prices, float64(shape.OCPUs), float64(shape.MemoryGB),
+			nodescale.BootVolumeGB)
+		if !known {
+			return nodescale.Cost{}, errors.New("the cost report has no unit price yet for a node's SKUs")
+		}
+		hosts := make([]ocicost.Host, 0, len(state.Instances))
+		for _, instance := range state.Instances {
+			hosts = append(hosts, ocicost.Host{Created: instance.Created, MonthlyCents: price})
+		}
+		views.pool.Store(&hosts)
+		forecast := ocicost.Project(report, at, hosts)
+		return nodescale.Cost{NodeMonthlyCents: price, ProjectedCents: max(forecast.MonthEndCents, forecast.NextMonthCents),
+			Currency: report.Currency, At: report.ObservedAt}, nil
+	}
 }
 
 // view is the latest view; nil before the first refresh.

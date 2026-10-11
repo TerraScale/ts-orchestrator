@@ -21,10 +21,10 @@ const usageTenancy = "ocid1.tenancy.oc1..t"
 // fakeUsageAPI answers each query kind from its own pages and records every
 // request. Next-page tokens are page indexes.
 type fakeUsageAPI struct {
-	daily, services, components [][]usageapi.UsageSummary
-	endless                     bool
-	err                         error
-	requests                    []usageapi.RequestSummarizedUsagesRequest
+	daily, services, components, skus [][]usageapi.UsageSummary
+	endless                           bool
+	err                               error
+	requests                          []usageapi.RequestSummarizedUsagesRequest
 }
 
 func (f *fakeUsageAPI) RequestSummarizedUsages(_ context.Context, request usageapi.RequestSummarizedUsagesRequest,
@@ -35,6 +35,9 @@ func (f *fakeUsageAPI) RequestSummarizedUsages(_ context.Context, request usagea
 	}
 	pages := f.components
 	switch {
+	// The SKU query is daily too, so it is matched before the daily pages.
+	case slices.Equal(request.GroupBy, []string{"skuPartNumber"}):
+		pages = f.skus
 	case request.Granularity == usageapi.RequestSummarizedUsagesDetailsGranularityDaily:
 		pages = f.daily
 	case len(request.GroupBy) == 1:
@@ -85,13 +88,20 @@ func usageComponentRow(namespace *string, key, value string, amount float32) usa
 	return row
 }
 
+func usageSKURow(day time.Time, sku string, amount, quantity float32) usageapi.UsageSummary {
+	row := usageRow(day, amount, "USD")
+	row.SkuPartNumber = common.String(sku)
+	row.ComputedQuantity = common.Float32(quantity)
+	return row
+}
+
 func TestUsageRequestShapes(t *testing.T) {
 	api := &fakeUsageAPI{}
 	if _, err := usageRead(api, usageMid); err != nil {
 		t.Fatal(err)
 	}
-	if len(api.requests) != 3 {
-		t.Fatalf("requests = %d, want 3", len(api.requests))
+	if len(api.requests) != 4 {
+		t.Fatalf("requests = %d, want 4", len(api.requests))
 	}
 	for _, request := range api.requests {
 		if *request.TenantId != usageTenancy || request.QueryType != usageapi.RequestSummarizedUsagesDetailsQueryTypeCost ||
@@ -116,6 +126,33 @@ func TestUsageRequestShapes(t *testing.T) {
 		!slices.Equal(components.GroupBy, []string{"tagNamespace", "tagKey", "tagValue"}) ||
 		!components.TimeUsageStarted.Equal(usageDay(1)) || !components.TimeUsageEnded.Equal(usageDay(17)) {
 		t.Fatalf("components request = %+v", components.RequestSummarizedUsagesDetails)
+	}
+	// The rate window is the 7 complete days before through (Oct 14), so it starts Oct 7.
+	sku := api.requests[3]
+	if sku.Granularity != usageapi.RequestSummarizedUsagesDetailsGranularityDaily ||
+		!sku.TimeUsageStarted.Equal(usageDay(7)) || !sku.TimeUsageEnded.Equal(usageDay(17)) {
+		t.Fatalf("sku request = %+v", sku.RequestSummarizedUsagesDetails)
+	}
+}
+
+func TestUsageSKUPrices(t *testing.T) {
+	api := &fakeUsageAPI{skus: [][]usageapi.UsageSummary{{
+		usageSKURow(usageDay(9), "B93297", 2, 10),
+		usageSKURow(usageDay(10), "B93297", 1, 20),
+		usageSKURow(usageDay(9), "B91961", 0, 5),
+		usageSKURow(usageDay(9), "B93298", 1, 0),
+		{TimeUsageStarted: &common.SDKTime{Time: usageDay(9)}, ComputedAmount: common.Float32(3),
+			ComputedQuantity: common.Float32(3)},
+	}}}
+	report, err := usageRead(api, usageMid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two days of B93297 sum to 3 over 30 units. B91961 is free, so it prices at zero;
+	// B93298 has no quantity and the last row has no SKU, so neither is listed.
+	if len(report.Prices) != 2 || report.Prices[0].SKU != "B91961" || report.Prices[0].PerUnit != 0 ||
+		report.Prices[1].SKU != "B93297" || math.Abs(report.Prices[1].PerUnit-0.1) > 1e-9 {
+		t.Fatalf("prices = %+v", report.Prices)
 	}
 }
 
@@ -153,7 +190,7 @@ func TestUsagePagesAcrossTwoPages(t *testing.T) {
 	if len(report.Days) != 2 || report.Days[1].Cents != 2000 {
 		t.Fatalf("days = %+v", report.Days)
 	}
-	if len(api.requests) != 4 || api.requests[1].Page == nil || *api.requests[1].Page != "1" {
+	if len(api.requests) != 5 || api.requests[1].Page == nil || *api.requests[1].Page != "1" {
 		t.Fatalf("requests = %d", len(api.requests))
 	}
 }
@@ -279,9 +316,12 @@ func TestUsageRejectsBadAnswers(t *testing.T) {
 		"unaligned day":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12).Add(time.Hour), 1, "USD")}}},
 		"no start": {daily: [][]usageapi.UsageSummary{{
 			{ComputedAmount: common.Float32(1), Currency: common.String("USD")}}}},
-		"not a number":         {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, "USD")}}},
-		"absurd amount":        {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, "USD")}}},
-		"service without name": {services: [][]usageapi.UsageSummary{{usageServiceRow("", 1, "USD")}}},
+		"not a number":           {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), nan, "USD")}}},
+		"absurd amount":          {daily: [][]usageapi.UsageSummary{{usageRow(usageDay(12), 1e9, "USD")}}},
+		"service without name":   {services: [][]usageapi.UsageSummary{{usageServiceRow("", 1, "USD")}}},
+		"sku before rate window": {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(6), "B93297", 1, 1)}}},
+		"negative sku quantity":  {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), "B93297", 1, -1)}}},
+		"not a sku quantity":     {skus: [][]usageapi.UsageSummary{{usageSKURow(usageDay(9), "B93297", 1, nan)}}},
 	}
 	for name, api := range cases {
 		if _, err := usageRead(api, usageMid); err == nil {

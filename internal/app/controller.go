@@ -636,6 +636,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
+	costViews := &ociCostViews{cell: cfg.NATS.Cell, store: costStore}
 	profiles, specs := services.effective()
 	nativeReleases.hosts, nativeReleases.fences = hostController, fences
 	var nativeMemberCA []byte
@@ -755,7 +756,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return bindNodeScaler(ctx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
 				replicas: cfg.NATS.Replicas, ready: fullClusterReady,
 				hosts: hostController, load: hostLoad, global: global, fencer: control, fences: fences,
-				enrollment: managedEnrollment, scaler: &poolScaler})
+				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews})
 		})
 	}
 	var scaleStatus func() *nodescale.Status
@@ -915,7 +916,6 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	linkSupervisor := &regionLinkSupervisor{cell: cfg.NATS.Cell, member: cfg.NATS.Instance,
 		reconnect: runtime.ReconnectInterRegion, recorder: telemetry.journal}
 	telemetry.registry.RegisterWriter(linkSupervisor.writeMetrics)
-	costViews := &ociCostViews{cell: cfg.NATS.Cell, store: costStore}
 	go costViews.run(runCtx)
 	if err := telemetry.attachController(runCtx, controllerObservation{nats: runtime, replicas: cfg.NATS.Replicas,
 		brokerIDs: cfg.NATS.Embedded.BrokerIDs, authority: control, placements: placementStore,

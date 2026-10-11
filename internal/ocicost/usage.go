@@ -58,17 +58,19 @@ func Connect(ctx context.Context, factory *ociclient.Factory, cell, ociRegion st
 	return &Usage{Cell: cell, OCIRegion: ociRegion, TenancyID: tenancy, API: client}, nil
 }
 
-// usageSums holds one Read's running totals across its three queries.
+// usageSums holds one Read's running totals across its four queries.
 type usageSums struct {
-	currency   string
-	days       map[int64]float64
-	services   map[string]float64
-	components map[string]float64
+	currency      string
+	days          map[int64]float64
+	services      map[string]float64
+	components    map[string]float64
+	skuAmounts    map[string]float64
+	skuQuantities map[string]float64
 }
 
-// Read returns the region's report at now. Three queries feed it: daily
-// totals for the rate window, and month-to-date cost by service and by
-// component tag.
+// Read returns the region's report at now. Four queries feed it: daily
+// totals for the rate window, month-to-date cost by service and by component
+// tag, and the rate window's amount and quantity by SKU.
 func (u *Usage) Read(ctx context.Context, now time.Time) (Report, error) {
 	now = now.UTC()
 	today := now.Truncate(day)
@@ -79,7 +81,8 @@ func (u *Usage) Read(ctx context.Context, now time.Time) (Report, error) {
 		from = monthStart
 	}
 	end := today.Add(day)
-	sums := usageSums{days: map[int64]float64{}, services: map[string]float64{}, components: map[string]float64{}}
+	sums := usageSums{days: map[int64]float64{}, services: map[string]float64{}, components: map[string]float64{},
+		skuAmounts: map[string]float64{}, skuQuantities: map[string]float64{}}
 
 	if err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{
 		Granularity:      usageapi.RequestSummarizedUsagesDetailsGranularityDaily,
@@ -147,6 +150,38 @@ func (u *Usage) Read(ctx context.Context, now time.Time) (Report, error) {
 		return Report{}, err
 	}
 
+	// Unit prices come from the rate window only, so a SKU's price tracks what it costs now.
+	windowStart := through.Add(-RateDays * day)
+	if err := u.each(ctx, usageapi.RequestSummarizedUsagesDetails{
+		Granularity:      usageapi.RequestSummarizedUsagesDetailsGranularityDaily,
+		TimeUsageStarted: &common.SDKTime{Time: windowStart},
+		TimeUsageEnded:   &common.SDKTime{Time: end},
+		GroupBy:          []string{"skuPartNumber"},
+	}, func(item usageapi.UsageSummary) error {
+		if _, err := rowStart(item, windowStart, end); err != nil {
+			return err
+		}
+		if item.SkuPartNumber == nil || *item.SkuPartNumber == "" {
+			return nil
+		}
+		amount, err := sums.amount(item)
+		if err != nil {
+			return err
+		}
+		quantity := 0.0
+		if item.ComputedQuantity != nil {
+			quantity = float64(*item.ComputedQuantity)
+		}
+		if math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity < 0 {
+			return fmt.Errorf("OCI usage quantity %v is out of range", quantity)
+		}
+		sums.skuAmounts[*item.SkuPartNumber] += amount
+		sums.skuQuantities[*item.SkuPartNumber] += quantity
+		return nil
+	}); err != nil {
+		return Report{}, err
+	}
+
 	var days []Day
 	for unix, amount := range sums.days {
 		days = append(days, Day{Day: time.Unix(unix, 0).UTC(), Cents: cents(amount)})
@@ -154,7 +189,7 @@ func (u *Usage) Read(ctx context.Context, now time.Time) (Report, error) {
 	slices.SortFunc(days, func(a, b Day) int { return a.Day.Compare(b.Day) })
 	report := Report{Version: Version, Cell: u.Cell, OCIRegion: u.OCIRegion, Currency: sums.currency,
 		ObservedAt: now, Through: through, Days: days, Services: lines(sums.services),
-		Components: lines(sums.components)}
+		Components: lines(sums.components), Prices: skuPrices(sums.skuAmounts, sums.skuQuantities)}
 	if err := report.Validate(); err != nil {
 		return Report{}, err
 	}
@@ -251,6 +286,19 @@ func lines(sums map[string]float64) []Line {
 	slices.SortFunc(out, func(a, b Line) int {
 		return cmp.Or(cmp.Compare(b.Cents, a.Cents), cmp.Compare(a.Name, b.Name))
 	})
+	return out
+}
+
+// skuPrices divides each SKU's amount by its quantity, sorted by SKU. A SKU
+// with no quantity has no unit to price, so it is left out.
+func skuPrices(amounts, quantities map[string]float64) []Price {
+	var out []Price
+	for sku, quantity := range quantities {
+		if quantity > 0 {
+			out = append(out, Price{SKU: sku, PerUnit: max(amounts[sku], 0) / quantity})
+		}
+	}
+	slices.SortFunc(out, func(a, b Price) int { return cmp.Compare(a.SKU, b.SKU) })
 	return out
 }
 

@@ -2,6 +2,9 @@ package ocicost
 
 import (
 	"errors"
+	"fmt"
+	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,6 +34,14 @@ func TestReportValidate(t *testing.T) {
 		}
 		if report.Empty() {
 			t.Error("Empty() = true for a report with usage days")
+		}
+	})
+
+	t.Run("valid prices", func(t *testing.T) {
+		report := validReport()
+		report.Prices = []Price{{SKU: "B91961", PerUnit: 0.1335}, {SKU: "B93297", PerUnit: 0}}
+		if err := report.Validate(); err != nil {
+			t.Errorf("Validate() = %v, want nil", err)
 		}
 	})
 
@@ -84,6 +95,30 @@ func TestReportValidate(t *testing.T) {
 			r.Components = []Line{{Name: "db", Cents: 1}}
 		}},
 		{name: "cost without currency", mutate: func(r *Report) { r.Currency = "" }},
+		{name: "65 prices", mutate: func(r *Report) {
+			r.Prices = nil
+			for index := range 65 {
+				r.Prices = append(r.Prices, Price{SKU: fmt.Sprintf("B%05d", index)})
+			}
+		}},
+		{name: "empty SKU", mutate: func(r *Report) { r.Prices = []Price{{SKU: "", PerUnit: 1}} }},
+		{name: "SKU over bound", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: strings.Repeat("x", maxNameBytes+1), PerUnit: 1}}
+		}},
+		{name: "unsorted prices", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93298", PerUnit: 1}, {SKU: "B93297", PerUnit: 1}}
+		}},
+		{name: "duplicate price SKU", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: 1}, {SKU: "B93297", PerUnit: 2}}
+		}},
+		{name: "NaN price", mutate: func(r *Report) { r.Prices = []Price{{SKU: "B93297", PerUnit: math.NaN()}} }},
+		{name: "infinite price", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: math.Inf(1)}}
+		}},
+		{name: "negative price", mutate: func(r *Report) { r.Prices = []Price{{SKU: "B93297", PerUnit: -0.01}} }},
+		{name: "price over bound", mutate: func(r *Report) {
+			r.Prices = []Price{{SKU: "B93297", PerUnit: maxUnitPrice + 1}}
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

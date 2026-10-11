@@ -34,6 +34,7 @@ with the instance principal, filtered to its own OCI region:
 | days | `DAILY` | first day of the rate window or of the month, whichever is earlier, to tomorrow | none | daily totals, today partial |
 | services | `MONTHLY` | first day of the month to tomorrow | `service` | month to date by service |
 | components | `MONTHLY` | first day of the month to tomorrow | `tagNamespace`, `tagKey`, `tagValue` | month to date by freeform tag `terrascale-component` |
+| node prices | `DAILY` | first day of the rate window to tomorrow | `skuPartNumber` | amount and quantity by SKU, for the unit prices |
 
 The Usage API refuses a region filter together with `groupByTag`, so the
 component query groups by tag dimensions instead and keeps only the
@@ -79,21 +80,46 @@ cost report yet" on the dashboard and the collector logs the IAM error once
 
 Slice: collector.
 
-`ocicost.Project(report, now, hosts)`, where hosts are the region's autoscaled
-nodes with their creation time and monthly list price, supplied by TS-804's
-node scaler (none until it passes them):
+`ocicost.Project(report, now, hosts)`, where hosts are the node scaler's pool
+nodes with their creation time, each at the node price (below), supplied by
+the scaler's `Cost` hook (none until it passes them):
 
 | Number | Method |
 | --- | --- |
 | Month to date | Sum of this month's days, including the partial ones after `through`. Matches the OCI console. |
 | Daily rate | Average of the 7 complete days before `through` that have usage (a new region averages the days it has). |
-| Pending autoscale | Cents a day not yet in the average: for each pool host launched inside or after the 7-day window, its list price for the window days it missed. TS-804's node scaler supplies these nodes. |
+| Pending autoscale | Cents a day not yet in the average: for each pool host launched inside or after the 7-day window, its list price for the window days it missed. The pool's nodes supply these, each at the node price. |
 | Month end | This month's complete days + (daily rate + pending) × days from `through` to month end. |
 | Next month | (daily rate + pending) × days in next month. |
 
 Hosts removed during the window still count in the average until it moves
 past them, so a scale-down shows late. A region whose cost is ramping up (a
 new region) forecasts low until its complete days catch up; usage data lags 48 h.
+
+## Node price
+
+Slice: collector.
+
+`ocicost.NodeMonthlyCents` prices one pool node for a month: the node
+recipe's OCPUs and memory (the leader's own shape) and its 50 GB boot volume,
+from the region's own unit prices.
+A unit price is a SKU's amount over its quantity in the rate window (the same
+7 days as the daily rate), so it tracks what the SKU costs now. Four SKUs count:
+
+| SKU | Unit | Priced as |
+| --- | --- | --- |
+| `B93297` | OCPU hour | OCPUs × 744 hours |
+| `B93298` | GB hour | memory GB × 744 hours |
+| `B91961` | GB month | 50 GB of boot storage |
+| `B91962` | VPU per GB month | 50 GB × 10 VPU (balanced) |
+
+The monthly price is the four products added and rounded up to whole cents.
+
+- A SKU with no usage in the region yet leaves the price unknown. The node
+  scaler then reports no spend, and the home holds growth.
+- Always Free usage prices at zero. Inside the free tier a node costs only its
+  boot volume, so the price understates the marginal cost once the tier runs
+  out. Usage catches up within 48 h (`UsageLag`).
 
 ## Budget cap
 

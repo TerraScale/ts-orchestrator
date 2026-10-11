@@ -40,6 +40,8 @@ type nodeScaling struct {
 	enrollment *managedHostEnrollment
 	// scaler publishes the running scaler to the release fence's spec.
 	scaler *atomic.Pointer[nodescale.Scaler]
+	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
+	costViews *ociCostViews
 }
 
 // startNodeScaler runs the region's node scaler on every regional leader and
@@ -53,12 +55,14 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 		return nil, err
 	}
 	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
+	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
+		return nodeRecipe(ctx, in.factory, in.cell)
+	}
 	scaler := &nodescale.Scaler{Cell: in.cell, Pool: in.pool, Hosts: in.hosts, Store: store, Leader: in.fencer,
-		Now: time.Now,
-		Recipe: func(ctx context.Context) (nodescale.Recipe, error) {
-			return nodeRecipe(ctx, in.factory, in.cell)
-		},
-		Loads: func() []nodescale.NodeLoad { return nodeLoads(in.load) },
+		Now:    time.Now,
+		Recipe: recipe,
+		Cost:   in.costViews.nodeCost(recipe, time.Now),
+		Loads:  func() []nodescale.NodeLoad { return nodeLoads(in.load) },
 		Allowance: func(now time.Time) (int, bool) {
 			return allowance(in.global, in.cell, now)
 		},
@@ -79,7 +83,6 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 			rtt, _ := prober.Latest()
 			return rtt
 		},
-		// Cost is wired when TS-807's ocicost lands; until then spend is unknown and growth holds.
 	}
 	in.scaler.Store(scaler)
 	go prober.Run(ctx)
