@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
 
@@ -136,14 +137,15 @@ type regionCells struct {
 	Nodes, Controllers           string
 	CPU, Memory, Disk            string
 	Network, Load, Lag, Cost     string
-	Autoscale                    string
+	Scaling, ScalingStatus       string
+	ScalingTitle                 string
 }
 
 // regionCellsOf formats one region for the table. A region without a rollup
 // shows dashes; a stale one keeps its last-known values with a stale badge.
 func regionCellsOf(region globalview.Region, now time.Time) regionCells {
 	cells := regionCells{Health: "idle", HealthLabel: "no data", Nodes: "—", Controllers: "—", CPU: "—",
-		Memory: "—", Disk: "—", Network: "—", Load: "—", Lag: "—", Cost: "—", Autoscale: "—"}
+		Memory: "—", Disk: "—", Network: "—", Load: "—", Lag: "—", Cost: "—", Scaling: "—"}
 	rollup := region.Rollup
 	if rollup == nil {
 		return cells
@@ -170,17 +172,59 @@ func regionCellsOf(region globalview.Region, now time.Time) regionCells {
 	if cost := rollup.Cost; cost != nil {
 		cells.Cost = strings.TrimSpace(formatFloat(cost.PerHour, 2) + " " + cost.Currency)
 	}
-	if atGoal, services := scalingAtGoal(rollup.Autoscale); services > 0 {
-		cells.Autoscale = itoa(atGoal) + " / " + itoa(services) + " at goal"
+	atGoal, services := scalingAtGoal(rollup.Autoscale)
+	goal := ""
+	if services > 0 {
+		goal = itoa(atGoal) + " / " + itoa(services) + " at goal"
+	}
+	if scale := rollup.Scale; scale != nil {
+		cells.Scaling, cells.ScalingStatus, cells.ScalingTitle = scaleCell(*scale, goal)
+	} else if goal != "" {
+		cells.Scaling = goal
 	}
 	return cells
+}
+
+// scaleCell formats the node scaler's action as nodes now and nodes wanted.
+// Its title is the reason, plus whether a change is in flight and the services
+// at goal.
+func scaleCell(scale nodescale.Status, goal string) (text, status, title string) {
+	switch scale.Action {
+	case nodescale.Up:
+		text = itoa(scale.Nodes) + " → " + itoa(scale.Want) + " ↑"
+	case nodescale.Down:
+		text = itoa(scale.Nodes) + " → " + itoa(scale.Want) + " ↓"
+	default:
+		text = itoa(scale.Nodes) + " nodes"
+	}
+	title = scale.Reason
+	if scale.InFlight != nil {
+		title += " · in flight"
+	}
+	if goal != "" {
+		title += " · " + goal
+	}
+	return text, scaleStatus(scale), title
+}
+
+// scaleStatus colors the node scaler: a region capped by its allowance warns
+// whatever it is doing, a change runs, and any other hold is ok.
+func scaleStatus(scale nodescale.Status) string {
+	switch {
+	case scale.Saturated:
+		return "warn"
+	case scale.Action == nodescale.Up || scale.Action == nodescale.Down:
+		return "run"
+	default:
+		return "ok"
+	}
 }
 
 // regionTable is the overview's region table. The region name links to its
 // page; a stale region keeps its last-known values behind a stale badge.
 func regionTable(current view) table {
 	regions := table{Caption: "Regions", Empty: "No region has reported to the global view yet.",
-		Headers: []string{"Region", "Health", "Nodes ready", "Controllers", "CPU", "Memory", "Disk", "Network rx / tx", "Load", "Replication lag", "Cost / h", "Autoscale"}}
+		Headers: []string{"Region", "Health", "Nodes ready", "Controllers", "CPU", "Memory", "Disk", "Network rx / tx", "Load", "Replication lag", "Cost / h", "Scaling"}}
 	for _, region := range current.Global {
 		cells := regionCellsOf(region, current.Now)
 		health := cell{Text: cells.HealthLabel, Status: cells.Health, Title: cells.Reasons}
@@ -190,7 +234,7 @@ func regionTable(current view) table {
 		regions.Rows = append(regions.Rows, []cell{{Text: upper(region.Cell), Href: "/regions/" + region.Cell}, health,
 			textCell(cells.Nodes), textCell(cells.Controllers), textCell(cells.CPU), textCell(cells.Memory),
 			textCell(cells.Disk), textCell(cells.Network), textCell(cells.Load), textCell(cells.Lag),
-			textCell(cells.Cost), textCell(cells.Autoscale)})
+			textCell(cells.Cost), {Text: cells.Scaling, Status: cells.ScalingStatus, Title: cells.ScalingTitle}})
 	}
 	return regions
 }

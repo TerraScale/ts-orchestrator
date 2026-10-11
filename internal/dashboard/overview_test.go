@@ -15,6 +15,7 @@ import (
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -60,9 +61,10 @@ func overviewRollup(cell string, observed time.Time, peers []string) globalview.
 	}
 	for index := range 10 {
 		rollup.Errors = append(rollup.Errors, globalview.Error{At: observed.Add(-time.Duration(index) * time.Minute),
-			Level: "ERROR", Component: "orchestrator", Message: "lease renewal slow", Count: index + 1, Nodes: []string{cell + "-n01"}})
+			Level: "ERROR", Component: "orchestrator", Message: "lease renewal slow", Count: index + 1,
+			Nodes: []string{cell + "-n01", cell + "-n02", cell + "-n03"}})
 	}
-	for index := range 5 {
+	for index := range 10 {
 		rollup.Databases = append(rollup.Databases, globalview.Database{ID: fmt.Sprintf("%s-db-%d", cell, index),
 			Project: cell + "-project", ReplicationBytesPerSecond: float64(1000 * (index + 1)), LagSeconds: 1})
 	}
@@ -118,7 +120,7 @@ func TestRegionCellsMarkStaleAndMissingRegions(t *testing.T) {
 	if fresh.Health != "warn" || fresh.HealthLabel != globalview.Degraded || fresh.Reasons != "disk 90%; lag" {
 		t.Fatalf("fresh health = %+v", fresh)
 	}
-	if fresh.Nodes != "12 / 12" || fresh.Autoscale != "3 / 4 at goal" || fresh.Stale != "" {
+	if fresh.Nodes != "12 / 12" || fresh.Scaling != "3 / 4 at goal" || fresh.Stale != "" {
 		t.Fatalf("fresh row = %+v", fresh)
 	}
 	stale := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup, Stale: true}, testNow.Add(time.Minute))
@@ -128,6 +130,37 @@ func TestRegionCellsMarkStaleAndMissingRegions(t *testing.T) {
 	missing := regionCellsOf(globalview.Region{Cell: "fra"}, testNow)
 	if missing.Health != "idle" || missing.HealthLabel != "no data" || missing.Nodes != "—" || missing.CPU != "—" {
 		t.Fatalf("missing row = %+v", missing)
+	}
+}
+
+func TestRegionCellsShowNodeScaling(t *testing.T) {
+	t.Parallel()
+	rollup := overviewRollup("gru", testNow, nil)
+	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 14, Action: nodescale.Up, Reason: "cpu 0.90 for 5m0s",
+		InFlight: &nodescale.InFlight{Kind: nodescale.Up}}
+	up := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
+	if up.Scaling != "12 → 14 ↑" || up.ScalingStatus != "run" || up.ScalingTitle != "cpu 0.90 for 5m0s · in flight · 3 / 4 at goal" {
+		t.Fatalf("up scaling = %+v", up)
+	}
+
+	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 12, Action: nodescale.Hold, Saturated: true, Reason: "allowance spent"}
+	saturated := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
+	if saturated.Scaling != "12 nodes" || saturated.ScalingStatus != "warn" || saturated.ScalingTitle != "allowance spent · 3 / 4 at goal" {
+		t.Fatalf("saturated scaling = %+v", saturated)
+	}
+
+	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 13, Action: nodescale.Up, Saturated: true, Reason: "allowance reached"}
+	if cappedUp := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow); cappedUp.ScalingStatus != "warn" {
+		t.Fatalf("a scale-up capped by its allowance = %q, want warn", cappedUp.ScalingStatus)
+	}
+
+	rollup.Scale = nil
+	fallback := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
+	if fallback.Scaling != "3 / 4 at goal" || fallback.ScalingStatus != "" || fallback.ScalingTitle != "" {
+		t.Fatalf("fallback scaling = %+v", fallback)
+	}
+	if headers := regionTable(view{Global: []globalview.Region{{Cell: "gru", Rollup: &rollup}}}).Headers; headers[len(headers)-1] != "Scaling" {
+		t.Fatalf("last region column = %q, want Scaling", headers[len(headers)-1])
 	}
 }
 
@@ -307,7 +340,7 @@ var budgetCells = strings.Fields("gru sfo fra lhr nrt iad phx ams cdg mad mil zr
 func twentyRegionView(now time.Time) *globalview.View {
 	cells := budgetCells
 	global := globalview.NewView("gru", func() []string { return cells }, func() time.Time { return now })
-	for _, cell := range cells {
+	for index, cell := range cells {
 		var peers []string
 		for _, peer := range cells {
 			if peer != cell {
@@ -319,9 +352,30 @@ func twentyRegionView(now time.Time) *globalview.View {
 			observed = now.Add(-time.Minute)
 		}
 		rollup := overviewRollup(cell, observed, peers)
+		rollup.Scale = budgetScale(cell, index, observed)
 		global.Accept(rollup)
 	}
 	return global
+}
+
+// budgetScale is a region's node scaler: every fourth region grows, every
+// fourth from the third is saturated, and the rest hold.
+func budgetScale(cell string, index int, observed time.Time) *nodescale.Status {
+	scale := &nodescale.Status{Schema: nodescale.StatusSchema, Cell: cell, At: observed, Nodes: 12, QuorumNodes: 3,
+		PoolNodes: 9, Want: 12, Allowance: 16, AllowanceFresh: true, Action: nodescale.Hold, Pressure: 0.4,
+		Signal: nodescale.SignalCPU, Signals: map[nodescale.Signal]float64{nodescale.SignalCPU: 0.4, nodescale.SignalMemory: 0.3},
+		Reason: "every signal <= 0.50 on 11 nodes for 10m0s", LastChange: observed.Add(-time.Hour),
+		NodeMonthlyCents: 45000, ProjectedCents: 900000, Currency: "USD"}
+	switch index % 4 {
+	case 1:
+		scale.Action, scale.Want, scale.Pressure, scale.Signal = nodescale.Up, 14, 0.9, nodescale.SignalCPU
+		scale.Reason = "cpu 0.90 >= 0.80 for 5m0s"
+		scale.InFlight = &nodescale.InFlight{ID: cell + "-launch", Kind: nodescale.Up, Step: "launch", Started: observed}
+	case 3:
+		scale.Saturated, scale.Pressure = true, 0.95
+		scale.Reason = "cpu 0.95 >= 0.80 but the allowance is spent"
+	}
+	return scale
 }
 
 func getGzipped(t *testing.T, handler http.Handler, path string) *httptest.ResponseRecorder {
@@ -344,6 +398,44 @@ func gunzip(t *testing.T, body []byte) []byte {
 		t.Fatal(err)
 	}
 	return data
+}
+
+func TestRegionPageBudgetTwentyRegions(t *testing.T) {
+	t.Parallel()
+	snapshot := memberSnapshot()
+	snapshot.Cell = "gru"
+	handler := newTestDashboard(Options{Snapshots: fixedSnapshots{snapshot: snapshot},
+		Journal: &Journal{Global: twentyRegionView(testNow)}}).Handler()
+
+	started := time.Now()
+	response := getGzipped(t, handler, "/regions/gru")
+	elapsed := time.Since(started)
+	if response.Code != http.StatusOK || response.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("GET /regions/gru = %d, Content-Encoding %q", response.Code, response.Header().Get("Content-Encoding"))
+	}
+	htmlGzip := len(response.Body.Bytes())
+	html := string(gunzip(t, response.Body.Bytes()))
+	if !strings.Contains(html, "Node scaling") || !strings.Contains(html, "Recent errors") {
+		t.Error("region page lacks its scaling or error section")
+	}
+
+	var cssGzip int
+	for _, name := range []string{"pico.min.css", "dashboard.css"} {
+		asset := getGzipped(t, handler, assetURL(name))
+		if asset.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d", name, asset.Code)
+		}
+		cssGzip += len(asset.Body.Bytes())
+	}
+
+	t.Logf("region page (gru): raw %d bytes, gzip %d bytes; CSS gzip %d bytes; total gzip %d bytes; elapsed %s",
+		len(html), htmlGzip, cssGzip, htmlGzip+cssGzip, elapsed)
+	if elapsed >= 500*time.Millisecond {
+		t.Errorf("region page took %s, budget is 500ms", elapsed)
+	}
+	if htmlGzip+cssGzip >= 100*1024 {
+		t.Errorf("region page wire size %d bytes, budget is 100 KiB", htmlGzip+cssGzip)
+	}
 }
 
 func TestOverviewBudgetTwentyRegions(t *testing.T) {

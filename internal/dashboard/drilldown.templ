@@ -57,6 +57,10 @@ templ globalRegionBody(current view) {
 					<h2>Volumes</h2>
 					@dataTable(regionVolumeTable(current, region, regionVolumes(region)))
 				</article>
+				<article id="scaling">
+					<h2>Node scaling</h2>
+					@dataTable(scaleTable(current, region.Rollup.Scale))
+				</article>
 				<article id="autoscale">
 					<h2>Autoscale</h2>
 					@dataTable(scalingTable(region.Rollup.Autoscale.Services))

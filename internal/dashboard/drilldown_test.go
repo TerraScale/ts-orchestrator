@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 // drillView is the drill-down fixture: local gru and sfo report four nodes
@@ -23,6 +24,12 @@ func drillView(now time.Time) *globalview.View {
 		rollup := overviewRollup(cell, observed, peers)
 		rollup.Nodes = rollup.Nodes[:4]
 		rollup.Totals.Nodes, rollup.Totals.Ready = 4, 4
+		if cell == "gru" {
+			rollup.Scale = &nodescale.Status{Nodes: 4, QuorumNodes: 3, PoolNodes: 1, Want: 5, Allowance: 6,
+				Action: nodescale.Up, Pressure: 0.9, Signal: nodescale.SignalCPU, Reason: "cpu 0.90 at or above 0.80 for 5m0s",
+				InFlight:   &nodescale.InFlight{ID: "launch-1", Kind: nodescale.Up, Step: "launch", Started: now},
+				LastChange: now.Add(-2 * time.Minute), NodeMonthlyCents: 4500, ProjectedCents: 90000, Currency: "USD"}
+		}
 		global.Accept(rollup)
 	}
 	return global
@@ -46,6 +53,21 @@ func TestDrillRegionPage(t *testing.T) {
 	}
 	if strings.Contains(body, "values are last-known") {
 		t.Error("fresh region GRU shows the stale badge")
+	}
+}
+
+func TestDrillRegionNodeScaling(t *testing.T) {
+	t.Parallel()
+	handler := drillDashboard(t, drillView(testNow))
+	body := get(t, handler, "/regions/gru").Body.String()
+	for _, want := range []string{"Node scaling", "4 (3 quorum, 1 pool)", "6 (stale)", "90.0% · cpu",
+		"cpu 0.90 at or above 0.80 for 5m0s", "45.00 USD", "900.00 USD"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("GET /regions/gru lacks scaling row %q", want)
+		}
+	}
+	if body := get(t, handler, "/regions/sfo").Body.String(); !strings.Contains(body, "This region runs no node scaler yet.") {
+		t.Error("GET /regions/sfo lacks the empty node scaling note")
 	}
 }
 

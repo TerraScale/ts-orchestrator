@@ -3,11 +3,13 @@ package app
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabasestats"
@@ -36,6 +38,10 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 	if observed.costRollup != nil {
 		sources.Cost = observed.costRollup
 	}
+	if logView := runtime.logView; logView != nil {
+		// Ten is the rollup's error cap, so the log view never returns more than it keeps.
+		sources.Errors = func() []globalview.Error { return logErrors(logView.Errors(10, time.Now())) }
+	}
 	build := func(ctx context.Context) globalview.Rollup { return globalview.Build(sources.Collect(ctx)) }
 	leading := func() bool { return observed.authority != nil && observed.authority.Current().CanMutate() }
 	go globalview.Publish(ctx, conn, runtime.cell, leading, build, view)
@@ -56,4 +62,14 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 		}
 	}()
 	return view
+}
+
+// logErrors maps the log view's error classes to the rollup's errors (TS-808).
+func logErrors(classes []logs.ReplyClass) []globalview.Error {
+	var out []globalview.Error
+	for _, class := range classes {
+		out = append(out, globalview.Error{At: class.Last, Level: class.Level, Service: class.Service,
+			Component: class.Component, Message: class.Message, Count: class.Count, Nodes: class.Nodes})
+	}
+	return out
 }

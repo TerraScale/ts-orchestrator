@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 // find returns the first item that matches.
@@ -445,6 +446,46 @@ func scalingTable(services []globalview.Scaling) table {
 			textCell(itoa(scaling.Goal)), textCell(orDash(scaling.Reason))})
 	}
 	return scaled
+}
+
+// scaleTable lists a region's node scaling status, field by field. Spend rows
+// are left out while the region reports no cost.
+func scaleTable(current view, scale *nodescale.Status) table {
+	scaling := table{Caption: "Node scaling", Empty: "This region runs no node scaler yet.",
+		Headers: []string{"Field", "Value"}}
+	if scale == nil {
+		return scaling
+	}
+	allowance := itoa(scale.Allowance)
+	if !scale.AllowanceFresh {
+		allowance += " (stale)"
+	}
+	inFlight := "no"
+	if scale.InFlight != nil {
+		inFlight = "yes"
+	}
+	pressure := percent(scale.Pressure)
+	if scale.Signal != "" {
+		pressure += " · " + string(scale.Signal)
+	}
+	rows := [][]cell{
+		{textCell("Action"), {Text: string(scale.Action), Status: scaleStatus(*scale)}},
+		{textCell("Nodes now"), textCell(itoa(scale.Nodes) + " (" + itoa(scale.QuorumNodes) + " quorum, " + itoa(scale.PoolNodes) + " pool)")},
+		{textCell("Want"), textCell(itoa(scale.Want))},
+		{textCell("Allowance"), textCell(allowance)},
+		{textCell("Pressure"), textCell(pressure)},
+		{textCell("Reason"), textCell(orDash(scale.Reason))},
+		{textCell("In flight"), textCell(inFlight)},
+		{textCell("Last change"), textCell(age(current.Now, scale.LastChange))},
+	}
+	if scale.NodeMonthlyCents != 0 {
+		rows = append(rows, []cell{textCell("Node cost / month"), textCell(strings.TrimSpace(majorUnits(scale.NodeMonthlyCents) + " " + scale.Currency))})
+	}
+	if scale.ProjectedCents != 0 {
+		rows = append(rows, []cell{textCell("Projected"), textCell(strings.TrimSpace(majorUnits(scale.ProjectedCents) + " " + scale.Currency))})
+	}
+	scaling.Rows = rows
+	return scaling
 }
 
 // drillLink links a drill-down page. Its path names the region, so the top
