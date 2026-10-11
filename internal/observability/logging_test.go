@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"log/slog"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The tests parse unprefixed output, so they run as if outside journald even
@@ -54,5 +56,33 @@ func TestOutputWithoutJournalHasNoPriority(t *testing.T) {
 	logger.Info("started")
 	if !strings.HasPrefix(output.String(), "{") {
 		t.Fatalf("record = %q, want unprefixed JSON", output.String())
+	}
+}
+
+var (
+	utcRecordTime = regexp.MustCompile(`2026-10-09T15:00:00(\.\d+)?Z`)
+	localTimeAttr = regexp.MustCompile(`2026-10-09T12:00:00(\.\d+)?-03:00`)
+)
+
+func TestRecordTimeIsUTCAndAttributeKeepsItsZone(t *testing.T) {
+	at := time.Date(2026, 10, 9, 12, 0, 0, 0, time.FixedZone("UTC-3", -3*3600))
+	for _, format := range []string{"json", "logfmt"} {
+		var output bytes.Buffer
+		logger, err := NewLogger(&output, LogConfig{Format: format}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		record := slog.NewRecord(at, slog.LevelInfo, "started", 0)
+		record.AddAttrs(slog.Time("at", at))
+		if err := logger.Handler().Handle(t.Context(), record); err != nil {
+			t.Fatal(err)
+		}
+		out := output.String()
+		if !utcRecordTime.MatchString(out) {
+			t.Fatalf("%s record time is not UTC: %q", format, out)
+		}
+		if !localTimeAttr.MatchString(out) {
+			t.Fatalf("%s time attribute lost its zone: %q", format, out)
+		}
 	}
 }

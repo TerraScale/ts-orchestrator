@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
 )
 
@@ -50,18 +51,20 @@ func (a *Agent) publishLogs(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-tick:
-				windows.roll(a.wallTime())
+				ctx := observability.StartTrace(ctx)
+				windows.roll(ctx, a.wallTime())
 			}
 		}
 	}()
 	retry := logRetry{wait: logMinBackoff}
 	for {
+		ctx := observability.StartTrace(ctx)
 		started := time.Now()
 		err := a.followLogs(ctx, command, windows, &retry)
 		if ctx.Err() != nil {
 			return
 		}
-		wait := retry.failed(err, time.Since(started))
+		wait := retry.failed(ctx, err, time.Since(started))
 		select {
 		case <-ctx.Done():
 			return
@@ -77,11 +80,11 @@ func (a *Agent) followLogs(ctx context.Context, command func(context.Context) (i
 		return err
 	}
 	if retry.failure != "" {
-		slog.Info("journal follow running again", "component", "logs")
+		slog.InfoContext(ctx, "journal follow running again", "component", "logs")
 		retry.failure = ""
 	}
 	readErr := readLogLines(journal, func(line []byte, oversized bool) {
-		windows.observe(a.wallTime(), line, oversized)
+		windows.observe(ctx, a.wallTime(), line, oversized)
 	})
 	waitErr := journal.Close()
 	switch {
@@ -145,15 +148,15 @@ type logRetry struct {
 
 // failed logs one failure and returns how long to wait before the next start.
 // A run that lasted a minute was healthy, so its failure starts the backoff over.
-func (r *logRetry) failed(err error, ran time.Duration) time.Duration {
+func (r *logRetry) failed(ctx context.Context, err error, ran time.Duration) time.Duration {
 	if ran >= logMaxBackoff {
 		r.wait = logMinBackoff
 	}
 	msg := err.Error()
 	if r.failure == "" || msg != r.failure {
-		slog.Warn("journal follow failed; retrying", "component", "logs", "error", msg, "wait", r.wait)
+		slog.WarnContext(ctx, "journal follow failed; retrying", "component", "logs", "error", msg, "wait", r.wait)
 	} else {
-		slog.Debug("journal follow failed again", "component", "logs", "error", msg)
+		slog.DebugContext(ctx, "journal follow failed again", "component", "logs", "error", msg)
 	}
 	r.failure = msg
 	wait := r.wait
@@ -173,8 +176,8 @@ type logWindows struct {
 }
 
 // observe counts one journal line that arrived at now.
-func (w *logWindows) observe(now time.Time, line []byte, oversized bool) {
-	w.roll(now)
+func (w *logWindows) observe(ctx context.Context, now time.Time, line []byte, oversized bool) {
+	w.roll(ctx, now)
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if oversized {
@@ -190,21 +193,21 @@ func (w *logWindows) observe(now time.Time, line []byte, oversized bool) {
 
 // roll publishes the window of every minute before now's, empty minutes included,
 // so a silent node still reports.
-func (w *logWindows) roll(now time.Time) {
+func (w *logWindows) roll(ctx context.Context, now time.Time) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for end := now.Truncate(time.Minute); w.minute.Before(end); w.minute = w.minute.Add(time.Minute) {
-		w.send(w.counter.Flush(w.minute))
+		w.send(ctx, w.counter.Flush(w.minute))
 	}
 }
 
-func (w *logWindows) send(window logs.Window) {
+func (w *logWindows) send(ctx context.Context, window logs.Window) {
 	data, err := json.Marshal(window)
 	if err != nil {
-		slog.Warn("journal window not encoded", "component", "logs", "error", err)
+		slog.WarnContext(ctx, "journal window not encoded", "component", "logs", "error", err)
 		return
 	}
 	if err := w.publish(w.subject, data); err != nil {
-		slog.Warn("journal window not published", "component", "logs", "error", err)
+		slog.WarnContext(ctx, "journal window not published", "component", "logs", "error", err)
 	}
 }

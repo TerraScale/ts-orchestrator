@@ -96,7 +96,7 @@ func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.
 	if journalStream() {
 		output = journalWriter{next: output}
 	}
-	options := &slog.HandlerOptions{Level: level}
+	options := &slog.HandlerOptions{Level: level, ReplaceAttr: utcTime}
 	var handler slog.Handler
 	if config.Format == "logfmt" {
 		handler = slog.NewTextHandler(output, options)
@@ -111,6 +111,15 @@ func NewLogger(output io.Writer, config LogConfig, bus *EventBus, attrs ...slog.
 		handler = handler.WithAttrs(attrs)
 	}
 	return slog.New(handler), nil
+}
+
+// utcTime writes the record's own time in UTC, as record v1 requires. Only the
+// top-level time key: a time attribute keeps the zone it was logged with.
+func utcTime(groups []string, attr slog.Attr) slog.Attr {
+	if attr.Key == slog.TimeKey && len(groups) == 0 && attr.Value.Kind() == slog.KindTime {
+		attr.Value = slog.TimeValue(attr.Value.Time().UTC())
+	}
+	return attr
 }
 
 // journalWriter prefixes each record with its syslog priority, which journald

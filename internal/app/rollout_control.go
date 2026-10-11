@@ -87,6 +87,9 @@ type rolloutControl struct {
 	channelInterval time.Duration
 	// reported is the status this leader last wrote to the channel.
 	reported atomic.Pointer[releasechannel.Status]
+	// logged is the status last logged at INFO. Only the channel loop reads
+	// or writes it, so a repeat of it is logged at DEBUG.
+	logged *releasechannel.Status
 	// program derives the executor's rollouts; the channel reads its proofs.
 	program rolloutexec.ReleaseProgram
 	// controllerNode returns the node of a controller slot's VM, which a

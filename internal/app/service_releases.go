@@ -83,6 +83,16 @@ type serviceReleases struct {
 	// roots and environment verify that delegation for this cell.
 	roots       func() trust.Keyring
 	environment string
+	// logged is the status last logged at INFO per role, and warned the error
+	// text last logged at WARN per role. Only the pass loop reads or writes them.
+	logged map[string]serviceLog
+	warned map[string]string
+}
+
+// serviceLog is the part of a role's status that an INFO record shows.
+type serviceLog struct {
+	digest, reason string
+	state          releasechannel.State
 }
 
 // serviceReleaseState is the leader's record of a role's newest release,
@@ -699,9 +709,24 @@ func (r *serviceReleases) deployer(actor string, recovering func(context.Context
 // reportQuietly reports state and only logs a failure: status.json is
 // telemetry, and the next pass writes it again.
 func (r *serviceReleases) reportQuietly(ctx context.Context, kv jetstream.KeyValue, role string, state serviceReleaseState) {
-	if err := r.report(ctx, kv, role, state); err != nil && ctx.Err() == nil {
-		slog.WarnContext(ctx, "service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
+	err := r.report(ctx, kv, role, state)
+	if err == nil {
+		delete(r.warned, role)
+		return
 	}
+	if ctx.Err() != nil {
+		return
+	}
+	// A failure that repeats its text on every pass is steady state: DEBUG.
+	level := slog.LevelDebug
+	if r.warned[role] != err.Error() {
+		level = slog.LevelWarn
+		if r.warned == nil {
+			r.warned = map[string]string{}
+		}
+		r.warned[role] = err.Error()
+	}
+	slog.Log(ctx, level, "service release status", observability.ComponentKey, "rollout", "role", role, "error", err)
 }
 
 // report writes the role's status.json when it changes or its inventory heartbeat is due.
@@ -782,7 +807,17 @@ func (r *serviceReleases) report(ctx context.Context, kv jetstream.KeyValue, rol
 		stored.Pins.Equal(status.Pins) && !releasechannel.PinRefreshDue(stored.UpdatedAt, updatedAt) {
 		return nil
 	}
-	slog.InfoContext(ctx, "service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
+	// A repeat of the logged digest, state and reason is steady state: DEBUG.
+	shown := serviceLog{digest: status.Digest, state: status.State, reason: status.Reason}
+	level := slog.LevelDebug
+	if logged, seen := r.logged[role]; !seen || logged != shown {
+		level = slog.LevelInfo
+		if r.logged == nil {
+			r.logged = map[string]serviceLog{}
+		}
+		r.logged[role] = shown
+	}
+	slog.Log(ctx, level, "service release status", observability.ComponentKey, "rollout", "role", role, "digest", status.Digest,
 		"state", status.State, "reason", status.Reason)
 	if !r.fencer.Current().CanMutate() {
 		return errors.New("this controller no longer holds the authority lease")

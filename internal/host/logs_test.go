@@ -58,8 +58,8 @@ func TestFollowLogsPublishesEachMinuteOfJournalLines(t *testing.T) {
 	if err == nil || err.Error() != "journalctl exited" {
 		t.Fatalf("followLogs = %v, want the journal to have exited", err)
 	}
-	windows.observe(start.Add(10*time.Second), nil, true)
-	windows.roll(start.Add(2*time.Minute + time.Second))
+	windows.observe(t.Context(), start.Add(10*time.Second), nil, true)
+	windows.roll(t.Context(), start.Add(2*time.Minute+time.Second))
 
 	if len(sent) != 2 {
 		t.Fatalf("published %d windows, want the finished minute and the silent one after it", len(sent))
@@ -108,7 +108,7 @@ func TestLogRetryDoublesToAMinuteAndStartsOverAfterAHealthyRun(t *testing.T) {
 	r := logRetry{wait: logMinBackoff}
 	var waits []time.Duration
 	for range 8 {
-		waits = append(waits, r.failed(errors.New("exit status 1"), 0))
+		waits = append(waits, r.failed(t.Context(), errors.New("exit status 1"), 0))
 	}
 	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, time.Minute, time.Minute}
 	for i := range want {
@@ -116,7 +116,7 @@ func TestLogRetryDoublesToAMinuteAndStartsOverAfterAHealthyRun(t *testing.T) {
 			t.Fatalf("waits = %v, want %v", waits, want)
 		}
 	}
-	if wait := r.failed(errors.New("exit status 1"), logMaxBackoff); wait != time.Second {
+	if wait := r.failed(t.Context(), errors.New("exit status 1"), logMaxBackoff); wait != time.Second {
 		t.Fatalf("after a healthy minute the wait is %v, want 1s", wait)
 	}
 }

@@ -71,19 +71,20 @@ func (stream *Stream) Follow(ctx context.Context, view *View, verify func(ctx co
 	delay := retryFirst
 	failing := false
 	for {
+		ctx := observability.StartTrace(ctx)
 		started := time.Now()
 		ready, err := stream.run(ctx, view, verdicts)
 		if ready && failing {
-			slog.Info("log summary follower recovered", observability.ComponentKey, "logs")
+			slog.InfoContext(ctx, "log summary follower recovered", observability.ComponentKey, "logs")
 			failing = false
 		}
 		if ctx.Err() != nil {
 			return
 		}
 		if failing {
-			slog.Debug("log summary follower still failing", observability.ComponentKey, "logs", "error", err)
+			slog.DebugContext(ctx, "log summary follower still failing", observability.ComponentKey, "logs", "error", err)
 		} else {
-			slog.Warn("log summary follower failed; retrying", observability.ComponentKey, "logs", "error", err)
+			slog.WarnContext(ctx, "log summary follower failed; retrying", observability.ComponentKey, "logs", "error", err)
 			failing = true
 		}
 		// A consumer that lasted a while was healthy: its next failure starts over.

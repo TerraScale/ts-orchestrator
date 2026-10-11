@@ -256,7 +256,14 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 			slog.WarnContext(ctx, "publish the release channel status", observability.ComponentKey, "rollout", "error", err)
 		}
 	}
-	slog.InfoContext(ctx, "release channel status", observability.ComponentKey, "rollout", "run", status.RunNumber,
+	// A repeat of the logged run, state and reason is steady state: DEBUG.
+	level := slog.LevelDebug
+	if logged := c.logged; logged == nil || logged.RunNumber != status.RunNumber || logged.State != status.State ||
+		logged.Reason != status.Reason {
+		level = slog.LevelInfo
+		c.logged = &status
+	}
+	slog.Log(ctx, level, "release channel status", observability.ComponentKey, "rollout", "run", status.RunNumber,
 		"state", status.State, "reason", status.Reason)
 	c.reported.Store(&status)
 	return nil
