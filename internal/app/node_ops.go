@@ -180,6 +180,9 @@ type nodeOps struct {
 	// refuses: a controller leaves the cell through its membership. Nil
 	// reports none.
 	controllers func(node string) bool
+	// pool reports a node the node scaler owns, which every operation
+	// refuses: the scaler names, drains and removes it. Nil reports none.
+	pool func(node string) bool
 	// desired moves a renamed node's roles to its new name.
 	desired nodeDesired
 	// forget deletes an instance's host enrollment grant, so a renamed host
@@ -293,6 +296,11 @@ func (o *nodeOps) submit(ctx context.Context, epoch uint64, actor, id string, re
 		}
 	default:
 		return nodeOp{}, fmt.Errorf("unknown node operation %q", request.Op)
+	}
+	for _, node := range []string{from, request.Node} {
+		if node != "" && o.pool != nil && o.pool(node) {
+			return nodeOp{}, fmt.Errorf("%s is a pool node; the node scaler owns it", node)
+		}
 	}
 	spec, addresses := o.fence.spec()
 	if spec == nil {

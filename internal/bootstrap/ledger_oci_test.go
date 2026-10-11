@@ -217,7 +217,7 @@ func TestBoundInstancePrincipalDispatcherSupportsActualOCISDKTransportWrapper(t 
 	refresh := &countingTLSConfigProvider{}
 	original.TLSConfigProvider = refresh
 
-	modified, err := boundInstancePrincipalDispatcher(source)
+	modified, err := BoundInstancePrincipalDispatcher(source)
 	if err != nil {
 		t.Fatalf("harden actual OCI SDK dispatcher: %v", err)
 	}

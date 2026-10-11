@@ -51,10 +51,7 @@ func NewOCIS3CredentialResolver(region oci.Region) (*OCIS3CredentialResolver, er
 			return nil, errors.New("managed S3 Vault access does not permit OCI debug logging, endpoint or TLS overrides")
 		}
 	}
-	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion),
-		func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
-			return bootstrap.NewInstancePrincipalSDKHTTPClient()
-		})
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), bootstrap.BoundInstancePrincipalDispatcher)
 	if err != nil {
 		return nil, errors.New("managed S3 instance principal is unavailable")
 	}

@@ -98,7 +98,7 @@ func NewRegionalInstancePrincipalConfigurationProvider(region oci.Region) (commo
 	if err := validateInstancePrincipalSDKOverrides(); err != nil {
 		return nil, err
 	}
-	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), boundInstancePrincipalDispatcher)
+	provider, err := ociclient.InstancePrincipalProvider(common.Region(ociRegion), BoundInstancePrincipalDispatcher)
 	if err != nil {
 		return nil, fmt.Errorf("create accepted regional Instance Principal provider: %w", err)
 	}
@@ -186,7 +186,7 @@ func newInstancePrincipalConfigurationProvider(
 		return nil, errors.New("bootstrap ledger Instance Principal provider factory is nil")
 	}
 
-	provider, err := newProvider(common.Region(ociRegion), boundInstancePrincipalDispatcher)
+	provider, err := newProvider(common.Region(ociRegion), BoundInstancePrincipalDispatcher)
 	if err != nil {
 		return nil, fmt.Errorf("create OCI Instance Principal provider for bootstrap ledger: %w", err)
 	}
@@ -250,7 +250,9 @@ func validateInstancePrincipalLedgerConfig(config LedgerConfig) error {
 	return nil
 }
 
-func boundInstancePrincipalDispatcher(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
+// BoundInstancePrincipalDispatcher hardens the SDK's instance-principal
+// dispatcher in place and fails closed on any dispatcher it does not know.
+func BoundInstancePrincipalDispatcher(dispatcher common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error) {
 	client, ok := dispatcher.(*http.Client)
 	if !ok || client == nil {
 		return nil, errors.New("OCI Instance Principal SDK supplied an unsupported HTTP dispatcher")

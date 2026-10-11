@@ -593,6 +593,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			_, controller := serverOf(node)
 			return controller
 		}
+		policy.nodes.pool = func(node string) bool {
+			running := poolScaler.Load()
+			if running == nil {
+				return false
+			}
+			// A just-named pool node has no private IP yet; the scaler owns it all the same.
+			_, owned := running.Addresses()[node]
+			return owned
+		}
 		networkControl = &netbirdRollout{cell: cfg.NATS.Cell, fence: fences, services: services, nodes: policy.nodes, key: responseKey, cfg: cfg, fleet: fleet, artifacts: service.Artifacts(), conn: runtime.Conn(), runtime: runtime}
 		hostController.SetNetBirdSink(networkControl)
 		policy.nodes.desired = hostController

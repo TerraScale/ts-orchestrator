@@ -345,6 +345,26 @@ func TestNodeSubmitRefusals(t *testing.T) {
 	}
 }
 
+// Pool nodes belong to the node scaler: no operation takes one, by its name
+// or as a rename's new name.
+func TestNodeSubmitRefusesPoolNodes(t *testing.T) {
+	ops, _, _ := newNodeOpsTest(t)
+	ops.pool = func(node string) bool { return node == "ctl-2" || node == "ts-gru-4" }
+	for name, request := range map[string]nodeOpRequest{
+		"reboot": {Node: "ctl-2", Op: nodeOpReboot},
+		"resize": {Node: "ctl-2", Op: nodeOpResize, OCPUs: 2, MemoryGB: 8},
+		"rename": {Node: "ctl-1", To: "ts-gru-4", Op: nodeOpRename},
+	} {
+		if _, err := ops.submit(t.Context(), 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", request); err == nil ||
+			!strings.Contains(err.Error(), "pool node") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := ops.submit(t.Context(), 3, "mariogk", "0000000000M44BFMMJRNPNN6BB", nodeOpRequest{Node: "ctl-1", Op: nodeOpReboot}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Without the quorum, a fence waits instead of taking a backend out.
 func TestFenceWaitsForTheQuorumGuard(t *testing.T) {
 	ops, balancer, _ := newNodeOpsTest(t)
