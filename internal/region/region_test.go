@@ -16,11 +16,15 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const (
@@ -143,10 +147,35 @@ func TestRegionProfileKeepsOnlyDefaultInTheRegion(t *testing.T) {
 // command's file effects.
 type creation struct {
 	*Creation
-	calls    []string
-	failOn   string
-	verified int
-	verifyOK bool
+	calls       []string
+	failOn      string
+	verified    int
+	verifyOK    bool
+	subs        *fakeSubscriptions
+	secretReads map[string]int
+	missing     string
+}
+
+const (
+	testVault = "ocid1.vault.oc1.sa-saopaulo-1.ffvmfu2naagt6.abtxeljr7ebplea4ua3memgthsupcfn3crg6d56vipsw7o2butchdrx3urmq"
+	cfValue   = "cf-token-value"
+	patValue  = "netbird-pat-value"
+)
+
+// secrets is the home Vault: it holds the two tokens, and missing names one
+// secret it lacks.
+func (c *creation) secrets(_ context.Context, refs map[string]vaultsecret.Ref) (map[string]string, error) {
+	stored := map[string]string{"gru-1-cloudflare-dns-edit-token": cfValue, "gru-1-netbird-admin-pat": patValue}
+	values := map[string]string{}
+	for key, ref := range refs {
+		value, ok := stored[ref.Name]
+		if ref.Vault != testVault || !ok || ref.Name == c.missing {
+			return nil, fmt.Errorf("read Vault secret %s failed", ref.Name)
+		}
+		c.secretReads[ref.Name]++
+		values[key] = value
+	}
+	return values, nil
 }
 
 func newCreation(t *testing.T) *creation {
@@ -160,18 +189,25 @@ func newCreation(t *testing.T) *creation {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", home)
-	t.Setenv("CF_API_TOKEN", "token")
-	t.Setenv("NB_PAT", "pat")
 	base := filepath.Join(dir, "attempt-base.json")
 	if err := os.WriteFile(base, []byte(`{"validity_days":364,"trust":{"root_public":"/k/root.pub","root_private":"/k/root.key"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The global home's bound plan names the Vault that holds the tokens.
+	bound := load(t, homePlan)
+	bound["resource_ids"].(map[string]any)["vault"] = testVault
+	homeBound := filepath.Join(dir, "home-plan.json")
+	if err := writePlan(homeBound, bound); err != nil {
+		t.Fatal(err)
+	}
 	clock := time.Date(2026, 10, 7, 16, 0, 0, 0, time.UTC)
-	c := &creation{}
-	c.Creation = &Creation{Label: "fra", OCIRegion: "eu-frankfurt-1", State: filepath.Join(dir, "state"), Template: sfoPlan,
-		AttemptBase: base, HomeOperator: "/var/lib/terrascale-operator/operator.json", HomePlan: homePlan, Wait: time.Minute, Out: &bytes.Buffer{},
-		Now:    func() time.Time { clock = clock.Add(time.Minute); return clock },
-		Lookup: func(_ context.Context, tenancy, region string) (Live, error) { return fraLive, nil },
+	c := &creation{subs: &fakeSubscriptions{status: identity.RegionSubscriptionStatusReady}, secretReads: map[string]int{}}
+	c.Creation = &Creation{Label: "eu-frankfurt-1", State: filepath.Join(dir, "state"), Template: sfoPlan,
+		AttemptBase: base, HomePlan: homeBound, Wait: time.Minute, Out: &bytes.Buffer{},
+		Now:           func() time.Time { clock = clock.Add(time.Minute); return clock },
+		Lookup:        func(_ context.Context, tenancy, region string) (Live, error) { return fraLive, nil },
+		Secrets:       c.secrets,
+		Subscriptions: c.subs, Tenancy: "ocid1.tenancy.oc1..aaaatenancy", Pause: c.subs.pause,
 		Verify: func(_ context.Context, bound string, wait time.Duration) error {
 			c.verified++
 			if !c.verifyOK {
@@ -179,10 +215,10 @@ func newCreation(t *testing.T) *creation {
 			}
 			return nil
 		}}
-	c.Run = func(_ context.Context, sudo bool, args ...string) (string, error) {
+	c.Run = func(_ context.Context, env []string, args ...string) (string, error) {
 		call := strings.Join(args, " ")
-		if sudo {
-			call = "sudo " + call
+		if !slices.Contains(env, "CF_API_TOKEN="+cfValue) || !slices.Contains(env, "NB_PAT="+patValue) {
+			t.Fatalf("%s runs without the tokens", call)
 		}
 		c.calls = append(c.calls, call)
 		if c.failOn != "" && strings.HasPrefix(call, c.failOn) {
@@ -200,12 +236,42 @@ func newCreation(t *testing.T) *creation {
 			return `{"secret":"fra-1-netbird-setup-key","id":"ocid1.vaultsecret.oc1.eu-frankfurt-1.aaaanb","created":true}` + "\n", nil
 		case strings.HasPrefix(call, "oci-region public-api apply"):
 			return "plan done\n" + `{"network_load_balancer":"ocid1.loadbalancer.oc1.eu-frankfurt-1.aaaalb","public_subnet":"ocid1.subnet.oc1.eu-frankfurt-1.aaaapub","public_ip":"192.0.2.1"}` + "\n", nil
-		case strings.HasPrefix(call, "sudo atlas add-region"):
-			return `{"status":"planned"}`, os.WriteFile(flag("--out"), []byte("{}"), 0o600)
 		}
 		return "", nil
 	}
 	return c
+}
+
+// fakeSubscriptions is the tenancy's one region subscription: status is "" when
+// OCI does not list it. Each list after a create reports the next of after.
+type fakeSubscriptions struct {
+	status  identity.RegionSubscriptionStatusEnum
+	after   []identity.RegionSubscriptionStatusEnum
+	creates []identity.CreateRegionSubscriptionRequest
+	waits   int
+}
+
+func (f *fakeSubscriptions) ListRegionSubscriptions(context.Context, identity.ListRegionSubscriptionsRequest) (identity.ListRegionSubscriptionsResponse, error) {
+	if f.status == identity.RegionSubscriptionStatusInProgress && len(f.after) > 0 {
+		f.status, f.after = f.after[0], f.after[1:]
+	}
+	var items []identity.RegionSubscription
+	if f.status != "" {
+		items = append(items, identity.RegionSubscription{RegionKey: common.String("FRA"), RegionName: common.String("eu-frankfurt-1"), Status: f.status})
+	}
+	return identity.ListRegionSubscriptionsResponse{Items: items}, nil
+}
+
+func (f *fakeSubscriptions) CreateRegionSubscription(_ context.Context, request identity.CreateRegionSubscriptionRequest) (identity.CreateRegionSubscriptionResponse, error) {
+	f.creates = append(f.creates, request)
+	f.status = identity.RegionSubscriptionStatusInProgress
+	return identity.CreateRegionSubscriptionResponse{OpcRequestId: common.String("req-1"),
+		RegionSubscription: identity.RegionSubscription{RegionKey: request.RegionKey, Status: f.status}}, nil
+}
+
+func (f *fakeSubscriptions) pause(context.Context, time.Duration) error {
+	f.waits++
+	return nil
 }
 
 func TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey(t *testing.T) {
@@ -262,13 +328,10 @@ func TestCreateRunsEveryStepOnceAndResumes(t *testing.T) {
 		"oci-region attempt --config " + state + "/attempt.json up",
 		"oci-region public-api cert --plan " + state + "/bound-plan.json --apply",
 		"oci-region public-api apply --plan " + state + "/bound-plan.json --member-ca " + state + "/attempt/material/terrabase-member-ca.pem --cell-ca " + state + "/attempt/material/ca.pem",
-		"oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + state + "/bound-plan.json --right-plan " + homePlan +
+		"oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + state + "/bound-plan.json --right-plan " + c.HomePlan +
 			" --out " + state + "/peer-bound-intent.json --apply",
 		"oci-region dns --plan " + state + "/bound-plan.json --apply",
 		"oci-region dns --plan " + state + "/bound-plan.json --apply",
-		"sudo atlas add-region --config /var/lib/terrascale-operator/operator.json --cell fra-1 --out " + state + "/atlas.candidate.json",
-		"release sign-spec --candidate " + state + "/atlas.candidate.json --root --root-key /k/root.pub --signing-key /k/root.key --out " + state + "/atlas.signed.json",
-		"sudo apply --config /var/lib/terrascale-operator/operator.json -f " + state + "/atlas.signed.json",
 	}
 	if !slices.Equal(c.calls, want) {
 		t.Fatalf("calls:\n%s", strings.Join(c.calls, "\n"))
@@ -313,7 +376,7 @@ func TestCreatePeersWithTheHome(t *testing.T) {
 		t.Fatal("a failed dns step passed")
 	}
 	state, bound := c.State, filepath.Join(c.State, "bound-plan.json")
-	call := "oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + bound + " --right-plan " + homePlan +
+	call := "oci-region peer --pair-intent " + state + "/peer-intent.json --left-plan " + bound + " --right-plan " + c.HomePlan +
 		" --out " + state + "/peer-bound-intent.json --apply"
 	if !slices.Contains(c.calls, call) {
 		t.Fatalf("calls:\n%s", strings.Join(c.calls, "\n"))
@@ -327,7 +390,7 @@ func TestCreatePeersWithTheHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	cells := intent["cells"].(map[string]any)
-	for cell, path := range map[string]string{"FRA": bound, "GRU": homePlan} {
+	for cell, path := range map[string]string{"FRA": bound, "GRU": c.HomePlan} {
 		sum, _ := ociregion.SHA256(path)
 		row := cells[cell].(map[string]any)
 		if row["plan_sha256"] != sum || row["monthly_cross_region_egress_gb"] != 10.0 || row["drg_id"] != nil || len(row) != 10 {
@@ -335,7 +398,7 @@ func TestCreatePeersWithTheHome(t *testing.T) {
 		}
 	}
 	if !reflect.DeepEqual(intent["allowed_tcp_ports"], []any{7422.0, 9443.0}) || intent["realm"] != "oc1" ||
-		intent["tenancy_id"] != load(t, homePlan)["tenancy_id"] || len(cells) != 2 {
+		intent["tenancy_id"] != load(t, c.HomePlan)["tenancy_id"] || len(cells) != 2 {
 		t.Fatalf("intent %s", written)
 	}
 	// A rerun reuses the intent.
@@ -360,28 +423,94 @@ func TestCreatePeersWithTheHome(t *testing.T) {
 
 func TestCreateRefusesBeforeSpending(t *testing.T) {
 	c := newCreation(t)
-	t.Setenv("CF_API_TOKEN", "")
-	if err := c.Create(t.Context()); err == nil || len(c.calls) != 0 {
-		t.Fatal("ran without the Cloudflare token")
+	home := c.HomePlan
+	c.missing = "gru-1-netbird-admin-pat"
+	if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), c.missing) || len(c.calls) != 0 {
+		t.Fatalf("ran without the NetBird PAT: %v %v", err, c.calls)
 	}
-	t.Setenv("CF_API_TOKEN", "token")
+	c.missing = ""
 	for _, plan := range []string{"", sfoPlan} {
 		c.HomePlan = plan
 		if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "home") || len(c.calls) != 0 {
 			t.Fatalf("ran with --home-plan %q: %v", plan, err)
 		}
 	}
-	c.HomePlan = homePlan
-	c.Label, c.OCIRegion = "gru", "sa-saopaulo-1"
+	c.HomePlan = home
+	c.Label = "gru"
 	if err := c.Create(t.Context()); err == nil || len(c.calls) != 0 {
 		t.Fatal("created the home region")
 	}
-	c.Label, c.OCIRegion = "fra", "eu-frankfurt-1"
+	c.Label = "fra"
 	if err := os.WriteFile(c.AttemptBase, []byte(`{"workdir":"/elsewhere"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Create(t.Context()); err == nil || !strings.Contains(err.Error(), "workdir") {
 		t.Fatalf("attempt base overriding the region's workdir: %v", err)
+	}
+}
+
+func TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown(t *testing.T) {
+	for _, token := range []string{"fra", "eu-frankfurt-1"} {
+		if entry, err := ResolveRegion(token); err != nil || entry.Cell != catalog.FRA {
+			t.Fatalf("%s: %+v %v", token, entry, err)
+		}
+	}
+	for _, token := range []string{"gru", "sa-saopaulo-1", "xyz", "eu-frankfurt-2"} {
+		if _, err := ResolveRegion(token); err == nil {
+			t.Fatalf("%s accepted", token)
+		}
+	}
+}
+
+// The tokens are read once per run and reach only the steps' child
+// environments, never the operator's report.
+func TestCreateReadsTheTokensOnceForItsSteps(t *testing.T) {
+	c := newCreation(t)
+	c.verifyOK = true
+	if err := c.Create(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if c.secretReads["gru-1-cloudflare-dns-edit-token"] != 1 || c.secretReads["gru-1-netbird-admin-pat"] != 1 {
+		t.Fatalf("secret reads: %v", c.secretReads)
+	}
+	if out := c.Out.(*bytes.Buffer).String(); strings.Contains(out, cfValue) || strings.Contains(out, patValue) {
+		t.Fatalf("the report carries a token: %s", out)
+	}
+}
+
+func TestSubscribeReusesAReadySubscription(t *testing.T) {
+	entry, _ := catalog.LookupName("fra")
+	api := &fakeSubscriptions{status: identity.RegionSubscriptionStatusReady}
+	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &bytes.Buffer{}); err != nil || len(api.creates) != 0 || api.waits != 0 {
+		t.Fatalf("ready subscription: %v, creates %v, waits %d", err, api.creates, api.waits)
+	}
+}
+
+func TestSubscribeCreatesThenPollsUntilReady(t *testing.T) {
+	entry, _ := catalog.LookupName("fra")
+	api := &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{identity.RegionSubscriptionStatusInProgress, identity.RegionSubscriptionStatusReady}}
+	var out bytes.Buffer
+	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.creates) != 1 || *api.creates[0].RegionKey != "FRA" || *api.creates[0].TenancyId != "ocid1.tenancy" || api.waits != 2 {
+		t.Fatalf("creates %v, waits %d", api.creates, api.waits)
+	}
+	if got := out.String(); !strings.Contains(got, "req-1") || !strings.Contains(got, "cannot be undone") {
+		t.Fatalf("report: %s", got)
+	}
+}
+
+func TestSubscribeRefusesATerminalStatusAndAnEndedWait(t *testing.T) {
+	entry, _ := catalog.LookupName("fra")
+	api := &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{"FAILED"}}
+	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, api.pause, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "FAILED") {
+		t.Fatalf("terminal status passed: %v", err)
+	}
+	api = &fakeSubscriptions{after: []identity.RegionSubscriptionStatusEnum{identity.RegionSubscriptionStatusInProgress}}
+	ended := func(context.Context, time.Duration) error { return context.DeadlineExceeded }
+	if err := subscribeRegion(t.Context(), api, "ocid1.tenancy", entry, ended, &bytes.Buffer{}); err == nil {
+		t.Fatal("an in-progress subscription with no time left passed")
 	}
 }
 
@@ -481,7 +610,7 @@ func TestRunRefusesBadArguments(t *testing.T) {
 			t.Fatalf("%v accepted", args)
 		}
 	}
-	if err := Run(t.Context(), []string{"--help"}, &out, &out); err != nil || !strings.Contains(out.String(), "create  LABEL OCI_REGION") {
+	if err := Run(t.Context(), []string{"--help"}, &out, &out); err != nil || !strings.Contains(out.String(), "create  REGION") {
 		t.Fatal(out.String(), err)
 	}
 }

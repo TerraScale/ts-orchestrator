@@ -16,22 +16,27 @@ import (
 	"time"
 
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
-// Runner runs one ts-orch command, as root when sudo is set, and returns its
-// stdout. Output also goes to the operator as it is produced.
-type Runner func(ctx context.Context, sudo bool, args ...string) (string, error)
+// Runner runs one ts-orch command with env added to its environment, and
+// returns its stdout. Output also goes to the operator as it is produced.
+type Runner func(ctx context.Context, env []string, args ...string) (string, error)
+
+// Secrets resolves Vault refs to their current values, keyed as the refs are.
+type Secrets func(ctx context.Context, refs map[string]vaultsecret.Ref) (map[string]string, error)
 
 // Creation is one region create run. Every step it runs is idempotent
 // itself, so the journal only saves time: a step that failed or was
 // interrupted runs again from its start.
 type Creation struct {
-	Label, OCIRegion string
+	// Label is the region as the operator typed it; ResolveRegion names it.
+	Label string
 	// State is the region's working directory: its plans, attempt,
 	// journal and signed amendments.
 	State string
@@ -40,20 +45,27 @@ type Creation struct {
 	// AttemptBase is the operator's attempt settings that no region
 	// changes: trust keys, tools, image and release inputs.
 	AttemptBase string
-	// HomeOperator is the global home's operator config; Atlas lives
-	// in the home cell's spec.
-	HomeOperator string
-	// HomePlan is the global home's bound plan, the region's private peer.
+	// HomePlan is the global home's bound plan: the region's private peer,
+	// and the Vault that holds the operator's secrets.
 	HomePlan   string
 	Deployment string
 	// Wait bounds the final verification while the cell starts serving.
 	Wait time.Duration
 
-	Run    Runner
-	Lookup Lookup
-	Verify func(ctx context.Context, bound string, wait time.Duration) error
-	Now    func() time.Time
-	Out    io.Writer
+	Run           Runner
+	Lookup        Lookup
+	Secrets       Secrets
+	Subscriptions Subscriptions
+	Tenancy       string
+	Pause         func(ctx context.Context, d time.Duration) error
+	Verify        func(ctx context.Context, bound string, wait time.Duration) error
+	Now           func() time.Time
+	Out           io.Writer
+
+	// entry and env are set by Create: the resolved region, and the
+	// environment its steps run with.
+	entry catalog.Entry
+	env   []string
 }
 
 // Journal records every step run with its wall time.
@@ -71,30 +83,49 @@ type Entry struct {
 }
 
 // Steps is the order region create runs.
-var Steps = []string{"plan", "foundation", "netbird", "ts-auth-secrets", "found", "edge-cert", "edge", "peer", "dns", "atlas", "verify"}
+var Steps = []string{"subscribe", "plan", "foundation", "netbird", "ts-auth-secrets", "found", "edge-cert", "edge", "peer", "dns", "verify"}
 
 func (c *Creation) path(name string) string { return filepath.Join(c.State, name) }
+
+// ResolveRegion names a region by its cell token (fra), its OCI region (eu-frankfurt-1).
+// The global home is refused: it is founded, never created.
+func ResolveRegion(token string) (catalog.Entry, error) {
+	entry, ok := catalog.LookupName(token)
+	if !ok {
+		entry, ok = catalog.CellForOCIRegion(token)
+	}
+	if !ok {
+		return catalog.Entry{}, fmt.Errorf("region %s is not in the region catalog (internal/ociregion/catalog)", token)
+	}
+	if entry.Cell == catalog.Bootstrap {
+		return catalog.Entry{}, fmt.Errorf("region %s is the global home; it is founded, not created", token)
+	}
+	return entry, nil
+}
 
 // Create runs every step not yet done, in order, and prints the wall time
 // of each.
 func (c *Creation) Create(ctx context.Context) error {
-	entry, ok := catalog.LookupName(c.Label)
-	if !ok || entry.OCIRegion != c.OCIRegion || entry.Cell == catalog.Bootstrap {
-		return fmt.Errorf("region %s in %s is not a non-home region of the catalog (internal/ociregion/catalog)", c.Label, c.OCIRegion)
+	entry, err := ResolveRegion(c.Label)
+	if err != nil {
+		return err
 	}
+	c.entry = entry
 	cell, err := naming.RegionCell(entry.Cell).Name()
 	if err != nil {
 		return err
 	}
-	// Refuse before anything is spent: the edge and NetBird steps need them.
-	if os.Getenv("CF_API_TOKEN") == "" || os.Getenv("NB_PAT") == "" {
-		return errors.New("region create needs CF_API_TOKEN and NB_PAT (gru-1-cloudflare-dns-edit-token and gru-1-netbird-admin-pat, docs/secrets.md)")
-	}
 	if c.HomePlan == "" {
 		return errors.New("region create needs --home-plan, the global home's bound plan, to peer the region with it")
 	}
-	if home, err := ociregion.LoadPlan(c.HomePlan); err != nil || home["cell"] != catalog.Bootstrap {
+	home, err := ociregion.LoadPlan(c.HomePlan)
+	if err != nil || home["cell"] != catalog.Bootstrap {
 		return fmt.Errorf("--home-plan %s is not the global home's plan: %v", c.HomePlan, err)
+	}
+	// Refuse before anything is spent: the edge, DNS and NetBird steps need the tokens.
+	c.env, err = c.environment(ctx, home)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(c.State, 0o700); err != nil {
 		return err
@@ -108,8 +139,8 @@ func (c *Creation) Create(ctx context.Context) error {
 		return err
 	}
 	steps := map[string]func(context.Context, string) error{
-		"plan": c.plan, "foundation": c.foundation, "peer": c.peer, "netbird": c.netbird, "ts-auth-secrets": c.secrets, "found": c.found,
-		"edge-cert": c.edgeCert, "edge": c.edge, "dns": c.dns, "atlas": c.atlas,
+		"subscribe": c.subscribe, "plan": c.plan, "foundation": c.foundation, "peer": c.peer, "netbird": c.netbird, "ts-auth-secrets": c.secrets, "found": c.found,
+		"edge-cert": c.edgeCert, "edge": c.edge, "dns": c.dns,
 		"verify": func(ctx context.Context, _ string) error { return c.Verify(ctx, c.path("bound-plan.json"), c.Wait) },
 	}
 	for _, name := range Steps {
@@ -133,6 +164,25 @@ func (c *Creation) Create(ctx context.Context) error {
 		}
 	}
 	return c.report(journal)
+}
+
+// environment reads the Cloudflare and NetBird tokens from the home Vault
+// once per run. The steps that need them get them in their child environment
+// only, never the operator's.
+func (c *Creation) environment(ctx context.Context, home map[string]any) ([]string, error) {
+	ids, _ := home["resource_ids"].(map[string]any)
+	vault, _ := ids["vault"].(string)
+	if vault == "" {
+		return nil, fmt.Errorf("--home-plan %s names no Vault", c.HomePlan)
+	}
+	values, err := c.Secrets(ctx, map[string]vaultsecret.Ref{
+		"CF_API_TOKEN": {Vault: vault, Name: "gru-1-cloudflare-dns-edit-token"},
+		"NB_PAT":       {Vault: vault, Name: "gru-1-netbird-admin-pat"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("region create needs its tokens from the home Vault (docs/secrets.md): %w", err)
+	}
+	return []string{"CF_API_TOKEN=" + values["CF_API_TOKEN"], "NB_PAT=" + values["NB_PAT"]}, nil
 }
 
 func done(journal Journal, step string) bool {
@@ -169,7 +219,7 @@ func (c *Creation) plan(ctx context.Context, _ string) error {
 	if _, err := os.Stat(c.path("plan.json")); err == nil {
 		return nil
 	}
-	return DerivePlan(ctx, c.Lookup, c.Template, c.Label, c.OCIRegion, c.path("plan.json"))
+	return DerivePlan(ctx, c.Lookup, c.Template, c.entry.Name(), c.entry.OCIRegion, c.path("plan.json"))
 }
 
 // DerivePlan writes label's plan, derived from template, to out.
@@ -203,7 +253,7 @@ func writePlan(path string, plan map[string]any) error {
 }
 
 func (c *Creation) foundation(ctx context.Context, _ string) error {
-	_, err := c.Run(ctx, false, "oci-region", "foundation", "--plan", c.path("plan.json"), "--out", c.path("bound-plan.json"), "--apply")
+	_, err := c.Run(ctx, c.env, "oci-region", "foundation", "--plan", c.path("plan.json"), "--out", c.path("bound-plan.json"), "--apply")
 	return err
 }
 
@@ -231,7 +281,7 @@ func (c *Creation) peer(ctx context.Context, _ string) error {
 	} else if !samePlans(data, draft) {
 		return fmt.Errorf("%s pins plans that changed since it was written; review the change, delete it and rerun", intent)
 	}
-	_, err = c.Run(ctx, false, "oci-region", "peer", "--pair-intent", intent, "--left-plan", bound, "--right-plan", c.HomePlan,
+	_, err = c.Run(ctx, c.env, "oci-region", "peer", "--pair-intent", intent, "--left-plan", bound, "--right-plan", c.HomePlan,
 		"--out", c.path("peer-bound-intent.json"), "--apply")
 	return err
 }
@@ -270,13 +320,13 @@ func (c *Creation) netbird(ctx context.Context, cell string) error {
 			return err
 		}
 		defer os.Remove(key)
-		if _, err := c.Run(ctx, false, "netbird", "setup-key", "--servers-group", c.Label+"-servers", "--out", key, "--apply"); err != nil {
+		if _, err := c.Run(ctx, c.env, "netbird", "setup-key", "--servers-group", c.entry.Name()+"-servers", "--out", key, "--apply"); err != nil {
 			return err
 		}
 		// ponytail: a crash between this put and the record below leaves a
 		// stored key a rerun's new key cannot replace (put refuses); write
 		// the record by hand from vault put's output then.
-		stored, err := c.Run(ctx, false, "vault", "put", "--vault-id", fmt.Sprint(ids["vault"]), "--key-id", fmt.Sprint(ids["key"]),
+		stored, err := c.Run(ctx, c.env, "vault", "put", "--vault-id", fmt.Sprint(ids["vault"]), "--key-id", fmt.Sprint(ids["key"]),
 			"--compartment-id", fmt.Sprint(ids["control_compartment"]), "--name", cell+"-netbird-setup-key", "--file", key)
 		if err != nil {
 			return err
@@ -299,18 +349,18 @@ func (c *Creation) netbird(ctx context.Context, cell string) error {
 	}
 	// The key operation creates the regional group; reconcile fabric before
 	// nodes enroll, after the key is durably stored so retries cannot lose it.
-	if _, err := c.Run(ctx, false, "netbird", "sync", "--apply"); err != nil {
+	if _, err := c.Run(ctx, c.env, "netbird", "sync", "--apply"); err != nil {
 		return err
 	}
 	if err := os.Remove(input); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	_, err = c.Run(ctx, false, "netbird", "image-input", "--plan", c.path("bound-plan.json"), "--setup-key-secret-id", stored.ID, "--out", input)
+	_, err = c.Run(ctx, c.env, "netbird", "image-input", "--plan", c.path("bound-plan.json"), "--setup-key-secret-id", stored.ID, "--out", input)
 	return err
 }
 
 func (c *Creation) secrets(ctx context.Context, _ string) error {
-	_, err := c.Run(ctx, false, "ts-auth", "secrets", "--plan", c.path("bound-plan.json"))
+	_, err := c.Run(ctx, c.env, "ts-auth", "secrets", "--plan", c.path("bound-plan.json"))
 	return err
 }
 
@@ -336,7 +386,7 @@ func (c *Creation) found(ctx context.Context, cell string) error {
 	if err != nil {
 		return err
 	}
-	profile, err := regionProfile(filepath.Join(home, ".oci", "config"), c.OCIRegion)
+	profile, err := regionProfile(filepath.Join(home, ".oci", "config"), c.entry.OCIRegion)
 	if err != nil {
 		return err
 	}
@@ -360,7 +410,7 @@ func (c *Creation) found(ctx context.Context, cell string) error {
 	if err := writeJSON(c.path("attempt.json"), config); err != nil {
 		return err
 	}
-	_, err = c.Run(ctx, false, "oci-region", "attempt", "--config", c.path("attempt.json"), "up")
+	_, err = c.Run(ctx, c.env, "oci-region", "attempt", "--config", c.path("attempt.json"), "up")
 	return err
 }
 
@@ -394,7 +444,7 @@ func regionProfile(path, region string) ([]byte, error) {
 }
 
 func (c *Creation) edgeCert(ctx context.Context, _ string) error {
-	_, err := c.Run(ctx, false, "oci-region", "public-api", "cert", "--plan", c.path("bound-plan.json"), "--apply")
+	_, err := c.Run(ctx, c.env, "oci-region", "public-api", "cert", "--plan", c.path("bound-plan.json"), "--apply")
 	return err
 }
 
@@ -411,7 +461,7 @@ func (c *Creation) edge(ctx context.Context, _ string) error {
 	if public, _ := bound["public_api"].(map[string]any); public["orch"] == true {
 		args = append(args, "--cell-ca", filepath.Join(material, "ca.pem"))
 	}
-	printed, err := c.Run(ctx, false, args...)
+	printed, err := c.Run(ctx, c.env, args...)
 	if err != nil {
 		return err
 	}
@@ -439,44 +489,7 @@ func lastLine(s string) string {
 }
 
 func (c *Creation) dns(ctx context.Context, _ string) error {
-	_, err := c.Run(ctx, false, "oci-region", "dns", "--plan", c.path("bound-plan.json"), "--apply")
-	return err
-}
-
-// atlas lists the region in the global home's Atlas section: one
-// root-signed amendment of the home cell's spec, planned by its leader.
-func (c *Creation) atlas(ctx context.Context, cell string) error {
-	var base struct {
-		Trust struct {
-			RootPublic  string `json:"root_public"`
-			RootPrivate string `json:"root_private"`
-		} `json:"trust"`
-	}
-	data, err := os.ReadFile(c.AttemptBase)
-	if err == nil {
-		err = json.Unmarshal(data, &base)
-	}
-	if err != nil || base.Trust.RootPublic == "" || base.Trust.RootPrivate == "" {
-		return fmt.Errorf("attempt base %s names no root trust keys: %v", c.AttemptBase, err)
-	}
-	candidate, signed := c.path("atlas.candidate.json"), c.path("atlas.signed.json")
-	// Every run plans from the home cell's current spec.
-	for _, path := range []string{candidate, signed} {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	}
-	if _, err := c.Run(ctx, true, "atlas", "add-region", "--config", c.HomeOperator, "--cell", cell, "--out", candidate); err != nil {
-		return err
-	}
-	if _, err := os.Stat(candidate); errors.Is(err, os.ErrNotExist) {
-		return nil // already listed
-	}
-	if _, err := c.Run(ctx, false, "release", "sign-spec", "--candidate", candidate, "--root",
-		"--root-key", base.Trust.RootPublic, "--signing-key", base.Trust.RootPrivate, "--out", signed); err != nil {
-		return err
-	}
-	_, err = c.Run(ctx, true, "apply", "--config", c.HomeOperator, "-f", signed)
+	_, err := c.Run(ctx, c.env, "oci-region", "dns", "--plan", c.path("bound-plan.json"), "--apply")
 	return err
 }
 
@@ -486,20 +499,29 @@ func Exec(out, errOut io.Writer) (Runner, error) {
 	if err != nil {
 		return nil, err
 	}
-	return func(ctx context.Context, sudo bool, args ...string) (string, error) {
+	return func(ctx context.Context, env []string, args ...string) (string, error) {
 		name := "ts-orch " + strings.Join(args[:min(2, len(args))], " ")
-		args = append([]string{executable}, args...)
-		if sudo {
-			args = append([]string{"sudo", "--preserve-env=PATH"}, args...)
-		}
 		var captured bytes.Buffer
-		command := exec.CommandContext(ctx, args[0], args[1:]...)
+		command := exec.CommandContext(ctx, executable, args...)
+		command.Env = append(os.Environ(), env...)
 		command.Stdout, command.Stderr = io.MultiWriter(out, &captured), errOut
 		if err := command.Run(); err != nil {
 			return "", fmt.Errorf("%s: %w", name, err)
 		}
 		return captured.String(), nil
 	}, nil
+}
+
+// OperatorSecrets resolves Vault refs with the operator's profile, in the
+// region each Vault OCID names.
+func OperatorSecrets(ctx context.Context, refs map[string]vaultsecret.Ref) (map[string]string, error) {
+	return vaultsecret.Resolve(ctx, refs, func(region string) (vaultsecret.BundleClient, error) {
+		factory, err := ociclient.OperatorConfig(region)
+		if err != nil {
+			return nil, err
+		}
+		return vaultsecret.SecretsClient(factory)
+	})
 }
 
 func writeJSON(path string, value any) error {
