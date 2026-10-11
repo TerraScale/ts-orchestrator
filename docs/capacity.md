@@ -180,8 +180,12 @@ leader keeps its own OCI cost report in `TS_OCI_COST`, and
 `ocicost.Project` is the one forecast. Each region's capacity status
 (below) carries its forecast, projected with its own pool nodes launched
 inside the forecast's rate window as pending cost, so a new node counts from
-the minute it exists, whatever the usage API's lag. The node price is OCI's
-list price for the recipe's shape (`regionops` price list).
+the minute it exists, whatever the usage API's lag. The node price is
+TS-807's `ocicost.NodeMonthlyCents` for the recipe's shape and its 50 GB boot
+volume, from the unit prices (amount over quantity per SKU) in the region's
+own usage report, in the billing currency. The controllers cannot reach OCI's
+public price list. A SKU the report has not seen leaves the price unknown, which
+holds growth. Inside Always Free a SKU prices at zero until the tier runs out.
 
 ### Allowances
 
@@ -259,8 +263,8 @@ steps, effectors) and `regionops` (the loop and the subscription effector).
 
 ### Guardrails
 
-- The budget: a new region needs headroom for its 3 nodes at the list price
-  for a whole month.
+- The budget: a new region needs headroom for its 3 nodes for a whole month,
+  each at the highest node price any region reports.
 - Never fewer than two serving regions, and never the home.
 - One region action at a time; 24 hours between region actions; 30 days
   before a removed region is added again.
