@@ -115,6 +115,7 @@ and its settings prefix; today only `terrabase` has one.
   so a request reaches another region's members over the links. TerraBase
   has `terrabase-wan` (TS-643's cross-region pulls) and `terrabase-stats`
   (TS-806's live database stats detail).
+- **Observations (TS-806).** Role users with `obs` tags publish their cell's `obs.<leaf>` (TerraBase: `obs.terrabase`); adding a leaf changes the role scope, so it ships with a cell account re-sign.
 - **No stream API beyond reads.** A stream create request names any
   subjects, so a role that could create its bucket could capture
   controller traffic. The leader creates each granted bucket before it

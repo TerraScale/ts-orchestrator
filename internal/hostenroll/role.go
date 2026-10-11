@@ -79,7 +79,10 @@ func (issuer *Issuer) IssueRole(role, node, userKey, csrPEM string, now time.Tim
 	for _, query := range grant.Queries {
 		claim.Tags.Add("query:" + query)
 	}
-	if len(grant.Queries) != 0 {
+	for _, leaf := range grant.Observations {
+		claim.Tags.Add("obs:" + leaf)
+	}
+	if len(grant.Queries) != 0 || len(grant.Observations) != 0 {
 		claim.Tags.Add("cell:" + strings.ToLower(issuer.Cell))
 	}
 	signer, err := roleidentity.Signer(issuer.NATSKey)

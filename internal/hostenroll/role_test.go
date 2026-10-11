@@ -131,7 +131,8 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	claim, err := jwt.DecodeUserClaims(rawJWT)
 	if err != nil || claim.Issuer != signerID || claim.IssuerAccount != cellID || claim.Subject != memberID ||
 		!claim.HasEmptyPermissions() || !claim.Tags.Contains("kv:terrabase_backup_leases") || claim.Expires != expires.Unix() ||
-		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("query:terrabase-stats") || !claim.Tags.Contains("cell:gru") {
+		!claim.Tags.Contains("query:terrabase-wan") || !claim.Tags.Contains("query:terrabase-stats") || !claim.Tags.Contains("obs:terrabase") ||
+		!claim.Tags.Contains("cell:gru") {
 		t.Fatalf("role JWT: %+v %v", claim, err)
 	}
 	leafBlock, rest := pem.Decode(chain)
@@ -195,6 +196,11 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer peer.Unsubscribe()
+	rollup, err := admin.SubscribeSync("ts.orch.v1.gru.obs.terrabase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rollup.Unsubscribe()
 	_ = member.Flush()
 	_ = admin.Flush()
 	if reply, err := admin.Request("ts.orch.v1.gru.query.terrabase-wan.heads", nil, 2*time.Second); err != nil || string(reply.Data) != "heads" {
@@ -202,6 +208,15 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	}
 	if reply, err := member.Request("ts.orch.v1.sfo.query.terrabase-wan.member.ts-sfo-1", nil, 2*time.Second); err != nil || string(reply.Data) != "pull" {
 		t.Fatalf("member could not query another cell: %v", err)
+	}
+	// TS-806's live stats: the member publishes its rollup on its own cell's
+	// obs.terrabase, and no other cell's or controller's observation leaf.
+	if err := member.Publish("ts.orch.v1.gru.obs.terrabase", []byte("rollup")); err != nil {
+		t.Fatal(err)
+	}
+	_ = member.Flush()
+	if msg, err := rollup.NextMsg(2 * time.Second); err != nil || string(msg.Data) != "rollup" {
+		t.Fatalf("member did not publish its cell's rollup: %v", err)
 	}
 	refused := func(subject string, do func() error) {
 		t.Helper()
@@ -226,4 +241,6 @@ func TestRoleUserReachesOnlyItsBuckets(t *testing.T) {
 	})
 	refused("ts.orch.v1.gru.query.machine.list", func() error { return member.Publish("ts.orch.v1.gru.query.machine.list", nil) })
 	refused("ts.orch.v1.gru.placement.apply", func() error { return member.Publish("ts.orch.v1.gru.placement.apply", nil) })
+	refused("ts.orch.v1.sfo.obs.terrabase", func() error { return member.Publish("ts.orch.v1.sfo.obs.terrabase", nil) })
+	refused("ts.orch.v1.gru.obs.region", func() error { return member.Publish("ts.orch.v1.gru.obs.region", nil) })
 }

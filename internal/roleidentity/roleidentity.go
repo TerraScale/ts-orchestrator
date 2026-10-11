@@ -44,6 +44,10 @@ type Grant struct {
 	// request in every cell: ts.orch.v1.<cell>.query.<verb>.>. The
 	// interregion contract carries every cell's query family as a service.
 	Queries []string
+	// Observations are regional observation leaves the members publish in
+	// their own cell only: ts.orch.v1.<cell>.obs.<leaf>. Never region or
+	// decisions, which are controller leaves.
+	Observations []string
 }
 
 // Grants is the per-role list. Add a role or a bucket here; its members get
@@ -52,10 +56,11 @@ var Grants = map[string]Grant{
 	// TS-633's backup shipper lease; TerraBase's NatsLeaseStore binds it.
 	// TS-643's cross-region pulls: members answer terrabase-wan queries in
 	// their cell and ask other cells' members over the interregion links.
-	// TS-806's live database stats: members answer terrabase-stats detail requests in their cell.
+	// TS-806's live stats: members answer terrabase-stats detail requests in
+	// their cell and publish their rollup on their cell's obs.terrabase.
 	"terrabase": {EnvPrefix: "TERRABASE_NATS_", Buckets: []Bucket{
 		{Name: "terrabase_backup_leases", TTL: 15 * time.Second, History: 1, Memory: true},
-	}, Queries: []string{"terrabase-wan", "terrabase-stats"}},
+	}, Queries: []string{"terrabase-wan", "terrabase-stats"}, Observations: []string{"terrabase"}},
 }
 
 // Reserved reports whether key is a launch setting the host sets for role's
@@ -103,6 +108,8 @@ func Scope(key string) *jwt.UserScope {
 	// cell tag; a user without a query tag gets neither subject.
 	publish, subscribe := protocol.RoleQueryTemplates("{{tag(cell)}}", "{{tag(query)}}")
 	scope.Template.Pub.Allow = append(scope.Template.Pub.Allow, publish)
+	// A user without an obs tag gets no observation subject, as with query tags.
+	scope.Template.Pub.Allow = append(scope.Template.Pub.Allow, protocol.RoleObservationTemplate("{{tag(cell)}}", "{{tag(obs)}}"))
 	// ponytail: role users share NATS clients' default reply prefix, so one
 	// role can see another role's JetStream replies; ts-orch's own users
 	// reply on private prefixes. Template _INBOX.{{subject()}}.> once roles

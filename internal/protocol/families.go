@@ -266,6 +266,13 @@ func RoleQueryTemplates(cell, verb string) (publish, subscribe string) {
 	return SubjectRoot + ".*.query." + verb + ".>", SubjectRoot + "." + cell + ".query." + verb + ".>"
 }
 
+// RoleObservationTemplate is a role user's regional observation publish grant
+// (TS-806), with cell and leaf as user-template expressions: it publishes leaf
+// in its own cell only.
+func RoleObservationTemplate(cell, leaf string) string {
+	return SubjectRoot + "." + cell + ".obs." + leaf
+}
+
 // InboxPrefix is a user's private reply inbox prefix without the trailing ">".
 func InboxPrefix(cell, userKey string) string { return Regional(cell, "inbox", userKey) }
 
