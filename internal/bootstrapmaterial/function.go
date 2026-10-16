@@ -38,6 +38,15 @@ func (issuer *ControllerIssuer) IssueFunctionCredentials(admitted release.Verifi
 // IssueFunctionTLS issues only the admitted function's fixed server identity.
 // The returned issuer certificate is public; its signing key stays here.
 func (issuer *ControllerIssuer) IssueFunctionTLS(admitted release.VerifiedFunction) (certPEM, keyPEM, issuerPEM []byte, err error) {
+	return issuer.issueFunctionTLS(admitted, x509.ExtKeyUsageServerAuth)
+}
+
+// IssueFunctionClientTLS issues only the admitted tenant/function's client identity.
+func (issuer *ControllerIssuer) IssueFunctionClientTLS(admitted release.VerifiedFunction) (certPEM, keyPEM, issuerPEM []byte, err error) {
+	return issuer.issueFunctionTLS(admitted, x509.ExtKeyUsageClientAuth)
+}
+
+func (issuer *ControllerIssuer) issueFunctionTLS(admitted release.VerifiedFunction, usage x509.ExtKeyUsage) (certPEM, keyPEM, issuerPEM []byte, err error) {
 	if issuer == nil || issuer.cert == nil || issuer.key == nil || !admitted.Valid() {
 		return nil, nil, nil, errors.New("function TLS issuance requires a current admitted release and controller generation")
 	}
@@ -59,8 +68,11 @@ func (issuer *ControllerIssuer) IssueFunctionTLS(admitted release.VerifiedFuncti
 	name := claim.FunctionID + "." + strings.ToLower(claim.TenantID) + ".functions." + strings.ToLower(claim.Cell) + ".terrascale.internal"
 	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: name},
 		NotBefore: now.Add(-issuedBackdate), NotAfter: expires, KeyUsage: x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSNames: []string{name},
-		URIs: []*url.URL{{Scheme: "spiffe", Host: "terrascale.tech", Path: "/tenants/" + claim.TenantID + "/functions/" + claim.FunctionID}}}
+		ExtKeyUsage: []x509.ExtKeyUsage{usage},
+		URIs:        []*url.URL{{Scheme: "spiffe", Host: "terrascale.tech", Path: "/tenants/" + claim.TenantID + "/functions/" + claim.FunctionID}}}
+	if usage == x509.ExtKeyUsageServerAuth {
+		template.DNSNames = []string{name}
+	}
 	der, err := x509.CreateCertificate(rand.Reader, template, issuer.cert, &key.PublicKey, issuer.key)
 	if err != nil {
 		return nil, nil, nil, err
