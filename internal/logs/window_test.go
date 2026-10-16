@@ -1,7 +1,7 @@
 package logs
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -19,14 +19,14 @@ func TestNormalizeReplacesVolatileParts(t *testing.T) {
 		{"store abc1f9 at deadbeef01", "store N at N"},
 		{"word dead beef", "word dead beef"},
 	} {
-		if got := Normalize(tc.in); got != tc.want {
+		if got := journalRecords(t, Entry{Comm: "node", Message: tc.in})[0].Message; got != tc.want {
 			t.Errorf("Normalize(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
 
 func TestNormalizeKeepsAtMost160BytesAtAUTF8Boundary(t *testing.T) {
-	got := Normalize(strings.Repeat("é", 200))
+	got := journalRecords(t, Entry{Comm: "node", Message: strings.Repeat("é", 200)})[0].Message
 	if len(got) > 160 || len(got)%2 != 0 || got != strings.Repeat("é", len(got)/2) {
 		t.Fatalf("Normalize kept %d bytes, want at most 160 whole runes", len(got))
 	}
@@ -38,7 +38,7 @@ func TestCounterCountsClassesAndKeepsTheFirstExample(t *testing.T) {
 	c.Add(Record{Service: "terrabase", Level: LevelWarn, Component: "Sender", Message: "retry N", Example: "retry 2"})
 	c.Add(Record{Service: "terrabase", Level: LevelError, Component: "Sender", Message: "retry N", Example: "retry 3"})
 
-	window := c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC))
+	window := persistedWindow(t, c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)))
 	want := []Class{
 		{Service: "terrabase", Level: LevelWarn, Component: "Sender", Message: "retry N", Count: 2, Example: "retry 1"},
 		{Service: "terrabase", Level: LevelError, Component: "Sender", Message: "retry N", Count: 1, Example: "retry 3"},
@@ -52,8 +52,8 @@ func TestFlushStartsTheNextMinuteEmptyAndNumbersWindows(t *testing.T) {
 	c := NewCounter("gru", "gru-1-ctl-1")
 	minute := time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)
 	c.Add(Record{Service: "x", Level: LevelInfo, Message: "a"})
-	first := c.Flush(minute)
-	second := c.Flush(minute.Add(time.Minute))
+	first := persistedWindow(t, c.Flush(minute))
+	second := persistedWindow(t, c.Flush(minute.Add(time.Minute)))
 
 	if first.Seq != 0 || second.Seq != 1 || first.Boot != second.Boot || first.Boot == "" {
 		t.Fatalf("seq %d, %d; boot %q, %q", first.Seq, second.Seq, first.Boot, second.Boot)
@@ -61,7 +61,7 @@ func TestFlushStartsTheNextMinuteEmptyAndNumbersWindows(t *testing.T) {
 	if len(second.Classes) != 0 || second.Classes == nil {
 		t.Fatalf("silent minute classes = %#v, want an empty list", second.Classes)
 	}
-	if other := NewCounter("gru", "gru-1-ctl-1"); other.Flush(minute).Boot == first.Boot {
+	if other := NewCounter("gru", "gru-1-ctl-1"); persistedWindow(t, other.Flush(minute)).Boot == first.Boot {
 		t.Fatal("a new counter reused the boot")
 	}
 }
@@ -69,7 +69,7 @@ func TestFlushStartsTheNextMinuteEmptyAndNumbersWindows(t *testing.T) {
 func TestWindowJSONMatchesWindowV1(t *testing.T) {
 	c := NewCounter("gru", "gru-1-ctl-1")
 	c.Add(Record{Service: "ts-orchestrator", Level: LevelWarn, Component: "nats", Message: "slow consumer N", Example: "[1] [WRN] slow consumer 3"})
-	data, err := json.Marshal(c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)))
+	data, err := json.Marshal(persistedWindow(t, c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestFlushKeepsTheMostFrequent128ClassesAndCountsTheRest(t *testing.T) {
 			c.Add(Record{Service: "terrabase", Level: LevelWarn, Message: fmt.Sprintf("class %03d", i)})
 		}
 	}
-	window := c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC))
+	window := persistedWindow(t, c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)))
 	if len(window.Classes) != 128 || window.Classes[0].Count != 130 || window.Classes[127].Count != 3 {
 		t.Fatalf("kept %d classes, first %d, last %d", len(window.Classes), window.Classes[0].Count, window.Classes[127].Count)
 	}
@@ -104,7 +104,7 @@ func TestFlushOrdersTiesBySeverityThenText(t *testing.T) {
 	c.Add(Record{Service: "a", Level: LevelInfo, Message: "b"})
 	c.Add(Record{Service: "a", Level: LevelError, Message: "z"})
 	c.Add(Record{Service: "a", Level: LevelWarn, Message: "a"})
-	window := c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC))
+	window := persistedWindow(t, c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)))
 	var levels []string
 	for _, class := range window.Classes {
 		levels = append(levels, class.Level)
@@ -120,7 +120,7 @@ func TestFlushKeepsEachWindowUnder64KiB(t *testing.T) {
 	for i := range 128 {
 		c.Add(Record{Service: "terrabase", Level: LevelWarn, Message: fmt.Sprintf("%03d%s", i, long), Example: strings.Repeat("e", 512)})
 	}
-	window := c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC))
+	window := persistedWindow(t, c.Flush(time.Date(2026, 10, 9, 19, 31, 0, 0, time.UTC)))
 	data, err := json.Marshal(window)
 	if err != nil {
 		t.Fatal(err)
