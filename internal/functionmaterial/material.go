@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/nats-io/nkeys"
 )
 
 var ErrMaterial = errors.New("function material is not current for the admitted task and recipient")
@@ -38,14 +39,19 @@ type Binding struct {
 // Recipient is installed from the host's authenticated bootstrap and local node.
 type Recipient struct{ NodeID, InstanceID, Region, HostID string }
 
-// PublicTrust contains only verified generation metadata and public broker material.
+// PublicTrust contains only checked material identity and public broker material.
 // Its zero value cannot authorize a delivery.
 type PublicTrust struct {
-	generation bootstrap.VerifiedMaterialGeneration
-	operator   *jwt.OperatorClaims
-	brokerCA   []byte
-	brokerURL  string
-	expiresAt  time.Time
+	fingerprint   string
+	cell          string
+	environment   string
+	cellAccount   string
+	accountSigner string
+	issuerSHA256  string
+	operator      *jwt.OperatorClaims
+	brokerCA      []byte
+	brokerURL     string
+	expiresAt     time.Time
 }
 
 func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT, brokerCA []byte, brokerURL string) (PublicTrust, error) {
@@ -61,9 +67,27 @@ func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT
 		}
 		return false
 	}
+	issuerSHA256 := ""
+	for _, ref := range gen.Secrets {
+		if ref.TargetFile == "controller-tls-issuer-cert.pem" {
+			issuerSHA256 = ref.SHA256
+		}
+	}
+	if !pinned("operator.jwt", operatorJWT) || !pinned("ca.pem", brokerCA) {
+		return PublicTrust{}, ErrMaterial
+	}
+	return newPublicTrust(PublicTrust{fingerprint: generation.Fingerprint(), cell: string(gen.Cell), environment: gen.Environment,
+		cellAccount: gen.CellAccount, accountSigner: gen.AccountSigner, issuerSHA256: issuerSHA256, expiresAt: generation.ExpiresAt()}, gen.Operator, operatorJWT, brokerCA, brokerURL)
+}
+
+func newPublicTrust(identity PublicTrust, operatorKey string, operatorJWT, brokerCA []byte, brokerURL string) (PublicTrust, error) {
+	if !materialDigest(identity.fingerprint) || !materialDigest(identity.issuerSHA256) || !catalog.IsCell(identity.cell) ||
+		identity.environment != "production" && identity.environment != "canary" || !nkeys.IsValidPublicOperatorKey(operatorKey) ||
+		!nkeys.IsValidPublicAccountKey(identity.cellAccount) || !nkeys.IsValidPublicAccountKey(identity.accountSigner) || !time.Now().Before(identity.expiresAt) {
+		return PublicTrust{}, ErrMaterial
+	}
 	operator, err := jwt.DecodeOperatorClaims(strings.TrimSpace(string(operatorJWT)))
-	if err != nil || !pinned("operator.jwt", operatorJWT) || !pinned("ca.pem", brokerCA) ||
-		operator.Subject != gen.Operator || operator.Issuer != gen.Operator || !operator.DidSign(operator) {
+	if err != nil || operator.Subject != operatorKey || operator.Issuer != operatorKey || !operator.DidSign(operator) {
 		return PublicTrust{}, ErrMaterial
 	}
 	validation := jwt.CreateValidationResults()
@@ -79,11 +103,15 @@ func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT
 	if !pool.AppendCertsFromPEM(brokerCA) {
 		return PublicTrust{}, ErrMaterial
 	}
-	expires := generation.ExpiresAt()
 	if operator.Expires != 0 {
-		expires = minTime(expires, time.Unix(operator.Expires, 0))
+		identity.expiresAt = minTime(identity.expiresAt, time.Unix(operator.Expires, 0))
 	}
-	return PublicTrust{generation: generation, operator: operator, brokerCA: bytes.Clone(brokerCA), brokerURL: brokerURL, expiresAt: expires}, nil
+	identity.operator, identity.brokerCA, identity.brokerURL = operator, bytes.Clone(brokerCA), brokerURL
+	return identity, nil
+}
+
+func materialDigest(value string) bool {
+	return len(value) == 64 && strings.Trim(value, "0123456789abcdef") == ""
 }
 
 type intentReader interface {
@@ -166,20 +194,19 @@ func (reader Reader) currentAccount(ctx context.Context, proof release.VerifiedF
 	if reader.Accounts == nil || reader.Trust.operator == nil || !time.Now().Before(reader.Trust.expiresAt) || !proof.Valid() {
 		return brokerauth.Claim{}, ErrMaterial
 	}
-	generation := reader.Trust.generation.Generation()
 	claim := proof.Claim()
-	if claim.Environment != generation.Environment || claim.Cell != string(generation.Cell) {
+	if claim.Environment != reader.Trust.environment || claim.Cell != reader.Trust.cell {
 		return brokerauth.Claim{}, ErrMaterial
 	}
-	account, err := reader.Accounts.Read(ctx, generation.CellAccount)
+	account, err := reader.Accounts.Read(ctx, reader.Trust.cellAccount)
 	if err != nil {
 		return brokerauth.Claim{}, err
 	}
-	decoded, err := brokerauth.DecodeAccountJWT(account.JWT, generation.CellAccount)
-	if err != nil || account.Sequence == 0 || account.Account != generation.CellAccount || account.Cell != strings.ToLower(string(generation.Cell)) || !reader.Trust.operator.DidSign(decoded) {
+	decoded, err := brokerauth.DecodeAccountJWT(account.JWT, reader.Trust.cellAccount)
+	if err != nil || account.Sequence == 0 || account.Account != reader.Trust.cellAccount || account.Cell != strings.ToLower(reader.Trust.cell) || !reader.Trust.operator.DidSign(decoded) {
 		return brokerauth.Claim{}, ErrMaterial
 	}
-	scope, registered := decoded.SigningKeys.GetScope(generation.AccountSigner)
+	scope, registered := decoded.SigningKeys.GetScope(reader.Trust.accountSigner)
 	if !registered || scope != nil {
 		return brokerauth.Claim{}, ErrMaterial
 	}
