@@ -237,6 +237,11 @@ func (signer functionPublicationSigner) proof(t *testing.T, sequence uint64, rev
 
 func (signer functionPublicationSigner) worker(t *testing.T, target release.ContainerTarget) (release.ContainerBundle, func(context.Context, string) (io.ReadCloser, error)) {
 	t.Helper()
+	return signer.workerUntil(t, target, time.Now().UTC().Truncate(time.Second).Add(time.Minute))
+}
+
+func (signer functionPublicationSigner) workerUntil(t *testing.T, target release.ContainerTarget, expires time.Time) (release.ContainerBundle, func(context.Context, string) (io.ReadCloser, error)) {
+	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	signerPublic := signer.leaf.Public().(ed25519.PublicKey)
 	signerID, err := trust.KeyID(signerPublic)
@@ -304,7 +309,7 @@ func (signer functionPublicationSigner) worker(t *testing.T, target release.Cont
 		Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101,
 		SequenceMigrationSHA256: migrationSHA, QualificationSHA256: qualification.Candidate.QualificationSHA256,
 		Production: release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), signer.root, now.Add(2*time.Hour))}}
-	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, now.Add(time.Minute)), Delegation: delegationWire, Migration: migrationWire},
+	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, expires), Delegation: delegationWire, Migration: migrationWire},
 		func(context.Context, string) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(evidence)), nil
 		}
