@@ -257,7 +257,13 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
-		return t.Start(ctx)
+		if err := t.Start(ctx); err != nil {
+			return err
+		}
+		if c.stateful != nil {
+			return c.stateful.observe(ctx)
+		}
+		return nil
 	case containerd.Stopped:
 		return fmt.Errorf("durable task already exited with status %d", status.ExitStatus)
 	default:
