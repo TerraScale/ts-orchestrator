@@ -100,6 +100,7 @@ type nativeQualification struct {
 	peer       *exec.Cmd
 	runID      string
 	clientPath string
+	artifacts  map[string]protocol.Artifact
 	private    nativePrivate
 }
 
@@ -312,6 +313,17 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 }
 
 func (w *nativeQualification) stage(ctx context.Context, c protocol.Command) error {
+	if len(c.Artifacts) != 3 {
+		return errors.New("native foundation requires three admitted archives")
+	}
+	w.artifacts = make(map[string]protocol.Artifact, 3)
+	for _, artifact := range c.Artifacts {
+		if _, exists := w.artifacts[artifact.Role]; exists {
+			return errors.New("duplicate native artifact")
+		}
+		w.artifacts[artifact.Role] = artifact
+	}
+
 	for _, dir := range []string{DataDirectory, DataDirectory + "/data", DataDirectory + "/data/foundation-tls", filepath.Dir(ConfigPath), stackDirectory} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
@@ -392,6 +404,21 @@ func (w *nativeQualification) ensureFoundation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	for _, component := range components {
+		role := strings.TrimPrefix(component.ID, "netbird-")
+		artifact, ok := w.artifacts[role]
+		if !ok || artifact.Image != component.Image {
+			return errors.New("native artifact differs from production pin")
+		}
+		image, err := w.runtime.client.GetImage(foundationContext(ctx), component.Image)
+		if err != nil {
+			return err
+		}
+		_, digest, ok := strings.Cut(component.Image, "@")
+		if !ok || image.Target().Digest.String() != digest {
+			return errors.New("native image descriptor differs from production pin")
+		}
+	}
 	for _, component := range components[:2] {
 		if err = w.runtime.ensure(ctx, component, w.target.Check); err != nil {
 			return err
@@ -402,6 +429,15 @@ func (w *nativeQualification) ensureFoundation(ctx context.Context) error {
 	}
 	if _, err = Bootstrap(ctx, localOrigin, DataDirectory+"/data/terrascale-identity", w.target); err != nil {
 		return err
+	}
+	api, err := manager.NewFencedAPI(localOrigin, w.token(), w.target.Check)
+	if err != nil {
+		return err
+	}
+	baselineErr := manager.RestrictBaseline(ctx, api)
+	api.Close()
+	if baselineErr != nil {
+		return baselineErr
 	}
 	if err = w.runtime.ensure(ctx, components[2], w.target.Check); err != nil {
 		return err
@@ -427,7 +463,7 @@ func (w *nativeQualification) token() string {
 }
 
 func (w *nativeQualification) seed(ctx context.Context, c protocol.Command) error {
-	api, err := manager.NewAPI(localOrigin, w.token())
+	api, err := manager.NewFencedAPI(localOrigin, w.token(), w.target.Check)
 	if err != nil {
 		return err
 	}
