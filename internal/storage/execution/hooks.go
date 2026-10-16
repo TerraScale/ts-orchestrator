@@ -51,6 +51,7 @@ type Hooks struct {
 	Authority authority.Fencer
 	Volumes   oci.VolumeInitializationInspector
 	Bindings  BindingSource
+	Worker    *WorkerSession
 }
 
 type activeEffect interface {
@@ -103,6 +104,27 @@ func (h *Hooks) WithTaskEffect(ctx context.Context, task *api.Task, effect func(
 	if !Stateful(task) {
 		return effect(ctx)
 	}
+
+	apply := func(ctx context.Context, expected *Binding) error {
+		binding, err := h.resolve(ctx, task)
+		if err != nil {
+			return err
+		}
+		if expected != nil && binding != *expected {
+			return ErrUnsafe
+		}
+		held := &heldEffect{hooks: h, binding: binding}
+		held.active.Store(true)
+		defer held.active.Store(false)
+		ctx = context.WithValue(ctx, heldKey{}, held)
+		if err := h.check(ctx, task); err != nil {
+			return err
+		}
+		return effect(ctx)
+	}
+	if h != nil && h.Worker != nil {
+		return h.Worker.WithTaskEffect(ctx, task, func(ctx context.Context) error { return apply(ctx, nil) })
+	}
 	binding, err := h.resolve(ctx, task)
 	if err != nil {
 		return err
@@ -117,18 +139,19 @@ func (h *Hooks) WithTaskEffect(ctx context.Context, task *api.Task, effect func(
 		return err
 	}
 	defer release()
-	held := &heldEffect{hooks: h, binding: binding}
-	held.active.Store(true)
-	defer held.active.Store(false)
-	ctx = context.WithValue(ctx, heldKey{}, held)
-	if err := h.check(ctx, task); err != nil {
-		return err
-	}
-	return effect(ctx)
+	return apply(ctx, &binding)
 }
 
 func (h *Hooks) resolve(ctx context.Context, task *api.Task) (Binding, error) {
-	if h == nil || h.Authority == nil || h.Volumes == nil || h.Bindings == nil {
+	if h == nil || h.Bindings == nil {
+		return Binding{}, ErrUnsafe
+	}
+	if h.Worker != nil {
+		source, ok := h.Bindings.(*Source)
+		if !ok || !h.Worker.ownsSource(source) {
+			return Binding{}, ErrUnsafe
+		}
+	} else if h.Authority == nil || h.Volumes == nil {
 		return Binding{}, ErrUnsafe
 	}
 	binding, err := h.Bindings.VerifyTaskBinding(ctx, task)
@@ -147,6 +170,9 @@ func (h *Hooks) resolve(ctx context.Context, task *api.Task) (Binding, error) {
 		binding.Volume.AttachmentID == "" || binding.Volume.AttachmentETag == "" || binding.Volume.Device == "" ||
 		binding.Volume.FileSystemUUID == "" || binding.Volume.FileSystemType != "ext4" && binding.Volume.FileSystemType != "xfs" {
 		return Binding{}, ErrUnsafe
+	}
+	if h.Worker != nil {
+		return binding, nil
 	}
 	snapshot := h.Authority.Current()
 	if !snapshot.CanMutate() || snapshot.Epoch != binding.Epoch {
@@ -169,6 +195,11 @@ func (h *Hooks) check(ctx context.Context, task *api.Task) error {
 	if !ok || held.hooks != h || !held.active.Load() {
 		return ErrUnsafe
 	}
+	if h.Worker != nil {
+		if err := h.Worker.CheckHeld(ctx, task); err != nil {
+			return err
+		}
+	}
 	binding, err := h.resolve(ctx, task)
 	if err != nil {
 		return err
@@ -185,6 +216,9 @@ func (h *Hooks) volume(ctx context.Context, task *api.Task) error {
 	}
 	if !Stateful(task) {
 		return nil
+	}
+	if h.Worker != nil {
+		return h.check(ctx, task)
 	}
 	held := ctx.Value(heldKey{}).(*heldEffect)
 	proof, err := h.Volumes.InspectVolumeInitialization(ctx, held.binding.Volume)
