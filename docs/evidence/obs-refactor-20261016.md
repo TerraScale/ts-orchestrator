@@ -24,16 +24,16 @@ the QA-approved capacity lock. No unbounded background check remains.
 
 1. Clean `da1637f7`, focused `TestMetricCatalog|TestObserve|TestMetricDashboard`
    across observability, CLI, dashboard subpackages and globalview: passed.
-   Log `/tmp/ts-obs-shared-api-check.log`.
+   Log [da1637f7.log](obs-checks-20261016/da1637f7.log).
 2. Clean `4bd2f088`, full observability, CLI, dashboard subpackages and globalview:
    dashboard/accesscheck/devfake/globalview passed. Observability found three
    fixture failures, subsequently fixed by `06b36a30`. CLI compilation found an
-   unused shared app import; QA fixed it. Log `/tmp/ts-obs-affected-4bd2f088.log`.
+   unused shared app import; QA fixed it. Log [4bd2f088.log](obs-checks-20261016/4bd2f088.log).
 3. Clean `c5958f9a`, focused
    `TestObserve|TestMetricCatalog|TestServerValidates|TestHostMetric|TestBoundHostMetric|TestDrill|TestUnreadVolumes`:
    observability passed in 57.952 seconds. CLI/dashboard compilation stopped at
    shared `internal/release/container.go` references to missing `ProductionProof`.
-   These consumers remain unverified. Log `/tmp/ts-obs-affected-c5958f9a.log`.
+   These consumers remain unverified. Log [c5958f9a.log](obs-checks-20261016/c5958f9a.log).
 
 ## Migration inventory
 
