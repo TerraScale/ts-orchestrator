@@ -20,7 +20,7 @@ import (
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
-	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff"} {
+	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff", "search misses node", "terminal resources", "repeated page", "boot ancestry", "ambiguous boot ancestry"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
 			var compartments []string
@@ -53,6 +53,31 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						currency = "EUR"
 					}
 					fmt.Fprintf(w, `{"lastUpdated":%q,"items":[{"partNumber":%q,"metricName":%q,"currencyCodeLocalizations":[{"currencyCode":%q,"prices":[{"model":"PAY_AS_YOU_GO","value":0},{"model":"PAY_AS_YOU_GO","value":%v}]}]}]}`, time.Now().UTC().Format(time.RFC3339), r.URL.Query().Get("partNumber"), metric, currency, price)
+				case r.Method == http.MethodGet && (r.URL.Path == "/20160918/instances" || r.URL.Path == "/20160918/volumes" || r.URL.Path == "/20160918/bootVolumes"):
+					if r.Header.Get("Authorization") == "" {
+						t.Error("unsigned direct inventory request")
+					}
+					compartment := r.URL.Query().Get("compartmentId")
+					if scenario == "region unavailable" && strings.HasSuffix(compartment, "sfo") {
+						http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"unavailable"}`, http.StatusNotFound)
+						return
+					}
+					kind, state := "instance-", "RUNNING"
+					if strings.HasSuffix(r.URL.Path, "/volumes") {
+						kind, state = "volume-", "AVAILABLE"
+					}
+					if strings.HasSuffix(r.URL.Path, "/bootVolumes") {
+						if strings.Contains(scenario, "boot ancestry") {
+							fmt.Fprintf(w, `[{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE"}]`, "boot-"+compartment, compartment)
+						} else {
+							fmt.Fprint(w, `[]`)
+						}
+						return
+					}
+					if scenario == "repeated page" && kind == "instance-" {
+						w.Header().Set("opc-next-page", "same")
+					}
+					fmt.Fprintf(w, `[{"id":%q,"compartmentId":%q,"lifecycleState":%q}]`, kind+compartment, compartment, state)
 				case r.Method == http.MethodPost && r.URL.Path == "/20180409/resources":
 					if r.Header.Get("Authorization") == "" {
 						t.Error("unsigned inventory request")
@@ -74,6 +99,10 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 						http.Error(w, `{"code":"NotAuthorizedOrNotFound","message":"unavailable"}`, http.StatusNotFound)
 						return
 					}
+					if scenario == "search misses node" {
+						fmt.Fprint(w, `{"items":[]}`)
+						return
+					}
 					fmt.Fprintf(w, `{"items":[{"identifier":%q,"compartmentId":%q,"resourceType":"Instance","lifecycleState":"RUNNING"},{"identifier":%q,"compartmentId":%q,"resourceType":"Volume","lifecycleState":"AVAILABLE"}]}`, "instance-"+compartment, compartment, "volume-"+compartment, compartment)
 				case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/instances/"):
 					id := strings.TrimPrefix(r.URL.Path, "/20160918/instances/")
@@ -85,11 +114,33 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 					if scenario == "unknown shape" {
 						shape = "VM.Unknown.Flex"
 					}
-					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"shape":%q,"lifecycleState":"RUNNING","shapeConfig":{"ocpus":2,"memoryInGBs":4},"freeformTags":{"ts-operation-id":"operation-1","ts-recipe-sha256":%q}}`, id, compartment, shape, strings.Repeat("a", 64))
+					state := "RUNNING"
+					if scenario == "terminal resources" {
+						state = "TERMINATED"
+					}
+					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"availabilityDomain":"AD-1","shape":%q,"lifecycleState":%q,"shapeConfig":{"ocpus":2,"memoryInGBs":4},"freeformTags":{"ts-operation-id":"operation-1","ts-recipe-sha256":%q}}`, id, compartment, shape, state, strings.Repeat("a", 64))
+				case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/bootVolumes/"):
+					id := strings.TrimPrefix(r.URL.Path, "/20160918/bootVolumes/")
+					compartment := strings.TrimPrefix(id, "boot-")
+					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"availabilityDomain":"AD-1","lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10}`, id, compartment)
+				case r.Method == http.MethodGet && r.URL.Path == "/20160918/bootVolumeAttachments":
+					compartment := r.URL.Query().Get("compartmentId")
+					if r.URL.Query().Get("availabilityDomain") != "AD-1" || r.URL.Query().Get("bootVolumeId") != "boot-"+compartment {
+						t.Error("boot ancestry omitted exact AD and volume filter")
+					}
+					fmt.Fprintf(w, `[{"id":"attachment-1","compartmentId":%q,"availabilityDomain":"AD-1","bootVolumeId":%q,"instanceId":%q,"lifecycleState":"ATTACHED"}`, compartment, "boot-"+compartment, "instance-"+compartment)
+					if scenario == "ambiguous boot ancestry" {
+						fmt.Fprintf(w, `,{"id":"attachment-2","compartmentId":%q,"availabilityDomain":"AD-1","bootVolumeId":%q,"instanceId":"another-instance","lifecycleState":"ATTACHED"}`, compartment, "boot-"+compartment)
+					}
+					fmt.Fprint(w, `]`)
 				case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/volumes/"):
 					id := strings.TrimPrefix(r.URL.Path, "/20160918/volumes/")
 					compartment := strings.TrimPrefix(id, "volume-")
-					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10,"isAutoTuneEnabled":%t}`, id, compartment, scenario == "autotuned disk")
+					state := "AVAILABLE"
+					if scenario == "terminal resources" {
+						state = "TERMINATED"
+					}
+					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":%q,"sizeInGBs":50,"vpusPerGB":10,"isAutoTuneEnabled":%t}`, id, compartment, state, scenario == "autotuned disk")
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL)
 					http.NotFound(w, r)
@@ -145,7 +196,21 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 					t.Fatal("provider operation evidence lost")
 				}
 			}
-			if scenario != "observed" && len(result.Pending) <= 2 {
+			if scenario == "search misses node" && (len(result.Resources) != 4 || result.MonthlyCents != 7421) {
+				t.Fatalf("direct lists lost resources omitted by search: %+v", result)
+			}
+			if strings.Contains(scenario, "boot ancestry") && (len(result.Resources) != 6 || result.MonthlyCents != 7847) {
+				t.Fatalf("boot charges lost during ancestry reconciliation: %+v", result)
+			}
+			if scenario == "boot ancestry" && !slices.ContainsFunc(result.Resources, func(r Resource) bool {
+				return strings.HasPrefix(r.ID, "boot-") && r.OperationID == "operation-1" && r.RecipeSHA256 == strings.Repeat("a", 64)
+			}) {
+				t.Fatal("actual boot attachment ancestry lost operation attribution")
+			}
+			if scenario == "terminal resources" && (len(result.Resources) != 4 || result.MonthlyCents != 0 || !slices.ContainsFunc(result.Resources, func(r Resource) bool { return r.LifecycleState == "TERMINATED" })) {
+				t.Fatalf("positive terminal observations lost: %+v", result)
+			}
+			if scenario != "observed" && scenario != "search misses node" && scenario != "terminal resources" && scenario != "boot ancestry" && len(result.Pending) <= 2 {
 				t.Fatalf("source failure lost: %+v", result)
 			}
 			if scenario == "region unavailable" && len(result.CoveredCompartments) != 1 {
