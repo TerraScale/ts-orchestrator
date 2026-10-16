@@ -5,6 +5,7 @@ package execution
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
@@ -116,6 +117,15 @@ func TestContainerdEmergencyStopRetainsExactIdentity(t *testing.T) {
 	}
 	held := &workerTaskSession{task: task, pins: &RuntimePins{Task: task, Resources: *spec.Linux.Resources},
 		observation: RuntimeObservation{Process: observed, ContainerID: id, PIDNamespace: pidNS.Ino, MountNamespace: mountNS.Ino, State: containerd.Running}}
+	// Recovery restores exported kernel pins, not memberstatus's private namespace cache.
+	wire, err := json.Marshal(held.observation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held.observation = RuntimeObservation{}
+	if err := json.Unmarshal(wire, &held.observation); err != nil {
+		t.Fatal(err)
+	}
 	session := &WorkerSession{client: client, tasks: map[string]*workerTaskSession{hash: held}}
 	witness := held.observation
 	// The real kernel witness is retained directly; this does not qualify Source admission.
