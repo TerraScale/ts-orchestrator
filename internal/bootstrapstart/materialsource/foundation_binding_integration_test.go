@@ -255,6 +255,17 @@ func TestBoundFoundationStartupSDKCAS(t *testing.T) {
 				}
 			}
 			observationMu.Unlock()
+			compartmentPath := "/20160918/compartments/" + ids["control_compartment"]
+			observationMu.Lock()
+			live[compartmentPath]["compartmentId"] = "ocid1.compartment.oc1..replacedparent"
+			observationMu.Unlock()
+			changedFactsErr := verified.VerifyCurrentContext(t.Context(), now)
+			observationMu.Lock()
+			live[compartmentPath]["compartmentId"] = grant.ParentCompartmentID
+			observationMu.Unlock()
+			if changedFactsErr == nil {
+				t.Fatal("startup revalidation accepted a changed live OCI compartment parent")
+			}
 			if _, err := bootstrap.VerifyBoundStartupTemplate(t.Context(), factory, wire, trust.Keyring{}, anchor, now); err == nil {
 				t.Fatal("startup accepted revoked roots")
 			}
