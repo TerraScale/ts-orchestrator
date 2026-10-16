@@ -6,6 +6,11 @@ supervision and generic rollout machinery, including their dependent code and
 tooling. `ts-orch` remains the single Go binary, cluster CLI and dashboard,
 owning OCI/NetBird integration around SwarmKit.
 
+**Review all project code and its connected callers, configuration, workflows,
+tests and dependencies to make automatic deployment across every authorized
+region easier, faster and simpler, with fewer dependencies.** Remove superseded
+paths as the replacement lands. This is a required outcome of the refactor.
+
 Start the migration on disposable A1 Flex capacity with automatic regional
 formation, one containerd executor and a healthy rolling container deployment.
 Prove ARM/x86 placement, host replacement and database safety before production
@@ -13,7 +18,7 @@ cutover. Qualify customer Wasm on the same capacity model.
 
 ## Status and decisions
 
-Planning revision, 2026-10-16. Code baseline: `5fbe42a8`; original plan: `7a65ad45`.
+Planning revision, 2026-10-16. Code baseline: `35fde887`; original plan: `7a65ad45`.
 This document records the reviewed direction; it does not claim an implemented
 runtime, measured savings, production readiness, or deployment authorization.
 
@@ -139,6 +144,76 @@ isolation and database safety while closing these implementation gaps:
    Workers cannot create a new regional cluster after an empty discovery result.
 5. **Make migrations explicit.** A newer ARM family, ARM-to-x86 move, database
    relocation, and Wasm recompilation have different compatibility requirements.
+
+## Required all-region deployment simplification (user decision)
+
+Use the [deployment code review](docs/deployment-simplification-review.md) as the
+initial evidence and removal inventory. It traces the highest-risk deployment
+paths; it is not an exhaustive inspection of every source file. Each migrated
+slice must finish the review of its callers, tests, fixtures, schemas, APIs,
+credentials, scripts, workflows and dependencies before declaring completion.
+
+### Required deployment behavior
+
+1. **One operation, independent regions.** The CLI submits authenticated intent;
+   durable controllers reconcile it. Validate shared local bundle/trust invariants
+   once. Resolve regional scope, admit, transfer, deploy and observe independently
+   with bounded concurrency defined in code. A failed or unreachable region must
+   not block healthy regions or cancel their work. Preserve per-region errors,
+   operation IDs and retry progress. Keep real dependency ordering, regional
+   quorum, health checks and database drain/fencing gates.
+2. **Provision from authority, not serving health.** Reconcile the authorized
+   footprint and authenticated foundation/admitted-membership records before
+   any serving heartbeat exists. Atlas publishes routing/health observations;
+   it must not be the only deployment or bootstrap discovery source. Recover
+   controller ownership and in-flight operations durably; observe actual
+   resources instead of treating a completed local journal entry as proof of
+   current state. Recover NetBird/Vault writes without hand-written records,
+   duplicate keys or blind secret rotation. GRU foundation recovery works before
+   the overlay and workload scheduler are available.
+3. **Build once; consume immutable releases.** Keep GitHub/source verification,
+   signing, Go/Nix/image toolchains and producer-only CLIs at publication. Deploy
+   already verified artifacts using `ts-orch` and OCI APIs without a source
+   checkout, `gh`, CI availability or a rebuild of the deploy tool. Extend the
+   existing signed-apply boundary across first-party services. Allocate one
+   durable signer-owned sequence across producers; migrate signed ordering
+   without resetting regional anti-rollback floors. Webhooks only wake
+   reconciliation. Reuse verified bytes by digest within an operation and
+   reconcile regional copies without weakening admission or storage durability.
+4. **Delete dependencies through the whole call graph.** Replace operational
+   OCI CLI fallback/backend switches and self-invoked CLI/stdout parsing with
+   existing Go SDK clients and typed feature functions as their coverage lands.
+   Follow every removed caller through imports, scripts, workflows, fixtures and
+   module entries. Keep only justified runtime dependencies. SwarmKit replaces
+   the old orchestration engine; no second workflow framework, scheduler,
+   provisioner, task store or permanent legacy backend. Preserve required NATS
+   fork behavior until upstream equivalence is qualified.
+5. **Make partial success reusable.** Persist successful regional image imports,
+   resource identities and stage outcomes even when another region fails.
+   Resume only unfinished or drifted work after restart. Reuse the existing
+   image-import fanout and host-image-input change detection; do not rebuild a
+   host image for each application release. Use the actual artifact input graph
+   to avoid publishing/deploying unchanged binaries for documentation-only
+   changes; retain relevant checks and scheduled base-image refreshes. Qualify
+   shape, image, architecture, runtime and price together so exhausted A1
+   capacity can use an approved
+   alternative without bypassing compatibility or spend authority.
+
+### Evidence required before claiming simpler or faster
+
+| Measure / scenario | Required evidence |
+| --- | --- |
+| Operator effort and dependencies | Before/after inventory of commands, manual inputs, credential handoffs, external executables and services required for cold bootstrap, routine release and recovery. Production targets: no per-region setup commands, no manually copied first-party secrets, no source/CI dependency at apply time and no operational Python OCI CLI. |
+| Deployment time and repeated work | Retain stage timings for cold region creation, warm release and interrupted retry. Report sample count, p50/p95/p99 when meaningful, slowest region and fleet completion; break out API waits, network join, artifact transfer, image pull and readiness. Record repeated builds, inspections, hashes and bytes transferred. Set numeric targets from a measured baseline; publish no assumed speedup. |
+| Regional independence | In GRU / San Jose (`sfo`) / FRA, make one region's scope/status/storage unreachable or stale. Healthy regions still deploy safely; the failed region reports its blocked stage and catches up after recovery. A live Atlas/CI API is not required to apply an already admitted release from trusted membership. |
+| Restart and partial failure | Interrupt after resource creation, Vault setup-key storage, image import and channel publication; restart or transfer ownership. Reconcile existing identities without duplicate foundations, competing founders, key replacement or lost successful-region results. Show pending global operations during a partition; do not invent global authority. |
+| Trust, safety and ownership | Refuse wrong scope/architecture, tampered bytes, expired admission and stale release order. Prove producer changes retain the signed sequence floor, and SwarmKit is the only task owner. Retain quorum, database writer/volume fencing and restore evidence. CLI/dashboard expose real progress, timings, partial errors and stale/missing metrics through the shared API. |
+
+Port these contracts to the SwarmKit implementation. Avoid expanding the old
+scheduler merely to satisfy them temporarily. Record exact removed dependencies
+and files per slice; do not promise line-count, cost or latency savings without
+measuring them. These are implementation acceptance requirements, not tests or
+live deployment results produced by this planning change.
 
 ## Simpler deployment contract (user decision)
 
