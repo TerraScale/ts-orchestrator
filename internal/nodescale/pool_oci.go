@@ -14,13 +14,18 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
-// Freeform tags that own a region's pool resources. A resource without the cell's tags is never touched.
+// Ownership tags separate each cell's capacity pools and their resources.
 const (
-	tagCell = "ts-cell"
-	tagRole = "ts-role"
-	tagNode = "ts-node"
+	tagCell         = "ts-cell"
+	tagRole         = "ts-role"
+	tagNode         = "ts-node"
+	tagPool         = "ts-pool"
+	tagCapacityRole = "ts-capacity-role"
+	tagArchitecture = "ts-architecture"
+	tagShape        = "ts-shape"
 
 	roleNodePool   = "node-pool"
 	roleNodeConfig = "node-config"
@@ -42,6 +47,7 @@ type computeManagementAPI interface {
 
 // computeAPI is the instance surface. core.ComputeClient implements it.
 type computeAPI interface {
+	ListShapes(ctx context.Context, request core.ListShapesRequest) (core.ListShapesResponse, error)
 	GetInstance(ctx context.Context, request core.GetInstanceRequest) (core.GetInstanceResponse, error)
 	UpdateInstance(ctx context.Context, request core.UpdateInstanceRequest) (core.UpdateInstanceResponse, error)
 	ListVnicAttachments(ctx context.Context, request core.ListVnicAttachmentsRequest) (core.ListVnicAttachmentsResponse, error)
@@ -52,17 +58,18 @@ type networkAPI interface {
 	GetVnic(ctx context.Context, request core.GetVnicRequest) (core.GetVnicResponse, error)
 }
 
-// OCIPool is one region's instance pool in OCI. It finds and owns the pool by name and tags.
+// OCIPool is one capacity pool in OCI. It finds and owns the pool by name and tags.
 type OCIPool struct {
 	management    computeManagementAPI
 	compute       computeAPI
 	network       networkAPI
 	cell          string
+	capacity      Capacity
 	compartmentID string
 }
 
-// NewOCIPool binds one cell's pool to the factory's OCI clients.
-func NewOCIPool(factory *ociclient.Factory, cell, compartmentID string) (*OCIPool, error) {
+// NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
+func NewOCIPool(factory *ociclient.Factory, cell, compartmentID string, capacity Capacity) (*OCIPool, error) {
 	management, err := factory.ComputeManagement()
 	if err != nil {
 		return nil, err
@@ -75,15 +82,18 @@ func NewOCIPool(factory *ociclient.Factory, cell, compartmentID string) (*OCIPoo
 	if err != nil {
 		return nil, err
 	}
-	return newOCIPool(management, compute, network, cell, compartmentID)
+	return newOCIPool(management, compute, network, cell, compartmentID, capacity)
 }
 
-func newOCIPool(management computeManagementAPI, compute computeAPI, network networkAPI, cell, compartmentID string) (*OCIPool, error) {
+func newOCIPool(management computeManagementAPI, compute computeAPI, network networkAPI, cell, compartmentID string, capacity Capacity) (*OCIPool, error) {
 	if !cellPattern.MatchString(cell) || compartmentID == "" {
 		return nil, fmt.Errorf("node pool for cell %q needs a cell name and a compartment", cell)
 	}
+	if err := capacity.Validate(); err != nil {
+		return nil, err
+	}
 	return &OCIPool{management: management, compute: compute, network: network,
-		cell: cell, compartmentID: compartmentID}, nil
+		cell: cell, compartmentID: compartmentID, capacity: capacity}, nil
 }
 
 func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
@@ -112,14 +122,17 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 	return state, nil
 }
 
-// Ensure makes the recipe's configuration and the cell's pool exist, and points the pool at the recipe.
+// Ensure makes this capacity's configuration and pool exist, and points the pool at the recipe.
 // It never changes the pool's size.
 func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) {
 	if err := recipe.Validate(); err != nil {
 		return PoolState{}, err
 	}
-	if recipe.Cell != o.cell {
-		return PoolState{}, fmt.Errorf("recipe for cell %s given to the pool of cell %s", recipe.Cell, o.cell)
+	if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
+		return PoolState{}, fmt.Errorf("recipe for pool %s given to pool %s", PoolName(recipe.Cell, recipe.Capacity), PoolName(o.cell, o.capacity))
+	}
+	if err := o.validateImage(ctx, recipe); err != nil {
+		return PoolState{}, err
 	}
 	configID, err := o.ensureConfiguration(ctx, recipe)
 	if err != nil {
@@ -240,12 +253,15 @@ func (o *OCIPool) pool(ctx context.Context) (*core.InstancePool, string, error) 
 	if err != nil {
 		return nil, "", fmt.Errorf("get instance pool %s: %w", id, err)
 	}
+	if deref(response.DisplayName) != PoolName(o.cell, o.capacity) || !o.owns(response.FreeformTags, roleNodePool) {
+		return nil, "", fmt.Errorf("instance pool %s changed ownership", id)
+	}
 	return &response.InstancePool, deref(response.Etag), nil
 }
 
 // poolID finds the cell's pool by name and tags. Two matches are an error, never a guess.
 func (o *OCIPool) poolID(ctx context.Context) (string, error) {
-	name := PoolName(o.cell)
+	name := PoolName(o.cell, o.capacity)
 	pools, err := listAll(func(page *string) ([]core.InstancePoolSummary, *string, error) {
 		response, err := o.management.ListInstancePools(ctx, core.ListInstancePoolsRequest{
 			CompartmentId: common.String(o.compartmentID), DisplayName: common.String(name), Page: page})
@@ -256,8 +272,7 @@ func (o *OCIPool) poolID(ctx context.Context) (string, error) {
 	}
 	var ids []string
 	for _, pool := range pools {
-		if deref(pool.DisplayName) == name && pool.FreeformTags[tagCell] == o.cell &&
-			pool.FreeformTags[tagRole] == roleNodePool && !absent(string(pool.LifecycleState)) {
+		if deref(pool.DisplayName) == name && o.owns(pool.FreeformTags, roleNodePool) && !absent(string(pool.LifecycleState)) {
 			ids = append(ids, deref(pool.Id))
 		}
 	}
@@ -332,7 +347,7 @@ func (o *OCIPool) instance(ctx context.Context, instanceID string) (core.Instanc
 	return response.Instance, deref(response.Etag), nil
 }
 
-// configurations lists the cell's node configurations: the name prefix and the cell tag must both match.
+// configurations lists only this capacity pool's configurations by name and ownership tags.
 func (o *OCIPool) configurations(ctx context.Context) ([]core.InstanceConfigurationSummary, error) {
 	items, err := listAll(func(page *string) ([]core.InstanceConfigurationSummary, *string, error) {
 		response, err := o.management.ListInstanceConfigurations(ctx, core.ListInstanceConfigurationsRequest{
@@ -343,7 +358,7 @@ func (o *OCIPool) configurations(ctx context.Context) ([]core.InstanceConfigurat
 		return nil, fmt.Errorf("list instance configurations: %w", err)
 	}
 	return slices.DeleteFunc(items, func(config core.InstanceConfigurationSummary) bool {
-		return !strings.HasPrefix(deref(config.DisplayName), configPrefix(o.cell)) || config.FreeformTags[tagCell] != o.cell
+		return !strings.HasPrefix(deref(config.DisplayName), configPrefix(o.cell, o.capacity)) || !o.owns(config.FreeformTags, roleNodeConfig)
 	}), nil
 }
 
@@ -363,7 +378,7 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
 			CompartmentId:   common.String(o.compartmentID),
 			DisplayName:     common.String(name),
-			FreeformTags:    map[string]string{tagCell: o.cell, tagRole: roleNodeConfig},
+			FreeformTags:    poolTags(o.cell, o.capacity, roleNodeConfig),
 			InstanceDetails: core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID)},
 		},
 		OpcRetryToken: retryToken(name),
@@ -374,7 +389,7 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 	return deref(response.Id), nil
 }
 
-// pruneConfigurations deletes the cell's configurations that are not in keep.
+// pruneConfigurations deletes only this capacity pool's configurations that are not in keep.
 func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error {
 	configs, err := o.configurations(ctx)
 	if err != nil {
@@ -394,7 +409,7 @@ func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error
 
 // createPool makes the cell's pool at size 0, with one placement per availability domain on the recipe's subnet.
 func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string) error {
-	name := PoolName(o.cell)
+	name := PoolName(o.cell, o.capacity)
 	placements := make([]core.CreateInstancePoolPlacementConfigurationDetails, 0, len(recipe.AvailabilityDomains))
 	for _, domain := range recipe.AvailabilityDomains {
 		placements = append(placements, core.CreateInstancePoolPlacementConfigurationDetails{
@@ -409,7 +424,7 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 			PlacementConfigurations: placements,
 			Size:                    common.Int(0),
 			DisplayName:             common.String(name),
-			FreeformTags:            map[string]string{tagCell: o.cell, tagRole: roleNodePool},
+			FreeformTags:            poolTags(o.cell, o.capacity, roleNodePool),
 		},
 		OpcRetryToken: retryToken(name),
 	})
@@ -463,15 +478,56 @@ func placementSubnet(placement core.InstancePoolPlacementConfiguration) string {
 func launchDetails(recipe Recipe, compartmentID string) *core.InstanceConfigurationLaunchInstanceDetails {
 	return &core.InstanceConfigurationLaunchInstanceDetails{
 		CompartmentId: common.String(compartmentID),
-		Shape:         common.String(NodeShape),
+		Shape:         new(recipe.Capacity.Shape),
 		ShapeConfig: &core.InstanceConfigurationLaunchInstanceShapeConfigDetails{
 			Ocpus: common.Float32(recipe.OCPUs), MemoryInGBs: common.Float32(recipe.MemoryGB)},
 		SourceDetails: core.InstanceConfigurationInstanceSourceViaImageDetails{
 			ImageId: common.String(recipe.ImageID), BootVolumeSizeInGBs: common.Int64(BootVolumeGB)},
 		CreateVnicDetails: &core.InstanceConfigurationCreateVnicDetails{AssignPublicIp: common.Bool(false), NsgIds: recipe.NSGIDs},
 		Metadata:          recipe.Metadata,
-		FreeformTags:      map[string]string{tagCell: recipe.Cell, tagRole: roleNode},
+		FreeformTags:      poolTags(recipe.Cell, recipe.Capacity, roleNode),
 	}
+}
+
+func poolTags(cell string, capacity Capacity, role string) map[string]string {
+	return map[string]string{tagCell: cell, tagRole: role, tagPool: PoolName(cell, capacity),
+		tagCapacityRole: capacity.Role, tagArchitecture: capacity.Architecture, tagShape: capacity.Shape}
+}
+
+func (o *OCIPool) owns(tags map[string]string, role string) bool {
+	return tags[tagCell] == o.cell && tags[tagRole] == role && tags[tagPool] == PoolName(o.cell, o.capacity) &&
+		tags[tagCapacityRole] == o.capacity.Role && tags[tagArchitecture] == o.capacity.Architecture && tags[tagShape] == o.capacity.Shape
+}
+
+// validateImage verifies every placement against OCI's image-specific shape inventory before writing resources.
+func (o *OCIPool) validateImage(ctx context.Context, recipe Recipe) error {
+	for _, domain := range recipe.AvailabilityDomains {
+		shapes, err := listAll(func(page *string) ([]core.Shape, *string, error) {
+			response, err := o.compute.ListShapes(ctx, core.ListShapesRequest{
+				CompartmentId: new(o.compartmentID), ImageId: new(recipe.ImageID),
+				AvailabilityDomain: new(domain), Shape: new(recipe.Capacity.Shape), Page: page})
+			return response.Items, response.OpcNextPage, err
+		})
+		if err != nil {
+			return fmt.Errorf("list image %s shapes in %s: %w", recipe.ImageID, domain, err)
+		}
+		index := slices.IndexFunc(shapes, func(shape core.Shape) bool { return deref(shape.Shape) == recipe.Capacity.Shape })
+		if index < 0 {
+			return fmt.Errorf("image %s does not support shape %s in %s", recipe.ImageID, recipe.Capacity.Shape, domain)
+		}
+		shape := shapes[index]
+		architecture, err := catalog.ShapeArchitecture(deref(shape.ProcessorDescription))
+		if err != nil {
+			return fmt.Errorf("shape %s in %s: %w", recipe.Capacity.Shape, domain, err)
+		}
+		if architecture != recipe.Capacity.Architecture {
+			return fmt.Errorf("shape %s in %s has architecture %s, recipe requires %s", recipe.Capacity.Shape, domain, architecture, recipe.Capacity.Architecture)
+		}
+		if !deref(shape.IsFlexible) {
+			return fmt.Errorf("pool shape %s in %s is not flexible", recipe.Capacity.Shape, domain)
+		}
+	}
+	return nil
 }
 
 // listAll follows OCI's opc-next-page token to the last page.

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 // The compartment is the pool's.
 type Recipe struct {
 	Cell                string // e.g. "gru"
+	Capacity            Capacity
 	SubnetID            string
 	NSGIDs              []string
 	AvailabilityDomains []string // one placement configuration each, in this order
@@ -34,6 +36,9 @@ func (r Recipe) Validate() error {
 	if !cellPattern.MatchString(r.Cell) {
 		return fmt.Errorf("node cell %q is not a cell name", r.Cell)
 	}
+	if err := r.Capacity.Validate(); err != nil {
+		return err
+	}
 	if r.SubnetID == "" || r.ImageID == "" {
 		return fmt.Errorf("node recipe for cell %s needs a subnet and image", r.Cell)
 	}
@@ -47,20 +52,22 @@ func (r Recipe) Validate() error {
 		return fmt.Errorf("node recipe for cell %s needs instance metadata", r.Cell)
 	}
 	// Written as !(x > 0) so NaN is refused too.
-	if !(r.OCPUs > 0) || !(r.MemoryGB > 0) {
-		return fmt.Errorf("node recipe for cell %s needs positive OCPUs and memory", r.Cell)
+	if !(r.OCPUs > 0) || !(r.MemoryGB > 0) || math.IsInf(float64(r.OCPUs), 0) || math.IsInf(float64(r.MemoryGB), 0) {
+		return fmt.Errorf("node recipe for cell %s needs positive finite OCPUs and memory", r.Cell)
 	}
 	return nil
 }
 
 // Digest is the first 12 hex characters of a SHA-256 over the canonical recipe and the launch constants.
 // NSG order does not matter; availability domain order does, because it is the placement order.
-func (r Recipe) Digest() string { return r.digest(NodeShape, BootVolumeGB) }
+func (r Recipe) Digest() string { return r.digest(r.Capacity.Shape, BootVolumeGB) }
 
 // digest hashes the recipe as launched with the given shape and boot volume size.
 func (r Recipe) digest(shape string, bootVolumeGB int) string {
 	canonical := struct {
 		Cell                string
+		Role                string
+		Architecture        string
 		SubnetID            string
 		NSGIDs              []string
 		AvailabilityDomains []string
@@ -72,6 +79,8 @@ func (r Recipe) digest(shape string, bootVolumeGB int) string {
 		BootVolumeGB        int
 	}{
 		Cell:                r.Cell,
+		Role:                r.Capacity.Role,
+		Architecture:        r.Capacity.Architecture,
 		SubnetID:            r.SubnetID,
 		NSGIDs:              slices.Sorted(slices.Values(r.NSGIDs)),
 		AvailabilityDomains: r.AvailabilityDomains,
@@ -87,16 +96,17 @@ func (r Recipe) digest(shape string, bootVolumeGB int) string {
 	return hex.EncodeToString(digest[:])[:12]
 }
 
-// PoolName is the cell's one instance pool.
-func PoolName(cell string) string { return "ts-" + cell + "-nodes" }
+// PoolName separates pools by isolation role, native architecture and OCI shape.
+func PoolName(cell string, capacity Capacity) string { return configPrefix(cell, capacity) + "nodes" }
 
 // ConfigurationName names the instance configuration for one recipe.
-func ConfigurationName(r Recipe) string { return configPrefix(r.Cell) + r.Digest() }
+func ConfigurationName(r Recipe) string { return configPrefix(r.Cell, r.Capacity) + r.Digest() }
 
-func configPrefix(cell string) string { return "ts-" + cell + "-node-" }
+func configPrefix(cell string, capacity Capacity) string {
+	return "ts-" + cell + "-" + capacity.Role + "-" + capacity.Architecture + "-" + capacity.Shape + "-"
+}
 
 const (
-	NodeShape    = "VM.Standard.A1.Flex"
 	BootVolumeGB = 50
 
 	// MaxPoolNodes is the most nodes the pool holds, beside the region's 3 quorum nodes.
@@ -118,9 +128,9 @@ type PoolState struct {
 }
 
 var ErrPoolChanged = errors.New("instance pool size changed under the leader")
-var ErrNotPoolInstance = errors.New("instance is not in this region's node pool")
+var ErrNotPoolInstance = errors.New("instance is not in this node pool")
 
-// Pool is one region's instance pool of pool nodes.
+// Pool is one region's instance pool of nodes with the same capacity identity.
 type Pool interface {
 	Observe(ctx context.Context) (PoolState, error)
 	Ensure(ctx context.Context, recipe Recipe) (PoolState, error)
