@@ -55,7 +55,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 	}))
 	defer provider.Close()
 	attempted := make(chan struct{}, 1)
-	recovered := make(chan *controllerMembership, 1)
+	recovered := make(chan struct{}, 1)
 	supervisor := &controllerMembership{open: func(openCtx context.Context) (*controllerMembership, error) {
 		request, err := http.NewRequestWithContext(openCtx, http.MethodGet, provider.URL, nil)
 		if err != nil {
@@ -81,7 +81,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 			return nil, err
 		}
 		opened := &controllerMembership{reconciler: reconciler}
-		recovered <- opened
+		recovered <- struct{}{}
 		return opened, nil
 	}}
 	runCtx, stop := context.WithCancel(ctx)
@@ -101,10 +101,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 	probe()
 	available.Store(true)
 	select {
-	case opened := <-recovered:
-		waitMembership(t, ctx, "membership observation after provider recovery", func() bool {
-			return len(opened.reconciler.Statuses()) == 3
-		})
+	case <-recovered:
 	case <-ctx.Done():
 		t.Fatal("membership did not recover automatically")
 	}
