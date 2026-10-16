@@ -14,6 +14,9 @@ import (
 	"testing"
 	"time"
 
+	ociregistry "github.com/TerraScale/ts-orchestrator/internal/ociregion/registry"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/moby/swarmkit/v2/api"
 	imagespec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -93,6 +96,34 @@ func TestRegistryResolverAuthenticatedHTTPIntegration(t *testing.T) {
 	missing := privateRegistryResolver(image, host, func(string) (string, string, error) { return "", "", nil }, transport)
 	if _, _, err := missing.Resolve(ctx, image); err == nil {
 		t.Fatal("private registry accepted missing authentication")
+	}
+	factory, _ := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unadmitted task reached Vault")
+		w.WriteHeader(http.StatusForbidden)
+	})
+	intent := serviceIntent()
+	intent.Container.Image = image
+	spec, err := intent.serviceSpec()
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := &api.Task{ID: "assignedtask", ServiceID: "serviceid", NodeID: "nodeid", Spec: spec.Task, ServiceAnnotations: spec.Annotations}
+	private, err := NewOCIRegistryResolver(factory, func(context.Context, *api.Task) (*RegistryAdmission, error) { return nil, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := private(ctx, task, nil); err == nil {
+		t.Fatal("missing private admission fell back to anonymous pull")
+	}
+	private, err = NewOCIRegistryResolver(factory, func(context.Context, *api.Task) (*RegistryAdmission, error) {
+		return &RegistryAdmission{ServiceID: "serviceid", Environment: intent.Environment, Region: intent.Region,
+			Scope: ociregistry.PullScope{RegistryHost: host, Repository: repository, Digest: digest, TaskPrincipal: intent.ID}}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := private(ctx, task, &api.Node{ID: "different-certificate-node"}); err == nil {
+		t.Fatal("private credentials accepted another certificate node")
 	}
 }
 
