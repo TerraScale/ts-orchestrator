@@ -161,6 +161,9 @@ func (authority *workerAuthority) currentInPhase(ctx context.Context, query Work
 		registration.Generation != response.RegistrationReceipt.Generation || current.Sequence != response.RegistrationReceipt.Revision {
 		return fail(errors.New("worker enrollment differs from current registered identity or generation"))
 	}
+	if err := requireWorkerManagedBindings(descriptor, request.InstanceID, registration); err != nil {
+		return fail(err)
+	}
 	if len(registration.Roles) == 0 {
 		return fail(errors.New("worker registration grants no execution role"))
 	}
@@ -197,6 +200,23 @@ func refuseUnprovenStaticWorker(descriptor hostboot.Descriptor) error {
 	// A static name or legacy grant cannot distinguish a pool member from a renamed external instance.
 	if descriptor.IsStatic() {
 		return ErrWorkerCreationLineagePending
+	}
+	return nil
+}
+
+func requireWorkerManagedBindings(descriptor hostboot.Descriptor, instanceID string, registration host.Registration) error {
+	if err := refuseUnprovenStaticWorker(descriptor); err != nil {
+		return err
+	}
+	placement := host.ManagedPlacementBinding{DatabaseID: descriptor.DatabaseID, PartitionID: descriptor.PartitionID, SeatID: descriptor.SeatID,
+		IntentGeneration: descriptor.IntentGeneration, IntentPayloadDigest: descriptor.IntentPayloadDigest,
+		CanonicalRosterDigest: descriptor.CanonicalRosterDigest, ManagedHostProfileDigest: descriptor.ManagedHostProfileDigest}
+	instance := host.ManagedOCIBinding{Region: descriptor.Region, InstanceID: instanceID, Owner: descriptor.Owner,
+		FleetGeneration: descriptor.FleetGeneration, CreateKey: descriptor.CreateKey}
+	if registration.ManagedPlacement == nil || *registration.ManagedPlacement != placement ||
+		registration.ManagedOCI == nil || *registration.ManagedOCI != instance || registration.ManagedMember == nil ||
+		registration.ManagedMember.HostAttempt != descriptor.HostAttempt || registration.ManagedMember.Scope.DatabaseID != descriptor.DatabaseID {
+		return errors.New("worker launch differs from its complete registered managed placement, member and OCI bindings")
 	}
 	return nil
 }
