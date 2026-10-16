@@ -46,6 +46,7 @@ type ContainerClaim struct {
 type ContainerBundle struct {
 	Claim      jsontext.Value `json:"claim"`
 	Index      []byte         `json:"index,omitempty"`
+	Sequence   []byte         `json:"sequence"`
 	Delegation jsontext.Value `json:"delegation,omitempty"`
 	Migration  jsontext.Value `json:"sequence_migration"`
 }
@@ -53,6 +54,7 @@ type ContainerBundle struct {
 // VerifiedContainer can only be populated by the signature/qualification verifier.
 type VerifiedContainer struct {
 	claim             ContainerClaim
+	familyEvidence    []byte
 	migration         SequenceMigration
 	migrationEnvelope trust.Envelope
 	fingerprint       string
@@ -125,8 +127,9 @@ func (claim ContainerClaim) Validate() error {
 
 // VerifyContainerCurrent independently verifies release authority, shared signer
 // ordering, exact candidate qualification and retained evidence bytes. Both the
-// present instant and operation deadline must remain authorized.
-func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots trust.Keyring, expected ContainerTarget, now, validUntil time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) (VerifiedContainer, error) {
+// present instant and operation deadline must remain authorized. The immutable
+// winning allocation must be read from the root-authorized signer store.
+func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots trust.Keyring, expected ContainerTarget, now, validUntil time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations SequenceLocation) (VerifiedContainer, error) {
 	if now.IsZero() || validUntil.Before(now) || !ValidRegion(expected.Cell) || !ValidEnvironment(expected.Environment) || !serviceRolePattern.MatchString(expected.Role) || expected.Architecture != "arm64" && expected.Architecture != "amd64" || evidence == nil {
 		return VerifiedContainer{}, errors.New("container verification requires admitted target, current time, deadline and evidence store")
 	}
@@ -157,6 +160,10 @@ func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots t
 		return VerifiedContainer{}, err
 	}
 	verified, err := verifyContainerIdentity(bundle, roots, expected, envelope, payload)
+	if err != nil {
+		return VerifiedContainer{}, err
+	}
+	verified.familyEvidence, err = allocations.readWorkerFamily(ctx, roots, verified)
 	if err != nil {
 		return VerifiedContainer{}, err
 	}
@@ -276,6 +283,9 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	if claim.ReleaseSequence <= migration.SequenceFloor || claim.SequenceMigrationSHA256 != migrationDigest || envelope.KeyID != migration.SignerKeyID {
 		return VerifiedContainer{}, errors.New("container release differs from root-authorized sequence signer or migration")
 	}
+	if err := verifyWorkerFamilyEvidence(bundle.Sequence, roots, claim); err != nil {
+		return VerifiedContainer{}, err
+	}
 	fingerprint, err := trust.Fingerprint(envelope)
 	if err != nil {
 		return VerifiedContainer{}, err
@@ -285,5 +295,5 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 		return VerifiedContainer{}, err
 	}
 	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(content+"/"+claim.SequenceMigrationSHA256)))
-	return VerifiedContainer{claim: claim, migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
+	return VerifiedContainer{claim: claim, familyEvidence: slices.Clone(bundle.Sequence), migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
 }

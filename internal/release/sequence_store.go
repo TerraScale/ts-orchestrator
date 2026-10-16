@@ -29,6 +29,11 @@ func SequenceObject(role, environment string) string {
 	return "releases/sequences/" + environment + "/" + role + ".json"
 }
 
+// SequenceReservationObject retains an allocation independently of later heads.
+func SequenceReservationObject(role, environment, migration string, sequence uint64) string {
+	return fmt.Sprintf("releases/sequences/%s/%s/%s/%d.json", environment, role, migration, sequence)
+}
+
 type SequenceObjectClient interface {
 	GetObject(context.Context, objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error)
 	PutObject(context.Context, objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error)
@@ -77,53 +82,72 @@ type sequenceHead struct {
 // Allocate reserves the next durable sequence before signing. A retry of the
 // current reservation reuses it; abandoned reservations leave safe gaps.
 func (location SequenceLocation) Allocate(ctx context.Context, identity SequenceIdentity, roots trust.Keyring, signer ed25519.PrivateKey) (uint64, error) {
+	head, err := location.allocate(ctx, identity, roots, signer)
+	return head.Sequence, err
+}
+
+// AllocateWithEvidence retains the exact winning reservation before any worker
+// claim can be signed. A crash before retention leaves an unused sequence gap.
+func (location SequenceLocation) AllocateWithEvidence(ctx context.Context, identity SequenceIdentity, roots trust.Keyring, signer ed25519.PrivateKey) (uint64, []byte, error) {
+	head, err := location.allocate(ctx, identity, roots, signer)
+	if err != nil {
+		return 0, nil, err
+	}
+	wire, err := location.retainReservation(ctx, head, roots)
+	if err != nil {
+		return 0, nil, err
+	}
+	return head.Sequence, wire, nil
+}
+
+func (location SequenceLocation) allocate(ctx context.Context, identity SequenceIdentity, roots trust.Keyring, signer ed25519.PrivateKey) (sequenceHead, error) {
 	if err := identity.validate(); err != nil {
-		return 0, err
+		return sequenceHead{}, err
 	}
 	for range 32 {
 		head, etag, found, err := location.read(ctx, identity.Role, identity.Environment, roots)
 		if err != nil {
-			return 0, err
+			return sequenceHead{}, err
 		}
 		if !found {
-			return 0, ErrSequenceMigrationRequired
+			return sequenceHead{}, ErrSequenceMigrationRequired
 		}
 		migration, err := VerifySequenceMigrationHistorical(head.Migration, roots, identity.Role, identity.Environment)
 		if err != nil {
-			return 0, err
+			return sequenceHead{}, err
 		}
 		if len(signer) != ed25519.PrivateKeySize {
-			return 0, trust.ErrKeyMismatch
+			return sequenceHead{}, trust.ErrKeyMismatch
 		}
 		signerID, err := trust.KeyID(signer.Public().(ed25519.PublicKey))
 		if err != nil || signerID != migration.SignerKeyID {
-			return 0, trust.ErrKeyMismatch
+			return sequenceHead{}, trust.ErrKeyMismatch
 		}
 		if head.Identity == identity {
-			return head.Sequence, nil
+			return head, nil
 		}
 		if head.Sequence == math.MaxUint64 {
-			return 0, fmt.Errorf("%w: sequence exhausted", ErrInvalidReceipt)
+			return sequenceHead{}, fmt.Errorf("%w: sequence exhausted", ErrInvalidReceipt)
 		}
 		head.Sequence++
 		head.Identity = identity
 		payload, err := trust.EncodePayload(sequenceReservation{Sequence: head.Sequence, Identity: identity})
 		if err != nil {
-			return 0, err
+			return sequenceHead{}, err
 		}
 		now := time.Now().UTC()
 		head.Reservation, err = trust.Sign(payload, sequenceReservationScope(identity.Role, identity.Environment), now, now.Add(MaxReceiptLifetime), signer)
 		if err != nil {
-			return 0, err
+			return sequenceHead{}, err
 		}
 		if err := location.write(ctx, identity.Role, identity.Environment, head, etag); errors.Is(err, ErrSequenceConflict) {
 			continue
 		} else if err != nil {
-			return 0, err
+			return sequenceHead{}, err
 		}
-		return head.Sequence, nil
+		return head, nil
 	}
-	return 0, ErrSequenceConflict
+	return sequenceHead{}, ErrSequenceConflict
 }
 
 // ImportMigration creates the ordering namespace once. A different migration
@@ -169,42 +193,16 @@ func (location SequenceLocation) read(ctx context.Context, role, environment str
 	if err != nil {
 		return head, "", false, err
 	}
-	if err := protocol.DecodeStrict(wire, &head, trust.MaxEnvelopeBytes); err != nil {
+	head, err = verifySequenceHead(wire, roots, role, environment)
+	if err != nil {
 		return head, "", false, err
 	}
 	migration, err := VerifySequenceMigrationHistorical(head.Migration, roots, role, environment)
 	if err != nil {
 		return head, "", false, err
 	}
-	if migration.Namespace != location.Namespace || migration.Bucket != location.Bucket {
-		return head, "", false, fmt.Errorf("%w: migration sequence location", ErrInvalidReceipt)
-	}
-	if head.Schema != "terrascale.release.sequence.v1" || head.Sequence < migration.SequenceFloor || response.ETag == nil || *response.ETag == "" {
-		return head, "", false, fmt.Errorf("%w: sequence head", ErrInvalidReceipt)
-	}
-	if head.Identity != (SequenceIdentity{}) {
-		if err := head.Identity.validate(); err != nil {
-			return head, "", false, err
-		}
-		if head.Identity.Role != role || head.Identity.Environment != environment || head.Sequence == migration.SequenceFloor {
-			return head, "", false, fmt.Errorf("%w: sequence identity scope", ErrInvalidReceipt)
-		}
-	} else if head.Sequence != migration.SequenceFloor {
-		return head, "", false, fmt.Errorf("%w: missing sequence identity", ErrInvalidReceipt)
-	}
-	if head.Identity != (SequenceIdentity{}) {
-		public, _ := base64.RawURLEncoding.Strict().DecodeString(migration.SignerPublicKey)
-		payload, err := trust.VerifyHistorical(head.Reservation, sequenceReservationScope(role, environment), trust.Keyring{migration.SignerKeyID: ed25519.PublicKey(public)}, trust.Policy{MaxLifetime: MaxReceiptLifetime})
-		if err != nil {
-			return head, "", false, err
-		}
-		reservation, err := decodeCanonicalPayload[sequenceReservation](payload)
-		if err != nil {
-			return head, "", false, err
-		}
-		if reservation.Sequence != head.Sequence || reservation.Identity != head.Identity {
-			return head, "", false, fmt.Errorf("%w: unauthenticated sequence head", ErrInvalidReceipt)
-		}
+	if migration.Namespace != location.Namespace || migration.Bucket != location.Bucket || response.ETag == nil || *response.ETag == "" {
+		return head, "", false, fmt.Errorf("%w: migration sequence location or ETag", ErrInvalidReceipt)
 	}
 	return head, *response.ETag, true, nil
 }
@@ -236,4 +234,89 @@ func sequenceHTTPStatus(err error) int {
 		return service.GetHTTPStatusCode()
 	}
 	return 0
+}
+
+func verifySequenceHead(wire []byte, roots trust.Keyring, role, environment string) (sequenceHead, error) {
+	var head sequenceHead
+	if err := protocol.DecodeStrict(wire, &head, trust.MaxEnvelopeBytes); err != nil {
+		return head, err
+	}
+	migration, err := VerifySequenceMigrationHistorical(head.Migration, roots, role, environment)
+	if err != nil {
+		return head, err
+	}
+	if head.Schema != "terrascale.release.sequence.v1" || head.Sequence < migration.SequenceFloor {
+		return head, fmt.Errorf("%w: sequence head", ErrInvalidReceipt)
+	}
+	if head.Identity != (SequenceIdentity{}) {
+		if err := head.Identity.validate(); err != nil {
+			return head, err
+		}
+		if head.Identity.Role != role || head.Identity.Environment != environment || head.Sequence == migration.SequenceFloor {
+			return head, fmt.Errorf("%w: sequence identity scope", ErrInvalidReceipt)
+		}
+	} else if head.Sequence != migration.SequenceFloor {
+		return head, fmt.Errorf("%w: missing sequence identity", ErrInvalidReceipt)
+	}
+	if head.Identity != (SequenceIdentity{}) {
+		public, _ := base64.RawURLEncoding.Strict().DecodeString(migration.SignerPublicKey)
+		payload, err := trust.VerifyHistorical(head.Reservation, sequenceReservationScope(role, environment), trust.Keyring{migration.SignerKeyID: ed25519.PublicKey(public)}, trust.Policy{MaxLifetime: MaxReceiptLifetime})
+		if err != nil {
+			return head, err
+		}
+		reservation, err := decodeCanonicalPayload[sequenceReservation](payload)
+		if err != nil {
+			return head, err
+		}
+		if reservation.Sequence != head.Sequence || reservation.Identity != head.Identity {
+			return head, fmt.Errorf("%w: unauthenticated sequence head", ErrInvalidReceipt)
+		}
+	}
+	return head, nil
+}
+
+func (location SequenceLocation) retainReservation(ctx context.Context, head sequenceHead, roots trust.Keyring) ([]byte, error) {
+	wire, err := json.Marshal(head, json.Deterministic(true))
+	if err != nil {
+		return nil, err
+	}
+	if len(wire) > MaxWorkerFamilyEvidenceBytes {
+		return nil, fmt.Errorf("%w: sequence evidence size", ErrInvalidReceipt)
+	}
+	migration, err := trust.Fingerprint(head.Migration)
+	if err != nil {
+		return nil, err
+	}
+	name := SequenceReservationObject(head.Identity.Role, head.Identity.Environment, migration, head.Sequence)
+	_, err = location.Client.PutObject(ctx, objectstorage.PutObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name, ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), ContentType: new("application/json"), IfNoneMatch: new("*")})
+	if err == nil {
+		return wire, nil
+	}
+	if sequenceHTTPStatus(err) != http.StatusPreconditionFailed {
+		return nil, err
+	}
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
+	if err != nil {
+		return nil, err
+	}
+	defer response.Content.Close()
+	retained, err := io.ReadAll(io.LimitReader(response.Content, MaxWorkerFamilyEvidenceBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(retained) > MaxWorkerFamilyEvidenceBytes {
+		return nil, fmt.Errorf("%w: sequence evidence size", ErrInvalidReceipt)
+	}
+	previous, err := verifySequenceHead(retained, roots, head.Identity.Role, head.Identity.Environment)
+	if err != nil {
+		return nil, err
+	}
+	previousMigration, err := trust.Fingerprint(previous.Migration)
+	if err != nil {
+		return nil, err
+	}
+	if previousMigration != migration || previous.Sequence != head.Sequence || previous.Identity != head.Identity {
+		return nil, ErrSequenceConflict
+	}
+	return retained, nil
 }
