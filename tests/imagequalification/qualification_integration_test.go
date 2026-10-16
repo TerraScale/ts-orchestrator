@@ -53,7 +53,7 @@ func fixture(t *testing.T) qualificationFixture {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC().Truncate(time.Second)
-	a := Approval{Schema: ApprovalSchema, RunID: "native-case", Candidate: release.ProductionExpectation{
+	a := Approval{Schema: ApprovalSchema, RunID: "nativecase", Candidate: release.ProductionExpectation{
 		SourceRevision: q.SourceRevision, ArtifactSHA256: hashBytes(disk), QualificationSHA256: hashBytes(qualification),
 		Cell: "GRU", Environment: "production", Runtime: release.ProductionRuntime, Architecture: "arm64", Role: "orchestrator"},
 		OCIRegion: "sa-saopaulo-1", Tenancy: "ocid1.tenancy.oc1..fixture", Principal: "ocid1.user.oc1..fixture",

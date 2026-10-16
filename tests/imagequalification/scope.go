@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -28,7 +29,8 @@ const (
 	maxRunLifetime = 72 * time.Hour
 )
 
-var runPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
+var runPattern = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
+var hostPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
 
 // HostSpec is one exact, disposable host, never a desired production fleet.
 type HostSpec struct {
@@ -74,7 +76,7 @@ type Approval struct {
 }
 
 func ApprovalScope(runID string, candidate release.ProductionExpectation) trust.Scope {
-	return trust.Scope{Domain: ApprovalDomain, DeploymentID: runID, Cell: candidate.Cell,
+	return trust.Scope{Domain: ApprovalDomain, DeploymentID: entityid.Derive("qualification", runID), Cell: candidate.Cell,
 		Environment: "qualification", Role: "disposable-host", Slot: candidate.Runtime + "/linux-" + candidate.Architecture}
 }
 
@@ -200,12 +202,12 @@ func (a Approval) validate() error {
 			return errors.New("runner and peers must be inside the approved isolated VCN")
 		}
 	}
-	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) < 3 || len(a.Hosts) > 12 {
+	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) < 3 || len(a.Hosts) > 5 {
 		return errors.New("finite native HA host, image and spending bounds are required")
 	}
 	seen := map[string]bool{}
 	for _, host := range a.Hosts {
-		if !runPattern.MatchString(host.Name) || seen[host.Name] || host.AvailabilityDomain == "" || host.FaultDomain == "" ||
+		if !hostPattern.MatchString(host.Name) || seen[host.Name] || host.AvailabilityDomain == "" || host.FaultDomain == "" ||
 			host.Shape == "" || !(host.OCPUs > 0 && host.OCPUs <= 80) || !(host.MemoryGB > 0 && host.MemoryGB <= 1024) || host.BootGB < 50 || host.BootGB > 1024 {
 			return errors.New("invalid, repeated or unbounded disposable host")
 		}

@@ -207,6 +207,11 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 	if keyErr != nil || key.Type() != ssh.KeyAlgoED25519 || len(rest) > 0 || strings.ContainsAny(publicKey, "\r\n") {
 		return j, errors.New("one ephemeral Ed25519 public key is required")
 	}
+	publicKey = strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	metadata, err := c.launchMetadata(publicKey)
+	if err != nil {
+		return j, err
+	}
 	if j.ImageDeleted || j.ObjectDeleted || len(j.Terminated) > 0 {
 		return j, errors.New("cleaned run cannot provision again")
 	}
@@ -217,11 +222,11 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 		return j, err
 	}
 	a := c.prepared.approval
-	exists, metadata, err := c.uploader.HeadObject(ctx, a.Namespace, a.Bucket, j.Object)
+	exists, objectMetadata, err := c.uploader.HeadObject(ctx, a.Namespace, a.Bucket, j.Object)
 	if err != nil {
 		return j, err
 	}
-	if exists && (metadata["sha256"] != a.Candidate.ArtifactSHA256 || metadata["approval"] != c.prepared.approvalSHA256) {
+	if exists && (objectMetadata["sha256"] != a.Candidate.ArtifactSHA256 || objectMetadata["approval"] != c.prepared.approvalSHA256) {
 		return j, errors.New("qualification object is not owned by these exact approved bytes")
 	}
 	if !exists {
@@ -279,7 +284,7 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 			SourceDetails:     core.InstanceSourceViaImageDetails{ImageId: new(j.ImageID), BootVolumeSizeInGBs: new(host.BootGB)},
 			CreateVnicDetails: &core.CreateVnicDetails{SubnetId: new(a.Subnet), AssignPublicIp: new(false), AssignIpv6Ip: new(false)},
 			InstanceOptions:   &core.InstanceOptions{AreLegacyImdsEndpointsDisabled: new(true)},
-			Metadata:          map[string]string{"ssh_authorized_keys": publicKey, "user_data": base64.StdEncoding.EncodeToString([]byte(isolatedBoot))}},
+			Metadata:          metadata},
 			OpcRetryToken: new(c.token(host.Name))})
 		if err != nil {
 			return j, err
@@ -301,11 +306,28 @@ func (c *cloud) token(operation string) string {
 
 // Network and principal isolation must already exist before boot: cloud-init
 // masking is additional protection, never the authority boundary.
-const isolatedBoot = `#cloud-boothook
-#!/bin/sh
-set -eu
-systemctl mask --now terrascale-orchestrator-controller-install.service terrascale-orchestrator-bootstrap.service terrascale-orchestrator-controller.service terrascale-orchestrator-host.service terrascale-orchestrator-host-setup.service terrascale-orchestrator-host-setup.timer netbird.service terrascale-netbird-enroll.service terrascale-netbird-agent.service
-`
+const isolatedBoot = `units="$(systemctl list-unit-files --no-legend 'terrascale-*' 'netbird*' | awk '{print $1}')"
+mkdir -p /run/ts-qualification-units
+for unit in $units; do
+  target="/etc/systemd/system/$unit"
+  if [ -f "$target" ] && [ ! -L "$target" ]; then cp -p "$target" "/run/ts-qualification-units/$unit"; fi
+  ln -sfn /dev/null "$target"
+done
+systemctl daemon-reload
+if [ -n "$units" ]; then systemctl stop $units; fi`
+
+func (c *cloud) launchMetadata(publicKey string) (map[string]string, error) {
+	script := isolatedBoot + "\nprintf '%s\\n' '" + c.prepared.approval.RunID + "' > /run/ts-native-disposable\nchmod 600 /run/ts-native-disposable\n"
+	config := map[string]any{"disable_root": false, "ssh_pwauth": false,
+		"users":       []any{"default", map[string]any{"name": "root", "ssh_authorized_keys": []string{publicKey}}},
+		"bootcmd":     [][]string{{"sh", "-eu", "-c", script}},
+		"write_files": []map[string]string{{"path": "/etc/ssh/sshd_config.d/00-ts-qualification.conf", "permissions": "0600", "content": "PermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n"}}}
+	wire, err := json.Marshal(config, json.Deterministic(true))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{"ssh_authorized_keys": publicKey, "user_data": base64.StdEncoding.EncodeToString(append([]byte("#cloud-config\n"), wire...))}, nil
+}
 
 func (c *cloud) image(ctx context.Context, id string) (core.Image, error) {
 	r, err := c.compute.GetImage(ctx, core.GetImageRequest{ImageId: new(id)})
@@ -356,6 +378,11 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 		return err
 	}
 	a := c.prepared.approval
+	for operation := range j.Intents {
+		if operation == "image" && j.ImageID == "" || operation != "image" && j.Hosts[operation] == "" {
+			return errors.New("unresolved create intent: retain journal and image until authenticated resource recovery")
+		}
+	}
 	var pending []HostSpec
 	for _, host := range a.Hosts {
 		id := j.Hosts[host.Name]
@@ -427,6 +454,23 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 			}
 			if _, err := c.compute.DeleteImage(ctx, core.DeleteImageRequest{ImageId: new(j.ImageID)}); err != nil && !isNotFound(err) {
 				return err
+			}
+			for {
+				if err := c.check(ctx, true); err != nil {
+					return err
+				}
+				image, err := c.image(ctx, j.ImageID)
+				if isNotFound(err) || err == nil && image.LifecycleState == core.ImageLifecycleStateDeleted {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(3 * time.Second):
+				}
 			}
 		}
 		j.ImageDeleted = true
