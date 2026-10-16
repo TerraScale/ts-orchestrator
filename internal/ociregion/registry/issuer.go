@@ -62,7 +62,7 @@ func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal jetstrea
 	if err := guard(ctx); err != nil {
 		return nil, ErrIssuer
 	}
-	homeRegion, err := factory.HomeRegion(ctx, tenancy)
+	homeRegion, err := factory.HomeRegion(ociclient.RequestContext(ctx), tenancy)
 	if err != nil {
 		return nil, ErrIssuer
 	}
