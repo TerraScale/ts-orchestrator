@@ -19,8 +19,12 @@ import (
 )
 
 func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) error {
-	now := time.Now().UTC()
 	payload := proof.Payload
+	fresh := func(now time.Time) bool {
+		return challenge.issued.After(effect.ExpiresAt) && !challenge.issued.After(now) && now.Sub(challenge.issued) <= 10*time.Second &&
+			!now.Before(effect.ExpiresAt) && !payload.ObservedAt.Before(challenge.issued) &&
+			!payload.ObservedAt.After(now.Add(time.Second)) && now.Sub(payload.ObservedAt) <= 10*time.Second
+	}
 	retained, err := json.Marshal(challenge.effect, json.Deterministic(true))
 	if err != nil {
 		return err
@@ -31,14 +35,12 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	}
 	kernelStart, parseErr := strconv.ParseUint(payload.KernelStart, 10, 64)
 	if !bytes.Equal(retained, current) || challenge.effect.Sequence != effect.Sequence || challenge.epoch != epoch ||
-		challenge.nonce == "" || challenge.nonce != payload.Challenge || !challenge.issued.After(effect.ExpiresAt) ||
-		now.Sub(challenge.issued) > 10*time.Second || challenge.issued.After(now) ||
-		effect.Phase != authority.RuntimeEffectClosing || now.Before(effect.ExpiresAt) ||
+		challenge.nonce == "" || challenge.nonce != payload.Challenge || !fresh(time.Now().UTC()) ||
+		effect.Phase != authority.RuntimeEffectClosing ||
 		payload.EffectID != effect.EffectID || payload.TaskSHA256 != effect.TaskSHA256 || payload.InstanceID != effect.InstanceID || payload.NodeID != effect.NodeID ||
 		payload.Epoch != effect.Epoch || payload.Revision != effect.Sequence || !payload.Deadline.Equal(effect.ExpiresAt) ||
 		payload.ContainerID != "ts-"+effect.TaskID || payload.HostPID < 2 || parseErr != nil || kernelStart == 0 ||
 		payload.Cgroup != "0::/terrascale/"+payload.ContainerID+"\n" || payload.PIDNamespace == 0 || payload.MountNamespace == 0 ||
-		payload.ObservedAt.Before(challenge.issued) || payload.ObservedAt.After(now.Add(time.Second)) || now.Sub(payload.ObservedAt) > 10*time.Second ||
 		len(proof.CertificateChain) == 0 || len(proof.CertificateChain) > 8 || len(proof.Signature) == 0 || len(proof.Signature) > 1024 {
 		return errors.New("runtime stopped proof differs from fresh exact closing challenge")
 	}
@@ -89,9 +91,6 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 		}
 		intermediates.AddCert(certificate)
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
-		return err
-	}
 	key, ok := leaf.PublicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return errors.New("runtime stopped proof worker key is unsupported")
@@ -104,5 +103,11 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	if !ecdsa.VerifyASN1(key, digest[:], proof.Signature) {
 		return errors.New("runtime stopped proof worker signature is invalid")
 	}
-	return s.authority.Guard(ctx, epoch)
+	// The enclosing settlement CAS holds authority; manager reads may outlive proof validity.
+	now := time.Now().UTC()
+	if !fresh(now) {
+		return errors.New("runtime stopped proof expired during verification")
+	}
+	_, err = leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: now, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}})
+	return err
 }

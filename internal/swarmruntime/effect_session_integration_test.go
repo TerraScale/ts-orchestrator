@@ -2,9 +2,13 @@ package swarmruntime
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/jsontext"
@@ -12,15 +16,21 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	"github.com/moby/swarmkit/v2/api"
@@ -28,6 +38,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"google.golang.org/grpc"
 )
 
 // This recovery scenario seeds an actual possible-writer journal, then crosses
@@ -312,6 +324,50 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil {
 		t.Fatal("prior leader challenge remained current")
 	}
+	workerTLS, err := tls.LoadX509KeyPair(filepath.Join(workerCfg.StateDir, "certificates", "swarm-node.crt"), filepath.Join(workerCfg.StateDir, "certificates", "swarm-node.key"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerKey, ok := workerTLS.PrivateKey.(*ecdsa.PrivateKey)
+	if !ok {
+		t.Fatal("actual worker certificate has no ECDSA key")
+	}
+	for _, operation := range []string{"GetNode", "ListClusters"} {
+		t.Run("stop proof expires during "+operation, func(t *testing.T) {
+			challenge := runtimeStopChallenge{nonce: closing.StopChallenge, effect: effect, epoch: current.Current().Epoch, issued: time.Now().UTC()}
+			held.challenges[effect.EffectID] = challenge
+			proof := proof
+			proof.Payload.ObservedAt = challenge.issued
+			wire, err := json.Marshal(proof.Payload, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V1\x00"), wire...))
+			proof.Signature, err = ecdsa.SignASN1(rand.Reader, workerKey, digest[:])
+			if err != nil {
+				t.Fatal(err)
+			}
+			// This signs fixture observations to qualify freshness, not containerd stop.
+			if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err != nil {
+				t.Fatalf("fresh actual worker signature was rejected: %v", err)
+			}
+			delayed := &effectStopDelayedControl{ControlClient: control, operation: operation, until: challenge.issued.Add(10*time.Second + 50*time.Millisecond)}
+			sessions.control = delayed
+			defer func() { sessions.control = control }()
+			query := query
+			query.StopProof = &proof
+			held.mu.Lock()
+			_, err = sessions.close(ctx, current.Current().Epoch, held, effect, query)
+			held.mu.Unlock()
+			if err == nil || !strings.Contains(err.Error(), "expired during verification") || !delayed.waited || held.release == nil {
+				t.Fatalf("delayed manager read did not preserve the local hold: waited=%v err=%v", delayed.waited, err)
+			}
+			pending, err := current.ListUnresolvedRuntimeEffects(ctx, scope)
+			if err != nil || len(pending) != 1 || pending[0].Phase != authority.RuntimeEffectClosing || pending[0].Sequence != effect.Sequence {
+				t.Fatalf("expired proof changed durable closing hold: %v", err)
+			}
+		})
+	}
 	terminal := authority.TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID, Region: "GRU", Owner: "orchestrator", CompartmentID: "ocid1.compartment.integration.held",
 		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64), OperationID: entityid.New(), Nonce: strings.Repeat("b", 32),
 		Targets:            []authority.TerminalTarget{{SeatID: registration.ManagedPlacement.SeatID, MemberID: registration.ManagedMember.Scope.MemberID, HostCreateKey: registration.ManagedOCI.CreateKey, DataCreateKey: entityid.New()}},
@@ -333,10 +389,35 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 	stopTerminal()
+	query.StopProof = nil
 	held.mu.Lock()
-	held.release()
-	held.release = nil
+	freshClose, err := sessions.close(ctx, current.Current().Epoch, held, effect, query)
 	held.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.Payload.Challenge = freshClose.StopChallenge
+	proof.Payload.ObservedAt = time.Now().UTC()
+	wire, err := json.Marshal(proof.Payload, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(append([]byte("TS-RUNTIME-STOP-V1\x00"), wire...))
+	proof.Signature, err = ecdsa.SignASN1(rand.Reader, workerKey, digest[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	query.StopProof = &proof
+	held.mu.Lock()
+	settled, err := sessions.close(ctx, current.Current().Epoch, held, effect, query)
+	held.mu.Unlock()
+	if err != nil || settled.Phase != authority.RuntimeEffectSettled || held.release != nil {
+		t.Fatalf("fresh worker proof did not durably settle and release local hold: %v", err)
+	}
+	pending, err = current.ListUnresolvedRuntimeEffects(ctx, scope)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("settled worker proof left an unresolved durable hold: %v", err)
+	}
 	select {
 	case err := <-terminalDone:
 		if err == nil {
@@ -345,6 +426,172 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("cancelled terminal writer did not return after test gate cleanup")
 	}
+	t.Run("owned OCI termination settles", func(t *testing.T) {
+		effect.EffectID, effect.Sequence, effect.Epoch = entityid.New(), 0, current.Current().Epoch
+		effect.Phase, effect.IssuedAt = authority.RuntimeEffectHeld, time.Now().UTC()
+		effect.ExpiresAt = effect.IssuedAt.Add(time.Second)
+		effect.AdmissionSHA256, err = executionwire.WorkerAdmissionSHA256(executionwire.WorkerGrantPayload{Identity: identity, TaskID: effect.TaskID, ServiceID: effect.ServiceID,
+			TaskSHA256: effect.TaskSHA256, EffectID: effect.EffectID, Epoch: effect.Epoch, Material: material})
+		if err != nil {
+			t.Fatal(err)
+		}
+		effect.Sequence, err = current.BeginRuntimeEffect(ctx, effect.Epoch, effect)
+		if err != nil {
+			t.Fatal(err)
+		}
+		held.mu.Lock()
+		err = sessions.retain(ctx, effect.Epoch, scope, held)
+		held.mu.Unlock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		observer, state := effectSessionOCIObserver(t, js, registration)
+		sessions.volumes = observer
+		timer := time.NewTimer(time.Until(effect.ExpiresAt) + time.Millisecond)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-timer.C:
+		}
+		if err := sessions.Reconcile(ctx); err == nil || held.release == nil {
+			t.Fatal("OCI STOPPED instance released the execution hold")
+		}
+		state.Store(1)
+		if err := sessions.Reconcile(ctx); err != nil || held.release != nil {
+			t.Fatalf("owned OCI TERMINATED instance did not settle and release: %v", err)
+		}
+		history, err := current.ListRuntimeEffectHistory(ctx, scope)
+		if err != nil || len(history) != 2 {
+			t.Fatalf("actual R3 settlement history unavailable: %v", err)
+		}
+		for _, retained := range history {
+			if retained.Phase != authority.RuntimeEffectSettled {
+				t.Fatal("signed stop or OCI termination did not durably settle")
+			}
+		}
+	})
+}
+
+func effectSessionOCIObserver(t *testing.T, js jetstream.JetStream, registration host.Registration) (*oci.VolumeMountObserver, *atomic.Int32) {
+	t.Helper()
+	config := oci.RegionConfig{Region: oci.RegionGRU, Generation: 1, Owner: "orchestrator", Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com",
+		CompartmentID: "ocid1.compartment.oc1..owned", ImageCompartmentID: "ocid1.compartment.oc1..images", AvailabilityDomain: "sa-saopaulo-1-AD-1",
+		FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1.private", NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.private"},
+		ImageID: "ocid1.image.oc1.sa-saopaulo-1.qualified", Shape: "VM.Standard.E5.Flex", BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768}
+	intent := oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
+	journal, err := oci.OpenJournal(t.Context(), js, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kv, err := js.KeyValue(t.Context(), "TS_OCI_OPERATIONS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Seed already durable ownership; this scenario does not qualify launch issuance.
+	wire, err := json.Marshal(map[string]any{"schema_version": 1, "kind": "instance", "identity": oci.ResourceIdentity{ID: registration.ManagedOCI.InstanceID,
+		Region: oci.RegionGRU, Generation: 1, Owner: config.Owner, CreateKey: registration.ManagedOCI.CreateKey}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kv.Create(t.Context(), entityid.Derive("oci-ownership", "instance", registration.ManagedOCI.InstanceID), wire); err != nil {
+		t.Fatal(err)
+	}
+	hasher := sha256.New()
+	for _, part := range []string{config.Owner, "GRU", "1", registration.ManagedOCI.CreateKey} {
+		hasher.Write([]byte{0})
+		hasher.Write([]byte(part))
+	}
+	hostNode := "host-" + hex.EncodeToString(hasher.Sum(nil))[:24]
+	state := new(atomic.Int32)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/20160918/instances/"+registration.ManagedOCI.InstanceID || r.Header.Get("Authorization") == "" {
+			t.Errorf("unexpected unsigned OCI operation: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		lifecycle := "STOPPED"
+		if state.Load() == 1 {
+			lifecycle = "TERMINATED"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("etag", "owned-instance-v1")
+		wire, err := json.Marshal(map[string]any{"id": registration.ManagedOCI.InstanceID, "compartmentId": config.CompartmentID,
+			"availabilityDomain": config.AvailabilityDomain, "lifecycleState": lifecycle, "freeformTags": map[string]string{
+				"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": config.Owner, "terrascale-region": "GRU", "terrascale-generation": "1",
+				"terrascale-resource": "member-host", "terrascale-create-key": registration.ManagedOCI.CreateKey, "terrascale-host-node": hostNode}})
+		if err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write(wire)
+	}))
+	t.Cleanup(server.Close)
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("unexpected non-TLS OCI dial")
+	}
+	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != "iaas.sa-saopaulo-1.oraclecloud.com:443" {
+			return nil, fmt.Errorf("unexpected OCI destination %q", address)
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	// Keep the SDK's cloned transport on this local TLS fixture, with no proxy or cloud dial.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	originalTransport := http.DefaultTransport
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport; transport.CloseIdleConnections() })
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..test", "ocid1.user.oc1..test", "sa-saopaulo-1", "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer, err := oci.NewVolumeMountObserver(factory, config, intent, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observer, state
+}
+
+type effectStopDelayedControl struct {
+	api.ControlClient
+	operation string
+	until     time.Time
+	waited    bool
+}
+
+func (c *effectStopDelayedControl) wait(ctx context.Context, operation string) error {
+	if c.operation != operation {
+		return nil
+	}
+	c.waited = true
+	timer := time.NewTimer(time.Until(c.until))
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func (c *effectStopDelayedControl) GetNode(ctx context.Context, request *api.GetNodeRequest, options ...grpc.CallOption) (*api.GetNodeResponse, error) {
+	if err := c.wait(ctx, "GetNode"); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.GetNode(ctx, request, options...)
+}
+
+func (c *effectStopDelayedControl) ListClusters(ctx context.Context, request *api.ListClustersRequest, options ...grpc.CallOption) (*api.ListClustersResponse, error) {
+	if err := c.wait(ctx, "ListClusters"); err != nil {
+		return nil, err
+	}
+	return c.ControlClient.ListClusters(ctx, request, options...)
 }
 
 func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn) {

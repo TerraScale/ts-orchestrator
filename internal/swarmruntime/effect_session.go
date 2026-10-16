@@ -471,9 +471,6 @@ func (s *EffectSessions) Reconcile(ctx context.Context) error {
 		held.mu.Lock()
 		if !time.Now().Before(effect.ExpiresAt) {
 			_, err := s.authority.SettleRuntimeEffect(ctx, epoch, effect.Scope, effect.EffectID, effect.Sequence, func(check context.Context, latest authority.RuntimeEffect) error {
-				if err := s.authority.Guard(check, epoch); err != nil {
-					return err
-				}
 				observation, err := s.volumes.ObserveTerminatedInstance(check, latest.InstanceID)
 				if err != nil {
 					return err
@@ -481,7 +478,7 @@ func (s *EffectSessions) Reconcile(ctx context.Context) error {
 				if !observation.IsVerified() || observation.InstanceID() != latest.InstanceID {
 					return errors.New("runtime stop OCI identity differs")
 				}
-				return s.authority.Guard(check, epoch)
+				return nil
 			})
 			if err != nil {
 				failures = append(failures, err)
