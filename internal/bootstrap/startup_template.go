@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"slices"
@@ -15,17 +17,26 @@ const ControllerConfigDerivationV1 = "terrascale.bootstrap.controller.v1"
 // foundation grant that authorizes regional material generation. Dynamic Vault
 // references and rendered configuration are bound by the source CAS before use.
 type StartupTemplate struct {
-	SeedSlot                   string          `json:"seedSlot"`
-	Profiles                   []LaunchProfile `json:"profiles"`
-	ImageOCID                  string          `json:"imageOcid"`
-	ImageArchitecture          string          `json:"imageArchitecture"`
-	ReleaseImageReceiptWire    []byte          `json:"releaseImageReceiptWire"`
-	ReleaseDelegationWire      []byte          `json:"releaseDelegationWire"`
-	TrustedSigners             jsontext.Value  `json:"trustedSigners"`
-	ControllerConfigDerivation string          `json:"controllerConfigDerivation"`
+	SeedSlot                   string                 `json:"seedSlot"`
+	Profiles                   []LaunchProfile        `json:"profiles"`
+	ImageOCID                  string                 `json:"imageOcid"`
+	ImageArchitecture          string                 `json:"imageArchitecture"`
+	ReleaseImageReceiptWire    []byte                 `json:"releaseImageReceiptWire"`
+	ReleaseDelegationWire      []byte                 `json:"releaseDelegationWire"`
+	TrustedSigners             jsontext.Value         `json:"trustedSigners"`
+	ControllerConfigDerivation string                 `json:"controllerConfigDerivation"`
+	ControllerFiles            []ControllerConfigFile `json:"controllerFiles"`
+	ManagedMaterial            *ManagedMaterialDomain `json:"managedMaterial,omitempty"`
 }
 
 func (template StartupTemplate) Clone() StartupTemplate {
+	template.ControllerFiles = slices.Clone(template.ControllerFiles)
+	for index := range template.ControllerFiles {
+		template.ControllerFiles[index].Bytes = bytes.Clone(template.ControllerFiles[index].Bytes)
+	}
+	if template.ManagedMaterial != nil {
+		template.ManagedMaterial = new(*template.ManagedMaterial)
+	}
 	template.Profiles = slices.Clone(template.Profiles)
 	for index := range template.Profiles {
 		template.Profiles[index] = cloneProfile(template.Profiles[index])
@@ -43,6 +54,16 @@ func (template StartupTemplate) Validate() error {
 		len(template.ReleaseDelegationWire) == 0 || len(template.ReleaseDelegationWire) > MaxManifestBytes ||
 		template.ControllerConfigDerivation != ControllerConfigDerivationV1 {
 		return ErrManifestInvalid
+	}
+	if len(template.ControllerFiles) != len(ControllerConfigFileNames) || template.ManagedMaterial != nil && template.ManagedMaterial.Validate() != nil {
+		return ErrManifestInvalid
+	}
+	for index, file := range template.ControllerFiles {
+		sum := sha256.Sum256(file.Bytes)
+		var value map[string]any
+		if file.Name != ControllerConfigFileNames[index] || len(file.Bytes) == 0 || len(file.Bytes) > MaxControllerSidecarBytes || file.SHA256 != hex.EncodeToString(sum[:]) || json.Unmarshal(file.Bytes, &value) != nil || value == nil {
+			return ErrManifestInvalid
+		}
 	}
 	seen := make(map[string]bool, len(template.Profiles))
 	for _, profile := range template.Profiles {
