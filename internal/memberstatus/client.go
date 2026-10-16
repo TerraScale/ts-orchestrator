@@ -22,7 +22,7 @@ import (
 
 const maxEvidenceBytes = 8192
 
-// ProcessObservation is supplied by the native host runner, which must check
+// ProcessObservation is supplied by the executor, which must check
 // the process start time and role cgroup. The client checks that this
 // observation remains unchanged across every Unix HTTP request.
 type ProcessObservation struct {
@@ -84,6 +84,10 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		!status.Capabilities.ServingProof || !status.Capabilities.DurableDrain {
 		return Status{}, ErrStaleBinding
 	}
+	if status.Serving && (status.ReceiverOnly || !status.Local.StorageRecovered ||
+		!status.Local.ReplicationListenerReady || !status.Local.Healthy || !status.Local.Ready) {
+		return Status{}, ErrNotServing
+	}
 	status.verified = true
 	return status, nil
 }
@@ -107,7 +111,8 @@ func (c *Client) ServingProofForPeer(ctx context.Context, status Status, peerMem
 func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, peerIncarnation string) (ServingProof, error) {
 	if !status.verified || !canonicalID(peerMemberID) || peerMemberID == c.scope.MemberID ||
 		status.Scope != c.scope || status.Authority != c.authority || !status.Process.valid() ||
-		status.ReceiverOnly || !status.Serving || !status.Local.Healthy || !status.Local.Ready {
+		status.ReceiverOnly || !status.Serving || !status.Local.StorageRecovered ||
+		!status.Local.ReplicationListenerReady || !status.Local.Healthy || !status.Local.Ready {
 		return ServingProof{}, ErrNotServing
 	}
 	challenge, err := nonce()
