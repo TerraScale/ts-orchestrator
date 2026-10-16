@@ -53,6 +53,12 @@ func (s Sources) Collect(ctx context.Context) Inputs {
 			in.Services, in.ServicesObservedAt = services, now().UTC()
 		}
 	}
+	if s.Functions != nil {
+		functions, err := s.Functions(ctx)
+		if err == nil && ctx.Err() == nil {
+			in.Functions, in.FunctionsObservedAt = functions, now().UTC()
+		}
+	}
 	if s.Links != nil {
 		in.Links = s.Links()
 	}
@@ -99,6 +105,8 @@ func Build(in Inputs) Rollup {
 	rollup.VolumesUnavailable = in.VolumesUnavailable
 	rollup.Services = boundedManagedServices(in.Services, &truncated)
 	rollup.ServicesObservedAt = in.ServicesObservedAt
+	rollup.Functions = keep(in.Functions, 64, &truncated)
+	rollup.FunctionsObservedAt = in.FunctionsObservedAt
 	rollup.Links = keep(links, maxLinks, &truncated)
 	rollup.Routes = keep(routes, maxRoutes, &truncated)
 	rollup.Autoscale = Autoscale{Services: buildScaling(in.Autoscale)}

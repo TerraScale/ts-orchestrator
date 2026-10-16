@@ -23,6 +23,7 @@ type Sources struct {
 	Reports   func() []hostload.NodeLoad
 	Volumes   insights.VolumeProvider
 	Services  func(context.Context) ([]swarmruntime.ServiceObservation, error)
+	Functions func(context.Context) ([]FunctionObservation, error)
 	Links     func() []regionview.LinkProbe
 	Autoscale func() map[string]workload.Result
 	Events    func(limit int) []observability.Event
@@ -39,13 +40,15 @@ type Inputs struct {
 	Now  time.Time
 	// Cluster is the cell-wide controller snapshot; ClusterOK is false
 	// when it could not be collected.
-	Cluster            observability.ClusterSnapshot
-	ClusterOK          bool
-	Grants             []regionview.Node
-	Reports            []hostload.NodeLoad
-	Volumes            []insights.Volume
-	Services           []swarmruntime.ServiceObservation
-	ServicesObservedAt time.Time
+	Cluster             observability.ClusterSnapshot
+	ClusterOK           bool
+	Grants              []regionview.Node
+	Reports             []hostload.NodeLoad
+	Volumes             []insights.Volume
+	Services            []swarmruntime.ServiceObservation
+	ServicesObservedAt  time.Time
+	Functions           []FunctionObservation
+	FunctionsObservedAt time.Time
 	// VolumesUnavailable is true when the volume source failed, so an empty
 	// list is not mistaken for a region without volumes.
 	VolumesUnavailable bool
