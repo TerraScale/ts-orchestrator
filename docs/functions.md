@@ -334,6 +334,10 @@ mTLS passed in the same run (0.067 seconds). Metadata-only receipt verification
 and existing module admission passed at `2125e83f` (2.580 seconds). Sealed startup,
 retained-bundle app wiring and the separate credential guardian metadata require
 their combined integration checks; these earlier passes do not qualify them.
+The credential metadata reader and signed host chunk checks subsequently passed
+at `f754395f` (0.321 and 0.530 seconds); executor and app caller qualification
+remain separate. Generated startup issuer JWT/mTLS checks passed at `16c601be`
+(0.186 seconds); the genuine sealed actor scenario still requires its own pass.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
