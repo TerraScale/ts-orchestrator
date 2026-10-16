@@ -52,6 +52,7 @@ import (
 const usage = `Usage: ts-orch <command> [flags]
 
 Runtime:
+  managed-runtime-start  Run the admitted root Swarm runtime
   run                    Run the regional controller and embedded NATS
   host                   Run the host agent
   check                  Validate role configuration and connectivity
@@ -122,6 +123,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
+	case "managed-runtime-start":
+		return app.RunManagedRuntime(ctx, args[1:], output)
 	case "observe":
 		return runObserve(ctx, args[1:], output)
 	case "usage":

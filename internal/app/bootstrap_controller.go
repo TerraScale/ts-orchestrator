@@ -131,6 +131,13 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	child.Stderr = os.Stderr
 	child.Env = []string{"PATH=/usr/bin:/bin", "LANG=C"}
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if commandName == "bootstrap-admit-restart" && os.Geteuid() == 0 {
+		uid, gid, err := controllerServiceIdentity()
+		if err != nil {
+			return err
+		}
+		child.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}}
+	}
 	child.Cancel = func() error {
 		if err := syscall.Kill(-child.Process.Pid, syscall.SIGKILL); err != nil {
 			if errors.Is(err, syscall.ESRCH) {

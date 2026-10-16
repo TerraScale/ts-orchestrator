@@ -1,0 +1,28 @@
+[Unit]
+Description=TerraScale admitted regional Swarm runtime
+Wants=network-online.target
+Requires=containerd.service terrascale-orchestrator-bootstrap.service
+After=network-online.target containerd.service terrascale-orchestrator-bootstrap.service
+Before=terrascale-orchestrator-controller.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=/usr/local/bin/terrascale-orchestrator managed-runtime-start
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=10min
+TimeoutStopSec=90s
+KillMode=process
+LimitNOFILE=65536
+LimitCORE=0
+UMask=0077
+SupplementaryGroups=
+StateDirectory=terrascale-orchestrator-host
+StateDirectoryMode=0755
+Delegate=yes
+
+[Install]
+WantedBy=multi-user.target
+RequiredBy=terrascale-orchestrator-controller.service
