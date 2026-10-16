@@ -81,7 +81,7 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := artifacts.PutBytes(t.Context(), proof.Claim().Digest, proof.Module()); err != nil {
+	if _, err := artifacts.PutBytes(t.Context(), "sha256-"+proof.Claim().Digest, proof.Module()); err != nil {
 		t.Fatal(err)
 	}
 	material := generationtest.New(t, now)
