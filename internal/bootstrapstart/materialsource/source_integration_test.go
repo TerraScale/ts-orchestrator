@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -202,6 +203,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 				return
 			}
 			w.Header().Set("etag", etag)
+			w.Header().Set("Content-Length", strconv.Itoa(len(old)))
 			w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
 			w.Header().Set("opc-sse-kms-key-id", bucketKMS)
 			w.Write(old)
