@@ -41,13 +41,16 @@ func (s *admissionFixture) VerifyRemoval(context.Context, *api.Task, Binding) er
 	return errors.New("independent writer stop and final drain evidence unavailable")
 }
 
-type volumeFixture struct{ inspect func() }
+type volumeFixture struct {
+	inspect func()
+	format  bool
+}
 
 func (v volumeFixture) InspectVolumeInitialization(context.Context, oci.VolumeInitializationPins) (oci.VolumeInitializationProof, error) {
 	if v.inspect != nil {
 		v.inspect()
 	}
-	return oci.VolumeInitializationProof{BootDescriptorSHA256: strings.Repeat("a", 64)}, nil
+	return oci.VolumeInitializationProof{BootDescriptorSHA256: strings.Repeat("a", 64), AllowFormat: v.format}, nil
 }
 
 type emptyInventory struct{ oci.Provider }
@@ -159,6 +162,11 @@ func TestExecutorSafetyIntegration(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	hooks.Volumes = volumeFixture{format: true}
+	if err := run(hooks.BeforePrepare); !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("first format authority reached runtime: %v", err)
+	}
+	hooks.Volumes = volumeFixture{}
 	var expired context.Context
 	if err := hooks.WithTaskEffect(ctx, task, func(held context.Context) error { expired = held; return nil }); err != nil {
 		t.Fatal(err)
