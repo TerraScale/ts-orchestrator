@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type VerifiedStartupTemplate struct {
 	issuedAt, expiresAt                                     time.Time
 	image                                                   release.VerifiedImage
 	vault, escrow                                           StartupVaultTarget
+	slotIPs                                                 map[string]string
 }
 
 // StartupVaultTarget is the exact regional host-publication destination from
@@ -49,6 +51,13 @@ func (verified VerifiedStartupTemplate) ExpiresAt() time.Time            { retur
 func (verified VerifiedStartupTemplate) IssuedAt() time.Time             { return verified.issuedAt }
 func (verified VerifiedStartupTemplate) Image() release.VerifiedImage    { return verified.image }
 func (verified VerifiedStartupTemplate) VaultTarget() StartupVaultTarget { return verified.vault }
+
+func (verified VerifiedStartupTemplate) SlotPrivateIP(slot string) (string, error) {
+	if !verified.IsVerified() || verified.slotIPs[slot] == "" {
+		return "", ErrManifestInvalid
+	}
+	return verified.slotIPs[slot], nil
+}
 
 // ValidateProjection checks the shared manifest structure with derived receipt
 // provenance and exact signed recipe inputs, before any source CAS mutation.
@@ -170,8 +179,10 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 			ClusterID    string `json:"clusterId"`
 			Cell         string `json:"cell"`
 			Region       string `json:"region"`
+			SubnetCIDR   string `json:"subnetCidr"`
 			Slots        []struct {
-				Name string `json:"name"`
+				Name      string `json:"name"`
+				PrivateIP string `json:"privateIp"`
 			} `json:"slots"`
 		}
 		if json.Unmarshal(material.Config, &cfg) != nil || digestBytes(material.Config) != material.PlanSHA256 {
@@ -184,10 +195,18 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 		if cfg.DeploymentID != identity.DeploymentID || cfg.Environment != identity.Environment || cfg.ClusterID != identity.ClusterID || cfg.Cell != strings.ToLower(string(identity.Cell)) || cfg.Region != identity.OCIRegion || len(cfg.Slots) != len(identity.ControllerSlots) {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
+		prefix, prefixErr := netip.ParsePrefix(cfg.SubnetCIDR)
+		if prefixErr != nil || !prefix.Addr().Is4() || !prefix.Addr().IsPrivate() || prefix.Masked() != prefix {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		slotIPs := make(map[string]string, len(cfg.Slots))
+		seenIPs := make(map[string]bool, len(cfg.Slots))
 		for index, slot := range cfg.Slots {
-			if slot.Name != identity.ControllerSlots[index] {
+			address, addressErr := netip.ParseAddr(slot.PrivateIP)
+			if slot.Name != identity.ControllerSlots[index] || addressErr != nil || !address.Is4() || !prefix.Contains(address) || address == prefix.Addr() || address == prefix.Addr().Next() || seenIPs[slot.PrivateIP] {
 				return VerifiedStartupTemplate{}, ErrManifestInvalid
 			}
+			slotIPs[slot.Name], seenIPs[slot.PrivateIP] = slot.PrivateIP, true
 		}
 		template := material.Startup.Clone()
 		if identity.InitialSourceRegistration != nil {
@@ -230,7 +249,7 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 			clonedRoots[keyID] = bytes.Clone(key)
 		}
 		return VerifiedStartupTemplate{template: template, anchor: anchor, roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
-			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow}, nil
+			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs}, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
 }
