@@ -18,7 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const labelFunctionWorkerBundle = "terrascale.function-worker-bundle"
+// LabelFunctionWorkerBundle pins the exact retained qualified worker bundle.
+const LabelFunctionWorkerBundle = "terrascale.function-worker-bundle"
 
 // SwarmKit's immutable Config data must remain below its 1000 KiB limit.
 const maxFunctionWorkerBundleBytes = 1000*1024 - 1
@@ -39,7 +40,7 @@ func (i FunctionServiceIntent) workerBundleAnnotations(digest string, sequence s
 		LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region),
 		LabelRole:     FunctionWorkerRole, LabelRegion: i.Region, LabelEnvironment: i.Environment,
 		labelReleaseArchitecture: i.Architecture, labelReleaseSequence: sequence,
-		labelReleaseFingerprint: identity, labelFunctionWorkerBundle: digest,
+		labelReleaseFingerprint: identity, LabelFunctionWorkerBundle: digest,
 	}}, nil
 }
 
@@ -52,7 +53,7 @@ func workerBundleMatches(config *api.Config, annotations api.Annotations) bool {
 			return false
 		}
 	}
-	return len(config.Spec.Data) > 0 && len(config.Spec.Data) <= maxFunctionWorkerBundleBytes && fmt.Sprintf("%x", sha256.Sum256(config.Spec.Data)) == annotations.Labels[labelFunctionWorkerBundle]
+	return len(config.Spec.Data) > 0 && len(config.Spec.Data) <= maxFunctionWorkerBundleBytes && fmt.Sprintf("%x", sha256.Sum256(config.Spec.Data)) == annotations.Labels[LabelFunctionWorkerBundle]
 }
 
 func (i FunctionServiceIntent) retainWorkerBundle(ctx context.Context, client api.ControlClient, bundle release.ContainerBundle, worker release.VerifiedContainer) error {
@@ -110,7 +111,7 @@ func (i FunctionServiceIntent) WorkerBundleForTask(ctx context.Context, client a
 	if _, err := DecodeContainer(task); err != nil {
 		return release.ContainerBundle{}, err
 	}
-	annotations, err := i.workerBundleAnnotations(labels[labelFunctionWorkerBundle], labels[labelReleaseSequence], labels[labelReleaseFingerprint])
+	annotations, err := i.workerBundleAnnotations(labels[LabelFunctionWorkerBundle], labels[labelReleaseSequence], labels[labelReleaseFingerprint])
 	if err != nil {
 		return release.ContainerBundle{}, err
 	}

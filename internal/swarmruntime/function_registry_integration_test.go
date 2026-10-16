@@ -182,7 +182,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		t.Fatalf("renewed delegation overwrote the original task bundle: %v", err)
 	}
 	missing := task.Copy()
-	missing.ServiceAnnotations.Labels[labelFunctionWorkerBundle] = strings.Repeat("0", 64)
+	missing.ServiceAnnotations.Labels[LabelFunctionWorkerBundle] = strings.Repeat("0", 64)
 	if _, err := intent.WorkerBundleForTask(ctx, client, missing); err == nil {
 		t.Fatal("missing task-pinned proof selected a different worker bundle")
 	}
