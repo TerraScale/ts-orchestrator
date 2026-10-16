@@ -166,8 +166,8 @@ func verifyFile(path, expected string) error {
 	return nil
 }
 
-func run(ctx context.Context, req Request, initial native.Report, sessions [2]exchange) (report native.Report, runErr error) {
-	report = initial
+func run(ctx context.Context, req Request, initialReport native.Report, sessions [2]exchange) (report native.Report, runErr error) {
+	report = initialReport
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 	var events []jsontext.Value
