@@ -138,7 +138,26 @@ func (actor *SourceFounder) AuthorizeLinkObject(ctx context.Context, recipient b
 			recipient.InstallationID() != actor.Founder().InstallationID() || recipient.Generation() != actor.Founder().Generation() || recipient.StorageDomain() != actor.authority.domain || key != recipient.LinkObjectKey() {
 			return bootstrapstart.ErrSourceFounder
 		}
-		return nil
+		home, err := actor.currentPublicSource(ctx)
+		if err != nil {
+			return err
+		}
+		if err := recipient.VerifyHome(home.MaterialRecord()); err != nil {
+			return err
+		}
+		recipientCell := string(recipient.Cell())
+		record, _, err := actor.resolver.Store.Load(ctx, recipientCell)
+		if err != nil {
+			return err
+		}
+		scope := digestSource([]byte(actor.Founder().InstallationID() + "\x00" + strings.ToLower(recipientCell)))
+		domain := actor.authority.domain
+		pending, ok := record.SourcePolicyIDs[sourcePolicyKey(domain.Namespace, domain.HeadBucket, domain.Prefix+"/bootstrap/v2/material-source/"+scope+".json")]
+		original := recipient.OriginalActor()
+		if !ok || pending.PolicyID == "" || pending.InstanceID != original.InstanceID || pending.GrantDigest != original.GrantDigest || pending.TemplateDigest != original.TemplateDigest || pending.InstallationID != actor.Founder().InstallationID() {
+			return bootstrapstart.ErrSourceFounder
+		}
+		return actor.verifyPolicy(ctx, pending)
 	}
 	if err := verify(ctx); err != nil {
 		return err
@@ -492,4 +511,22 @@ func (actor *SourceFounder) authorizeHomeLink(ctx context.Context, key string) e
 		return nil
 	}
 	return actor.authorize(ctx, key, "ts-bootstrap-source-link-"+scope[:32], verify)
+}
+
+func cloneSourcePolicies(source map[string]SourcePolicyRecord) map[string]SourcePolicyRecord {
+	result := maps.Clone(source)
+	for key, value := range result {
+		value.Request.Statements = slices.Clone(value.Request.Statements)
+		if value.Request.CompartmentId != nil {
+			value.Request.CompartmentId = new(*value.Request.CompartmentId)
+		}
+		if value.Request.Name != nil {
+			value.Request.Name = new(*value.Request.Name)
+		}
+		if value.Request.Description != nil {
+			value.Request.Description = new(*value.Request.Description)
+		}
+		result[key] = value
+	}
+	return result
 }

@@ -531,6 +531,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.ResourceIDs = maps.Clone(result.ResourceIDs)
 	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
 	result.PendingCreates = maps.Clone(result.PendingCreates)
-	result.SourcePolicyIDs = maps.Clone(result.SourcePolicyIDs)
+	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
 	return result, errors.Join(providerErr, err)
 }
