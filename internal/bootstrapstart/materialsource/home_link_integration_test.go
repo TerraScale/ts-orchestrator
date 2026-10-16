@@ -1,3 +1,5 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
