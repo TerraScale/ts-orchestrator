@@ -9,9 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
-	"sync"
 	"time"
+	"uuid"
 
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -20,7 +19,7 @@ const (
 	desiredBucket  = "TS_OCI_DESIRED"
 	observedBucket = "TS_OCI_OBSERVED"
 	maxRecordBytes = 64 << 10
-	schemaVersion  = 1
+	schemaVersion  = 2
 	maxListedKeys  = 4096
 )
 
@@ -47,6 +46,7 @@ type Desired struct {
 	Spec          jsontext.Value `json:"spec"`
 	SpecDigest    string         `json:"specDigest"`
 	Tombstone     *Tombstone     `json:"tombstone,omitempty"`
+	Operation     *Operation     `json:"operation,omitempty"`
 	// Revision is the KV revision the record was read at; it is not stored.
 	Revision uint64 `json:"-"`
 }
@@ -81,6 +81,9 @@ func (d Desired) Validate() error {
 	if d.Tombstone != nil && (d.Tombstone.RequestedAt.IsZero() || d.Tombstone.NotBefore.Before(d.Tombstone.RequestedAt)) {
 		return errors.New("OCI desired record tombstone is invalid")
 	}
+	if d.Operation != nil {
+		return d.Operation.validate()
+	}
 	return nil
 }
 
@@ -91,18 +94,19 @@ type Status struct {
 	SpecDigest string    `json:"specDigest"`
 	ObservedAt time.Time `json:"observedAt"`
 	// Policy is the desired record's drift policy at this observation.
-	Policy  DriftPolicy `json:"policy,omitempty"`
-	Found   bool        `json:"found"`
-	InSync  bool        `json:"inSync"`
-	Foreign bool        `json:"foreign,omitempty"`
-	Drift   []Change    `json:"drift,omitempty"`
-	Applied bool        `json:"applied,omitempty"`
-	Deleted bool        `json:"deleted,omitempty"`
-	Error   string      `json:"error,omitempty"`
+	Policy      DriftPolicy `json:"policy,omitempty"`
+	Found       bool        `json:"found"`
+	InSync      bool        `json:"inSync"`
+	Foreign     bool        `json:"foreign,omitempty"`
+	Drift       []Change    `json:"drift,omitempty"`
+	Applied     bool        `json:"applied,omitempty"`
+	Deleted     bool        `json:"deleted,omitempty"`
+	Error       string      `json:"error,omitempty"`
+	OperationID string      `json:"operationId,omitempty"`
 }
 
 // Store is the desired/observed state seam. KVStore is the replicated
-// implementation; MemoryStore serves tests.
+// implementation used by production and integration scenarios.
 type Store interface {
 	List(ctx context.Context, region, kind string) ([]Desired, error)
 	Get(ctx context.Context, key Key) (Desired, error)
@@ -114,6 +118,9 @@ type Store interface {
 	Purge(ctx context.Context, desired Desired) error
 	PutStatus(ctx context.Context, status Status) error
 	GetStatus(ctx context.Context, key Key) (Status, bool, error)
+	// SaveOperation atomically claims or confirms an operation at the desired
+	// revision. In-flight IDs survive retries and authority transfers.
+	SaveOperation(ctx context.Context, desired Desired, epoch uint64, now time.Time, complete bool) (Desired, error)
 }
 
 func encode(value any) ([]byte, error) {
@@ -134,6 +141,12 @@ func decodeDesired(wire []byte, revision uint64) (Desired, error) {
 	var desired Desired
 	if err := json.Unmarshal(wire, &desired, json.RejectUnknownMembers(true)); err != nil {
 		return Desired{}, fmt.Errorf("decode OCI desired record: %w", err)
+	}
+	if desired.SchemaVersion == 1 && (desired.Policy == PolicyEnforce || desired.Policy == "report") && desired.Operation == nil {
+		// Migrate the old switch once; the operation CAS persists v2 before
+		// effects. New publishers can only submit always-enforced records.
+		desired.SchemaVersion = schemaVersion
+		desired.Policy = PolicyEnforce
 	}
 	if err := desired.Validate(); err != nil {
 		return Desired{}, err
@@ -269,6 +282,7 @@ func (s *KVStore) Get(ctx context.Context, key Key) (Desired, error) {
 }
 
 func (s *KVStore) Put(ctx context.Context, desired Desired) (Desired, error) {
+	desired.Operation = nil
 	if err := desired.Validate(); err != nil {
 		return Desired{}, err
 	}
@@ -294,12 +308,61 @@ func (s *KVStore) Put(ctx context.Context, desired Desired) (Desired, error) {
 	if desired.Generation <= current.Generation {
 		return Desired{}, fmt.Errorf("%w: generation %d does not supersede %d", ErrConflict, desired.Generation, current.Generation)
 	}
+	if current.Operation != nil && current.Operation.CompletedAt.IsZero() {
+		return Desired{}, fmt.Errorf("%w: previous OCI operation awaits observation", ErrConflict)
+	}
+	desired.Operation = nil
+	wire, err = encode(desired)
+	if err != nil {
+		return Desired{}, err
+	}
 	revision, err := s.desired.Update(ctx, desired.Key.subject(), wire, current.Revision)
 	if err != nil {
 		return Desired{}, fmt.Errorf("%w: %w", ErrConflict, err)
 	}
 	desired.Revision = revision
 	return desired, nil
+}
+
+// SaveOperation uses the desired record's CAS as the write barrier, including
+// retries in the same epoch. A stale follower read cannot pass this barrier.
+func (s *KVStore) SaveOperation(ctx context.Context, desired Desired, epoch uint64, now time.Time, complete bool) (Desired, error) {
+	if desired.Revision == 0 {
+		return Desired{}, ErrConflict
+	}
+	desired, err := operationRecord(desired, epoch, now, complete)
+	if err != nil {
+		return Desired{}, err
+	}
+	wire, err := encode(desired)
+	if err != nil {
+		return Desired{}, err
+	}
+	revision, err := s.desired.Update(ctx, desired.Key.subject(), wire, desired.Revision)
+	if err != nil {
+		return Desired{}, fmt.Errorf("%w: persist OCI operation: %w", ErrConflict, err)
+	}
+	desired.Revision = revision
+	return desired, nil
+}
+
+func operationRecord(desired Desired, epoch uint64, now time.Time, complete bool) (Desired, error) {
+	if epoch == 0 || now.IsZero() {
+		return Desired{}, errors.New("OCI operation requires an authority epoch and timestamp")
+	}
+	operation := Operation{ID: uuid.New().String(), Epoch: epoch, StartedAt: now.UTC()}
+	if desired.Operation != nil && desired.Operation.CompletedAt.IsZero() {
+		operation = *desired.Operation
+		if epoch < operation.Epoch {
+			return Desired{}, ErrFenced
+		}
+		operation.Epoch = epoch
+	}
+	if complete {
+		operation.CompletedAt = now.UTC()
+	}
+	desired.Operation = &operation
+	return desired, desired.Validate()
 }
 
 func (s *KVStore) MarkDeleted(ctx context.Context, key Key, requestedAt, notBefore time.Time) (Desired, error) {
@@ -310,6 +373,10 @@ func (s *KVStore) MarkDeleted(ctx context.Context, key Key, requestedAt, notBefo
 	if current.Tombstone != nil {
 		return current, nil
 	}
+	if current.Operation != nil && current.Operation.CompletedAt.IsZero() {
+		return Desired{}, fmt.Errorf("%w: previous OCI operation awaits observation", ErrConflict)
+	}
+	current.Operation = nil
 	current.Tombstone = &Tombstone{RequestedAt: requestedAt.UTC(), NotBefore: notBefore.UTC()}
 	if err := current.Validate(); err != nil {
 		return Desired{}, err
@@ -424,123 +491,5 @@ func (s *KVStore) ListStatus(ctx context.Context, region string) ([]Status, erro
 		}
 		statuses = append(statuses, status)
 	}
-	return statuses, nil
-}
-
-// MemoryStore is an in-process Store with the same CAS semantics, for tests
-// and dry runs.
-type MemoryStore struct {
-	mu       sync.Mutex
-	revision uint64
-	desired  map[Key]Desired
-	status   map[Key]Status
-}
-
-// NewMemoryStore returns an empty in-process store.
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{desired: map[Key]Desired{}, status: map[Key]Status{}}
-}
-
-func (s *MemoryStore) List(_ context.Context, region, kind string) ([]Desired, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var records []Desired
-	for key, desired := range s.desired {
-		if key.Region == region && key.Kind == kind {
-			records = append(records, desired)
-		}
-	}
-	slices.SortFunc(records, func(a, b Desired) int {
-		if a.Key.Name < b.Key.Name {
-			return -1
-		}
-		if a.Key.Name > b.Key.Name {
-			return 1
-		}
-		return 0
-	})
-	return records, nil
-}
-
-func (s *MemoryStore) Get(_ context.Context, key Key) (Desired, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	desired, ok := s.desired[key]
-	if !ok {
-		return Desired{}, ErrNotFound
-	}
-	return desired, nil
-}
-
-func (s *MemoryStore) Put(_ context.Context, desired Desired) (Desired, error) {
-	if err := desired.Validate(); err != nil {
-		return Desired{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if current, ok := s.desired[desired.Key]; ok && desired.Generation <= current.Generation {
-		return Desired{}, ErrConflict
-	}
-	s.revision++
-	desired.Revision = s.revision
-	s.desired[desired.Key] = desired
-	return desired, nil
-}
-
-func (s *MemoryStore) MarkDeleted(_ context.Context, key Key, requestedAt, notBefore time.Time) (Desired, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, ok := s.desired[key]
-	if !ok {
-		return Desired{}, ErrNotFound
-	}
-	if current.Tombstone == nil {
-		current.Tombstone = &Tombstone{RequestedAt: requestedAt.UTC(), NotBefore: notBefore.UTC()}
-		if err := current.Validate(); err != nil {
-			return Desired{}, err
-		}
-		s.revision++
-		current.Revision = s.revision
-		s.desired[key] = current
-	}
-	return current, nil
-}
-
-func (s *MemoryStore) Purge(_ context.Context, desired Desired) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	current, ok := s.desired[desired.Key]
-	if !ok || desired.Tombstone == nil || current.Revision != desired.Revision {
-		return ErrConflict
-	}
-	delete(s.desired, desired.Key)
-	delete(s.status, desired.Key)
-	return nil
-}
-
-func (s *MemoryStore) PutStatus(_ context.Context, status Status) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.status[status.Key] = status
-	return nil
-}
-
-func (s *MemoryStore) GetStatus(_ context.Context, key Key) (Status, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	status, ok := s.status[key]
-	return status, ok, nil
-}
-
-func (s *MemoryStore) ListStatus(_ context.Context, region string) ([]Status, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var statuses []Status
-	for key, status := range s.status {
-		if key.Region == region {
-			statuses = append(statuses, status)
-		}
-	}
-	slices.SortFunc(statuses, func(a, b Status) int { return strings.Compare(a.Key.String(), b.Key.String()) })
 	return statuses, nil
 }

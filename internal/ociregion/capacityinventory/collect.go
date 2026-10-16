@@ -60,6 +60,7 @@ func (r *Reader) ReadOwned(ctx context.Context, scope Scope) (Snapshot, error) {
 	if err != nil || tenancy != scope.TenancyID {
 		return Snapshot{}, errors.New("inventory principal differs from signed tenancy")
 	}
+	// shortcut: search and public rates are partial cost evidence; complete owned accounting before authorizing growth.
 	result := Snapshot{ScopeSHA256: scope.SHA256, Currency: scope.Currency, ObservedAt: started, ExpiresAt: started.Add(2 * time.Minute),
 		Pending: []string{"resource search consistency is not an authoritative complete fleet ledger", "current-month incurred charges and non-resource commitments require accounting reconciliation"}}
 	prices := catalogReader{client: r.http, endpoint: r.pricesEndpoint, currency: scope.Currency, cache: map[string]tariff{}}
@@ -195,6 +196,9 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			if response.Id == nil || *response.Id != *item.Identifier || response.CompartmentId == nil || *response.CompartmentId != *item.CompartmentId {
 				return 0, errors.New("boot volume identity changed")
 			}
+			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
+				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
+			}
 			resource.LifecycleState = string(response.LifecycleState)
 			resource.OperationID = response.FreeformTags["ts-operation-id"]
 			resource.RecipeSHA256 = response.FreeformTags["ts-recipe-sha256"]
@@ -206,6 +210,9 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			}
 			if response.Id == nil || *response.Id != *item.Identifier || response.CompartmentId == nil || *response.CompartmentId != *item.CompartmentId {
 				return 0, errors.New("volume identity changed")
+			}
+			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
+				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
 			}
 			resource.LifecycleState = string(response.LifecycleState)
 			resource.OperationID = response.FreeformTags["ts-operation-id"]

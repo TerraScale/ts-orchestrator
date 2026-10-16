@@ -36,6 +36,8 @@ func (q Quote) Validate(scope Scope, cell, compartment, shape string, ocpus, mem
 }
 
 func (r *Reader) Quote(ctx context.Context, scope Scope, cell, compartment, shape string, ocpus, memoryGB, bootGB float64) (Quote, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
 	now := time.Now()
 	if err := scope.validate(now); err != nil {
 		return Quote{}, err
@@ -47,18 +49,9 @@ func (r *Reader) Quote(ctx context.Context, scope Scope, cell, compartment, shap
 	if !owned {
 		return Quote{}, errors.New("candidate quote lies outside authorized regional footprint")
 	}
-	cpuSKU, memorySKU, known := ocicost.ComputeSKUs(shape)
-	if !known {
-		return Quote{}, errors.New("candidate shape has no reviewed SKU identities")
-	}
-	catalog := catalogReader{client: r.http, endpoint: r.pricesEndpoint, currency: scope.Currency, cache: map[string]tariff{}}
-	var prices []ocicost.Price
-	for _, item := range []struct{ sku, metric string }{{cpuSKU, "OCPU Per Hour"}, {memorySKU, "Gigabyte Per Hour"}, {"B91961", "Gigabyte Storage Capacity Per Month"}, {"B91962", "Performance Units Per Gigabyte Per Month"}} {
-		value, err := catalog.price(ctx, item.sku, item.metric)
-		if err != nil {
-			return Quote{}, err
-		}
-		prices = append(prices, ocicost.Price{SKU: item.sku, PerUnit: value})
+	prices, err := r.Prices(ctx, scope, []string{shape})
+	if err != nil {
+		return Quote{}, err
 	}
 	monthly, known := ocicost.NodeMonthlyCents(prices, shape, ocpus, memoryGB, bootGB)
 	if !known {

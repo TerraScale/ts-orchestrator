@@ -118,7 +118,9 @@ func DraftPeerIntent(left, right string, ports []int) (Object, error) {
 // removed.
 type Peer struct {
 	// Clients serve each plan's OCI region.
-	Clients map[string]command.Client
+	Clients     map[string]command.Client
+	BeforeWrite func(context.Context, bool) (func(), error)
+	Guard       func(context.Context) error
 	// Check runs inspect-private-peer's live network checks on the bound
 	// intent at path.
 	Check        func(path string) error
@@ -153,7 +155,7 @@ func (s *side) bind(key string, r Object, err error) error {
 // both sides first, so every refusal comes before a change. With apply it
 // then makes the changes, writes the bound intent to out and checks it.
 func (p *Peer) Run(ctx context.Context, intent Object, plans []Object, out string, apply bool) error {
-	f := &Foundation{Out: p.Out, Pause: p.Pause, PollAttempts: p.PollAttempts}
+	f := &Foundation{Out: p.Out, Pause: p.Pause, PollAttempts: p.PollAttempts, BeforeWrite: p.BeforeWrite, Guard: p.Guard}
 	if _, err := p.bind(ctx, f, intent, plans); err != nil {
 		return err
 	}
@@ -188,7 +190,7 @@ func (p *Peer) Drop(ctx context.Context, intent Object, plans []Object, port int
 	if !slices.ContainsFunc(arr(intent["allowed_tcp_ports"]), func(v any) bool { return fmt.Sprint(v) == want }) {
 		return fmt.Errorf("TCP %d is not a port of the pair intent", port)
 	}
-	f := &Foundation{Out: p.Out, Apply: apply}
+	f := &Foundation{Out: p.Out, Apply: apply, BeforeWrite: p.BeforeWrite, Guard: p.Guard}
 	for i, plan := range plans {
 		name, err := naming.RegionCell(text(plan["cell"])).Name()
 		if err != nil {

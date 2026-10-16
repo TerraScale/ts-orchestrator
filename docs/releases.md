@@ -134,7 +134,7 @@ release assets or shared review/operator records.
 The root and canary leaf were replaced on 2026-10-05 for the gru-1 rebuild
 (TS-470): the previous root's private key was not available, and no cell
 trusts it after the GRU wipe. The image pins the new root as
-`deploy/image/inputs/bootstrap-root-002.pem`. The private keys are kept
+`internal/trust/bootstrap-root-002.pem`. The private keys are kept
 owner-only by the operator, who signs from those files. The gru-1 OCI Vault
 (compartment `TerraScale`, operator-only) holds durable copies of all four
 PEMs as secrets `gru-1-trust-root-private-key`,

@@ -318,13 +318,22 @@ func loadPlan(t *testing.T) Object {
 	return plan
 }
 
-func run(t *testing.T, f *fakeOCI, apply bool, out string) (string, error) {
+func allowWrite(context.Context, bool) (func(), error) { return func() {}, nil }
+func allowGuard(context.Context) error                 { return nil }
+
+func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (string, error) {
 	t.Helper()
+	plan := loadPlan(t)
+	if len(plans) != 0 {
+		plan = plans[0]
+	}
 	var log bytes.Buffer
 	foundation := &Foundation{Region: client{f, sfo}, Home: client{f, home}, Apply: apply, Out: &log,
-		Pause: func(context.Context, time.Duration) error { return nil },
-		Check: (&ociregion.Engine{Context: t.Context(), Dependency: f.dependency}).CheckFoundation}
-	err := foundation.Run(t.Context(), loadPlan(t), out)
+		BeforeWrite: allowWrite, Guard: allowGuard, Checkpoint: func(context.Context, string, string) error { return nil },
+		CheckpointAuxiliary: func(context.Context, string, string) error { return nil },
+		Pause:               func(context.Context, time.Duration) error { return nil },
+		Check:               (&ociregion.Engine{Context: t.Context(), Dependency: f.dependency}).CheckFoundation}
+	err := foundation.Run(t.Context(), plan, out)
 	return log.String(), err
 }
 
@@ -368,7 +377,7 @@ func TestDryRunMakesNoWrite(t *testing.T) {
 	}
 }
 
-func TestApplyCreatesEveryResourceOnceThenRerunIsANoOp(t *testing.T) {
+func TestApplyCreatesEveryResourceOnceAndUncheckpointedRerunIsRefused(t *testing.T) {
 	f := newFake()
 	out := filepath.Join(t.TempDir(), "bound.json")
 	if _, err := run(t, f, true, out); err != nil {
@@ -409,13 +418,13 @@ func TestApplyCreatesEveryResourceOnceThenRerunIsANoOp(t *testing.T) {
 	before, _ := os.ReadFile(out)
 	f.writes = nil
 	log, err := run(t, f, true, out)
-	if err != nil || len(f.writes) != 0 || !strings.Contains(log, "unchanged: "+out) {
+	if err == nil || !strings.Contains(err.Error(), "refusing adoption") || len(f.writes) != 0 {
 		t.Fatalf("rerun: err %v, writes %v, output:\n%s", err, f.writes, log)
 	}
 	if after, _ := os.ReadFile(out); !bytes.Equal(before, after) {
 		t.Fatal("rerun changed the bound plan")
 	}
-	if log, err := run(t, f, false, out); err != nil || !strings.Contains(log, "no changes") {
+	if log, err := run(t, f, false, out); err == nil || !strings.Contains(err.Error(), "refusing adoption") {
 		t.Fatalf("dry run after apply: %v\n%s", err, log)
 	}
 }
@@ -433,7 +442,7 @@ func TestIAMWritesGoToTheHomeRegion(t *testing.T) {
 	}
 }
 
-func TestInterruptedRunResumes(t *testing.T) {
+func TestInterruptedRunRequiresAuthenticatedCheckpointsToResume(t *testing.T) {
 	for _, step := range []string{"network subnet create", "kms management key create", "iam policy create", "os retention-rule create"} {
 		t.Run(step, func(t *testing.T) {
 			f := newFake()
@@ -445,15 +454,12 @@ func TestInterruptedRunResumes(t *testing.T) {
 			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("interrupted run wrote the bound plan")
 			}
-			if _, err := run(t, f, true, out); err != nil {
-				t.Fatal(err)
+			before := len(f.writes)
+			if _, err := run(t, f, true, out); err == nil || !strings.Contains(err.Error(), "refusing adoption") {
+				t.Fatalf("uncheckpointed restart: %v", err)
 			}
-			// Every resource exists once: the failed write is retried and
-			// nothing created before it is created again.
-			got := paths(f.writes)
-			i := slices.Index(got, step)
-			if got = slices.Delete(got, i, i+1); !slices.Equal(got, creates) {
-				t.Fatalf("resumed writes\n%v\nwant\n%v", got, creates)
+			if len(f.writes) != before {
+				t.Fatalf("uncheckpointed restart issued new writes: %v", f.writes[before:])
 			}
 		})
 	}
@@ -465,7 +471,7 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 	seed := func(f *fakeOCI) string {
 		var network string
 		for _, name := range []string{"sfo-1-control", "sfo-1-network", "sfo-1-workload"} {
-			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent})
+			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent, "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 			if name == "sfo-1-network" {
 				network = id
 			}
@@ -477,22 +483,34 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 		want  string
 	}{
 		"VCN with another CIDR": {func(f *fakeOCI) {
-			f.add("vcn", sfo, Object{"display-name": "sfo-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24"})
+			f.add("vcn", sfo, Object{"display-name": "sfo-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 		}, "VCN sfo-1-vcn exists but differs from the plan"},
 		"bucket in another compartment": {func(f *fakeOCI) {
 			seed(f)
 			f.add("bucket", sfo, Object{"name": "sfo-1-ledger", "compartment-id": "ocid1.compartment.oc1..elsewhere"})
 		}, "create bucket sfo-1-ledger: 409 BucketAlreadyExists"},
 		"dynamic group matching other instances": {func(f *fakeOCI) {
-			f.add("dynamic-group", "", Object{"name": "sfo-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}"})
+			f.add("dynamic-group", "", Object{"name": "sfo-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 		}, "dynamic group sfo-1-controllers exists but differs from the plan"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFake()
 			test.setup(f)
+			approved := loadPlan(t)
+			// These fixture IDs stand for an authenticated journal; tags alone
+			// cannot move the shape-validation scenarios past discovery.
+			for id, row := range f.rows {
+				key := map[string]string{"sfo-1-control": "control_compartment", "sfo-1-network": "network_compartment", "sfo-1-workload": "workload_compartment", "sfo-1-vcn": "vcn", "sfo-1-controllers": "controller_dynamic_group"}[text(row.data["name"])]
+				if row.kind == "vcn" {
+					key = "vcn"
+				}
+				if key != "" {
+					obj(approved["resource_ids"])[key] = id
+				}
+			}
 			rows := len(f.rows)
 			out := filepath.Join(t.TempDir(), "bound.json")
-			if _, err := run(t, f, true, out); err == nil || !strings.Contains(err.Error(), test.want) {
+			if _, err := run(t, f, true, out, approved); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("err %v, want %q", err, test.want)
 			}
 			if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {

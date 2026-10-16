@@ -46,7 +46,7 @@ func notFound(err error) bool {
 }
 
 func (a sdkAPI) GetBucket(ctx context.Context, namespace, bucket string) (Bucket, error) {
-	response, err := a.objects.GetBucket(ctx, objectstorage.GetBucketRequest{NamespaceName: new(namespace), BucketName: new(bucket)})
+	response, err := a.objects.GetBucket(ociclient.RequestContext(ctx), objectstorage.GetBucketRequest{NamespaceName: new(namespace), BucketName: new(bucket)})
 	if err != nil {
 		if notFound(err) {
 			return Bucket{}, fmt.Errorf("get OCI bucket: %w: %w", ociresource.ErrGone, err)
@@ -66,7 +66,7 @@ func (a sdkAPI) ListRetentionRules(ctx context.Context, namespace, bucket string
 	var rules []Rule
 	var page *string
 	for range maxPages {
-		response, err := a.objects.ListRetentionRules(ctx, objectstorage.ListRetentionRulesRequest{
+		response, err := a.objects.ListRetentionRules(ociclient.RequestContext(ctx), objectstorage.ListRetentionRulesRequest{
 			NamespaceName: new(namespace), BucketName: new(bucket), Page: page})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI retention rules: %w", err)
@@ -93,7 +93,7 @@ func (a sdkAPI) UpdateBucket(ctx context.Context, namespace, bucket, etag, versi
 	}
 	details := objectstorage.UpdateBucketDetails{FreeformTags: maps.Clone(tags.Freeform), DefinedTags: tags.Defined,
 		Versioning: objectstorage.UpdateBucketDetailsVersioningEnum(versioning)}
-	if _, err := a.objects.UpdateBucket(ctx, objectstorage.UpdateBucketRequest{NamespaceName: new(namespace),
+	if _, err := a.objects.UpdateBucket(ociclient.RequestContext(ctx), objectstorage.UpdateBucketRequest{NamespaceName: new(namespace),
 		BucketName: new(bucket), IfMatch: new(etag), UpdateBucketDetails: details}); err != nil {
 		return fmt.Errorf("update OCI bucket: %w", err)
 	}
@@ -106,7 +106,7 @@ func duration(amount int64, unit string) *objectstorage.Duration {
 
 func (a sdkAPI) CreateRetentionRule(ctx context.Context, namespace, bucket, displayName string, amount int64, unit string) error {
 	// TimeRuleLocked stays unset: the reconciler never locks a rule.
-	if _, err := a.objects.CreateRetentionRule(ctx, objectstorage.CreateRetentionRuleRequest{NamespaceName: new(namespace),
+	if _, err := a.objects.CreateRetentionRule(ociclient.RequestContext(ctx), objectstorage.CreateRetentionRuleRequest{NamespaceName: new(namespace),
 		BucketName: new(bucket), CreateRetentionRuleDetails: objectstorage.CreateRetentionRuleDetails{
 			DisplayName: new(displayName), Duration: duration(amount, unit)}}); err != nil {
 		return fmt.Errorf("create OCI retention rule: %w", err)
@@ -120,7 +120,7 @@ func (a sdkAPI) UpdateRetentionRule(ctx context.Context, namespace, bucket, id, 
 	if etag != "" {
 		request.IfMatch = new(etag)
 	}
-	if _, err := a.objects.UpdateRetentionRule(ctx, request); err != nil {
+	if _, err := a.objects.UpdateRetentionRule(ociclient.RequestContext(ctx), request); err != nil {
 		return fmt.Errorf("update OCI retention rule: %w", err)
 	}
 	return nil
@@ -132,7 +132,7 @@ func (a sdkAPI) DeleteRetentionRule(ctx context.Context, namespace, bucket, id, 
 	if etag != "" {
 		request.IfMatch = new(etag)
 	}
-	_, err := a.objects.DeleteRetentionRule(ctx, request)
+	_, err := a.objects.DeleteRetentionRule(ociclient.RequestContext(ctx), request)
 	if err != nil && !notFound(err) {
 		return fmt.Errorf("delete OCI retention rule: %w", err)
 	}

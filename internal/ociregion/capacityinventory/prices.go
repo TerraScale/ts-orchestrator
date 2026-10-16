@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
 
 const priceCatalog = "https://apexapps.oracle.com/pls/apex/cetools/api/v1/products/"
@@ -105,4 +109,42 @@ func (c *catalogReader) price(ctx context.Context, sku, metric string) (float64,
 	}
 	c.cache[sku] = tariff{amount, metric}
 	return amount, nil
+}
+
+// Prices reads current tariffs for observed compatible shapes. Shapes without
+// reviewed SKU identities stay unpriced; known candidates can still be compared.
+func (r *Reader) Prices(ctx context.Context, scope Scope, shapes []string) ([]ocicost.Price, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+	if err := scope.validate(time.Now()); err != nil {
+		return nil, err
+	}
+	if len(shapes) > 256 {
+		return nil, errors.New("OCI candidate shape set exceeds inventory bound")
+	}
+	units := map[string]string{"B91961": "Gigabyte Storage Capacity Per Month", "B91962": "Performance Units Per Gigabyte Per Month"}
+	knownShape := false
+	for _, shape := range shapes {
+		cpu, memory, known := ocicost.ComputeSKUs(shape)
+		if !known {
+			continue
+		}
+		knownShape = true
+		units[cpu], units[memory] = "OCPU Per Hour", "Gigabyte Per Hour"
+	}
+	if !knownShape {
+		return nil, errors.New("observed OCI shapes have no reviewed tariff identities")
+	}
+	catalog := catalogReader{client: r.http, endpoint: r.pricesEndpoint, currency: scope.Currency, cache: map[string]tariff{}}
+	var prices []ocicost.Price
+	var failures []error
+	for _, sku := range slices.Sorted(maps.Keys(units)) {
+		value, err := catalog.price(ctx, sku, units[sku])
+		if err != nil {
+			failures = append(failures, fmt.Errorf("SKU %s: %w", sku, err))
+			continue
+		}
+		prices = append(prices, ocicost.Price{SKU: sku, PerUnit: value})
+	}
+	return prices, errors.Join(failures...)
 }

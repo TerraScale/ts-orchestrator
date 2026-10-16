@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"errors"
 	"fmt"
 	"golang.org/x/sys/unix"
 	"io"
@@ -40,9 +39,6 @@ type Engine struct {
 	Overrides  map[string]bool
 	Stdout     io.Writer
 	Argv       []string
-	// Backend overrides TS_OCI_BACKEND for this engine when set. Contract
-	// tests that replay recorded oci CLI output pin it to sdkcli.BackendCLI.
-	Backend sdkcli.Backend
 }
 type Failure struct {
 	Message string
@@ -449,108 +445,32 @@ func (e *Engine) process(command []string) Object {
 	return Object{"args": arr(command), "returncode": code, "stdout": stdout.String(), "stderr": stderr.String()}
 }
 func (e *Engine) realOCI(args []any, kwargs Object) any {
-	if v, ok := e.sdkOCI(args, kwargs); ok {
-		return v
-	}
-	cmd := []string{"oci"}
-	for _, x := range args {
-		cmd = append(cmd, str(x))
-	}
-	if truth(kwargs["region"]) {
-		cmd = append(cmd, "--region", str(kwargs["region"]))
-	}
-	cmd = append(cmd, "--output", "json")
-	p := e.process(cmd)
-	operation := []string{}
-	for _, x := range args[:min(3, len(args))] {
-		operation = append(operation, str(x))
-	}
-	if number(p["returncode"]) != 0 {
-		fail(fmt.Sprintf("OCI read failed: %s (exit %s)", strings.Join(operation, " "), str(p["returncode"])))
-	}
-	isObject := len(args) >= 3 && args[0] == "os" && args[1] == "object" && (args[2] == "list" || args[2] == "list-object-versions")
-	output := text(p["stdout"])
-	if strings.TrimSpace(output) == "" && contains(args, "--all") && !isObject {
-		return []any{}
-	}
-	v, err := decodeJSON([]byte(output))
-	if err != nil {
-		fail("invalid OCI response for " + strings.Join(operation, " "))
-	}
-	if isObject && contains(args, "--all") && eq(v, Object{"prefixes": []any{}}) {
-		return []any{}
-	}
-	m, ok := v.(map[string]any)
-	if !ok {
-		fail("invalid OCI response for " + strings.Join(operation, " "))
-	}
-	d, ok := m["data"]
-	if !ok {
-		fail("invalid OCI response for " + strings.Join(operation, " "))
-	}
-	return d
-}
-
-// sdkOCI serves a read in-binary through the OCI Go SDK. It reports false
-// only when the CLI backend is selected, or when the auto backend meets a
-// command the SDK reader does not serve yet.
-func (e *Engine) sdkOCI(args []any, kwargs Object) (any, bool) {
-	backend := e.Backend
-	if backend == "" {
-		selected, err := sdkcli.SelectedBackend()
-		if err != nil {
-			fail(fmt.Sprintf("OCI backend selection is invalid: %v", err))
-		}
-		backend = selected
-	}
-	if backend == sdkcli.BackendCLI {
-		return nil, false
-	}
 	words := make([]string, len(args))
-	operation := []string{}
 	for i, x := range args {
 		words[i] = str(x)
-		if i < 3 {
-			operation = append(operation, words[i])
-		}
 	}
 	region := text(kwargs["region"])
 	client, err := sdkcli.ForRegion(region)
 	if err != nil {
-		// A region outside the catalog, or an SDK client that cannot be
-		// built, falls back to the oci CLI under auto instead of aborting.
-		if backend == sdkcli.BackendAuto {
-			return nil, false
-		}
 		fail(fmt.Sprintf("OCI read cannot be served in-binary for region %q: %v", region, err))
 	}
-	// The same bound the CLI path applies to every oci subprocess, so a
-	// stalled connection cannot hang a caller without its own deadline.
 	ctx, cancel := context.WithTimeout(e.ctx(), ociReadTimeout)
 	defer cancel()
-	data, handled, err := client.Call(ctx, words)
-	if !handled {
-		if backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
-			return nil, false
-		}
-		fail(fmt.Sprintf("OCI read is not served in-binary: %s", strings.Join(operation, " ")))
-	}
+	data, _, err := client.Call(ctx, words)
 	if err != nil {
-		if ctxErr := e.ctx().Err(); ctxErr != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			panic(ctxErr)
 		}
-		// Call already names the command path and wraps the SDK cause
-		// (throttling, 404, authorization or decode failure).
 		fail(err.Error())
 	}
 	v, err := decodeJSON(data)
 	if err != nil {
-		fail("invalid OCI response for " + strings.Join(operation, " "))
+		fail("invalid OCI response for " + strings.Join(words[:min(3, len(words))], " "))
 	}
-	return v, true
+	return v
 }
 
-// ociReadTimeout bounds one OCI read, in-binary or through the oci CLI.
+// ociReadTimeout bounds one OCI API read.
 const ociReadTimeout = 180 * time.Second
 
 func capture[T any](fn func() T) (v T, err error) {

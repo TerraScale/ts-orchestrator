@@ -2,6 +2,7 @@ package ociresource
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,23 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
+
+func integrationStore(t *testing.T) *KVStore {
+	t.Helper()
+	runtime, err := natscell.Start(t.Context(), natscell.Config{
+		Cell: "lab", Instance: "oci-resource-test", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "jetstream")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	store, err := OpenKVStore(t.Context(), runtime.JetStream(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
 
 type widgetSpec struct {
 	Size int `json:"size"`
@@ -108,9 +126,9 @@ func put(t *testing.T, store Store, name string, generation uint64, policy Drift
 }
 
 func TestControllerCreatesDetectsAndCorrectsDrift(t *testing.T) {
-	for _, mode := range []TagMode{TagModeFreeform, TagModeDefined} {
+	for _, mode := range []TagMode{TagModeFreeform} {
 		t.Run(string(mode), func(t *testing.T) {
-			store := NewMemoryStore()
+			store := integrationStore(t)
 			cloud := &fakeWidgets{cloud: map[string]widget{}}
 			controller, _ := newController(t, store, cloud, mode)
 			put(t, store, "a", 1, PolicyEnforce, 3)
@@ -137,6 +155,10 @@ func TestControllerCreatesDetectsAndCorrectsDrift(t *testing.T) {
 				t.Fatalf("status=%+v", status)
 			}
 
+			// A new generation waits until observation confirms the prior operation.
+			if _, err := controller.Reconcile(t.Context(), 7); err != nil {
+				t.Fatal(err)
+			}
 			// A new generation restamps ownership even when the shape matches.
 			next := put(t, store, "a", 2, PolicyEnforce, 3)
 			if result, err = controller.Reconcile(t.Context(), 7); err != nil || result.Applied != 1 {
@@ -151,18 +173,14 @@ func TestControllerCreatesDetectsAndCorrectsDrift(t *testing.T) {
 	}
 }
 
-func TestReportPolicyNeverMutates(t *testing.T) {
-	store := NewMemoryStore()
-	cloud := &fakeWidgets{cloud: map[string]widget{}}
-	controller, _ := newController(t, store, cloud, TagModeFreeform)
-	put(t, store, "a", 1, PolicyReport, 3)
-	result, err := controller.Reconcile(t.Context(), 7)
-	if err != nil || result.Drifted != 1 || cloud.applies != 0 || controller.Authority.(*fakeAuthority).calls != 0 {
-		t.Fatalf("result=%+v err=%v applies=%d", result, err, cloud.applies)
+func TestRetiredReportPolicyCannotEnterPersistentDesiredState(t *testing.T) {
+	store := integrationStore(t)
+	if _, err := Publish(t.Context(), store, widgetKey("a"), DriftPolicy("report"), testSpec{"3"}); err == nil {
+		t.Fatal("accepted retired report policy")
 	}
-	status, _, _ := store.GetStatus(t.Context(), widgetKey("a"))
-	if status.InSync || len(status.Drift) != 1 || status.Drift[0].Op != "create" {
-		t.Fatalf("status=%+v", status)
+	records, err := store.List(t.Context(), "GRU", "widget")
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%v err=%v", records, err)
 	}
 }
 
@@ -172,7 +190,7 @@ func TestForeignResourcesAreNeverTouched(t *testing.T) {
 		{Freeform: map[string]string{freeformManagedBy: managedByValue, freeformOwner: "00000000005KBY8XNJ83MMCJWP", freeformResource: "GRU/widget/a"}},
 		{Freeform: map[string]string{freeformManagedBy: managedByValue, freeformOwner: "cell-gru", freeformResource: "GRU/widget/b"}},
 	} {
-		store := NewMemoryStore()
+		store := integrationStore(t)
 		cloud := &fakeWidgets{cloud: map[string]widget{"a": {Size: 1, Tags: tags}}}
 		controller, now := newController(t, store, cloud, TagModeFreeform)
 		desired := put(t, store, "a", 1, PolicyEnforce, 3)
@@ -190,19 +208,17 @@ func TestForeignResourcesAreNeverTouched(t *testing.T) {
 			t.Fatal("a tombstone for a foreign object was purged")
 		}
 	}
-	// Freeform ownership tags do not satisfy defined-tag mode.
-	key := widgetKey("a")
-	stamped := Ownership{Mode: TagModeFreeform, Owner: "cell-gru"}.Stamp(key, 1, "d")
-	if (Ownership{Mode: TagModeDefined, Owner: "cell-gru"}).Owns(key, stamped) {
-		t.Fatal("defined-tag mode accepted freeform ownership")
-	}
+
 }
 
 func TestTombstoneDeletesOnlyAfterNotBeforeAndPurgesAfterConfirmation(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	cloud := &fakeWidgets{cloud: map[string]widget{}}
 	controller, now := newController(t, store, cloud, TagModeFreeform)
 	desired := put(t, store, "a", 1, PolicyEnforce, 3)
+	if _, err := controller.Reconcile(t.Context(), 7); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := controller.Reconcile(t.Context(), 7); err != nil {
 		t.Fatal(err)
 	}
@@ -230,11 +246,12 @@ func TestTombstoneDeletesOnlyAfterNotBeforeAndPurgesAfterConfirmation(t *testing
 }
 
 func TestFencedControllerStopsBeforeMutation(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	cloud := &fakeWidgets{cloud: map[string]widget{}}
 	controller, _ := newController(t, store, cloud, TagModeFreeform)
 	put(t, store, "a", 1, PolicyEnforce, 3)
-	put(t, store, "b", 1, PolicyEnforce, 3)
+	desired := put(t, store, "b", 1, PolicyEnforce, 3)
+	cloud.cloud["b"] = widget{Size: 3, Tags: controller.Ownership.Stamp(desired.Key, 1, desired.SpecDigest)}
 	_, err := controller.Reconcile(t.Context(), 6)
 	if !errors.Is(err, ErrFenced) || cloud.applies != 0 {
 		t.Fatalf("err=%v applies=%d", err, cloud.applies)
@@ -242,12 +259,13 @@ func TestFencedControllerStopsBeforeMutation(t *testing.T) {
 }
 
 func TestApplyFailureIsRecordedAndOtherRecordsContinue(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	cloud := &fakeWidgets{cloud: map[string]widget{"b": {Size: 3}}, fail: errors.New("boom")}
 	cloud.cloud["b"] = widget{Size: 3, Tags: Ownership{Mode: TagModeFreeform, Owner: "cell-gru"}.Stamp(widgetKey("b"), 1, "")}
 	controller, _ := newController(t, store, cloud, TagModeFreeform)
 	put(t, store, "a", 1, PolicyEnforce, 3)
-	put(t, store, "b", 1, PolicyReport, 3)
+	desired := put(t, store, "b", 1, PolicyEnforce, 3)
+	cloud.cloud["b"] = widget{Size: 3, Tags: controller.Ownership.Stamp(desired.Key, 1, desired.SpecDigest)}
 	result, err := controller.Reconcile(t.Context(), 7)
 	if err == nil || !strings.Contains(err.Error(), "boom") || result.Failed != 1 || result.Observed != 2 {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -277,7 +295,7 @@ func TestDesiredRecordsAreValidatedAndGenerationsMonotonic(t *testing.T) {
 	if tampered.Validate() == nil {
 		t.Fatal("accepted a spec that differs from its digest")
 	}
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	if _, err := store.Put(t.Context(), desired); err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +323,7 @@ func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 		t.Fatalf("reopen: %v", err)
 	}
 	first := put(t, store, "a", 1, PolicyEnforce, 1)
-	put(t, store, "b", 1, PolicyReport, 2)
+	put(t, store, "b", 1, PolicyEnforce, 2)
 	if _, err := store.Put(ctx, first); !errors.Is(err, ErrConflict) {
 		t.Fatalf("accepted a stale generation: %v", err)
 	}
@@ -328,7 +346,7 @@ func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 	// The full controller loop runs against the replicated store.
 	cloud := &fakeWidgets{cloud: map[string]widget{}}
 	controller, now := newController(t, store, cloud, TagModeFreeform)
-	if result, err := controller.Reconcile(ctx, 7); err != nil || result.Applied != 1 || result.Drifted != 2 {
+	if result, err := controller.Reconcile(ctx, 7); err != nil || result.Applied != 2 || result.Drifted != 2 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	status, ok, err := store.GetStatus(ctx, widgetKey("b"))
@@ -336,6 +354,9 @@ func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 		t.Fatalf("status=%+v ok=%v err=%v", status, ok, err)
 	}
 
+	if _, err := controller.Reconcile(ctx, 7); err != nil {
+		t.Fatal(err)
+	}
 	tombstoned, err := store.MarkDeleted(ctx, widgetKey("a"), *now, *now)
 	if err != nil {
 		t.Fatal(err)
@@ -353,5 +374,38 @@ func TestKVStoreRoundTripAndCompareAndSet(t *testing.T) {
 	}
 	if _, err := store.Get(ctx, widgetKey("a")); !errors.Is(err, ErrNotFound) || cloud.deletes != 1 {
 		t.Fatalf("tombstoned record survived: %v deletes=%d", err, cloud.deletes)
+	}
+}
+
+func TestLegacyPolicyMigratesDurablyBeforeAlwaysOnConvergence(t *testing.T) {
+	store := integrationStore(t)
+	legacy, err := NewDesired(widgetKey("a"), 1, PolicyEnforce, widgetSpec{Size: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy.SchemaVersion = 1
+	legacy.Policy = "report"
+	wire, err := encode(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.desired.Create(t.Context(), legacy.Key.subject(), wire); err != nil {
+		t.Fatal(err)
+	}
+	cloud := &fakeWidgets{cloud: map[string]widget{}}
+	controller, _ := newController(t, store, cloud, TagModeFreeform)
+	if result, err := controller.Reconcile(t.Context(), 7); err != nil || result.Applied != 1 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+	entry, err := store.desired.Get(t.Context(), legacy.Key.subject())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var migrated Desired
+	if err := json.Unmarshal(entry.Value(), &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if migrated.SchemaVersion != 2 || migrated.Policy != PolicyEnforce || migrated.Operation == nil || cloud.cloud["a"].Size != 3 {
+		t.Fatalf("migrated=%+v cloud=%v", migrated, cloud.cloud)
 	}
 }

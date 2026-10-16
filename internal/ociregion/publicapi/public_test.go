@@ -49,10 +49,13 @@ type fakeOCI struct {
 	lagged       bool
 	content      string
 	nextRule     int
+	sdk          *SDKClient
 }
 
 func newFakeOCI(t *testing.T) *fakeOCI {
-	return &fakeOCI{t: t, network: map[string]map[string]any{}, rules: map[string][]map[string]any{}}
+	f := &fakeOCI{t: t, network: map[string]map[string]any{}, rules: map[string][]map[string]any{}}
+	f.sdk = sdkFixture(t, f)
+	return f
 }
 
 func data(v any) map[string]any { return map[string]any{"data": v} }
@@ -69,8 +72,12 @@ func rowsOf(items ...map[string]any) []any {
 
 func (f *fakeOCI) Head(context.Context, ...string) error { return errors.New("unexpected head") }
 
-func (f *fakeOCI) Call(_ context.Context, args ...string) (map[string]any, error) {
+func (f *fakeOCI) Call(ctx context.Context, args ...string) (map[string]any, error) {
 	f.calls = append(f.calls, slices.Clone(args))
+	return f.sdk.Call(ctx, args...)
+}
+
+func (f *fakeOCI) serveCommand(_ context.Context, args ...string) (map[string]any, error) {
 	c, err := sdkcli.Parse(args)
 	if err != nil {
 		f.t.Fatal(err)
@@ -1087,15 +1094,7 @@ func TestDNSUsesTheLoadBalancerAddress(t *testing.T) {
 	}
 }
 
-func TestSecretCommandsRefuseTheCLIBackend(t *testing.T) {
-	t.Setenv(sdkcli.BackendEnv, "cli")
-	if _, err := newClient("sa-saopaulo-1", true); err == nil {
-		t.Fatal("handed key material to the oci CLI")
-	}
-	if client, err := newClient("sa-saopaulo-1", false); err != nil || client == nil {
-		t.Fatalf("read-only command: %v", err)
-	}
-	t.Setenv(sdkcli.BackendEnv, "sdk")
+func TestSecretCommandsRefuseSDKDebugLogging(t *testing.T) {
 	t.Setenv("OCI_GO_SDK_DEBUG", "v")
 	if _, err := newClient("sa-saopaulo-1", true); err == nil || !strings.Contains(err.Error(), "OCI_GO_SDK_DEBUG") {
 		t.Fatalf("handed key material to SDK debug logging: %v", err)

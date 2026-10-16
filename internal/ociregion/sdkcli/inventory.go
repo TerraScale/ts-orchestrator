@@ -14,6 +14,12 @@ import (
 // The compartment-scoped lists inventory uses to price a region.
 func init() {
 	for path, h := range map[string]handler{
+		"compute shape list": listIn((*Client).compute,
+			func(ctx context.Context, client core.ComputeClient, compartment string, command Command, page *string) ([]core.Shape, *string, error) {
+				response, err := client.ListShapes(ctx, core.ListShapesRequest{CompartmentId: &compartment,
+					ImageId: command.optional("image-id"), AvailabilityDomain: command.optional("availability-domain"), Page: page})
+				return response.Items, response.OpcNextPage, err
+			}),
 		"compute instance list": listIn(func(c *Client) (core.ComputeClient, error) { return c.compute() },
 			func(ctx context.Context, client core.ComputeClient, compartment string, _ Command, page *string) ([]core.Instance, *string, error) {
 				response, err := client.ListInstances(ctx, core.ListInstancesRequest{CompartmentId: &compartment, Page: page})

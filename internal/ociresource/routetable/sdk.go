@@ -37,7 +37,7 @@ func deref(value *string) string {
 }
 
 func (a sdkAPI) GetTable(ctx context.Context, id string) (Table, error) {
-	response, err := a.network.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: new(id)})
+	response, err := a.network.GetRouteTable(ociclient.RequestContext(ctx), core.GetRouteTableRequest{RtId: new(id)})
 	if err != nil {
 		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
 			return Table{}, fmt.Errorf("get OCI route table: %w: %w", ociresource.ErrGone, err)
@@ -80,7 +80,7 @@ func (a sdkAPI) UpdateTable(ctx context.Context, id, etag string, routes []Route
 		}
 		rules = append(rules, rule)
 	}
-	_, err := a.network.UpdateRouteTable(ctx, core.UpdateRouteTableRequest{RtId: new(id), IfMatch: new(etag),
+	_, err := a.network.UpdateRouteTable(ociclient.RequestContext(ctx), core.UpdateRouteTableRequest{RtId: new(id), IfMatch: new(etag),
 		UpdateRouteTableDetails: core.UpdateRouteTableDetails{RouteRules: rules,
 			FreeformTags: maps.Clone(tags.Freeform), DefinedTags: tags.Defined}})
 	if err != nil {
