@@ -54,6 +54,7 @@ type VerifiedContainer struct {
 	migration         SequenceMigration
 	migrationEnvelope trust.Envelope
 	fingerprint       string
+	identity          string
 }
 
 func (c VerifiedContainer) Claim() ContainerClaim {
@@ -62,7 +63,20 @@ func (c VerifiedContainer) Claim() ContainerClaim {
 	claim.Production.Delegation = slices.Clone(claim.Production.Delegation)
 	return claim
 }
-func (c VerifiedContainer) Fingerprint() string { return c.fingerprint }
+func (c VerifiedContainer) Fingerprint() string     { return c.fingerprint }
+func (c VerifiedContainer) ReleaseIdentity() string { return c.identity }
+
+// ContentManifestDigest remains stable when independent qualification is renewed.
+func (claim ContainerClaim) ContentManifestDigest() (string, error) {
+	claim.ReleaseSequence = 0
+	claim.SequenceMigrationSHA256 = ""
+	claim.Production = ProductionProof{}
+	wire, err := trust.EncodePayload(claim)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
+}
 func (c VerifiedContainer) Migration() SequenceMigration {
 	m := c.migration
 	m.Regions = slices.Clone(m.Regions)
@@ -241,5 +255,10 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	if err != nil {
 		return VerifiedContainer{}, err
 	}
-	return VerifiedContainer{claim: claim, migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint}, nil
+	content, err := claim.ContentManifestDigest()
+	if err != nil {
+		return VerifiedContainer{}, err
+	}
+	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(content+"/"+claim.SequenceMigrationSHA256)))
+	return VerifiedContainer{claim: claim, migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
 }
