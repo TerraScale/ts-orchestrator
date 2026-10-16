@@ -21,6 +21,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"net/http"
 	"slices"
@@ -319,7 +320,7 @@ func (location Location) write(ctx context.Context, name string, wire []byte) er
 // receipt verifies.
 func ReadBinary(ctx context.Context, location Location, digest string, dst io.Writer) error {
 	name := BinaryObject(digest)
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 	})
 	if err != nil {
@@ -405,7 +406,7 @@ func (location Location) read(ctx context.Context, name string, limit int64, val
 }
 
 func (location Location) get(ctx context.Context, name string, limit int64) ([]byte, string, bool, error) {
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 	})
 	if httpStatus(err) == http.StatusNotFound {
