@@ -279,6 +279,9 @@ func TestFunctionWorkerVariantFloorIntegration(t *testing.T) {
 	} {
 		t.Run(divergence.name, func(t *testing.T) {
 			intent, conflicting := build("amd64", 101, "sa-saopaulo-1", divergence.source, divergence.root)
+			if _, err := release.VerifyContainerHistorical(conflicting, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}); err != nil {
+				t.Fatalf("conflicting candidate lacks valid independent signatures: %v", err)
+			}
 			if _, err := verify(intent, conflicting); err == nil {
 				t.Fatal("independently signed divergent sibling replaced the allocated family")
 			}
