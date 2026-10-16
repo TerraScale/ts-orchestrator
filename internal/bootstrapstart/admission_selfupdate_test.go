@@ -140,6 +140,29 @@ func (f *selfUpdateFixture) updateReceipt(data []byte, environment, cell string)
 	if err != nil {
 		f.t.Fatal(err)
 	}
+	qualified := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: strings.Repeat("1", 40), ArtifactSHA256: sum,
+			QualificationSHA256: qualificationDigest, Cell: cell, Environment: environment,
+			Runtime: release.ProductionRuntime, Architecture: "amd64", Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " evidence")
+		qualified.Evidence = append(qualified.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digest(evidence), Bytes: int64(len(evidence)), CompletedAt: f.now.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualified)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualified.Candidate), f.now, f.now.Add(30*time.Minute), f.rootPrivate)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	receipt, err = release.AttachProductionQualification(receipt, release.ProductionProof{Qualification: envelopeWire(f.t, proof)},
+		envelopeWire(f.t, delegation), f.roots, f.leafPrivate,
+		release.UpdateExpectation{Environment: environment, Cell: cell, Architecture: "amd64"}, f.now)
+	if err != nil {
+		f.t.Fatal(err)
+	}
 	return envelopeWire(f.t, receipt), envelopeWire(f.t, delegation)
 }
 
@@ -296,10 +319,15 @@ func TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt(t *testing.T) {
 	perSource := newSelfUpdateFixture(t, roots, rootPrivate, baked, stagedAt)
 	unsigned := elfFixture("release C")
 	receipt, delegation = perSource.perSourceReceipt(unsigned)
-	perSource.activate(unsigned, receipt, delegation)
-	if _, err := verifySelfUpdatedBinary(perSource.layout.CurrentExecutable(), perSource.layout, roots,
-		expected); err != nil {
-		t.Fatalf("qualified per-source successor: %v", err)
+	policy := selfupdate.ReceiptPolicy{Roots: roots, Environment: expected.Environment, Cell: expected.Cell, Architecture: expected.Architecture}
+	if _, err := selfupdate.Stage(perSource.layout, bytes.NewReader(unsigned), receipt, delegation, policy, stagedAt); !errors.Is(err, release.ErrProductionQualification) {
+		t.Fatalf("per-source successor staged without regional qualification: %v", err)
+	}
+	if current, err := perSource.layout.Current(); err != nil || current != digest(elfFixture("baked orchestrator")) {
+		t.Fatalf("rejected per-source successor changed current: %s, %v", current, err)
+	}
+	if _, err := os.Stat(perSource.layout.ReleaseDir(digest(unsigned))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected per-source successor left release files: %v", err)
 	}
 }
 
@@ -360,15 +388,15 @@ func TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline(t *testing
 		t.Fatalf("restart after rollback to the baked release: %v", err)
 	}
 
-	// Qualified per-source receipts accepted by root activation also admit restart.
+	// A second region-qualified successor also restarts and rolls back at its proof deadline.
 	unsigned := newSelfUpdateFixture(t, fixture.gate.Roots, fixture.rootPrivate, fixture.bakedBinary, now)
 	gate.SelfUpdate = unsigned.layout
 	gate.Binary = fileBinaryChecker{path: unsigned.layout.CurrentExecutable()}
 	other := elfFixture("release C")
-	receipt, delegation = unsigned.perSourceReceipt(other)
+	receipt, delegation = unsigned.updateReceipt(other, "production", "GRU")
 	unsigned.activate(other, receipt, delegation)
 	if err := admit(gate); err != nil {
-		t.Fatalf("restart on qualified per-source release C: %v", err)
+		t.Fatalf("restart on region-qualified release C: %v", err)
 	}
 	outcome, _, err = selfupdate.Watch(unsigned.layout, selfUpdateUnit, selfupdate.ProofCheck{},
 		now.Add(selfupdate.MinProofWindow))
