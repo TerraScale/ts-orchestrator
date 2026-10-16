@@ -479,7 +479,7 @@ func (f *Foundation) bind(ctx context.Context, plan Object) (Object, error) {
 	for _, role := range []string{"control", "network", "workload"} {
 		remember(text(names[role]), role+"_compartment", text(ids[role+"_compartment"]))
 	}
-	for key, suffix := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "service_gateway": "service-gateway", "route_table": "private-routes", "security_list": "private-security", "subnet": "private", "network_security_group": "controllers-nsg", "workload_network_security_group": "databases-nsg"} {
+	for key, suffix := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "service_gateway": "service-gateway", "nat_gateway": "private-egress", "route_table": "private-routes", "security_list": "private-security", "subnet": "private", "network_security_group": "controllers-nsg", "workload_network_security_group": "databases-nsg"} {
 		remember(cell+"-"+suffix, key, text(ids[key]))
 	}
 	identity := obj(plan["identity"])
@@ -622,9 +622,19 @@ func (f *Foundation) network(ctx context.Context, plan Object, cell, network str
 		return err
 	}
 
+	nat, err := f.ensure(ctx, "NAT gateway "+cell+"-private-egress", list("nat-gateway", cell+"-private-egress"),
+		create("nat-gateway", cell+"-private-egress"),
+		func(r Object) bool { return inVCN(r) && r["block-traffic"] == false && r["route-table-id"] == nil })
+	if err != nil {
+		return err
+	}
+	if err := bind("nat_gateway", nat); err != nil {
+		return err
+	}
+
 	routes, err := f.ensure(ctx, "route table "+cell+"-private-routes", list("route-table", cell+"-private-routes"),
 		create("route-table", cell+"-private-routes", "--route-rules", command.JSON([]any{Object{"destination": sec["service_gateway_cidr_block"],
-			"destinationType": "SERVICE_CIDR_BLOCK", "networkEntityId": id("service_gateway")}})), inVCN)
+			"destinationType": "SERVICE_CIDR_BLOCK", "networkEntityId": id("service_gateway")}, Object{"destination": "0.0.0.0/0", "destinationType": "CIDR_BLOCK", "networkEntityId": id("nat_gateway")}})), inVCN)
 	if err != nil {
 		return err
 	}
@@ -639,6 +649,10 @@ func (f *Foundation) network(ctx context.Context, plan Object, cell, network str
 		return err
 	}
 	if err := bind("security_list", security); err != nil {
+		return err
+	}
+
+	if err := f.privateEgress(ctx, plan, network, id); err != nil {
 		return err
 	}
 

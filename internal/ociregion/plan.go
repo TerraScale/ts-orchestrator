@@ -15,7 +15,7 @@ import (
 )
 
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}
-var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
+var resourceKinds = map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "nat_gateway": "natgateway", "local_peering_gateway": "localpeeringgateway", "internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer", "controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"}
 var ingressLists = []string{"nsg_rules", "workload_nsg_rules", "security_list_ingress_rules"}
 
 // TSAuthPort is ts-auth's plain-HTTP port on the controllers. The public API
@@ -255,7 +255,7 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 			}
 		}
 	}
-	seen := map[string]bool{}
+	seen, internet := map[string]bool{}, map[string]bool{}
 	for _, v := range arr(sec["security_list_egress_rules"]) {
 		r := obj(v)
 		if r["direction"] != "EGRESS" || truth(r["stateless"]) || r["source"] != nil || r["source_type"] != nil {
@@ -265,12 +265,19 @@ func validateBoundary(sec Object, network netip.Prefix, gateway, public Object) 
 		ntp := r["destination_type"] == "CIDR_BLOCK" && r["destination"] == "169.254.169.254/32" && r["protocol"] == "17" && eq(r["udp_min"], 123) && eq(r["udp_max"], 123)
 		cell := r["destination_type"] == "CIDR_BLOCK" && within(r["destination"], network)
 		netbird := source != "" && r["destination_type"] == "CIDR_BLOCK" && r["destination"] == source && gatewayPorts(r)
+		publicNetbird := r["destination_type"] == "CIDR_BLOCK" && r["destination"] == "0.0.0.0/0" && gatewayPorts(r)
+		if publicNetbird {
+			internet[text(r["protocol"])] = true
+		}
 		if netbird {
 			seen[text(r["protocol"])] = true
 		}
-		if !service && !ntp && !cell && !netbird {
-			fail("manual plan egress leaves the private cell, Oracle services, NTP, and scoped NetBird gateway")
+		if !service && !ntp && !cell && !netbird && !publicNetbird {
+			fail("manual plan egress leaves the private cell, Oracle services, NTP, and fixed NetBird HTTPS/STUN")
 		}
+	}
+	if len(internet) != 2 {
+		fail("plan must allow fixed public NetBird HTTPS and STUN egress")
 	}
 	if gateway != nil && len(seen) != 2 {
 		fail("manual plan must allow NetBird HTTPS and STUN to the operator gateway")
@@ -508,14 +515,14 @@ func validatePlan(p Object) Object {
 	}
 	if service != nil {
 		requireOCID(service, "service", text(p["region"]))
-		expected := []any{Object{"destination": cidr, "destination_type": "SERVICE_CIDR_BLOCK", "network_entity_id": "{service_gateway_id}"}}
+		expected := []any{Object{"destination": cidr, "destination_type": "SERVICE_CIDR_BLOCK", "network_entity_id": "{service_gateway_id}"}, Object{"destination": "0.0.0.0/0", "destination_type": "CIDR_BLOCK", "network_entity_id": "{nat_gateway_id}"}}
 		if gateway != nil {
 			expected = append(expected, Object{"destination": text(gateway["private_ip"]) + "/32", "destination_type": "CIDR_BLOCK", "network_entity_id": "{local_peering_gateway_id}"})
 		}
 		if !eq(routes, expected) {
-			fail("manual routes must be the exact service gateway route and operator gateway /32 peering route")
+			fail("routes must be the exact service gateway, NAT default, and operator gateway /32 peering routes")
 		}
-	} else if ids["service_gateway"] != nil || ids["route_table"] != nil || len(routes) > 0 || gateway != nil {
+	} else if ids["service_gateway"] != nil || ids["nat_gateway"] != nil || ids["route_table"] != nil || len(routes) > 0 || gateway != nil {
 		fail("manual plan has route resources without a service gateway declaration")
 	}
 	identity := obj(p["identity"])

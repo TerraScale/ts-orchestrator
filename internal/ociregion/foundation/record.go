@@ -32,7 +32,7 @@ func RecordFromPlan(plan Object, homeRegion string) (Record, error) {
 	}
 	ids := obj(bound["resource_ids"])
 	record := Record{Cell: text(bound["cell"]), Region: text(bound["region"]), HomeRegion: homeRegion, ResourceIDs: map[string]string{}, Buckets: map[string]string{}}
-	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vcn", "subnet", "network_security_group", "vault", "key"} {
+	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vcn", "nat_gateway", "route_table", "security_list", "subnet", "network_security_group", "vault", "key"} {
 		if text(ids[key]) == "" {
 			return Record{}, fmt.Errorf("foundation record lacks verified %s", key)
 		}

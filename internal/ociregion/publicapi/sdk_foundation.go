@@ -41,6 +41,9 @@ func CreateRetryIdentity(ctx context.Context, region string, args ...string) (di
 	if _, ok := creators[command.Path]; !ok || !strings.HasSuffix(command.Path, " create") {
 		return "", "", errors.New("OCI command is not a supported foundation create")
 	}
+	if command.Path == "network nat-gateway create" {
+		return natGatewayIdentity(ctx, region, command)
+	}
 	step, err := canonicalRequest(region, command)
 	if err != nil {
 		return "", "", err

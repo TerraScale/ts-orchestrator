@@ -348,6 +348,32 @@
                 "udp_min": 3478,
                 "udp_max": 3478,
                 "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "6",
+                "source": null,
+                "source_type": null,
+                "destination": "0.0.0.0/0",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": 443,
+                "tcp_max": 443,
+                "udp_min": null,
+                "udp_max": null,
+                "stateless": false
+            },
+            {
+                "direction": "EGRESS",
+                "protocol": "17",
+                "source": null,
+                "source_type": null,
+                "destination": "0.0.0.0/0",
+                "destination_type": "CIDR_BLOCK",
+                "tcp_min": null,
+                "tcp_max": null,
+                "udp_min": 3478,
+                "udp_max": 3478,
+                "stateless": false
             }
         ],
         "route_rules": [
@@ -355,6 +381,11 @@
                 "destination": "all-gru-services-in-oracle-services-network",
                 "destination_type": "SERVICE_CIDR_BLOCK",
                 "network_entity_id": "{service_gateway_id}"
+            },
+            {
+                "destination": "0.0.0.0/0",
+                "destination_type": "CIDR_BLOCK",
+                "network_entity_id": "{nat_gateway_id}"
             },
             {
                 "destination": "10.250.10.155/32",
@@ -524,7 +555,8 @@
         "data_volumes": {
             "member-a": null,
             "member-b": null
-        }
+        },
+        "nat_gateway": null
     },
     "bootstrap_object_prefix": ""
 }

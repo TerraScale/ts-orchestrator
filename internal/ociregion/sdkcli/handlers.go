@@ -37,6 +37,7 @@ var handlers = map[string]handler{
 	"network nsg rules list":                        networkNsgRulesList,
 	"network security-list get":                     networkSecurityListGet,
 	"network route-table get":                       networkRouteTableGet,
+	"network nat-gateway get":                       networkNatGatewayGet,
 	"network service-gateway get":                   networkServiceGatewayGet,
 	"network internet-gateway get":                  networkInternetGatewayGet,
 	"network local-peering-gateway get":             networkLocalPeeringGatewayGet,
@@ -248,6 +249,10 @@ var (
 	networkRouteTableGet = networkGet("rt-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.RouteTable, error) {
 		response, err := client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: &id})
 		return response.RouteTable, err
+	})
+	networkNatGatewayGet = networkGet("nat-gateway-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.NatGateway, error) {
+		response, err := client.GetNatGateway(ctx, core.GetNatGatewayRequest{NatGatewayId: &id})
+		return response.NatGateway, err
 	})
 	networkServiceGatewayGet = networkGet("service-gateway-id", func(ctx context.Context, client core.VirtualNetworkClient, id string) (core.ServiceGateway, error) {
 		response, err := client.GetServiceGateway(ctx, core.GetServiceGatewayRequest{ServiceGatewayId: &id})

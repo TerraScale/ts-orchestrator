@@ -428,14 +428,18 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		fail("retained volume backups exceed the 350 GB reserve")
 	}
 	balancers := active(resources, "load-balancer")
-	if len(active(resources, "nat-gateway")) > 0 || (len(balancers) > 0 && !pricedBalancer(plan, balancers, ids["network"])) {
+	if len(balancers) > 0 && !pricedBalancer(plan, balancers, ids["network"]) {
 		fail("unpriced gateway or load balancer is present")
 	}
 	verifyGateways(plan, resources, ids)
 }
 func verifyGateways(plan Object, resources any, preview Object) {
 	existing, ids := obj(plan["existing_operations_host"]), obj(plan["resource_ids"])
-	expected := map[string][]any{"internet-gateway": {[]any{existing["internet_gateway_id"], plan["shared_compartment_id"], existing["vcn_id"]}}, "network-load-balancer": {}, "local-peering-gateway": {}}
+	expected := map[string][]any{"internet-gateway": {[]any{existing["internet_gateway_id"], plan["shared_compartment_id"], existing["vcn_id"]}}, "network-load-balancer": {}, "local-peering-gateway": {}, "nat-gateway": {}}
+	// NAT has no gateway-hour SKU; outbound traffic remains in the egress reserve.
+	if ids["nat_gateway"] != nil {
+		expected["nat-gateway"] = append(expected["nat-gateway"], []any{ids["nat_gateway"], preview["network"], ids["vcn"]})
+	}
 	if plan["public_api"] != nil {
 		if ids["internet_gateway"] != nil {
 			expected["internet-gateway"] = append(expected["internet-gateway"], []any{ids["internet_gateway"], preview["network"], ids["vcn"]})
@@ -451,7 +455,7 @@ func verifyGateways(plan Object, resources any, preview Object) {
 	if ids["local_peering_gateway"] != nil {
 		expected["local-peering-gateway"] = append(expected["local-peering-gateway"], []any{ids["local_peering_gateway"], preview["network"], ids["vcn"]})
 	}
-	errors := map[string]string{"internet-gateway": "internet gateway inventory differs from the operations host and public API baseline", "network-load-balancer": "network load balancer inventory differs from the recorded public API balancer", "local-peering-gateway": "local peering gateway inventory differs from the recorded operator gateway pair"}
+	errors := map[string]string{"nat-gateway": "NAT gateway inventory differs from the exact private egress foundation", "internet-gateway": "internet gateway inventory differs from the operations host and public API baseline", "network-load-balancer": "network load balancer inventory differs from the recorded public API balancer", "local-peering-gateway": "local peering gateway inventory differs from the recorded operator gateway pair"}
 	for kind, want := range expected {
 		seen := map[string]bool{}
 		field := "vcn-id"
@@ -460,6 +464,9 @@ func verifyGateways(plan Object, resources any, preview Object) {
 		}
 		for _, v := range active(resources, kind) {
 			m := obj(v)
+			if kind == "nat-gateway" && (m["lifecycle-state"] != "AVAILABLE" || m["block-traffic"] != false || m["route-table-id"] != nil) {
+				fail("private NAT gateway is blocked or outside its exact egress scope")
+			}
 			// Without an operator gateway, ts-ops's peering gateways belong
 			// to other cells.
 			if kind == "local-peering-gateway" && plan["operator_gateway"] == nil && m["vcn-id"] == existing["vcn_id"] {

@@ -20,8 +20,8 @@ func requireLiveID(v any, id any, label string) Object {
 func requireRouteIDs(plan, ids Object) {
 	sec := obj(plan["network_security"])
 	required := truth(sec["service_gateway_service_id"]) || truth(sec["route_rules"])
-	if truth(ids["route_table"]) != truth(ids["service_gateway"]) || required != truth(ids["route_table"]) {
-		fail("foundation inspection requires the exact route table and service gateway IDs declared by the plan")
+	if truth(ids["route_table"]) != truth(ids["nat_gateway"]) || truth(ids["route_table"]) != truth(ids["service_gateway"]) || required != truth(ids["route_table"]) {
+		fail("foundation inspection requires the exact route table, NAT and service gateway IDs declared by the plan")
 	}
 	if plan["operator_gateway"] != nil && (!truth(ids["local_peering_gateway"]) || !truth(obj(plan["operator_gateway"])["local_peering_gateway_id"])) {
 		fail("foundation inspection requires the exact cell and operator gateway local peering gateway IDs")
@@ -186,15 +186,22 @@ func (e *Engine) liveNetwork(plan, ids Object) {
 		actual, want := []any{}, []any{}
 		for _, v := range rows(m["route-rules"]) {
 			r := obj(v)
+			if r["route-type"] != nil && r["route-type"] != "STATIC" {
+				fail("live private route table has a non-static route")
+			}
 			actual = append(actual, Object{"destination": r["destination"], "destination_type": r["destination-type"], "network_entity_id": r["network-entity-id"]})
 		}
-		targets := map[string]string{"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
+		targets := map[string]string{"{service_gateway_id}": "service_gateway", "{nat_gateway_id}": "nat_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 		for _, v := range arr(expected["route_rules"]) {
 			r := obj(v)
 			want = append(want, Object{"destination": r["destination"], "destination_type": r["destination_type"], "network_entity_id": ids[targets[text(r["network_entity_id"])]]})
 		}
 		if !eq(orderedRows(actual), orderedRows(want)) {
 			fail("live route table rules differ from the exact plan")
+		}
+		nat := requireLiveID(e.oci(region, "network", "nat-gateway", "get", "--nat-gateway-id", str(ids["nat_gateway"])), ids["nat_gateway"], "NAT gateway")
+		if nat["compartment-id"] != ids["network_compartment"] || nat["vcn-id"] != ids["vcn"] || nat["lifecycle-state"] != "AVAILABLE" || nat["block-traffic"] != false || nat["route-table-id"] != nil {
+			fail("live NAT gateway is blocked or differs from the exact private egress scope")
 		}
 		id := ids["service_gateway"]
 		g := requireLiveID(e.oci(region, "network", "service-gateway", "get", "--service-gateway-id", str(id)), id, "service gateway")
