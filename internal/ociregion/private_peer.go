@@ -190,7 +190,7 @@ func privatePeerRules(peer string, ports []any) (nsg, egress []any) {
 // placeholders resolved, as inspect-foundation resolves them.
 func privatePeerRoutes(plan Object) []any {
 	ids := obj(plan["resource_ids"])
-	targets := map[string]string{"{service_gateway_id}": "service_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
+	targets := map[string]string{"{service_gateway_id}": "service_gateway", "{nat_gateway_id}": "nat_gateway", "{local_peering_gateway_id}": "local_peering_gateway"}
 	r := []any{}
 	for _, v := range arr(obj(plan["network_security"])["route_rules"]) {
 		rule := obj(v)
@@ -380,6 +380,10 @@ func (e *Engine) inspectPrivatePeerSide(c, peer *privatePeerContext, ports []any
 		fail("live peer NSG rules: a private peer rule is missing")
 	case len(missingEgress) > 0:
 		fail("live peer security-list egress rules: a private peer rule is missing")
+	}
+	nat := get("nat-gateway", "--nat-gateway-id", text(ids["nat_gateway"]), "NAT gateway")
+	if nat["compartment-id"] != compartment || nat["vcn-id"] != ids["vcn"] || nat["lifecycle-state"] != "AVAILABLE" || nat["block-traffic"] != false || nat["route-table-id"] != nil {
+		fail("live NAT gateway is blocked or differs from the exact private egress scope")
 	}
 	gateway := get("service-gateway", "--service-gateway-id", text(ids["service_gateway"]), "service gateway")
 	services := []any{}
