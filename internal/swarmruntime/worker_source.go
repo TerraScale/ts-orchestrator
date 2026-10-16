@@ -24,7 +24,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -51,8 +50,8 @@ type WorkerRegistrationSnapshot struct {
 	Response                 []byte            `json:"response,omitempty"`
 }
 
-// ErrWorkerPoolCreationLineagePending refuses pool admission until its original creation is authenticated.
-var ErrWorkerPoolCreationLineagePending = errors.New("worker pool creation lineage is pending")
+// ErrWorkerCreationLineagePending refuses worker admission until its original creation is authenticated.
+var ErrWorkerCreationLineagePending = errors.New("worker original creation authority is pending")
 
 type workerAuthority struct {
 	identity    bootstrapstart.RuntimeIdentity
@@ -129,7 +128,7 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 	if err != nil {
 		return fail(err)
 	}
-	if err := refuseUnprovenPoolWorker(descriptor); err != nil {
+	if err := refuseUnprovenStaticWorker(descriptor); err != nil {
 		return fail(err)
 	}
 	if !strings.EqualFold(descriptor.Region, authority.identity.Cell) {
@@ -179,14 +178,10 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 	return request, response, registration, observed, role + ":" + architecture, nil
 }
 
-func refuseUnprovenPoolWorker(descriptor hostboot.Descriptor) error {
-	cell, err := naming.RegionCell(descriptor.Region).Name()
-	if err != nil {
-		return err
-	}
-	// Current pool membership cannot authenticate the protected original create operation.
-	if descriptor.IsStatic() && strings.HasPrefix(descriptor.Node, cell+"-pool-") {
-		return ErrWorkerPoolCreationLineagePending
+func refuseUnprovenStaticWorker(descriptor hostboot.Descriptor) error {
+	// A static name or legacy grant cannot distinguish a pool member from a renamed external instance.
+	if descriptor.IsStatic() {
+		return ErrWorkerCreationLineagePending
 	}
 	return nil
 }

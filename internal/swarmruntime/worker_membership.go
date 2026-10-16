@@ -290,7 +290,7 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 		registration.ManagedOCI != nil && (registration.ManagedOCI.InstanceID != worker.InstanceID || !strings.EqualFold(registration.ManagedOCI.Region, identity.Cell)) {
 		return api.NodeAvailabilityDrain, true, nil
 	}
-	if err := refuseUnprovenPoolWorker(descriptor); err != nil {
+	if err := refuseUnprovenStaticWorker(descriptor); err != nil {
 		return pause(err)
 	}
 	block, _ := pem.Decode(node.Certificate.Certificate)
