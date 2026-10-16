@@ -120,8 +120,38 @@ jobs:
           bash deploy/image/tools.sh \
             bash deploy/image/build-image.sh --source "${SOURCE_SHA}" --out dist/image
 
-      - name: Retain the image release
+      # Keep unsigned bytes available to the disposable qualifier even when
+      # no final-image production proof exists yet.
+      - name: Retain the unsigned image candidate for disposable qualification
         if: ${{ steps.gate.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-image-${{ inputs.source_revision }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            dist/image/terrascale-gru-arm64.qcow2
+            dist/image/guest-kernel
+            dist/image/image-qualification.json
+            dist/image/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Admit retained qualification of the final image bytes
+        id: image_admission
+        if: ${{ steps.gate.outputs.skip != 'true' }}
+        shell: bash
+        run: bash scripts/ci/qualify-image-production.sh dist/image
+
+      - name: Retain final-image admission diagnostics
+        if: ${{ always() && steps.gate.outputs.skip != 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: image-production-admission-${{ github.run_id }}-${{ github.run_attempt }}
+          path: dist/image/image-production-admission.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Retain the image release
+        if: ${{ steps.gate.outputs.skip != 'true' && steps.image_admission.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
