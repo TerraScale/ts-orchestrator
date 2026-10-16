@@ -304,6 +304,39 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err := sessions.verifyRuntimeStop(ctx, current.Current().Epoch, effect, challenge, proof); err == nil {
 		t.Fatal("prior leader challenge remained current")
 	}
+	terminal := authority.TerminalIntent{Cell: "gru", DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID, Region: "GRU", Owner: "orchestrator", CompartmentID: "ocid1.compartment.integration.held",
+		FleetGeneration: 1, PlacementGeneration: 1, PlacementPayloadDigest: strings.Repeat("a", 64), OperationID: entityid.New(), Nonce: strings.Repeat("b", 32),
+		Targets:            []authority.TerminalTarget{{SeatID: registration.ManagedPlacement.SeatID, MemberID: registration.ManagedMember.Scope.MemberID, HostCreateKey: registration.ManagedOCI.CreateKey, DataCreateKey: entityid.New()}},
+		DisposableWorkload: true, AcknowledgePermanentDataLoss: true, AuthorizeForcedStop: true}
+	terminalBytes, err := json.Marshal(terminal, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminalContext, stopTerminal := context.WithCancel(ctx)
+	terminalDone := make(chan error, 1)
+	go func() {
+		_, err := current.CommitTerminalIntent(terminalContext, current.Current().Epoch, scope, terminal.OperationID, terminalBytes, func(context.Context) error { return errors.New("terminal verification cannot bypass held runtime") })
+		terminalDone <- err
+	}()
+	select {
+	case err := <-terminalDone:
+		stopTerminal()
+		t.Fatalf("terminal writer did not wait for retained runtime read gate: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	stopTerminal()
+	held.mu.Lock()
+	held.release()
+	held.release = nil
+	held.mu.Unlock()
+	select {
+	case err := <-terminalDone:
+		if err == nil {
+			t.Fatal("cancelled terminal writer committed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelled terminal writer did not return after test gate cleanup")
+	}
 }
 
 func effectSessionR3(t *testing.T) (jetstream.JetStream, *nats.Conn) {
