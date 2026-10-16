@@ -76,6 +76,10 @@ func (c *controller) Prepare(ctx context.Context) error {
 		return err
 	}
 	defer release(ctx)
+	materialMounts, err := c.functionMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err
@@ -121,6 +125,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if c.spec.Dir != "" {
 			opts = append(opts, oci.WithProcessCwd(c.spec.Dir))
 		}
+		if len(materialMounts) != 0 {
+			opts = append(opts, oci.WithMounts(materialMounts))
+		}
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
@@ -129,6 +136,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+	}
+	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
+		return err
 	}
 	info, err := ctr.Info(ctx)
 	if err != nil {
@@ -167,8 +177,15 @@ func (c *controller) Start(ctx context.Context) error {
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ctx = runtimeContext(ctx)
+	materialMounts, err := c.functionMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
 	ctr, err := c.container(ctx)
 	if err != nil {
+		return err
+	}
+	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
 		return err
 	}
 	t, err := ctr.Task(ctx, nil)
@@ -308,7 +325,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	ctr, err := c.container(ctx)
 	if errdefs.IsNotFound(err) {
-		return os.RemoveAll(filepath.Join(c.executor.logRoot, c.id))
+		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
 	}
 	if err != nil {
 		return err
@@ -344,7 +361,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return os.RemoveAll(filepath.Join(c.executor.logRoot, c.id))
+	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
 }
 
 func (c *controller) Close() error { return nil }
