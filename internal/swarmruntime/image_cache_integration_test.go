@@ -126,10 +126,27 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 	if _, err := e.client.LoadContainer(ctx, wrong.id); !errdefs.IsNotFound(err) {
 		t.Fatalf("wrong-target image created a container: %v", err)
 	}
-	if admissions != 5 || registry.requests.Load() != 0 {
-		t.Fatalf("admission calls=%d (want 5), registry requests=%d (want 0)", admissions, registry.requests.Load())
+	corruptData := []byte("{")
+	corruptTarget := imagespec.Descriptor{MediaType: imagespec.MediaTypeImageManifest, Digest: digest.FromBytes(corruptData), Size: int64(len(corruptData))}
+	corruptRef := "registry.invalid/cache@" + corruptTarget.Digest.String()
+	if err := content.WriteBlob(ctx, e.client.ContentStore(), "corrupt-cache-fixture", bytes.NewReader(corruptData), corruptTarget); err != nil {
+		t.Fatal(err)
 	}
-	t.Log("imported exact child image unpacked and executed locally; cached and reattached admission enforced; wrong target rejected; registry requests=0")
+	if _, err := e.client.ImageService().Create(ctx, images.Image{Name: corruptRef, Target: corruptTarget}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = e.client.ImageService().Delete(runtimeContext(context.Background()), corruptRef) })
+	corrupt := controllerFor(corruptRef)
+	if err := corrupt.Prepare(ctx); err == nil {
+		t.Fatal("corrupt local manifest accepted")
+	}
+	if _, err := e.client.LoadContainer(ctx, corrupt.id); !errdefs.IsNotFound(err) {
+		t.Fatalf("corrupt image created a container: %v", err)
+	}
+	if admissions != 6 || registry.requests.Load() != 0 {
+		t.Fatalf("admission calls=%d (want 6), registry requests=%d (want 0)", admissions, registry.requests.Load())
+	}
+	t.Log("imported exact child image unpacked and executed locally; cached and reattached admission enforced; wrong target and corrupt manifest rejected; registry requests=0")
 }
 
 // Add a unique real layer so the imported image must exercise local native unpack.
