@@ -137,3 +137,8 @@ func (recipient LinkRecipient) deliveryScope() trust.Scope {
 	manifest := recipient.regional.Manifest()
 	return trust.Scope{Domain: "terrascale.bootstrap.link-delivery", DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Environment: manifest.Environment, Role: "link", Slot: recipient.bindingSHA256}
 }
+
+// RegionalSourceTemplate retains the root-signed recipe used for this admission.
+func (recipient LinkRecipient) RegionalSourceTemplate() VerifiedStartupTemplate {
+	return recipient.regional.Template()
+}
