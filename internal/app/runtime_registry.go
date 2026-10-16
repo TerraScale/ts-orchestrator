@@ -378,9 +378,6 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			if !bytes.Equal(document.Document, current.Document) {
 				return errors.New("registry manager authority changed during Vault credential read")
 			}
-			if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
-				return err
-			}
 			now := time.Now().UTC()
 			if !now.Before(deadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
 				!verified.Valid(now) || rootState.reply("").Head != rootHead {
