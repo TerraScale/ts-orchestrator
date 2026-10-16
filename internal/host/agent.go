@@ -564,6 +564,10 @@ func (a *Agent) executionLease() (session, time.Time, error) {
 }
 
 func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, lost chan<- error) {
+	a.maintainSessionLease(ctx, func(reason error) { a.failSession(cancel, lost, reason) })
+}
+
+func (a *Agent) maintainSessionLease(ctx context.Context, fail func(error)) {
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	watchDone := make(chan struct{})
 	go func() {
@@ -580,7 +584,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 				return
 			case <-ticks:
 				if _, _, err := a.executionLease(); err != nil {
-					a.failSession(cancel, lost, err)
+					fail(err)
 					return
 				}
 			}
@@ -596,7 +600,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		ctx := observability.StartTrace(ctx)
 		current, deadline, err := a.executionLease()
 		if err != nil {
-			a.failSession(cancel, lost, err)
+			fail(err)
 			return
 		}
 		select {
@@ -606,7 +610,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		}
 		current, deadline, err = a.executionLease()
 		if err != nil {
-			a.failSession(cancel, lost, err)
+			fail(err)
 			return
 		}
 		var next session
@@ -626,7 +630,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		}
 		_, _, leaseErr := a.executionLease()
 		if leaseErr != nil {
-			a.failSession(cancel, lost, leaseErr)
+			fail(leaseErr)
 			return
 		}
 		if err != nil && retrySessionExchange(err) {
@@ -635,7 +639,7 @@ func (a *Agent) maintainSession(ctx context.Context, cancel context.CancelFunc, 
 		}
 		if err != nil {
 			a.logSessionFailure("renew", err, time.Until(deadline))
-			a.failSession(cancel, lost, fmt.Errorf("host session renewal failed: %w", err))
+			fail(fmt.Errorf("host session renewal failed: %w", err))
 			return
 		}
 		a.sessionRecovered()
