@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,8 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	js := testRolloutJetStream(t)
-	runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	deploymentID := entityid.New()
+	runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: deploymentID, Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,9 +54,15 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	}
 	t.Cleanup(func() { _ = connection.Close() })
 	signer := newFunctionPublicationSigner(t)
-	bundle, evidence := signer.worker(t, release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "amd64"})
-	config := functionControllerConfig{Authority: runtime, Client: api.NewControlClient(connection), Factory: signer.factory, Cell: "gru", Environment: "canary",
-		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Artifacts: artifacts, Roots: func() trust.Keyring { return signer.roots }}},
+	identity := trust.ChainIdentity{DeploymentID: deploymentID, Cell: "gru", Environment: "canary"}
+	roots, err := newRootRegistry(signer.roots, identity, trust.RootChain{Version: 1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "amd64"}
+	bundle, evidence := signer.worker(t, target)
+	config := functionControllerConfig{Authority: runtime, Client: api.NewControlClient(connection), Roots: roots, Factory: signer.factory, Cell: "gru", Environment: "canary",
+		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Artifacts: artifacts, Roots: roots.current}},
 		Worker: func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
 			return functionWorkerRelease{Architecture: "amd64", Bundle: bundle}, nil
 		}, Evidence: evidence}
@@ -76,5 +84,37 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	wrongScope.Cell = "fra"
 	if demand, err := functionDemandSource(wrongScope)(ctx); err == nil || demand != nil {
 		t.Fatalf("foreign regional intent produced capacity: %+v, %v", demand, err)
+	}
+	envelope, err := trust.DecodeEnvelope(bundle.Claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extended, err := trust.Sign(envelope.Payload, envelope.Scope, envelope.IssuedAt, envelope.IssuedAt.Add(90*time.Minute), signer.leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle.Claim, err = trust.EncodeEnvelope(extended)
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocations, err := currentContainerAllocations(ctx, signer.factory, bundle, roots.current(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := release.VerifyContainerCurrent(ctx, bundle, roots.current(), target, time.Now(), proof.ExpiresAt(), evidence, allocations); err != nil {
+		t.Fatalf("independent worker qualification through function expiry: %v", err)
+	}
+	addedRoot := newRootKey(t)
+	rotation := trust.RootChain{Version: 1, Rotations: []trust.SignedRotation{
+		signTestRotation(t, identity, roots.verified, rootKeys(signer.root, addedRoot), signer.root, addedRoot),
+	}}
+	config.Worker = func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
+		if err := roots.adopt(rotation); err != nil {
+			t.Fatal(err)
+		}
+		return functionWorkerRelease{Architecture: "amd64", Bundle: bundle}, nil
+	}
+	if demand, err := functionDemandSource(config)(ctx); err == nil || !strings.Contains(err.Error(), "function roots changed") || demand != nil {
+		t.Fatalf("root rotation during worker lookup produced capacity: %+v, %v", demand, err)
 	}
 }
