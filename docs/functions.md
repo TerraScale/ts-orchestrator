@@ -346,10 +346,19 @@ The genuine sealed actor scenario at `6281eb0c` measured a 16,403-byte escrow
 against the unchanged 25,600-byte Vault limit, then failed at external-seed
 ledger publication because retry-clock metadata was inconsistent. It has no
 completed sealed-startup pass. The concrete automatic startup helper and exact
-task-retained material selection (`05e42ddf`, `8c493857`) await coherent app
-compilation and caller checks. Positive WASM worker enrollment also requires
+task-retained material selection (`05e42ddf`, `8c493857`, `3184f213`) await coherent
+app compilation and caller checks. Recipient authorization now rechecks the live
+sealed source before and after verifying the retained task's worker authority.
+Positive WASM worker enrollment also requires
 the original authenticated pool creation lineage; a static descriptor cannot
 replace that authority.
+
+The actual manager's automatic rollback image-pull scenario passed at `486da504`
+(12.917 seconds). After rejecting worker 102, the manager assigned a new worker
+101 task; its exact retained, currently qualified image could pull while another
+worker and stale function proof were refused. Material for that older worker
+remained denied by the advanced current floor. This proves image-pull recovery,
+not a complete running rollback.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
