@@ -519,8 +519,8 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		}
 		before, err := intent.Fingerprint()
 		after, afterErr := confirmed.Intent.Fingerprint()
-		currentRoots, rootsErr := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), confirmed.Chain)
-		if err != nil || afterErr != nil || before != after || confirmed.SpecRevision != snapshot.SpecRevision || rootsErr != nil || currentRoots.Head != rootHead || roots.reply("").Head != rootHead ||
+		confirmedRoots, rootsErr := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), confirmed.Chain)
+		if err != nil || afterErr != nil || before != after || confirmed.SpecRevision != snapshot.SpecRevision || rootsErr != nil || confirmedRoots.Head != rootHead || roots.reply("").Head != rootHead ||
 			!time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmedDocument.ExpiresAt) || !verified.Valid(time.Now().UTC()) {
 			return nil, errors.New("registry worker authority changed during credential admission")
 		}
