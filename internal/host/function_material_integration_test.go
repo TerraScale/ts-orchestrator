@@ -56,7 +56,9 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = responses.Unsubscribe() })
-	if err := f.conn.FlushWithContext(t.Context()); err != nil {
+	flushCtx, cancelFlush := context.WithTimeout(t.Context(), time.Second)
+	defer cancelFlush()
+	if err := f.conn.FlushWithContext(flushCtx); err != nil {
 		t.Fatal(err)
 	}
 	files, expires, err := agent.CurrentFunctionFiles(t.Context(), f.binding)
