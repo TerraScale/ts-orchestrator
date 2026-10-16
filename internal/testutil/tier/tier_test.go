@@ -1,53 +1,49 @@
 package tier
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
-	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
-// recorder stands in for a test so the helpers' skip and failure outcomes can
-// be observed; both end the helper like runtime.Goexit would.
-type recorder struct {
-	testing.TB
-	outcome, message string
-}
-
-type stopped struct{}
-
-func (r *recorder) Helper() {}
-func (r *recorder) Fatal(args ...any) {
-	r.outcome, r.message = "fail", fmt.Sprint(args...)
-	panic(stopped{})
-}
-func (r *recorder) Fatalf(format string, args ...any) {
-	r.outcome, r.message = "fail", fmt.Sprintf(format, args...)
-	panic(stopped{})
-}
-func (r *recorder) Skipf(format string, args ...any) {
-	r.outcome, r.message = "skip", fmt.Sprintf(format, args...)
-	panic(stopped{})
-}
-
-func observe(t *testing.T, call func(testing.TB) []string) (*recorder, []string) {
+func tierChild(t *testing.T, mode string, env []string, args ...string) (string, int) {
 	t.Helper()
-	r := &recorder{TB: t}
-	var values []string
-	func() {
-		defer func() {
-			if recovered := recover(); recovered != nil {
-				if _, ok := recovered.(stopped); !ok {
-					panic(recovered)
-				}
-			}
-		}()
-		values = call(r)
-		r.outcome = "run"
-	}()
-	return r, values
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestIntegrationChild$", "-test.v"}, args...)...)
+	cmd.Env = append(os.Environ(), Env+"=", "TS_TIER_TEST_A=", "TS_TIER_TEST_B=",
+		"TS_TIER_INTEGRATION_CHILD=1", "TS_TIER_CHILD_MODE="+mode, "GORACE=atexit_sleep_ms=0")
+	cmd.Env = append(cmd.Env, env...)
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil || cmd.ProcessState == nil {
+		t.Fatalf("tier child %s: %v, context=%v\n%s", mode, err, ctx.Err(), output)
+	}
+	return string(output), cmd.ProcessState.ExitCode()
+}
+
+func checkTierOutcome(t *testing.T, output string, code int, outcome, message string) {
+	t.Helper()
+	status, wantCode := "PASS", 0
+	switch outcome {
+	case "skip":
+		status = "SKIP"
+	case "fail":
+		status, wantCode = "FAIL", 1
+	}
+	if code != wantCode || !strings.Contains(output, "--- "+status+": TestIntegrationChild") || !strings.Contains(output, message) {
+		t.Fatalf("want %s (exit %d) containing %q; exit %d:\n%s", status, wantCode, message, code, output)
+	}
+	if outcome == "fail" && strings.Contains(output, "--- SKIP:") {
+		t.Fatalf("required qualification skipped instead of failing:\n%s", output)
+	}
 }
 
 func TestQualification(t *testing.T) {
@@ -63,61 +59,63 @@ func TestQualification(t *testing.T) {
 		{"missing-fails-qualifying", QualificationTier, "/fixture/a", "", "fail", "TS_TEST_TIER=qualification: qualification fixture not supplied: set TS_TIER_TEST_B", nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(Env, tc.tier)
-			t.Setenv("TS_TIER_TEST_A", tc.a)
-			t.Setenv("TS_TIER_TEST_B", tc.b)
-			r, values := observe(t, func(tb testing.TB) []string { return Qualification(tb, "TS_TIER_TEST_A", "TS_TIER_TEST_B") })
-			if r.outcome != tc.outcome || !strings.Contains(r.message, tc.message) || !reflect.DeepEqual(values, tc.values) {
-				t.Fatalf("outcome=%s message=%q values=%q", r.outcome, r.message, values)
+			output, code := tierChild(t, "qualification", []string{Env + "=" + tc.tier, "TS_TIER_TEST_A=" + tc.a, "TS_TIER_TEST_B=" + tc.b})
+			checkTierOutcome(t, output, code, tc.outcome, tc.message)
+			if tc.outcome == "run" && !strings.Contains(output, fmt.Sprintf("fixture-values=%q", tc.values)) {
+				t.Fatalf("returned fixture values or order changed:\n%s", output)
+			}
+			if tc.outcome != "run" && strings.Contains(output, "fixture-values=") {
+				t.Fatalf("unavailable fixture continued into the test body:\n%s", output)
 			}
 		})
 	}
 	t.Run("needs-a-variable", func(t *testing.T) {
-		if r, _ := observe(t, func(tb testing.TB) []string { return Qualification(tb) }); r.outcome != "fail" {
-			t.Fatalf("outcome=%s", r.outcome)
-		}
+		output, code := tierChild(t, "no-variables", nil)
+		checkTierOutcome(t, output, code, "fail", "tier.Qualification needs the environment variables that supply its fixture")
 	})
 }
 
 func TestUnavailable(t *testing.T) {
 	for tier, outcome := range map[string]string{"": "skip", "pr": "skip", QualificationTier: "fail"} {
-		t.Setenv(Env, tier)
-		r, _ := observe(t, func(tb testing.TB) []string { Unavailable(tb, "needs %s", "a packet"); return nil })
-		if r.outcome != outcome || !strings.HasSuffix(r.message, "needs a packet") {
-			t.Fatalf("tier %q: outcome=%s message=%q", tier, r.outcome, r.message)
-		}
+		output, code := tierChild(t, "unavailable", []string{Env + "=" + tier})
+		checkTierOutcome(t, output, code, outcome, "needs a packet\n")
 	}
 }
 
-// TestIntegrationChild is run by TestIntegration in a child test binary.
+// TestIntegrationChild is run only in bounded child test processes.
 func TestIntegrationChild(t *testing.T) {
 	if os.Getenv("TS_TIER_INTEGRATION_CHILD") != "1" {
-		t.Skip("child of TestIntegration")
+		t.Skip("child of the tier process scenarios")
 	}
-	Integration(t)
-	t.Log("integration test body ran")
+	switch os.Getenv("TS_TIER_CHILD_MODE") {
+	case "qualification":
+		values := Qualification(t, "TS_TIER_TEST_A", "TS_TIER_TEST_B")
+		fmt.Printf("fixture-values=%q\n", values)
+	case "no-variables":
+		Qualification(t)
+	case "unavailable":
+		Unavailable(t, "needs %s", "a packet")
+	case "integration":
+		Integration(t)
+		t.Log("integration test body ran")
+	default:
+		t.Fatal("unknown child scenario")
+	}
 }
 
 func TestIntegration(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, tc := range []struct {
 		args []string
 		ran  bool
 	}{{nil, true}, {[]string{"-test.short"}, false}} {
-		cmd := exec.Command(executable, append([]string{"-test.run=^TestIntegrationChild$", "-test.v"}, tc.args...)...)
-		cmd.Env = append(os.Environ(), "TS_TIER_INTEGRATION_CHILD=1", "GORACE=atexit_sleep_ms=0")
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("%v: %v\n%s", tc.args, err, output)
+		output, code := tierChild(t, "integration", nil, tc.args...)
+		outcome := "skip"
+		if tc.ran {
+			outcome = "run"
 		}
-		if ran := strings.Contains(string(output), "integration test body ran"); ran != tc.ran {
+		checkTierOutcome(t, output, code, outcome, "")
+		if ran := strings.Contains(output, "integration test body ran"); ran != tc.ran {
 			t.Fatalf("%v: body ran=%v\n%s", tc.args, ran, output)
-		}
-		if skipped := strings.Contains(string(output), "--- SKIP: TestIntegrationChild"); skipped == tc.ran {
-			t.Fatalf("%v: skipped=%v\n%s", tc.args, skipped, output)
 		}
 	}
 }
