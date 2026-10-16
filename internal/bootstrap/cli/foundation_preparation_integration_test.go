@@ -79,7 +79,7 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 			fmt.Fprint(w, `[{"name":"scenario:AD-1"}]`)
 		case strings.HasSuffix(r.URL.Path, "/services"):
 			fmt.Fprint(w, `[{"id":"ocid1.service.oc1..services","cidrBlock":"all-scenario-services-in-oracle-services-network"}]`)
-		case r.URL.Path == "/n/ns":
+		case r.URL.Path == "/n":
 			fmt.Fprint(w, `"ns"`)
 		case strings.Contains(r.URL.Path, "/o/"):
 			_, name, _ := strings.Cut(r.URL.Path, "/b/")
@@ -134,6 +134,8 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	}
 	for _, item := range []struct{ cell, role string }{{"GRU", "controller"}, {"SFO", "controller"}, {"FRA", "controller"}, {"GRU", "netbird-manager"}} {
 		image, delegation, evidence := foundationPreparationImage(t, root, leaf, roots, item.cell, item.role, now)
+		image = append(append([]byte("\n  "), image...), '\n')
+		delegation = append(append([]byte("\n  "), delegation...), '\n')
 		bucket, err := releasechannel.BucketName(item.cell)
 		if err != nil {
 			t.Fatal(err)
@@ -208,6 +210,17 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	var bundle region.RetainedFoundation
 	if err := protocol.DecodeStrict(signed, &bundle, maxFoundationBundleBytes); err != nil || len(bundle.AnchorWire) == 0 || len(bundle.GrantWire) == 0 || !bytes.Equal(bundle.RootChainWire, chain) {
 		t.Fatalf("offline root ceremony did not return exact public signed bundle: %v", err)
+	}
+	grantEnvelope, err := trust.DecodeEnvelope(bundle.GrantWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorEnvelope, err := trust.DecodeEnvelope(bundle.AnchorWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grantEnvelope.ExpiresAt.After(now.Add(time.Hour)) || anchorEnvelope.ExpiresAt.After(grantEnvelope.ExpiresAt) {
+		t.Fatal("root ceremony extended the current image qualification or grant authority")
 	}
 	t.Run("allocation cannot replace the startup recipe", func(t *testing.T) {
 		prepared.Grant.InfrastructureSpend.Bootstrap.Slots[0].ProfileSHA256 = strings.Repeat("0", 64)
