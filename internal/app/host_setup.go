@@ -276,14 +276,12 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 	if err := validateHostCredentials(bundle, descriptor.Node, pending, request, response); err != nil {
 		return err
 	}
-	if response.Swarm != nil {
-		transport, err := protocol.EncodeJSON(hostenroll.WorkerTransport{Request: requestWire, Response: responseWire})
-		if err != nil {
-			return err
-		}
-		if err := writeAtomicHostFile(filepath.Join(outputRoot, runtimeWorkerTransportFilename), transport, 0o600); err != nil {
-			return err
-		}
+	transport, err := protocol.EncodeJSON(hostenroll.WorkerTransport{Request: requestWire, Response: responseWire})
+	if err != nil {
+		return err
+	}
+	if err := writeAtomicHostFile(filepath.Join(outputRoot, runtimeWorkerTransportFilename), transport, 0o600); err != nil {
+		return err
 	}
 	if err := installHostEnrollment(ctx, outputRoot, secrets, bundle, descriptor, pending, response, runtime.ownerUID, runtime.netbird); err != nil {
 		return err
