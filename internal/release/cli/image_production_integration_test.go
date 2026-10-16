@@ -24,6 +24,7 @@ func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
 	}
 	defer clear(private)
 	image := testDelegationImageReceipt(f.binary)
+	image.SourceRevision = f.binary.SourceRevision
 	disk := []byte(imageMagicQcow2 + "test-only final guest runtime bytes")
 	sum := sha256.Sum256(disk)
 	image.ImageSHA256, image.ImageBytes = hex.EncodeToString(sum[:]), int64(len(disk))
