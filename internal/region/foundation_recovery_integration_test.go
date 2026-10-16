@@ -186,6 +186,7 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 			}
 		})
 	}
+	originalPendingRequest := saved.PendingCreates["control_compartment"].Request
 	recovered := saved
 	recovered.Epoch, recovered.LeaseID = saved.Epoch+2, entityid.New()
 	recovered.UpdatedAt, recovered.ExpiresAt = time.Now().UTC(), time.Now().UTC().Add(foundationLease)
@@ -201,7 +202,7 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	if err != nil || got.ResourceIDs["control_compartment"] != resourceID || len(got.PendingCreates) != 0 {
 		t.Fatalf("recovered identity not checkpointed: record=%+v err=%v", got, err)
 	}
-	if err := first.prepareCreate(t.Context(), saved.PendingCreates["control_compartment"].Request, true); !errors.Is(err, ErrFoundationFenced) {
+	if err := first.prepareCreate(t.Context(), originalPendingRequest, true); !errors.Is(err, ErrFoundationFenced) {
 		t.Fatalf("old owner retained pending-create authority: %v", err)
 	}
 	mu.Lock()
