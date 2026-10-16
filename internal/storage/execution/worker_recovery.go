@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -150,4 +151,59 @@ func (s *WorkerSession) stopRecovered(task *api.Task, hash string, held *workerT
 	_ = s.stopRuntime(ctx, task, hash)
 	cancel()
 	s.settleStopped(task, hash, held)
+}
+
+// Recovery scans the protected observed-task cache even if upstream has already
+// removed an old assignment; it never submits an acquire request for these tasks.
+func (s *WorkerSession) startRecovery() {
+	s.mu.Lock()
+	ready, root := s.source != nil && s.stopSigner != nil && s.guardRoot != "", s.guardRoot
+	s.mu.Unlock()
+	if !ready {
+		return
+	}
+	s.recovery.Do(func() {
+		go func() {
+			entries, err := os.ReadDir(root)
+			if err != nil {
+				return
+			}
+			for _, entry := range entries {
+				if !strings.HasSuffix(entry.Name(), ".runtime.json") {
+					continue
+				}
+				wire, err := readProtectedRuntimeFile(filepath.Join(root, entry.Name()))
+				if err != nil {
+					continue
+				}
+				var witness retainedRuntimeWitness
+				if protocol.DecodeStrict(wire, &witness, 1<<20) != nil {
+					continue
+				}
+				hash, err := TaskSHA256(witness.Pins.Task)
+				if err != nil || entry.Name() != hash+".runtime.json" {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				s.acquire.Lock()
+				s.mu.Lock()
+				existing := s.tasks[hash]
+				s.mu.Unlock()
+				if existing != nil {
+					s.acquire.Unlock()
+					cancel()
+					continue
+				}
+				held, err := s.recoverRuntime(ctx, witness.Pins.Task, hash)
+				if err == nil && held != nil {
+					s.mu.Lock()
+					s.tasks[hash] = held
+					s.mu.Unlock()
+					go s.stopRecovered(witness.Pins.Task.Copy(), hash, held)
+				}
+				s.acquire.Unlock()
+				cancel()
+			}
+		}()
+	})
 }

@@ -42,11 +42,13 @@ func (s *WorkerSession) BindRuntimeStopSigner(signer RuntimeStopSigner) error {
 		return ErrUnsafe
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.stopSigner != nil || len(s.tasks) != 0 {
+		s.mu.Unlock()
 		return ErrUnsafe
 	}
 	s.stopSigner = signer
+	s.mu.Unlock()
+	s.startRecovery()
 	return nil
 }
 
