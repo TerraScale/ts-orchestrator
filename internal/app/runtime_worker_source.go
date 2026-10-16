@@ -16,8 +16,11 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go/jetstream"
@@ -62,6 +65,9 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	defer clear(key)
 	request, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, time.Now().UTC())
 	if err != nil {
+		return err
+	}
+	if err := refuseUnprovenPoolDescriptor(descriptor); err != nil {
 		return err
 	}
 	response, err := hostenroll.VerifyResponse(query.Response, key.Public().(ed25519.PublicKey), request, query.Request, descriptor)
@@ -207,7 +213,7 @@ func currentWorkerRegistration(ctx context.Context, mutations *authority.Reader,
 	if err != nil {
 		return fail(err)
 	}
-	if grant.InstanceID != instanceID || !grant.MatchesCompletedWorkerEnrollment(hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}) {
+	if grant.InstanceID != instanceID || !workerGrantAuthorizesPreparation(grant, query, time.Now().UTC()) {
 		return fail(errors.New("worker enrollment request is not the current admitted instance grant"))
 	}
 	confirmed, err := mutations.ReadHostMutation(ctx, authority.MutationRegistration, entry.SubjectKey)
@@ -215,5 +221,29 @@ func currentWorkerRegistration(ctx context.Context, mutations *authority.Reader,
 		return fail(errors.New("worker registration changed during enrollment grant read"))
 	}
 	return swarmruntime.WorkerRegistrationSnapshot{Registration: registration, Sequence: entry.Sequence, Retired: retired,
+		Disabled: grant.Disabled, TerminalOperationID: grant.TerminalOperationID, IdentityResetOperationID: grant.IdentityResetOperationID,
 		RequestSHA256: hostenroll.RequestSHA256(query.Request), InstanceID: instanceID}, nil
+}
+
+func refuseUnprovenPoolDescriptor(descriptor hostboot.Descriptor) error {
+	cell, err := naming.RegionCell(descriptor.Region).Name()
+	if err != nil {
+		return err
+	}
+	if descriptor.IsStatic() && strings.HasPrefix(descriptor.Node, cell+"-pool-") {
+		return oci.ErrPoolCreationLineagePending
+	}
+	return nil
+}
+
+func workerGrantAuthorizesPreparation(grant hostenroll.Grant, query swarmruntime.WorkerRegistrationQuery, now time.Time) bool {
+	if grant.Disabled || grant.TerminalOperationID != "" || grant.IdentityResetOperationID != "" {
+		return false
+	}
+	if grant.MatchesCompletedWorkerEnrollment(hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}) {
+		return true
+	}
+	// Initial preparation precedes Finish: only the exact live claim may proceed.
+	return len(query.Request) != 0 && (bytes.Equal(query.Request, grant.Request) && len(grant.Response) == 0 && grant.OwnerToken != "" && now.Before(grant.LeaseUntil) ||
+		bytes.Equal(query.Request, grant.RenewalRequest) && len(grant.RenewalResponse) == 0 && grant.RenewalToken != "" && now.Before(grant.RenewalLeaseUntil))
 }

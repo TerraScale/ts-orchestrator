@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,7 +16,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
-	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
@@ -224,6 +222,9 @@ func (admission staticAdmission) roles() []string {
 func (enrollment *managedHostEnrollment) observeStatic(ctx context.Context, peerIP string,
 	request hostenroll.Request, descriptor hostboot.Descriptor,
 ) (oci.CloudInstance, staticAdmission, error) {
+	if err := refuseUnprovenPoolDescriptor(descriptor); err != nil {
+		return oci.CloudInstance{}, staticAdmission{}, err
+	}
 	peer, capacity, listed := enrollment.staticMember(descriptor.Node)
 	_, _, granted := enrollment.services.hostGrant(descriptor.Node)
 	if !granted && !listed && enrollment.pool != nil {
@@ -273,45 +274,12 @@ func (enrollment *managedHostEnrollment) observeGranted(ctx context.Context, pee
 	return instance, staticAdmission{Grant: &grant, Capacity: capacity}, nil
 }
 
-// observePoolNode authenticates a node pool instance: OCI shows it RUNNING in
-// this cell's pool under the node's name at the direct peer's address, and
-// tagged as a node of this cell. Its shape sets the capacity.
-func (enrollment *managedHostEnrollment) observePoolNode(ctx context.Context, peerIP string,
-	request hostenroll.Request, descriptor hostboot.Descriptor,
+// observePoolNode holds admission until protected original creation authority
+// links this exact child instance to its budgeted pool operation.
+func (enrollment *managedHostEnrollment) observePoolNode(context.Context, string,
+	hostenroll.Request, hostboot.Descriptor,
 ) (oci.CloudInstance, staticAdmission, error) {
-	// Nodes 1 to 3 are the quorum nodes, never pool instances.
-	if number, err := strconv.Atoi(descriptor.Node[strings.LastIndexByte(descriptor.Node, '-')+1:]); err != nil ||
-		number < nodescale.FirstPoolNode {
-		return oci.CloudInstance{}, staticAdmission{}, errors.New("a pool node is numbered from 4")
-	}
-	state, err := enrollment.pool.Observe(ctx)
-	if err != nil {
-		return oci.CloudInstance{}, staticAdmission{}, err
-	}
-	if !slices.ContainsFunc(state.Instances, func(member nodescale.PoolInstance) bool {
-		return member.ID == request.InstanceID && member.Name == descriptor.Node &&
-			member.State == "RUNNING" && member.PrivateIP == peerIP
-	}) {
-		return oci.CloudInstance{}, staticAdmission{}, errors.New("static host is not a running node of this cell's pool at its private address")
-	}
-	observer, ok := enrollment.fleet.(oci.NamedHostObserver)
-	if !ok {
-		return oci.CloudInstance{}, staticAdmission{}, errors.New("regional fleet cannot observe pool nodes")
-	}
-	instance, err := observer.ObserveNamedHost(ctx, request.InstanceID, descriptor.Node)
-	if err != nil {
-		return oci.CloudInstance{}, staticAdmission{}, err
-	}
-	if instance.PrivateIP != peerIP || instance.FreeformTags[poolTagCell] != enrollment.cell ||
-		instance.FreeformTags[poolTagRole] != poolNodeRole {
-		return oci.CloudInstance{}, staticAdmission{}, errors.New("pool node does not match its OCI instance")
-	}
-	if instance.Ocpus == nil || instance.MemoryInGBs == nil || *instance.Ocpus < 1 || *instance.MemoryInGBs < 1 {
-		return oci.CloudInstance{}, staticAdmission{}, errors.New("pool node has no OCI shape")
-	}
-	capacity := host.Capacity{CPU: int(*instance.Ocpus), MemoryBytes: int64(*instance.MemoryInGBs) << 30,
-		DiskBytes: nodescale.BootVolumeGB << 30}
-	return instance, staticAdmission{Pool: true, Roles: enrollment.poolRoles(), Capacity: capacity}, nil
+	return oci.CloudInstance{}, staticAdmission{}, oci.ErrPoolCreationLineagePending
 }
 
 // poolRoles are the roles a pool node runs: every reconciled service's role

@@ -4,7 +4,11 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
@@ -90,5 +94,45 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 	}
 	if _, err := read(query); err == nil {
 		t.Fatal("disabled enrollment remained admissible")
+	}
+}
+
+func TestWorkerPreparationRequiresExactLiveClaim(t *testing.T) {
+	now := time.Now().UTC()
+	request := []byte("exact authenticated request")
+	query := swarmruntime.WorkerRegistrationQuery{Request: request}
+	for _, test := range []struct {
+		name  string
+		grant hostenroll.Grant
+		want  bool
+	}{
+		{"initial", hostenroll.Grant{Request: request, OwnerToken: "owner", LeaseUntil: now.Add(time.Minute)}, true},
+		{"renewal", hostenroll.Grant{RenewalRequest: request, RenewalToken: "owner", RenewalLeaseUntil: now.Add(time.Minute)}, true},
+		{"expired initial", hostenroll.Grant{Request: request, OwnerToken: "owner", LeaseUntil: now}, false},
+		{"expired renewal", hostenroll.Grant{RenewalRequest: request, RenewalToken: "owner", RenewalLeaseUntil: now}, false},
+		{"missing owner", hostenroll.Grant{Request: request, LeaseUntil: now.Add(time.Minute)}, false},
+		{"other request", hostenroll.Grant{Request: []byte("other"), OwnerToken: "owner", LeaseUntil: now.Add(time.Minute)}, false},
+		{"completed mismatch", hostenroll.Grant{Request: request, Response: []byte("completed"), OwnerToken: "owner", LeaseUntil: now.Add(time.Minute)}, false},
+		{"disabled", hostenroll.Grant{Request: request, OwnerToken: "owner", LeaseUntil: now.Add(time.Minute), Disabled: true}, false},
+		{"terminal", hostenroll.Grant{Request: request, OwnerToken: "owner", LeaseUntil: now.Add(time.Minute), TerminalOperationID: "terminal"}, false},
+		{"identity reset", hostenroll.Grant{Request: request, OwnerToken: "owner", LeaseUntil: now.Add(time.Minute), IdentityResetOperationID: "reset"}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := workerGrantAuthorizesPreparation(test.grant, query, now); got != test.want {
+				t.Fatalf("claim authorizes preparation=%v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestWorkerPoolAdmissionRemainsPendingWithoutCreationLineage(t *testing.T) {
+	descriptor := hostboot.Static("gru", "GRU", "gru-1-pool-app-4")
+	if err := refuseUnprovenPoolDescriptor(descriptor); !errors.Is(err, oci.ErrPoolCreationLineagePending) {
+		t.Fatalf("pool descriptor admission=%v", err)
+	}
+	// Even an old node name cannot use the actual pool enrollment branch.
+	var enrollment managedHostEnrollment
+	if _, _, err := enrollment.observePoolNode(t.Context(), "10.0.0.4", hostenroll.Request{}, hostboot.Static("gru", "GRU", "ts-gru-4")); !errors.Is(err, oci.ErrPoolCreationLineagePending) {
+		t.Fatalf("legacy pool branch admission=%v", err)
 	}
 }
