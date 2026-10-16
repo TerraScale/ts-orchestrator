@@ -102,11 +102,13 @@ type SourceLineage struct {
 // BinaryUpdateReceipt binds one qualified binary to a cell and to the exact
 // delegation that authorized its automatic signature.
 type BinaryUpdateReceipt struct {
-	Schema           string        `json:"schema"`
-	Binary           BinaryReceipt `json:"binary"`
-	Cell             string        `json:"cell"`
-	Lineage          SourceLineage `json:"lineage"`
-	DelegationSHA256 string        `json:"delegation_sha256"`
+	ReleaseSequence         uint64        `json:"release_sequence,omitzero"`
+	SequenceMigrationSHA256 string        `json:"sequence_migration_sha256,omitempty"`
+	Schema                  string        `json:"schema"`
+	Binary                  BinaryReceipt `json:"binary"`
+	Cell                    string        `json:"cell"`
+	Lineage                 SourceLineage `json:"lineage"`
+	DelegationSHA256        string        `json:"delegation_sha256"`
 }
 
 // UpdateExpectation names the consumer's own environment, cell and
@@ -176,6 +178,9 @@ func (delegation BinaryUpdateDelegation) MayRelease(role, repository string) boo
 
 // Validate checks the receipt payload's own fields.
 func (receipt BinaryUpdateReceipt) Validate() error {
+	if (receipt.ReleaseSequence == 0) != (receipt.SequenceMigrationSHA256 == "") || receipt.SequenceMigrationSHA256 != "" && !digestPattern.MatchString(receipt.SequenceMigrationSHA256) {
+		return fmt.Errorf("%w: release order", ErrInvalidReceipt)
+	}
 	if receipt.Schema != UpdateReceiptSchema || !ValidRegion(receipt.Cell) || !digestPattern.MatchString(receipt.DelegationSHA256) ||
 		receipt.Lineage.Repository != QualificationRepository || receipt.Lineage.Workflow != QualificationWorkflow ||
 		receipt.Lineage.Ref != LineageRef || !revisionPattern.MatchString(receipt.Lineage.LineageBase) ||
@@ -282,6 +287,25 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
 	now time.Time, validFor time.Duration,
 ) (trust.Envelope, error) {
+	return signBinaryUpdateReceipt(binary, qualification, qualificationSHA256, cell, environment, checker, delegationEnvelope, roots, privateKey, now, validFor, 0, "")
+}
+
+// SignBinaryUpdateReceiptSequenced binds the signer-owned order and its exact
+// root-authorized migration without changing historical CI provenance.
+func SignBinaryUpdateReceiptSequenced(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
+	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
+	now time.Time, validFor time.Duration, sequence uint64, migrationSHA256 string,
+) (trust.Envelope, error) {
+	if sequence == 0 || !digestPattern.MatchString(migrationSHA256) {
+		return trust.Envelope{}, fmt.Errorf("%w: release order", ErrInvalidReceipt)
+	}
+	return signBinaryUpdateReceipt(binary, qualification, qualificationSHA256, cell, environment, checker, delegationEnvelope, roots, privateKey, now, validFor, sequence, migrationSHA256)
+}
+
+func signBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, qualificationSHA256, cell, environment string,
+	checker LineageChecker, delegationEnvelope trust.Envelope, roots trust.Keyring, privateKey ed25519.PrivateKey,
+	now time.Time, validFor time.Duration, sequence uint64, migrationSHA256 string,
+) (trust.Envelope, error) {
 	if checker == nil {
 		return trust.Envelope{}, fmt.Errorf("%w: no lineage checker", ErrLineage)
 	}
@@ -304,6 +328,7 @@ func SignBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	}
 	receipt := BinaryUpdateReceipt{
 		Schema: UpdateReceiptSchema, Binary: binary, Cell: cell, DelegationSHA256: verified.digest,
+		ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA256,
 		Lineage: SourceLineage{
 			Repository: qualification.Repository, Workflow: qualification.Verification.Workflow, Ref: verified.delegation.Ref,
 			LineageBase: verified.delegation.LineageBase, QualificationRunID: qualification.Verification.RunID,
