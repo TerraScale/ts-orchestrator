@@ -40,7 +40,7 @@ func (ledger *Ledger) RecordManagedPeerCandidate(ctx context.Context, scope Boot
 		baseline.Intent.FounderPlanSHA256, baseline.Intent.PeerRowDigest, baseline.Intent.ManifestDigest); err != nil {
 		return err
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return err
 	}
 	peer, err := ledger.refreshManagedPeer(ctx, scope, baseline, refresh)
@@ -338,7 +338,7 @@ func (ledger *Ledger) writeManagedPeerProgress(ctx context.Context, scope Bootst
 	if err != nil || !sameManagedPeerProgress(decoded, expected) {
 		return StoredRecord{}, ManagedPeerProgress{}, ErrRecordAuthorization
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return StoredRecord{}, ManagedPeerProgress{}, err
 	}
 	objectName := ledger.progressObjectName(scope, attempt)
@@ -400,7 +400,7 @@ func (ledger *Ledger) readManagedPeerState(ctx context.Context, scope BootstrapS
 		return SlotState{}, manifestErr
 	}
 	if manifestErr == nil {
-		manifest, envelope, err := ledger.verifyHistoricalIntentManifest(scope, state.Intent, manifestRecord.Bytes)
+		manifest, envelope, err := ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, manifestRecord.Bytes)
 		if err != nil || manifestRecord.SHA256 != state.Intent.ManifestDigest {
 			return SlotState{}, ErrRecordAuthorization
 		}
@@ -545,7 +545,7 @@ func (ledger *Ledger) readManagedPeerState(ctx context.Context, scope BootstrapS
 			if factsErr != nil {
 				return SlotState{}, ErrRecordAuthorization
 			}
-			historicalManifest, _, manifestErr := ledger.verifyHistoricalIntentManifest(scope, state.Intent, state.ManifestRecord.Bytes)
+			historicalManifest, _, manifestErr := ledger.verifyHistoricalIntentManifest(ctx, scope, state.Intent, state.ManifestRecord.Bytes)
 			if manifestErr != nil {
 				return SlotState{}, ErrRecordAuthorization
 			}
