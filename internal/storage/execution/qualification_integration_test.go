@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -168,6 +169,35 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	if _, err := VerifyRetainedProvenance(ctx, bundle, roots, target, wrongVolume, open); err == nil {
 		t.Fatal("retained proof transplanted to another volume")
 	}
+	t.Run("initial-native-provenance", func(t *testing.T) {
+		// Read real ELF bytes; the fixture never executes a TerraBase executable.
+		nativeBytes, err := os.ReadFile("/bin/sh")
+		if err != nil {
+			t.Fatal(err)
+		}
+		nativeProof := proof
+		nativeProof.Data.SourceArtifactSHA256 = put(nativeBytes)
+		nativeProof.SourceArtifact = &release.ProductionGateEvidence{Gate: "native-source-artifact", SHA256: nativeProof.Data.SourceArtifactSHA256, Bytes: int64(len(nativeBytes)), CompletedAt: now}
+		expected := nativeProof.Data
+		expected.DiskFormatSHA256 = ""
+		expected.SourceArchitecture = ""
+		retained, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open)
+		if err != nil || retained != nativeProof.Data {
+			t.Fatalf("exact native artifact bridge: %+v %v", retained, err)
+		}
+		expected.VolumeID = "ocid1.volume.foreign"
+		if _, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open); err == nil {
+			t.Fatal("native proof transplanted to other volume")
+		}
+		if _, err := VerifyNativeRetainedProvenance(ctx, bundle, roots, target, data, now, now.Add(time.Minute), open); err == nil {
+			t.Fatal("native source bytes omitted")
+		}
+		nativeProof.Data.SourceArchitecture = "arm64"
+		nativeProof.SourceCPU.Architecture = "arm64"
+		if _, err := VerifyStatefulCurrent(ctx, makeBundle(nativeProof), roots, target, nativeProof.Data, cpu, now, now.Add(time.Minute), open); err == nil {
+			t.Fatal("native ELF machine changed by a signed claim")
+		}
+	})
 	for _, test := range []struct {
 		name   string
 		mutate func(*StatefulQualification)

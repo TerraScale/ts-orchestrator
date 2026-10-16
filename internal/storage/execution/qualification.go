@@ -1,8 +1,10 @@
 package execution
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"debug/elf"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
@@ -44,6 +46,7 @@ type StatefulQualification struct {
 	SourceCPU                 CPUProfile                       `json:"source_cpu"`
 	TargetCPU                 CPUProfile                       `json:"target_cpu"`
 	DiskFormatSHA256          string                           `json:"disk_format_sha256"`
+	SourceArtifact            *release.ProductionGateEvidence  `json:"source_artifact,omitempty"`
 	ImageManifest             release.ProductionGateEvidence   `json:"image_manifest"`
 	ImageConfig               release.ProductionGateEvidence   `json:"image_config"`
 	Scenarios                 []release.ProductionGateEvidence `json:"passed_scenarios"`
@@ -51,13 +54,14 @@ type StatefulQualification struct {
 
 // VerifiedStateful has no public constructor or writable authorization fields.
 type VerifiedStateful struct {
-	container   release.VerifiedContainer
-	data        RetainedData
-	result      RetainedData
-	cpu         CPUProfile
-	digest      string
-	until       time.Time
-	imageConfig ocispec.Image
+	container    release.VerifiedContainer
+	data         RetainedData
+	result       RetainedData
+	cpu          CPUProfile
+	digest       string
+	until        time.Time
+	imageConfig  ocispec.Image
+	nativeSource bool
 }
 
 func (v VerifiedStateful) Container() release.VerifiedContainer { return v.container }
@@ -171,6 +175,33 @@ func VerifyStatefulCurrent(ctx context.Context, bundle release.ContainerBundle, 
 		return VerifiedStateful{}, fmt.Errorf("%w: required stateful scenarios", release.ErrProductionQualification)
 	}
 	total := retained.Bytes + proof.ImageManifest.Bytes + proof.ImageConfig.Bytes
+	nativeSource := false
+	if proof.SourceArtifact != nil {
+		source := *proof.SourceArtifact
+		if source.Gate != "native-source-artifact" || source.SHA256 != data.SourceArtifactSHA256 || source.CompletedAt.IsZero() || source.CompletedAt.After(retained.CompletedAt) || source.Bytes > release.MaxProductionEvidenceBytes-total {
+			return VerifiedStateful{}, release.ErrProductionQualification
+		}
+		sourceWire, err := readStatefulEvidence(ctx, evidence, source, release.MaxProductionEvidenceBytes-total)
+		if err != nil {
+			return VerifiedStateful{}, err
+		}
+		binary, err := elf.NewFile(bytes.NewReader(sourceWire))
+		if err != nil {
+			return VerifiedStateful{}, fmt.Errorf("%w: native source ELF", release.ErrProductionQualification)
+		}
+		arch := ""
+		switch binary.Machine {
+		case elf.EM_X86_64:
+			arch = "amd64"
+		case elf.EM_AARCH64:
+			arch = "arm64"
+		}
+		if arch == "" || arch != data.SourceArchitecture || binary.Class != elf.ELFCLASS64 || binary.Data != elf.ELFDATA2LSB {
+			return VerifiedStateful{}, release.ErrProductionQualification
+		}
+		total += source.Bytes
+		nativeSource = true
+	}
 	for index, gate := range gates {
 		scenario := proof.Scenarios[index]
 		if scenario.Gate != gate || scenario.CompletedAt.IsZero() || scenario.CompletedAt.After(retained.CompletedAt) ||
@@ -182,7 +213,7 @@ func VerifyStatefulCurrent(ctx context.Context, bundle release.ContainerBundle, 
 			return VerifiedStateful{}, err
 		}
 	}
-	return VerifiedStateful{container: container, data: data, result: proof.ResultData, cpu: cpu, digest: retained.SHA256, until: until, imageConfig: imageConfig}, nil
+	return VerifiedStateful{container: container, data: data, result: proof.ResultData, cpu: cpu, digest: retained.SHA256, until: until, imageConfig: imageConfig, nativeSource: nativeSource}, nil
 }
 
 func readStatefulEvidence(ctx context.Context, open func(context.Context, string) (io.ReadCloser, error),
