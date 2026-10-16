@@ -132,7 +132,7 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/20160918/instances/"):
-			json.MarshalWrite(w, core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), LifecycleState: core.InstanceLifecycleStateRunning})
+			json.MarshalWrite(w, core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
 		case r.URL.Path == "/20160918/vnicAttachments":
 			json.MarshalWrite(w, []core.VnicAttachment{{Id: new("ocid1.vnicattachment.oc1." + manifest.OCIRegion + ".test"), InstanceId: new(instanceID), CompartmentId: new(profile.CompartmentOCID), VnicId: new("ocid1.vnic.oc1." + manifest.OCIRegion + ".test"), SubnetId: new(profile.SubnetOCID), LifecycleState: core.VnicAttachmentLifecycleStateAttached}})
 		case strings.HasPrefix(r.URL.Path, "/20160918/vnics/"):
