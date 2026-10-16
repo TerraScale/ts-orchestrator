@@ -82,10 +82,12 @@ var (
 
 // Channel is a region's current orchestrator release.
 type Channel struct {
-	Schema         string `json:"schema"`
-	Cell           string `json:"cell"`
-	Environment    string `json:"environment"`
-	SourceRevision string `json:"source_revision"`
+	ReleaseSequence   uint64         `json:"release_sequence,omitzero"`
+	SequenceMigration jsontext.Value `json:"sequence_migration,omitempty"`
+	Schema            string         `json:"schema"`
+	Cell              string         `json:"cell"`
+	Environment       string         `json:"environment"`
+	SourceRevision    string         `json:"source_revision"`
 	// RunNumber is the qualifying ci.yml run; a channel only moves forward.
 	RunNumber int64 `json:"run_number"`
 	// Delegation is the root-signed binary update delegation of the leaf
@@ -118,11 +120,35 @@ func (channel Channel) Verify(roots trust.Keyring, cell, environment string, now
 		len(channel.Receipts) == 0 || len(channel.Receipts) > 2 {
 		return nil, fmt.Errorf("%w: channel scope", ErrInvalid)
 	}
+	var migrationDigest, sequenceSigner string
+	if channel.ReleaseSequence > 0 {
+		envelope, err := trust.DecodeEnvelope(channel.SequenceMigration)
+		if err != nil {
+			return nil, err
+		}
+		migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, "orchestrator", environment)
+		if err != nil {
+			return nil, err
+		}
+		if channel.ReleaseSequence <= migration.SequenceFloor {
+			return nil, fmt.Errorf("%w: release sequence does not exceed migration floor", ErrInvalid)
+		}
+		sequenceSigner = migration.SignerKeyID
+		migrationDigest, err = trust.Fingerprint(envelope)
+		if err != nil {
+			return nil, err
+		}
+	} else if len(channel.SequenceMigration) > 0 {
+		return nil, fmt.Errorf("%w: legacy channel carries sequence migration", ErrInvalid)
+	}
 	verified := make(map[string]release.VerifiedBinary, len(channel.Receipts))
 	for _, wire := range channel.Receipts {
 		envelope, err := trust.DecodeEnvelope(wire)
 		if err != nil {
 			return nil, err
+		}
+		if channel.ReleaseSequence > 0 && envelope.KeyID != sequenceSigner {
+			return nil, fmt.Errorf("%w: receipt signer does not own release order", ErrInvalid)
 		}
 		architecture, _ := strings.CutPrefix(envelope.Scope.Slot, "linux-")
 		if _, seen := verified[architecture]; seen {
@@ -138,7 +164,7 @@ func (channel Channel) Verify(roots trust.Keyring, cell, environment string, now
 		if err := protocol.DecodeStrict(envelope.Payload, &receipt, trust.MaxPayloadBytes); err != nil {
 			return nil, err
 		}
-		if binary.Receipt().SourceRevision != channel.SourceRevision || receipt.Lineage.QualificationRunNum != channel.RunNumber {
+		if binary.Receipt().SourceRevision != channel.SourceRevision || receipt.Lineage.QualificationRunNum != channel.RunNumber || receipt.ReleaseSequence != channel.ReleaseSequence || receipt.SequenceMigrationSHA256 != migrationDigest {
 			return nil, fmt.Errorf("%w: receipt for %s names another release", ErrInvalid, architecture)
 		}
 		verified[architecture] = binary
@@ -158,8 +184,9 @@ const (
 
 // Status is the region leader's report on the release in its channel.
 type Status struct {
-	Schema string `json:"schema"`
-	Cell   string `json:"cell"`
+	ReleaseSequence uint64 `json:"release_sequence,omitzero"`
+	Schema          string `json:"schema"`
+	Cell            string `json:"cell"`
 	// Deployment scope comes from the running controller, not the desired channel.
 	Environment    string       `json:"environment,omitempty"`
 	Architectures  []string     `json:"architectures,omitempty"`
@@ -235,11 +262,8 @@ func Publish(ctx context.Context, location Location, channel Channel) error {
 			if err := json.Unmarshal(current, &existing); err != nil {
 				return fmt.Errorf("decode the current release channel: %w", err)
 			}
-			switch {
-			case existing.RunNumber > channel.RunNumber:
-				return fmt.Errorf("%w: %s holds run %d", ErrStale, location.Bucket, existing.RunNumber)
-			case existing.RunNumber == channel.RunNumber && existing.SourceRevision != channel.SourceRevision:
-				return fmt.Errorf("%w: %s holds run %d of another revision", ErrInvalid, location.Bucket, existing.RunNumber)
+			if err := compareChannelOrder(existing, channel); err != nil {
+				return err
 			}
 		}
 		if err := location.put(ctx, ChannelObject, wire, etag); !errors.Is(err, ErrConflict) {
@@ -323,8 +347,8 @@ func Await(ctx context.Context, location Location, channel Channel, poll time.Du
 		switch {
 		case err != nil:
 			line = "status read failed: " + err.Error()
-		case !found || status.RunNumber < channel.RunNumber:
-		case status.RunNumber > channel.RunNumber:
+		case !found || channel.ReleaseSequence > 0 && status.ReleaseSequence < channel.ReleaseSequence || channel.ReleaseSequence == 0 && status.ReleaseSequence == 0 && status.RunNumber < channel.RunNumber:
+		case status.ReleaseSequence > channel.ReleaseSequence || channel.ReleaseSequence == 0 && status.RunNumber > channel.RunNumber:
 			return fmt.Errorf("%w: %s moved on to run %d", ErrFailed, channel.Cell, status.RunNumber)
 		case status.Cell != channel.Cell || status.SourceRevision != channel.SourceRevision:
 			return fmt.Errorf("%w: %s reports run %d for %s %s", ErrFailed, channel.Cell, status.RunNumber,
