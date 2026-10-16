@@ -3,7 +3,9 @@ package swarmruntime
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strconv"
@@ -135,6 +137,15 @@ func validateContainer(s *api.ContainerSpec) error {
 	return nil
 }
 
+// ContainerTaskFingerprint identifies the immutable executable task and its
+// function proof selectors; the fingerprint itself grants no authority.
+func ContainerTaskFingerprint(t *api.Task) (string, error) {
+	if _, err := DecodeContainer(t); err != nil {
+		return "", err
+	}
+	return taskFingerprint(t), nil
+}
+
 func taskFingerprint(t *api.Task) string {
 	h := sha256.New()
 	h.Write(t.Spec.GetGeneric().Payload.Value)
@@ -144,6 +155,12 @@ func taskFingerprint(t *api.Task) string {
 	if t.Endpoint != nil {
 		b, _ := t.Endpoint.Marshal()
 		h.Write(b)
+	}
+	if t.ServiceAnnotations.Labels[LabelRole] == "function-worker" {
+		for _, key := range slices.Sorted(maps.Keys(t.ServiceAnnotations.Labels)) {
+			fmt.Fprintf(h, "%q=%q\n", key, t.ServiceAnnotations.Labels[key])
+		}
+		h.Write(binary.BigEndian.AppendUint64(nil, t.Spec.ForceUpdate))
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

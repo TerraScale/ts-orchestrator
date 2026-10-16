@@ -25,11 +25,14 @@ const logSegmentBytes = 1 << 20
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
-	client     *containerd.Client
-	socket     string
-	logRoot    string
-	executable string
-	mu         sync.Mutex
+	client           *containerd.Client
+	socket           string
+	logRoot          string
+	executable       string
+	mu               sync.Mutex
+	functionMaterial FunctionMaterialProvider
+	functionIdentity FunctionTaskBinding
+	functionNodeID   string
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -85,7 +88,18 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	}, nil
 }
 
-func (e *Executor) Configure(context.Context, *api.Node) error { return nil }
+func (e *Executor) Configure(_ context.Context, node *api.Node) error {
+	if node == nil || node.ID == "" {
+		return errors.New("runtime requires an authenticated node identity")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.functionNodeID != "" && e.functionNodeID != node.ID {
+		return errors.New("runtime node identity is immutable")
+	}
+	e.functionNodeID = node.ID
+	return nil
+}
 
 // SwarmKit broadcasts overlay keys to every agent; host-only tasks never use them.
 func (e *Executor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
