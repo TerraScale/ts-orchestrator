@@ -222,6 +222,41 @@ can establish its recovery behavior. No in-process queue wrapper substitutes
 for that live evidence. Credentials used by the platform transport stay outside
 the guest instance.
 
+## Automatic admission and material delivery
+
+The existing regional Object Storage head bucket retains signed function
+receipts and delegations in `releases/functions/channel.json`; portable modules
+live under `releases/functions/modules/<sha256>`. The bounded channel index is
+only a lookup source. The controller verifies each receipt, delegated tenant and
+function scope, environment/cell, module digest and durable current sequence
+before admitting it. First publication uses a fixed floor of one; later
+admission uses the current durable function floor. A rollback requires a new
+signed sequence naming the earlier portable module.
+
+Current function intent and exact task material grants use the existing
+`TS_CONTROL_LOG`, ordered with leadership fencing. Service intent is independent
+of a particular task; a grant binds the current proof, actual Swarm task/service/
+node, cryptographic host registration ID, OCI instance/region and immutable Vault
+material digest. A replacement task gets a fresh grant without inventing a new
+function release. Material for a given task remains immutable; expiry requires
+replacement rather than overwriting a running task's keys.
+
+The regional `functionmaterial.Controller` provisions the queue and prepares
+credentials/TLS through OCI Vault create/read/conditional-version publication.
+It rereads and verifies committed bytes before granting the exact recipient.
+An interrupted publication can resume while retaining the worker's NKey. A
+signer-free reader checks current intent, grant, account/operator generation,
+credentials, TLS and expiry. Its result is sealed and copied defensively.
+
+Workers retrieve the fixed files through the existing authenticated host
+session protocol. Each bounded chunk uses request-bound X25519/AES-GCM; every
+file digest, the complete inventory and expiry must agree throughout delivery.
+The controller independently checks the current actual scheduler assignment and
+admitted host before serving material. Workers receive no general authority-log,
+artifact-store, Vault or controller signing access. CORE stages the verified
+inventory as the fixed read-only task mount. Source integration of the publisher,
+controller loop and host provider must pass QA before deployment qualification.
+
 ## Dedicated worker command
 
 `ts-orch function-worker` accepts no arguments and runs HTTP plus the durable queue in a dedicated process. It reads only the fixed `/run/ts-orch/function` task mount. The task/Vault admission producer must create and deliver these files automatically; this command is not an operator recipe for copying secrets:
@@ -234,7 +269,7 @@ the guest instance.
 
 The process opens TLS 1.3 ingress on port 8080, caps accepted connections at 64, bounds headers and read/write time, and caps HTTP bodies being read to four. `GET /healthz` requires the same tenant-scoped mTLS identity and reports ready only while its signed worker authority and broker connection remain live. `GET /snapshot` uses that same authorization and availability check, returning only the admitted manifest, runtime/version, architecture and activity/outcome counters; it excludes invocation inputs, outputs and credentials. Requests without a verified client certificate fail the TLS handshake; an authenticated certificate for another function fails authorization. Guest code receives none of the transport certificates, keys or endpoint metadata.
 
-Paths are confined through `os.OpenRoot`; all files must be regular and bounded, and private keys/credentials must exclude group/other access. Readiness output identifies the admitted tenant/function/revision and digest without guest data or secrets. Cancellation stops HTTP and queue processing. The command does not provision its own identity, grant NATS permissions or purchase hosts. Automatic Vault/task mounting, placement on dedicated hosts, cgroup enforcement and egress/IAM isolation remain required producer integrations and qualification gates.
+Paths are confined through `os.OpenRoot`; all files must be regular and bounded, and private keys/credentials must exclude group/other access. Readiness output identifies the admitted tenant/function/revision and digest without guest data or secrets. Cancellation stops HTTP and queue processing. The command does not provision its own identity, grant NATS permissions or purchase hosts. Automatic Vault/task delivery source exists separately from this command; its startup callers and boundary scenarios remain under QA integration. Dedicated placement, cgroup enforcement and egress/IAM isolation still require live qualification.
 
 ## Qualification record
 
@@ -258,7 +293,9 @@ The local pre-issuer qualification command was `go test -race
 package build. These ran at local low CPU priority with two Go processors and
 package parallelism two. Tests use real tiny Wasm modules, TLS HTTP, JetStream,
 signed release artifacts and child workers; no cloud resources were changed.
-The subsequent consume-only issuer, bind-only queue and private-inbox process run passed the complete functions race suite in 15.547 seconds. That run also exercised real broker denials for other tenants/revisions, resource mutation, foreign acknowledgements and inboxes; signer overlap renewal preserved the worker key while retired signers and widened grants were refused.
+The subsequent consume-only issuer, bind-only queue and private-inbox process run passed the complete functions race suite in 15.547 seconds; the signer-free credential verifier update passed it again in 16.822 seconds. That run also exercised real broker denials for other tenants/revisions, resource mutation, foreign acknowledgements and inboxes; signer overlap renewal preserved the worker key while retired signers and widened grants were refused.
+
+The actual Vault SDK/JetStream recovery scenario subsequently passed locally in 0.335 seconds. The authority intent/grant scenarios passed in 3.835 seconds. New channel/host transport and automatic caller checks remain with QA.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
