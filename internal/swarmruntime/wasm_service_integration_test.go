@@ -55,6 +55,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	wasmCfg := serviceConfig(t, "ts-gru-wasm", "wasm")
+	wasmCfg.Admission.Region = "sa-saopaulo-1"
 	wasmCfg.Admission.ManagerAddress = workerCfg.Admission.ManagerAddress
 	wasmCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
 	wasm, err := StartNode(ctx, wasmCfg, functionSlotExecutor{})
@@ -78,7 +79,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	keyID, _ := trust.KeyID(public)
 	roots := trust.Keyring{keyID: public}
 	now := time.Now().UTC().Truncate(time.Second)
-	intent := FunctionServiceIntent{TenantID: entityid.Derive("tenant", t.Name()), FunctionID: "echo", Region: "gru", Environment: "production", Architecture: runtime.GOARCH}
+	intent := FunctionServiceIntent{TenantID: entityid.Derive("tenant", t.Name()), FunctionID: "echo", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH}
 	module := []byte("\x00asm\x01\x00\x00\x00")
 	functionClaim := release.FunctionClaim{Schema: release.FunctionSchema, ABI: release.FunctionABI, TenantID: intent.TenantID, FunctionID: intent.FunctionID, Revision: "first", Digest: fmt.Sprintf("%x", sha256.Sum256(module)), Bytes: int64(len(module)), Environment: intent.Environment, Cell: "GRU", Sequence: 1}
 	scope := release.FunctionScope(functionClaim)
@@ -154,6 +155,22 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	}
 	if created.Spec.Annotations.Labels[LabelFunctionProof] != current.proof.EnvelopeSHA256() || created.Spec.Annotations.Labels[LabelRole] != FunctionWorkerRole {
 		t.Fatal("signed function identity missing")
+	}
+	workerProof, err := release.VerifyContainerCurrent(ctx, qualified, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{created.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil || len(tasks.Tasks) != 1 {
+		t.Fatalf("current function task: %+v %v", tasks, err)
+	}
+	if err := intent.VerifyTask(tasks.Tasks[0], created, current.proof, workerProof); err != nil {
+		t.Fatal(err)
+	}
+	forged := tasks.Tasks[0].Copy()
+	forged.Spec.ForceUpdate++
+	if err := intent.VerifyTask(forged, created, current.proof, workerProof); err == nil {
+		t.Fatal("altered task accepted for material grant")
 	}
 	version := created.Meta.Version.Index
 	replayed, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe)

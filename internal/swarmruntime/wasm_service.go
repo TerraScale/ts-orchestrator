@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
@@ -46,7 +46,7 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 		return nil, errors.New("function service requires current signed function and qualified worker")
 	}
 	f, w := function.Claim(), worker.Claim()
-	if f.TenantID != i.TenantID || f.FunctionID != i.FunctionID || f.Environment != i.Environment || f.Cell != strings.ToUpper(i.Region) || w.Role != FunctionWorkerRole || w.Environment != i.Environment || w.Cell != f.Cell || w.Architecture != i.Architecture {
+	if f.TenantID != i.TenantID || f.FunctionID != i.FunctionID || f.Environment != i.Environment || catalog.OCIRegion(f.Cell) != i.Region || w.Role != FunctionWorkerRole || w.Environment != i.Environment || w.Cell != f.Cell || w.Architecture != i.Architecture {
 		return nil, errors.New("function or qualified worker differs from admitted target")
 	}
 	base := ServiceIntent{
@@ -81,6 +81,24 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 	return spec, nil
 }
 
+// VerifyTask compares actual manager state with the fixed qualified worker
+// contract before a controller issues any task-bound material. The caller also
+// verifies current intent, live qualification and admitted recipient identity.
+func (i FunctionServiceIntent) VerifyTask(task *api.Task, service *api.Service, function release.VerifiedFunction, worker release.VerifiedContainer) error {
+	if task == nil || service == nil || task.ServiceID != service.ID || service.PendingDelete || task.DesiredState != api.TaskStateRunning {
+		return errors.New("function material requires a current assigned service task")
+	}
+	spec, err := i.serviceSpec(function, worker)
+	if err != nil {
+		return err
+	}
+	if !proto.Equal(&service.Spec, spec) || !proto.Equal(&task.Spec, &spec.Task) || !proto.Equal(&task.ServiceAnnotations, &spec.Annotations) {
+		return errors.New("function task differs from the current fixed qualified service")
+	}
+	_, err = DecodeContainer(task)
+	return err
+}
+
 // ApplyFunctionService admits the qualified OCI worker separately from its
 // tenant function and waits for authenticated application readiness. Material
 // delivery remains bound to the actual scheduled task by the executor provider.
@@ -98,7 +116,11 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if !function.Valid() || function.ExpiresAt().Before(deadline) {
 		return nil, errors.New("function authority expires before rollout deadline")
 	}
-	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Region), Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: intent.Architecture}
+	region, knownRegion := catalog.CellForOCIRegion(intent.Region)
+	if !knownRegion {
+		return nil, errors.New("function service requires an admitted OCI region")
+	}
+	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: intent.Architecture}
 	worker, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, time.Now().UTC(), deadline, evidence)
 	if err != nil {
 		return nil, err
