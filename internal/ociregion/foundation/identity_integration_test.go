@@ -19,6 +19,9 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
@@ -26,6 +29,34 @@ import (
 // after the first durable OCID checkpoint, before downstream resources exist.
 func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	const resourceID = "ocid1.compartment.oc1..ownedcontrol"
+	const founderID = "ocid1.instance.oc1.us-sanjose-1.acceptedseed"
+	const sourceName = "ts-bootstrap-source-0123456789abcdef0123456789abcdef"
+	sourceTarget := vaultsecret.Target{CompartmentID: resourceID, VaultID: "ocid1.vault.oc1.sa-saopaulo-1.owned", KeyID: "ocid1.key.oc1.sa-saopaulo-1.owned"}
+	sourceStatements, err := ociregion.BootstrapSourceStatements(founderID, sourceName, sourceTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sourceStatements) != 5 {
+		t.Fatalf("source IAM statements=%v", sourceStatements)
+	}
+	for _, statement := range sourceStatements {
+		if !strings.Contains(statement, "request.principal.id='"+founderID+"'") || !strings.Contains(statement, "request.principal.type='instance'") ||
+			strings.Contains(statement, "SECRET_UPDATE") || strings.Contains(statement, "SECRET_INSPECT") || strings.Contains(statement, "dynamic-group") || strings.Contains(statement, "*") {
+			t.Fatalf("source IAM escaped exact founder/read/create scope: %s", statement)
+		}
+	}
+	for _, invalid := range []struct {
+		founder, name string
+		target        vaultsecret.Target
+	}{
+		{"ocid1.instance.oc1.us-sanjose-1.seed'", sourceName, sourceTarget},
+		{founderID, "ts-bootstrap-source-*", sourceTarget},
+		{founderID, sourceName, vaultsecret.Target{CompartmentID: resourceID, VaultID: "ocid1.vault.oc1.us-sanjose-1.foreign", KeyID: sourceTarget.KeyID}},
+	} {
+		if _, err := ociregion.BootstrapSourceStatements(invalid.founder, invalid.name, invalid.target); err == nil {
+			t.Fatalf("invalid source IAM accepted: %+v", invalid)
+		}
+	}
 	var live Object
 	var state sync.Mutex
 	var createToken string
@@ -45,6 +76,16 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/20160918/tenancies/"):
 			io.WriteString(w, `{"homeRegionKey":"FRA"}`)
+		case r.Method == http.MethodPost && r.URL.Path == "/20160918/policies":
+			var policy Object
+			if err := json.UnmarshalRead(r.Body, &policy); err != nil {
+				t.Error(err)
+			}
+			if command.JSON(policy["statements"]) != command.JSON(sourceStatements) || policy["compartmentId"] != resourceID || !strings.Contains(r.Host, "eu-frankfurt-1") {
+				t.Errorf("source policy transport changed exact scope: %v host=%s", policy, r.Host)
+			}
+			policy["id"] = "ocid1.policy.oc1..source"
+			json.MarshalWrite(w, policy)
 		case r.Method == http.MethodGet && r.URL.Path == "/20160918/compartments":
 			if live == nil || hideList {
 				io.WriteString(w, `[]`)
@@ -102,6 +143,15 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan := loadPlan(t)
+	controller, err := ociregion.RequiredControllerStatements(plan, Object{"key": sourceTarget.KeyID}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range controller {
+		if strings.Contains(statement, "read secret-bundles") && !strings.Contains(statement, "where target.secret.name != /ts-bootstrap-source-*/") {
+			t.Fatalf("controller can read source escrow: %s", statement)
+		}
+	}
 	provider := common.NewRawConfigurationProvider(text(plan["tenancy_id"]), "ocid1.user.oc1..test", sfo, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
 	factory, err := ociclient.New(provider, ociclient.Options{Region: sfo, Retry: ociclient.RetryOptions{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
 	if err != nil {
@@ -109,6 +159,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	foundation, err := New(t.Context(), factory, text(plan["tenancy_id"]))
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "exact-founder-source", "--description", "test-only source IAM", "--statements", command.JSON(sourceStatements)); err != nil {
 		t.Fatal(err)
 	}
 	foundation.OperationID = "durable-sfo-foundation"
