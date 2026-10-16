@@ -139,24 +139,24 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	}
 	body, err := source.readEscrow(ctx, management, bundles, id)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read exact source escrow: %w", err)
 	}
 	defer clear(body)
 	if len(candidate) > 0 && !bytes.Equal(candidate, body) {
-		return nil, ErrMaterialSource
+		return nil, fmt.Errorf("%w: existing escrow differs from uncommitted candidate; recover existing source", ErrMaterialSource)
 	}
 	source.archive, err = source.decodeArchive(body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode exact source escrow: %w", err)
 	}
 	if err := source.restore(ctx); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("restore exact source escrow: %w", err)
 	}
 	if state.Reference.SecretOCID == "" {
 		source.state.Reference = materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}
 		source.etag, err = source.write(ctx, source.state, source.etag)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("checkpoint exact source reference: %w", err)
 		}
 	}
 	return source, nil
