@@ -13,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -41,7 +42,7 @@ type WorkerMembershipSource struct {
 	mutations *authority.Reader
 	hosts     *host.Reader
 	grants    *GrantStore
-	stream    jetstream.Stream
+	stream    nats.JetStreamContext
 	cell      string
 	public    ed25519.PublicKey
 }
@@ -52,7 +53,7 @@ func NewWorkerMembershipSource(ctx context.Context, mutations *authority.Reader,
 	if mutations == nil || hosts == nil || grants == nil || grants.kv == nil || js == nil || cell == "" || len(public) != ed25519.PublicKeySize {
 		return nil, errors.New("worker membership requires concrete current readers and pinned response authority")
 	}
-	stream, err := js.Stream(ctx, "KV_"+GrantBucket)
+	stream, err := grantLeaderReader(js)
 	if err != nil {
 		return nil, err
 	}
@@ -142,16 +143,31 @@ func ReadCurrentGrant(ctx context.Context, js jetstream.JetStream, instanceID st
 	if js == nil || instanceID == "" {
 		return Grant{}, 0, errors.New("current enrollment grant reader is unavailable")
 	}
-	stream, err := js.Stream(ctx, "KV_"+GrantBucket)
+	stream, err := grantLeaderReader(js)
 	if err != nil {
 		return Grant{}, 0, err
 	}
 	return readCurrentGrant(ctx, stream, instanceID)
 }
 
-func readCurrentGrant(ctx context.Context, stream jetstream.Stream, instanceID string) (Grant, uint64, error) {
+func grantLeaderReader(js jetstream.JetStream) (nats.JetStreamContext, error) {
+	if js == nil || js.Conn() == nil {
+		return nil, errors.New("current enrollment grant requires a NATS connection")
+	}
+	options := js.Options()
+	var opts []nats.JSOpt
+	if options.Domain != "" {
+		opts = append(opts, nats.Domain(options.Domain))
+	} else if options.APIPrefix != "" {
+		opts = append(opts, nats.APIPrefix(options.APIPrefix))
+	}
+	// The modern Stream API chooses follower DIRECT.GET for ordinary KV buckets.
+	return js.Conn().JetStream(opts...)
+}
+
+func readCurrentGrant(ctx context.Context, stream nats.JetStreamContext, instanceID string) (Grant, uint64, error) {
 	subject := "$KV." + GrantBucket + "." + grantKey(instanceID)
-	entry, err := stream.GetLastMsgForSubject(ctx, subject)
+	entry, err := stream.GetLastMsg("KV_"+GrantBucket, subject, nats.Context(ctx))
 	if err != nil {
 		return Grant{}, 0, err
 	}
