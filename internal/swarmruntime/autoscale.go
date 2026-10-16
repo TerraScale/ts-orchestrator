@@ -43,6 +43,7 @@ type Autoscaler struct {
 	client   api.ControlClient
 	nodeID   string
 	source   autoscale.Source
+	probe    func(context.Context, *api.Task) error
 	mu       sync.Mutex
 	leader   bool
 	policies []ScalePolicy
@@ -50,11 +51,11 @@ type Autoscaler struct {
 	last     map[autoscale.Target]ScaleResult
 }
 
-func NewAutoscaler(client api.ControlClient, nodeID string, source autoscale.Source, policies []ScalePolicy) (*Autoscaler, error) {
-	if client == nil || nodeID == "" || source == nil {
-		return nil, errors.New("autoscaling requires the local manager identity, control client and signal source")
+func NewAutoscaler(client api.ControlClient, nodeID string, source autoscale.Source, probe func(context.Context, *api.Task) error, policies []ScalePolicy) (*Autoscaler, error) {
+	if client == nil || nodeID == "" || source == nil || probe == nil {
+		return nil, errors.New("autoscaling requires the local manager identity, control client, signal source and readiness probe")
 	}
-	a := &Autoscaler{client: client, nodeID: nodeID, source: source}
+	a := &Autoscaler{client: client, nodeID: nodeID, source: source, probe: probe}
 	if err := a.SetPolicies(policies); err != nil {
 		return nil, err
 	}
@@ -188,6 +189,16 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 		// preserve upstream rollback history until the release has completed.
 		result.Reason = "release-in-progress"
 		return result, nil
+	}
+	if replicated.Replicas > 0 {
+		ready, err := ReadyService(ctx, a.client, service, a.probe)
+		if err != nil {
+			return result, err
+		}
+		if !ready {
+			result.Reason = "unready-replicas"
+			return result, nil
+		}
 	}
 	memory, exists := a.history[policy.Target]
 	history := memory.history
