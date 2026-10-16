@@ -323,7 +323,7 @@ func verifyServiceSequenceClaim(ctx context.Context, claim []byte, migration rel
 	if err != nil {
 		return err
 	}
-	codec := delivery.Ed25519Codec{Cell: envelope.Region, MaxLifetime: release.MaxReceiptLifetime, Trusted: map[string]delivery.TrustedSigner{migration.SignerKeyID: {Actor: envelope.Actor, PublicKey: ed25519.PublicKey(public)}}}
+	codec := delivery.Ed25519Codec{Cell: strings.ToLower(envelope.Region), MaxLifetime: release.MaxReceiptLifetime, Trusted: map[string]delivery.TrustedSigner{migration.SignerKeyID: {Actor: envelope.Actor, PublicKey: ed25519.PublicKey(public)}}}
 	record, _, err := codec.VerifyArchivedArtifact(ctx, claim)
 	if err != nil {
 		return err
