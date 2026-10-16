@@ -31,7 +31,8 @@ func TestRegistryResolverAuthenticatedHTTPIntegration(t *testing.T) {
 	image := host + "/" + repository + "@" + digest
 	var authenticated atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v2/"+repository+"/manifests/"+digest || request.Host != host {
+		if request.Host != host || (request.URL.Path != "/v2/"+repository+"/manifests/"+digest &&
+			request.URL.Path != "/v2/"+repository+"/blobs/"+digest) {
 			t.Errorf("unexpected registry request %s %s", request.Host, request.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
 			return
