@@ -143,12 +143,12 @@ func assertHomeIAMLeases(t *testing.T, first, second *region.HomeIAMAuthority, o
 	}()
 	awaitFixtureIAM(t, ctx, entered, "actual IAM mutation did not reach blocked HTTP handler")
 	rewriteFixtureHomeLease(t, ctx, objects, domain, true, false)
-	if err := first.Guard(child, 0); !errors.Is(err, region.ErrFoundationFenced) || child.Err() == nil {
+	if err := first.Guard(child, 0); !errors.Is(err, region.ErrFoundationFenced) || !errors.Is(child.Err(), context.Canceled) || !errors.Is(context.Cause(child), region.ErrFoundationFenced) {
 		t.Fatalf("durable owner loss did not cancel the SDK child: %v", err)
 	}
 	select {
 	case err := <-result:
-		if err == nil || !errors.Is(err, context.Canceled) {
+		if !errors.Is(err, context.Cause(child)) {
 			t.Fatalf("blocked IAM request did not return cancellation: %v", err)
 		}
 	case <-ctx.Done():
