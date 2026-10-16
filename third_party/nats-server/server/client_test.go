@@ -5826,7 +5826,7 @@ func TestClientTCPAuthenticationDiagnosticsIngress(t *testing.T) {
 				logger.Lock()
 				defer logger.Unlock()
 				for i := len(logger.AllMsgs) - 1; i >= 0; i-- {
-					if prefix, ok := strings.CutSuffix(logger.AllMsgs[i], " - <<- PING"); ok {
+					if prefix, ok := strings.CutSuffix(logger.AllMsgs[i], " - <<- [PING]"); ok {
 						return prefix
 					}
 				}
