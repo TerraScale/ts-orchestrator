@@ -269,9 +269,9 @@ func (c *controller) Start(ctx context.Context) error {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		loggerArgument, err := c.runtimeLoggerArgument(ctx)
-		if err != nil {
-			return err
+		loggerArgument, loggerErr := c.runtimeLoggerArgument(ctx)
+		if loggerErr != nil {
+			return loggerErr
 		}
 		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": loggerArgument})
 		if uriErr != nil {
