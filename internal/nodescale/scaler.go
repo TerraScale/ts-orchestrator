@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -245,28 +246,15 @@ func freeNode(cell naming.Cell, used map[string]bool) (string, error) {
 	}
 }
 
-// observe counts admitted ready managers and owned pool instances.
+// observe binds worker identities to the current OCI pool and counts admitted regional managers.
 func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 	obs := observation{live: map[string]bool{}, counted: map[string]bool{}, addresses: map[string]string{}}
-	poolNodes := map[string]string{}
-	for _, in := range pool.Instances {
-		poolNodes[in.Name] = in.ID
-	}
-	for _, h := range hosts {
-		name := h.Spec.Annotations.Name
-		if !s.named(name) || h.Spec.Membership != api.NodeMembershipAccepted ||
-			h.Status.State != api.NodeStatus_READY ||
-			(poolNodes[name] != "" && h.Spec.Annotations.Labels["terrascale.instance-id"] != poolNodes[name]) {
-			continue
-		}
-		if !obs.live[name] {
-			obs.live[name] = true
-		}
-	}
-	for _, h := range hosts {
-		if node := h.Spec.Annotations.Name; obs.live[node] && !obs.counted[node] && poolNodes[node] == "" && h.Role == api.NodeRoleManager {
+	byInstance := nodesByInstance(hosts)
+	for _, node := range byInstance {
+		if s.admitted(node, api.NodeRoleManager) && node.Status.State == api.NodeStatus_READY {
 			obs.quorum++
-			obs.counted[node] = true
+			obs.live[node.Spec.Annotations.Name] = true
+			obs.counted[node.Spec.Annotations.Name] = true
 		}
 	}
 	for _, in := range pool.Instances {
@@ -277,12 +265,37 @@ func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 			continue
 		}
 		obs.pool++
-		if obs.live[in.Name] {
+		if node := byInstance[in.ID]; s.admitted(node, api.NodeRoleWorker) && node.Status.State == api.NodeStatus_READY {
+			obs.live[in.Name] = true
 			obs.counted[in.Name] = true
 		}
 	}
 	obs.nodes = obs.quorum + obs.pool
 	return obs
+}
+
+// nodesByInstance leaves duplicate OCI identities unresolved, including historical node certificates.
+func nodesByInstance(nodes []*api.Node) map[string]*api.Node {
+	byInstance := make(map[string]*api.Node, len(nodes))
+	for _, node := range nodes {
+		id := node.Spec.Annotations.Labels["terrascale.instance-id"]
+		if id == "" {
+			continue
+		}
+		if _, exists := byInstance[id]; exists {
+			byInstance[id] = nil
+			continue
+		}
+		byInstance[id] = node
+	}
+	return byInstance
+}
+
+func (s *Scaler) admitted(node *api.Node, role api.NodeRole) bool {
+	region, ok := catalog.LookupName(s.Cell)
+	return ok && node != nil && node.Spec.Annotations.Name != "" &&
+		node.Spec.Annotations.Labels["terrascale.region"] == region.OCIRegion &&
+		node.Role == role && node.Certificate.Role == role && node.Spec.DesiredRole == role && node.Spec.Membership == api.NodeMembershipAccepted
 }
 
 // countedLoads keeps the loads of the nodes that count toward the sample.
@@ -426,7 +439,7 @@ func (s *Scaler) expiredSafe(ctx context.Context, t *tick, instance PoolInstance
 		return err
 	}
 	for _, node := range nodes.Nodes {
-		if node.Spec.Annotations.Name != instance.Name && node.Spec.Annotations.Labels["terrascale.instance-id"] != instance.ID {
+		if node.Spec.Annotations.Labels["terrascale.instance-id"] != instance.ID {
 			continue
 		}
 		safe, err := s.retireSafe(ctx, instance.Name, instance.ID)
@@ -671,19 +684,16 @@ func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, er
 	if err != nil {
 		return PoolInstance{}, false, fmt.Errorf("list drain candidates: %w", err)
 	}
-	workers := map[string]bool{}
-	for _, node := range nodes.Nodes {
-		if node.Role == api.NodeRoleWorker && node.Spec.DesiredRole == api.NodeRoleWorker && node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Availability == api.NodeAvailabilityActive && !protected[node.ID] {
-			workers[node.Spec.Annotations.Name] = true
-		}
-	}
+	workers := nodesByInstance(nodes.Nodes)
 	cpu := map[string]float64{}
 	for _, load := range t.loads {
 		cpu[load.Node] = load.CPU
 	}
 	var candidates []PoolInstance
 	for _, in := range t.pool.Instances {
-		if _, loaded := cpu[in.Name]; loaded && t.obs.counted[in.Name] && s.named(in.Name) && workers[in.Name] {
+		node := workers[in.ID]
+		if _, loaded := cpu[in.Name]; loaded && t.obs.counted[in.Name] && s.named(in.Name) &&
+			s.admitted(node, api.NodeRoleWorker) && node.Spec.Availability == api.NodeAvailabilityActive && !protected[node.ID] {
 			candidates = append(candidates, in)
 		}
 	}
@@ -737,7 +747,7 @@ func stateful(labels map[string]string) bool {
 	return declared || labels["terrascale.role"] == roleTerraBase
 }
 
-// worker resolves the manager-owned node name; a missing or ambiguous identity cannot retire capacity.
+// worker resolves the manager-attested OCI identity, independently of its canonical host ID or pool hostname.
 func (s *Scaler) worker(ctx context.Context, name, instanceID string) (*api.Node, error) {
 	if name == "" || instanceID == "" {
 		return nil, errors.New("worker retirement requires an exact node and OCI instance identity")
@@ -746,24 +756,11 @@ func (s *Scaler) worker(ctx context.Context, name, instanceID string) (*api.Node
 	if err != nil {
 		return nil, fmt.Errorf("find worker %s: %w", name, err)
 	}
-	var found *api.Node
-	instances := 0
-	for _, node := range nodes.Nodes {
-		if node.Spec.Annotations.Labels["terrascale.instance-id"] == instanceID {
-			instances++
-		}
-		if node.Spec.Annotations.Name != name {
-			continue
-		}
-		if found != nil || node.Role != api.NodeRoleWorker || node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Membership != api.NodeMembershipAccepted {
-			return nil, fmt.Errorf("node %s is ambiguous or is a manager", name)
-		}
-		found = node
-	}
-	if found == nil || instances != 1 || found.Spec.Annotations.Labels["terrascale.instance-id"] != instanceID {
+	node := nodesByInstance(nodes.Nodes)[instanceID]
+	if !s.admitted(node, api.NodeRoleWorker) {
 		return nil, fmt.Errorf("worker %s has no unique admitted OCI instance %s", name, instanceID)
 	}
-	return found, nil
+	return node, nil
 }
 
 func (s *Scaler) setAvailability(ctx context.Context, name, instanceID string, availability api.NodeSpec_Availability, epoch uint64) error {

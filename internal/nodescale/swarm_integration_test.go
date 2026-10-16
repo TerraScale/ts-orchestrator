@@ -93,9 +93,10 @@ func (h *swarmHosts) sync(t *testing.T) {
 			create := node == nil
 			if create {
 				node = &api.Node{ID: name, Role: api.NodeRoleWorker, Spec: api.NodeSpec{DesiredRole: api.NodeRoleWorker, Membership: api.NodeMembershipAccepted,
-					Annotations: api.Annotations{Name: name, Labels: map[string]string{"terrascale.instance-id": "ocid-" + name}}}}
+					Annotations: api.Annotations{Name: name, Labels: map[string]string{"terrascale.instance-id": "ocid-" + name, "terrascale.region": "sa-saopaulo-1"}}}}
 				if nodeNumber(name) < FirstPoolNode {
 					node.Role = api.NodeRoleManager
+					node.Certificate.Role = api.NodeRoleManager
 					node.Spec.DesiredRole = api.NodeRoleManager
 				}
 			}
@@ -276,7 +277,7 @@ func TestSwarmRetainsProtectedAndUnprovenWorkers(t *testing.T) {
 }
 
 func TestSwarmCordonChecksIdentityAndLeadership(t *testing.T) {
-	for _, kind := range []string{"wrong-instance", "empty-instance", "duplicate-instance", "lost-leadership", "missing-node", "manager", "pending-membership", "worker-hostname"} {
+	for _, kind := range []string{"wrong-instance", "empty-instance", "duplicate-instance", "lost-leadership", "missing-node", "manager", "wrong-certificate-role", "wrong-region", "pending-membership", "worker-hostname"} {
 		t.Run(kind, func(t *testing.T) {
 			scaler, hosts, pass := swarmScaler(t)
 			if kind == "lost-leadership" {
@@ -298,9 +299,14 @@ func TestSwarmCordonChecksIdentityAndLeadership(t *testing.T) {
 					return store.DeleteNode(tx, node.ID)
 				case "manager":
 					node.Role = api.NodeRoleManager
+					node.Certificate.Role = api.NodeRoleManager
 					node.Spec.DesiredRole = api.NodeRoleManager
 				case "pending-membership":
 					node.Spec.Membership = api.NodeMembershipPending
+				case "wrong-certificate-role":
+					node.Certificate.Role = api.NodeRoleManager
+				case "wrong-region":
+					node.Spec.Annotations.Labels["terrascale.region"] = "eu-frankfurt-1"
 				case "worker-hostname":
 					node.Spec.Annotations.Name = ""
 					node.Description = &api.NodeDescription{Hostname: "ts-gru-4"}
@@ -368,5 +374,88 @@ func TestSwarmRetirementRechecksAfterDrainAndLaunchTimeout(t *testing.T) {
 	scaler.CanRetire = nil
 	if err := scaler.expiredSafe(t.Context(), pass, PoolInstance{Name: "unenrolled", ID: "other"}); err == nil {
 		t.Fatal("launch timeout bypassed missing retained-volume proof")
+	}
+}
+
+func TestSwarmPoolBindingUsesOCIIdentityInsteadOfCanonicalHostID(t *testing.T) {
+	for _, duplicate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("duplicate=%t", duplicate), func(t *testing.T) {
+			scaler, hosts, pass := swarmScaler(t)
+			canonicalHostID := entityid.New()
+			managerSlot := "gru-controller-primary"
+			if err := hosts.store.Update(func(tx store.Tx) error {
+				node := store.GetNode(tx, "ts-gru-4")
+				node.Spec.Annotations.Name = canonicalHostID
+				node.Description = &api.NodeDescription{Hostname: canonicalHostID}
+				if err := store.UpdateNode(tx, node); err != nil {
+					return err
+				}
+				if duplicate {
+					old := node.Copy()
+					old.ID = "old-worker-certificate"
+					old.Spec.Annotations.Name = entityid.New()
+					if err := store.CreateNode(tx, old); err != nil {
+						return err
+					}
+				}
+				for _, region := range []string{"sa-saopaulo-1", "eu-frankfurt-1"} {
+					manager := &api.Node{ID: region + "-manager", Role: api.NodeRoleManager, Certificate: api.Certificate{Role: api.NodeRoleManager},
+						Spec: api.NodeSpec{DesiredRole: api.NodeRoleManager, Membership: api.NodeMembershipAccepted,
+							Annotations: api.Annotations{Name: managerSlot, Labels: map[string]string{"terrascale.region": region, "terrascale.instance-id": "ocid-" + region + "-manager"}}},
+						Status: api.NodeStatus{State: api.NodeStatus_READY}}
+					if err := store.CreateNode(tx, manager); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			listed, err := hosts.control.ListNodes(t.Context(), &api.ListNodesRequest{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			pass.obs = scaler.observe(pass.pool, listed.Nodes)
+			if pass.obs.quorum != 1 || pass.obs.nodes != 2 || !pass.obs.counted[managerSlot] {
+				t.Fatalf("regional manager slot was not counted independently of pool naming: %+v", pass.obs)
+			}
+			if pass.obs.live["ts-gru-4"] == duplicate || pass.obs.counted[canonicalHostID] {
+				t.Fatalf("canonical host ID was interpreted as the pool hostname: %+v", pass.obs)
+			}
+			loads := countedLoads([]NodeLoad{{Node: canonicalHostID}, {Node: "ts-gru-4"}, {Node: managerSlot}}, pass.obs)
+			wantLoads := 2
+			if duplicate {
+				wantLoads--
+			}
+			if len(loads) != wantLoads || slices.ContainsFunc(loads, func(load NodeLoad) bool { return load.Node == canonicalHostID }) {
+				t.Fatalf("load samples lost their trusted pool/manager names: %+v", loads)
+			}
+			target, found, err := scaler.pickDrain(t.Context(), pass)
+			if err != nil || found == duplicate {
+				t.Fatalf("pool binding candidate: found=%v err=%v", found, err)
+			}
+			if duplicate {
+				if _, err := scaler.worker(t.Context(), "ts-gru-4", "ocid-ts-gru-4"); err == nil {
+					t.Fatal("duplicate OCI identity resolved to a worker")
+				}
+				return
+			}
+			if target.Name != "ts-gru-4" || target.ID != "ocid-ts-gru-4" {
+				t.Fatalf("pool identity was not preserved for retirement: %+v", target)
+			}
+			if err := scaler.cordon(t.Context(), pass); err != nil {
+				t.Fatal(err)
+			}
+			if drained, err := scaler.drained(t.Context(), pass); err != nil || !drained {
+				t.Fatalf("canonical worker did not drain through OCI binding: drained=%v err=%v", drained, err)
+			}
+			observed, err := hosts.control.GetNode(t.Context(), &api.GetNodeRequest{NodeID: "ts-gru-4"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if observed.Node.Spec.Annotations.Name != canonicalHostID || observed.Node.Spec.Availability != api.NodeAvailabilityDrain {
+				t.Fatalf("drain changed or lost canonical host identity: node=%+v", observed.Node)
+			}
+		})
 	}
 }
