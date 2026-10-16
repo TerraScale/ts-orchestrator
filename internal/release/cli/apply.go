@@ -121,6 +121,9 @@ func (c command) applyWith(args []string, env deployEnv) error {
 			regional := c
 			regional.ctx = ctx
 			apply := func() error {
+				if err := regional.verifyProductionArtifacts(filepath.Join(*directory, "production"), roots, target.channel.Cell, target.channel.Environment, target.binaries, deadline); err != nil {
+					return err
+				}
 				location, err := channelLocation(env, target.channel.Cell, *namespace)
 				if err != nil {
 					return err

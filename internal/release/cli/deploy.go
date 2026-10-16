@@ -52,6 +52,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	directory := flags.String("dir", "", "retained CI release: qualification.json and terrascale-orchestrator-linux-<arch>")
+	evidenceDir := flags.String("production-evidence-dir", "", "retained signed runtime and workload evidence; default DIR/production")
 	sourceRevision := flags.String("source-revision", "", "expected exact Git revision")
 	delegationPath := flags.String("update-delegation", "", "root-signed binary update delegation")
 	delegationSecret := flags.String("update-delegation-secret", "", "OCI Vault secret holding the root-signed release delegation, instead of --update-delegation")
@@ -96,22 +97,6 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if err := env.check(qualification, qualificationDigest); err != nil {
 		return err
 	}
-	var delegation trust.Envelope
-	if *delegationPath != "" {
-		delegation, err = readEnvelope(*delegationPath)
-	} else {
-		var data []byte
-		if data, err = env.secret(c.ctx, *vaultID, *delegationSecret); err == nil {
-			delegation, err = trust.DecodeEnvelope(data)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("read the update delegation: %w", err)
-	}
-	delegationWire, err := trust.EncodeEnvelope(delegation)
-	if err != nil {
-		return err
-	}
 	root, err := readRootPublicKey(*rootPath)
 	if err != nil {
 		return err
@@ -120,80 +105,114 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if err != nil {
 		return err
 	}
-	var private ed25519.PrivateKey
-	if *keyPath != "" {
-		private, err = readDelegatedPrivateKey(*keyPath)
-	} else {
-		var data []byte
-		if data, err = env.secret(c.ctx, *vaultID, *keySecret); err == nil {
-			private, err = parseDelegatedPrivateKey(data)
-			clear(data)
-		}
+	if *evidenceDir == "" {
+		*evidenceDir = filepath.Join(*directory, "production")
 	}
-	if err != nil {
-		return fmt.Errorf("read the update leaf key: %w", err)
-	}
-	defer clear(private)
-
 	regionTimeout := rollout.ObservationBudget
 	if env.timeout > 0 {
 		regionTimeout = min(regionTimeout, env.timeout)
 	}
-	started := time.Now()
-	ctx, cancel := context.WithDeadline(c.ctx, started.Add(regionTimeout))
-	defer cancel()
-	c.ctx = ctx
-	lineage := &deploymentLineage{checker: gitLineage{ctx: ctx, checkout: *checkout, run: env.git},
-		results: make(map[[3]string]error)}
 	progress := &deploymentWriter{Writer: c.output}
-	failures := make([]error, len(cells))
+	type signingCredentials struct {
+		delegation trust.Envelope
+		private    ed25519.PrivateKey
+	}
+	credentials := sync.OnceValues(func() (signingCredentials, error) {
+		var delegation trust.Envelope
+		var err error
+		if *delegationPath != "" {
+			delegation, err = readEnvelope(*delegationPath)
+		} else {
+			var data []byte
+			if data, err = env.secret(c.ctx, *vaultID, *delegationSecret); err == nil {
+				delegation, err = trust.DecodeEnvelope(data)
+			}
+		}
+		if err != nil {
+			return signingCredentials{}, fmt.Errorf("read the update delegation: %w", err)
+		}
+		var private ed25519.PrivateKey
+		if *keyPath != "" {
+			private, err = readDelegatedPrivateKey(*keyPath)
+		} else {
+			var data []byte
+			if data, err = env.secret(c.ctx, *vaultID, *keySecret); err == nil {
+				private, err = parseDelegatedPrivateKey(data)
+				clear(data)
+			}
+		}
+		if err != nil {
+			return signingCredentials{}, fmt.Errorf("read the update leaf key: %w", err)
+		}
+		return signingCredentials{delegation, private}, nil
+	})
+	var private ed25519.PrivateKey
+	defer func() { clear(private) }()
+
+	started := time.Now()
+	lineage := &deploymentLineage{checker: gitLineage{ctx: c.ctx, checkout: *checkout, run: env.git},
+		results: make(map[[3]string]error)}
 	var regions errgroup.Group
-	for index, cell := range cells {
+	regions.SetLimit(4)
+	var failureMu sync.Mutex
+	var failures []error
+	preflights := c.prepareDeploymentTargets(*directory, *evidenceDir, *namespace, *environment,
+		cells, architectures, qualification, qualificationDigest, roots, regionTimeout, env, progress)
+	for result := range preflights {
+		if result.err != nil {
+			failureMu.Lock()
+			failures = append(failures, result.err)
+			failureMu.Unlock()
+			continue
+		}
+		target := result.target
 		regions.Go(func() (regionErr error) {
+			ctx, cancel := context.WithTimeout(c.ctx, regionTimeout)
+			defer cancel()
+			regional := c
+			regional.ctx = ctx
+			deadline := time.Now().UTC().Add(regionTimeout)
+			cell := target.cell
 			defer func() {
 				if regionErr != nil {
-					failures[index] = fmt.Errorf("%s: %w", cell, regionErr)
+					failureMu.Lock()
+					failures = append(failures, fmt.Errorf("%s: %w", cell, regionErr))
+					failureMu.Unlock()
 					fmt.Fprintf(progress, "%s failed: %v\n", cell, regionErr)
 				}
 			}()
 			cellStarted := time.Now()
-			location, err := channelLocation(env, cell, *namespace)
+			location, cellEnvironment, cellArchitectures, binaries := target.location, target.environment, target.architectures, target.binaries
+			if err := regional.verifyProductionArtifacts(*evidenceDir, roots, cell, cellEnvironment, binaries, deadline); err != nil {
+				return err
+			}
+			keys, err := credentials()
 			if err != nil {
 				return err
 			}
-			cellEnvironment, cellArchitectures := *environment, []string(architectures)
-			if cellEnvironment == "" || len(cellArchitectures) == 0 {
-				scope, err := deploymentScope(c.ctx, location, cell)
-				if err != nil {
-					return err
-				}
-				if cellEnvironment == "" {
-					cellEnvironment = scope.Environment
-				}
-				if len(cellArchitectures) == 0 {
-					cellArchitectures = scope.Architectures
-				}
+			failureMu.Lock()
+			private = keys.private
+			failureMu.Unlock()
+			delegationWire, err := trust.EncodeEnvelope(keys.delegation)
+			if err != nil {
+				return err
 			}
-			binaries := make(map[string]binaryReceipt, len(cellArchitectures))
 			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: cellEnvironment,
 				SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
 			for _, architecture := range cellArchitectures {
-				receipt, err := env.inspect(binaryPath(*directory, architecture), defaultGoVersion, *sourceRevision)
-				if err != nil {
-					return err
-				}
-				receipt.QualificationSHA256 = qualificationDigest
-				if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
-					return err
-				}
-				if receipt.GOARCH != architecture {
-					return fmt.Errorf("%s binary is built for %s", architecture, receipt.GOARCH)
-				}
-				binaries[architecture] = receipt
 				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
-					cellEnvironment, lineage, delegation, roots, private, started.UTC(), *validFor)
+					cellEnvironment, lineage, keys.delegation, roots, keys.private, cellStarted.UTC(), *validFor)
 				if err != nil {
 					return fmt.Errorf("sign %s: %w", architecture, err)
+				}
+				proof, err := readProductionProof(*evidenceDir, cell, architecture)
+				if err != nil {
+					return err
+				}
+				envelope, err = release.AttachProductionQualification(envelope, proof, delegationWire, roots, keys.private,
+					release.UpdateExpectation{Environment: cellEnvironment, Cell: cell, Architecture: architecture}, cellStarted.UTC())
+				if err != nil {
+					return err
 				}
 				wire, err := trust.EncodeEnvelope(envelope)
 				if err != nil {
@@ -202,19 +221,19 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				channel.Receipts = append(channel.Receipts, wire)
 			}
 			// Receipts must remain valid through the shared rollout deadline.
-			if _, err := channel.Verify(roots, cell, cellEnvironment, started.UTC().Add(regionTimeout)); err != nil {
+			if _, err := channel.Verify(roots, cell, cellEnvironment, deadline); err != nil {
 				return fmt.Errorf("receipts would expire during rollout; renew the update delegation: %w", err)
 			}
 			for _, architecture := range cellArchitectures {
-				if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
+				if err := regional.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
 					return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
 				}
 			}
-			if err := releasechannel.Publish(c.ctx, location, channel); err != nil {
+			if err := releasechannel.Publish(ctx, location, channel); err != nil {
 				return fmt.Errorf("publish to %s: %w", channel.Cell, err)
 			}
 			fmt.Fprintf(progress, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
-			if err := releasechannel.Await(c.ctx, location, channel, *poll, started.Add(regionTimeout), progress); err != nil {
+			if err := releasechannel.Await(ctx, location, channel, *poll, deadline, progress); err != nil {
 				return err
 			}
 			fmt.Fprintf(progress, "%s rolled out in %s\n", channel.Cell, time.Since(cellStarted).Round(time.Second))
@@ -223,6 +242,9 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	// Do not cancel a healthy cell's rollout when another cell rolls back.
 	_ = regions.Wait()
+	if err := c.ctx.Err(); err != nil {
+		failures = append(failures, err)
+	}
 	if err := errors.Join(failures...); err != nil {
 		return fmt.Errorf("fleet rollout failed: %w", err)
 	}
@@ -368,7 +390,7 @@ func (c command) fleetStatusWith(args []string, env deployEnv) error {
 				return err
 			}
 			if found {
-				out.Channel = &channelSummary{SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber}
+				out.Channel = &channelSummary{SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber, ReleaseSequence: channel.ReleaseSequence}
 			}
 			status, found, err := releasechannel.ReadStatus(c.ctx, location)
 			if found {
@@ -400,8 +422,9 @@ func (c command) fleetStatusWith(args []string, env deployEnv) error {
 }
 
 type channelSummary struct {
-	SourceRevision string `json:"source_revision"`
-	RunNumber      int64  `json:"run_number"`
+	ReleaseSequence uint64 `json:"release_sequence,omitzero"`
+	SourceRevision  string `json:"source_revision"`
+	RunNumber       int64  `json:"run_number"`
 }
 
 func operatorObjectStorage(cell string) (releasechannel.ObjectClient, error) {

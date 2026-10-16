@@ -81,6 +81,9 @@ type DesiredWriter interface {
 }
 
 type Config struct {
+	// ContainerApply admits the exact signed OCI release through SwarmKit and
+	// returns only after application readiness. Replays must be idempotent.
+	ContainerApply        func(context.Context, Intent) error
 	Conn                  *nats.Conn
 	JS                    jetstream.JetStream
 	Cell                  string
@@ -266,6 +269,9 @@ func (s *Service) Submit(ctx context.Context, intent Intent) error {
 	if err != nil {
 		return err
 	}
+	if len(b) > MaxIntentBytes {
+		return fmt.Errorf("%w: intent too large", ErrInvalid)
+	}
 	fingerprint, err := intent.fingerprint()
 	if err != nil {
 		return err
@@ -313,12 +319,15 @@ func (s *Service) SubmitVerified(ctx context.Context, intent Intent, actor strin
 	if intent.Cell != s.config.Cell {
 		return fmt.Errorf("%w: wrong cell", ErrInvalid)
 	}
-	if err := s.config.Authorize(ctx, actor, intent); err != nil {
+	if err := s.config.Authorize(ctx, actor, intent.Clone()); err != nil {
 		return err
 	}
 	wire, err := json.Marshal(intent)
 	if err != nil {
 		return err
+	}
+	if len(wire) > MaxIntentBytes {
+		return fmt.Errorf("%w: intent too large", ErrInvalid)
 	}
 	fingerprint, err := intent.fingerprint()
 	if err != nil {

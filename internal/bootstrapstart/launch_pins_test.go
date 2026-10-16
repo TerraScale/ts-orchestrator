@@ -332,6 +332,7 @@ func TestSignedARMHostLaunchIsIndependentOfAMD64Controller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	hostImage = qualifiedImageFixture(t, hostImage, accepted.Environment, fixture.rootPrivate, *fixture.now)
 	receipt, err := release.SignImageReceipt(hostImage, accepted.Environment, delegation, fixture.gate.Roots, key, *fixture.now, 30*time.Minute)
 	if err != nil {
 		t.Fatal(err)

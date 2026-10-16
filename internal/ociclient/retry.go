@@ -1,6 +1,7 @@
 package ociclient
 
 import (
+	"context"
 	"errors"
 	"io"
 	"math"
@@ -13,6 +14,103 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
+
+// RequestContext keeps the SDK retry goroutine joined while the original context
+// cancels the HTTP request and backoff. Use with ConfigureRequestCancellation.
+func RequestContext(ctx context.Context) context.Context {
+	if originalReadContext(ctx) != nil && ctx.Done() == nil {
+		return ctx
+	}
+	return context.WithValue(context.WithoutCancel(ctx), readContextKey{}, ctx)
+}
+
+// ReadContext is RequestContext for existing read callers.
+func ReadContext(ctx context.Context) context.Context { return RequestContext(ctx) }
+
+type readContextKey struct{}
+
+func originalReadContext(ctx context.Context) context.Context {
+	original, _ := ctx.Value(readContextKey{}).(context.Context)
+	return original
+}
+
+// ConfigureReadCancellation is retained for existing read callers.
+func ConfigureReadCancellation(client *common.BaseClient) { ConfigureRequestCancellation(client) }
+
+// ConfigureRequestCancellation must run after other interceptors are installed.
+// It avoids the SDK Retry response race while preserving wire cancellation.
+func ConfigureRequestCancellation(client *common.BaseClient) {
+	if readCancellationConfigured(client.HTTPClient) {
+		return
+	}
+	previous := client.Interceptor
+	client.Interceptor = func(request *http.Request) error {
+		if original := originalReadContext(request.Context()); original != nil {
+			*request = *request.WithContext(context.WithValue(original, readContextKey{}, original))
+		}
+		if previous != nil {
+			return previous(request)
+		}
+		return request.Context().Err()
+	}
+	client.HTTPClient = readDispatcher{next: client.HTTPClient}
+}
+
+func readCancellationConfigured(dispatcher common.HTTPRequestDispatcher) bool {
+	switch dispatcher := dispatcher.(type) {
+	case readDispatcher:
+		return true
+	case *instrumentedDispatcher:
+		return readCancellationConfigured(dispatcher.next)
+	default:
+		return false
+	}
+}
+
+type readDispatcher struct{ next common.HTTPRequestDispatcher }
+
+type readTransportError struct {
+	err error
+	ctx context.Context
+}
+
+func (e *readTransportError) Error() string { return e.err.Error() }
+func (e *readTransportError) Unwrap() error { return e.err }
+
+func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
+	response, err := d.next.Do(request)
+	if original := originalReadContext(request.Context()); original != nil && err != nil {
+		return response, &readTransportError{err: err, ctx: original}
+	}
+	return response, err
+}
+
+func readOperationContext(response common.OCIOperationResponse) context.Context {
+	if failure, ok := errors.AsType[*readTransportError](response.Error); ok {
+		return failure.ctx
+	}
+	if response.Response != nil {
+		if raw := response.Response.HTTPResponse(); raw != nil && raw.Request != nil {
+			return originalReadContext(raw.Request.Context())
+		}
+	}
+	return nil
+}
+
+func retryDelay(options RetryOptions, response common.OCIOperationResponse) time.Duration {
+	delay := nextDelay(options, response)
+	if ctx := readOperationContext(response); ctx != nil {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+		}
+		// The SDK's own time.After cannot be canceled, so wait here instead.
+		return 0
+	}
+	return delay
+}
 
 // RetryOptions bounds the shared 429/5xx-aware retry policy.
 type RetryOptions struct {
@@ -67,7 +165,7 @@ func (o RetryOptions) normalized() RetryOptions {
 func RetryPolicy(options RetryOptions) common.RetryPolicy {
 	options = options.normalized()
 	return common.NewRetryPolicy(options.MaxAttempts, ShouldRetry, func(response common.OCIOperationResponse) time.Duration {
-		return nextDelay(options, response)
+		return retryDelay(options, response)
 	})
 }
 
@@ -82,7 +180,7 @@ func IdempotentPutRetryPolicy(options RetryOptions) common.RetryPolicy {
 			return (request != nil && request.Method == http.MethodPut) || replayable(request)
 		})
 	}, func(response common.OCIOperationResponse) time.Duration {
-		return nextDelay(options, response)
+		return retryDelay(options, response)
 	})
 }
 
@@ -92,6 +190,9 @@ func ShouldRetry(response common.OCIOperationResponse) bool {
 }
 
 func shouldRetry(response common.OCIOperationResponse, replayable func(*http.Request) bool) bool {
+	if ctx := readOperationContext(response); ctx != nil && ctx.Err() != nil {
+		return false
+	}
 	status, request := responseStatus(response)
 	if response.Error == nil {
 		return false
@@ -111,8 +212,16 @@ func shouldRetry(response common.OCIOperationResponse, replayable func(*http.Req
 		return true
 	}
 	if status == 0 {
-		return common.IsNetworkError(response.Error) || errors.Is(response.Error, io.EOF) ||
-			errors.Is(response.Error, io.ErrUnexpectedEOF)
+		cause := response.Error
+		for {
+			failure, ok := errors.AsType[*readTransportError](cause)
+			if !ok {
+				break
+			}
+			cause = failure.err
+		}
+		return common.IsNetworkError(cause) || errors.Is(cause, io.EOF) ||
+			errors.Is(cause, io.ErrUnexpectedEOF)
 	}
 	return false
 }

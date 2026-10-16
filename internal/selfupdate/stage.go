@@ -37,10 +37,9 @@ func (policy ReceiptPolicy) Verify(receiptWire, delegationWire []byte, now time.
 	var verified release.VerifiedBinary
 	switch envelope.Scope.Domain {
 	case release.BinaryDomain:
-		verified, err = release.VerifyBinaryCurrent(receiptWire, delegationWire, policy.Roots,
-			release.BinaryExpectation{Environment: policy.Environment}, now)
+		return release.VerifiedBinary{}, fmt.Errorf("%w: self-update requires a region-qualified update receipt", release.ErrProductionQualification)
 	case release.UpdateReceiptDomain:
-		verified, err = release.VerifyBinaryUpdateCurrent(receiptWire, delegationWire, policy.Roots,
+		verified, err = release.VerifyQualifiedBinaryUpdateCurrent(receiptWire, delegationWire, policy.Roots,
 			release.UpdateExpectation{Environment: policy.Environment, Cell: policy.Cell, Architecture: policy.Architecture}, now)
 	default:
 		return release.VerifiedBinary{}, fmt.Errorf("%w: receipt domain %q", ErrInvalid, envelope.Scope.Domain)

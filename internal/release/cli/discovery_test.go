@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json/v2"
 	"errors"
 	"io"
 	"slices"
@@ -50,30 +49,6 @@ func TestDeployDiscoversEveryCellAndKeepsBadRegionalScopeIndependent(t *testing.
 				t.Fatal(err)
 			}
 		})
-	}
-}
-
-func TestServiceDeployDiscoversPerCellEnvironmentsAndReportsMissingScope(t *testing.T) {
-	for _, missingSFO := range []bool{false, true} {
-		f := newServiceDeployFixture(t)
-		for cell, environment := range map[string]string{"GRU": "canary", "SFO": "production"} {
-			f.buckets[cell].environment = environment
-			scope := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell,
-				Environment: environment, Architectures: []string{"arm64"}, UpdatedAt: time.Now().UTC()}
-			wire, err := json.Marshal(scope)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.buckets[cell].objects[releasechannel.StatusObject] = wire
-		}
-		if missingSFO {
-			delete(f.buckets["SFO"].objects, releasechannel.StatusObject)
-		}
-		err := (command{ctx: t.Context(), output: io.Discard}).serviceDeployWith(omitDeploymentFlags(f.args(), "--environment"), f.env)
-		if (err != nil) != missingSFO || !slices.Contains(f.log, "put GRU "+releasechannel.ServiceReleaseObject("ts-auth")) ||
-			slices.Contains(f.log, "put SFO "+releasechannel.ServiceReleaseObject("ts-auth")) == missingSFO {
-			t.Fatalf("per-cell environment or failure isolation lost: missing=%v err=%v log=%v", missingSFO, err, f.log)
-		}
 	}
 }
 

@@ -13,7 +13,14 @@ const usage = `Usage: ts-orch release <command> [flags]
 
 Commands:
   run-detail
+  verify-production
+  verify-image-production
+  bundle
   apply
+  service-bundle
+  service-apply
+  sign-sequence-migration
+  allocate-sequence
   sign-delegation
   binary-candidate
   sign-binary
@@ -28,7 +35,6 @@ Commands:
   sign-spec
   sign-root-rotation
   deploy
-  service-deploy
   fleet-status
 `
 

@@ -8,6 +8,11 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
@@ -46,10 +51,13 @@ type ArtifactSource struct {
 }
 
 type ArtifactClaimRequest struct {
-	Source      ArtifactSource `json:"source"`
-	Cell        string         `json:"cell"`
-	Role        string         `json:"role"`
-	Environment string         `json:"environment"`
+	ProductionQualificationSHA256 string         `json:"production_qualification_sha256,omitempty"`
+	ReleaseSequence               uint64         `json:"release_sequence,omitzero"`
+	SequenceMigrationSHA256       string         `json:"sequence_migration_sha256,omitempty"`
+	Source                        ArtifactSource `json:"source"`
+	Cell                          string         `json:"cell"`
+	Role                          string         `json:"role"`
+	Environment                   string         `json:"environment"`
 }
 
 func (r ArtifactClaimRequest) validate() error {
@@ -70,14 +78,17 @@ func (s ArtifactSource) validate() error {
 // ArtifactRecord is the immutable, content-addressed admission record. The
 // manifest digest is SHA-256 of the canonical JSON encoding of these fields.
 type ArtifactRecord struct {
-	SchemaVersion  int            `json:"schemaVersion"`
-	Digest         string         `json:"digest"`
-	Source         ArtifactSource `json:"source"`
-	Cell           string         `json:"cell"`
-	Role           string         `json:"role"`
-	Environment    string         `json:"environment"`
-	Size           int64          `json:"size"`
-	ManifestDigest string         `json:"manifestDigest"`
+	ProductionQualificationSHA256 string         `json:"production_qualification_sha256,omitempty"`
+	ReleaseSequence               uint64         `json:"release_sequence,omitzero"`
+	SequenceMigrationSHA256       string         `json:"sequence_migration_sha256,omitempty"`
+	SchemaVersion                 int            `json:"schemaVersion"`
+	Digest                        string         `json:"digest"`
+	Source                        ArtifactSource `json:"source"`
+	Cell                          string         `json:"cell"`
+	Role                          string         `json:"role"`
+	Environment                   string         `json:"environment"`
+	Size                          int64          `json:"size"`
+	ManifestDigest                string         `json:"manifestDigest"`
 }
 
 // NewArtifactRecord is the record of size bytes with SHA-256 digest that
@@ -88,13 +99,22 @@ func NewArtifactRecord(request ArtifactClaimRequest, digest string, size int64) 
 		return ArtifactRecord{}, err
 	}
 	r := ArtifactRecord{SchemaVersion: SchemaVersion, Digest: digest, Source: request.Source, Cell: request.Cell,
-		Role: request.Role, Environment: request.Environment, Size: size}
+		Role: request.Role, Environment: request.Environment, Size: size, ReleaseSequence: request.ReleaseSequence, SequenceMigrationSHA256: request.SequenceMigrationSHA256, ProductionQualificationSHA256: request.ProductionQualificationSHA256}
 	manifest, err := r.calculatedManifestDigest()
 	if err != nil {
 		return ArtifactRecord{}, err
 	}
 	r.ManifestDigest = manifest
 	return r, r.validate()
+}
+
+// ContentManifestDigest binds the qualified bytes and scope before a signer
+// allocates their order; the final manifest also binds sequence and qualification.
+func (r ArtifactRecord) ContentManifestDigest() (string, error) {
+	r.ProductionQualificationSHA256 = ""
+	r.ReleaseSequence = 0
+	r.SequenceMigrationSHA256 = ""
+	return r.calculatedManifestDigest()
 }
 
 func (r ArtifactRecord) calculatedManifestDigest() (string, error) {
@@ -108,6 +128,12 @@ func (r ArtifactRecord) calculatedManifestDigest() (string, error) {
 }
 
 func (r ArtifactRecord) validate() error {
+	if r.ProductionQualificationSHA256 != "" && !sha256RE.MatchString(r.ProductionQualificationSHA256) {
+		return fmt.Errorf("%w: production qualification fingerprint", ErrInvalid)
+	}
+	if (r.ReleaseSequence == 0) != (r.SequenceMigrationSHA256 == "") || r.SequenceMigrationSHA256 != "" && !sha256RE.MatchString(r.SequenceMigrationSHA256) {
+		return fmt.Errorf("%w: release order", ErrInvalid)
+	}
 	if r.SchemaVersion != SchemaVersion || !sha256RE.MatchString(r.Digest) || !sha256RE.MatchString(r.ManifestDigest) || r.Size <= 0 || r.Size > MaxArtifactBytes || !nameRE.MatchString(r.Cell) || !nameRE.MatchString(r.Role) || !nameRE.MatchString(r.Environment) {
 		return fmt.Errorf("%w: artifact record", ErrInvalid)
 	}
@@ -125,25 +151,52 @@ func (r ArtifactRecord) validate() error {
 // desired state. A rollback is a new Intent with a higher generation and a
 // previously admitted artifact digest.
 type Intent struct {
-	SchemaVersion   int            `json:"schemaVersion"`
-	OperationID     string         `json:"operationId"`
-	Source          ArtifactSource `json:"source"`
-	ArtifactDigest  string         `json:"artifactDigest"`
-	ManifestDigest  string         `json:"manifestDigest"`
-	Cell            string         `json:"cell"`
-	Role            string         `json:"role"`
-	Environment     string         `json:"environment"`
-	Generation      uint64         `json:"generation"`
-	DesiredReplicas int            `json:"desiredReplicas"`
-	ConfigDigest    string         `json:"configDigest"`
-	AuthorityEpoch  uint64         `json:"authorityEpoch"`
+	Container       *release.ContainerBundle `json:"container,omitempty"`
+	SchemaVersion   int                      `json:"schemaVersion"`
+	OperationID     string                   `json:"operationId"`
+	Source          ArtifactSource           `json:"source"`
+	ArtifactDigest  string                   `json:"artifactDigest"`
+	ManifestDigest  string                   `json:"manifestDigest"`
+	Cell            string                   `json:"cell"`
+	Role            string                   `json:"role"`
+	Environment     string                   `json:"environment"`
+	Generation      uint64                   `json:"generation"`
+	DesiredReplicas int                      `json:"desiredReplicas"`
+	ConfigDigest    string                   `json:"configDigest"`
+	AuthorityEpoch  uint64                   `json:"authorityEpoch"`
 }
 
 func (i Intent) Validate() error {
-	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
+	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
 		return fmt.Errorf("%w: delivery intent", ErrInvalid)
 	}
-	return i.Source.validate()
+	if err := i.Source.validate(); err != nil {
+		return err
+	}
+	if i.Container == nil {
+		if !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) {
+			return fmt.Errorf("%w: native artifact digests", ErrInvalid)
+		}
+		return nil
+	}
+	if i.ArtifactDigest != "" || i.ManifestDigest != "" {
+		return fmt.Errorf("%w: container and native artifact are mutually exclusive", ErrInvalid)
+	}
+	envelope, err := trust.DecodeEnvelope(i.Container.Claim)
+	if err != nil {
+		return fmt.Errorf("%w: container envelope: %v", ErrInvalid, err)
+	}
+	var claim release.ContainerClaim
+	if err := protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%w: container claim: %v", ErrInvalid, err)
+	}
+	if err := claim.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if strings.ToLower(claim.Cell) != i.Cell || claim.Environment != i.Environment || claim.Role != i.Role || claim.SourceRevision != i.Source.Commit || claim.SourceRepository != i.Source.Repository || claim.SourceTreeSHA256 != i.Source.TreeDigest {
+		return fmt.Errorf("%w: container source or target differs from intent", ErrInvalid)
+	}
+	return nil
 }
 
 func (i Intent) fingerprint() (string, error) {
@@ -176,4 +229,16 @@ func DecodeIntent(b []byte) (Intent, error) {
 		return Intent{}, fmt.Errorf("%w: decode intent: %v", ErrInvalid, err)
 	}
 	return i, i.Validate()
+}
+
+// Clone retains the exact admitted OCI bytes across callback boundaries.
+func (i Intent) Clone() Intent {
+	if i.Container != nil {
+		bundle := *i.Container
+		bundle.Claim = slices.Clone(bundle.Claim)
+		bundle.Delegation = slices.Clone(bundle.Delegation)
+		bundle.Migration = slices.Clone(bundle.Migration)
+		i.Container = &bundle
+	}
+	return i
 }

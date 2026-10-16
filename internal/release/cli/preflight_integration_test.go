@@ -1,0 +1,63 @@
+package cli
+
+import (
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+)
+
+func TestProductionDeployRefusesBeforeSigningCredentials(t *testing.T) {
+	fixture := newApplyHTTPFixture(t)
+	for _, cell := range []string{"FRA", "GRU", "SFO"} {
+		if err := os.Remove(filepath.Join(fixture.releaseDir, "production", cell, "amd64", "production.json")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// This source proof is fixture-local; candidate files, signatures and storage
+	// use the real boundaries. No production credentials are available to the test.
+	fixture.env.check = func(q release.Qualification, digest string) error { return q.MatchBinary(fixture.binary, digest) }
+	fixture.env.secret = readVaultSecret
+	args := []string{"--dir", fixture.releaseDir, "--source-revision", fixture.binary.SourceRevision,
+		"--update-delegation-secret", "unavailable", "--signing-key-secret", "unavailable", "--vault-id", "invalid-vault",
+		"--root-key", fixture.rootPath, "--environment", "production", "--source-checkout", fixture.sourceDir,
+		"--namespace", "ns", "--arch", "amd64", "--cell", "GRU", "--cell", "SFO", "--cell", "FRA"}
+	err := (command{ctx: t.Context(), output: io.Discard}).deployWith(args, fixture.env)
+	if !errors.Is(err, release.ErrProductionQualification) {
+		t.Fatalf("unqualified candidate reached signing credential lookup: %v", err)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.channelWrites) != 0 || len(fixture.binaryCreates) != 0 {
+		t.Fatal("unqualified candidate mutated storage")
+	}
+}
+
+func TestProductionPreflightStreamsHealthyRegionsDuringHTTPStall(t *testing.T) {
+	fixture := newApplyHTTPFixture(t)
+	fixture.reset("unreachable")
+	qualification, digest, err := readQualification(filepath.Join(fixture.releaseDir, "qualification.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := (command{ctx: t.Context(), output: io.Discard}).prepareDeploymentTargets(fixture.releaseDir,
+		filepath.Join(fixture.releaseDir, "production"), "ns", "", []string{"SFO", "GRU", "FRA"}, nil,
+		qualification, digest, fixture.roots, 2*time.Second, fixture.env, io.Discard)
+	healthy := 0
+	for result := range results {
+		if result.err == nil {
+			healthy++
+			continue
+		}
+		if result.target.cell != "SFO" || healthy != 2 {
+			t.Fatalf("stalled preflight prevented healthy admission: healthy=%d result=%+v", healthy, result)
+		}
+	}
+	if healthy != 2 {
+		t.Fatalf("healthy regions admitted=%d", healthy)
+	}
+}
