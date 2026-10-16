@@ -115,7 +115,9 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 		return nil
 	}
 	backend.reset()
-	if retired, err := controller.RetireExpired(t.Context(), &vault, unused); err != nil || len(retired) != 0 || backend.schedules != 0 {
+	retired, err := controller.RetireExpired(t.Context(), &vault, unused)
+	_, schedules, _ := backend.observations()
+	if err != nil || len(retired) != 0 || schedules != 0 {
 		t.Fatalf("unexpired delivery retired: %d, %v", len(retired), err)
 	}
 	// Commit while the delivery is valid, then let its real expiry pass.
@@ -125,23 +127,26 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 	case <-time.After(time.Until(expires) + 10*time.Millisecond):
 	}
 	for _, test := range []struct {
-		name     string
-		prepare  func()
-		denyCall int
+		name          string
+		prepare       func()
+		denyCall      int
+		wantSchedules int
 	}{
 		{name: "current task remains referenced", denyCall: 1},
 		{name: "final observation fails", denyCall: 2},
 		{name: "current version changes", prepare: func() { backend.changeBundle = true }},
 		{name: "metadata etag changes", prepare: func() { backend.changeMetadata = true }},
 		{name: "granted bytes change", prepare: func() { backend.wire = append(append([]byte(nil), wire...), ' ') }},
-		{name: "provider schedule fails", prepare: func() { backend.rejectSchedule = true }},
+		{name: "provider schedule fails", prepare: func() { backend.rejectSchedule = true }, wantSchedules: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			backend.reset()
+			backend.mu.Lock()
 			backend.wire = wire
 			if test.prepare != nil {
 				test.prepare()
 			}
+			backend.mu.Unlock()
 			calls := 0
 			_, err := controller.RetireExpired(t.Context(), &vault, func(ctx context.Context, actual Binding) error {
 				calls++
@@ -150,23 +155,27 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 				}
 				return unused(ctx, actual)
 			})
-			if err == nil || backend.state != "ACTIVE" || backend.schedules > 1 || !backend.rejectSchedule && backend.schedules != 0 {
-				t.Fatalf("unsafe or retried retirement: state=%s schedules=%d error=%v", backend.state, backend.schedules, err)
+			state, schedules, _ := backend.observations()
+			if err == nil || state != "ACTIVE" || schedules != test.wantSchedules {
+				t.Fatalf("unsafe or retried retirement: state=%s schedules=%d error=%v", state, schedules, err)
 			}
 		})
 	}
 	backend.reset()
+	backend.mu.Lock()
 	backend.wire = wire
 	backend.loseReply = true
-	retired, err := controller.RetireExpired(t.Context(), &vault, unused)
-	if err != nil || len(retired) != 1 || backend.schedules != 1 || retired[0].TaskID != binding.TaskID || retired[0].MaterialSHA256 != sum(wire) || !retired[0].ExpiresAt.Equal(expires) || time.Until(retired[0].DeleteAt) < 24*time.Hour {
-		t.Fatalf("lost schedule reply was not recovered: count=%d schedules=%d error=%v", len(retired), backend.schedules, err)
+	backend.mu.Unlock()
+	retired, err = controller.RetireExpired(t.Context(), &vault, unused)
+	_, schedules, reads := backend.observations()
+	if err != nil || len(retired) != 1 || schedules != 1 || retired[0].TaskID != binding.TaskID || retired[0].MaterialSHA256 != sum(wire) || !retired[0].ExpiresAt.Equal(expires) || time.Until(retired[0].DeleteAt) < 24*time.Hour {
+		t.Fatalf("lost schedule reply was not recovered: count=%d schedules=%d error=%v", len(retired), schedules, err)
 	}
-	reads := backend.bundleReads
 	restarted := Controller{Authority: control, Reader: Reader{Bundles: &bundles, VaultID: backend.target.VaultID}, Target: backend.target}
 	retired, err = restarted.RetireExpired(t.Context(), &vault, func(context.Context, Binding) error { t.Fatal("pending deletion rechecked task"); return ErrMaterial })
-	if err != nil || len(retired) != 1 || retired[0].TaskID != "" || backend.schedules != 1 || backend.bundleReads != reads {
-		t.Fatalf("restart replayed deletion or read inaccessible bundle: schedules=%d bundles=%d error=%v", backend.schedules, backend.bundleReads, err)
+	_, schedules, afterReads := backend.observations()
+	if err != nil || len(retired) != 1 || retired[0].TaskID != "" || schedules != 1 || afterReads != reads {
+		t.Fatalf("restart replayed deletion or read inaccessible bundle: schedules=%d bundles=%d error=%v", schedules, afterReads, err)
 	}
 	if _, err := control.ReadFunctionGrant(t.Context(), binding.TaskID); err != nil {
 		t.Fatal("retirement removed the audit grant")
@@ -179,11 +188,13 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		backend.name = ref.Name
-		backend.wire, err = json.Marshal(orphan)
+		orphanWire, err := json.Marshal(orphan)
 		if err != nil {
 			t.Fatal(err)
 		}
+		backend.mu.Lock()
+		backend.name, backend.wire = ref.Name, orphanWire
+		backend.mu.Unlock()
 		checks := 0
 		retired, err := controller.RetireExpired(t.Context(), &vault, func(_ context.Context, candidate Binding) error {
 			checks++
@@ -192,8 +203,9 @@ func TestRetirementUsesConditionalOCIRequestsAndRecoversLostReply(t *testing.T) 
 			}
 			return nil
 		})
-		if err != nil || len(retired) != 1 || checks != 2 || backend.schedules != 1 || retired[0].TaskID != orphan.Binding.TaskID {
-			t.Fatalf("ungranted orphan not retired safely: count=%d checks=%d schedules=%d error=%v", len(retired), checks, backend.schedules, err)
+		_, schedules, _ := backend.observations()
+		if err != nil || len(retired) != 1 || checks != 2 || schedules != 1 || retired[0].TaskID != orphan.Binding.TaskID {
+			t.Fatalf("ungranted orphan not retired safely: count=%d checks=%d schedules=%d error=%v", len(retired), checks, schedules, err)
 		}
 	})
 }
@@ -207,6 +219,12 @@ type retirementBackend struct {
 	metadataReads, bundleReads, schedules   int
 	changeBundle, changeMetadata, loseReply bool
 	rejectSchedule                          bool
+}
+
+func (backend *retirementBackend) observations() (state string, schedules, bundles int) {
+	backend.mu.Lock()
+	defer backend.mu.Unlock()
+	return backend.state, backend.schedules, backend.bundleReads
 }
 
 func (backend *retirementBackend) reset() {

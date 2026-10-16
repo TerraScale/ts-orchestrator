@@ -52,6 +52,9 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 	prefix := cell.Name() + "-function-worker-"
 	names := regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) + `[0-9a-f]{64}$`)
 	epoch := controller.Authority.Current().Epoch
+	ctx = ociclient.WithAuthority(ctx, func(ctx context.Context) error {
+		return controller.Authority.Guard(ctx, epoch)
+	})
 	if err := controller.Authority.Guard(ctx, epoch); err != nil {
 		return nil, err
 	}
