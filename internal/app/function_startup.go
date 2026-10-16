@@ -14,7 +14,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -41,14 +40,18 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		return fail(errors.Join(errors.New("automatic functions require genuine sealed startup authority"), err))
 	}
 	manifest := startup.Manifest()
-	if strings.ToLower(string(manifest.Cell)) != cfg.NATS.Cell || manifest.Environment != roots.identity.Environment ||
+	if strings.ToLower(string(manifest.Cell)) != cfg.NATS.Cell || manifest.Slot != cfg.NATS.Instance || manifest.Environment != roots.identity.Environment ||
 		factory.Region() != catalog.OCIRegion(string(manifest.Cell)) || local.factory.Region() != factory.Region() ||
 		roots.identity.DeploymentID != manifest.DeploymentID {
 		return fail(errors.New("function startup differs from the current regional identity"))
 	}
-	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, startup.GrantWire(), roots.current(), local.anchor, oci.Region(manifest.Cell), time.Now().UTC())
+	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, startup.GrantWire(), roots.current(), local.anchor, manifest.Cell, time.Now().UTC())
 	if err != nil {
 		return fail(err)
+	}
+	address, err := template.SlotPrivateIP(manifest.Slot)
+	if err != nil || cfg.NATS.URL != "tls://"+address+":4222" {
+		return fail(errors.Join(errors.New("function broker endpoint differs from its signed controller slot"), err))
 	}
 	foundation, err := local.foundations.Resolve(ctx, string(manifest.Cell))
 	if err != nil {
@@ -107,7 +110,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		return fail(err)
 	}
 	channel := instancePrincipalChannel(factory.Region(), strings.ToUpper(cfg.NATS.Cell))
-	config := functionControllerConfig{Authority: control, Client: client, Roots: roots, Factory: factory,
+	config := functionControllerConfig{Authority: control, Startup: startup, Client: client, Roots: roots, Factory: factory,
 		Cell: cfg.NATS.Cell, Environment: manifest.Environment, Channel: channel, Retirement: management,
 		Material: functionmaterial.Controller{Authority: control, Conn: runtime.Conn(), Issuer: issuer,
 			Vault: management, Versions: management, Target: target,

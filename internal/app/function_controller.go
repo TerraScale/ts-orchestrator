@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
@@ -34,6 +35,7 @@ type functionWorkerRelease struct {
 // Function/task labels select records; neither labels nor a requested image grant authority.
 type functionControllerConfig struct {
 	Authority         *authority.Runtime
+	Startup           bootstrap.DerivedStartupAuthority
 	Material          functionmaterial.Controller
 	Retirement        functionmaterial.RetirementClient
 	Client            api.ControlClient
@@ -77,12 +79,15 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
+	if config.Authority == nil || !config.Startup.IsVerified() || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
 		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
 		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
 		!release.ValidRegion(strings.ToUpper(config.Cell)) || !release.ValidEnvironment(config.Environment) {
 		return nil, nil, errors.New("function controller requires current regional authority, release source, artifacts and manager")
+	}
+	if err := config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+		return nil, nil, err
 	}
 	config.Material.Authority = config.Authority
 	config.Material.Reader.Authority = config.Authority
@@ -286,6 +291,9 @@ func (controller functionController) recipient(ctx context.Context, registration
 	fail := func() (release.VerifiedFunction, error) {
 		return release.VerifiedFunction{}, errors.New("function material recipient is not the current assigned admitted host")
 	}
+	if err := controller.config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+		return release.VerifiedFunction{}, err
+	}
 	if !entityid.Valid(registration.ID) || binding.HostID != registration.ID || registration.Cell != strings.ToLower(controller.config.Cell) || registration.Environment != controller.config.Environment {
 		return fail()
 	}
@@ -372,6 +380,9 @@ func (controller functionController) recipient(ctx context.Context, registration
 	}
 	if err := ctx.Err(); err != nil {
 		return release.VerifiedFunction{}, fmt.Errorf("verify current function recipient: %w", err)
+	}
+	if err := controller.config.Startup.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
+		return release.VerifiedFunction{}, err
 	}
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return release.VerifiedFunction{}, err
