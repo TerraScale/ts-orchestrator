@@ -38,7 +38,7 @@ import (
 func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	writer, _, _ := reservationStoreHome(t, ctx)
+	writer, _, epoch := reservationStoreHome(t, ctx)
 	now := time.Now().UTC().Truncate(time.Second)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -166,6 +166,26 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	}
 	if _, found, err := ReadCapacity(ctx, &writer.Reader); err != nil || found {
 		t.Fatalf("denied observation created a commitment: found=%v err=%v", found, err)
+	}
+	demand := []Region{{Cell: "gru", Nodes: 1, Want: 2, Pressure: .9, At: time.Now(), NodeMonthlyCents: 1, ProjectedCents: 0, Currency: "USD"}}
+	held, err := AllocateInfrastructure(ctx, &writer.Reader, proof, snapshot, demand, nil, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "incomplete") || held.State != StateNone || held.Regions[0].Allowance != 1 || !held.Regions[0].GrantedAt.IsZero() {
+		t.Fatalf("signed planning with canceled costs trusted regional prices: capacity=%+v err=%v", held, err)
+	}
+	if err := WriteCapacity(ctx, writer, epoch, held); err != nil {
+		t.Fatal(err)
+	}
+	persisted, found, err := ReadCapacity(ctx, &writer.Reader)
+	if err != nil || !found || persisted.Regions[0].Allowance != 1 || len(persisted.Reservations) != 0 {
+		t.Fatalf("failed planning did not persist a hold: %+v found=%v err=%v", persisted, found, err)
+	}
+	monthly := Budget{Schema: Schema, ID: entityid.New(), MonthlyCapCents: 1000, Currency: "USD", SetBy: "integration", SetAt: time.Now()}
+	if err := WriteBudget(ctx, writer, epoch, monthly); err != nil {
+		t.Fatal(err)
+	}
+	held, err = AllocateInfrastructure(ctx, &writer.Reader, proof, snapshot, demand, &persisted, time.Now())
+	if err == nil || held.Regions[0].Allowance != 1 || len(held.Reservations) != 0 {
+		t.Fatalf("tenant budget bypassed incomplete infrastructure evidence: %+v err=%v", held, err)
 	}
 }
 
