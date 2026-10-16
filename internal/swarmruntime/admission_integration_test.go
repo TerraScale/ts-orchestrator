@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -32,5 +33,15 @@ func TestNodeAdmissionIntegration(t *testing.T) {
 	replayed, err := AdmitNode(ctx, client, worker.ID(), cfg.Admission)
 	if err != nil || replayed.Meta.Version.Index != node.Node.Meta.Version.Index {
 		t.Fatalf("admission not idempotent: %+v %v", replayed, err)
+	}
+	canonical := serviceConfig(t, entityid.Derive("registered-worker"), "container")
+	canonical.Admission.ManagerAddress, canonical.Admission.JoinToken = cfg.Admission.ManagerAddress, cfg.Admission.JoinToken
+	registered := serviceStart(t, ctx, canonical)
+	accepted, err := AdmitNode(ctx, client, registered.ID(), canonical.Admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Spec.Annotations.Name != canonical.Admission.HostID || accepted.Spec.Membership != api.NodeMembershipAccepted {
+		t.Fatal("canonical registration identity was replaced or not accepted")
 	}
 }
