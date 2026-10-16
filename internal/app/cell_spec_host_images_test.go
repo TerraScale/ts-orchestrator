@@ -19,9 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // testHostImage signs a release image receipt for imageID with a release
@@ -75,31 +73,21 @@ func testHostImage(t *testing.T, keys testSpecTrust, imageID string, issuedAt ti
 // the image's receipt is currently valid; revoking one is ordinary. Images
 // a replaced root qualified stay allowed through a root rotation.
 func TestSpecRegistryAdmitsOnlyCurrentlyQualifiedHostImages(t *testing.T) {
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	auth := newAuthenticatedNATS(t, "gru")
+	runtime, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := runtime.JetStream()
 	dir := t.TempDir()
 	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
-	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
-		Controller: ControllerConfig{SpecTrust: keys.config()}}, "member")
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{SpecTrust: keys.config()}}
+	newAcceptedSpecTrust(t, &cfg)
+	registry, err := newSpecRegistry(cfg, "member")
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry.roots.path = filepath.Join(t.TempDir(), "root-chain.json")
 	if err := registry.open(t.Context(), js, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -230,8 +218,9 @@ func TestServiceHostImageArguments(t *testing.T) {
 func TestSpecRegistryAdoptionWaitsForLaunches(t *testing.T) {
 	dir := t.TempDir()
 	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
-	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
-		Controller: ControllerConfig{SpecTrust: keys.config()}}, "member")
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{SpecTrust: keys.config()}}
+	newAcceptedSpecTrust(t, &cfg)
+	registry, err := newSpecRegistry(cfg, "member")
 	if err != nil {
 		t.Fatal(err)
 	}

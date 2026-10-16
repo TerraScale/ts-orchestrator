@@ -68,11 +68,12 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	// lets the operator release ts-auth and register its hosts.
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{environment}, CanRegisterHosts: true}
+	auth := newAuthenticatedNATS(t, "gru", "peer0", "peer1", "peer2")
 	children := make([]*controllerChild, 3)
 	for index := range children {
 		instance := fmt.Sprintf("peer%d", index)
-		config := testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
-			NATS: natscell.Config{Cell: "gru", Instance: instance, Replicas: 3, Lab: true, NKeySeedFile: controllerSeeds[index],
+		cfg := Config{Version: ConfigVersion,
+			NATS: natscell.Config{Cell: "gru", Instance: instance, Replicas: 3, NKeySeedFile: controllerSeeds[index],
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants}},
@@ -82,7 +83,10 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 					CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}},
 				SpecTrust: &SpecTrustConfig{RootPublicKeyFile: rootKey, DeploymentID: deployment,
 					Environment: environment}},
-		})
+		}
+		cfg.NATS = auth.config(t, cfg.NATS)
+		cfg.Controller.BrokerTicketKeyFile = auth.ticketPrivateFile
+		config := testJSONFile(t, root, instance+".json", cfg)
 		children[index] = startControllerChild(t, controllerCtx, root, config, 1, index)
 	}
 	t.Cleanup(func() {
@@ -98,11 +102,15 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 	}
 	ctx, cancelScenario := context.WithTimeout(controllerCtx, 4*time.Minute)
 	defer cancelScenario()
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 3, Lab: true,
+	operatorCfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 3,
 			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
-		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}})
+		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
+	operatorCfg.NATS.ClientRole = "operator"
+	operatorCfg.NATS = auth.config(t, operatorCfg.NATS)
+	operatorCfg.Operator.BrokerTicketPublicKeyFile = auth.ticketPublicFile
+	operatorConfig := testJSONFile(t, root, "operator.json", operatorCfg)
 	var output bytes.Buffer
 	run := func(args ...string) error {
 		output.Reset()
@@ -194,8 +202,8 @@ func TestCellSpecAddsTSAuthToARunningCell(t *testing.T) {
 		if err := run("operator", "host-register", "--config", operatorConfig, "--registration", registration); err != nil {
 			t.Fatal(err)
 		}
-		hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "host-" + node, Replicas: 3,
-			Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: hostKeys[node][1], ClientRole: "host"})
+		hostRuntime, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "host-" + node, Replicas: 3,
+			URL: strings.Join(urls, ","), NKeySeedFile: hostKeys[node][1], ClientRole: "host"})
 		if err != nil {
 			t.Fatal(err)
 		}

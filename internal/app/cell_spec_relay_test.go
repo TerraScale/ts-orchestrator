@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -18,9 +17,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 // TestRelayedCellSpecNeedsTheTargetsOwnTrust relays specs for SFO through
@@ -31,25 +27,12 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	dir := t.TempDir()
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true,
-		StoreDir: filepath.Join(dir, "jetstream")})
+	auth := newAuthenticatedNATS(t, "sfo")
+	runtime, err := auth.start(t, ctx, natscell.Config{Cell: "sfo", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := runtime.JetStream()
 	lead := func(scope string) *authority.Runtime {
 		t.Helper()
 		runtime, err := authority.Start(ctx, js, authority.Config{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Scope: scope, CandidateID: entityid.Derive("test-controller", scope), Replicas: 1,
@@ -86,12 +69,13 @@ func TestRelayedCellSpecNeedsTheTargetsOwnTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000TV3Q06FF4VNZW415", Cell: "sfo", Environment: "test"})
-	sfoConfig := Config{NATS: natscell.Config{Cell: "sfo", Lab: true}, Controller: ControllerConfig{
+	sfoConfig := Config{NATS: natscell.Config{Cell: "sfo"}, Controller: ControllerConfig{
 		TrustedSigners: []TrustedSignerConfig{grant("ops", opsPublic)}, SpecTrust: keys.config()}}
 	sfoPolicy, err := buildSignerPolicy(sfoConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
+	newAcceptedSpecTrust(t, &sfoConfig)
 	registry, err := newSpecRegistry(sfoConfig, "")
 	if err != nil {
 		t.Fatal(err)

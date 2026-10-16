@@ -234,7 +234,7 @@ func newChannelFixture(t *testing.T) *channelFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
 	control, err := newRolloutControl(cfg, signer.services(t), "")
 	if err != nil {
 		t.Fatal(err)

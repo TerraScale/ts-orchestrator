@@ -150,7 +150,8 @@ func testSpecRoots(t *testing.T) trust.Keyring {
 func TestSpecRegistryStartupRefusesRetiredStoredPolicy(t *testing.T) {
 	dir := t.TempDir()
 	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "test"})
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{SpecTrust: keys.config()}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{SpecTrust: keys.config()}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -197,9 +198,10 @@ func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	spec := workload.ServiceSpec{Role: "web", Environment: "test", Kind: workload.KindStateless,
 		Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}, "web": {Resources: resources}},
 		Autoscale: &AutoscaleConfig{Enabled: true, Services: []workload.ServiceSpec{spec}}}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -216,17 +218,15 @@ func TestSpecRegistryBaselineFromSignedConfig(t *testing.T) {
 	if _, specs := registry.effective(); len(specs) != 0 {
 		t.Fatalf("a disabled autoscale config reconciles %v", specs)
 	}
-	// A lab without spec_trust has no root chain and refuses every spec.
-	if registry.roots != nil || registry.roots.current() != nil {
-		t.Fatal("a lab without spec_trust has roots")
+	if registry.roots == nil || len(registry.roots.current()) == 0 {
+		t.Fatal("accepted image roots are missing")
 	}
-	if _, err := registry.verify([]byte("{}"), nil); err == nil || !strings.Contains(err.Error(), "no cell spec trust roots") {
-		t.Fatalf("a lab without spec_trust verified a spec: %v", err)
+	if _, err := registry.verify([]byte("{}"), nil); err == nil {
+		t.Fatal("accepted image roots verified an unsigned spec")
 	}
-	cfg.NATS.Lab = false
 	cfg.Controller.SpecTrust = &SpecTrustConfig{}
-	if _, err := newSpecRegistry(cfg, ""); err == nil || !strings.Contains(err.Error(), "lab setting") {
-		t.Fatalf("a production controller accepted lab spec trust: %v", err)
+	if _, err := newSpecRegistry(cfg, ""); err == nil || !strings.Contains(err.Error(), "image trust roots") {
+		t.Fatalf("a production controller accepted local spec trust: %v", err)
 	}
 }
 
@@ -248,8 +248,9 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
-	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
+	auth := newAuthenticatedNATS(t, "gru", "one")
+	controllerCfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
@@ -257,12 +258,18 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
 			SpecTrust: keys.config(), Global: &GlobalControlConfig{Home: "gru"}},
-	})
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+	}
+	auth.controller(t, &controllerCfg)
+	controllerConfig := testJSONFile(t, root, "controller.json", controllerCfg)
+	operatorCfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1,
 			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
-		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}})
+		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
+	operatorCfg.NATS.ClientRole = "operator"
+	operatorCfg.NATS = auth.config(t, operatorCfg.NATS)
+	operatorCfg.Operator.BrokerTicketPublicKeyFile = auth.ticketPublicFile
+	operatorConfig := testJSONFile(t, root, "operator.json", operatorCfg)
 	start := func() (context.CancelFunc, chan error) {
 		runCtx, stop := context.WithCancel(ctx)
 		output := &readyWriter{ready: make(chan struct{})}
@@ -390,7 +397,7 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 	// A holder of controller credentials writes an older signed spec, then a
 	// corrupt record, straight into the store: neither is adopted, and the
 	// next generation still applies on top of the adopted spec.
-	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
+	probe, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
 	if err != nil {
 		t.Fatal(err)
@@ -548,9 +555,10 @@ func TestCellSpecAmendsARunningController(t *testing.T) {
 // role or a listed TerraBase member.
 func TestSpecRegistryValidatesHostGrants(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{terrabase.Role: {Resources: resources, Env: map[string]string{
 			terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}}}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "member")
 	if err != nil {
 		t.Fatal(err)
@@ -633,10 +641,11 @@ func TestCellSpecTerraBaseSettingsAndReleasers(t *testing.T) {
 	resources := placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}
 	signed := WorkloadProfile{Resources: resources, Env: map[string]string{"TERRABASE_REGION": "gru-1",
 		terrabase.EnvPeerPort: "9443", terrabase.EnvPeers: "gru-1-db-1=10.251.0.21:9443"}}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		Workloads: map[string]WorkloadProfile{terrabase.Role: signed},
 		TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(make([]byte, ed25519.PublicKeySize)),
 			Roles: []string{terrabase.Role}, Environments: []string{"canary"}}}}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -736,7 +745,8 @@ func TestSpecRegistryTerraBaseEntryNeedsOnlyTheSignedMemberCA(t *testing.T) {
 	profile := staticTerraBaseWorkloads()[terrabase.Role]
 	spec := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 1,
 		Services: []cellspec.Service{{Role: terrabase.Role, Profile: profile}}}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
+	newAcceptedSpecTrust(t, &cfg)
 	without, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
