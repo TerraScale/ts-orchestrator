@@ -6,11 +6,13 @@ import (
 	"slices"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Scope, f *facts) error {
 	subnets, err := pages(func(page *string) ([]core.Subnet, *string, error) {
-		r, e := client.ListSubnets(ctx, core.ListSubnetsRequest{CompartmentId: new(s.Compartment), Page: page})
+		r, e := client.ListSubnets(ociclient.RequestContext(ctx), core.ListSubnetsRequest{CompartmentId: new(s.Compartment), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -19,7 +21,7 @@ func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Sco
 	if len(subnets) != 1 || text(subnets[0].Id) != s.Subnet || text(subnets[0].CompartmentId) != s.Compartment {
 		return errors.New("disposable compartment must contain only its exact approved subnet")
 	}
-	subnet, err := client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: new(s.Subnet)})
+	subnet, err := client.GetSubnet(ociclient.RequestContext(ctx), core.GetSubnetRequest{SubnetId: new(s.Subnet)})
 	if err != nil {
 		return err
 	}
@@ -30,7 +32,7 @@ func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Sco
 		subnet.ProhibitPublicIpOnVnic == nil || !*subnet.ProhibitPublicIpOnVnic || text(subnet.VcnId) == "" || text(subnet.RouteTableId) == "" || len(subnet.SecurityListIds) == 0 {
 		return errors.New("approved subnet is not isolated private IPv4 disposable network")
 	}
-	vcn, err := client.GetVcn(ctx, core.GetVcnRequest{VcnId: subnet.VcnId})
+	vcn, err := client.GetVcn(ociclient.RequestContext(ctx), core.GetVcnRequest{VcnId: subnet.VcnId})
 	if err != nil {
 		return err
 	}
@@ -39,7 +41,7 @@ func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Sco
 		text(vcn.CidrBlock) != s.VCNCIDR || (len(vcn.CidrBlocks) != 0 && !slices.Equal(vcn.CidrBlocks, []string{s.VCNCIDR})) || len(vcn.Ipv6CidrBlocks) != 0 {
 		return errors.New("VCN permits unapproved local network reachability")
 	}
-	route, err := client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: subnet.RouteTableId})
+	route, err := client.GetRouteTable(ociclient.RequestContext(ctx), core.GetRouteTableRequest{RtId: subnet.RouteTableId})
 	if err != nil {
 		return err
 	}
@@ -54,7 +56,7 @@ func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Sco
 	}
 	ssh, peers := false, false
 	for _, id := range ids {
-		list, err := client.GetSecurityList(ctx, core.GetSecurityListRequest{SecurityListId: new(id)})
+		list, err := client.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: new(id)})
 		if err != nil {
 			return err
 		}
@@ -96,14 +98,14 @@ func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Sco
 
 func observeHosts(ctx context.Context, network core.VirtualNetworkClient, compute core.ComputeClient, s Scope, f *facts) error {
 	addresses, err := pages(func(page *string) ([]core.PrivateIp, *string, error) {
-		r, e := network.ListPrivateIps(ctx, core.ListPrivateIpsRequest{SubnetId: new(s.Subnet), Page: page})
+		r, e := network.ListPrivateIps(ociclient.RequestContext(ctx), core.ListPrivateIpsRequest{SubnetId: new(s.Subnet), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
 		return err
 	}
 	attachments, err := pages(func(page *string) ([]core.VnicAttachment, *string, error) {
-		r, e := compute.ListVnicAttachments(ctx, core.ListVnicAttachmentsRequest{CompartmentId: new(s.Compartment), Page: page})
+		r, e := compute.ListVnicAttachments(ociclient.RequestContext(ctx), core.ListVnicAttachmentsRequest{CompartmentId: new(s.Compartment), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -128,14 +130,14 @@ func observeHosts(ctx context.Context, network core.VirtualNetworkClient, comput
 			return errors.New("subnet contains a host outside the sealed qualification journal; explicit recovery required")
 		}
 		seen[instanceID] = true
-		vnic, err := network.GetVnic(ctx, core.GetVnicRequest{VnicId: address.VnicId})
+		vnic, err := network.GetVnic(ociclient.RequestContext(ctx), core.GetVnicRequest{VnicId: address.VnicId})
 		if err != nil {
 			return err
 		}
 		if text(vnic.Id) != text(address.VnicId) || text(vnic.CompartmentId) != s.Compartment || text(vnic.SubnetId) != s.Subnet || len(vnic.NsgIds) != 0 || text(vnic.RouteTableId) != "" || text(vnic.PublicIp) != "" || len(vnic.Ipv6Addresses) != 0 {
 			return errors.New("host VNIC escapes approved subnet security boundary")
 		}
-		instance, err := compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(instanceID)})
+		instance, err := compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(instanceID)})
 		if err != nil {
 			return err
 		}

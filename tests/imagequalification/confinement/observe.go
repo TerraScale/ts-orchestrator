@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -88,6 +89,11 @@ type facts struct {
 
 func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scope, endpoint string, now time.Time) (Verified, error) {
 	fail := func(err error) (Verified, error) { return Verified{}, fmt.Errorf("disposable confinement: %w", err) }
+	for _, name := range ociclient.SecretUnsafeEnv {
+		if value, ok := os.LookupEnv(name); ok && value != "" {
+			return fail(errors.New("unsafe OCI SDK environment blocks confinement observation"))
+		}
+	}
 	if err := s.validate(now); err != nil {
 		return fail(err)
 	}
@@ -149,7 +155,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	ociclient.PinHost(&network.BaseClient, endpoint)
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
-	tenancy, err := iam.GetTenancy(ctx, identity.GetTenancyRequest{TenancyId: new(s.Tenancy)})
+	tenancy, err := iam.GetTenancy(ociclient.RequestContext(ctx), identity.GetTenancyRequest{TenancyId: new(s.Tenancy)})
 	if err != nil {
 		return fail(err)
 	}
@@ -163,7 +169,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	iam.SetRegion(home)
 	ociclient.PinHost(&iam.BaseClient, endpoint)
 	// An authenticated candidate request proves possession of its issued key.
-	namespace, err := objects.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
+	namespace, err := objects.GetNamespace(ociclient.RequestContext(ctx), objectstorage.GetNamespaceRequest{})
 	if err != nil {
 		return fail(err)
 	}
@@ -171,21 +177,21 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 		return fail(errors.New("authenticated candidate namespace differs"))
 	}
 	f := facts{Principal: s.Principal, Group: s.Group, Fingerprint: fingerprint, Namespace: *namespace.Value, IAMRegion: home}
-	user, err := iam.GetUser(ctx, identity.GetUserRequest{UserId: new(s.Principal)})
+	user, err := iam.GetUser(ociclient.RequestContext(ctx), identity.GetUserRequest{UserId: new(s.Principal)})
 	if err != nil {
 		return fail(err)
 	}
 	if text(user.Id) != s.Principal || text(user.CompartmentId) != s.Tenancy || user.LifecycleState != identity.UserLifecycleStateActive || text(user.IdentityProviderId) != "" || text(user.ExternalIdentifier) != "" {
 		return fail(errors.New("candidate is not the exact active local IAM user"))
 	}
-	keys, err := iam.ListApiKeys(ctx, identity.ListApiKeysRequest{UserId: new(s.Principal)})
+	keys, err := iam.ListApiKeys(ociclient.RequestContext(ctx), identity.ListApiKeysRequest{UserId: new(s.Principal)})
 	if err != nil {
 		return fail(err)
 	}
 	if len(keys.Items) != 1 || text(keys.Items[0].UserId) != s.Principal || text(keys.Items[0].Fingerprint) != fingerprint || keys.Items[0].LifecycleState != identity.ApiKeyLifecycleStateActive {
 		return fail(errors.New("candidate must have exactly its observed active API signing key"))
 	}
-	group, err := iam.GetGroup(ctx, identity.GetGroupRequest{GroupId: new(s.Group)})
+	group, err := iam.GetGroup(ociclient.RequestContext(ctx), identity.GetGroupRequest{GroupId: new(s.Group)})
 	if err != nil {
 		return fail(err)
 	}
@@ -193,7 +199,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 		return fail(errors.New("approved disposable group differs"))
 	}
 	memberships, err := pages(func(page *string) ([]identity.UserGroupMembership, *string, error) {
-		r, e := iam.ListUserGroupMemberships(ctx, identity.ListUserGroupMembershipsRequest{CompartmentId: new(s.Tenancy), UserId: new(s.Principal), Page: page})
+		r, e := iam.ListUserGroupMemberships(ociclient.RequestContext(ctx), identity.ListUserGroupMembershipsRequest{CompartmentId: new(s.Tenancy), UserId: new(s.Principal), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -205,7 +211,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	f.User = identity.User{Id: user.Id, CompartmentId: user.CompartmentId, Name: user.Name, LifecycleState: user.LifecycleState}
 	f.Memberships = memberships
 	groups, err := pages(func(page *string) ([]identity.Group, *string, error) {
-		r, e := iam.ListGroups(ctx, identity.ListGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
+		r, e := iam.ListGroups(ociclient.RequestContext(ctx), identity.ListGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -227,7 +233,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	}
 	slices.SortFunc(f.Groups, func(a, b identity.Group) int { return strings.Compare(text(a.Id), text(b.Id)) })
 	dynamic, err := pages(func(page *string) ([]identity.DynamicGroup, *string, error) {
-		r, e := iam.ListDynamicGroups(ctx, identity.ListDynamicGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
+		r, e := iam.ListDynamicGroups(ociclient.RequestContext(ctx), identity.ListDynamicGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -256,7 +262,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	}
 	slices.SortFunc(f.DynamicGroups, func(a, b identity.DynamicGroup) int { return strings.Compare(text(a.Id), text(b.Id)) })
 	compartments, err := pages(func(page *string) ([]identity.Compartment, *string, error) {
-		r, e := iam.ListCompartments(ctx, identity.ListCompartmentsRequest{CompartmentId: new(s.Tenancy), CompartmentIdInSubtree: new(true), AccessLevel: identity.ListCompartmentsAccessLevelAny, Page: page})
+		r, e := iam.ListCompartments(ociclient.RequestContext(ctx), identity.ListCompartmentsRequest{CompartmentId: new(s.Tenancy), CompartmentIdInSubtree: new(true), AccessLevel: identity.ListCompartmentsAccessLevelAny, Page: page})
 		return r.Items, r.OpcNextPage, e
 	})
 	if err != nil {
@@ -284,7 +290,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	approved := false
 	for _, compartment := range f.Compartments {
 		policies, err := pages(func(page *string) ([]identity.Policy, *string, error) {
-			r, e := iam.ListPolicies(ctx, identity.ListPoliciesRequest{CompartmentId: new(compartment), Page: page})
+			r, e := iam.ListPolicies(ociclient.RequestContext(ctx), identity.ListPoliciesRequest{CompartmentId: new(compartment), Page: page})
 			return r.Items, r.OpcNextPage, e
 		})
 		if err != nil {
@@ -296,7 +302,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 			}
 			f.Policies = append(f.Policies, policyFact{text(policy.Id), compartment, slices.Clone(policy.Statements)})
 			if text(policy.Id) == s.PolicyID {
-				if approved || !slices.Equal(policy.Statements, s.PolicyStatements) {
+				if approved || compartment != s.Tenancy || !slices.Equal(policy.Statements, s.PolicyStatements) {
 					return fail(errors.New("observed approved policy statements differ"))
 				}
 				approved = true
