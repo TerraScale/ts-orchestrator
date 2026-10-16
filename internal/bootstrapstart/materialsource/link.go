@@ -189,8 +189,5 @@ func (verified VerifiedLinkMaterial) Grant() region.VerifiedBootstrapMaterial {
 	return verified.material.Grant()
 }
 func (verified VerifiedLinkMaterial) VerifyCurrent(ctx context.Context) error {
-	if err := verified.material.VerifyCurrent(ctx); err != nil {
-		return err
-	}
-	return verified.material.source.link.verify(ctx)
+	return verified.material.VerifyCurrent(ctx)
 }
