@@ -60,6 +60,41 @@ func TestSignedServiceApplyHTTPRecovery(t *testing.T) {
 				if err := c.serviceApplyWith([]string{"--dir", outputDirectory, "--root-key", base.rootPath, "--namespace", "ns"}, f.env); err != nil {
 					t.Fatal(err)
 				}
+				// Renew root qualification while retaining the same durable content sequence.
+				for _, cell := range []string{"FRA", "GRU", "SFO"} {
+					wire, err := os.ReadFile(filepath.Join(f.directory, cell, "service.json"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					var bundle serviceBundle
+					if err := json.Unmarshal(wire, &bundle); err != nil {
+						t.Fatal(err)
+					}
+					record, err := bundle.verify(t.Context(), base.roots, cell, time.Now().UTC())
+					if err != nil {
+						t.Fatal(err)
+					}
+					candidate, err := serviceProductionCandidate(bundle, record)
+					if err != nil {
+						t.Fatal(err)
+					}
+					path := filepath.Join(f.directory, "production", cell, "amd64", "production.json")
+					previous, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer os.WriteFile(path, previous, 0o600)
+					qualification := writeProductionEvidence(t, filepath.Join(f.directory, "production"), candidate)
+					writeProductionRecord(t, path, qualification, base.rootPrivate, time.Now().UTC().Add(-30*time.Second), time.Now().UTC().Add(time.Hour))
+				}
+				renewedDirectory := t.TempDir()
+				args[1] = renewedDirectory
+				if err := c.serviceBundleWith(args, f.env); err != nil {
+					t.Fatal(err)
+				}
+				if err := c.serviceApplyWith([]string{"--dir", renewedDirectory, "--root-key", base.rootPath, "--namespace", "ns"}, f.env); err != nil {
+					t.Fatalf("renewed proof at original sequence: %v", err)
+				}
 				// Missing evidence must reject the exact candidate before opening the key.
 				for index, argument := range args {
 					if argument == "--signing-key" {
