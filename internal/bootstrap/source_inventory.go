@@ -24,12 +24,6 @@ type SourceInventoryActor struct {
 
 // RegionalSourceInventory binds public inventory to the original source escrow.
 // It contains no private material and is available before config publication.
-type SourceInventoryActor struct {
-	InstanceID     string `json:"instanceId"`
-	GrantDigest    string `json:"grantDigest"`
-	TemplateDigest string `json:"templateDigest"`
-}
-
 type RegionalSourceInventory struct {
 	SchemaVersion  int                  `json:"schemaVersion"`
 	Actor          SourceInventoryActor `json:"actor"`
