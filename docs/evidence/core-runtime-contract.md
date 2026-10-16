@@ -67,17 +67,31 @@ drain, process binding and compatibility proofs are connected.
 
 ## Evidence and remaining integration
 
-The executor's preliminary real-runtime scenario passed in 2.51 seconds: two
-distinct agent processes recovered the same running PID, identity changes were
-rejected, bounded logs survived agent exit, usage was observed, shutdown worked
-and removal was idempotent. The final exact source adds further checks and must
-retain its own result. No fleet or architecture claim follows from that timing.
+The real-runtime executor scenario passed in 2.65 seconds: two distinct agent
+processes recovered the same running PID, identity changes were rejected,
+non-root/read-only enforcement and bounded logs were observed, a dead logger
+was rejected, usage was observed, shutdown worked and removal was idempotent.
+The separate host-port recovery scenario passed in 2.25 seconds.
+
+The combined embedded-manager/agent/containerd/runc/HTTP scenario passed in
+4.87 seconds. Service `9j16x60efgzu0qm8jfyxb292s` retained task
+`mskselo4vpm7y2jw20t49xmzn` and PID `3381976` across the node restart; HTTP
+readiness stayed available while the node was stopped. Removing the service
+removed the actual container. The isolated runtime namespace was empty afterward.
+Raw local logs are under `/tmp/ts-core-runtime.45lrvd/evidence/`:
+`combined-runtime-final.log` (executor and ports), and
+`combined-runtime-recovery.log` (combined restart). The former also records the
+first combined failure: its BusyBox fixture lacked `httpd`. The passing fixture
+uses BusyBox's persistent `nc -lk -e` HTTP responder. No fleet or architecture
+claim follows from these local timings.
 
 The combined manager/agent/containerd/runc/HTTP scenario and duplicate-port
 recovery scenario live beside the executor integration test. They require an
 explicit disposable daemon socket; an absent daemon fails rather than skips.
 Runtime logger subprocesses use the same binary through its internal
 `--runtime-logger <log-root>` entrypoint.
+The logger also accepts only the three fixed `terrascale-netbird` foundation
+container identities; NET owns qualification of those separate lifecycle paths.
 
 Production wiring still needs the verified foundation/admission producer,
 automatic Vault join-material delivery, typed admitted OCI release consumer,

@@ -53,7 +53,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
-	command := fmt.Sprintf("trap 'exit 0' TERM; while :; do printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 5\\r\\nConnection: close\\r\\n\\r\\nready' | nc -l -p %d; done", port)
+	command := fmt.Sprintf("exec nc -lk -p %d -e /bin/sh -c \"printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 5\\r\\nConnection: close\\r\\n\\r\\nready'\"", port)
 	service, err := applyService(ctx, client, ServiceIntent{
 		ID: "runtime-restart", Role: "smoke", Region: "gru", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
 		Container: &api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", command}},
@@ -99,6 +99,27 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 			}
 		}
 		return taskID != "", nil
+	})
+	scheduled, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: taskID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
+		defer stop()
+		runtime, err := NewExecutor(*integrationSocket, state)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer runtime.Close()
+		controller, err := runtime.Controller(scheduled.Task)
+		if err == nil {
+			err = controller.Remove(cleanup)
+		}
+		if err != nil {
+			t.Error(err)
+		}
 	})
 	container, err := e.client.LoadContainer(runtimeContext(ctx), "ts-"+taskID)
 	if err != nil {
