@@ -14,6 +14,7 @@ const (
 	ProductionQualificationDomain = "terrascale.release.production-qualification"
 	ProductionQualificationSchema = "terrascale.release.production-qualification.v1"
 	ProductionRuntime             = "swarmkit-containerd"
+	NetBirdProductionRuntime      = "netbird-containerd"
 	MaxProductionEvidenceBytes    = 64 << 20
 )
 
@@ -58,9 +59,16 @@ func ProductionQualificationScope(candidate ProductionExpectation) trust.Scope {
 // The caller must also verify the referenced retained evidence bytes.
 func VerifyProductionCurrent(wire, delegationWire []byte, roots trust.Keyring, expected ProductionExpectation, now time.Time) (ProductionQualification, error) {
 	var qualification ProductionQualification
+	gates := [2]string{"runtime-ha", "workload-safety"}
+	validRuntime := expected.Runtime == ProductionRuntime
+	if expected.Role == "netbird-manager" || expected.Runtime == NetBirdProductionRuntime {
+		validRuntime = expected.Role == "netbird-manager" && expected.Runtime == NetBirdProductionRuntime &&
+			expected.Cell == "GRU" && expected.Architecture == "arm64"
+		gates = [2]string{"netbird-foundation", "netbird-recovery"}
+	}
 	if !ValidSourceRevision(expected.SourceRevision) || !digestPattern.MatchString(expected.ArtifactSHA256) ||
 		!digestPattern.MatchString(expected.QualificationSHA256) || !ValidRegion(expected.Cell) ||
-		!ValidEnvironment(expected.Environment) || expected.Runtime != ProductionRuntime ||
+		!ValidEnvironment(expected.Environment) || !validRuntime ||
 		expected.Architecture != "amd64" && expected.Architecture != "arm64" || !serviceRolePattern.MatchString(expected.Role) {
 		return qualification, fmt.Errorf("%w: candidate scope", ErrProductionQualification)
 	}
@@ -92,7 +100,7 @@ func VerifyProductionCurrent(wire, delegationWire []byte, roots trust.Keyring, e
 	if qualification.Schema != ProductionQualificationSchema || qualification.Candidate != expected || len(qualification.Evidence) != 2 {
 		return qualification, fmt.Errorf("%w: candidate or required gates", ErrProductionQualification)
 	}
-	for index, gate := range []string{"runtime-ha", "workload-safety"} {
+	for index, gate := range gates {
 		evidence := qualification.Evidence[index]
 		if evidence.Gate != gate || !digestPattern.MatchString(evidence.SHA256) ||
 			evidence.Bytes <= 0 || evidence.Bytes > MaxProductionEvidenceBytes || evidence.CompletedAt.IsZero() ||

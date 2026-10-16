@@ -45,6 +45,22 @@ func VerifyQualifiedBinaryUpdateCurrent(wire, delegationWire []byte, roots trust
 		productionBinaryExpectation(binary.Receipt(), expected), now); err != nil {
 		return VerifiedBinary{}, err
 	}
+	qualification, err := trust.DecodeEnvelope(receipt.Production.Qualification)
+	if err != nil {
+		return VerifiedBinary{}, err
+	}
+	if qualification.ExpiresAt.Before(binary.proof.expiresAt) {
+		binary.proof.expiresAt = qualification.ExpiresAt
+	}
+	if len(receipt.Production.Delegation) > 0 {
+		delegation, err := trust.DecodeEnvelope(receipt.Production.Delegation)
+		if err != nil {
+			return VerifiedBinary{}, err
+		}
+		if delegation.ExpiresAt.Before(binary.proof.expiresAt) {
+			binary.proof.expiresAt = delegation.ExpiresAt
+		}
+	}
 	return binary, nil
 }
 

@@ -16,6 +16,11 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 	if s.Factory == nil || progress.BeforeWrite == nil || progress.Checkpoint == nil || progress.CheckpointAuxiliary == nil || progress.PrepareCreate == nil {
 		return nil, errors.New("foundation SDK requires authenticated client, authority and checkpoints")
 	}
+	if progress.ManagerAuthority != nil {
+		if _, err := progress.ManagerAuthority(ctx); err != nil {
+			return nil, err
+		}
+	}
 	region, ok := plan["region"].(string)
 	if !ok {
 		return nil, errors.New("foundation plan requires OCI region")
@@ -45,5 +50,14 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 		release()
 		return guardCtx.Err()
 	}
-	return provider.Reconcile(ctx, plan)
+	bound, err := provider.Reconcile(ctx, plan)
+	if err != nil {
+		return nil, err
+	}
+	if progress.ManagerAuthority != nil {
+		if err := reconcileNetBirdManager(ctx, factory, bound, progress); err != nil {
+			return nil, err
+		}
+	}
+	return bound, nil
 }

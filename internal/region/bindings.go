@@ -110,6 +110,13 @@ func hasFoundationReference(startup BootstrapStartupIntent) bool {
 			return true
 		}
 	}
+	if startup.FounderResources != nil {
+		for _, slot := range startup.FounderResources.Slots {
+			if strings.HasPrefix(slot.ImageCompartmentOCID, "foundation:") {
+				return true
+			}
+		}
+	}
 	if startup.ManagedMaterial != nil {
 		domain := startup.ManagedMaterial
 		return strings.HasPrefix(domain.KMSKeyOCID, "foundation:") || strings.HasPrefix(domain.MemberCompartmentOCID, "foundation:") || strings.HasPrefix(domain.MemberSubnetOCID, "foundation:")

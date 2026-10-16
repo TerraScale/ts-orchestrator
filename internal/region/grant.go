@@ -35,18 +35,20 @@ var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pe
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
-	InstallationID      string                     `json:"installationId"`
-	SchemaVersion       int                        `json:"schemaVersion"`
-	Generation          uint64                     `json:"generation"`
-	TenancyID           string                     `json:"tenancyId"`
-	ParentCompartmentID string                     `json:"parentCompartmentId"`
-	SharedCompartmentID string                     `json:"sharedCompartmentId"`
-	Currency            string                     `json:"currency"`
-	MonthlyLimitMinor   int64                      `json:"monthlyLimitMinor"`
-	CleanupOwner        string                     `json:"cleanupOwner"`
-	Regions             []FoundationIntent         `json:"regions"`
-	InfrastructureSpend *InfrastructureSpendIntent `json:"infrastructureSpend,omitempty"`
-	OCIRIssuance        *OCIRIssuerIntent          `json:"ocirIssuance,omitempty"`
+	WorkerProfiles      []WorkerProfile                   `json:"workerProfiles,omitempty"`
+	ReleaseAuthorities  []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
+	InstallationID      string                            `json:"installationId"`
+	SchemaVersion       int                               `json:"schemaVersion"`
+	Generation          uint64                            `json:"generation"`
+	TenancyID           string                            `json:"tenancyId"`
+	ParentCompartmentID string                            `json:"parentCompartmentId"`
+	SharedCompartmentID string                            `json:"sharedCompartmentId"`
+	Currency            string                            `json:"currency"`
+	MonthlyLimitMinor   int64                             `json:"monthlyLimitMinor"`
+	CleanupOwner        string                            `json:"cleanupOwner"`
+	Regions             []FoundationIntent                `json:"regions"`
+	InfrastructureSpend *InfrastructureSpendIntent        `json:"infrastructureSpend,omitempty"`
+	OCIRIssuance        *OCIRIssuerIntent                 `json:"ocirIssuance,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
@@ -306,16 +308,17 @@ func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config b
 // create or install a grant. Its trust/storage identity comes from a currently
 // verified controller bootstrap anchor.
 type SignedFootprint struct {
-	retainedGrant []byte
-	client        FoundationObjects
-	storage       bootstrap.StorageDomain
-	scope         trust.Scope
-	expires       time.Time
-	roots         trust.Keyring
-	tenancy       string
-	home          bootstrap.FoundationScope
-	local         bootstrap.BootstrapAnchor
-	factory       *ociclient.Factory
+	bootstrapAnchor bootstrap.VerifiedBootstrapAnchor
+	factory         *ociclient.Factory
+	retainedGrant   []byte
+	client          FoundationObjects
+	storage         bootstrap.StorageDomain
+	scope           trust.Scope
+	expires         time.Time
+	roots           trust.Keyring
+	tenancy         string
+	home            bootstrap.FoundationScope
+	local           bootstrap.BootstrapAnchor
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
@@ -337,7 +340,7 @@ func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBoots
 		return nil, errors.New("authenticated tenancy differs from signed home reference")
 	}
 	identity := anchor.Anchor()
-	return &SignedFootprint{client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
+	return &SignedFootprint{bootstrapAnchor: anchor, client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
 		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), tenancy: tenancy}, nil
 }
 

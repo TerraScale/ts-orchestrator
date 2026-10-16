@@ -47,6 +47,7 @@ type FoundationIntent struct {
 	Plan              map[string]any           `json:"plan"`
 	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
 	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
+	NetBirdManager    *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
 }
 
 // FoundationIntentDigest binds every signed authority field to its generation.
@@ -91,6 +92,10 @@ type FoundationProgress struct {
 	AuxiliaryIDs        map[string]string
 	CheckpointAuxiliary func(context.Context, string, string) error
 	PrepareCreate       func(context.Context, foundation.CreateIdentity, bool) error
+	NetBirdManager      *NetBirdManagerLaunch
+	ManagerAuthority    func(context.Context) (verifiedNetBirdIntent, error)
+	ManagerAllocation   func(context.Context, string) (VerifiedBootstrapAllocation, error)
+	CheckpointManager   func(context.Context, NetBirdManagerLaunch) error
 }
 
 type PendingFoundationCreate struct {
@@ -112,6 +117,8 @@ type FoundationResourceProvenance struct {
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
+	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
+	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
 	SchemaVersion       int                                     `json:"schemaVersion"`
 	Cell                string                                  `json:"cell"`
 	OCIRegion           string                                  `json:"ociRegion"`
@@ -133,8 +140,8 @@ type FoundationRecord struct {
 	AuxiliaryIDs        map[string]string                       `json:"auxiliaryIds,omitempty"`
 	PendingCreates      map[string]PendingFoundationCreate      `json:"pendingCreates,omitempty"`
 	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
-	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
-	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
+	NetBirdManager      *NetBirdManagerLaunch                   `json:"netbirdManager,omitempty"`
+	WorkerPolicyIDs     map[string]WorkerPolicyRecord           `json:"workerPolicyIds,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -264,7 +271,7 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			return current, errors.New("foundation record belongs to another authorized scope")
 		}
 		if epoch < current.Epoch || intent.Generation < current.Generation || intent.Generation == current.Generation && digest != current.IntentDigest {
-			return current, ErrFoundationFenced
+			return current, fmt.Errorf("%w: signed generation or full intent differs from the protected record; preserve the journal and follow docs/foundation-binding-recovery.md", ErrFoundationFenced)
 		}
 		if current.LeaseID != "" && now.Before(current.ExpiresAt) && epoch <= current.Epoch {
 			return current, ErrFoundationBusy
@@ -336,6 +343,17 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}()
 	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
 		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+	if intent.NetBirdManager != nil {
+		reader, ok := c.Footprint.(*SignedFootprint)
+		if !ok || cell != "GRU" {
+			close(stopped)
+			<-renewed
+			return attempt.finish(ctx, errors.New("NetBird manager requires the same signed GRU foundation grant"))
+		}
+		resolver := FoundationResolver{Footprint: c.Footprint, Store: c.Store}
+		progress.ManagerAuthority, progress.ManagerAllocation = reader.authorizedNetBirdManager, resolver.BootstrapAllocation
+		progress.NetBirdManager, progress.CheckpointManager = current.NetBirdManager, attempt.checkpointManager
+	}
 	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, progress)
 	close(stopped)
 	<-renewed
@@ -463,6 +481,26 @@ func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id str
 	return a.update(ctx)
 }
 
+func (a *foundationAttempt) checkpointManager(ctx context.Context, next NetBirdManagerLaunch) error {
+	if err := next.validate(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if old := a.record.NetBirdManager; old != nil {
+		previous := *old
+		if previous.InstanceID != "" && previous.InstanceID != next.InstanceID || previous.BootVolumeID != "" && previous.BootVolumeID != next.BootVolumeID {
+			return errors.New("dedicated manager singleton identity cannot be replaced")
+		}
+		previous.InstanceID, previous.BootVolumeID = next.InstanceID, next.BootVolumeID
+		if previous != next {
+			return errors.New("dedicated manager immutable reservation changed")
+		}
+	}
+	a.record.NetBirdManager = &next
+	return a.update(ctx)
+}
+
 func (a *foundationAttempt) completeCreate(key, id string) error {
 	if original, exists := a.record.ResourceProvenance[key]; exists {
 		if original.ResourceID != id {
@@ -537,7 +575,8 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.ResourceIDs = maps.Clone(result.ResourceIDs)
 	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
 	result.PendingCreates = maps.Clone(result.PendingCreates)
-	result.SourcePolicyIDs = maps.Clone(result.SourcePolicyIDs)
+	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
+	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
 	return result, errors.Join(providerErr, err)
 }

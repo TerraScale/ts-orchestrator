@@ -154,12 +154,26 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid resource identity")
 		}
 	}
+	// Retained worker grants are finite; wire size remains independently bounded.
+	if len(r.WorkerPolicyIDs) > 256 {
+		return errors.New("worker IAM journal exceeds its fixed bound")
+	}
+	for key, worker := range r.WorkerPolicyIDs {
+		if err := worker.validate(key); err != nil {
+			return err
+		}
+	}
 	if len(r.SourcePolicyIDs) > 64 {
 		return errors.New("source policy reservations exceed their fixed bound")
 	}
 	for key, source := range r.SourcePolicyIDs {
 		if err := source.validate(key); err != nil {
 			return err
+		}
+	}
+	if r.NetBirdManager != nil {
+		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil {
+			return errors.New("dedicated NetBird manager checkpoint is invalid")
 		}
 	}
 	if r.GrantSHA256 != "" && !validFoundationDigest(r.GrantSHA256) || len(r.ResourceProvenance) > 128 {
@@ -178,7 +192,7 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation resource provenance differs from current generation")
 		}
 	}
-	if len(r.AuxiliaryIDs) > 6 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
+	if len(r.AuxiliaryIDs) > 12 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
 		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
 	}
 	for key, id := range r.AuxiliaryIDs {
@@ -203,6 +217,18 @@ func validAuxiliaryID(key, id, region string) bool {
 		region = ""
 	case "ledger_bucket", "head_bucket", "backup_bucket", "material_bucket":
 		kind = "bucket"
+	case "netbird_manager_vcn":
+		kind = "vcn"
+	case "netbird_manager_internet_gateway":
+		kind = "internetgateway"
+	case "netbird_manager_route":
+		kind = "routetable"
+	case "netbird_manager_security_list":
+		kind = "securitylist"
+	case "netbird_manager_subnet":
+		kind = "subnet"
+	case "netbird_manager_nsg":
+		kind = "networksecuritygroup"
 	default:
 		return false
 	}

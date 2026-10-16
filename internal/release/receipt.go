@@ -83,6 +83,8 @@ type ImageReceipt struct {
 	OCIImageOCID        string           `json:"oci_image_ocid"`
 	OCIRegion           string           `json:"oci_region"`
 	Production          *ProductionProof `json:"production,omitempty"`
+	// HostProduction carries independent isolation proofs; each selected host role verifies its own proof.
+	HostProduction map[string]ProductionProof `json:"host_production,omitempty"`
 }
 
 // BinaryExpectation limits verification to a release environment. The binary
