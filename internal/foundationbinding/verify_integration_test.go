@@ -389,3 +389,44 @@ func TestLogicalBindingsRevalidationRejectsRevokedActiveGrant(t *testing.T) {
 		t.Fatal("old signed wire remained authorized after active grant changed")
 	}
 }
+
+func TestLogicalBindingsNarrowActiveFoundationToCompletedBirths(t *testing.T) {
+	s := newBindingScenario(t)
+	s.authority.Keys = []string{"control_compartment"}
+	s.record.Stage, s.record.LeaseID = "foundation", entityid.New()
+	s.record.ExpiresAt = time.Now().Add(time.Minute)
+	s.record.CompletedAt = time.Time{}
+	s.record.PendingCreates = map[string]pendingCreate{"subnet": {OperationID: s.record.OperationID}}
+	for key := range s.record.ResourceIDs {
+		if key != "control_compartment" {
+			delete(s.record.ResourceIDs, key)
+			delete(s.record.ResourceProvenance, key)
+		}
+	}
+	proof := s.record.ResourceProvenance["control_compartment"]
+	proof.Create.Request.RetryToken = ""
+	s.record.ResourceProvenance["control_compartment"] = proof
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := verified.Resolve("foundation:SFO:control_compartment"); err != nil || got != s.record.ResourceIDs["control_compartment"] {
+		t.Fatalf("active completed compartment %s %v", got, err)
+	}
+	if _, err := verified.Resolve("foundation:SFO:key"); err == nil {
+		t.Fatal("narrowed proof resolved future key")
+	}
+	s.authority.Keys[0] = "key"
+	if err := verified.Revalidate(t.Context()); err != nil {
+		t.Fatal("caller mutated sealed key subset:", err)
+	}
+	s.record.PendingCreates["control_compartment"] = pendingCreate{OperationID: s.record.OperationID}
+	if err := verified.Revalidate(t.Context()); err == nil {
+		t.Fatal("resolved a resource with a pending create")
+	}
+	delete(s.record.PendingCreates, "control_compartment")
+	s.record.ExpiresAt = time.Now().Add(-time.Second)
+	if err := verified.Revalidate(t.Context()); err == nil {
+		t.Fatal("resolved a resource from an expired active lease")
+	}
+}

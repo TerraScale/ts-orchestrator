@@ -14,6 +14,7 @@ import (
 	"maps"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -44,6 +45,7 @@ type Authority struct {
 	Bucket         string
 	Prefix         string
 	Cell           string
+	Keys           []string
 }
 
 // VerifiedBindings has no public constructor from observed IDs or maps.
@@ -248,6 +250,16 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 			}
 		}
 	}
+	if len(authority.Keys) != 0 {
+		narrowed := map[string]bool{}
+		for _, key := range authority.Keys {
+			if !requested[key] || narrowed[key] {
+				return VerifiedBindings{}, errors.New("requested foundation roles are outside the signed reference set or repeated")
+			}
+			narrowed[key] = true
+		}
+		requested = narrowed
+	}
 	if len(requested) == 0 {
 		return VerifiedBindings{}, errors.New("signed grant contains no logical references for this cell")
 	}
@@ -264,6 +276,7 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if err := observe(ctx, factory, selected.Plan, current); err != nil {
 		return VerifiedBindings{}, err
 	}
+	authority.Keys = slices.Clone(authority.Keys)
 	authority.Roots = maps.Clone(authority.Roots)
 	for key, public := range authority.Roots {
 		authority.Roots[key] = ed25519.PublicKey(bytes.Clone(public))
@@ -338,14 +351,28 @@ func validateRecord(current record, approved grant, authority Authority, intentD
 		current.TenancyID != authority.TenancyID || current.ParentCompartmentID != approved.ParentCompartmentID || current.SharedCompartmentID != approved.SharedCompartmentID ||
 		current.Generation != authority.Generation || current.GrantSHA256 != authority.GrantSHA256 || current.IntentDigest != intentDigest ||
 		current.OperationID != entityid.Derive("regional-foundation", authority.TenancyID, authority.Cell, fmt.Sprint(authority.Generation)) ||
-		current.Epoch == 0 || current.Stage != "reconciled" || current.LeaseID != "" || !current.ExpiresAt.IsZero() || current.BlockedReason != "" || len(current.PendingCreates) != 0 ||
-		current.StartedAt.IsZero() || current.UpdatedAt.Before(current.StartedAt) || current.CompletedAt.Before(current.StartedAt) || current.CompletedAt.After(current.UpdatedAt) ||
-		len(current.ResourceIDs) > 128 || len(current.ResourceProvenance) > 128 {
+		current.Epoch == 0 || current.StartedAt.IsZero() || current.UpdatedAt.Before(current.StartedAt) || current.BlockedReason != "" ||
+		len(current.ResourceIDs) > 128 || len(current.ResourceProvenance) > 128 || len(current.PendingCreates) > 64 {
 		return errors.New("foundation record lacks the current reconciled signed operation")
+	}
+	switch current.Stage {
+	case "reconciled":
+		if current.LeaseID != "" || !current.ExpiresAt.IsZero() || current.CompletedAt.Before(current.StartedAt) || current.CompletedAt.After(current.UpdatedAt) || len(current.PendingCreates) != 0 {
+			return errors.New("foundation record has an invalid reconciled outcome")
+		}
+	case "foundation":
+		if !entityid.Valid(current.LeaseID) || !current.ExpiresAt.After(time.Now()) || !current.ExpiresAt.After(current.UpdatedAt) || !current.CompletedAt.IsZero() {
+			return errors.New("foundation record has no current scoped create lease")
+		}
+	default:
+		return errors.New("foundation record is neither active nor reconciled")
 	}
 	needed := dependencyClosure(requested)
 	pins := plan["resource_ids"].(map[string]any)
 	for key := range needed {
+		if _, pending := current.PendingCreates[key]; pending {
+			return fmt.Errorf("foundation %s create is still pending", key)
+		}
 		id := current.ResourceIDs[key]
 		if id == "" {
 			return fmt.Errorf("foundation record lacks required %s", key)
