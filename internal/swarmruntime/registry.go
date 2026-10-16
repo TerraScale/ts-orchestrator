@@ -24,6 +24,8 @@ type RegistryAdmission struct {
 	Scope                          ociregistry.PullScope
 	Secret                         ociregistry.PullSecret
 	Claim                          ociregistry.PullClaim
+	// VerifyCurrent rechecks retained task and finite authority after Vault work.
+	VerifyCurrent func(context.Context) error
 }
 
 // NewOCIRegistryResolver reads admitted private credentials automatically for
@@ -50,7 +52,7 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 		}
 		approved := *admitted
 		admitted = &approved
-		if node == nil || node.ID == "" || task.NodeID != node.ID || admitted.ServiceID != task.ServiceID ||
+		if admitted.VerifyCurrent == nil || node == nil || node.ID == "" || task.NodeID != node.ID || admitted.ServiceID != task.ServiceID ||
 			admitted.Environment == "" || admitted.Region == "" ||
 			node.Spec.Annotations.Labels[LabelRegion] != admitted.Region ||
 			task.ServiceAnnotations.Labels[LabelEnvironment] != admitted.Environment ||
@@ -62,6 +64,12 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 		credentials, err := secrets.Resolve(ctx, admitted.Claim, admitted.Scope, admitted.Secret)
 		if err != nil {
 			return nil, errors.New("registry Vault credential unavailable")
+		}
+		if err := admitted.VerifyCurrent(ctx); err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
 		return privateRegistryResolver(spec.Image, admitted.Scope.RegistryHost, credentials.ForHost, nil), nil
 	}, nil
