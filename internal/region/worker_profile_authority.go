@@ -121,20 +121,8 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 		if bindings.ExpiresAt().Before(deadline) {
 			deadline = bindings.ExpiresAt()
 		}
-		if image.ExpiresAt().Before(deadline) {
-			deadline = image.ExpiresAt()
-		}
-		for _, wire := range [][]byte{current.DelegationWire, current.QualificationWire, current.QualificationDelegationWire} {
-			if len(wire) == 0 {
-				continue
-			}
-			envelope, err := trust.DecodeEnvelope(wire)
-			if err != nil {
-				return nil, err
-			}
-			if envelope.ExpiresAt.Before(deadline) {
-				deadline = envelope.ExpiresAt
-			}
+		if current.ExpiresAt.Before(deadline) {
+			deadline = current.ExpiresAt
 		}
 		result = append(result, VerifiedWorkerProfile{profile: cloneWorkerProfile(profile), image: image, grantDigest: s.home.GrantSHA256,
 			generation: grant.Generation, expires: deadline, reader: s, bindings: bindings})
