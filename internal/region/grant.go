@@ -308,16 +308,17 @@ func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config b
 // create or install a grant. Its trust/storage identity comes from a currently
 // verified controller bootstrap anchor.
 type SignedFootprint struct {
-	factory       *ociclient.Factory
-	retainedGrant []byte
-	client        FoundationObjects
-	storage       bootstrap.StorageDomain
-	scope         trust.Scope
-	expires       time.Time
-	roots         trust.Keyring
-	tenancy       string
-	home          bootstrap.FoundationScope
-	local         bootstrap.BootstrapAnchor
+	bootstrapAnchor bootstrap.VerifiedBootstrapAnchor
+	factory         *ociclient.Factory
+	retainedGrant   []byte
+	client          FoundationObjects
+	storage         bootstrap.StorageDomain
+	scope           trust.Scope
+	expires         time.Time
+	roots           trust.Keyring
+	tenancy         string
+	home            bootstrap.FoundationScope
+	local           bootstrap.BootstrapAnchor
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
@@ -339,7 +340,7 @@ func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBoots
 		return nil, errors.New("authenticated tenancy differs from signed home reference")
 	}
 	identity := anchor.Anchor()
-	return &SignedFootprint{client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
+	return &SignedFootprint{bootstrapAnchor: anchor, client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
 		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), tenancy: tenancy}, nil
 }
 
