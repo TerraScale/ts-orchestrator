@@ -16,14 +16,21 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
+type SourceInventoryActor struct {
+	InstanceID     string `json:"instanceId"`
+	GrantDigest    string `json:"grantDigest"`
+	TemplateDigest string `json:"templateDigest"`
+}
+
 // RegionalSourceInventory binds public inventory to the original source escrow.
 // It contains no private material and is available before config publication.
 type RegionalSourceInventory struct {
-	SchemaVersion  int    `json:"schemaVersion"`
-	GrantSHA256    string `json:"grantSha256"`
-	PlanSHA256     string `json:"planSha256"`
-	SourceSHA256   string `json:"sourceSha256"`
-	MaterialRecord []byte `json:"materialRecord"`
+	SchemaVersion  int                  `json:"schemaVersion"`
+	Actor          SourceInventoryActor `json:"actor"`
+	GrantSHA256    string               `json:"grantSha256"`
+	PlanSHA256     string               `json:"planSha256"`
+	SourceSHA256   string               `json:"sourceSha256"`
+	MaterialRecord []byte               `json:"materialRecord"`
 }
 
 type VerifiedRegionalSource struct {
@@ -35,6 +42,9 @@ type VerifiedRegionalSource struct {
 	expiresAt time.Time
 }
 
+func (source VerifiedRegionalSource) OriginalActor() SourceInventoryActor {
+	return source.binding.Actor
+}
 func (source VerifiedRegionalSource) IsVerified() bool {
 	return source.client != nil && source.template.IsVerified() && len(source.wire) > 0
 }
@@ -91,13 +101,14 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	var state struct {
-		SchemaVersion  int                `json:"schemaVersion"`
-		Kind           string             `json:"kind"`
-		InstallationID string             `json:"installationId"`
-		Cell           string             `json:"cell"`
-		Generation     uint64             `json:"generation"`
-		PlanSHA256     string             `json:"planSha256"`
-		Target         StartupVaultTarget `json:"target"`
+		Actor          SourceInventoryActor `json:"actor"`
+		SchemaVersion  int                  `json:"schemaVersion"`
+		Kind           string               `json:"kind"`
+		InstallationID string               `json:"installationId"`
+		Cell           string               `json:"cell"`
+		Generation     uint64               `json:"generation"`
+		PlanSHA256     string               `json:"planSha256"`
+		Target         StartupVaultTarget   `json:"target"`
 		Reference      struct {
 			SecretOCID string `json:"secretOcid"`
 			SHA256     string `json:"sha256"`
@@ -113,7 +124,7 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 		return deny()
 	}
 	var binding RegionalSourceInventory
-	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.GrantSHA256 != template.GrantDigest() || binding.PlanSHA256 != template.PlanDigest() || binding.SourceSHA256 != state.Reference.SHA256 {
+	if json.Unmarshal(envelope.Payload, &binding, json.RejectUnknownMembers(true)) != nil || binding.SchemaVersion != 1 || binding.Actor != state.Actor || !isOCID(binding.Actor.InstanceID, "instance") || !validDigest(binding.Actor.GrantDigest) || !validDigest(binding.Actor.TemplateDigest) || state.Generation == template.Generation() && (binding.Actor.GrantDigest != template.GrantDigest() || binding.Actor.TemplateDigest != template.TemplateDigest()) || binding.GrantSHA256 != template.GrantDigest() || binding.PlanSHA256 != template.PlanDigest() || binding.SourceSHA256 != state.Reference.SHA256 {
 		return deny()
 	}
 	var record struct {
