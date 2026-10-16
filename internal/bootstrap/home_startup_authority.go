@@ -9,20 +9,48 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// VerifyHomeStartupTemplate derives the home identity from the exact foundation
-// grant pinned by the real local anchor. It does not manufacture a home anchor.
-func VerifyHomeStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
-	if !anchor.IsVerified() || now.IsZero() || len(wire) == 0 || len(wire) > 1<<20 {
+// VerifyRegionalStartupTemplate derives one regional identity from the exact
+// foundation grant pinned by the real local anchor. It manufactures no anchor.
+func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	return verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, nil, now)
+}
+
+// VerifyBoundRegionalStartupTemplate independently resolves the selected cell's
+// schema-2 resources from the same original protected foundation grant.
+func VerifyBoundRegionalStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, now)
+	if err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	if bindings.Cell() != string(requestedCell) {
+		bindings, err = bindings.ForCell(ctx, string(requestedCell))
+		if err != nil {
+			return VerifiedStartupTemplate{}, err
+		}
+	}
+	return verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, &bindings, now)
+}
+
+func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, bindings *foundationbinding.VerifiedBindings, now time.Time) (VerifiedStartupTemplate, error) {
+	ociRegion, regionErr := requestedCell.OCIRegion()
+	if !anchor.IsVerified() || regionErr != nil || now.IsZero() || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	local := anchor.Anchor()
 	anchorEnvelope, err := trust.DecodeEnvelope(anchor.Wire())
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
+	}
+	// A same-region request must retain any baked ledger signer pin. A signed
+	// registration for a new source cannot replace that existing authority.
+	if requestedCell == local.Cell {
+		return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, local, bindings, now)
 	}
 	anchor, err = VerifyBootstrapAnchor(anchorEnvelope, roots, BootstrapAnchorExpectation{DeploymentID: local.DeploymentID, Environment: local.Environment, Cell: local.Cell}, now, BootstrapAnchorTrustPolicy())
 	if err != nil {
@@ -60,20 +88,26 @@ func VerifyHomeStartupTemplate(wire []byte, roots trust.Keyring, anchor Verified
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || grant.SchemaVersion != 1 || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	var identity BootstrapAnchor
 	for _, region := range grant.Regions {
-		if region.Plan.Cell != string(oci.RegionGRU) {
+		if region.Plan.Cell != string(requestedCell) {
 			continue
 		}
 		material := region.BootstrapMaterial
-		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != home.OCIRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.Startup.Validate() != nil || material.SourceRegistration == nil {
+		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != ociRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.SourceRegistration == nil {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		if bindings == nil && material.Startup.Validate() != nil || bindings != nil && material.Startup.ValidateFoundation(string(requestedCell)) != nil {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
 		registration := material.SourceRegistration.Clone()
-		if registration.Validate() != nil || registration.InstallationID != home.InstallationID || registration.DeploymentID != home.DeploymentID || registration.Environment != local.Environment || registration.ClusterID != home.ClusterID || registration.Cell != oci.RegionGRU || registration.Generation != home.GrantGeneration || registration.PlanSHA256 != material.PlanSHA256 || registration.StorageDomain != home.StorageDomain || registration.SeedSlot != material.Startup.SeedSlot {
+		if registration.Validate() != nil || registration.InstallationID != home.InstallationID || registration.Environment != local.Environment || registration.Cell != requestedCell || registration.Generation != home.GrantGeneration || registration.PlanSHA256 != material.PlanSHA256 || registration.SeedSlot != material.Startup.SeedSlot {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		if requestedCell == oci.RegionGRU && (registration.DeploymentID != home.DeploymentID || registration.ClusterID != home.ClusterID || registration.StorageDomain != home.StorageDomain || ociRegion != home.OCIRegion) {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
 		intentWire := material.Startup.ControllerFiles[0].Bytes
@@ -81,16 +115,32 @@ func VerifyHomeStartupTemplate(wire []byte, roots trust.Keyring, anchor Verified
 		if err != nil {
 			return VerifiedStartupTemplate{}, err
 		}
-		identity = BootstrapAnchor{SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: home.DeploymentID,
-			Environment: local.Environment, ClusterID: home.ClusterID, Cell: oci.RegionGRU, OCIRegion: home.OCIRegion,
-			StorageDomain: home.StorageDomain, FoundationScope: new(home), InitialSourceRegistration: new(registration),
+		identity = BootstrapAnchor{SchemaVersion: BootstrapAnchorSchemaVersion, DeploymentID: registration.DeploymentID,
+			Environment: local.Environment, ClusterID: registration.ClusterID, Cell: requestedCell, OCIRegion: ociRegion,
+			StorageDomain: registration.StorageDomain, FoundationScope: new(home), InitialSourceRegistration: new(registration),
 			ControllerSlots: registration.ControllerSlots, InitialRegionIntentGeneration: intent.Generation,
 			InitialRegionIntentSHA256: digestBytes(intentWire), InitialRegionIntentWire: bytes.Clone(intentWire)}
 	}
 	if identity.Validate() != nil {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
-	return verifyStartupTemplateForIdentity(wire, roots, anchor, identity, now)
+	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, identity, bindings, now)
+}
+
+// VerifyHomeStartupTemplate additionally binds GRU to the baked home identity
+// and storage domain in FoundationScope, without fabricating a home anchor.
+func VerifyHomeStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
+	return VerifyRegionalStartupTemplate(wire, roots, anchor, oci.RegionGRU, now)
+}
+
+// LoadRegionalStartupAuthority reads one exact registered recipient's public
+// startup proof. Source escrow and caller-selected object locators are absent.
+func LoadRegionalStartupAuthority(ctx context.Context, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, cell oci.Region, slot string, now time.Time) (DerivedStartupAuthority, error) {
+	template, err := VerifyRegionalStartupTemplate(grantWire, roots, anchor, cell, now)
+	if err != nil {
+		return DerivedStartupAuthority{}, err
+	}
+	return LoadDerivedStartupAuthority(ctx, template, client, slot, now)
 }
 
 // LoadHomeStartupAuthority reads only the authenticated home's public source

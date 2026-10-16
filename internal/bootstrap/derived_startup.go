@@ -23,12 +23,13 @@ const derivedStartupDomain = "terrascale.bootstrap.derived-startup"
 // DerivedStartupBinding is public evidence stored write-once in the original
 // source CAS. MaterialRecord contains public inventory, never source key bytes.
 type DerivedStartupBinding struct {
-	SchemaVersion  int      `json:"schemaVersion"`
-	GrantSHA256    string   `json:"grantSha256"`
-	TemplateSHA256 string   `json:"templateSha256"`
-	SourceSHA256   string   `json:"sourceSha256"`
-	MaterialRecord []byte   `json:"materialRecord"`
-	Manifest       Manifest `json:"manifest"`
+	SchemaVersion  int                   `json:"schemaVersion"`
+	GrantSHA256    string                `json:"grantSha256"`
+	TemplateSHA256 string                `json:"templateSha256"`
+	SourceSHA256   string                `json:"sourceSha256"`
+	MaterialRecord []byte                `json:"materialRecord"`
+	Manifest       Manifest              `json:"manifest"`
+	Link           *RegionalLinkEvidence `json:"link,omitempty"`
 }
 
 // DerivedStartupAuthority retains distinct provenance: the original signed
@@ -59,6 +60,26 @@ func (authority DerivedStartupAuthority) Wire() []byte         { return bytes.Cl
 func (authority DerivedStartupAuthority) GrantWire() []byte    { return authority.template.GrantWire() }
 func (authority DerivedStartupAuthority) MaterialRecord() []byte {
 	return bytes.Clone(authority.binding.MaterialRecord)
+}
+
+// MaterialSHA256 identifies the same checked public inventory on every slot.
+func (authority DerivedStartupAuthority) MaterialSHA256() string {
+	if !authority.IsVerified() {
+		return ""
+	}
+	return digestBytes(authority.binding.MaterialRecord)
+}
+func (authority DerivedStartupAuthority) SourceSHA256() string {
+	if !authority.IsVerified() {
+		return ""
+	}
+	return authority.binding.SourceSHA256
+}
+func (authority DerivedStartupAuthority) LinkMaterialRecord() []byte {
+	if !authority.IsVerified() || authority.binding.Link == nil {
+		return nil
+	}
+	return bytes.Clone(authority.binding.Link.MaterialRecord)
 }
 func (authority DerivedStartupAuthority) TrustedSigners() jsontext.Value {
 	return bytes.Clone(authority.template.template.TrustedSigners)
@@ -102,10 +123,10 @@ func RestoreDerivedStartupAuthority(ctx context.Context, grantWire []byte, ancho
 // LoadDerivedStartupAuthority discovers a joining slot's immutable public
 // proof directly; first-boot metadata never needs a dynamic config payload.
 func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, slot string, now time.Time) (DerivedStartupAuthority, error) {
-	if client == nil || template.VerifyCurrent(now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
+	if client == nil || template.VerifyCurrentContext(ctx, now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
 		return DerivedStartupAuthority{}, ErrManifestInvalid
 	}
-	domain := template.startupIdentity().StorageDomain
+	domain := template.startupSourceDomain()
 	key := startupSourceKey(template)
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(key)})
 	if err != nil {
@@ -128,7 +149,12 @@ func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTe
 func startupSourceKey(template VerifiedStartupTemplate) string {
 	anchor := template.startupIdentity()
 	scopeHash := digestBytes([]byte(template.InstallationID() + "\x00" + strings.ToLower(string(anchor.Cell))))
-	return anchor.StorageDomain.Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
+	return template.startupSourceDomain().Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
+}
+
+func (template VerifiedStartupTemplate) startupSourceDomain() StorageDomain {
+	home, _ := template.anchor.FoundationScope()
+	return home.StorageDomain
 }
 
 // VerifyDerivedStartupAuthority derives the object locator from signed identity;
@@ -137,7 +163,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	deny := func(reason string) (DerivedStartupAuthority, error) {
 		return DerivedStartupAuthority{}, fmt.Errorf("%w: derived startup %s", ErrManifestInvalid, reason)
 	}
-	if client == nil || ctx.Err() != nil || template.VerifyCurrent(now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
+	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
 		return deny("current grant")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
@@ -151,6 +177,21 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	manifest := binding.Manifest
 	if err := template.ValidateProjection(manifest); err != nil {
 		return deny("template projection")
+	}
+	linkRefs := map[string]SecretReference{}
+	if binding.Link != nil {
+		link, err := VerifyStartupLink(ctx, template, client, *binding.Link, now)
+		if err != nil {
+			return deny("Link provenance")
+		}
+		evidence := link.Evidence()
+		binding.Link = &evidence
+		for _, ref := range link.References() {
+			if linkRefs[ref.TargetFile].TargetFile != "" || !slices.Contains(manifest.Secrets, ref) {
+				return deny("Link reference")
+			}
+			linkRefs[ref.TargetFile] = ref
+		}
 	}
 	var record struct {
 		Config    jsontext.Value `json:"config"`
@@ -189,7 +230,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if _, err := trust.VerifyCurrent(envelope, DerivedStartupScope(manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.ExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
 		return deny("source signature")
 	}
-	domain := anchor.StorageDomain
+	domain := template.startupSourceDomain()
 	key := startupSourceKey(template)
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(key)})
 	if err != nil {
@@ -233,7 +274,9 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		}
 		refs, _ := json.Marshal(sibling.Manifest.Secrets, json.Deterministic(true))
 		ownRefs, _ := json.Marshal(manifest.Secrets, json.Deterministic(true))
-		if !bytes.Equal(refs, ownRefs) || !siblingEnvelope.IssuedAt.Equal(envelope.IssuedAt) || !siblingEnvelope.ExpiresAt.Equal(envelope.ExpiresAt) {
+		linkWire, _ := json.Marshal(binding.Link, json.Deterministic(true))
+		siblingLinkWire, _ := json.Marshal(sibling.Link, json.Deterministic(true))
+		if !bytes.Equal(refs, ownRefs) || !bytes.Equal(linkWire, siblingLinkWire) || !siblingEnvelope.IssuedAt.Equal(envelope.IssuedAt) || !siblingEnvelope.ExpiresAt.Equal(envelope.ExpiresAt) {
 			return deny("sibling material")
 		}
 		if _, err := trust.VerifyCurrent(siblingEnvelope, DerivedStartupScope(sibling.Manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil {
@@ -258,7 +301,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if json.Unmarshal(state.Journal, &journal) != nil || journal.SchemaVersion != 1 || journal.MaterialSHA256 != digestBytes(binding.MaterialRecord) || journal.Target.CompartmentOCID != target.CompartmentOCID || journal.Target.VaultOCID != target.VaultOCID || journal.Target.KMSKeyOCID != target.KMSKeyOCID {
 		return deny("publication target")
 	}
-	count := 0
+	count, overrides := 0, 0
 	for _, file := range record.Files {
 		if file.Purpose == "owner-only" {
 			continue
@@ -269,6 +312,22 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 			return deny("publication reference")
 		}
 		ref := manifest.Secrets[index]
+		if replacement, ok := linkRefs[file.Name]; ok {
+			if file.Name != "cell.jwt" || manifest.Cell != "GRU" || ref != replacement {
+				return deny("Link override")
+			}
+			overrides++
+			if !slices.ContainsFunc(journal.Entries, func(entry struct {
+				FileName   string `json:"fileName"`
+				SecretOCID string `json:"secretOcid"`
+				Verified   bool   `json:"verified"`
+			}) bool {
+				return entry.FileName == file.Name && entry.Verified && isOCID(entry.SecretOCID, "vaultsecret")
+			}) {
+				return deny("regional publication override")
+			}
+			continue
+		}
 		entry := slices.IndexFunc(journal.Entries, func(entry struct {
 			FileName   string `json:"fileName"`
 			SecretOCID string `json:"secretOcid"`
@@ -280,8 +339,137 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 			return deny("publication contents")
 		}
 	}
-	if count != len(manifest.Secrets) || count != len(journal.Entries) {
+	if count+len(linkRefs)-overrides != len(manifest.Secrets) || count != len(journal.Entries) {
 		return deny("publication completeness")
 	}
 	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil
+}
+
+func derivedReceiptDomain(seed bool) string {
+	if seed {
+		return "terrascale.bootstrap.derived-seed-receipt"
+	}
+	return "terrascale.bootstrap.derived-peer-receipt"
+}
+
+// SignDerivedReceipt uses the registered source signer. It cannot mint a
+// legacy root seed receipt or a fabricated root delegation.
+func SignDerivedReceipt(authority DerivedStartupAuthority, facts InstanceFacts, issuedAt, expiresAt time.Time, key ed25519.PrivateKey) (trust.Envelope, error) {
+	receipt, err := NewReceipt(authority, facts)
+	if err != nil || len(key) != ed25519.PrivateKeySize || issuedAt.Before(authority.IssuedAt()) || expiresAt.After(authority.ExpiresAt()) {
+		return trust.Envelope{}, ErrReceiptInvalid
+	}
+	seed := facts.Slot == authority.binding.Manifest.SeedSlot
+	wantKey := authority.peerKey
+	if seed {
+		wantKey = authority.ledgerKey
+	}
+	if !bytes.Equal(key.Public().(ed25519.PublicKey), wantKey) {
+		return trust.Envelope{}, ErrReceiptInvalid
+	}
+	return signReceipt(receipt, derivedReceiptDomain(seed), issuedAt, expiresAt, key)
+}
+
+func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAuthority, facts InstanceFacts, seed bool, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
+	if authority.verifyStartupAuthority() != nil || seed != (facts.Slot == authority.binding.Manifest.SeedSlot) || validateFactsAgainstManifest(authority.binding.Manifest, facts) != nil || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+		return VerifiedReceipt{}, ErrReceiptInvalid
+	}
+	key := authority.peerKey
+	if seed {
+		key = authority.ledgerKey
+	}
+	keyID, _ := trust.KeyID(key)
+	manifest := authority.binding.Manifest
+	expected := trust.Scope{Domain: derivedReceiptDomain(seed), DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Environment: manifest.Environment, Role: manifest.ControllerRole, Slot: facts.Slot}
+	payload, err := trust.VerifyCurrent(envelope, expected, trust.Keyring{keyID: key}, now, policy)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	want, err := NewReceipt(authority, facts)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	receipt, err := matchReceiptPayload(payload, want)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	return VerifiedReceipt{receipt: receipt, manifestDigest: authority.Digest(), issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt, verified: true}, nil
+}
+
+// LedgerConfig retains the original buckets, floors, scope and exact domains.
+// New source registration substitutes its sealed capability for a fixed root
+// delegation; existing pinned delegations remain required and unchanged.
+func (authority DerivedStartupAuthority) LedgerConfig(roots trust.Keyring) (LedgerConfig, error) {
+	if authority.verifyStartupAuthority() != nil || len(roots) == 0 {
+		return LedgerConfig{}, ErrRecordAuthorization
+	}
+	anchor := authority.template.startupIdentity()
+	domain := anchor.StorageDomain
+	config := LedgerConfig{DeploymentID: anchor.DeploymentID, Cell: anchor.Cell, ClusterID: anchor.ClusterID, InitialRegionIntentGeneration: anchor.InitialRegionIntentGeneration, InitialRegionIntentSHA256: anchor.InitialRegionIntentSHA256, Namespace: domain.Namespace, Bucket: domain.LedgerBucket, KMSKeyID: domain.LedgerKMSKeyOCID, Prefix: domain.Prefix, HeadBucket: domain.HeadBucket, HeadKMSKeyID: domain.HeadKMSKeyOCID, Environment: anchor.Environment, ControllerSlots: slices.Clone(anchor.ControllerSlots), AnchorExpiresAt: authority.ExpiresAt(), TrustRoots: roots, TrustPolicy: ManifestTrustPolicy(), DerivedStartup: new(authority)}
+	if len(anchor.LedgerDelegationWire) != 0 {
+		grant, err := authority.template.anchor.LedgerDelegation()
+		if err != nil {
+			return LedgerConfig{}, err
+		}
+		config.Delegations = []trust.VerifiedDelegation{grant}
+	}
+	return config, nil
+}
+
+func (authority DerivedStartupAuthority) AnchorDigest() string {
+	return authority.template.anchor.Digest()
+}
+
+func (authority DerivedStartupAuthority) OpenLedger(ctx context.Context, roots trust.Keyring) (*Ledger, error) {
+	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	config, err := authority.LedgerConfig(roots)
+	if err != nil {
+		return nil, err
+	}
+	return NewInstancePrincipalLedger(config.Cell, config)
+}
+
+// OpenLedgerWithClient keeps regional ledger traffic separate from the home
+// source-CAS reader. Production passes the founder's guarded regional factory.
+func (authority DerivedStartupAuthority) OpenLedgerWithClient(ctx context.Context, roots trust.Keyring, client ObjectStorageClient) (*Ledger, error) {
+	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	config, err := authority.LedgerConfig(roots)
+	if err != nil {
+		return nil, err
+	}
+	return NewLedger(client, config)
+}
+
+func (authority DerivedStartupAuthority) VerifyLedgerKey(key ed25519.PublicKey) error {
+	if authority.verifyStartupAuthority() != nil || !bytes.Equal(key, authority.ledgerKey) {
+		return ErrRecordAuthorization
+	}
+	return nil
+}
+
+func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Envelope, scope trust.Scope, now time.Time) error {
+	manifest := authority.binding.Manifest
+	if authority.verifyStartupAuthority() != nil || !slices.Contains(BootstrapLedgerCapabilityDomains(), scope.Domain) || scope.DeploymentID != manifest.DeploymentID || scope.Cell != string(manifest.Cell) || scope.Environment != manifest.Environment || scope.Role != manifest.ControllerRole || !slices.Contains(manifest.ControllerSlots, scope.Slot) || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+		return ErrRecordAuthorization
+	}
+	keyID, _ := trust.KeyID(authority.ledgerKey)
+	_, err := trust.VerifyCurrent(envelope, scope, trust.Keyring{keyID: authority.ledgerKey}, now, ManifestTrustPolicy())
+	return err
+}
+func (authority DerivedStartupAuthority) TemplateDigest() string {
+	return authority.template.TemplateDigest()
+}
+
+// RestoreBoundDerivedStartupAuthority reconstructs schema-2 provenance after a
+// process handoff using fresh protected grant and OCI binding observations.
+func RestoreBoundDerivedStartupAuthority(ctx context.Context, factory *ociclient.Factory, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, wire []byte, now time.Time) (DerivedStartupAuthority, error) {
+	template, err := VerifyBoundStartupTemplate(ctx, factory, grantWire, roots, anchor, now)
+	if err != nil {
+		return DerivedStartupAuthority{}, err
+	}
+	return VerifyDerivedStartupAuthority(ctx, template, client, wire, now)
 }

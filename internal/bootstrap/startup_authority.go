@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
@@ -10,6 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -28,6 +32,7 @@ type VerifiedStartupTemplate struct {
 	image                                                   release.VerifiedImage
 	vault, escrow                                           StartupVaultTarget
 	slotIPs                                                 map[string]string
+	bindings                                                *foundationbinding.VerifiedBindings
 }
 
 // StartupVaultTarget is the exact regional host-publication destination from
@@ -84,6 +89,11 @@ func (verified VerifiedStartupTemplate) ValidateProjection(manifest Manifest) er
 }
 
 func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
+	return verified.VerifyCurrentContext(context.Background(), now)
+}
+
+// VerifyCurrentContext repeats live protected grant and resource observations for bound startup.
+func (verified VerifiedStartupTemplate) VerifyCurrentContext(ctx context.Context, now time.Time) error {
 	if !verified.IsVerified() {
 		return ErrManifestInvalid
 	}
@@ -96,7 +106,12 @@ func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	_, err = verifyStartupTemplateForIdentity(verified.grantWire, verified.roots, anchor, verified.startupIdentity(), now)
+	if verified.bindings != nil {
+		if err := verified.bindings.Revalidate(ctx); err != nil {
+			return err
+		}
+	}
+	_, err = verifyStartupTemplateForIdentityBindings(verified.grantWire, verified.roots, anchor, verified.startupIdentity(), verified.bindings, now)
 	return err
 }
 
@@ -131,6 +146,10 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 }
 
 func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, identity BootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
+	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, identity, nil, now)
+}
+
+func verifyStartupTemplateForIdentityBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, identity BootstrapAnchor, bindings *foundationbinding.VerifiedBindings, now time.Time) (VerifiedStartupTemplate, error) {
 	if !anchor.IsVerified() || identity.Validate() != nil || now.IsZero() || !now.Before(anchor.ExpiresAt()) || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
@@ -169,7 +188,7 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || grant.SchemaVersion != 1 || grant.Generation != home.GrantGeneration || grant.InstallationID != home.InstallationID || grant.TenancyID != home.TenancyID {
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.Generation != home.GrantGeneration || grant.InstallationID != home.InstallationID || grant.TenancyID != home.TenancyID {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	for _, region := range grant.Regions {
@@ -177,7 +196,7 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 			continue
 		}
 		material := region.BootstrapMaterial
-		if material == nil || material.Startup == nil || material.Startup.Validate() != nil || material.InstallationID != home.InstallationID ||
+		if material == nil || material.Startup == nil || material.InstallationID != home.InstallationID ||
 			!sha256RE.MatchString(material.PlanSHA256) || region.Generation != grant.Generation || region.Plan.Region != identity.OCIRegion {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
@@ -217,6 +236,21 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 			slotIPs[slot.Name], seenIPs[slot.PrivateIP] = slot.PrivateIP, true
 		}
 		template := material.Startup.Clone()
+		templateWire, err := json.Marshal(template, json.Deterministic(true))
+		if err != nil {
+			return VerifiedStartupTemplate{}, err
+		}
+		if bindings != nil {
+			if bindings.GrantSHA256() != digestBytes(wire) || bindings.Generation() != grant.Generation || bindings.Cell() != string(identity.Cell) {
+				return VerifiedStartupTemplate{}, ErrManifestInvalid
+			}
+			template, err = ProjectFoundationStartup(template, *bindings)
+			if err != nil {
+				return VerifiedStartupTemplate{}, err
+			}
+		} else if template.Validate() != nil {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
 		if identity.InitialSourceRegistration != nil {
 			registration := material.SourceRegistration
 			want, _ := json.Marshal(identity.InitialSourceRegistration, json.Deterministic(true))
@@ -243,11 +277,22 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 		if template.FounderResources != nil && (template.FounderResources.LaunchDeadline.After(envelope.ExpiresAt) || template.FounderResources.LaunchDeadline.After(image.ExpiresAt())) {
 			return VerifiedStartupTemplate{}, ErrFounderPlanInvalid
 		}
-		templateWire, err := json.Marshal(template, json.Deterministic(true))
-		if err != nil {
-			return VerifiedStartupTemplate{}, err
-		}
 		vault := StartupVaultTarget{CompartmentOCID: region.Plan.ResourceIDs["control_compartment"], VaultOCID: region.Plan.ResourceIDs["vault"], KMSKeyOCID: region.Plan.ResourceIDs["key"]}
+		if bindings != nil {
+			for role, target := range map[string]*string{"control_compartment": &vault.CompartmentOCID, "vault": &vault.VaultOCID, "key": &vault.KMSKeyOCID} {
+				if *target != "" && !strings.HasPrefix(*target, "foundation:") {
+					continue
+				}
+				ref, err := foundationbinding.Reference(string(identity.Cell), role)
+				if err != nil || *target != "" && *target != ref {
+					return VerifiedStartupTemplate{}, ErrManifestInvalid
+				}
+				*target, err = bindings.Resolve(ref)
+				if err != nil {
+					return VerifiedStartupTemplate{}, err
+				}
+			}
+		}
 		if !isOCID(vault.CompartmentOCID, "compartment") || !strings.HasPrefix(vault.VaultOCID, "ocid1.vault.oc1."+identity.OCIRegion+".") || !strings.HasPrefix(vault.KMSKeyOCID, "ocid1.key.oc1."+identity.OCIRegion+".") {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
@@ -255,12 +300,62 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 		if image.ExpiresAt().Before(expires) {
 			expires = image.ExpiresAt()
 		}
+		if bindings != nil && bindings.ExpiresAt().Before(expires) {
+			expires = bindings.ExpiresAt()
+		}
 		clonedRoots := make(trust.Keyring, len(roots))
 		for keyID, key := range roots {
 			clonedRoots[keyID] = bytes.Clone(key)
 		}
 		return VerifiedStartupTemplate{template: template, anchor: anchor, identity: cloneBootstrapAnchor(identity), roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
-			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs}, nil
+			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs, bindings: bindings}, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
+}
+
+// VerifyBoundStartupTemplate independently checks schema-2 startup against the
+// exact original grant, create provenance and current OCI resource facts.
+func VerifyBoundStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
+	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, now)
+	if err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, anchor.Anchor(), &bindings, now)
+}
+
+func verifyStartupBindings(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (foundationbinding.VerifiedBindings, error) {
+	identity := anchor.Anchor()
+	envelope, err := trust.DecodeEnvelope(anchor.Wire())
+	if err != nil {
+		return foundationbinding.VerifiedBindings{}, err
+	}
+	anchor, err = VerifyBootstrapAnchor(envelope, roots, BootstrapAnchorExpectation{DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell}, now, BootstrapAnchorTrustPolicy())
+	if err != nil {
+		return foundationbinding.VerifiedBindings{}, err
+	}
+	home, err := anchor.FoundationScope()
+	if err != nil {
+		return foundationbinding.VerifiedBindings{}, err
+	}
+	return foundationbinding.Verify(ctx, factory, foundationbinding.Authority{
+		Scope: trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID},
+		Roots: roots, Policy: BootstrapAnchorTrustPolicy(), GrantSHA256: home.GrantSHA256, Generation: home.GrantGeneration,
+		InstallationID: home.InstallationID, TenancyID: home.TenancyID, Namespace: home.StorageDomain.Namespace,
+		Bucket: home.StorageDomain.HeadBucket, Prefix: home.StorageDomain.Prefix, Cell: string(identity.Cell),
+	}, wire)
+}
+
+// ForCell independently verifies a sibling region in the same original grant.
+func (verified VerifiedStartupTemplate) ForCell(ctx context.Context, cell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	if err := verified.VerifyCurrentContext(ctx, now); err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	if verified.bindings == nil {
+		return VerifyRegionalStartupTemplate(verified.grantWire, verified.roots, verified.anchor, cell, now)
+	}
+	bindings, err := verified.bindings.ForCell(ctx, string(cell))
+	if err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	return verifyRegionalStartupTemplateBindings(verified.grantWire, verified.roots, verified.anchor, cell, &bindings, now)
 }
