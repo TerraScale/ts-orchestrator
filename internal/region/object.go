@@ -154,6 +154,14 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid resource identity")
 		}
 	}
+	if len(r.SourcePolicyIDs) > 64 {
+		return errors.New("source policy reservations exceed their fixed bound")
+	}
+	for key, source := range r.SourcePolicyIDs {
+		if err := source.validate(key); err != nil {
+			return err
+		}
+	}
 	if len(r.AuxiliaryIDs) > 6 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
 		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
 	}
