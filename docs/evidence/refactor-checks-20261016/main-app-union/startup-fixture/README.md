@@ -11,7 +11,7 @@ providers closed. Network allocation is deliberately unavailable in this idle
 manager fixture; the runtime log records that limitation.
 
 The earlier `dbc43f0d` run failed before manager/NATS/Agent startup because its
-marker directory was0700. Production requires0755 before journal inspection.
+marker directory was `0700`. Production requires `0755` before journal inspection.
 The three-line fixture correction sets that exact mode and retains all genuine
 ownership, nofollow, initial journal absence and accepted-marker checks.
 

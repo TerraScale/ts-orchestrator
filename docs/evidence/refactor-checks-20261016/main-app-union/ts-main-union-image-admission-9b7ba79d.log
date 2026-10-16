@@ -1,0 +1,32 @@
+=== RUN   TestFinalImageProductionAdmissionBoundary
+=== RUN   TestFinalImageProductionAdmissionBoundary/#00
+=== RUN   TestFinalImageProductionAdmissionBoundary/binary_proof_reused
+=== RUN   TestFinalImageProductionAdmissionBoundary/changed_disk
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_source
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_manifest
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_architecture
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_runtime
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_cell
+=== RUN   TestFinalImageProductionAdmissionBoundary/wrong_role
+=== RUN   TestFinalImageProductionAdmissionBoundary/ordinary_release_signer
+=== RUN   TestFinalImageProductionAdmissionBoundary/missing_proof
+=== RUN   TestFinalImageProductionAdmissionBoundary/expired
+=== RUN   TestFinalImageProductionAdmissionBoundary/future
+=== RUN   TestFinalImageProductionAdmissionBoundary/tampered_evidence
+--- PASS: TestFinalImageProductionAdmissionBoundary (0.67s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/#00 (0.01s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/binary_proof_reused (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/changed_disk (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_source (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_manifest (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_architecture (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_runtime (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_cell (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/wrong_role (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/ordinary_release_signer (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/missing_proof (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/expired (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/future (0.00s)
+    --- PASS: TestFinalImageProductionAdmissionBoundary/tampered_evidence (0.00s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/release/cli	0.710s

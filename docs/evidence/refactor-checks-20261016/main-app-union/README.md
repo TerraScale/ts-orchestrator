@@ -58,8 +58,18 @@ closure and measured operational benefits remain open.
 
 ## Later bounded startup fixture
 
-[Startup fixture receipts](startup-fixture/README.md) retain exact APP582a3992
-PASS, the earlier rejected marker-mode fixture, and union4e5fcb5c whole APP
+[Startup fixture receipts](startup-fixture/README.md) retain exact APP `582a3992`
+PASS, the earlier rejected marker-mode fixture, and union `4e5fcb5c` whole APP
 fixturetest compile PASS. READY is manually emitted and observed; production
 startup and positive material delivery remain unqualified. No passing runtime
 case was repeated on the union.
+
+## Later release admission check
+
+The original signed migration fixture helper from `452f19de` was restored by
+REL `de07c2d9` and imported as `9b7ba79d`. The exact union then passed
+`TestFinalImageProductionAdmissionBoundary`: 14 subtests, no skips, 0.710s package.
+[Receipt](release-admission-receipt.json) and the raw `9b7` log supersede the
+historical `99fa` compile failure for this one selected check. This is local
+source admission regression evidence; native/live and whole-union runtime
+qualification remain open.
