@@ -142,15 +142,72 @@ func TestRefoundGuardWaitsUntilTheSlotIsCurrent(t *testing.T) {
 
 func TestRefoundGuardFailsClosedOnAMalformedRecord(t *testing.T) {
 	now := time.Now().UTC()
+	for name, wire := range map[string]string{
+		"empty":           `{}`,
+		"missing cell":    `{"slot":"controller-b","server_name":"gru-1-ctl-2","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
+		"missing attempt": `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-2","started_at":"2026-10-16T12:00:00Z"}`,
+		"missing time":    `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-2","attempt":2}`,
+		"wrong server":    `{"cell":"gru","slot":"controller-b","server_name":"gru-1-ctl-1","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
+		"duplicate cell":  `{"cell":"gru","cell":"sfo","slot":"controller-b","server_name":"ts-sfo-2","attempt":2,"started_at":"2026-10-16T12:00:00Z"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			guard := testRefoundGuard(t, &now)
+			if err := os.MkdirAll(filepath.Dir(guard.PendingPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(guard.PendingPath, []byte(wire), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			for _, slot := range []string{"controller-b", "controller-c"} {
+				if err := guard.Admit("gru", slot, completeLedger()); err == nil {
+					t.Fatalf("malformed durable record admitted %s", slot)
+				}
+			}
+		})
+	}
+}
+
+func TestRefoundGuardRecoversPendingIdentityAcrossRestart(t *testing.T) {
+	now := time.Now().UTC()
 	guard := testRefoundGuard(t, &now)
-	if err := os.MkdirAll(filepath.Dir(guard.PendingPath), 0o700); err != nil {
+	pending := RefoundPending{Cell: "gru", Slot: "controller-b", ServerName: "gru-1-ctl-2", Attempt: 2, StartedAt: now}
+	if err := guard.Begin(pending); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(guard.PendingPath, []byte("{}"), 0o600); err != nil {
+	// Reopen only the durable paths; no process memory or serving roster survives.
+	restarted := RefoundGuard{PendingPath: guard.PendingPath, HealthPath: guard.HealthPath, Now: guard.Now}
+	if err := restarted.Admit("gru", "controller-c", completeLedger()); err == nil {
+		t.Fatal("missing health after restart admitted a second refound")
+	}
+	if err := restarted.Admit("sfo", "controller-c", completeLedger()); err == nil {
+		t.Fatal("a pending record of another region was discarded")
+	}
+	invalid := pending
+	invalid.Attempt = 0
+	if err := restarted.Begin(invalid); err == nil {
+		t.Fatal("an invalid retry overwrote the durable pending identity")
+	}
+	stored, err := restarted.readPending()
+	if err != nil || stored != pending {
+		t.Fatalf("pending identity after invalid retry = %+v, %v", stored, err)
+	}
+	if err := os.Chmod(guard.PendingPath, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if err := guard.Admit("gru", "controller-c", completeLedger()); err == nil {
-		t.Fatal("a malformed pending record admitted a refound")
+	if err := restarted.Admit("gru", "controller-b", completeLedger()); err == nil {
+		t.Fatal("a writable pending identity admitted a retry")
+	}
+	if err := os.Chmod(guard.PendingPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(guard.PendingPath, guard.PendingPath+".record"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(guard.PendingPath+".record", guard.PendingPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Admit("gru", "controller-b", completeLedger()); err == nil {
+		t.Fatal("a linked pending identity admitted a retry")
 	}
 }
 
