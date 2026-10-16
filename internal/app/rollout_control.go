@@ -154,6 +154,8 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 					return rollout.Release{}, err
 				}
 				admitted.RunNumber = update.Lineage.QualificationRunNum
+				admitted.ReleaseSequence = update.ReleaseSequence
+				admitted.SequenceMigrationSHA256 = update.SequenceMigrationSHA256
 			}
 			return admitted, nil
 		}

@@ -304,6 +304,7 @@ func (p proofsOn) Latest(unit string) (rolloutexec.HealthProof, bool) {
 }
 
 type channelFixture struct {
+	js        jetstream.JetStream
 	control   *rolloutControl
 	store     *rollout.Store
 	kv        jetstream.KeyValue
@@ -339,7 +340,7 @@ func newChannelFixture(t *testing.T) *channelFixture {
 	}
 	control.program = rolloutexec.ReleaseProgram{Store: store, Proofs: proofs,
 		Controllers: []rollout.Unit{{ID: "ctl-a", Group: "controllers"}, {ID: "ctl-b", Group: "controllers"}}}
-	return &channelFixture{control: control, store: store, kv: kv, rolloutKV: rolloutKV, bucket: bucket, signer: signer, proofs: proofs}
+	return &channelFixture{js: js, control: control, store: store, kv: kv, rolloutKV: rolloutKV, bucket: bucket, signer: signer, proofs: proofs}
 }
 
 // setChannel announces channel in the cell's bucket, as TS-562 or the CI
