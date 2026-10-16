@@ -102,14 +102,19 @@ func foundationDiscovery(ctx context.Context) (automaticFoundation, error) {
 		baked: baked, imds: imds, instanceID: instanceID, cell: entry.Cell, observed: observed}, nil
 }
 
-func automaticControllerSlot(ctx context.Context, local *automaticFoundation, grant region.VerifiedBootstrapMaterial) (string, error) {
+func automaticControllerSlot(ctx context.Context, local *automaticFoundation, grant region.VerifiedBootstrapMaterial,
+	template bootstrap.VerifiedStartupTemplate,
+) (string, error) {
 	if local == nil || local.factory == nil || local.imds == nil || !local.anchor.IsVerified() {
 		return "", bootstrapstart.ErrInstanceObservation
 	}
-	startup, err := grant.Startup()
-	if err != nil {
+	if !bytes.Equal(template.GrantWire(), grant.FoundationGrantWire()) {
+		return "", errors.New("controller role template differs from the signed material grant")
+	}
+	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
 		return "", err
 	}
+	startup := template.Template()
 	if _, err := automaticStartupSigners(startup.TrustedSigners); err != nil {
 		return "", err
 	}
@@ -222,7 +227,7 @@ func automaticVaultTarget(ctx context.Context, local automaticFoundation, grant 
 	if err != nil {
 		return bootstrapmaterial.VaultTarget{}, err
 	}
-	template, err := bootstrap.VerifyStartupTemplate(grant.FoundationGrantWire(), local.baked.Roots, local.anchor, time.Now().UTC())
+	template, err := bootstrap.VerifyBoundStartupTemplate(ctx, local.factory, grant.FoundationGrantWire(), local.baked.Roots, local.anchor, time.Now().UTC())
 	if err != nil {
 		return bootstrapmaterial.VaultTarget{}, err
 	}
@@ -363,7 +368,7 @@ func automaticPeerAuthority(ctx context.Context, local *automaticFoundation, gra
 	if err := authority.VerifyCurrent(ctx, time.Now().UTC()); err != nil {
 		return bootstrap.DerivedStartupAuthority{}, err
 	}
-	slot, err := automaticControllerSlot(ctx, local, grant)
+	slot, err := automaticControllerSlot(ctx, local, grant, template)
 	if err != nil {
 		return bootstrap.DerivedStartupAuthority{}, err
 	}
@@ -406,7 +411,7 @@ func validateAutomaticAuthorityRendering(authority bootstrap.DerivedStartupAutho
 	return nil
 }
 
-func loadAutomaticStartupAuthority(ctx context.Context, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring,
+func loadAutomaticStartupAuthority(ctx context.Context, factory *ociclient.Factory, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring,
 	objects bootstrap.ObjectStorageClient,
 ) (bootstrap.DerivedStartupAuthority, bool, error) {
 	grant, grantErr := readInstalledControllerFile(controllerConfigDirectory, automaticStartupGrantFilename, 0, 0, 0o444, 1<<20)
@@ -417,7 +422,7 @@ func loadAutomaticStartupAuthority(ctx context.Context, anchor bootstrap.Verifie
 	if err := errors.Join(grantErr, wireErr); err != nil {
 		return bootstrap.DerivedStartupAuthority{}, true, fmt.Errorf("read durable automatic startup authority: %w", err)
 	}
-	authority, err := bootstrap.RestoreDerivedStartupAuthority(ctx, grant, anchor, roots, objects, wire, time.Now().UTC())
+	authority, err := bootstrap.RestoreBoundDerivedStartupAuthority(ctx, factory, grant, anchor, roots, objects, wire, time.Now().UTC())
 	if err != nil {
 		return bootstrap.DerivedStartupAuthority{}, true, err
 	}

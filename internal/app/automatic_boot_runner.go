@@ -12,6 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart/materialsource"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -53,11 +54,11 @@ func RunAutomaticBootstrap(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	template, err := bootstrap.VerifyStartupTemplate(grant.FoundationGrantWire(), local.baked.Roots, local.anchor, time.Now().UTC())
+	template, err := bootstrap.VerifyBoundStartupTemplate(ctx, local.factory, grant.FoundationGrantWire(), local.baked.Roots, local.anchor, time.Now().UTC())
 	if err != nil {
 		return err
 	}
-	slot, err := automaticControllerSlot(ctx, &local, grant)
+	slot, err := automaticControllerSlot(ctx, &local, grant, template)
 	if err != nil {
 		return err
 	}
@@ -177,7 +178,7 @@ func automaticSeedAuthority(ctx context.Context, local *automaticFoundation, gra
 		if err != nil {
 			return bootstrap.DerivedStartupAuthority{}, err
 		}
-		homeTemplate, err := bootstrap.VerifyHomeStartupTemplate(grant.FoundationGrantWire(), local.baked.Roots, local.anchor, time.Now().UTC())
+		homeTemplate, err := template.ForCell(guarded, oci.RegionGRU, time.Now().UTC())
 		if err != nil {
 			return bootstrap.DerivedStartupAuthority{}, err
 		}
