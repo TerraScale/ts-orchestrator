@@ -65,6 +65,8 @@ type materialSourceState struct {
 	RetryToken     string                        `json:"retryToken"`
 	StartedAt      time.Time                     `json:"startedAt"`
 	Reference      materialSourceReference       `json:"reference"`
+	Inventory      []byte                        `json:"inventory,omitempty"`
+	Delivery       []byte                        `json:"delivery,omitempty"`
 	Journal        []byte                        `json:"journal,omitempty"`
 	Startup        map[string][]byte             `json:"startup,omitempty"`
 	SeedCompletion []byte                        `json:"seedCompletion,omitempty"`
@@ -160,8 +162,19 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	if err := source.restore(ctx); err != nil {
 		return nil, fmt.Errorf("restore exact source escrow: %w", err)
 	}
+	checkpoint := false
 	if state.Reference.SecretOCID == "" {
 		source.state.Reference = materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}
+		checkpoint = true
+	}
+	if source.kind == "" && len(source.state.Inventory) == 0 {
+		source.state.Inventory, err = source.signInventory(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("sign original source inventory: %w", err)
+		}
+		checkpoint = true
+	}
+	if checkpoint {
 		source.etag, err = source.write(ctx, source.state, source.etag)
 		if err != nil {
 			return nil, fmt.Errorf("checkpoint exact source reference: %w", err)
@@ -361,6 +374,9 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	ref := state.Reference
+	if len(state.Inventory) > bootstrap.MaxManifestBytes || len(state.Inventory) > 0 && (source.kind != "" || ref.SecretOCID == "") {
+		return materialSourceState{}, "", ErrMaterialSource
+	}
 	if ref.SecretOCID != "" && (!validDigest(ref.SHA256) || ref.MaxBytes <= 0 || ref.MaxBytes > min(int64(materialSourceSecretLimit), bootstrap.MaxSecretBytes)) || ref.SecretOCID == "" && (ref.SHA256 != "" || ref.MaxBytes != 0 || len(state.Journal) > 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
