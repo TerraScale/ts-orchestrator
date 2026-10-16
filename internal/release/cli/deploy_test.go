@@ -149,9 +149,19 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rootPrivate, err := readDelegatedPrivateKey(fixture.privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		fixture.buckets[cell] = &regionBucket{cell: cell, roots: roots, outcome: releasechannel.StateComplete,
-			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu}
+			objects: map[string][]byte{}, log: &fixture.log, logMu: &fixture.logMu,
+			scope: &releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell, Environment: "production",
+				Architectures: []string{"amd64"}, UpdatedAt: time.Now().UTC()}}
+		evidenceDir := filepath.Join(fixture.releaseDir, "production")
+		record := writeProductionEvidence(t, evidenceDir, productionCandidate(testBinaryReceipt(), cell))
+		writeProductionRecord(t, filepath.Join(evidenceDir, cell, "amd64", "production.json"), record, rootPrivate,
+			time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
 	}
 	fixture.env = deployEnv{
 		timeout:  2 * time.Second,
