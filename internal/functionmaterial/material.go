@@ -83,14 +83,15 @@ type intentReader interface {
 
 // Reader holds no controller broker connection or signing key.
 type Reader struct {
-	Authority intentReader
-	Artifacts jetstream.ObjectStore
-	Roots     func() trust.Keyring
-	Accounts  *brokerauth.Store
-	Bundles   vaultsecret.BundleClient
-	VaultID   string
-	Trust     PublicTrust
-	Recipient Recipient
+	Authority          intentReader
+	Artifacts          jetstream.ObjectStore
+	Roots              func() trust.Keyring
+	Accounts           *brokerauth.Store
+	Bundles            vaultsecret.BundleClient
+	VaultID            string
+	Trust              PublicTrust
+	Recipient          Recipient
+	AuthorizeRecipient func(context.Context, Binding) error
 }
 
 type storedMaterial struct {
