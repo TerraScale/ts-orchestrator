@@ -113,7 +113,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		if err != nil {
 			return ctx, nil, err
 		}
-		if current.installationID != intent.installationID || current.generation != intent.generation || current.profileDigest != intent.profileDigest || current.recipeDigest != intent.recipeDigest {
+		if current.installationID != intent.installationID || current.generation != intent.generation || current.grantDigest != intent.grantDigest || current.profileDigest != intent.profileDigest || current.recipeDigest != intent.recipeDigest {
 			return ctx, nil, ErrFoundationFenced
 		}
 		nextAllocation, err := progress.ManagerAllocation(ctx, slotID)
@@ -211,7 +211,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 
 func validateNetBirdAllocation(allocation VerifiedBootstrapAllocation, intent verifiedNetBirdIntent, compartment string) error {
 	p, s := intent.intent.Profile, allocation.Slot()
-	if !allocation.IsVerified() || !time.Now().Before(allocation.ExpiresAt()) || allocation.InstallationID() != intent.installationID || allocation.Generation() != intent.generation ||
+	if !allocation.IsVerified() || !time.Now().Before(allocation.ExpiresAt()) || allocation.InstallationID() != intent.installationID || allocation.Generation() != intent.generation || allocation.GrantDigest() != intent.grantDigest ||
 		s.Cell != "GRU" || s.Role != NetBirdManagerRole || s.Slot != NetBirdManagerRole || s.CompartmentID != compartment || s.ProfileSHA256 != intent.profileDigest || s.RecipeSHA256 != intent.recipeDigest ||
 		s.Shape != p.Shape || s.OCPUs != float64(p.OCPUs) || s.MemoryGB != float64(p.MemoryGB) || s.BootGB != float64(p.BootVolumeGB) {
 		return errors.New("dedicated manager differs from its current same-grant finite slot")

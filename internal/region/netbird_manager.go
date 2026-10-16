@@ -82,6 +82,7 @@ type verifiedNetBirdIntent struct {
 	expires                     time.Time
 	image                       release.VerifiedImage
 	profileDigest, recipeDigest string
+	grantDigest                 string
 }
 
 func (i NetBirdManagerIntent) validate() error {
@@ -150,8 +151,9 @@ func (s *SignedFootprint) authorizedNetBirdManager(ctx context.Context) (verifie
 		if image.ExpiresAt().Before(expires) {
 			expires = image.ExpiresAt()
 		}
+		grantDigest := sha256.Sum256(wire)
 		return verifiedNetBirdIntent{intent: intent, installationID: s.home.InstallationID, generation: region.Generation, expires: expires,
-			image: image, profileDigest: profileDigest, recipeDigest: recipeDigest}, nil
+			image: image, profileDigest: profileDigest, recipeDigest: recipeDigest, grantDigest: hex.EncodeToString(grantDigest[:])}, nil
 	}
 	return verifiedNetBirdIntent{}, errors.New("same signed footprint has no dedicated NetBird manager role")
 }
