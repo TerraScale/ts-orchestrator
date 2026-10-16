@@ -3,6 +3,7 @@
 package imagequalification
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -54,6 +56,13 @@ type MaterialApproval struct {
 	ContainerIntentSHA256 string `json:"container_intent_sha256"`
 }
 
+// ContainerArtifactApproval pins one offline component archive for NetBird.
+type ContainerArtifactApproval struct {
+	Role          string `json:"role"`
+	Image         string `json:"image"`
+	ArchiveSHA256 string `json:"archive_sha256"`
+}
+
 // Approval is finite resource/spending authorization under existing trust roots.
 // It does not establish effective IAM confinement or production qualification.
 type Approval struct {
@@ -72,6 +81,9 @@ type Approval struct {
 	PolicyID                string                               `json:"policy_id"`
 	ProductionDynamicGroups []confinement.ProductionDynamicGroup `json:"production_dynamic_groups"`
 	ProfileIdentity         cellspec.Identity                    `json:"profile_identity"`
+	ContainerArtifacts      []ContainerArtifactApproval          `json:"container_artifacts"`
+	ClientSHA256            string                               `json:"client_sha256"`
+	KernelRelease           string                               `json:"kernel_release"`
 	MaterialFixtures        []MaterialApproval                   `json:"material_fixtures"`
 	PolicyStatements        []string                             `json:"policy_statements"`
 	RunnerCIDR              string                               `json:"runner_cidr"`
@@ -102,6 +114,8 @@ type Prepared struct {
 	approval       Approval
 	expires        time.Time
 	approvalSHA256 string
+	approvalWire   []byte
+	delegationWire []byte
 	diskPath       string
 }
 
@@ -111,6 +125,7 @@ func (p Prepared) Approval() Approval {
 	a.PolicyStatements = slices.Clone(a.PolicyStatements)
 	a.ProductionDynamicGroups = slices.Clone(a.ProductionDynamicGroups)
 	a.MaterialFixtures = slices.Clone(a.MaterialFixtures)
+	a.ContainerArtifacts = slices.Clone(a.ContainerArtifacts)
 	return a
 }
 
@@ -175,7 +190,7 @@ func Prepare(approvalWire, delegationWire []byte, roots trust.Keyring, expected 
 	if err := verifyDisk(diskPath, approval); err != nil {
 		return result, err
 	}
-	result = Prepared{approval: approval, expires: envelope.ExpiresAt, approvalSHA256: hashBytes(approvalWire), diskPath: diskPath}
+	result = Prepared{approval: approval, expires: envelope.ExpiresAt, approvalSHA256: hashBytes(approvalWire), approvalWire: bytes.Clone(approvalWire), delegationWire: bytes.Clone(delegationWire), diskPath: diskPath}
 	if len(delegationWire) > 0 {
 		delegation, _ := trust.DecodeEnvelope(delegationWire)
 		if delegation.ExpiresAt.Before(result.expires) {
@@ -189,7 +204,7 @@ func (a Approval) validate() error {
 	c := a.Candidate
 	if a.Schema != ApprovalSchema || !runPattern.MatchString(a.RunID) || !release.ValidSourceRevision(c.SourceRevision) ||
 		!validHash(c.ArtifactSHA256) || !validHash(c.QualificationSHA256) || !release.ValidEnvironment(c.Environment) ||
-		c.Role != "orchestrator" || c.Runtime != release.ProductionRuntime || c.Architecture != "arm64" && c.Architecture != "amd64" ||
+		c.Architecture != "arm64" && c.Architecture != "amd64" ||
 		catalog.OCIRegion(c.Cell) != a.OCIRegion || a.OCIRegion == "" {
 		return errors.New("invalid disposable image candidate or regional scope")
 	}
@@ -198,12 +213,16 @@ func (a Approval) validate() error {
 			return errors.New("disposable resource scope is incomplete")
 		}
 	}
-	for _, digest := range []string{a.BinarySHA256, a.KernelSHA256, a.ContainerdSHA256, a.RuncSHA256, a.RunnerSHA256, a.WorkloadArchiveSHA256} {
+	roles, err := a.validateRole()
+	if err != nil {
+		return err
+	}
+	for _, digest := range []string{a.BinarySHA256, a.KernelSHA256, a.ContainerdSHA256, a.RuncSHA256, a.RunnerSHA256} {
 		if !validHash(digest) {
 			return errors.New("exact native binary/runtime identities are required")
 		}
 	}
-	if len(a.PolicyStatements) == 0 || len(a.PolicyStatements) > 32 || !strings.Contains(a.WorkloadImage, "@sha256:") {
+	if len(a.PolicyStatements) == 0 || len(a.PolicyStatements) > 32 || a.KernelRelease == "" || strings.ContainsAny(a.KernelRelease, "\r\n") {
 		return errors.New("exact policy statements and immutable offline workload image are required")
 	}
 	for _, cidr := range []string{a.RunnerCIDR, a.PeerCIDR, a.VCNCIDR} {
@@ -219,19 +238,7 @@ func (a Approval) validate() error {
 			return errors.New("runner and peers must be inside the approved isolated VCN")
 		}
 	}
-	if !entityid.Valid(a.ProfileIdentity.DeploymentID) || a.ProfileIdentity.Cell != c.Cell || a.ProfileIdentity.Environment != c.Environment {
-		return errors.New("signed production material profile identity differs from candidate")
-	}
-	scenarios := []string{"ready", "after-loss", "after-partition", "unready", "failed-update"}
-	if len(a.MaterialFixtures) != len(scenarios) {
-		return errors.New("all signed native material fixtures are required")
-	}
-	for index, fixture := range a.MaterialFixtures {
-		if fixture.Scenario != scenarios[index] || !validHash(fixture.SignedProfileSHA256) || !validHash(fixture.ContainerIntentSHA256) {
-			return errors.New("native material fixture scenario or signed bytes differ")
-		}
-	}
-	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) != 4 {
+	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) != len(roles) {
 		return errors.New("finite native HA host, image and spending bounds are required")
 	}
 	seen := map[string]bool{}
@@ -240,16 +247,50 @@ func (a Approval) validate() error {
 			host.Shape == "" || !(host.OCPUs > 0 && host.OCPUs <= 80) || !(host.MemoryGB > 0 && host.MemoryGB <= 1024) || host.BootGB < 50 || host.BootGB > 1024 {
 			return errors.New("invalid, repeated or unbounded disposable host")
 		}
-		role := "manager"
-		if index == 3 {
-			role = "worker"
-		}
-		if host.Role != role {
-			return errors.New("native qualification requires three managers followed by one dedicated worker")
+		if host.Role != roles[index] || a.Candidate.Architecture == "arm64" && host.Shape != imageimport.A1Shape {
+			return errors.New("native qualification host topology or architecture shape differs")
 		}
 		seen[host.Name] = true
 	}
 	return nil
+}
+
+func (a Approval) validateRole() ([]string, error) {
+	c := a.Candidate
+	switch {
+	case c.Role == "orchestrator" && c.Runtime == release.ProductionRuntime:
+		if !entityid.Valid(a.ProfileIdentity.DeploymentID) || a.ProfileIdentity.Cell != c.Cell || a.ProfileIdentity.Environment != c.Environment {
+			return nil, errors.New("signed production material profile identity differs from candidate")
+		}
+		scenarios := []string{"ready", "after-loss", "after-partition", "unready", "failed-update"}
+		if len(a.MaterialFixtures) != len(scenarios) || len(a.ContainerArtifacts) != 0 || a.ClientSHA256 != "" || !validHash(a.WorkloadArchiveSHA256) || !immutableImage(a.WorkloadImage) {
+			return nil, errors.New("all signed native material fixtures and immutable workload are required")
+		}
+		for index, fixture := range a.MaterialFixtures {
+			if fixture.Scenario != scenarios[index] || !validHash(fixture.SignedProfileSHA256) || !validHash(fixture.ContainerIntentSHA256) {
+				return nil, errors.New("native material fixture scenario or signed bytes differ")
+			}
+		}
+		return []string{"manager", "manager", "manager", "worker"}, nil
+	case c.Role == "netbird-manager" && c.Runtime == "netbird-containerd" && c.Cell == "GRU" && c.Architecture == "arm64":
+		if len(a.MaterialFixtures) != 0 || a.ProfileIdentity != (cellspec.Identity{}) || a.WorkloadImage != "" || a.WorkloadArchiveSHA256 != "" || !validHash(a.ClientSHA256) || len(a.ContainerArtifacts) != 3 {
+			return nil, errors.New("dedicated NetBird qualification requires exact component archives and native client")
+		}
+		for index, role := range []string{"server", "dashboard", "ingress"} {
+			artifact := a.ContainerArtifacts[index]
+			if artifact.Role != role || !immutableImage(artifact.Image) || !validHash(artifact.ArchiveSHA256) {
+				return nil, errors.New("dedicated NetBird component role or immutable archive differs")
+			}
+		}
+		return []string{"netbird-primary", "netbird-replacement"}, nil
+	default:
+		return nil, errors.New("unrecognized fixed native qualification role")
+	}
+}
+
+func immutableImage(value string) bool {
+	name, digest, found := strings.Cut(value, "@sha256:")
+	return found && name != "" && !strings.ContainsAny(name, " \t\r\n@") && validHash(digest)
 }
 
 func validHash(value string) bool {
