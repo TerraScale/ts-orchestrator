@@ -228,7 +228,7 @@ func TestPoolRecipeUsesObservedOCIPlatform(t *testing.T) {
 		json.MarshalWrite(w, []core.Shape{{Shape: new("VM.Standard.E4.Flex"), ProcessorDescription: new("AMD EPYC")}})
 	}))
 	t.Cleanup(server.Close)
-	compute := core.ComputeClient{BaseClient: common.BaseClient{Host: server.URL, BasePath: "20160918", HTTPClient: server.Client(), Signer: nodePoolObservationSigner{}}}
+	compute := core.ComputeClient{BaseClient: common.BaseClient{Host: server.URL, BasePath: "20160918", UserAgent: "capacity-integration", HTTPClient: server.Client(), Signer: nodePoolObservationSigner{}}}
 	ocpus, memory := float32(2), float32(12)
 	leader := core.Instance{CompartmentId: new("ocid1.compartment.a"), Shape: new("VM.Standard.E4.Flex"), AvailabilityDomain: new("AD-1"),
 		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.a")},
