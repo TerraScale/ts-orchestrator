@@ -517,8 +517,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	actor, homeAuthority := sourceFounderFixtureWithAuthority(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
 	assertSourceFounderGeometryDenials(t, actor, verified, protocol)
+	_, competingAuthority := sourceFounderFixtureWithAuthority(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.lease-contender")
+	assertHomeIAMLeases(t, homeAuthority, competingAuthority, &objects, protocol)
 	// Matching Actor fields cannot adopt a source created before its IAM journal.
 	sourceScope := digestWire([]byte(verified.InstallationID() + "\x00gru"))
 	sourceObject := verified.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + sourceScope + ".json"
@@ -897,9 +899,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor = sourceFounderFixture(t, matchingPin, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	actor, homeAuthority = sourceFounderFixtureWithAuthority(t, matchingPin, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
 	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
 	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != wantCreates {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
+	assertHomeIAMRetiredRoot(t, homeAuthority, &objects, roots, private, anchor)
 }
