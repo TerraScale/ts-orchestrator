@@ -1,8 +1,10 @@
 package region
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
@@ -14,10 +16,12 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
+	"encoding/json/jsontext"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -47,7 +51,10 @@ type BootstrapMaterialIntent struct {
 	PlanSHA256        string                        `json:"planSha256"`
 	Config            bootstrapmaterial.Config      `json:"config"`
 	SourceVaultTarget bootstrapmaterial.VaultTarget `json:"sourceVaultTarget"`
+	Startup           *BootstrapStartupIntent       `json:"startup,omitempty"`
 }
+
+type BootstrapStartupIntent = bootstrap.StartupTemplate
 
 type VerifiedBootstrapMaterial struct {
 	intent     BootstrapMaterialIntent
@@ -55,9 +62,26 @@ type VerifiedBootstrapMaterial struct {
 	storage    bootstrap.StorageDomain
 	expires    time.Time
 	escrow     bootstrapmaterial.VaultTarget
+	image      release.VerifiedImage
+	grantWire  []byte
 }
 
+func (v VerifiedBootstrapMaterial) FoundationGrantWire() []byte { return bytes.Clone(v.grantWire) }
+
 func (v VerifiedBootstrapMaterial) EscrowTarget() bootstrapmaterial.VaultTarget { return v.escrow }
+
+func (v VerifiedBootstrapMaterial) Startup() (BootstrapStartupIntent, error) {
+	if !v.IsVerified() || !time.Now().Before(v.expires) || v.intent.Startup == nil || !v.image.IsVerified() {
+		return BootstrapStartupIntent{}, errors.New("signed bootstrap scope does not authorize initial controller startup")
+	}
+	return v.intent.Startup.Clone(), nil
+}
+func (v VerifiedBootstrapMaterial) Image() (release.VerifiedImage, error) {
+	if _, err := v.Startup(); err != nil {
+		return release.VerifiedImage{}, err
+	}
+	return v.image, nil
+}
 
 func (v VerifiedBootstrapMaterial) InstallationID() string                 { return v.intent.InstallationID }
 func (v VerifiedBootstrapMaterial) Generation() uint64                     { return v.generation }
@@ -72,7 +96,11 @@ func (v VerifiedBootstrapMaterial) Config() bootstrapmaterial.Config {
 }
 
 func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell string) (VerifiedBootstrapMaterial, error) {
-	footprint, expires, err := s.authorizedRegions(ctx)
+	grantWire, err := s.readGrant(ctx)
+	if err != nil {
+		return VerifiedBootstrapMaterial{}, err
+	}
+	footprint, expires, err := s.verifyGrant(grantWire)
 	if err != nil {
 		return VerifiedBootstrapMaterial{}, err
 	}
@@ -108,11 +136,71 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		if !owned {
 			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow is outside the signed owned home foundation")
 		}
+		var image release.VerifiedImage
+		if material.Startup != nil {
+			startup := material.Startup.Clone()
+			image, err = s.verifyStartup(startup, config, intent.Plan)
+			if err != nil {
+				return VerifiedBootstrapMaterial{}, err
+			}
+			material.Startup = &startup
+			if image.ExpiresAt().Before(expires) {
+				expires = image.ExpiresAt()
+			}
+		}
 		config.Slots = slices.Clone(config.Slots)
 		material.Config = config
-		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow}, nil
+		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire)}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
+}
+
+func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config bootstrapmaterial.Config, plan map[string]any) (release.VerifiedImage, error) {
+	if err := startup.Validate(); err != nil {
+		return release.VerifiedImage{}, err
+	}
+	slots := map[string]bool{}
+	for _, slot := range config.Slots {
+		slots[slot.Name] = true
+	}
+	if !slots[startup.SeedSlot] || len(startup.Profiles) != len(slots) || len(startup.TrustedSigners) == 0 {
+		return release.VerifiedImage{}, errors.New("startup lacks exact signed slot profiles or operator authority")
+	}
+	ids, _ := plan["resource_ids"].(map[string]any)
+	seen := map[string]bool{}
+	for _, profile := range startup.Profiles {
+		if !slots[profile.Slot] || seen[profile.Slot] || profile.CompartmentOCID != ids["control_compartment"] || profile.SubnetOCID != ids["subnet"] || profile.CompartmentOCID == "" || profile.SubnetOCID == "" || profile.AvailabilityDomain == "" || len(profile.AvailabilityDomain) > 255 || profile.FaultDomain == "" || len(profile.FaultDomain) > 255 || profile.Shape == "" || len(profile.Shape) > 128 || len(profile.NetworkSecurityGroupOCIDs) != 1 || profile.NetworkSecurityGroupOCIDs[0] != ids["network_security_group"] || profile.NetworkSecurityGroupOCIDs[0] == "" {
+			return release.VerifiedImage{}, errors.New("startup profile differs from signed owned regional foundation")
+		}
+		seen[profile.Slot] = true
+	}
+	var signers []struct {
+		Actor        string                    `json:"actor"`
+		PublicKey    string                    `json:"public_key"`
+		Roles        []string                  `json:"roles"`
+		Environments []string                  `json:"environments"`
+		Remaining    map[string]jsontext.Value `json:",unknown"`
+	}
+	if err := json.Unmarshal(startup.TrustedSigners, &signers); err != nil || len(signers) == 0 || len(signers) > 64 {
+		return release.VerifiedImage{}, errors.New("startup operator grants invalid")
+	}
+	actors := map[string]bool{}
+	for _, signer := range signers {
+		key, err := base64.StdEncoding.Strict().DecodeString(signer.PublicKey)
+		if signer.Actor == "" || len(signer.Actor) > 128 || actors[signer.Actor] || err != nil || len(key) != 32 || len(signer.Roles) == 0 || !slices.Contains(signer.Environments, config.Environment) {
+			return release.VerifiedImage{}, errors.New("startup operator authority is absent, ambiguous or outside environment")
+		}
+		actors[signer.Actor] = true
+	}
+	architecture := strings.TrimPrefix(startup.ImageArchitecture, "linux-")
+	if architecture != "amd64" && architecture != "arm64" {
+		return release.VerifiedImage{}, errors.New("startup architecture is invalid")
+	}
+	image, err := release.VerifyImageCurrent(startup.ReleaseImageReceiptWire, startup.ReleaseDelegationWire, s.roots, release.ImageExpectation{Environment: config.Environment, LogicalRegion: strings.ToUpper(config.Cell), OCIImageOCID: startup.ImageOCID, Architecture: architecture}, time.Now())
+	if err != nil {
+		return release.VerifiedImage{}, err
+	}
+	return image, nil
 }
 
 // SignedFootprint reads the exact root-authorized home object; it cannot list,
@@ -151,8 +239,16 @@ func (s *SignedFootprint) AuthorizedRegions(ctx context.Context) (ApprovedFootpr
 }
 
 func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootprint, time.Time, error) {
+	wire, err := s.readGrant(ctx)
+	if err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	return s.verifyGrant(wire)
+}
+
+func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 	if !time.Now().Before(s.expires) {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation bootstrap authority expired")
+		return nil, errors.New("foundation bootstrap authority expired")
 	}
 	domain := s.storage
 	name := strings.TrimSuffix(domain.Prefix, "/") + "/" + foundationGrantObject
@@ -160,15 +256,22 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 	defer cancel()
 	response, err := s.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(name)})
 	if err != nil {
-		return ApprovedFootprint{}, time.Time{}, errors.New("authenticated foundation scope unavailable; initial tenancy authorization is required")
+		return nil, errors.New("authenticated foundation scope unavailable; initial tenancy authorization is required")
 	}
 	if response.Content == nil {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope object has no content")
+		return nil, errors.New("foundation scope object has no content")
 	}
 	defer response.Content.Close()
 	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationRecordLimit+1))
 	if err != nil || len(wire) > foundationRecordLimit {
-		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope object unreadable or oversized")
+		return nil, errors.New("foundation scope object unreadable or oversized")
+	}
+	return wire, nil
+}
+
+func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time, error) {
+	if !time.Now().Before(s.expires) {
+		return ApprovedFootprint{}, time.Time{}, errors.New("foundation bootstrap authority expired")
 	}
 	digest := sha256.Sum256(wire)
 	if hex.EncodeToString(digest[:]) != s.home.GrantSHA256 {
