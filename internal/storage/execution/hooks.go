@@ -243,6 +243,9 @@ func (h *Hooks) BeforeShutdown(ctx context.Context, task *api.Task) error {
 	if result.State != "complete" || result.Receipt == nil {
 		return memberstatus.ErrOutcomeUnknown
 	}
+	if err := binding.DrainStore.RetainComplete(result); err != nil {
+		return errors.Join(ErrUnsafe, err)
+	}
 	return h.check(ctx, task)
 }
 
