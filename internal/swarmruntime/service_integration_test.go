@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -150,14 +151,17 @@ func TestServiceManagerIntegration(t *testing.T) {
 	}
 	serviceEventually(t, ctx, func() bool {
 		view, err := ObserveService(ctx, client, created.ID, nil)
-		return err == nil && view.RunningReplicas == 1 && view.ReadyReplicas == 0
+		return err == nil && view.RunningReplicas == 1 && view.ReadyReplicas == 0 && view.Readiness == "unknown"
 	})
+	var status atomic.Int32
+	status.Store(http.StatusOK)
+	var lastProbeAt time.Time
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/readyz" {
 			http.NotFound(w, r)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(int(status.Load()))
 	}))
 	defer server.Close()
 	probe := func(ctx context.Context, task *api.Task) error {
@@ -171,15 +175,22 @@ func TestServiceManagerIntegration(t *testing.T) {
 			return err
 		}
 		defer response.Body.Close()
+		lastProbeAt = time.Now().UTC()
 		if response.StatusCode != 200 {
 			return fmt.Errorf("probe status %d", response.StatusCode)
 		}
 		return nil
 	}
 	view, err := ObserveService(ctx, client, created.ID, probe)
-	if err != nil || view.ReadyReplicas != 1 || len(view.Tasks) != 1 || view.RequestedDigest != "sha256:"+strings.Repeat("a", 64) {
+	if err != nil || view.Readiness != "observed" || view.ObservedAt.Before(lastProbeAt) || view.ReadyReplicas != 1 || len(view.Tasks) != 1 || view.RequestedDigest != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatalf("actual task readiness: %+v, %v", view, err)
 	}
+	status.Store(http.StatusServiceUnavailable)
+	unhealthy, err := ObserveService(ctx, client, created.ID, probe)
+	if err != nil || unhealthy.Readiness != "observed" || unhealthy.ReadyReplicas != 0 || len(unhealthy.Tasks) != 1 || unhealthy.Tasks[0].Ready || unhealthy.Tasks[0].Error != "application readiness probe failed" {
+		t.Fatalf("observed HTTP-unhealthy task confused with unknown readiness: %+v %v", unhealthy, err)
+	}
+	status.Store(http.StatusOK)
 	intent.Replicas = 7
 	replayed, err := applyService(ctx, client, intent)
 	if err != nil || replayed.ID != created.ID || replayed.Spec.GetReplicated().Replicas != 1 || replayed.Meta.Version.Index != created.Meta.Version.Index {

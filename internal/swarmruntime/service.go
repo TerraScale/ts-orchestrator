@@ -187,6 +187,7 @@ type ServiceObservation struct {
 	RequestedReplicas uint64            `json:"requested_replicas"`
 	RunningReplicas   uint64            `json:"running_replicas"`
 	ReadyReplicas     uint64            `json:"ready_replicas"`
+	Readiness         string            `json:"readiness"`
 	UpdateState       string            `json:"update_state,omitempty"`
 	Tasks             []TaskObservation `json:"tasks"`
 	ObservedAt        time.Time         `json:"observed_at"`
@@ -253,7 +254,10 @@ func ObserveService(ctx context.Context, client api.ControlClient, serviceID str
 	if s.Spec.GetReplicated() == nil {
 		return ServiceObservation{}, errors.New("unsupported service mode")
 	}
-	view := ServiceObservation{ServiceID: s.ID, IntentID: s.Spec.Annotations.Labels[LabelIntentID], Role: s.Spec.Annotations.Labels[LabelRole], Region: s.Spec.Annotations.Labels[LabelRegion], Environment: s.Spec.Annotations.Labels[LabelEnvironment], RequestedReplicas: s.Spec.GetReplicated().Replicas, RequestedDigest: runtimeDigest(s.Spec), ObservedAt: time.Now().UTC(), Tasks: []TaskObservation{}}
+	view := ServiceObservation{ServiceID: s.ID, IntentID: s.Spec.Annotations.Labels[LabelIntentID], Role: s.Spec.Annotations.Labels[LabelRole], Region: s.Spec.Annotations.Labels[LabelRegion], Environment: s.Spec.Annotations.Labels[LabelEnvironment], RequestedReplicas: s.Spec.GetReplicated().Replicas, RequestedDigest: runtimeDigest(s.Spec), Readiness: "unknown", Tasks: []TaskObservation{}}
+	if probe != nil {
+		view.Readiness = "observed"
+	}
 	if s.UpdateStatus != nil {
 		view.UpdateState = s.UpdateStatus.State.String()
 	}
@@ -286,6 +290,7 @@ func ObserveService(ctx context.Context, client api.ControlClient, serviceID str
 		view.Tasks = append(view.Tasks, observation)
 	}
 	slices.SortFunc(view.Tasks, func(a, b TaskObservation) int { return strings.Compare(a.TaskID, b.TaskID) })
+	view.ObservedAt = time.Now().UTC()
 	return view, nil
 }
 
