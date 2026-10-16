@@ -176,6 +176,22 @@ func (r FoundationRecord) validate() error {
 			return errors.New("dedicated NetBird manager checkpoint is invalid")
 		}
 	}
+	if r.GrantSHA256 != "" && !validFoundationDigest(r.GrantSHA256) || len(r.ResourceProvenance) > 128 {
+		return errors.New("foundation record has invalid grant or resource provenance bound")
+	}
+	for key, proof := range r.ResourceProvenance {
+		pending := proof.Create
+		if proof.ResourceID != r.ResourceIDs[key] && proof.ResourceID != r.AuxiliaryIDs[key] ||
+			proof.Generation == 0 || proof.Generation > r.Generation || !validFoundationDigest(proof.GrantSHA256) ||
+			pending.OperationID != entityid.Derive("regional-foundation", r.TenancyID, r.Cell, fmt.Sprint(proof.Generation)) ||
+			!validFoundationDigest(pending.IntentDigest) || pending.Request.Key != key || pending.Request.Validate() != nil ||
+			pending.FirstAttemptAt.IsZero() || pending.FirstAttemptAt.After(r.UpdatedAt) {
+			return errors.New("foundation resource provenance differs from original creation authority")
+		}
+		if proof.Generation == r.Generation && (proof.GrantSHA256 != r.GrantSHA256 || pending.IntentDigest != r.IntentDigest || pending.FirstAttemptAt.Before(r.StartedAt)) {
+			return errors.New("foundation resource provenance differs from current generation")
+		}
+	}
 	if len(r.AuxiliaryIDs) > 12 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
 		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
 	}
@@ -237,4 +253,9 @@ func validAuxiliaryID(key, id, region string) bool {
 		}
 	}
 	return true
+}
+
+func validFoundationDigest(value string) bool {
+	digest, err := hex.DecodeString(value)
+	return err == nil && len(digest) == 32 && hex.EncodeToString(digest) == value
 }

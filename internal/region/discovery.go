@@ -38,7 +38,11 @@ func DiscoverFoundation(ctx context.Context, factory *ociclient.Factory, roots t
 	if err != nil {
 		return FoundationResolver{}, err
 	}
-	return discoverFoundation(ctx, client, tenancy, roots)
+	resolver, err := discoverFoundation(ctx, client, tenancy, roots)
+	if err == nil {
+		resolver.Footprint.(*SignedFootprint).factory = factory
+	}
+	return resolver, err
 }
 
 func foundationHomeClient(factory *ociclient.Factory) (*objectstorage.ObjectStorageClient, string, error) {
