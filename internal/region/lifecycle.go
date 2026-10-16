@@ -1,0 +1,385 @@
+package region
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
+	"errors"
+	"fmt"
+	"maps"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+)
+
+const foundationLease = 45 * time.Second
+
+var (
+	ErrFoundationBusy     = errors.New("regional foundation has an active owner")
+	ErrFoundationFenced   = errors.New("regional foundation owner was fenced")
+	ErrFoundationMissing  = errors.New("regional foundation record does not exist")
+	ErrFoundationConflict = errors.New("regional foundation record changed concurrently")
+)
+
+// Footprint is supplied by the authenticated initial tenancy grant producer.
+// Discovery, subscriptions and serving health do not implement this authority.
+type Footprint interface {
+	AuthorizedRegions(context.Context) (ApprovedFootprint, error)
+}
+
+// ApprovedFootprint contains only reviewed scope. The producer must verify the
+// grant's authenticity and spend authority before returning these plans.
+type ApprovedFootprint struct {
+	TenancyID           string
+	ParentCompartmentID string
+	SharedCompartmentID string
+	Regions             []FoundationIntent
+}
+
+type FoundationIntent struct {
+	Generation        uint64                   `json:"generation"`
+	Plan              map[string]any           `json:"plan"`
+	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
+}
+
+// FoundationAuthority is the existing scoped foundation authority. HomeWrite
+// serializes tenancy-wide IAM across all regional operations, including GRU.
+type FoundationAuthority interface {
+	Guard(context.Context, uint64) error
+	HomeWrite(context.Context, uint64) (release func(), err error)
+}
+
+// Foundations is the typed OCI foundation boundary; implementations observe
+// actual resources on every call and check beforeWrite before every API write.
+type Foundations interface {
+	ReconcileFoundation(ctx context.Context, plan map[string]any, operationID string,
+		beforeWrite func(context.Context, bool) (func(), error),
+		checkpoint func(context.Context, string, string) error) (map[string]any, error)
+}
+
+// FoundationRecord is bootstrap inventory, never serving or membership truth.
+// ResourceIDs contain verified OCIDs, never credential payloads.
+type FoundationRecord struct {
+	SchemaVersion       int               `json:"schemaVersion"`
+	Cell                string            `json:"cell"`
+	OCIRegion           string            `json:"ociRegion"`
+	TenancyID           string            `json:"tenancyId"`
+	ParentCompartmentID string            `json:"parentCompartmentId"`
+	SharedCompartmentID string            `json:"sharedCompartmentId"`
+	Generation          uint64            `json:"generation"`
+	IntentDigest        string            `json:"intentDigest"`
+	OperationID         string            `json:"operationId"`
+	Epoch               uint64            `json:"epoch"`
+	LeaseID             string            `json:"leaseId,omitempty"`
+	ExpiresAt           time.Time         `json:"expiresAt,omitzero"`
+	Stage               string            `json:"stage"`
+	BlockedReason       string            `json:"blockedReason,omitempty"`
+	StartedAt           time.Time         `json:"startedAt"`
+	UpdatedAt           time.Time         `json:"updatedAt"`
+	CompletedAt         time.Time         `json:"completedAt,omitzero"`
+	ResourceIDs         map[string]string `json:"resourceIds"`
+}
+
+// FoundationStore uses conditional writes in an already-authorized durable home
+// bucket. It must not create that bucket or manufacture bootstrap authority.
+type FoundationStore interface {
+	Load(context.Context, string) (FoundationRecord, string, error)
+	CompareAndSwap(context.Context, FoundationRecord, string) (string, error)
+}
+
+type FoundationResult struct {
+	Cell   string           `json:"cell"`
+	Record FoundationRecord `json:"record"`
+	Err    error            `json:"-"`
+}
+
+// FoundationController reconciles approved foundations independently, including
+// GRU before overlay, regional NATS, SwarmKit or Atlas exist.
+type FoundationController struct {
+	Footprint   Footprint
+	Authority   FoundationAuthority
+	Store       FoundationStore
+	Foundations Foundations
+}
+
+func (c *FoundationController) Reconcile(ctx context.Context, epoch uint64) ([]FoundationResult, error) {
+	if c.Footprint == nil || c.Authority == nil || c.Store == nil || c.Foundations == nil || epoch == 0 {
+		return nil, errors.New("regional foundations require authenticated footprint, authority, durable store and OCI provider")
+	}
+	if err := c.Authority.Guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	footprint, err := c.Footprint.AuthorizedRegions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read authorized regional footprint: %w", err)
+	}
+	if err := validateFootprint(footprint); err != nil {
+		return nil, err
+	}
+	results := make([]FoundationResult, len(footprint.Regions))
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for range min(3, len(results)) {
+		workers.Go(func() {
+			for i := range jobs {
+				intent := footprint.Regions[i]
+				cell := intent.Plan["cell"].(string)
+				record, err := c.reconcile(ctx, epoch, footprint, intent)
+				results[i] = FoundationResult{Cell: cell, Record: record, Err: err}
+			}
+		})
+	}
+	for i := range results {
+		jobs <- i
+	}
+	close(jobs)
+	workers.Wait()
+	var failures []error
+	for _, result := range results {
+		if result.Err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", result.Cell, result.Err))
+		}
+	}
+	return results, errors.Join(failures...)
+}
+
+func validateFootprint(f ApprovedFootprint) error {
+	if !strings.HasPrefix(f.TenancyID, "ocid1.tenancy.") || !strings.HasPrefix(f.ParentCompartmentID, "ocid1.compartment.") ||
+		!strings.HasPrefix(f.SharedCompartmentID, "ocid1.compartment.") || len(f.Regions) == 0 || len(f.Regions) > len(catalog.Entries()) {
+		return errors.New("authorized regional footprint lacks tenancy, compartments or reviewed regions")
+	}
+	seen := map[string]bool{}
+	for _, intent := range f.Regions {
+		p := intent.Plan
+		cell, _ := p["cell"].(string)
+		entry, ok := catalog.Lookup(cell)
+		if !ok || seen[cell] || intent.Generation == 0 || p["region"] != entry.OCIRegion ||
+			p["tenancy_id"] != f.TenancyID || p["parent_compartment_id"] != f.ParentCompartmentID || p["shared_compartment_id"] != f.SharedCompartmentID {
+			return errors.New("regional plan is outside authenticated footprint or repeats a region")
+		}
+		if _, ok := p["resource_ids"].(map[string]any); !ok {
+			return errors.New("regional plan lacks resource identities")
+		}
+		seen[cell] = true
+	}
+	return nil
+}
+
+// foundationAttempt serializes local renewals/checkpoints; object ETags fence
+// other processes and the authority epoch fences older leaders.
+type foundationAttempt struct {
+	controller *FoundationController
+	mu         sync.Mutex
+	record     FoundationRecord
+	etag       string
+	leaseID    string
+	epoch      uint64
+	cancel     context.CancelCauseFunc
+}
+
+func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, footprint ApprovedFootprint, intent FoundationIntent) (FoundationRecord, error) {
+	wire, err := json.Marshal(intent.Plan, json.Deterministic(true))
+	if err != nil {
+		return FoundationRecord{}, err
+	}
+	var plan map[string]any
+	if err := json.Unmarshal(wire, &plan); err != nil {
+		return FoundationRecord{}, err
+	}
+	delete(plan, "_source_path")
+	cell := plan["cell"].(string)
+	sum := sha256.Sum256(wire)
+	digest := hex.EncodeToString(sum[:])
+	current, etag, err := c.Store.Load(ctx, cell)
+	if err != nil && !errors.Is(err, ErrFoundationMissing) {
+		return FoundationRecord{}, err
+	}
+	now := time.Now().UTC()
+	if errors.Is(err, ErrFoundationMissing) {
+		current = FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: plan["region"].(string), TenancyID: footprint.TenancyID,
+			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
+			Generation: intent.Generation, IntentDigest: digest, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
+			StartedAt: now, ResourceIDs: map[string]string{}}
+	} else {
+		if current.TenancyID != footprint.TenancyID || current.ParentCompartmentID != footprint.ParentCompartmentID || current.SharedCompartmentID != footprint.SharedCompartmentID {
+			return current, errors.New("foundation record belongs to another authorized scope")
+		}
+		if epoch < current.Epoch || intent.Generation < current.Generation || intent.Generation == current.Generation && digest != current.IntentDigest {
+			return current, ErrFoundationFenced
+		}
+		if current.LeaseID != "" && now.Before(current.ExpiresAt) && epoch <= current.Epoch {
+			return current, ErrFoundationBusy
+		}
+		if intent.Generation > current.Generation {
+			current.Generation, current.IntentDigest = intent.Generation, digest
+			current.OperationID = entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation))
+			current.StartedAt = now
+		}
+	}
+	ids := plan["resource_ids"].(map[string]any)
+	for key, id := range current.ResourceIDs {
+		if pinned := ids[key]; pinned != nil && pinned != id {
+			return current, errors.New("approved plan conflicts with persisted foundation identity")
+		}
+		ids[key] = id
+	}
+	leaseID := entityid.New()
+	current.Epoch, current.LeaseID, current.ExpiresAt = epoch, leaseID, now.Add(foundationLease)
+	current.Stage, current.BlockedReason, current.CompletedAt, current.UpdatedAt = "foundation", "", time.Time{}, now
+	if err := c.Authority.Guard(ctx, epoch); err != nil {
+		return current, err
+	}
+	etag, err = c.Store.CompareAndSwap(ctx, current, etag)
+	if err != nil {
+		return current, err
+	}
+	workCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	attempt := &foundationAttempt{controller: c, record: current, etag: etag, leaseID: leaseID, epoch: epoch, cancel: cancel}
+	stopped := make(chan struct{})
+	renewed := make(chan struct{})
+	go func() {
+		defer close(renewed)
+		ticker := time.NewTicker(foundationLease / 3)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopped:
+				return
+			case <-workCtx.Done():
+				return
+			case <-ticker.C:
+				if err := attempt.renew(workCtx); err != nil {
+					cancel(err)
+					return
+				}
+			}
+		}
+	}()
+	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, current.OperationID, attempt.beforeWrite, attempt.checkpoint)
+	close(stopped)
+	<-renewed
+	if cause := context.Cause(workCtx); cause != nil {
+		providerErr = errors.Join(providerErr, cause)
+	}
+	if providerErr == nil {
+		boundIDs, ok := bound["resource_ids"].(map[string]any)
+		if !ok {
+			providerErr = errors.New("foundation returned no resource identities")
+		} else {
+			for key, raw := range boundIDs {
+				if raw == nil {
+					continue
+				}
+				id, ok := raw.(string)
+				if !ok {
+					providerErr = errors.New("foundation returned invalid resource identity")
+					break
+				}
+				if err := attempt.checkpoint(workCtx, key, id); err != nil {
+					providerErr = err
+					break
+				}
+			}
+		}
+	}
+	return attempt.finish(ctx, providerErr)
+}
+
+func (a *foundationAttempt) guard(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := a.controller.Authority.Guard(ctx, a.epoch); err != nil {
+		return fmt.Errorf("%w: %w", ErrFoundationFenced, err)
+	}
+	latest, _, err := a.controller.Store.Load(ctx, a.record.Cell)
+	if err != nil {
+		return err
+	}
+	if latest.LeaseID != a.leaseID || latest.Epoch != a.epoch || !time.Now().Before(latest.ExpiresAt) {
+		return ErrFoundationFenced
+	}
+	return nil
+}
+
+func (a *foundationAttempt) beforeWrite(ctx context.Context, home bool) (func(), error) {
+	release := func() {}
+	if home {
+		var err error
+		release, err = a.controller.Authority.HomeWrite(ctx, a.epoch)
+		if err != nil {
+			return nil, err
+		}
+		if release == nil {
+			return nil, errors.New("home IAM authority did not return its release")
+		}
+	}
+	if err := a.guard(ctx); err != nil {
+		release()
+		a.cancel(err)
+		return nil, err
+	}
+	return release, nil
+}
+
+func (a *foundationAttempt) update(ctx context.Context) error {
+	if err := a.guard(ctx); err != nil {
+		return err
+	}
+	a.record.UpdatedAt = time.Now().UTC()
+	etag, err := a.controller.Store.CompareAndSwap(ctx, a.record, a.etag)
+	if err != nil {
+		a.cancel(err)
+		return err
+	}
+	a.etag = etag
+	return nil
+}
+
+func (a *foundationAttempt) renew(ctx context.Context) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.record.ExpiresAt = time.Now().UTC().Add(foundationLease)
+	return a.update(ctx)
+}
+
+func (a *foundationAttempt) checkpoint(ctx context.Context, key, id string) error {
+	if key == "" || !strings.HasPrefix(id, "ocid1.") {
+		return errors.New("foundation checkpoint requires resource name and OCID")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if old := a.record.ResourceIDs[key]; old != "" && old != id {
+		return errors.New("foundation resource identity cannot be silently replaced")
+	}
+	a.record.ResourceIDs[key] = id
+	return a.update(ctx)
+}
+
+func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (FoundationRecord, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.guard(ctx); err != nil {
+		return a.record, errors.Join(providerErr, err)
+	}
+	a.record.LeaseID, a.record.ExpiresAt = "", time.Time{}
+	if providerErr == nil {
+		a.record.Stage, a.record.CompletedAt = "reconciled", time.Now().UTC()
+	} else {
+		a.record.Stage, a.record.BlockedReason = "blocked", "foundation-unavailable"
+	}
+	// Do not persist arbitrary provider errors: SDK responses can contain values.
+	a.record.UpdatedAt = time.Now().UTC()
+	etag, err := a.controller.Store.CompareAndSwap(ctx, a.record, a.etag)
+	if err == nil {
+		a.etag = etag
+	}
+	result := a.record
+	result.ResourceIDs = maps.Clone(result.ResourceIDs)
+	return result, errors.Join(providerErr, err)
+}
