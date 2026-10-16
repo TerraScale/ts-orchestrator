@@ -53,6 +53,10 @@ func (c *catalogReader) price(ctx context.Context, sku, metric string) (float64,
 	if response.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("OCI price catalog HTTP %d", response.StatusCode)
 	}
+	servedAt, err := http.ParseTime(response.Header.Get("Date"))
+	if err != nil || servedAt.After(time.Now().Add(time.Minute)) || time.Since(servedAt) > 2*time.Minute {
+		return 0, errors.New("OCI tariff response freshness is absent or stale")
+	}
 	wire, err := io.ReadAll(io.LimitReader(response.Body, 1<<20+1))
 	if err != nil || len(wire) > 1<<20 {
 		return 0, errors.New("OCI price catalog unreadable or oversized")

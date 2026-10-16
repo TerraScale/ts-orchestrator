@@ -20,7 +20,7 @@ import (
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
-	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable"} {
+	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
 			var compartments []string
@@ -28,6 +28,9 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
 				case r.URL.Path == "/prices":
+					if scenario == "stale tariff" {
+						w.Header().Set("Date", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
+					}
 					metric, price := "", 0.0
 					switch r.URL.Query().Get("partNumber") {
 					case "B93297":
@@ -86,7 +89,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/volumes/"):
 					id := strings.TrimPrefix(r.URL.Path, "/20160918/volumes/")
 					compartment := strings.TrimPrefix(id, "volume-")
-					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10}`, id, compartment)
+					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10,"isAutoTuneEnabled":%t}`, id, compartment, scenario == "autotuned disk")
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL)
 					http.NotFound(w, r)
@@ -119,6 +122,10 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				t.Fatalf("queried %d approved compartments", count)
 			}
 			if scenario == "observed" {
+				prices, err := reader.Prices(t.Context(), scope, []string{"VM.Standard.A1.Flex", "VM.Standard.E5.Flex", "VM.Unknown.Flex"})
+				if err != nil || len(prices) != 6 {
+					t.Fatalf("mixed family tariffs=%v err=%v", prices, err)
+				}
 				quote, err := reader.Quote(t.Context(), scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50)
 				if err != nil || quote.MonthlyCents() != 2147 || quote.Currency() != "USD" {
 					t.Fatalf("candidate quote=%+v err=%v", quote, err)
@@ -137,6 +144,12 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				}) {
 					t.Fatal("provider operation evidence lost")
 				}
+			}
+			if scenario != "observed" && len(result.Pending) <= 2 {
+				t.Fatalf("source failure lost: %+v", result)
+			}
+			if scenario == "region unavailable" && len(result.CoveredCompartments) != 1 {
+				t.Fatalf("failed region incorrectly covered: %+v", result)
 			}
 			if len(result.Pending) < 2 || result.Validate(scope, time.Now()) == nil {
 				t.Fatalf("incomplete accounting became spending authority: %+v", result)
