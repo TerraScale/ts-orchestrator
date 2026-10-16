@@ -370,6 +370,7 @@ func (f *applyHTTPFixture) serve(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(wire, &channel); err == nil {
 				_, err := channel.Verify(f.roots, cell, "production", time.Now().UTC())
 				status.SourceRevision, status.RunNumber = channel.SourceRevision, channel.RunNumber
+				status.ReleaseSequence = channel.ReleaseSequence
 				status.State = releasechannel.StateComplete
 				if err != nil {
 					status.State, status.Reason = releasechannel.StateFailed, err.Error()

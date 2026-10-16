@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"math"
 	"net/http"
@@ -160,7 +161,7 @@ func (location SequenceLocation) read(ctx context.Context, role, environment str
 		return head, "", false, fmt.Errorf("%w: sequence location", ErrInvalidReceipt)
 	}
 	name := SequenceObject(role, environment)
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
 	if sequenceHTTPStatus(err) == http.StatusNotFound {
 		return head, "", false, nil
 	}

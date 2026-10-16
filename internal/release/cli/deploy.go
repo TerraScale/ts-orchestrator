@@ -242,6 +242,9 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	// Do not cancel a healthy cell's rollout when another cell rolls back.
 	_ = regions.Wait()
+	if err := c.ctx.Err(); err != nil {
+		failures = append(failures, err)
+	}
 	if err := errors.Join(failures...); err != nil {
 		return fmt.Errorf("fleet rollout failed: %w", err)
 	}
