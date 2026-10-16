@@ -258,7 +258,12 @@ func (verified DerivedFounderPlan) current(ctx context.Context, roots trust.Keyr
 	if err != nil {
 		return DerivedFounderPlan{}, err
 	}
-	template, err := verifyStartupTemplateForIdentity(seed.GrantWire(), roots, anchor, seed.template.startupIdentity(), now)
+	if seed.template.bindings != nil {
+		if err := seed.template.bindings.Revalidate(ctx); err != nil {
+			return DerivedFounderPlan{}, err
+		}
+	}
+	template, err := verifyStartupTemplateForIdentityBindings(seed.GrantWire(), roots, anchor, seed.template.startupIdentity(), seed.template.bindings, now)
 	if err != nil {
 		return DerivedFounderPlan{}, err
 	}
