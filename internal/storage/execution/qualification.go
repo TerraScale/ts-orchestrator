@@ -215,3 +215,29 @@ func statefulDigest(value any) (string, error) {
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }
+
+// VerifyStatefulDeclared authenticates the release's declared qualification for
+// manager service construction. It does not observe a worker CPU or volume and
+// cannot replace Source's independent runtime admission.
+func VerifyStatefulDeclared(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) (VerifiedStateful, error) {
+	container, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, until, evidence)
+	if err != nil {
+		return VerifiedStateful{}, err
+	}
+	claim := container.Claim()
+	_, imageDigest, _ := strings.Cut(claim.Image, "@sha256:")
+	expected := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: claim.Cell, Environment: claim.Environment, Runtime: release.ProductionRuntime, Architecture: claim.Architecture, Role: claim.Role}
+	qualified, err := release.VerifyProductionCurrent(claim.Production.Qualification, claim.Production.Delegation, roots, expected, now)
+	if err != nil {
+		return VerifiedStateful{}, err
+	}
+	wire, err := readStatefulEvidence(ctx, evidence, qualified.Evidence[1], trust.MaxPayloadBytes)
+	if err != nil {
+		return VerifiedStateful{}, err
+	}
+	var declared StatefulQualification
+	if err := protocol.DecodeStrict(wire, &declared, trust.MaxPayloadBytes); err != nil {
+		return VerifiedStateful{}, err
+	}
+	return VerifyStatefulCurrent(ctx, bundle, roots, target, declared.Data, declared.TargetCPU, now, until, evidence)
+}
