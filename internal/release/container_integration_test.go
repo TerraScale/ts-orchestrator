@@ -74,7 +74,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := ContainerClaim{Schema: ContainerClaimSchema, Image: "registry.example/platform/auth@sha256:" + strings.Repeat("a", 64), SourceRevision: strings.Repeat("c", 40), Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("b", 64)}
+	claim := ContainerClaim{Schema: ContainerClaimSchema, Image: "registry.example/platform/auth@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://github.com/TerraScale/ts-auth", SourceRevision: strings.Repeat("c", 40), SourceTreeSHA256: strings.Repeat("e", 64), Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("b", 64)}
 	qualifier := ProductionQualification{Schema: ProductionQualificationSchema, Candidate: ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: strings.Repeat("a", 64), QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: ProductionRuntime}, Evidence: []ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 	qualificationPayload, _ := trust.EncodePayload(qualifier)
 	qualificationEnvelope, err := trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now, now.Add(time.Hour), root)
@@ -127,6 +127,40 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil || renewedVerified.ReleaseIdentity() != verified.ReleaseIdentity() || renewedVerified.Fingerprint() == verified.Fingerprint() {
 		t.Fatalf("qualification renewal changed immutable release identity: %+v %v", renewedVerified, err)
 	}
+	claimPayload, err := trust.EncodePayload(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredClaim, err := trust.Sign(claimPayload, ContainerScope(target), now.Add(-2*time.Hour), now.Add(-time.Hour), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredGrant, err := trust.Sign(grant.Payload, grant.Scope, now.Add(-2*time.Hour), now.Add(-time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredBundle := bundle
+	expiredBundle.Claim, err = trust.EncodeEnvelope(expiredClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expiredBundle.Delegation, err = trust.EncodeEnvelope(expiredGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := VerifyContainerHistorical(expiredBundle, roots, target)
+	if err != nil || history.ReleaseIdentity() != verified.ReleaseIdentity() || history.Claim().SourceRepository != claim.SourceRepository || history.Claim().SourceTreeSHA256 != claim.SourceTreeSHA256 {
+		t.Fatalf("retained expired source floor lost authenticated identity: %+v %v", history, err)
+	}
+	if _, err := VerifyContainerCurrent(ctx, expiredBundle, roots, target, now, now.Add(time.Minute), reader); err == nil {
+		t.Fatal("historical source floor authorized a new runtime operation")
+	}
+	changedSource := claim
+	changedSource.SourceTreeSHA256 = strings.Repeat("f", 64)
+	changedSourceVerified, err := VerifyContainerCurrent(ctx, makeBundle(changedSource, signer), roots, target, now, now.Add(time.Minute), reader)
+	if err != nil || changedSourceVerified.ReleaseIdentity() == verified.ReleaseIdentity() {
+		t.Fatalf("signed tree change did not change immutable content identity: %+v %v", changedSourceVerified, err)
+	}
 	changed := claim
 	changed.Image = "registry.example/platform/auth@sha256:" + strings.Repeat("d", 64)
 	before, err := claim.ContentManifestDigest()
@@ -169,6 +203,18 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 			}
 		})
 	}
+	for _, source := range []string{"http://github.com/TerraScale/ts-auth", "https://user:password@github.com/TerraScale/ts-auth", "https://github.com/TerraScale/ts-auth?ref=main"} {
+		invalid := claim
+		invalid.SourceRepository = source
+		if _, err := VerifyContainerHistorical(makeBundle(invalid, signer), roots, target); err == nil {
+			t.Fatalf("invalid signed source repository accepted: %s", source)
+		}
+	}
+	invalidTree := claim
+	invalidTree.SourceTreeSHA256 = strings.Repeat("z", 64)
+	if _, err := VerifyContainerHistorical(makeBundle(invalidTree, signer), roots, target); err == nil {
+		t.Fatal("invalid source tree accepted")
+	}
 	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), func(context.Context, string) (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader("tampered evidence")), nil
 	}); err == nil {
@@ -184,5 +230,8 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	wrongSigner.Delegation = nil
 	if _, err := VerifyContainerCurrent(ctx, wrongSigner, roots, target, now, now.Add(time.Minute), reader); err == nil {
 		t.Fatal("root-trusted release signer bypassed root-authorized sequence signer")
+	}
+	if _, err := VerifyContainerHistorical(wrongSigner, roots, target); err == nil {
+		t.Fatal("historical floor bypassed root-authorized sequence signer")
 	}
 }
