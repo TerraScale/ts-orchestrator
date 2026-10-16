@@ -35,9 +35,21 @@ import (
 // The endpoint simulates regional Object Storage; it does not qualify live OCI.
 func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 	fixture := newApplyHTTPFixture(t)
-	for _, failure := range []string{"unreachable", "missing", "stale", "environment", "architecture", "storage"} {
+	for _, failure := range []string{"unreachable", "missing", "stale", "environment", "architecture", "storage", "qualification"} {
 		t.Run(failure, func(t *testing.T) {
 			fixture.reset(failure)
+			qualificationPath := filepath.Join(filepath.Dir(filepath.Dir(fixture.binaryPath)), "production", "SFO", "amd64", "production.json")
+			var qualificationWire []byte
+			if failure == "qualification" {
+				var err error
+				qualificationWire, err = os.ReadFile(qualificationPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(qualificationPath); err != nil {
+					t.Fatal(err)
+				}
+			}
 			var output bytes.Buffer
 			c := command{ctx: t.Context(), output: &output}
 			err := c.applyWith(fixture.args, fixture.env)
@@ -55,6 +67,11 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			}
 			fixture.failure = ""
 			fixture.mu.Unlock()
+			if failure == "qualification" {
+				if err := os.WriteFile(qualificationPath, qualificationWire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if fixture.inspections.Load() != 1 {
 				t.Fatalf("same digest inspected %d times", fixture.inspections.Load())
 			}
@@ -238,6 +255,11 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 		}
 		if err := os.WriteFile(filepath.Join(bundle, cell, "channel.json"), wire, 0o600); err != nil {
 			t.Fatal(err)
+		}
+		for _, evidenceDir := range []string{filepath.Join(bundle, "production"), filepath.Join(retainedDir, "production")} {
+			record := writeProductionEvidence(t, evidenceDir, productionCandidate(binary, cell))
+			writeProductionRecord(t, filepath.Join(evidenceDir, cell, "amd64", "production.json"), record, rootPrivate,
+				now.Add(-time.Minute), now.Add(time.Hour))
 		}
 	}
 	rootDER, _ := x509.MarshalPKIXPublicKey(rootPublic)
