@@ -175,7 +175,7 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 	}
 	if payload.Identity != s.identity || payload.TaskID != task.ID || payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.EffectID != effectID ||
 		payload.Nonce != query.Nonce || payload.Epoch == 0 || payload.Epoch > response.Epoch || action != "close" && payload.Epoch != response.Epoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
-		action != "close" && !payload.Deadline.After(now.Add(workerStopReserve)) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime {
+		payload.Deadline.IsZero() || action != "close" && (!payload.Deadline.After(now.Add(workerStopReserve)) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime) {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
 	if action == "close" && payload.Phase != "closing" && payload.Phase != "settled" || action != "close" && (payload.Phase != "held" || payload.StopChallenge != "") {
