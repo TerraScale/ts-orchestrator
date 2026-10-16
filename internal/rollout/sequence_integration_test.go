@@ -285,6 +285,11 @@ func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
 	valid := fixture.update(t, 1001, 1, toDigest, true)
+	stripped := valid
+	stripped.ReleaseSequence, stripped.SequenceMigration, stripped.SequenceMigrationSHA256 = 0, nil, ""
+	if _, err := store.PublishRelease(ctx, 7, stripped); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy API erased signed sequence before first migration: %v", err)
+	}
 	tampered := valid
 	tampered.ReleaseSequence++
 	forgedRollback := valid

@@ -11,6 +11,22 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
+// Legacy callers cannot erase ordering by omitting its copied metadata.
+func rejectSequencedReceipt(wire []byte) error {
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil || envelope.Scope.Domain != release.UpdateReceiptDomain {
+		return nil
+	}
+	var receipt release.BinaryUpdateReceipt
+	if err := protocol.DecodeStrict(envelope.Payload, &receipt, trust.MaxPayloadBytes); err != nil {
+		return err
+	}
+	if receipt.ReleaseSequence > 0 || receipt.SequenceMigrationSHA256 != "" {
+		return fmt.Errorf("%w: signed sequence requires signature admission", ErrInvalid)
+	}
+	return nil
+}
+
 // PublishSequencedRelease admits ordering and independent qualification at the
 // durable publication boundary, including callers that bypass regional OCI.
 func (s *Store) PublishSequencedRelease(ctx context.Context, epoch uint64, admitted Release, roots trust.Keyring, cell, environment string) (Release, error) {

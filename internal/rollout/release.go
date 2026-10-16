@@ -239,6 +239,9 @@ func (s *Store) PublishRelease(ctx context.Context, epoch uint64, release Releas
 	if release.ReleaseSequence > 0 || len(release.SequenceMigration) > 0 || release.SequenceMigrationSHA256 != "" || release.RollbackOf != 0 {
 		return Release{}, fmt.Errorf("%w: sequenced releases require signature admission; rollbacks require retained generation", ErrInvalid)
 	}
+	if err := rejectSequencedReceipt(release.Receipt); err != nil {
+		return Release{}, err
+	}
 	return s.publishRelease(ctx, epoch, release, false)
 }
 
