@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -243,6 +244,63 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		t.Fatal(err)
 	}
 	return actor, authority
+}
+
+func assertSourceFounderGeometryDenials(t *testing.T, actor *region.SourceFounder, grant region.VerifiedBootstrapMaterial, protocol *materialProtocol) {
+	t.Helper()
+	startup, err := grant.Startup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := startup.Profiles[0]
+	resource := startup.FounderResources.Slots[0]
+	instance := core.Instance{Id: new(actor.InstanceID()), CompartmentId: new(profile.CompartmentOCID), ImageId: new(startup.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}}
+	wrongCPU, wrongMemory := instance, instance
+	wrongCPU.ShapeConfig = &core.InstanceShapeConfig{Ocpus: new(float32(resource.WholeOCPUs) + 0.5), MemoryInGBs: new(float32(resource.MemoryInGB))}
+	wrongMemory.ShapeConfig = &core.InstanceShapeConfig{Ocpus: new(float32(resource.WholeOCPUs)), MemoryInGBs: new(float32(resource.MemoryInGB) + 1)}
+	bootID := "ocid1.bootvolume.oc1." + grant.Config().Region + ".founder"
+	attachment := core.BootVolumeAttachment{Id: new("ocid1.bootvolumeattachment.oc1." + grant.Config().Region + ".founder"), InstanceId: new(actor.InstanceID()), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), BootVolumeId: new(bootID), LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached}
+	volume := core.BootVolume{Id: new(bootID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), ImageId: new(startup.ImageOCID), LifecycleState: core.BootVolumeLifecycleStateAvailable, SizeInGBs: new(int64(resource.BootVolumeGB)), VpusPerGB: new(int64(10))}
+	wrongSize, wrongTier, autoTune := volume, volume, volume
+	wrongSize.SizeInGBs = new(int64(resource.BootVolumeGB) + 1)
+	wrongTier.VpusPerGB = new(int64(20))
+	autoTune.IsAutoTuneEnabled = new(true)
+	for _, scenario := range []struct {
+		name, path string
+		response   any
+	}{
+		{"fractional-cpu", "/20160918/instances/" + actor.InstanceID(), wrongCPU},
+		{"memory", "/20160918/instances/" + actor.InstanceID(), wrongMemory},
+		{"image-owner", "/20160918/images/" + startup.ImageOCID, core.Image{Id: new(startup.ImageOCID), CompartmentId: new("ocid1.compartment.oc1..other"), LifecycleState: core.ImageLifecycleStateAvailable}},
+		{"ambiguous-boot", "/20160918/bootVolumeAttachments", []core.BootVolumeAttachment{attachment, attachment}},
+		{"boot-size", "/20160918/bootVolumes/" + bootID, wrongSize},
+		{"boot-tier", "/20160918/bootVolumes/" + bootID, wrongTier},
+		{"boot-autotune", "/20160918/bootVolumes/" + bootID, autoTune},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var reached atomic.Bool
+			previous := protocol.interceptIAM
+			protocol.interceptIAM = func(w http.ResponseWriter, r *http.Request) bool {
+				if r.URL.Path != scenario.path {
+					return previous != nil && previous(w, r)
+				}
+				reached.Store(true)
+				w.Header().Set("Content-Type", "application/json")
+				json.MarshalWrite(w, scenario.response)
+				return true
+			}
+			defer func() { protocol.interceptIAM = previous }()
+			if err := actor.Guard(t.Context()); err == nil || !reached.Load() {
+				t.Fatalf("authenticated geometry mismatch was not observed and denied: %v", err)
+			}
+			if protocol.creates != 0 || len(protocol.policies) != 0 {
+				t.Fatal("geometry mismatch reached Vault or IAM creation")
+			}
+		})
+	}
+	if err := actor.Guard(t.Context()); err != nil {
+		t.Fatalf("original geometry did not recover: %v", err)
+	}
 }
 
 func sourceFoundationRecords(t *testing.T, protocol *materialProtocol, grant region.FoundationGrant) {

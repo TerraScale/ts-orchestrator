@@ -518,6 +518,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	assertSourceFounderGeometryDenials(t, actor, verified, protocol)
 	// Matching Actor fields cannot adopt a source created before its IAM journal.
 	sourceScope := digestWire([]byte(verified.InstallationID() + "\x00gru"))
 	sourceObject := verified.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + sourceScope + ".json"
