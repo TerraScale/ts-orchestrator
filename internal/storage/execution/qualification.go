@@ -102,13 +102,13 @@ func (cpu CPUProfile) valid() bool {
 // qualifier. Generic workload evidence cannot authorize a database migration.
 func VerifyStatefulCurrent(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring,
 	target release.ContainerTarget, data RetainedData, cpu CPUProfile, now, until time.Time,
-	evidence func(context.Context, string) (io.ReadCloser, error),
+	evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation,
 ) (VerifiedStateful, error) {
 	if ctx == nil || ctx.Err() != nil || target.Role != "terrabase" || !retainedDataValid(data) || !cpu.valid() ||
 		cpu.Architecture != target.Architecture || now.IsZero() || !until.After(now) || evidence == nil {
 		return VerifiedStateful{}, fmt.Errorf("%w: stateful qualification scope", release.ErrProductionQualification)
 	}
-	container, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, until, evidence)
+	container, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, until, evidence, allocations)
 	if err != nil {
 		return VerifiedStateful{}, err
 	}
@@ -250,8 +250,8 @@ func statefulDigest(value any) (string, error) {
 // VerifyStatefulDeclared authenticates the release's declared qualification for
 // manager service construction. It does not observe a worker CPU or volume and
 // cannot replace Source's independent runtime admission.
-func VerifyStatefulDeclared(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) (VerifiedStateful, error) {
-	container, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, until, evidence)
+func VerifyStatefulDeclared(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) (VerifiedStateful, error) {
+	container, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, until, evidence, allocations)
 	if err != nil {
 		return VerifiedStateful{}, err
 	}
@@ -270,5 +270,5 @@ func VerifyStatefulDeclared(ctx context.Context, bundle release.ContainerBundle,
 	if err := protocol.DecodeStrict(wire, &declared, trust.MaxPayloadBytes); err != nil {
 		return VerifiedStateful{}, err
 	}
-	return VerifyStatefulCurrent(ctx, bundle, roots, target, declared.Data, declared.TargetCPU, now, until, evidence)
+	return VerifyStatefulCurrent(ctx, bundle, roots, target, declared.Data, declared.TargetCPU, now, until, evidence, allocations)
 }

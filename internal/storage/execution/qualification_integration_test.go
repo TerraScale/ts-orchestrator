@@ -123,7 +123,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	}
 	proof := StatefulQualification{Schema: StatefulQualificationSchema, CandidateSourceTreeSHA256: strings.Repeat("b", 64), Data: data, SourceCPU: cpu, TargetCPU: cpu, DiskFormatSHA256: data.DiskFormatSHA256}
 	proof.ResultData = data
-	configWire := []byte(`{"architecture":"amd64","os":"linux","config":{"Entrypoint":["/usr/local/bin/terrabase"],"User":"65532:65532"},"rootfs":{"type":"layers","diff_ids":[]}}`)
+	configWire := []byte(fmt.Sprintf(`{"architecture":"%s","os":"linux","config":{"Entrypoint":["/usr/local/bin/terrabase"],"User":"65532:65532"},"rootfs":{"type":"layers","diff_ids":[]}}`, runtime.GOARCH))
 	configSHA := put(configWire)
 	manifestWire := []byte(fmt.Sprintf(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:%s","size":%d},"layers":[]}`, configSHA, len(configWire)))
 	imageDigest := put(manifestWire)
@@ -134,6 +134,10 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	for _, gate := range []string{"retained-restart", "restore", "replication-catchup", "durable-drain", "sigterm", "cpu-format-transition"} {
 		wire := []byte("controlled test-only " + gate + " evidence")
 		proof.Scenarios = append(proof.Scenarios, release.ProductionGateEvidence{Gate: gate, SHA256: put(wire), Bytes: int64(len(wire)), CompletedAt: now})
+	}
+	allocations := statefulSequenceLocation(t)
+	if err := allocations.ImportMigration(ctx, migrationEnvelope, roots, target.Role, target.Environment, now); err != nil {
+		t.Fatal(err)
 	}
 	makeBundle := func(p StatefulQualification) release.ContainerBundle {
 		t.Helper()
@@ -146,27 +150,36 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		expected := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: release.ProductionRuntime}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: expected, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: put(ha), Bytes: int64(len(ha)), CompletedAt: now}, {Gate: "workload-safety", SHA256: put(wire), Bytes: int64(len(wire)), CompletedAt: now}}}
 		claim.Production.Qualification = sign(qualification, release.ProductionQualificationScope(expected), qualifier)
-		return release.ContainerBundle{Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: grantWire}
+		family, err := claim.WorkerFamilyDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		sequence, sequenceWire, err := allocations.AllocateWithEvidence(ctx, release.SequenceIdentity{Role: claim.Role, Environment: claim.Environment, SourceRevision: claim.SourceRevision, ManifestSHA256: family}, roots, signer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim.ReleaseSequence = sequence
+		return release.ContainerBundle{Sequence: sequenceWire, Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: grantWire}
 	}
 	bundle := makeBundle(proof)
-	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open)
+	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open, allocations)
 	if err != nil || verified.Data() != data || verified.CPU() != cpu || verified.SHA256() == "" {
 		t.Fatalf("signed typed consumer: %+v %v", verified, err)
 	}
 
-	retained, err := VerifyRetainedProvenance(ctx, bundle, roots, target, proof.ResultData, open)
+	retained, err := VerifyRetainedProvenance(ctx, bundle, roots, target, proof.ResultData, open, allocations)
 	if err != nil || retained != proof.ResultData {
 		t.Fatalf("signed prior writer provenance: %+v %v", retained, err)
 	}
 	unknownFormat := proof.ResultData
 	unknownFormat.DiskFormatSHA256 = ""
-	retained, err = VerifyRetainedProvenance(ctx, bundle, roots, target, unknownFormat, open)
+	retained, err = VerifyRetainedProvenance(ctx, bundle, roots, target, unknownFormat, open, allocations)
 	if err != nil || retained.DiskFormatSHA256 != proof.ResultData.DiskFormatSHA256 {
 		t.Fatalf("format derived only from signed retained result: %+v %v", retained, err)
 	}
 	wrongVolume := proof.ResultData
 	wrongVolume.VolumeID = "ocid1.volume.foreign"
-	if _, err := VerifyRetainedProvenance(ctx, bundle, roots, target, wrongVolume, open); err == nil {
+	if _, err := VerifyRetainedProvenance(ctx, bundle, roots, target, wrongVolume, open, allocations); err == nil {
 		t.Fatal("retained proof transplanted to another volume")
 	}
 	t.Run("initial-native-provenance", func(t *testing.T) {
@@ -181,20 +194,24 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		expected := nativeProof.Data
 		expected.DiskFormatSHA256 = ""
 		expected.SourceArchitecture = ""
-		retained, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open)
+		retained, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open, allocations)
 		if err != nil || retained != nativeProof.Data {
 			t.Fatalf("exact native artifact bridge: %+v %v", retained, err)
 		}
 		expected.VolumeID = "ocid1.volume.foreign"
-		if _, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open); err == nil {
+		if _, err := VerifyNativeRetainedProvenance(ctx, makeBundle(nativeProof), roots, target, expected, now, now.Add(time.Minute), open, allocations); err == nil {
 			t.Fatal("native proof transplanted to other volume")
 		}
-		if _, err := VerifyNativeRetainedProvenance(ctx, bundle, roots, target, data, now, now.Add(time.Minute), open); err == nil {
+		if _, err := VerifyNativeRetainedProvenance(ctx, bundle, roots, target, data, now, now.Add(time.Minute), open, allocations); err == nil {
 			t.Fatal("native source bytes omitted")
 		}
-		nativeProof.Data.SourceArchitecture = "arm64"
-		nativeProof.SourceCPU.Architecture = "arm64"
-		if _, err := VerifyStatefulCurrent(ctx, makeBundle(nativeProof), roots, target, nativeProof.Data, cpu, now, now.Add(time.Minute), open); err == nil {
+		otherArchitecture := "arm64"
+		if runtime.GOARCH == "arm64" {
+			otherArchitecture = "amd64"
+		}
+		nativeProof.Data.SourceArchitecture = otherArchitecture
+		nativeProof.SourceCPU.Architecture = otherArchitecture
+		if _, err := VerifyStatefulCurrent(ctx, makeBundle(nativeProof), roots, target, nativeProof.Data, cpu, now, now.Add(time.Minute), open, allocations); err == nil {
 			t.Fatal("native ELF machine changed by a signed claim")
 		}
 	})
@@ -213,24 +230,24 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 			candidate := proof
 			candidate.Scenarios = append([]release.ProductionGateEvidence(nil), proof.Scenarios...)
 			test.mutate(&candidate)
-			if _, err := VerifyStatefulCurrent(ctx, makeBundle(candidate), roots, target, data, cpu, now, now.Add(time.Minute), open); err == nil {
+			if _, err := VerifyStatefulCurrent(ctx, makeBundle(candidate), roots, target, data, cpu, now, now.Add(time.Minute), open, allocations); err == nil {
 				t.Fatal("invalid signed stateful proof admitted")
 			}
 		})
 	}
-	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(2*time.Hour), open); err == nil {
+	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(2*time.Hour), open, allocations); err == nil {
 		t.Fatal("expired proof admitted")
 	}
 	lock.Lock()
 	blobs[proof.Scenarios[0].SHA256] = []byte("changed retained scenario")
 	lock.Unlock()
-	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open); err == nil {
+	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open, allocations); err == nil {
 		t.Fatal("tampered nested retained scenario admitted")
 	}
 	lock.Lock()
 	delete(blobs, proof.Scenarios[0].SHA256)
 	lock.Unlock()
-	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open); err == nil {
+	if _, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open, allocations); err == nil {
 		t.Fatal("missing nested retained scenario admitted")
 	}
 }

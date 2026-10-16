@@ -79,11 +79,15 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 		return err
 	}
 	target := release.ContainerTarget{Cell: string(oci.Region(claim.Cell)), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	uid, gid, err := qualifiedUser(ctx, *intent.Container, p.roots, target, p.open)
+	allocations, err := p.allocations(ctx, *intent.Container, p.roots, target)
 	if err != nil {
 		return err
 	}
-	declared, err := execution.VerifyStatefulDeclared(ctx, *intent.Container, p.roots, target, time.Now().UTC(), time.Now().UTC().Add(15*time.Second), p.open)
+	uid, gid, err := qualifiedUser(ctx, *intent.Container, p.roots, target, p.open, allocations)
+	if err != nil {
+		return err
+	}
+	declared, err := execution.VerifyStatefulDeclared(ctx, *intent.Container, p.roots, target, time.Now().UTC(), time.Now().UTC().Add(15*time.Second), p.open, allocations)
 	if err != nil {
 		return err
 	}

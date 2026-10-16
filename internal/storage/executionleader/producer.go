@@ -39,18 +39,19 @@ type Producer struct {
 	volumes           *oci.VolumeMountObserver
 	roots             trust.Keyring
 	evidence          releasechannel.Location
+	allocations       execution.ContainerAllocationResolver
 	cell, environment string
 }
 
-func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence releasechannel.Location, cell, environment string) (*Producer, error) {
-	if control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence.Client == nil || evidence.Namespace == "" || evidence.Bucket == "" || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
+func NewProducer(control api.ControlClient, fence *authority.Runtime, members placement.Store, releases *delivery.Service, volumes *oci.VolumeMountObserver, roots trust.Keyring, evidence releasechannel.Location, cell, environment string, allocations execution.ContainerAllocationResolver) (*Producer, error) {
+	if allocations == nil || control == nil || fence == nil || members == nil || releases == nil || volumes == nil || len(roots) == 0 || evidence.Client == nil || evidence.Namespace == "" || evidence.Bucket == "" || !release.ValidRegion(strings.ToUpper(cell)) || cell != strings.ToLower(cell) || environment == "" {
 		return nil, execution.ErrUnsafe
 	}
 	keys := make(trust.Keyring, len(roots))
 	for id, key := range roots {
 		keys[id] = slices.Clone(key)
 	}
-	return &Producer{control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, cell: cell, environment: environment}, nil
+	return &Producer{control: control, authority: fence, members: members, releases: releases, volumes: volumes, roots: keys, evidence: evidence, allocations: allocations, cell: cell, environment: environment}, nil
 }
 
 func (p *Producer) open(ctx context.Context, digest string) (io.ReadCloser, error) {
@@ -186,11 +187,15 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	verified, err := release.VerifyContainerCurrent(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open)
+	currentAllocations, err := p.allocations(ctx, *deployment.Container, p.roots, target)
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	uid, gid, err := qualifiedUser(ctx, *deployment.Container, p.roots, target, p.open)
+	verified, err := release.VerifyContainerCurrent(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open, currentAllocations)
+	if err != nil {
+		return executionwire.WorkerGrantMaterial{}, err
+	}
+	uid, gid, err := qualifiedUser(ctx, *deployment.Container, p.roots, target, p.open, currentAllocations)
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
@@ -211,7 +216,10 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open)
+	if retained.DatabaseID != volume.DatabaseID || retained.PartitionID != volume.PartitionID || retained.VolumeID != volume.VolumeID || retained.FileSystemUUID != volume.FileSystemUUID || retained.FileSystemType != volume.FileSystemType {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
+	}
+	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open, currentAllocations)
 	if err != nil || declared.Data() != retained {
 		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
 	}
@@ -288,7 +296,11 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 		}
 	}
 	if latest == nil {
-		retained, err := execution.VerifyNativeRetainedProvenance(ctx, candidate, p.roots, target, expected, time.Now().UTC(), until, p.open)
+		currentAllocations, err := p.allocations(ctx, candidate, p.roots, target)
+		if err != nil {
+			return release.ContainerBundle{}, expected, err
+		}
+		retained, err := execution.VerifyNativeRetainedProvenance(ctx, candidate, p.roots, target, expected, time.Now().UTC(), until, p.open, currentAllocations)
 		return release.ContainerBundle{}, retained, err
 	}
 	envelope, err := trust.DecodeEnvelope(material.Container.Claim)
@@ -305,12 +317,16 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 	_, expected.SourceArtifactSHA256, _ = strings.Cut(claim.Image, "@sha256:")
 	expected.SourceTreeSHA256 = claim.SourceTreeSHA256
 	previousTarget := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, p.open)
+	previousAllocations, err := p.allocations(ctx, material.Container, p.roots, previousTarget)
+	if err != nil {
+		return release.ContainerBundle{}, expected, err
+	}
+	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, p.open, previousAllocations)
 	return material.Container, retained, err
 }
 
-func qualifiedUser(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, open func(context.Context, string) (io.ReadCloser, error)) (uint32, uint32, error) {
-	verified, err := execution.VerifyStatefulDeclared(ctx, bundle, roots, target, time.Now().UTC(), time.Now().UTC().Add(time.Second), open)
+func qualifiedUser(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, open func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) (uint32, uint32, error) {
+	verified, err := execution.VerifyStatefulDeclared(ctx, bundle, roots, target, time.Now().UTC(), time.Now().UTC().Add(time.Second), open, allocations)
 	if err != nil {
 		return 0, 0, err
 	}
