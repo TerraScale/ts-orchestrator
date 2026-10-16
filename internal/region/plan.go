@@ -58,6 +58,20 @@ func Derive(template map[string]any, label, ociRegion string, live Live) (map[st
 	if template["operator_gateway"] != nil || template["netbird"] != nil {
 		return nil, errors.New("the template declares the home region's operator gateway or NetBird routing")
 	}
+	return deriveFoundation(template, label, ociRegion, live)
+}
+
+// deriveFoundation also handles the fixed home and template cells for the
+// separate offline foundation-grant producer; public Derive keeps its scope.
+func deriveFoundation(template map[string]any, label, ociRegion string, live Live) (map[string]any, error) {
+	entry, ok := catalog.LookupName(label)
+	if !ok || entry.OCIRegion != ociRegion {
+		return nil, errors.New("foundation cell differs from the region catalog")
+	}
+	from, ok := catalog.Lookup(fmt.Sprint(template["cell"]))
+	if !ok || from.Cell == catalog.Bootstrap || template["operator_gateway"] != nil || template["netbird"] != nil {
+		return nil, errors.New("foundation template must be the reviewed non-home platform plan")
+	}
 	sec, _ := template["network_security"].(map[string]any)
 	fromNet, _ := template["network_cidr"].(string)
 	fromLabel, _ := sec["service_gateway_cidr_block"].(string)
@@ -137,6 +151,10 @@ func LiveSDK(ctx context.Context, tenancy, ociRegion string) (Live, error) {
 	if err != nil {
 		return Live{}, err
 	}
+	return liveSDK(ctx, factory, tenancy, ociRegion)
+}
+
+func liveSDK(ctx context.Context, factory *ociclient.Factory, tenancy, ociRegion string) (Live, error) {
 	ids, err := factory.Identity()
 	if err != nil {
 		return Live{}, err
