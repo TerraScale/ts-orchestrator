@@ -119,6 +119,10 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				t.Fatalf("queried %d approved compartments", count)
 			}
 			if scenario == "observed" {
+				prices, err := reader.Prices(t.Context(), scope, []string{"VM.Standard.A1.Flex", "VM.Standard.E5.Flex", "VM.Unknown.Flex"})
+				if err != nil || len(prices) != 6 {
+					t.Fatalf("mixed family tariffs=%v err=%v", prices, err)
+				}
 				quote, err := reader.Quote(t.Context(), scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50)
 				if err != nil || quote.MonthlyCents() != 2147 || quote.Currency() != "USD" {
 					t.Fatalf("candidate quote=%+v err=%v", quote, err)
