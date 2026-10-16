@@ -182,7 +182,9 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			io.WriteString(w, `{"code":"PreconditionFailed","message":"changed"}`)
 			return
 		}
-		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || r.Header.Get("opc-sse-kms-key-id") != "ocid1.key.oc1.sa-saopaulo-1.head" {
+		explicitKMS := strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") || strings.HasSuffix(r.URL.Path, "/iam-lease.json")
+		kms := r.Header.Get("opc-sse-kms-key-id")
+		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || explicitKMS && kms != "ocid1.key.oc1.sa-saopaulo-1.head" || kms != "" && kms != "ocid1.key.oc1.sa-saopaulo-1.head" {
 			w.WriteHeader(400)
 			return
 		}
