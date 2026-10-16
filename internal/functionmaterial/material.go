@@ -45,6 +45,7 @@ type PublicTrust struct {
 	operator   *jwt.OperatorClaims
 	brokerCA   []byte
 	brokerURL  string
+	expiresAt  time.Time
 }
 
 func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT, brokerCA []byte, brokerURL string) (PublicTrust, error) {
@@ -78,7 +79,11 @@ func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT
 	if !pool.AppendCertsFromPEM(brokerCA) {
 		return PublicTrust{}, ErrMaterial
 	}
-	return PublicTrust{generation: generation, operator: operator, brokerCA: bytes.Clone(brokerCA), brokerURL: brokerURL}, nil
+	expires := generation.ExpiresAt()
+	if operator.Expires != 0 {
+		expires = minTime(expires, time.Unix(operator.Expires, 0))
+	}
+	return PublicTrust{generation: generation, operator: operator, brokerCA: bytes.Clone(brokerCA), brokerURL: brokerURL, expiresAt: expires}, nil
 }
 
 type intentReader interface {
@@ -158,7 +163,7 @@ func secretRef(vault string, binding Binding) (vaultsecret.Ref, error) {
 }
 
 func (reader Reader) currentAccount(ctx context.Context, proof release.VerifiedFunction) (brokerauth.Claim, error) {
-	if reader.Accounts == nil || reader.Trust.operator == nil || !time.Now().Before(reader.Trust.generation.ExpiresAt()) || !proof.Valid() {
+	if reader.Accounts == nil || reader.Trust.operator == nil || !time.Now().Before(reader.Trust.expiresAt) || !proof.Valid() {
 		return brokerauth.Claim{}, ErrMaterial
 	}
 	generation := reader.Trust.generation.Generation()
