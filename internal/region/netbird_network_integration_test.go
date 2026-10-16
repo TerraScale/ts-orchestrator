@@ -179,30 +179,31 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 	if _, _, err := ReconcileNetBirdNetwork(t.Context(), factory, plan, profile, resume()); err != nil || posts != 7 {
 		t.Fatalf("restart changed network: posts=%d err=%v", posts, err)
 	}
-	for _, collection := range []string{"vcns", "internetGateways", "routeTables", "securityLists", "subnets"} {
-		t.Run("drift-"+collection, func(t *testing.T) {
+	for _, drift := range []struct {
+		collection, field string
+		value             any
+	}{
+		{"vcns", "cidrBlocks", []string{"10.200.0.0/16"}},
+		{"vcns", "byoipv6CidrBlocks", []string{"2001:db8::/64"}},
+		{"internetGateways", "isEnabled", false},
+		{"internetGateways", "routeTableId", idFor("routetable")},
+		{"routeTables", "routeRules", []map[string]any{{"destination": "10.252.0.0/16", "destinationType": "CIDR_BLOCK", "networkEntityId": idFor("drg")}}},
+		{"securityLists", "ingressSecurityRules", []map[string]any{{"source": "0.0.0.0/0", "protocol": "all"}}},
+		{"subnets", "securityListIds", []string{idFor("securitylist") + "foreign"}},
+		{"subnets", "ipv4CidrBlocks", []string{"10.251.2.0/24"}},
+	} {
+		t.Run("drift-"+drift.collection+"-"+drift.field, func(t *testing.T) {
 			mu.Lock()
-			old := live[collection]
-			live[collection] = maps.Clone(old)
-			switch collection {
-			case "vcns":
-				live[collection]["cidrBlocks"] = []string{"10.200.0.0/16"}
-			case "internetGateways":
-				live[collection]["isEnabled"] = false
-			case "routeTables":
-				live[collection]["routeRules"] = []map[string]any{{"destination": "10.252.0.0/16", "destinationType": "CIDR_BLOCK", "networkEntityId": idFor("drg")}}
-			case "securityLists":
-				live[collection]["ingressSecurityRules"] = []map[string]any{{"source": "0.0.0.0/0", "protocol": "all"}}
-			case "subnets":
-				live[collection]["securityListIds"] = []string{idFor("securitylist") + "foreign"}
-			}
+			old := live[drift.collection]
+			live[drift.collection] = maps.Clone(old)
+			live[drift.collection][drift.field] = drift.value
 			mu.Unlock()
 			_, _, err := ReconcileNetBirdNetwork(t.Context(), factory, plan, profile, resume())
 			if err == nil || posts != 7 {
 				t.Fatalf("drift accepted or mutated network: posts=%d err=%v", posts, err)
 			}
 			mu.Lock()
-			live[collection] = old
+			live[drift.collection] = old
 			mu.Unlock()
 		})
 	}

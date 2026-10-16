@@ -69,7 +69,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 			return err
 		}
 		if value(r.Id) != id || value(r.CompartmentId) != compartment || !slices.Equal(r.CidrBlocks, []string{profile.NetworkCIDR}) ||
-			r.LifecycleState != core.VcnLifecycleStateAvailable || value(r.DnsLabel) != "netbird" || len(r.Ipv6CidrBlocks) != 0 || len(r.Ipv6PrivateCidrBlocks) != 0 {
+			r.LifecycleState != core.VcnLifecycleStateAvailable || value(r.DnsLabel) != "netbird" || len(r.Ipv6CidrBlocks) != 0 || len(r.Ipv6PrivateCidrBlocks) != 0 || len(r.Byoipv6CidrBlocks) != 0 {
 			return errors.New("NetBird VCN differs from its signed isolated network")
 		}
 		dhcp = value(r.DefaultDhcpOptionsId)
@@ -90,7 +90,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 		if err != nil {
 			return err
 		}
-		if value(r.Id) != id || value(r.CompartmentId) != compartment || value(r.VcnId) != vcn || r.IsEnabled == nil || !*r.IsEnabled || r.LifecycleState != core.InternetGatewayLifecycleStateAvailable {
+		if value(r.Id) != id || value(r.CompartmentId) != compartment || value(r.VcnId) != vcn || r.IsEnabled == nil || !*r.IsEnabled || r.LifecycleState != core.InternetGatewayLifecycleStateAvailable || value(r.RouteTableId) != "" {
 			return errors.New("NetBird Internet gateway differs from its checkpoint")
 		}
 		return nil
@@ -135,6 +135,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	if err != nil {
 		return "", "", err
 	}
+	// The atomic security-list create owns permissions; an empty NSG cannot widen them.
 	nsgDetails := core.CreateNetworkSecurityGroupDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name)}
 	nsg, err := n.ensure(ctx, "nsg", "networksecuritygroup", nsgDetails, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateNetworkSecurityGroup(ociclient.RequestContext(ctx), core.CreateNetworkSecurityGroupRequest{CreateNetworkSecurityGroupDetails: nsgDetails, OpcRetryToken: new(token)})
@@ -173,7 +174,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 			value(r.CidrBlock) != profile.NetworkCIDR || value(r.RouteTableId) != route || !slices.Equal(r.SecurityListIds, []string{security}) ||
 			value(r.DhcpOptionsId) != dhcp || value(r.DnsLabel) != "manager" || value(r.AvailabilityDomain) != "" ||
 			r.ProhibitPublicIpOnVnic == nil || *r.ProhibitPublicIpOnVnic || r.ProhibitInternetIngress == nil || *r.ProhibitInternetIngress ||
-			value(r.Ipv6CidrBlock) != "" || len(r.Ipv6CidrBlocks) != 0 || len(r.Ipv4CidrBlocks) > 1 {
+			value(r.Ipv6CidrBlock) != "" || len(r.Ipv6CidrBlocks) != 0 || len(r.Ipv4CidrBlocks) > 1 || len(r.Ipv4CidrBlocks) == 1 && r.Ipv4CidrBlocks[0] != profile.NetworkCIDR {
 			return errors.New("NetBird subnet attachments or public bootstrap route drifted")
 		}
 		return nil
