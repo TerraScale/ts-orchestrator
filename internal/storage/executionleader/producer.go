@@ -211,6 +211,9 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
+	if retained.DatabaseID != volume.DatabaseID || retained.PartitionID != volume.PartitionID || retained.VolumeID != volume.VolumeID || retained.FileSystemUUID != volume.FileSystemUUID || retained.FileSystemType != volume.FileSystemType {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
+	}
 	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open)
 	if err != nil || declared.Data() != retained {
 		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
