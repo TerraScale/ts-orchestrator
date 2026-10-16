@@ -98,6 +98,13 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 			return in.functionDemand(ctx)
 		},
 		FunctionRecipe: func(ctx context.Context, architecture string) (nodescale.Recipe, error) {
+			record, _, err := store.Load(ctx)
+			if err != nil {
+				return nodescale.Recipe{}, err
+			}
+			if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
+				return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, architecture)
+			}
 			base, err := nodeRecipe(ctx, in.factory, in.cell)
 			if err != nil {
 				return nodescale.Recipe{}, err
