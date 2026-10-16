@@ -269,6 +269,9 @@ func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Req
 func containerCLIImageLayout(t *testing.T) (string, string, string) {
 	t.Helper()
 	directory := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(directory, "blobs", "sha256"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	encode := func(value any) []byte {
 		t.Helper()
 		wire, err := json.Marshal(value)
@@ -302,8 +305,8 @@ func containerCLIImageLayout(t *testing.T) (string, string, string) {
 	child := blob(encode(manifest), ocispec.MediaTypeImageManifest)
 	child.Platform = &platform
 	index := ocispec.Index{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageIndex, Manifests: []ocispec.Descriptor{child}}
-	root := blob(encode(index), ocispec.MediaTypeImageIndex)
-	writeFixtureFile(t, filepath.Join(directory, "index.json"), encode(ocispec.Index{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageIndex, Manifests: []ocispec.Descriptor{root}}), 0o600)
+	root := ocispec.Descriptor{Digest: digest.FromBytes(encode(index))}
+	writeFixtureFile(t, filepath.Join(directory, "index.json"), encode(index), 0o600)
 	writeFixtureFile(t, filepath.Join(directory, "oci-layout"), []byte(`{"imageLayoutVersion":"1.0.0"}`), 0o600)
 	return directory, "registry.example/terrascale/auth@" + root.Digest.String(), child.Digest.Encoded()
 }

@@ -191,12 +191,19 @@ func (c command) uploadContainerEvidence(directory string, location releasechann
 	}
 	for _, object := range objects {
 		file, size, sum, err := c.openHashedArtifact(object.path, release.MaxProductionEvidenceBytes)
+		if errors.Is(err, os.ErrNotExist) && object.digest == claim.QualificationSHA256 {
+			file, size, sum, err = c.openHashedArtifact(filepath.Join(directory, "oci-layout", "index.json"), release.MaxProductionEvidenceBytes)
+		}
 		if err != nil {
 			return err
 		}
 		if hex.EncodeToString(sum) != object.digest || object.size != 0 && size != object.size {
 			file.Close()
 			return errors.New("retained OCI qualification bytes changed")
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			file.Close()
+			return trust.ErrExpired
 		}
 		putErr := putImmutable(c.ctx, location.Client, location.Namespace, location.Bucket, releasechannel.ContainerEvidenceObject(claim.Role, object.digest), file, size, sum)
 		if err := errors.Join(putErr, file.Close()); err != nil {
@@ -216,6 +223,9 @@ func awaitContainer(ctx context.Context, location releasechannel.Location, verif
 		if found && status.Schema == releasechannel.ContainerStatusSchema && status.Cell == claim.Cell && status.Environment == claim.Environment && status.Role == claim.Role && status.Architecture == claim.Architecture && status.Image == claim.Image && status.ReleaseSequence == claim.ReleaseSequence && status.Fingerprint == verified.Fingerprint() {
 			switch status.State {
 			case releasechannel.StateComplete:
+				if !verified.Valid(time.Now().UTC()) {
+					return trust.ErrExpired
+				}
 				fmt.Fprintf(output, "%s %s %s complete: %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
 				return nil
 			case releasechannel.StateFailed:

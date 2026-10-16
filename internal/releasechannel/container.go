@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -16,7 +17,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
-const MaxContainerBundleBytes = 32 << 10
+// Reserve room for the authenticated intent source, scope and operation fields.
+const MaxContainerBundleBytes = delivery.MaxIntentBytes - (2 << 10)
 
 var containerRole = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
@@ -114,6 +116,9 @@ func PublishContainer(ctx context.Context, location Location, bundle release.Con
 			if _, err := release.VerifySequenceMigrationCurrent(verified.MigrationEnvelope(), roots, target.Role, target.Environment, now); err != nil {
 				return err
 			}
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			return trust.ErrExpired
 		}
 		if err := location.put(ctx, name, wire, etag); !errors.Is(err, ErrConflict) {
 			return err

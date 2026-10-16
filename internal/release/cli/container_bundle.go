@@ -12,9 +12,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -166,6 +168,17 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	if signerID != delegation.SubjectKeyID() || signerID != migration.SignerKeyID {
 		return trust.ErrKeyMismatch
 	}
+	deadline = time.Now().UTC().Add(rollout.ObservationBudget)
+	if _, err := trust.VerifyDelegationCurrent(grant, roots, deadline, trust.Policy{MaxLifetime: release.MaxUpdateReceiptLifetime}); err != nil {
+		return err
+	}
+	for _, target := range targets {
+		_, child, _ := strings.Cut(target.claim.Image, "@sha256:")
+		expected := release.ProductionExpectation{SourceRevision: target.claim.SourceRevision, ArtifactSHA256: child, QualificationSHA256: target.claim.QualificationSHA256, Cell: target.claim.Cell, Environment: target.claim.Environment, Runtime: release.ProductionRuntime, Architecture: target.claim.Architecture, Role: target.claim.Role}
+		if err := c.verifyProductionCandidate(*evidenceDir, roots, expected, deadline); err != nil {
+			return err
+		}
+	}
 	client, err := env.storage(migration.Region)
 	if err != nil {
 		return err
@@ -223,6 +236,9 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 		wire, err := json.Marshal(target.bundle, json.Deterministic(true))
 		if err != nil {
 			return err
+		}
+		if len(wire) > releasechannel.MaxContainerBundleBytes {
+			return errors.New("signed OCI bundle exceeds durable intent bound")
 		}
 		if err := c.writeNew(filepath.Join(destination, "container.json"), wire, 0o600); err != nil {
 			return err
