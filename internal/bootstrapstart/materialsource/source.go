@@ -66,6 +66,7 @@ type materialSourceState struct {
 	StartedAt      time.Time                     `json:"startedAt"`
 	Reference      materialSourceReference       `json:"reference"`
 	Journal        []byte                        `json:"journal,omitempty"`
+	Startup        map[string][]byte             `json:"startup,omitempty"`
 }
 
 // ColdStartMaterial retains the one CAS revision authorizing source escrow and
