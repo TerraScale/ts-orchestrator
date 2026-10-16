@@ -55,14 +55,30 @@ is downloaded or run. The admission provider and prepared-volume success
 projection are test-only adapters. The actual OCI Fleet path is exercised with
 missing owned host/volume inventory and must deny execution.
 
-Assertions cover missing admission/holder, nil tasks, holder reuse, authority
+Assertions cover missing admission/holder, nil tasks, changed task labels,
+first-format grant rejection, holder reuse, authority
 loss during volume inspection, changed admission, unavailable member control,
 pending drain, survivor below final source frontier, final completed drain after
 durable request reopen, absent independent writer-stop proof, and missing owned
 OCI resources. Only two prepared-volume simulator effects and one verified drain
 effect may reach their runtime callback.
 
-Result: pending the serialized focused check. No passing or live claim is made.
+Result: **PASS**, source commit `b433e10d`, 2026-10-16 20:13:05 UTC.
+The scenario completed in 0.24 seconds (Go package result 0.267 seconds):
+
+```text
+--- PASS: TestExecutorSafetyIntegration (0.24s)
+PASS
+ok github.com/TerraScale/ts-orchestrator/internal/storage/execution 0.267s
+```
+
+Earlier attempts exposed two fixture setup mistakes: local umask removed the
+control directory's group write permission, and the OCI fixture omitted its
+required NSG. Exact fixture permissions and a valid NSG fixed these failures;
+production validation was preserved. The intermediate attempt completed all Unix
+drain assertions before refusing the invalid OCI fixture. The final command above
+passed every assertion, including the actual OCI inspector's missing-owned-host
+rejection. This is local boundary qualification, not live STATEFUL acceptance.
 
 ## Remaining cutover blockers
 
