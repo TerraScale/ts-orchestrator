@@ -66,14 +66,14 @@ func LinkDeliveryPayload(evidence RegionalLinkEvidence) ([]byte, error) {
 
 func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, evidence RegionalLinkEvidence, now time.Time) (VerifiedStartupLink, error) {
 	deny := func() (VerifiedStartupLink, error) { return VerifiedStartupLink{}, ErrManifestInvalid }
-	if ctx.Err() != nil || client == nil || template.VerifyCurrent(now) != nil || !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
+	if ctx.Err() != nil || client == nil || template.VerifyCurrentContext(ctx, now) != nil || !validDigest(evidence.SourceSHA256) || len(evidence.MaterialRecord) == 0 || len(evidence.MaterialRecord) > 48<<10 || len(evidence.Journal) == 0 || len(evidence.Journal) > 64<<10 {
 		return deny()
 	}
 	regional, err := LoadRegionalSource(ctx, template, client, now)
 	if err != nil {
 		return deny()
 	}
-	homeTemplate, err := VerifyHomeStartupTemplate(template.GrantWire(), template.roots, template.anchor, now)
+	homeTemplate, err := template.ForCell(ctx, oci.RegionGRU, now)
 	if err != nil {
 		return deny()
 	}
