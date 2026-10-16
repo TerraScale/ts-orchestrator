@@ -35,7 +35,8 @@ import (
 )
 
 // This scenario crosses the actual filesystem, OCI SDK HTTP, retained evidence,
-// image signatures, automatic plan derivation and offline root CLI boundaries.
+// image signatures, automatic plan derivation, offline root CLI and immutable
+// foundation publication boundaries.
 func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	rootPublic, root, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -64,7 +65,7 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	approval.ReleaseAuthorities = foundationPreparationReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
 	objects := map[string][]byte{}
 	var mu sync.Mutex
-	reads, writes := 0, 0
+	reads, writes, conditionalConflicts := 0, 0, 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -92,6 +93,12 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 			bucket, name, _ := strings.Cut(name, "/o/")
 			key := bucket + "/" + name
 			if r.Method == http.MethodPut {
+				if _, exists := objects[key]; exists && r.Header.Get("If-None-Match") == "*" {
+					conditionalConflicts++
+					w.WriteHeader(http.StatusPreconditionFailed)
+					fmt.Fprint(w, `{"code":"PreconditionFailed","message":"object already exists"}`)
+					return
+				}
 				writes++
 				body, readErr := io.ReadAll(r.Body)
 				if readErr != nil {
@@ -227,6 +234,36 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	}
 	if !grantEnvelope.ExpiresAt.Equal(now.Add(30*time.Minute)) || anchorEnvelope.ExpiresAt.After(grantEnvelope.ExpiresAt) {
 		t.Fatal("root ceremony extended the shortest release delegation or grant authority")
+	}
+	mu.Lock()
+	expectedObjects := make(map[string][]byte, len(objects)+3)
+	for key, wire := range objects {
+		expectedObjects[key] = bytes.Clone(wire)
+	}
+	expectedObjects["gru-1-head/orchestrator/foundation/v1/root-chain.json"] = bundle.RootChainWire
+	expectedObjects["gru-1-head/bootstrap/foundation-scope-v1.json"] = bundle.GrantWire
+	expectedObjects["gru-1-head/orchestrator/foundation/v1/anchor.json"] = bundle.AnchorWire
+	beforePublicationWrites, beforePublicationConflicts := writes, conditionalConflicts
+	mu.Unlock()
+	for attempt := range 2 {
+		if err := region.PublishFoundationBundle(t.Context(), factory, roots, bundle); err != nil {
+			t.Fatalf("publish signed foundation attempt %d: %v", attempt+1, err)
+		}
+		mu.Lock()
+		observedObjects := make(map[string][]byte, len(objects))
+		for key, wire := range objects {
+			observedObjects[key] = bytes.Clone(wire)
+		}
+		observedWrites, observedConflicts := writes, conditionalConflicts
+		mu.Unlock()
+		if len(observedObjects) != len(expectedObjects) || observedWrites != beforePublicationWrites+3 || observedConflicts != beforePublicationConflicts+attempt*3 {
+			t.Fatalf("foundation publication attempt %d changed unexpected objects or bypassed immutable replay: objects=%d writes=%d conflicts=%d", attempt+1, len(observedObjects), observedWrites-beforePublicationWrites, observedConflicts-beforePublicationConflicts)
+		}
+		for key, wire := range expectedObjects {
+			if !bytes.Equal(observedObjects[key], wire) {
+				t.Fatalf("foundation publication attempt %d changed exact retained object %s", attempt+1, key)
+			}
+		}
 	}
 	t.Run("missing service authority cannot be signed", func(t *testing.T) {
 		partial := prepared
