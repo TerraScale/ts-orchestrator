@@ -147,6 +147,14 @@ func (journal *KVJournal) RecordPoolCreateResult(ctx context.Context, operationI
 		return errors.New("positive pool result lacks exact SDK resource and request identity")
 	}
 	result := PoolCreateResult{OperationID: operationID, Kind: kind, ResourceID: resourceID, OpcRequestID: opcRequestID}
+	if original, found, err := journal.GetPoolCreateResult(ctx, operationID, kind); err != nil {
+		return err
+	} else if found {
+		if original.ResourceID != resourceID {
+			return errors.New("pool create result cannot replace its original returned resource")
+		}
+		result = original
+	}
 	entry := journalEntry{SchemaVersion: journalSchema, Kind: "pool-create-result", PoolCreateResult: result}
 	if err := journal.writePoolEntry(ctx, poolCreateResultKey(operationID, kind), entry); err != nil {
 		return err
