@@ -6,6 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"time"
 
@@ -134,7 +135,7 @@ func WriteServiceStatus(ctx context.Context, location Location, status ServiceSt
 // MaxServiceBinaryBytes. The caller checks the bytes against the claim.
 func ReadServiceBinary(ctx context.Context, location Location, role, digest string, dst io.Writer) error {
 	name := ServiceBinaryObject(role, digest)
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 	})
 	if err != nil {
