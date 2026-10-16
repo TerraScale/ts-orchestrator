@@ -263,6 +263,35 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
 		OCIImageOCID: imageID, OCIRegion: "GRU"}
+	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: imageReceipt.SourceRevision,
+			ArtifactSHA256: imageReceipt.ImageSHA256, QualificationSHA256: imageReceipt.QualificationSHA256,
+			Cell: imageReceipt.OCIRegion, Environment: "production", Runtime: release.ProductionRuntime,
+			Architecture: imageReceipt.Architecture, Role: "orchestrator"}}
+	directory := t.TempDir()
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		body := []byte("test-only controller bootstrap image evidence: " + gate)
+		path := filepath.Join(directory, digestWire(body))
+		if err := os.WriteFile(path, body, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		retained, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(retained, body) {
+			t.Fatalf("retained %s image evidence changed: %v", gate, err)
+		}
+		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digestWire(retained), Bytes: int64(len(retained)), CompletedAt: fixture.now.Add(-2 * time.Minute)})
+	}
+	qualificationPayload, err := trust.EncodePayload(qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualificationEnvelope, err := trust.Sign(qualificationPayload,
+		release.ProductionQualificationScope(qualification.Candidate), fixture.now.Add(-time.Minute), fixture.now.Add(2*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageReceipt.Production = &release.ProductionProof{Qualification: envelopeWire(t, qualificationEnvelope)}
 	imageEnvelope, err := release.SignImageReceipt(imageReceipt, "production", grant, fixture.baked.Roots,
 		private, fixture.now.Add(-time.Minute), time.Hour)
 	if err != nil {
