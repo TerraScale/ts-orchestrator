@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -19,6 +20,8 @@ import (
 )
 
 type linkInputs struct {
+	recipient                                  *bootstrap.LinkRecipient
+	recipientGrant                             region.VerifiedBootstrapMaterial
 	regional, home                             *ColdStartMaterial
 	homeLink                                   *LinkSource
 	regionalDigest, homeDigest, homeLinkDigest string
@@ -74,6 +77,9 @@ func ResolveLinkSource(ctx context.Context, regional, home *ColdStartMaterial, h
 }
 
 func (inputs *linkInputs) verify(ctx context.Context) error {
+	if inputs.recipient != nil {
+		return inputs.verifyRecipient(ctx)
+	}
 	regional, home := inputs.regional, inputs.home
 	if regional == nil || home == nil || regional.kind != "" || home.kind != "" || home.grant.Config().Cell != natscell.LinkHome || regional.grant.InstallationID() != home.grant.InstallationID() || regional.grant.Generation() != home.grant.Generation() || regional.grant.EscrowTarget() != home.grant.EscrowTarget() || regional.grant.StorageDomain() != home.grant.StorageDomain() {
 		return ErrMaterialSource
@@ -143,8 +149,12 @@ func (source *ColdStartMaterial) loadRecord(directory string) (bootstrapmaterial
 		}
 		return record, nil
 	}
+	regional, err := source.link.regionalRecord()
+	if err != nil {
+		return bootstrapmaterial.Record{}, err
+	}
 	record, err := bootstrapmaterial.LoadLink(directory, time.Now())
-	if err != nil || record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != source.link.regional.record.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
+	if err != nil || record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != regional.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
 		return bootstrapmaterial.Record{}, ErrMaterialSource
 	}
 	if err := source.validateLedger(record.Record); err != nil {
