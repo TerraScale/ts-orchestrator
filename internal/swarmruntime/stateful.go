@@ -176,6 +176,7 @@ func (s *statefulController) specOption(ctx context.Context) (oci.SpecOpts, erro
 			return execution.ErrUnsafe
 		}
 		spec.Linux.Resources = &pins.Resources
+		spec.Linux.Namespaces = pins.Namespaces
 		spec.Linux.CgroupsPath = "/terrascale/" + s.id
 		spec.Mounts = pins.Mounts
 		return nil
@@ -191,7 +192,7 @@ func (s *statefulController) verifySpec(ctx context.Context, ctr containerd.Cont
 	if err != nil {
 		return err
 	}
-	if spec.Linux == nil || !reflect.DeepEqual(spec.Process, &pins.Process) || !reflect.DeepEqual(spec.Linux.Resources, &pins.Resources) || !reflect.DeepEqual(spec.Mounts, pins.Mounts) {
+	if spec.Linux == nil || !reflect.DeepEqual(spec.Process, &pins.Process) || !reflect.DeepEqual(spec.Linux.Resources, &pins.Resources) || !reflect.DeepEqual(spec.Linux.Namespaces, pins.Namespaces) || !reflect.DeepEqual(spec.Mounts, pins.Mounts) {
 		return errors.New("container specification differs from qualified stateful runtime")
 	}
 	return nil
