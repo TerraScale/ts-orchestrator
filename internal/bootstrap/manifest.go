@@ -339,6 +339,10 @@ func validateManifestEnvelopeSize(envelope trust.Envelope) error {
 // Validate checks the closed manifest schema and all exact role, slot,
 // deployment, launch-profile, signer-delegation, and secret-scope constraints.
 func (manifest Manifest) Validate() error {
+	return manifest.validateStructure(false)
+}
+
+func (manifest Manifest) validateStructure(derived bool) error {
 	ociRegion, err := manifest.Cell.OCIRegion()
 	if err != nil || manifest.SchemaVersion != ManifestSchemaVersion || !entityid.Valid(manifest.DeploymentID) ||
 		!entityid.Valid(manifest.ClusterID) || manifest.Environment != "production" && manifest.Environment != "canary" ||
@@ -417,7 +421,7 @@ func (manifest Manifest) Validate() error {
 		secretFiles[secret.TargetFile] = struct{}{}
 	}
 	peerSlots := slices.DeleteFunc(slices.Clone(manifest.ControllerSlots), func(slot string) bool { return slot == manifest.SeedSlot })
-	if len(peerSlots) == 0 && manifest.PeerReceiptDelegation != nil || len(peerSlots) > 0 && manifest.PeerReceiptDelegation == nil {
+	if derived && manifest.PeerReceiptDelegation != nil || !derived && (len(peerSlots) == 0 && manifest.PeerReceiptDelegation != nil || len(peerSlots) > 0 && manifest.PeerReceiptDelegation == nil) {
 		return fmt.Errorf("%w: peer signer delegation must exactly match peer slot presence", ErrManifestInvalid)
 	}
 	payload, err := trust.EncodePayload(manifest)

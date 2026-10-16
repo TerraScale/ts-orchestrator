@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"bytes"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"fmt"
 	"slices"
@@ -17,20 +18,21 @@ import (
 type VerifiedStartupTemplate struct {
 	template                                                StartupTemplate
 	anchor                                                  VerifiedBootstrapAnchor
+	roots                                                   trust.Keyring
 	grantWire                                               []byte
 	grantDigest, templateDigest, planDigest, installationID string
 	generation                                              uint64
 	issuedAt, expiresAt                                     time.Time
 	image                                                   release.VerifiedImage
-	vault                                                   StartupVaultTarget
+	vault, escrow                                           StartupVaultTarget
 }
 
 // StartupVaultTarget is the exact regional host-publication destination from
 // the root-signed owned foundation record, distinct from founder source escrow.
 type StartupVaultTarget struct {
-	CompartmentOCID string
-	VaultOCID       string
-	KMSKeyOCID      string
+	CompartmentOCID string `json:"compartmentOcid"`
+	VaultOCID       string `json:"vaultOcid"`
+	KMSKeyOCID      string `json:"kmsKeyOcid"`
 }
 
 func (verified VerifiedStartupTemplate) IsVerified() bool {
@@ -47,6 +49,42 @@ func (verified VerifiedStartupTemplate) ExpiresAt() time.Time            { retur
 func (verified VerifiedStartupTemplate) IssuedAt() time.Time             { return verified.issuedAt }
 func (verified VerifiedStartupTemplate) Image() release.VerifiedImage    { return verified.image }
 func (verified VerifiedStartupTemplate) VaultTarget() StartupVaultTarget { return verified.vault }
+
+// ValidateProjection checks the shared manifest structure with derived receipt
+// provenance and exact signed recipe inputs, before any source CAS mutation.
+func (verified VerifiedStartupTemplate) ValidateProjection(manifest Manifest) error {
+	if manifest.validateStructure(true) != nil {
+		return ErrManifestInvalid
+	}
+	expected, err := verified.ManifestFor(manifest.Slot, manifest.Secrets)
+	if err != nil {
+		return err
+	}
+	expected.ControllerConfig, expected.ControllerConfigSHA256 = bytes.Clone(manifest.ControllerConfig), manifest.ControllerConfigSHA256
+	want, _ := json.Marshal(expected, json.Deterministic(true))
+	actual, _ := json.Marshal(manifest, json.Deterministic(true))
+	if !bytes.Equal(want, actual) {
+		return ErrManifestInvalid
+	}
+	return nil
+}
+
+func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
+	if !verified.IsVerified() {
+		return ErrManifestInvalid
+	}
+	identity := verified.anchor.Anchor()
+	envelope, err := trust.DecodeEnvelope(verified.anchor.Wire())
+	if err != nil {
+		return err
+	}
+	anchor, err := VerifyBootstrapAnchor(envelope, verified.roots, BootstrapAnchorExpectation{DeploymentID: identity.DeploymentID, Environment: identity.Environment, Cell: identity.Cell}, now, BootstrapAnchorTrustPolicy())
+	if err != nil {
+		return err
+	}
+	_, err = VerifyStartupTemplate(verified.grantWire, verified.roots, anchor, now)
+	return err
+}
 
 // ManifestFor returns render-only structural inputs. It cannot be passed to a
 // materializer or admission gate as a verified signed manifest.
@@ -105,19 +143,12 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 				ResourceIDs map[string]string `json:"resource_ids"`
 			} `json:"plan"`
 			BootstrapMaterial *struct {
-				InstallationID string `json:"installationId"`
-				PlanSHA256     string `json:"planSha256"`
-				Config         struct {
-					DeploymentID string `json:"deploymentId"`
-					Environment  string `json:"environment"`
-					ClusterID    string `json:"clusterId"`
-					Cell         string `json:"cell"`
-					Region       string `json:"region"`
-					Slots        []struct {
-						Name string `json:"name"`
-					} `json:"slots"`
-				} `json:"config"`
-				Startup *StartupTemplate `json:"startup"`
+				InstallationID     string                     `json:"installationId"`
+				PlanSHA256         string                     `json:"planSha256"`
+				Config             jsontext.Value             `json:"config"`
+				SourceVaultTarget  StartupVaultTarget         `json:"sourceVaultTarget"`
+				Startup            *StartupTemplate           `json:"startup"`
+				SourceRegistration *InitialSourceRegistration `json:"sourceRegistration"`
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
@@ -133,7 +164,23 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 			!sha256RE.MatchString(material.PlanSHA256) || region.Generation != grant.Generation || region.Plan.Region != identity.OCIRegion {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
-		cfg := material.Config
+		var cfg struct {
+			DeploymentID string `json:"deploymentId"`
+			Environment  string `json:"environment"`
+			ClusterID    string `json:"clusterId"`
+			Cell         string `json:"cell"`
+			Region       string `json:"region"`
+			Slots        []struct {
+				Name string `json:"name"`
+			} `json:"slots"`
+		}
+		if json.Unmarshal(material.Config, &cfg) != nil || digestBytes(material.Config) != material.PlanSHA256 {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		escrow := material.SourceVaultTarget
+		if !isOCID(escrow.CompartmentOCID, "compartment") || !strings.HasPrefix(escrow.VaultOCID, "ocid1.vault.oc1.sa-saopaulo-1.") || escrow.KMSKeyOCID != home.StorageDomain.HeadKMSKeyOCID {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
 		if cfg.DeploymentID != identity.DeploymentID || cfg.Environment != identity.Environment || cfg.ClusterID != identity.ClusterID || cfg.Cell != strings.ToLower(string(identity.Cell)) || cfg.Region != identity.OCIRegion || len(cfg.Slots) != len(identity.ControllerSlots) {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
@@ -143,6 +190,16 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 			}
 		}
 		template := material.Startup.Clone()
+		if identity.InitialSourceRegistration != nil {
+			registration := material.SourceRegistration
+			want, _ := json.Marshal(identity.InitialSourceRegistration, json.Deterministic(true))
+			actual, _ := json.Marshal(registration, json.Deterministic(true))
+			if registration == nil || registration.Validate() != nil || !bytes.Equal(want, actual) || registration.InstallationID != material.InstallationID || registration.PlanSHA256 != material.PlanSHA256 || registration.SeedSlot != template.SeedSlot {
+				return VerifiedStartupTemplate{}, ErrManifestInvalid
+			}
+		} else if material.SourceRegistration != nil {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
 		if len(template.Profiles) != len(identity.ControllerSlots) || !bytes.Equal(template.ControllerFiles[0].Bytes, identity.InitialRegionIntentWire) || template.ControllerFiles[0].SHA256 != identity.InitialRegionIntentSHA256 {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
@@ -168,8 +225,12 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 		if image.ExpiresAt().Before(expires) {
 			expires = image.ExpiresAt()
 		}
-		return VerifiedStartupTemplate{template: template, anchor: anchor, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
-			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault}, nil
+		clonedRoots := make(trust.Keyring, len(roots))
+		for keyID, key := range roots {
+			clonedRoots[keyID] = bytes.Clone(key)
+		}
+		return VerifiedStartupTemplate{template: template, anchor: anchor, roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
+			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow}, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid
 }
