@@ -87,11 +87,11 @@ duplicate the canonical index helper from mixed prerequisite commit `62937c5a`.
    after mount/resource drift. Exact PID/start/cgroup/namespace/container identity
    and stopped-proof settlement remain mandatory.
 2. No positive actual Source → signed host issue → qualified containerd writer
-   chain has been demonstrated. Pure runtime-spec tests still require conversion
-   through the real containerd boundary. Lifecycle deletion/deadline migration
-   has separate passing controller/persistence evidence in
-   [the lifecycle record](data-lifecycle-integration-20261016.md); its proposed
-   direct-test deletion remains subject to the integration coverage review.
+   chain has been demonstrated. Runtime metadata/spec admission has separate
+   passing actual SDK/daemon evidence in
+   [the metadata record](data-runtime-metadata-20261016.md). Lifecycle deadline
+   admission has passing controller/persistence evidence and approved direct-test
+   replacement in [the lifecycle record](data-lifecycle-integration-20261016.md).
 3. No actual same-commit TerraBase disk/CPU, restore, replication or SIGTERM
    qualification exists in this evidence. Synthetic signed test evidence tests
    consumers only. Live OCI and native production acceptance remain unqualified.

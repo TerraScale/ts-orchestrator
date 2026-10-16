@@ -129,7 +129,7 @@ func runtimeMetadataClient(t *testing.T) *containerd.Client {
 	}
 	t.Cleanup(func() { _ = log.Close() })
 	socket := filepath.Join(directory, "daemon.sock")
-	command := exec.Command("nice", "-n", "19", binary, "--config", "/dev/null", "--root", filepath.Join(directory, "root"),
+	command := exec.Command(binary, "--config", "/dev/null", "--root", filepath.Join(directory, "root"),
 		"--state", filepath.Join(directory, "state"), "--address", socket, "--log-level", "error")
 	command.Stdout, command.Stderr = log, log
 	if err := command.Start(); err != nil {

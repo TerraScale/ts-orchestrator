@@ -38,5 +38,5 @@ the production controller's authority or effects; production uses only
 
 No active fencing, first-format, retained-mount, drain, writer-stop or OCI mutation
 guard was removed. Actual host ext4 format/growth and kernel retained-mount
-qualification are separate scenarios. Runtime spec tests still need conversion
-through the real containerd boundary and have not been deleted.
+qualification are separate scenarios. Runtime spec admission now has separate
+[actual containerd metadata evidence](data-runtime-metadata-20261016.md).
