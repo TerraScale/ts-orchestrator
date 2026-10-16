@@ -40,6 +40,11 @@ import (
 // semantics on disk; clients use the actual signed OCI HTTP implementation.
 func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationObjects, func(string, []byte)) {
 	t.Helper()
+	return foundationProtocolStoreBucket(t, "heads")
+}
+
+func foundationProtocolStoreBucket(t *testing.T, bucket string) (*ObjectFoundationStore, FoundationObjects, func(string, []byte)) {
+	t.Helper()
 	dir := t.TempDir()
 	var mu sync.Mutex
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -107,14 +112,14 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 		t.Fatal(err)
 	}
 	client.Host = server.URL
-	store, err := NewObjectFoundationStore(&client, "ns", "heads")
+	store, err := NewObjectFoundationStore(&client, "ns", bucket)
 	if err != nil {
 		t.Fatal(err)
 	}
 	write := func(name string, wire []byte) {
 		mu.Lock()
 		defer mu.Unlock()
-		key := sha256.Sum256([]byte("/n/ns/b/heads/o/" + name))
+		key := sha256.Sum256([]byte("/n/ns/b/" + bucket + "/o/" + name))
 		if err := os.WriteFile(filepath.Join(dir, hex.EncodeToString(key[:])), wire, 0600); err != nil {
 			t.Fatal(err)
 		}

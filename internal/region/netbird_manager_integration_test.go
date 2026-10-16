@@ -38,7 +38,8 @@ import (
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
 // Object Storage CAS; only the remote services and ARM64 binary measurement are fixtures.
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
-	store, objects, write := foundationProtocolStore(t)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	store, objects, write := foundationProtocolStoreBucket(t, foundationDiscoveryBucket)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	now := time.Now().UTC().Truncate(time.Second)
 	scope := trust.Scope{Domain: foundationGrantDomain, DeploymentID: entityid.New(), Cell: "GRU", Environment: "production", Role: "foundation", Slot: entityid.New()}
-	reader := &SignedFootprint{client: objects, storage: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: "heads", Prefix: "bootstrap"}, scope: scope, expires: now.Add(time.Hour), roots: roots, tenancy: "ocid1.tenancy.oc1..test", home: bootstrap.FoundationScope{InstallationID: entityid.New(), GrantGeneration: 1}}
+	reader := &SignedFootprint{client: objects, storage: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, Prefix: "bootstrap"}, scope: scope, expires: now.Add(time.Hour), roots: roots, tenancy: "ocid1.tenancy.oc1..test", home: bootstrap.FoundationScope{InstallationID: entityid.New(), GrantGeneration: 1}}
 	sign := func(value any, scope trust.Scope, key ed25519.PrivateKey) []byte {
 		t.Helper()
 		payload, err := trust.EncodePayload(value)
@@ -117,10 +118,23 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	slotID := BootstrapSlotID(grant.InstallationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
 	grant.InfrastructureSpend = &InfrastructureSpendIntent{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: spendSHA, Bootstrap: &BootstrapSpendingIntent{ReservedMinor: 3000, Slots: []BootstrapSlotIntent{{SlotID: slotID, Cell: "GRU", Role: NetBirdManagerRole, Slot: NetBirdManagerRole, CompartmentID: control, ProfileSHA256: profileSHA, RecipeSHA256: recipeSHA, Shape: manager.Profile.Shape, OCPUs: 2, MemoryGB: 4, BootGB: 50, MonthlyLimitMinor: 3000}}}}
+	intentWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: foundationHomeRegion}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	domain := bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"}
+	slots := []string{"controller-a", "controller-b", "controller-c"}
+	anchor := bootstrap.BootstrapAnchor{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, OCIRegion: foundationHomeRegion, StorageDomain: domain, ControllerSlots: slots, InitialRegionIntentGeneration: 1, InitialRegionIntentSHA256: digest(intentWire), InitialRegionIntentWire: intentWire,
+		FoundationScope:           &bootstrap.FoundationScope{InstallationID: grant.InstallationID, DeploymentID: scope.DeploymentID, ClusterID: scope.Slot, TenancyID: grant.TenancyID, OCIRegion: foundationHomeRegion, StorageDomain: domain, GrantGeneration: 1},
+		InitialSourceRegistration: &bootstrap.InitialSourceRegistration{InstallationID: grant.InstallationID, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, Generation: 1, PlanSHA256: strings.Repeat("a", 64), SeedSlot: slots[0], ControllerSlots: slots, StorageDomain: domain, LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}}
+	ceremony := &currentDiscoveryScenario{test: t, now: now, root: private, genesis: roots, chain: trust.RootChain{Version: 1}, anchor: anchor, objects: map[string][]byte{}}
 	publish := func() {
-		wire := sign(grant, scope, private)
-		reader.home.GrantSHA256 = digest(wire)
-		write("bootstrap/"+foundationGrantObject, wire)
+		ceremony.grant = grant
+		ceremony.publish()
+		reader.home.GrantSHA256 = ceremony.anchor.FoundationScope.GrantSHA256
+		for name, wire := range ceremony.objects {
+			write(name, wire)
+		}
 	}
 	publish()
 	intentSHA, err := FoundationIntentDigest(grant.Regions[0])
@@ -357,18 +371,9 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if _, err := attempt.finish(t.Context(), nil); err != nil {
 		t.Fatal(err)
 	}
-	resolver := FoundationResolver{Footprint: reader, Store: store}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
-	if err != nil {
-		t.Fatal(err)
-	}
+	inspection := fixtureCurrentNetBirdManager{client: objects.(foundationDiscoveryObjects), genesis: roots, factory: factory, tenancy: reader.tenancy, instanceID: idFor("instance"), installationID: grant.InstallationID}
 	admit := func() (VerifiedNetBirdManager, error) {
-		return admitNetBirdManager(t.Context(), resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
-			if !image.IsVerified() {
-				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
-			}
-			return bootstrapstart.RunningBinary{}, nil
-		})
+		return admitNetBirdManager(t.Context(), inspection)
 	}
 	claim, err := admit()
 	if err != nil {
@@ -413,6 +418,28 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
 	}
+	retired := maps.Clone(ceremony.objects)
+	ceremony.rotate()
+	grant.Generation++
+	grant.Regions[0].Generation = grant.Generation
+	publish()
+	if _, err := discoverCurrentFoundation(t.Context(), inspection.client, inspection.tenancy, inspection.genesis); err != nil {
+		t.Fatal(err)
+	}
+	// Current terminal chain plus the retired root's otherwise valid grant must
+	// fence an already-held claim, even before its image/disk proof expires.
+	write(foundationDiscoveryObject, retired[foundationDiscoveryObject])
+	write("bootstrap/"+foundationGrantObject, retired["bootstrap/"+foundationGrantObject])
+	if err := claim.Check(t.Context()); err == nil {
+		t.Fatal("held manager claim accepted authority signed by a retired root")
+	}
+	if err := claim.MarkStoreReady(t.Context()); err == nil {
+		t.Fatal("retired root authorized manager store mutation")
+	}
+	write(foundationRootChainObject, retired[foundationRootChainObject])
+	if err := claim.Check(t.Context()); err == nil {
+		t.Fatal("held manager claim rolled back its adopted remote root chain")
+	}
 	grant.Regions[0].NetBirdManager = nil
 	publish()
 	if err := claim.Check(t.Context()); err == nil {
@@ -421,4 +448,36 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err := claim.MarkStoreReady(t.Context()); err == nil {
 		t.Fatal("revoked manager mutated store journal")
 	}
+}
+
+// Independent test genesis enters only this test-only constructor; production
+// always calls DiscoverCurrentFoundation with the binary's embedded genesis.
+type fixtureCurrentNetBirdManager struct {
+	client                              foundationDiscoveryObjects
+	genesis                             trust.Keyring
+	factory                             *ociclient.Factory
+	tenancy, instanceID, installationID string
+}
+
+func (v fixtureCurrentNetBirdManager) inspect(ctx context.Context) (netBirdManagerState, error) {
+	resolver, err := discoverCurrentFoundation(ctx, v.client, v.tenancy, v.genesis)
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	reader := resolver.Footprint.(*SignedFootprint)
+	reader.factory = v.factory
+	if reader.home.InstallationID != v.installationID {
+		return netBirdManagerState{}, errors.New("fixture current installation changed")
+	}
+	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, v.factory.Provider())
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	return inspectNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: v.factory, resolver: resolver, reader: reader, observer: observer}, v.instanceID,
+		func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
+			if !image.IsVerified() {
+				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
+			}
+			return bootstrapstart.RunningBinary{}, nil
+		})
 }

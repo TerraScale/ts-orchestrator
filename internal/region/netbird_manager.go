@@ -208,124 +208,153 @@ func AdmitNetBirdManager(ctx context.Context, factory *ociclient.Factory, resolv
 	if !ok {
 		return VerifiedNetBirdManager{}, errors.New("NetBird manager requires the current root-signed foundation producer")
 	}
-	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, factory.Provider())
-	if err != nil {
-		return VerifiedNetBirdManager{}, err
-	}
-	return admitNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer},
-		instanceID, bootstrapstart.VerifyCurrentRunningBinary)
+	return admitNetBirdManager(ctx, currentNetBirdManager{factory: factory, instanceID: instanceID, installationID: reader.home.InstallationID})
 }
 
-func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reader *SignedFootprint, observer bootstrapstart.InstanceObserver,
-	instanceID string, verifyBinary func(release.VerifiedImage) (bootstrapstart.RunningBinary, error),
-) (VerifiedNetBirdManager, error) {
-	current := func(ctx context.Context) (vaultsecret.Target, string, error) {
-		intent, err := reader.authorizedNetBirdManager(ctx)
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		record, err := resolver.Resolve(ctx, "GRU")
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		launch := record.NetBirdManager
-		slotID := BootstrapSlotID(intent.installationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
-		allocation, err := resolver.BootstrapAllocation(ctx, slotID)
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		if err := allocation.Revalidate(ctx); err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		if launch == nil || launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.InstanceID != instanceID || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
-			return vaultsecret.Target{}, "", errors.New("dedicated manager instance has no exact immutable foundation checkpoint")
-		}
-		observed, err := observer.ObserveInstance(ctx, instanceID)
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		profile, err := managerLaunchProfile(intent.intent.Profile, record)
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		bodyDigest, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, profile.CompartmentOCID, profile.SubnetOCID, record.AuxiliaryIDs["netbird_manager_nsg"]))
-		if err != nil || bodyDigest != launch.RequestDigest {
-			return vaultsecret.Target{}, "", errors.Join(errors.New("manager immutable physical SDK request changed"), err)
-		}
-		if observed.InstanceOCID != instanceID || observed.ImageOCID != intent.intent.ImageOCID || observed.CompartmentOCID != profile.CompartmentOCID ||
-			observed.AvailabilityDomain != profile.AvailabilityDomain || observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape ||
-			observed.SubnetOCID != profile.SubnetOCID || !slices.Equal(slices.Sorted(slices.Values(observed.NSGOCIDs)), slices.Sorted(slices.Values(profile.NetworkSecurityGroupOCIDs))) ||
-			!observed.PrimaryVNIC || observed.PrimaryPrivateIP != intent.intent.Profile.PrivateIP || observed.LifecycleState != "RUNNING" {
-			return vaultsecret.Target{}, "", errors.New("observed NetBird manager differs from its exact signed profile and image")
-		}
-		if _, err := verifyBinary(intent.image); err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		target, err := record.VaultTarget()
-		if err != nil {
-			return vaultsecret.Target{}, "", err
-		}
-		store := entityid.Derive("netbird-foundation-store", intent.installationID) + ":1"
-		return target, store, nil
-	}
-	target, store, err := current(ctx)
+type netBirdManagerInspection interface {
+	inspect(context.Context) (netBirdManagerState, error)
+}
+
+type netBirdManagerState struct {
+	target     vaultsecret.Target
+	store      string
+	resolver   FoundationResolver
+	record     FoundationRecord
+	intent     verifiedNetBirdIntent
+	instanceID string
+}
+
+type currentNetBirdManager struct {
+	factory                    *ociclient.Factory
+	instanceID, installationID string
+}
+
+func (v currentNetBirdManager) inspect(ctx context.Context) (netBirdManagerState, error) {
+	// Every effect re-reads terminal remote roots and adopts the durable floor.
+	resolver, err := DiscoverCurrentFoundation(ctx, v.factory)
 	if err != nil {
-		return VerifiedNetBirdManager{}, err
+		return netBirdManagerState{}, err
 	}
-	check := func(ctx context.Context) error {
-		nextTarget, nextStore, err := current(ctx)
-		if err != nil {
-			return err
-		}
-		if nextTarget != target || nextStore != store {
-			return errors.New("dedicated manager store or Vault target changed")
-		}
-		return nil
+	reader, ok := resolver.Footprint.(*SignedFootprint)
+	if !ok || reader.home.InstallationID != v.installationID {
+		return netBirdManagerState{}, errors.New("current manager discovery changed its installation")
+	}
+	observer, err := bootstrapstart.NewOCIInstanceObserver(oci.RegionGRU, v.factory.Provider())
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	return inspectNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: v.factory, resolver: resolver, reader: reader, observer: observer}, v.instanceID, bootstrapstart.VerifyCurrentRunningBinary)
+}
+
+func inspectNetBirdManager(ctx context.Context, resolver FoundationResolver, reader *SignedFootprint, observer bootstrapstart.InstanceObserver,
+	instanceID string, verifyBinary func(release.VerifiedImage) (bootstrapstart.RunningBinary, error),
+) (netBirdManagerState, error) {
+	intent, err := reader.authorizedNetBirdManager(ctx)
+	if err != nil {
+		return netBirdManagerState{}, err
 	}
 	record, err := resolver.Resolve(ctx, "GRU")
 	if err != nil {
-		return VerifiedNetBirdManager{}, err
+		return netBirdManagerState{}, err
 	}
-	intent, err := reader.authorizedNetBirdManager(ctx)
+	launch := record.NetBirdManager
+	slotID := BootstrapSlotID(intent.installationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
+	allocation, err := resolver.BootstrapAllocation(ctx, slotID)
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
+		return netBirdManagerState{}, err
+	}
+	if err := allocation.Revalidate(ctx); err != nil {
+		return netBirdManagerState{}, err
+	}
+	if launch == nil || launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.InstanceID != instanceID || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
+		return netBirdManagerState{}, errors.New("dedicated manager instance has no exact immutable foundation checkpoint")
+	}
+	observed, err := observer.ObserveInstance(ctx, instanceID)
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	profile, err := managerLaunchProfile(intent.intent.Profile, record)
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	bodyDigest, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, profile.CompartmentOCID, profile.SubnetOCID, record.AuxiliaryIDs["netbird_manager_nsg"]))
+	if err != nil || bodyDigest != launch.RequestDigest {
+		return netBirdManagerState{}, errors.Join(errors.New("manager immutable physical SDK request changed"), err)
+	}
+	if observed.InstanceOCID != instanceID || observed.ImageOCID != intent.intent.ImageOCID || observed.CompartmentOCID != profile.CompartmentOCID ||
+		observed.AvailabilityDomain != profile.AvailabilityDomain || observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape ||
+		observed.SubnetOCID != profile.SubnetOCID || !slices.Equal(slices.Sorted(slices.Values(observed.NSGOCIDs)), slices.Sorted(slices.Values(profile.NetworkSecurityGroupOCIDs))) ||
+		!observed.PrimaryVNIC || observed.PrimaryPrivateIP != intent.intent.Profile.PrivateIP || observed.LifecycleState != "RUNNING" {
+		return netBirdManagerState{}, errors.New("observed NetBird manager differs from its exact signed profile and image")
+	}
+	if _, err := verifyBinary(intent.image); err != nil {
+		return netBirdManagerState{}, err
+	}
+	target, err := record.VaultTarget()
+	if err != nil {
+		return netBirdManagerState{}, err
+	}
+	store := entityid.Derive("netbird-foundation-store", intent.installationID) + ":1"
+	return netBirdManagerState{target: target, store: store, resolver: resolver, record: record, intent: intent, instanceID: instanceID}, nil
+}
+
+func admitNetBirdManager(ctx context.Context, source netBirdManagerInspection) (VerifiedNetBirdManager, error) {
+	initial, err := source.inspect(ctx)
 	if err != nil {
 		return VerifiedNetBirdManager{}, err
 	}
-	transition := func(ctx context.Context, ready bool) error {
-		if err := check(ctx); err != nil {
-			return err
+	current := func(ctx context.Context) (netBirdManagerState, error) {
+		next, err := source.inspect(ctx)
+		if err != nil {
+			return netBirdManagerState{}, err
 		}
-		latest, etag, err := resolver.Store.Load(ctx, "GRU")
+		if next.target != initial.target || next.store != initial.store || next.instanceID != initial.instanceID {
+			return netBirdManagerState{}, errors.New("dedicated manager instance, store or Vault target changed")
+		}
+		return next, nil
+	}
+	check := func(ctx context.Context) error { _, err := current(ctx); return err }
+	transition := func(ctx context.Context, ready bool) error {
+		state, err := current(ctx)
 		if err != nil {
 			return err
 		}
-		if latest.Stage != "reconciled" || latest.LeaseID != "" || latest.Generation != record.Generation || latest.IntentDigest != record.IntentDigest ||
-			latest.NetBirdManager == nil || latest.NetBirdManager.InstanceID != instanceID || latest.NetBirdManager.RecipeSHA256 != intent.recipeDigest {
+		latest, etag, err := state.resolver.Store.Load(ctx, "GRU")
+		if err != nil {
+			return err
+		}
+		if latest.Stage != "reconciled" || latest.LeaseID != "" || latest.Generation != state.record.Generation || latest.IntentDigest != state.record.IntentDigest ||
+			latest.NetBirdManager == nil || latest.NetBirdManager.InstanceID != state.instanceID || latest.NetBirdManager.RecipeSHA256 != state.intent.recipeDigest {
 			return ErrFoundationFenced
 		}
 		launch := *latest.NetBirdManager
 		if ready {
-			if launch.StoreState != "initializing" && !(intent.intent.StoreOrigin == "restore" && launch.StoreState == "empty") && launch.StoreState != "ready" {
+			if launch.StoreState != "initializing" && !(state.intent.intent.StoreOrigin == "restore" && launch.StoreState == "empty") && launch.StoreState != "ready" {
 				return errors.New("NetBird store has no consumed genesis or restore authority")
 			}
 			launch.StoreState = "ready"
 		} else {
-			if intent.intent.StoreOrigin != "new" || launch.StoreState != "empty" {
+			if state.intent.intent.StoreOrigin != "new" || launch.StoreState != "empty" {
 				return errors.New("NetBird store genesis authorization was absent or already consumed; restore is required")
 			}
 			launch.StoreState = "initializing"
 		}
 		latest.NetBirdManager, latest.UpdatedAt = &launch, time.Now().UTC()
-		if err := check(ctx); err != nil {
+		beforeWrite, err := current(ctx)
+		if err != nil {
 			return err
 		}
-		_, err = resolver.Store.CompareAndSwap(ctx, latest, etag)
+		if beforeWrite.record.Generation != state.record.Generation || beforeWrite.record.IntentDigest != state.record.IntentDigest || beforeWrite.intent.grantDigest != state.intent.grantDigest {
+			return ErrFoundationFenced
+		}
+		_, err = beforeWrite.resolver.Store.CompareAndSwap(ctx, latest, etag)
 		return err
 	}
-	return VerifiedNetBirdManager{target: target, storeGeneration: store, check: check, transition: transition,
-		recovery: intent.intent.StoreOrigin == "restore" || record.NetBirdManager.StoreState != "empty"}, nil
+	return VerifiedNetBirdManager{target: initial.target, storeGeneration: initial.store, check: check, transition: transition,
+		recovery: initial.intent.intent.StoreOrigin == "restore" || initial.record.NetBirdManager.StoreState != "empty"}, nil
 }
 
 func managerLaunchProfile(profile NetBirdManagerProfile, record FoundationRecord) (bootstrap.LaunchProfile, error) {
