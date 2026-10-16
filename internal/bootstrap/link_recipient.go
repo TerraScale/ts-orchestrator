@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // LinkRecipient is a public regional source bound to the same signed foundation
@@ -96,4 +98,42 @@ func minTimeLink(a, b time.Time) time.Time {
 		return a
 	}
 	return b
+}
+
+// SignLinkDelivery uses the already registered GRU source ledger key. The
+// envelope carries public inventories and regional Vault references only.
+func SignLinkDelivery(recipient LinkRecipient, payload []byte, key ed25519.PrivateKey, issuedAt, expiresAt time.Time) ([]byte, error) {
+	if !recipient.IsVerified() || len(key) != ed25519.PrivateKeySize || !bytes.Equal(key.Public().(ed25519.PublicKey), recipient.home.ledgerKey) || len(payload) == 0 || len(payload) > 48<<10 || issuedAt.IsZero() || !expiresAt.After(issuedAt) || expiresAt.After(recipient.ExpiresAt()) {
+		return nil, ErrManifestInvalid
+	}
+	envelope, err := trust.Sign(payload, recipient.deliveryScope(), issuedAt, expiresAt, key)
+	if err != nil {
+		return nil, err
+	}
+	return trust.EncodeEnvelope(envelope)
+}
+
+// VerifyLinkDelivery rechecks both source registrations before trusting the
+// home's public delivery. A regional founder cannot sign its own global grant.
+func VerifyLinkDelivery(ctx context.Context, recipient LinkRecipient, wire []byte, now time.Time) ([]byte, error) {
+	if len(wire) == 0 || len(wire) > 64<<10 || recipient.VerifyCurrent(ctx, now) != nil {
+		return nil, ErrManifestInvalid
+	}
+	envelope, err := trust.DecodeEnvelope(wire)
+	if err != nil {
+		return nil, err
+	}
+	keyID, err := trust.KeyID(recipient.home.ledgerKey)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := trust.VerifyCurrent(envelope, recipient.deliveryScope(), trust.Keyring{keyID: recipient.home.ledgerKey}, now, ManifestTrustPolicy())
+	if err != nil || envelope.ExpiresAt.After(recipient.ExpiresAt()) {
+		return nil, ErrManifestInvalid
+	}
+	return payload, nil
+}
+func (recipient LinkRecipient) deliveryScope() trust.Scope {
+	manifest := recipient.regional.Manifest()
+	return trust.Scope{Domain: "terrascale.bootstrap.link-delivery", DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Environment: manifest.Environment, Role: "link", Slot: recipient.bindingSHA256}
 }
