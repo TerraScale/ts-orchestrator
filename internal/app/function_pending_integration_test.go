@@ -38,21 +38,7 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	tasks := store.NewMemoryStore(nil)
-	t.Cleanup(func() { _ = tasks.Close() })
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := grpc.NewServer()
-	api.RegisterControlServer(server, controlapi.NewServer(tasks, nil, nil, nil, nil))
-	go func() { _ = server.Serve(listener) }()
-	t.Cleanup(server.Stop)
-	connection, err := grpc.NewClient("passthrough:///"+listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = connection.Close() })
+	client := newFunctionControlClient(t)
 	signer := newFunctionPublicationSigner(t)
 	identity := trust.ChainIdentity{DeploymentID: deploymentID, Cell: "gru", Environment: "canary"}
 	roots, err := newRootRegistry(signer.roots, identity, trust.RootChain{Version: 1}, "")
@@ -61,7 +47,7 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	}
 	target := release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "amd64"}
 	bundle, evidence := signer.worker(t, target)
-	config := functionControllerConfig{Authority: runtime, Client: api.NewControlClient(connection), Roots: roots, Factory: signer.factory, Cell: "gru", Environment: "canary",
+	config := functionControllerConfig{Authority: runtime, Client: client, Roots: roots, Factory: signer.factory, Cell: "gru", Environment: "canary",
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Artifacts: artifacts, Roots: roots.current}},
 		Worker: func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
 			return functionWorkerRelease{Architecture: "amd64", Bundle: bundle}, nil
@@ -117,4 +103,24 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	if demand, err := functionDemandSource(config)(ctx); err == nil || !strings.Contains(err.Error(), "function roots changed") || demand != nil {
 		t.Fatalf("root rotation during worker lookup produced capacity: %+v, %v", demand, err)
 	}
+}
+
+func newFunctionControlClient(t *testing.T) api.ControlClient {
+	t.Helper()
+	tasks := store.NewMemoryStore(nil)
+	t.Cleanup(func() { _ = tasks.Close() })
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := grpc.NewServer()
+	api.RegisterControlServer(server, controlapi.NewServer(tasks, nil, nil, nil, nil))
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	connection, err := grpc.NewClient("passthrough:///"+listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	return api.NewControlClient(connection)
 }
