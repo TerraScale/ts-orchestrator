@@ -166,7 +166,7 @@ func (r *Runtime) BeginRuntimeEffect(ctx context.Context, epoch uint64, effect R
 				return ErrOperationConflict
 			}
 		}
-		return nil
+		return r.runtimeEffectLease(effect, epoch)
 	})
 }
 
@@ -196,7 +196,13 @@ func (r *Runtime) RenewRuntimeEffect(ctx context.Context, epoch uint64, effect R
 		if err := r.runtimeEffectLease(effect, epoch); err != nil {
 			return err
 		}
-		return r.requireNoTerminalIntent(check, effect.Scope.DatabaseID, effect.Scope.PartitionID)
+		if err := r.requireNoTerminalIntent(check, effect.Scope.DatabaseID, effect.Scope.PartitionID); err != nil {
+			return err
+		}
+		if !time.Now().Before(prior.ExpiresAt) {
+			return ErrFenced
+		}
+		return r.runtimeEffectLease(effect, epoch)
 	})
 }
 
