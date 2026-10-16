@@ -377,9 +377,14 @@ authorizes a PreviousSpec-only task. The app caller `1f274dac` retains its seale
 source, current recipient, root and epoch checks, including a final node
 admission reread. Security source review closed the caller with `bba89fb5`, which
 rechecks function and worker lifetime after the final slow reads; `d2c00761`
-also rechecks delivery expiry after the outer authority wait. Actual-manager
-material regressions at `3996c37a` and coherent app runtime checks remain pending;
-this is not evidence of a running rollback.
+also rechecks delivery expiry after the outer authority wait. The actual-manager
+material regression at `3996c37a` passed in 45.165 seconds: the genuine current
+worker-101 rollback task was admitted after rejected worker 102, while ordinary
+superseded and PreviousSpec-only tasks were refused. It also rejected bundle,
+floor, migration and identity faults, plus actual task removal, node drain and
+service-update races. The app caller now drains in-flight function callbacks
+before wiping its signer (`0da052d6`). Coherent app runtime checks, live Vault
+delivery and a running worker rollback remain unqualified.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
