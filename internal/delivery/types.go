@@ -46,10 +46,12 @@ type ArtifactSource struct {
 }
 
 type ArtifactClaimRequest struct {
-	Source      ArtifactSource `json:"source"`
-	Cell        string         `json:"cell"`
-	Role        string         `json:"role"`
-	Environment string         `json:"environment"`
+	ReleaseSequence         uint64         `json:"release_sequence,omitempty"`
+	SequenceMigrationSHA256 string         `json:"sequence_migration_sha256,omitempty"`
+	Source                  ArtifactSource `json:"source"`
+	Cell                    string         `json:"cell"`
+	Role                    string         `json:"role"`
+	Environment             string         `json:"environment"`
 }
 
 func (r ArtifactClaimRequest) validate() error {
@@ -70,14 +72,16 @@ func (s ArtifactSource) validate() error {
 // ArtifactRecord is the immutable, content-addressed admission record. The
 // manifest digest is SHA-256 of the canonical JSON encoding of these fields.
 type ArtifactRecord struct {
-	SchemaVersion  int            `json:"schemaVersion"`
-	Digest         string         `json:"digest"`
-	Source         ArtifactSource `json:"source"`
-	Cell           string         `json:"cell"`
-	Role           string         `json:"role"`
-	Environment    string         `json:"environment"`
-	Size           int64          `json:"size"`
-	ManifestDigest string         `json:"manifestDigest"`
+	ReleaseSequence         uint64         `json:"release_sequence,omitempty"`
+	SequenceMigrationSHA256 string         `json:"sequence_migration_sha256,omitempty"`
+	SchemaVersion           int            `json:"schemaVersion"`
+	Digest                  string         `json:"digest"`
+	Source                  ArtifactSource `json:"source"`
+	Cell                    string         `json:"cell"`
+	Role                    string         `json:"role"`
+	Environment             string         `json:"environment"`
+	Size                    int64          `json:"size"`
+	ManifestDigest          string         `json:"manifestDigest"`
 }
 
 // NewArtifactRecord is the record of size bytes with SHA-256 digest that
@@ -88,13 +92,21 @@ func NewArtifactRecord(request ArtifactClaimRequest, digest string, size int64) 
 		return ArtifactRecord{}, err
 	}
 	r := ArtifactRecord{SchemaVersion: SchemaVersion, Digest: digest, Source: request.Source, Cell: request.Cell,
-		Role: request.Role, Environment: request.Environment, Size: size}
+		Role: request.Role, Environment: request.Environment, Size: size, ReleaseSequence: request.ReleaseSequence, SequenceMigrationSHA256: request.SequenceMigrationSHA256}
 	manifest, err := r.calculatedManifestDigest()
 	if err != nil {
 		return ArtifactRecord{}, err
 	}
 	r.ManifestDigest = manifest
 	return r, r.validate()
+}
+
+// ContentManifestDigest binds the qualified bytes and scope before a signer
+// allocates their order; the final manifest additionally binds the sequence.
+func (r ArtifactRecord) ContentManifestDigest() (string, error) {
+	r.ReleaseSequence = 0
+	r.SequenceMigrationSHA256 = ""
+	return r.calculatedManifestDigest()
 }
 
 func (r ArtifactRecord) calculatedManifestDigest() (string, error) {
@@ -108,6 +120,9 @@ func (r ArtifactRecord) calculatedManifestDigest() (string, error) {
 }
 
 func (r ArtifactRecord) validate() error {
+	if (r.ReleaseSequence == 0) != (r.SequenceMigrationSHA256 == "") || r.SequenceMigrationSHA256 != "" && !sha256RE.MatchString(r.SequenceMigrationSHA256) {
+		return fmt.Errorf("%w: release order", ErrInvalid)
+	}
 	if r.SchemaVersion != SchemaVersion || !sha256RE.MatchString(r.Digest) || !sha256RE.MatchString(r.ManifestDigest) || r.Size <= 0 || r.Size > MaxArtifactBytes || !nameRE.MatchString(r.Cell) || !nameRE.MatchString(r.Role) || !nameRE.MatchString(r.Environment) {
 		return fmt.Errorf("%w: artifact record", ErrInvalid)
 	}
