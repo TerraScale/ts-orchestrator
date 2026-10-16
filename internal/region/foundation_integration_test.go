@@ -11,12 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +47,11 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 		if r.Header.Get("Authorization") == "" {
 			t.Error("unsigned object operation")
 			w.WriteHeader(401)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/n" {
+			w.Header().Set("content-type", "application/json")
+			io.WriteString(w, `"ns"`)
 			return
 		}
 		key := sha256.Sum256([]byte(r.URL.Path))
@@ -273,6 +280,61 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	grantPin := sha256.Sum256(verified.FoundationGrantWire())
 	if hex.EncodeToString(grantPin[:]) != reader.home.GrantSHA256 {
 		t.Fatal("startup proof did not retain exact signed grant")
+	}
+	// An ordinary authenticated caller discovers the exact signed grant from a
+	// fixed home location, without a host anchor, config or installed identity.
+	discoveryClient := client.(foundationDiscoveryObjects)
+	domain := bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: target.KMSKeyOCID, LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"}
+	discoveryHome := bootstrap.FoundationScope{InstallationID: reader.home.InstallationID, DeploymentID: scope.DeploymentID, ClusterID: scope.Slot, TenancyID: reader.tenancy, OCIRegion: foundationHomeRegion, StorageDomain: domain, GrantGeneration: 1}
+	publicGrant := grant
+	publicGrant.Regions = slices.Clone(grant.Regions)
+	publicGrant.Regions[0].BootstrapMaterial = nil
+	grantPayload, err := trust.EncodePayload(publicGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Minute), now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grantEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discoveryDigest := sha256.Sum256(grantWire)
+	discoveryHome.GrantSHA256 = hex.EncodeToString(discoveryDigest[:])
+	slots := []string{"controller-a", "controller-b", "controller-c"}
+	registration := bootstrap.InitialSourceRegistration{InstallationID: discoveryHome.InstallationID, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: slots[0], ControllerSlots: slots, StorageDomain: domain, LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
+	intentDigest := sha256.Sum256(intentWire)
+	discoveryAnchor := bootstrap.BootstrapAnchor{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, OCIRegion: foundationHomeRegion, StorageDomain: domain, FoundationScope: &discoveryHome, InitialSourceRegistration: &registration, ControllerSlots: slots, InitialRegionIntentGeneration: 1, InitialRegionIntentWire: intentWire, InitialRegionIntentSHA256: hex.EncodeToString(intentDigest[:])}
+	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(discoveryAnchor, now.Add(-time.Minute), now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorWire, err := trust.EncodeEnvelope(anchorEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := publishFoundationDiscovery(t.Context(), discoveryClient, reader.tenancy, roots, anchorWire, grantWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolved, err := discoverFoundation(t.Context(), discoveryClient, reader.tenancy, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved, err := resolved.Footprint.AuthorizedRegions(t.Context()); err != nil || approved.TenancyID != reader.tenancy || len(approved.Regions) != 1 {
+		t.Fatalf("ordinary caller footprint=%+v err=%v", approved, err)
+	}
+	if _, err := discoverFoundation(t.Context(), discoveryClient, reader.tenancy, nil); !errors.Is(err, ErrFoundationDiscoveryPending) {
+		t.Fatalf("missing independent roots: %v", err)
+	}
+	if _, err := discoverFoundation(t.Context(), discoveryClient, "ocid1.tenancy.oc1..foreign", roots); err == nil {
+		t.Fatal("foreign authenticated tenancy discovered signed installation")
+	}
+	if _, err := verifyDiscoveryAnchor(anchorWire, roots, reader.tenancy, "foreign"); err == nil {
+		t.Fatal("foreign authenticated storage namespace discovered signed installation")
 	}
 	for _, scenario := range []string{"wrong scope", "expired", "wrong tenancy", "no budget", "wrong digest", "wrong escrow", "wrong local cluster", "wrong pinned digest", "wrong startup image", "wrong startup profile", "missing startup recipe"} {
 		t.Run(scenario, func(t *testing.T) {
