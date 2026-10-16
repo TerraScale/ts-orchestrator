@@ -13,12 +13,14 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -44,13 +46,32 @@ func currentControllerHostReader(ctx context.Context) (*bootstrapstart.CurrentFo
 	return currentControllerFounderReader(ctx, local.baked, initial, floor)
 }
 
-func controllerHostSpecCurrent(ctx context.Context, services *specRegistry, entry jetstream.KeyValueEntry, rootHead string) error {
-	latest, err := services.kv.Get(ctx, cellSpecKey)
+func controllerHostSpecCurrent(ctx context.Context, js jetstream.JetStream, services *specRegistry, entry jetstream.KeyValueEntry, rootHead string) error {
+	if js == nil || js.Conn() == nil {
+		return errors.New("controller host profile requires its current broker leader")
+	}
+	options := js.Options()
+	var opts []nats.JSOpt
+	if options.Domain != "" {
+		opts = append(opts, nats.Domain(options.Domain))
+	} else if options.APIPrefix != "" {
+		opts = append(opts, nats.APIPrefix(options.APIPrefix))
+	}
+	reader, err := js.Conn().JetStream(opts...)
+	if err != nil {
+		return err
+	}
+	subject := "$KV." + cellSpecBucket + "." + cellSpecKey
+	latest, err := reader.GetLastMsg("KV_"+cellSpecBucket, subject, nats.Context(ctx))
+	if err != nil {
+		return err
+	}
 	services.mu.Lock()
 	adopted := services.revision
 	services.mu.Unlock()
-	if err != nil || latest.Revision() != entry.Revision() || adopted != entry.Revision() ||
-		!bytes.Equal(latest.Value(), entry.Value()) || services.roots.reply("").Head != rootHead {
+	if latest == nil || latest.Subject != subject || latest.Sequence == 0 || latest.Header.Get("KV-Operation") != "" || latest.Header.Get(jetstream.MarkerReasonHeader) != "" ||
+		len(latest.Data) == 0 || len(latest.Data) > cellspec.MaxSignedBytes || latest.Sequence != entry.Revision() || adopted != entry.Revision() ||
+		!bytes.Equal(latest.Data, entry.Value()) || services.roots.reply("").Head != rootHead {
 		return errors.New("controller host profile or roots changed during recipient verification")
 	}
 	return nil
@@ -102,7 +123,7 @@ func (enrollment *managedHostEnrollment) prepareRuntimeControllerHost(ctx contex
 		return nil, err
 	}
 	rootHead := enrollment.services.roots.reply("").Head
-	if err := controllerHostSpecCurrent(ctx, enrollment.services, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, enrollment.js, enrollment.services, entry, rootHead); err != nil {
 		return nil, err
 	}
 	grant, _, ok := enrollment.services.hostGrant(descriptor.Node)
@@ -126,7 +147,7 @@ func (enrollment *managedHostEnrollment) prepareRuntimeControllerHost(ctx contex
 	if err != nil || beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
 		return nil, errors.New("controller enrollment changed during recipient observation")
 	}
-	if err := controllerHostSpecCurrent(ctx, enrollment.services, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, enrollment.js, enrollment.services, entry, rootHead); err != nil {
 		return nil, err
 	}
 	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
@@ -139,7 +160,7 @@ func (enrollment *managedHostEnrollment) prepareRuntimeControllerHost(ctx contex
 		!workerGrantAuthorizesPreparation(currentGrant, query, time.Now().UTC()) {
 		return nil, errors.New("controller host enrollment claim changed during recipient verification")
 	}
-	if err := controllerHostSpecCurrent(ctx, enrollment.services, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, enrollment.js, enrollment.services, entry, rootHead); err != nil {
 		return nil, err
 	}
 	if !proof.Valid(time.Now()) || !time.Now().Before(response.ExpiresAt) || !workerGrantAuthorizesPreparation(currentGrant, query, time.Now().UTC()) || ctx.Err() != nil {
@@ -216,7 +237,7 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 		return err
 	}
 	rootHead := services.roots.reply("").Head
-	if err := controllerHostSpecCurrent(ctx, services, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, runtime.JetStream(), services, entry, rootHead); err != nil {
 		return err
 	}
 	grant, _, ok := services.hostGrant(descriptor.Node)
@@ -240,7 +261,7 @@ func runRuntimeControllerHostAdmissionSource(ctx context.Context, args []string,
 	if err != nil || beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) || !proof.Valid(time.Now()) || !time.Now().Before(response.ExpiresAt) {
 		return errors.New("controller host registration changed during source observation")
 	}
-	if err := controllerHostSpecCurrent(ctx, services, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, runtime.JetStream(), services, entry, rootHead); err != nil {
 		return err
 	}
 	if !proof.Valid(time.Now()) || !time.Now().Before(response.ExpiresAt) || ctx.Err() != nil {

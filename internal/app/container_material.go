@@ -179,10 +179,10 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 			return fail()
 		}
 	}
-	if err := controllerHostSpecCurrent(ctx, config.Specs, entry, rootHead); err != nil {
+	if err := controllerHostSpecCurrent(ctx, config.JS, config.Specs, entry, rootHead); err != nil {
 		return containerMaterialRecipient{}, err
 	}
-	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && !controllerProof.Valid(time.Now()) {
+	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
 	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof}, nil

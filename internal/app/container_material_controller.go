@@ -13,8 +13,9 @@ import (
 )
 
 type controllerEnrollmentSnapshot struct {
-	Query    swarmruntime.WorkerRegistrationQuery
-	Snapshot swarmruntime.WorkerRegistrationSnapshot
+	Query     swarmruntime.WorkerRegistrationQuery
+	Snapshot  swarmruntime.WorkerRegistrationSnapshot
+	ExpiresAt time.Time
 }
 
 func completedControllerEnrollment(ctx context.Context, config containerMaterialConfig, registration host.Registration, instanceID string) (controllerEnrollmentSnapshot, error) {
@@ -50,5 +51,8 @@ func completedControllerEnrollment(ctx context.Context, config containerMaterial
 	if err != nil || actualErr != nil || !bytes.Equal(want, actual) {
 		return fail(errors.New("controller material recipient differs from the current ordered registration"))
 	}
-	return controllerEnrollmentSnapshot{Query: query, Snapshot: snapshot}, nil
+	if ctx.Err() != nil || !time.Now().Before(response.ExpiresAt) {
+		return fail(errors.New("controller completed enrollment expired during registration reads"))
+	}
+	return controllerEnrollmentSnapshot{Query: query, Snapshot: snapshot, ExpiresAt: response.ExpiresAt}, nil
 }
