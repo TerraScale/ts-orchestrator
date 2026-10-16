@@ -220,14 +220,21 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: nextAction, From: 1, TargetFrom: new(1)}, revision); err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
-		t.Fatalf("stale admitted choice changed OCI: %v", err)
+	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrPoolChanged) || cloud.updates != updates {
+		t.Fatalf("changed recipe did not refuse growth on pending original lineage: %v", err)
 	}
 	if _, err := restarted.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
 		t.Fatalf("caller replaced durable choice: %v", err)
 	}
+	pending, err = restarted.Observe(ctx)
+	if err != nil || pending.Pending == "" || pending.Size != 1 || pending.PoolID != state.PoolID || pending.ConfigurationID != state.ConfigurationID ||
+		len(cloud.pools) != 1 || len(cloud.configs) != 1 || deref(cloud.pools[state.PoolID].Size) != 1 ||
+		deref(cloud.pools[state.PoolID].InstanceConfigurationId) != state.ConfigurationID || cloud.configs[state.ConfigurationID] == nil {
+		t.Fatalf("changed recipe refusal changed original OCI resources: %+v err=%v", pending, err)
+	}
 	current, _, err := reopened.Load(ctx)
-	if err != nil || current.Recipe == nil || current.Recipe.Digest() != changed.Digest() {
-		t.Fatalf("durable fallback recipe lost: %+v, %v", current.Recipe, err)
+	if err != nil || current.Recipe == nil || current.Recipe.SHA256() != changed.SHA256() || current.Action == nil || current.Action.ID != nextAction.ID ||
+		current.Action.Kind != Up || current.From != 1 || current.TargetFrom == nil || *current.TargetFrom != 1 {
+		t.Fatalf("refusal changed the durable recipe or original action: %+v err=%v", current, err)
 	}
 }
