@@ -33,7 +33,7 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	}
 	recipient, issuer := regional.Manifest(), home.Manifest()
 	rt, ht := regional.template, home.template
-	if issuer.Cell != oci.RegionGRU || recipient.Cell == oci.RegionGRU || rt.InstallationID() != ht.InstallationID() || rt.Generation() != ht.Generation() || rt.GrantDigest() != ht.GrantDigest() || recipient.DeploymentID != issuer.DeploymentID || recipient.Environment != issuer.Environment || recipient.StorageDomain != issuer.StorageDomain || recipient.ClusterID == issuer.ClusterID || rt.startupIdentity().InitialSourceRegistration == nil || ht.startupIdentity().InitialSourceRegistration == nil {
+	if issuer.Cell != oci.RegionGRU || recipient.Cell == oci.RegionGRU || rt.InstallationID() != ht.InstallationID() || rt.Generation() != ht.Generation() || rt.GrantDigest() != ht.GrantDigest() || recipient.DeploymentID != issuer.DeploymentID || recipient.Environment != issuer.Environment || regional.StorageDomain() != home.StorageDomain() || recipient.ClusterID == issuer.ClusterID || rt.startupIdentity().InitialSourceRegistration == nil || ht.startupIdentity().InitialSourceRegistration == nil {
 		return LinkRecipient{}, ErrManifestInvalid
 	}
 	sourceSHA, homeSHA := digestBytes(regional.MaterialRecord()), digestBytes(home.MaterialRecord())
@@ -43,7 +43,7 @@ func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSou
 	}
 	binding := digestBytes(bindingWire)
 	scope := sha256.Sum256([]byte(rt.InstallationID() + "\x00" + strings.ToLower(string(recipient.Cell)) + "\x00spoke-link-v1\x00" + binding))
-	key := issuer.StorageDomain.Prefix + "/bootstrap/v2/material-source/spoke-link-" + hex.EncodeToString(scope[:]) + ".json"
+	key := home.StorageDomain().Prefix + "/bootstrap/v2/material-source/spoke-link-" + hex.EncodeToString(scope[:]) + ".json"
 	return LinkRecipient{regional: regional, home: home, sourceSHA256: sourceSHA, homeSHA256: homeSHA, bindingSHA256: binding, key: key}, nil
 }
 
