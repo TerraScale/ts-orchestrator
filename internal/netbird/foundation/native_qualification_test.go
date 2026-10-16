@@ -26,7 +26,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime/debug"
 	"slices"
 	"strings"
 	"syscall"
@@ -46,8 +45,34 @@ import (
 
 var nativeQualificationServe bool
 
+// The approved producer stamps its clean candidate commit; this is build metadata, not attestation.
+var nativeQualificationSourceRevision string
+
 func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "build-identity" {
+		digest, revision, err := nativeBuildIdentity()
+		if err != nil {
+			_, _ = io.WriteString(os.Stderr, "native worker build identity unavailable\n")
+			os.Exit(2)
+		}
+		wire, err := json.Marshal(struct {
+			SHA256         string `json:"worker_sha256"`
+			SourceRevision string `json:"source_revision"`
+		}{SHA256: digest, SourceRevision: revision})
+		if err != nil {
+			os.Exit(2)
+		}
+		if _, err = os.Stdout.Write(append(wire, '\n')); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+
 	if len(os.Args) == 2 && os.Args[1] == "serve" {
+		if _, _, err := nativeBuildIdentity(); err != nil {
+			_, _ = io.WriteString(os.Stderr, "native worker build identity unavailable\n")
+			os.Exit(2)
+		}
 		nativeQualificationServe = true
 		os.Args = []string{os.Args[0], "-test.run=^TestNativeImageQualification$", "-test.timeout=45m"}
 		_ = flag.CommandLine.Parse(os.Args[1:])
@@ -122,6 +147,14 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 		return response, errors.New("native run changed")
 	}
 	w.runID = c.RunID
+	var err error
+	response.Observation.WorkerSHA256, response.Observation.WorkerSourceRevision, err = nativeBuildIdentity()
+	if err != nil {
+		return response, err
+	}
+	if response.Observation.WorkerSourceRevision != c.SourceRevision {
+		return response, errors.New("source mismatch")
+	}
 	identity, err := native.MeasureIdentity(ctx, c.ContainerdPath, c.RuncPath)
 	if err != nil {
 		return response, err
@@ -130,13 +163,6 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 		return response, errors.New("native host identity differs")
 	}
 	response.Observation.Identity = identity
-	response.Observation.WorkerSHA256, response.Observation.WorkerSourceRevision, err = nativeBuildIdentity()
-	if err != nil {
-		return response, err
-	}
-	if response.Observation.WorkerSourceRevision != c.SourceRevision {
-		return response, errors.New("source mismatch")
-	}
 	switch c.Operation {
 	case "identity":
 		client, err := containerd.New("/run/containerd/containerd.sock")
@@ -814,21 +840,14 @@ func nativeFileDigest(name string) (string, error) {
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 func nativeBuildIdentity() (string, string, error) {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "", "", errors.New("native build identity absent")
+	revision := nativeQualificationSourceRevision
+	if len(revision) != 40 {
+		return "", "", errors.New("native worker source stamp absent")
 	}
-	revision := ""
-	for _, setting := range info.Settings {
-		if setting.Key == "vcs.revision" {
-			revision = setting.Value
+	for _, character := range revision {
+		if !(character >= '0' && character <= '9' || character >= 'a' && character <= 'f') {
+			return "", "", errors.New("native worker source stamp invalid")
 		}
-		if setting.Key == "vcs.modified" && setting.Value != "false" {
-			return "", "", errors.New("native build dirty")
-		}
-	}
-	if revision == "" {
-		return "", "", errors.New("native source identity absent")
 	}
 	executable, err := os.Executable()
 	if err != nil {
