@@ -308,11 +308,15 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			return nil, err
 		}
 		deadline, _ := ctx.Deadline()
-		verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots,
-			release.ContainerTarget{Cell: identity.Cell, Environment: identity.Environment, Role: intent.Role, Architecture: expected.Architecture},
+		target := release.ContainerTarget{Cell: identity.Cell, Environment: identity.Environment, Role: intent.Role, Architecture: expected.Architecture}
+		allocations, err := currentContainerAllocations(ctx, factory, *intent.Container, roots, target)
+		if err != nil {
+			return nil, err
+		}
+		verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, target,
 			time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 				return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
-			})
+			}, allocations)
 		if err != nil {
 			return nil, err
 		}
@@ -482,11 +486,16 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 			return nil, err
 		}
 		deadline, _ := ctx.Deadline()
-		verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots.current(),
-			release.ContainerTarget{Cell: strings.ToUpper(signed.Cell), Environment: signed.Environment, Role: intent.Role, Architecture: signed.Architecture},
+		currentRoots := roots.current()
+		target := release.ContainerTarget{Cell: strings.ToUpper(signed.Cell), Environment: signed.Environment, Role: intent.Role, Architecture: signed.Architecture}
+		allocations, err := currentContainerAllocations(ctx, local.factory, *intent.Container, currentRoots, target)
+		if err != nil {
+			return nil, err
+		}
+		verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, currentRoots, target,
 			time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 				return releasechannel.ReadContainerEvidence(ctx, location, intent.Role, digest)
-			})
+			}, allocations)
 		if err != nil {
 			return nil, err
 		}
