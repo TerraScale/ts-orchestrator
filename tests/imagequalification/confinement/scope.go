@@ -117,7 +117,9 @@ func RequiredStatements(s Scope) []string {
 		statement("manage instance-family", "", s.ExpiresAt, "CreateImage", "LaunchInstance", "AddImageShapeCompatibilityEntry", "RemoveImageShapeCompatibilityEntry", "CaptureConsoleHistory"),
 		// instance-family includes console-histories; OCI IAM documentation names
 		// GetConsoleHistoryContent as ShowConsoleHistoryData, so permit both names.
-		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "ListImageShapeCompatibilityEntries", "GetWorkRequest", "GetConsoleHistory", "GetConsoleHistoryContent", "ShowConsoleHistoryData", "DeleteConsoleHistory", "TerminateInstance", "DeleteImage"),
+		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "ListBootVolumeAttachments", "ListImageShapeCompatibilityEntries", "GetWorkRequest", "GetConsoleHistory", "GetConsoleHistoryContent", "ShowConsoleHistoryData", "DeleteConsoleHistory", "TerminateInstance", "DeleteImage"),
+		statement("inspect volume-attachments", "", s.CleanupUntil, "ListBootVolumeAttachments"),
+		statement("inspect volumes", "", s.CleanupUntil, "GetBootVolume"),
 		statement("manage compute-image-capability-schema", "", s.ExpiresAt, "CreateComputeImageCapabilitySchema"),
 		statement("manage compute-image-capability-schema", "", s.CleanupUntil, "ListComputeImageCapabilitySchemas", "GetComputeImageCapabilitySchema", "DeleteComputeImageCapabilitySchema"),
 		fmt.Sprintf("Allow group id %s to read compute-global-image-capability-schema in tenancy where all {request.utc-timestamp < '%s', request.operation='ListComputeGlobalImageCapabilitySchemas'}", s.Group, s.ExpiresAt.UTC().Format(time.RFC3339)),
