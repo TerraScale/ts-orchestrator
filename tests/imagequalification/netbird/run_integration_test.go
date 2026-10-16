@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"flag"
 	"io"
 	"os"
 	"os/exec"
@@ -17,18 +16,23 @@ import (
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/netbird/protocol"
 )
 
-var serveProtocolFixture = flag.Bool("netbird-protocol-fixture", false, "serve the isolated NDJSON qualification protocol fixture")
+func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "netbird-protocol-fixture" {
+		if serveProtocolFixture() != nil {
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 // This local process fixture tests rejection and secret handling, never native NetBird acceptance.
-func TestNetBirdProtocolFixture(t *testing.T) {
-	if !*serveProtocolFixture {
-		return
-	}
+func serveProtocolFixture() error {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		var command protocol.Command
 		if err := json.Unmarshal(scanner.Bytes(), &command); err != nil {
-			t.Fatal(err)
+			return err
 		}
 		response := protocol.Response{Private: []byte(`{"credential":"private-fixture-credential"}`)}
 		if command.Operation == "identity" {
@@ -37,19 +41,17 @@ func TestNetBirdProtocolFixture(t *testing.T) {
 			response.Observation.WorkerSHA256 = strings.Repeat("c", 64)
 			response.Observation.WorkerSourceRevision = command.SourceRevision
 		} else if command.Operation != "cleanup" {
-			t.Fatal("runner continued after an identity mismatch")
+			return errors.New("runner continued after an identity mismatch")
 		}
 		wire, err := json.Marshal(response)
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
 		if _, err := os.Stdout.Write(append(wire, '\n')); err != nil {
-			t.Fatal(err)
+			return err
 		}
 	}
-	if err := scanner.Err(); err != nil {
-		t.Fatal(err)
-	}
+	return scanner.Err()
 }
 
 type processFixture struct {
@@ -64,7 +66,7 @@ func startProcessFixture(t *testing.T) *processFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(t.Context(), executable, "-test.run=^TestNetBirdProtocolFixture$", "-netbird-protocol-fixture")
+	command := exec.CommandContext(t.Context(), executable, "netbird-protocol-fixture")
 	input, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
