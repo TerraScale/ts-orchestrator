@@ -15,11 +15,17 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
-// ReadContext keeps the SDK retry goroutine joined while the original context
-// still cancels the actual GET/HEAD request and backoff.
-func ReadContext(ctx context.Context) context.Context {
+// RequestContext keeps the SDK retry goroutine joined while the original context
+// cancels the HTTP request and backoff. Use with ConfigureRequestCancellation.
+func RequestContext(ctx context.Context) context.Context {
+	if originalReadContext(ctx) != nil && ctx.Done() == nil {
+		return ctx
+	}
 	return context.WithValue(context.WithoutCancel(ctx), readContextKey{}, ctx)
 }
+
+// ReadContext is RequestContext for existing read callers.
+func ReadContext(ctx context.Context) context.Context { return RequestContext(ctx) }
 
 type readContextKey struct{}
 
@@ -28,18 +34,18 @@ func originalReadContext(ctx context.Context) context.Context {
 	return original
 }
 
-// ConfigureReadCancellation must run after other interceptors are installed.
-// It avoids the SDK Retry response race when ReadContext cancels a wire request.
-func ConfigureReadCancellation(client *common.BaseClient) {
+// ConfigureReadCancellation is retained for existing read callers.
+func ConfigureReadCancellation(client *common.BaseClient) { ConfigureRequestCancellation(client) }
+
+// ConfigureRequestCancellation must run after other interceptors are installed.
+// It avoids the SDK Retry response race while preserving wire cancellation.
+func ConfigureRequestCancellation(client *common.BaseClient) {
 	if readCancellationConfigured(client.HTTPClient) {
 		return
 	}
 	previous := client.Interceptor
 	client.Interceptor = func(request *http.Request) error {
 		if original := originalReadContext(request.Context()); original != nil {
-			if request.Method != http.MethodGet && request.Method != http.MethodHead {
-				return errors.New("OCI ReadContext only permits GET and HEAD")
-			}
 			*request = *request.WithContext(context.WithValue(original, readContextKey{}, original))
 		}
 		if previous != nil {
