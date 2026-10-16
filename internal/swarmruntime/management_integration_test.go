@@ -3,6 +3,7 @@
 package swarmruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -213,8 +215,26 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: "other-secret"}, Data: []byte("must not store")}}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("arbitrary config accepted: %v", err)
 	}
-	if _, err := client.ListClusters(ctx, &api.ListClustersRequest{}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("cluster/join-token access accepted: %v", err)
+	publicClusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
+	if err != nil || len(publicClusters.Clusters) != 1 {
+		t.Fatalf("public cluster CA unavailable: %v", err)
+	}
+	actualClusters, err := upstream.ListClusters(ctx, &api.ListClustersRequest{})
+	if err != nil || len(actualClusters.Clusters) != 1 {
+		t.Fatalf("actual cluster unavailable: %v", err)
+	}
+	expectedPublic := &api.Cluster{ID: actualClusters.Clusters[0].ID, RootCA: api.RootCA{CACert: actualClusters.Clusters[0].RootCA.CACert}}
+	if !proto.Equal(publicClusters.Clusters[0], expectedPublic) || len(publicClusters.Clusters[0].RootCA.CACert) == 0 {
+		t.Fatal("public projection exposed cluster credentials or lost exact CA")
+	}
+	if !bytes.Equal(publicClusters.Clusters[0].RootCA.CACert, actualClusters.Clusters[0].RootCA.CACert) {
+		t.Fatal("public projection changed trusted CA")
+	}
+	if _, err := client.ListClusters(ctx, &api.ListClustersRequest{Filters: new(api.ListClustersRequest_Filters)}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("filtered fullcluster query accepted: %v", err)
+	}
+	if _, err := client.GetCluster(ctx, &api.GetClusterRequest{ClusterID: actualClusters.Clusters[0].ID}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("full cluster/join-token access accepted: %v", err)
 	}
 	if _, err := client.ListSecrets(ctx, &api.ListSecretsRequest{}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("secret access accepted: %v", err)
