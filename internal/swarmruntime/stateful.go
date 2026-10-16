@@ -28,6 +28,9 @@ func (e *Executor) BindStateful(source *execution.Source) error {
 	if e.stateful != nil {
 		return errors.New("stateful admission authority is immutable")
 	}
+	if err := source.BindGuardRoot(statefulGuardRoot(e)); err != nil {
+		return err
+	}
 	e.stateful = source
 	return nil
 }

@@ -49,6 +49,7 @@ type VerifiedWorkerGrant struct {
 	materialSHA256    string
 	admissionSHA256   string
 	challengeIssuedAt time.Time
+	envelope          protocol.Envelope
 }
 
 func (g VerifiedWorkerGrant) Identity() WorkerIdentity { return g.payload.Identity }
@@ -80,6 +81,7 @@ type WorkerSession struct {
 	controller ed25519.PublicKey
 	client     *containerd.Client
 	stopSigner RuntimeStopSigner
+	guardRoot  string
 	mu         sync.Mutex
 	acquire    sync.Mutex
 	source     *Source
@@ -187,7 +189,8 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 	if err != nil {
 		return VerifiedWorkerGrant{}, err
 	}
-	return VerifiedWorkerGrant{payload: payload, material: material, materialSHA256: fmt.Sprintf("%x", sha256.Sum256(material)), admissionSHA256: admission, challengeIssuedAt: envelope.IssuedAt}, nil
+	envelope.Payload = envelope.Payload.Clone()
+	return VerifiedWorkerGrant{envelope: envelope, payload: payload, material: material, materialSHA256: fmt.Sprintf("%x", sha256.Sum256(material)), admissionSHA256: admission, challengeIssuedAt: envelope.IssuedAt}, nil
 }
 
 // WorkerAdmissionSHA256 computes the shared inert identity digest.
@@ -206,7 +209,7 @@ func (s *WorkerSession) Resolve(ctx context.Context, task *api.Task) (VerifiedWo
 	s.acquire.Lock()
 	defer s.acquire.Unlock()
 	s.mu.Lock()
-	if s.source == nil {
+	if s.source == nil || s.stopSigner == nil || s.guardRoot == "" {
 		s.mu.Unlock()
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
@@ -222,6 +225,15 @@ func (s *WorkerSession) Resolve(ctx context.Context, task *api.Task) (VerifiedWo
 	effectID := entityid.Derive("runtime-effect", s.identity.HostSessionID, hash)
 	grant, err := s.request(ctx, task, "acquire", effectID)
 	if err != nil {
+		return VerifiedWorkerGrant{}, err
+	}
+	if err := s.persistGrant(grant); err != nil {
+		// The manager may already hold the effect; retain it for expiry settlement.
+		held := &workerTaskSession{task: task.Copy(), grant: grant, closing: true}
+		s.mu.Lock()
+		s.tasks[hash] = held
+		s.mu.Unlock()
+		go s.settleStopped(task.Copy(), hash, held)
 		return VerifiedWorkerGrant{}, err
 	}
 	held := &workerTaskSession{task: task.Copy(), grant: grant}
@@ -264,13 +276,24 @@ func (s *WorkerSession) TrackRuntime(ctx context.Context, task *api.Task, pins R
 		return errors.Join(ErrUnsafe, err)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	held := s.tasks[hash]
-	if held == nil || held.closing || held.stopped || pins.ContainerSpecSHA256 != hash || !held.grant.Deadline().After(time.Now().Add(workerStopReserve)) {
+	if held == nil || pins.ContainerSpecSHA256 != hash || observed.ContainerID != "ts-"+task.ID {
+		s.mu.Unlock()
+		return ErrUnsafe
+	}
+	if held.pins != nil && (held.observation.Process != observed.Process || held.observation.ContainerID != observed.ContainerID || held.observation.PIDNamespace != observed.PIDNamespace || held.observation.MountNamespace != observed.MountNamespace) {
+		s.mu.Unlock()
 		return ErrUnsafe
 	}
 	held.pins = &pins
 	held.observation = observed
+	expired := held.closing || held.stopped || !held.grant.Deadline().After(time.Now().Add(workerStopReserve))
+	s.mu.Unlock()
+	if expired {
+		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return errors.Join(ErrUnsafe, s.stopRuntime(stopCtx, task, hash))
+	}
 	return nil
 }
 
@@ -337,10 +360,15 @@ func (s *WorkerSession) renew(hash string, held *workerTaskSession) {
 			continue
 		}
 		s.mu.Lock()
-		if !held.closing && !held.stopped && grant.AdmissionSHA256() == held.grant.AdmissionSHA256() && grant.Revision() > held.grant.Revision() && grant.Deadline().After(held.grant.Deadline()) {
-			held.grant = grant
-		}
+		accept := !held.closing && !held.stopped && grant.AdmissionSHA256() == held.grant.AdmissionSHA256() && grant.Revision() > held.grant.Revision() && grant.Deadline().After(held.grant.Deadline())
 		s.mu.Unlock()
+		if accept && s.persistGrant(grant) == nil {
+			s.mu.Lock()
+			if !held.closing && !held.stopped && grant.Revision() > held.grant.Revision() {
+				held.grant = grant
+			}
+			s.mu.Unlock()
+		}
 	}
 }
 
