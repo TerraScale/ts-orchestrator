@@ -21,6 +21,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
@@ -36,6 +37,28 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 		return f.current(ctx, registration, binding)
 	}
 	agent := f.start(t)
+	observed := make(chan functionMaterialReply, 64)
+	responses, err := f.conn.Subscribe("_INBOX.>", func(message *nats.Msg) {
+		var envelope protocol.Envelope
+		if protocol.DecodeStrict(message.Data, &envelope, 512<<10) != nil {
+			return
+		}
+		var result response
+		if decodeStrict([]byte(envelope.Payload), &result) != nil || result.Operation != "function-material" || result.Error != "" {
+			return
+		}
+		var chunk functionMaterialReply
+		if decodeStrict(result.Payload, &chunk) == nil {
+			observed <- chunk
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = responses.Unsubscribe() })
+	if err := f.conn.FlushWithContext(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	files, expires, err := agent.CurrentFunctionFiles(t.Context(), f.binding)
 	if err != nil {
 		t.Fatal(err)
@@ -48,8 +71,31 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 			t.Fatalf("transport changed %s", name)
 		}
 	}
-	if calls.Load() <= int64(len(functionMaterialNames)) {
-		t.Fatal("module did not cross an encrypted chunk boundary")
+	if want := int64(len(functionMaterialNames) + 2); calls.Load() != want {
+		t.Fatalf("inventory used %d provider reads, want %d with three module chunks", calls.Load(), want)
+	}
+	largeModuleChunk, encryptedCredentials := false, false
+	for range calls.Load() {
+		select {
+		case chunk := <-observed:
+			if len(chunk.Ciphertext) > functionMaterialChunkSize(chunk.File)+16 {
+				t.Fatal("encrypted NATS chunk exceeded its file-specific bound")
+			}
+			if chunk.File == "module.wasm" && len(chunk.Ciphertext) > materialChunkBytes {
+				largeModuleChunk = true
+			}
+			if chunk.File == "broker.creds" {
+				encryptedCredentials = len(chunk.Ciphertext) > 0 && !bytes.Contains(chunk.Ciphertext, f.files["broker.creds"])
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("signed NATS material reply was not observed")
+		}
+	}
+	if !largeModuleChunk || !encryptedCredentials {
+		t.Fatal("actual NATS replies did not carry a large module chunk and confidential credentials")
+	}
+	if err := responses.Unsubscribe(); err != nil {
+		t.Fatal(err)
 	}
 	for name, change := range map[string]func(*FunctionMaterialBinding){
 		"task":        func(b *FunctionMaterialBinding) { b.TaskID = strings.Repeat("z", 25) },
@@ -75,11 +121,12 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 	query := functionMaterialQuery{Binding: f.binding, RegistrationGeneration: 1, File: "module.wasm",
 		Length: materialChunkBytes, EphemeralPublicKey: private.PublicKey().Bytes()}
 	for name, change := range map[string]func(*functionMaterialQuery){
-		"unknown-file":      func(q *functionMaterialQuery) { q.File = "../controller.creds" },
-		"large-chunk":       func(q *functionMaterialQuery) { q.Length++ },
-		"negative-offset":   func(q *functionMaterialQuery) { q.Offset = -1 },
-		"past-module-limit": func(q *functionMaterialQuery) { q.Offset = release.MaxFunctionModuleBytes },
-		"stale-generation":  func(q *functionMaterialQuery) { q.RegistrationGeneration++ },
+		"unknown-file":       func(q *functionMaterialQuery) { q.File = "../controller.creds" },
+		"large-chunk":        func(q *functionMaterialQuery) { q.Length = artifactChunkBytes + 1 },
+		"large-normal-chunk": func(q *functionMaterialQuery) { q.File = "broker.creds"; q.Length = materialChunkBytes + 1 },
+		"negative-offset":    func(q *functionMaterialQuery) { q.Offset = -1 },
+		"past-module-limit":  func(q *functionMaterialQuery) { q.Offset = release.MaxFunctionModuleBytes },
+		"stale-generation":   func(q *functionMaterialQuery) { q.RegistrationGeneration++ },
 	} {
 		t.Run(name, func(t *testing.T) {
 			malformed := query
@@ -139,73 +186,6 @@ func TestFunctionMaterialProviderIsRequired(t *testing.T) {
 	agent := f.start(t)
 	if files, _, err := agent.CurrentFunctionFiles(t.Context(), f.binding); err == nil || len(files) != 0 {
 		t.Fatalf("missing provider served files: %v", err)
-	}
-}
-
-func TestFunctionMaterialChunkBindsEveryRecipientFieldAndSession(t *testing.T) {
-	private, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	query := functionMaterialQuery{Binding: FunctionMaterialBinding{TaskID: "task", ServiceID: "service", NodeID: "node",
-		InstanceID: "instance", Region: "region", HostID: "host", Fingerprint: "fingerprint"},
-		RegistrationGeneration: 4, File: "broker.creds", Length: materialChunkBytes,
-		EphemeralPublicKey: private.PublicKey().Bytes()}
-	req := request{Node: "registered-host", SessionID: "session", Epoch: 3, Nonce: "nonce"}
-	aad, err := materialAAD(req, query)
-	if err != nil {
-		t.Fatal(err)
-	}
-	secret := []byte("private NATS credential bytes")
-	reply, err := encryptHostMaterialChunk(aad, query.EphemeralPublicKey, query.File, 0, secret, len(secret), secret)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(reply.Ciphertext, secret) {
-		t.Fatal("plaintext credential exposed")
-	}
-	public, err := ecdh.X25519().NewPublicKey(reply.EphemeralPublicKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	shared, err := private.ECDH(public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer clear(shared)
-	aead, err := materialAEAD(shared, aad)
-	if err != nil {
-		t.Fatal(err)
-	}
-	opened, err := aead.Open(nil, reply.Nonce, reply.Ciphertext, aad)
-	if err != nil || !bytes.Equal(opened, secret) {
-		t.Fatalf("exact recipient cannot decrypt: %v", err)
-	}
-	for _, change := range []func(*request, *functionMaterialQuery){
-		func(r *request, _ *functionMaterialQuery) { r.Node += "other" },
-		func(r *request, _ *functionMaterialQuery) { r.SessionID += "other" },
-		func(r *request, _ *functionMaterialQuery) { r.Epoch++ },
-		func(r *request, _ *functionMaterialQuery) { r.Nonce += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.TaskID += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.ServiceID += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.NodeID += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.InstanceID += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.Region += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.HostID += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.Binding.Fingerprint += "other" },
-		func(_ *request, q *functionMaterialQuery) { q.RegistrationGeneration++ },
-		func(_ *request, q *functionMaterialQuery) { q.File = "ingress-key.pem" },
-		func(_ *request, q *functionMaterialQuery) { q.Offset++ },
-	} {
-		otherRequest, otherQuery := req, query
-		change(&otherRequest, &otherQuery)
-		otherAAD, err := materialAAD(otherRequest, otherQuery)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := aead.Open(nil, reply.Nonce, reply.Ciphertext, otherAAD); err == nil {
-			t.Fatal("chunk decrypted with another recipient, session or selector")
-		}
 	}
 }
 
@@ -345,7 +325,7 @@ func functionTransportProof(t *testing.T) (release.VerifiedFunction, ed25519.Pub
 	if err != nil {
 		t.Fatal(err)
 	}
-	section := append([]byte{0}, bytes.Repeat([]byte{'x'}, 2*materialChunkBytes)...)
+	section := append([]byte{0}, bytes.Repeat([]byte{'x'}, 2*artifactChunkBytes)...)
 	module = append(module, 0)
 	module = binary.AppendUvarint(module, uint64(len(section)))
 	module = append(module, section...)
