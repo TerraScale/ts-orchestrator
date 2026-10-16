@@ -28,7 +28,10 @@ var ruleFields = []string{"direction", "protocol", "source", "source_type", "des
 func requireOCID(value any, kind, region string) string {
 	s := text(value)
 	parts := strings.Split(s, ".")
-	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || (region != "" && parts[3] != region) || !safeMatch(`ocid1\.[a-z]+\.oc1\.[a-z0-9-]*\.[a-z0-9]+(?:\.[a-z0-9]+)*`, s) {
+	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || !safeMatch(`ocid1\.[a-z]+\.oc1\.[a-z0-9-]*\.[a-z0-9]+(?:\.[a-z0-9]+)*`, s) {
+		fail("manual plan has an invalid " + kind + " OCID")
+	}
+	if region != "" && parts[3] != region && !(region == "us-phoenix-1" && parts[3] == "phx") && !(region == "us-ashburn-1" && parts[3] == "iad") {
 		fail("manual plan has an invalid " + kind + " OCID")
 	}
 	return s
