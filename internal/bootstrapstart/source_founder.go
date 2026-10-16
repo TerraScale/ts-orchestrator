@@ -91,11 +91,15 @@ func (proof VerifiedSourceFounder) GuardedFactory(ctx context.Context) (*ociclie
 }
 
 func (proof VerifiedSourceFounder) VerifyCurrent(ctx context.Context) error {
-	if !proof.IsVerified() {
-		return ErrSourceFounder
-	}
-	_, err := proof.observe(ctx)
+	_, err := proof.ObserveCurrent(ctx)
 	return err
+}
+
+func (proof VerifiedSourceFounder) ObserveCurrent(ctx context.Context) (InstanceObservation, error) {
+	if !proof.IsVerified() {
+		return InstanceObservation{}, ErrSourceFounder
+	}
+	return proof.observe(ctx)
 }
 
 func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObservation, error) {
