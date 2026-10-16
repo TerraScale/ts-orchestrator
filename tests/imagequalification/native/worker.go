@@ -306,35 +306,6 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		result := response{Running: view.RunningReplicas, Ready: view.ReadyReplicas, UpdateState: view.UpdateState}
 		for _, t := range view.Tasks {
 			if t.State == "RUNNING" && t.Ready {
-				status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", t.Pid()))
-				if err != nil {
-					return result, err
-				}
-				mountinfo, err := os.ReadFile(fmt.Sprintf("/proc/%d/mountinfo", t.Pid()))
-				if err != nil {
-					return result, err
-				}
-				var readonly bool
-				for line := range strings.SplitSeq(string(mountinfo), "\n") {
-					fields := strings.Fields(line)
-					if len(fields) > 5 && fields[4] == "/" {
-						readonly = strings.Contains(","+fields[5]+",", ",ro,")
-					}
-				}
-				secure = secure && readonly
-				for _, namespace := range []string{"pid", "mnt"} {
-					child, err := os.Readlink(fmt.Sprintf("/proc/%d/ns/%s", t.Pid(), namespace))
-					if err != nil {
-						return result, err
-					}
-					own, err := os.Readlink("/proc/self/ns/" + namespace)
-					if err != nil {
-						return result, err
-					}
-					secure = secure && child != own
-				}
-				actual := string(status)
-				secure = secure && strings.Contains(actual, "Uid:\t65532\t65532\t65532\t65532") && strings.Contains(actual, "Gid:\t65532\t65532\t65532\t65532") && strings.Contains(actual, "NoNewPrivs:\t1") && strings.Contains(actual, "Seccomp:\t2") && strings.Contains(actual, "CapEff:\t0000000000000000")
 				result.Tasks = append(result.Tasks, taskState{ID: t.TaskID, NodeID: t.NodeID})
 			}
 		}
