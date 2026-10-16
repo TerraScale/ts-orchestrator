@@ -241,6 +241,13 @@ material digest. A replacement task gets a fresh grant without inventing a new
 function release. Material for a given task remains immutable; expiry requires
 replacement rather than overwriting a running task's keys.
 
+Verified modules use the shared artifact store's `sha256-<digest>` keys. The
+existing artifact collector must retain current function-intent digests alongside
+host references. Uploading before intent commit refreshes object metadata and
+fences deletion from an older collector snapshot. Superseded bytes can be
+collected after the existing grace period; a newly signed rollback fetches the
+portable module again from the regional release bucket.
+
 The regional `functionmaterial.Controller` provisions the queue and prepares
 credentials/TLS through OCI Vault create/read/conditional-version publication.
 It rereads and verifies committed bytes before granting the exact recipient.
