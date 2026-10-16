@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -36,11 +37,13 @@ func (r *capacityReservations) imageInputs(ctx context.Context, role string) ([]
 		return nil, err
 	}
 	var images []cellspec.HostImage
+	var discoveryErrors []error
 	for _, architecture := range []string{"arm64", "amd64"} {
 		current, found, err := releasechannel.ReadCurrentImage(ctx, location, snapshot.roots,
 			releasechannel.CurrentImageExpectation{Cell: strings.ToUpper(r.cell), Environment: r.environment, Architecture: architecture, Role: role}, time.Now())
 		if err != nil {
-			return nil, fmt.Errorf("%w: current %s %s image discovery: %v", nodescale.ErrCapacityPending, role, architecture, err)
+			discoveryErrors = append(discoveryErrors, fmt.Errorf("%w: current %s %s image discovery: %v", nodescale.ErrCapacityPending, role, architecture, err))
+			continue
 		}
 		if found {
 			images = append(images, cellspec.HostImage{Receipt: current.ReceiptWire, Delegation: current.DelegationWire})
@@ -69,6 +72,9 @@ func (r *capacityReservations) imageInputs(ctx context.Context, role string) ([]
 			input.RoleProduction = new(proof)
 		}
 		inputs = append(inputs, input)
+	}
+	if len(inputs) == 0 {
+		return nil, errors.Join(discoveryErrors...)
 	}
 	return inputs, nil
 }
