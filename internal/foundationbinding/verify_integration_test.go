@@ -457,3 +457,34 @@ func TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles(t *testin
 		t.Fatal("implicit bootstrap publication role resolved without birth proof")
 	}
 }
+
+func TestLogicalBindingsForCellReauthenticatesOriginalGrant(t *testing.T) {
+	s := newBindingScenario(t)
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := maps.Clone(s.reads)
+	sameCell, err := verified.ForCell(t.Context(), "SFO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := sameCell.Resolve("foundation:SFO:key"); err != nil || got != s.record.ResourceIDs["key"] {
+		t.Fatalf("selected cell %s %v", got, err)
+	}
+	for path, count := range before {
+		if s.reads[path] != count*2 {
+			t.Fatalf("ForCell did not independently reread %s", path)
+		}
+	}
+	if _, err := verified.ForCell(t.Context(), "GRU"); err == nil {
+		t.Fatal("selected a cell absent from signed grant")
+	}
+	s.activeWire = []byte(`{}`)
+	if _, err := verified.ForCell(t.Context(), "SFO"); err == nil {
+		t.Fatal("ForCell accepted revoked active grant")
+	}
+	if _, err := (VerifiedBindings{}).ForCell(t.Context(), "SFO"); err == nil {
+		t.Fatal("zero-value bindings manufactured a cell authority")
+	}
+}

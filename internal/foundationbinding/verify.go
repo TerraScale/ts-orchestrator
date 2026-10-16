@@ -61,6 +61,17 @@ func (v VerifiedBindings) GrantSHA256() string { return v.authority.GrantSHA256 
 func (v VerifiedBindings) Generation() uint64  { return v.authority.Generation }
 func (v VerifiedBindings) Cell() string        { return v.authority.Cell }
 
+// ForCell independently verifies another approved cell under the same exact
+// root grant. Query narrowing belongs to the selected cell, not the root scope.
+func (v VerifiedBindings) ForCell(ctx context.Context, cell string) (VerifiedBindings, error) {
+	if v.factory == nil {
+		return VerifiedBindings{}, errors.New("foundation bindings are unverified")
+	}
+	authority := v.authority
+	authority.Cell, authority.Keys = cell, nil
+	return Verify(ctx, v.factory, authority, v.wire)
+}
+
 // Resolve accepts only the verified cell's finite logical roles.
 func (v VerifiedBindings) Resolve(reference string) (string, error) {
 	cell, key, err := Parse(reference)
