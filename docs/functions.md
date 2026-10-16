@@ -263,9 +263,25 @@ An interrupted publication can resume while retaining the worker's NKey. A
 signer-free reader checks current intent, grant, account/operator generation,
 credentials, TLS and expiry. Its result is sealed and copied defensively.
 
+First boot uses the genuine sealed startup inventory directly. The baseline
+generator includes a controller TLS intermediate and a distinct unscoped account
+signer; their loaders recheck the live source CAS and exact inventory hashes.
+No material generation is fabricated for that startup path. The public material
+fingerprint is stable across controller slots.
+
+Worker image pulls precede function material delivery. The manager retains the
+exact signed worker bundle, including qualification and delegation, and pins its
+canonical digest into each task. A previous worker can pull only after its own
+retained bundle passes current qualification and the immutable global sequence
+allocation check while the function remains current. Receipt-only verification
+checks signed function metadata without granting module execution authority.
+
 Workers retrieve the fixed files through the existing authenticated host
 session protocol. Each bounded chunk uses request-bound X25519/AES-GCM; every
 file digest, the complete inventory and expiry must agree throughout delivery.
+Delivery also pins the actual credential deadline: the earlier verified broker
+JWT expiry and ingress TLS leaf expiry. This deadline remains separate from the
+delivery grant and session lifetime and feeds the executor's credential guardian.
 The controller independently checks the current actual scheduler assignment and
 admitted host before serving material. Workers receive no general authority-log,
 artifact-store, Vault or controller signing access. CORE stages the verified
@@ -311,6 +327,13 @@ signed release artifacts and child workers; no cloud resources were changed.
 The subsequent consume-only issuer, bind-only queue and private-inbox process run passed the complete functions race suite in 15.547 seconds; the signer-free credential verifier update passed it again in 16.822 seconds. That run also exercised real broker denials for other tenants/revisions, resource mutation, foreign acknowledgements and inboxes; signer overlap renewal preserved the worker key while retired signers and widened grants were refused.
 
 The actual Vault SDK/JetStream recovery scenario subsequently passed locally in 0.335 seconds. The authority intent/grant scenarios passed in 3.835 seconds. A focused boundary run at `e2bd3b67` passed signed release expiry checks (2.308 seconds), the real OCI SDK publication/channel boundary (0.989 seconds), and real worker process/snapshot/material lifetime scenarios (1.290 seconds). After bounding its NATS observer flush context, the signed host transport and existing managed-material compatibility scenarios passed in 0.584 seconds at `01af84fc`. Automatic startup caller checks remain with QA.
+
+The conditional Vault retirement and lost-reply recovery scenario passed with
+current OCI request-bound authority checks (3.828 seconds); tenant-scoped client
+mTLS passed in the same run (0.067 seconds). Metadata-only receipt verification
+and existing module admission passed at `2125e83f` (2.580 seconds). Sealed startup,
+retained-bundle app wiring and the separate credential guardian metadata require
+their combined integration checks; these earlier passes do not qualify them.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
