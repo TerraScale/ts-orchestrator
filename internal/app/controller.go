@@ -39,6 +39,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/nats-io/nats.go"
@@ -924,7 +925,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		kvSnapshots: kvSnapshots,
 		nodes:       topologySource(cfg.NATS.Cell, cfg.NATS.Embedded.BrokerIDs, services, hostController, policy.nodes),
 		scale:       scaleStatus,
-		capacity:    capacitySource},
+		services: func(ctx context.Context) ([]swarmruntime.ServiceObservation, error) {
+			return managedServiceObservations(ctx, region, services.identity.Environment)
+		},
+		capacity: capacitySource},
 		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
 		return fmt.Errorf("attach controller observability: %w", err)
 	}
