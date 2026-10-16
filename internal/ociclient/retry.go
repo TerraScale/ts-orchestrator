@@ -31,6 +31,9 @@ func originalReadContext(ctx context.Context) context.Context {
 // ConfigureReadCancellation must run after other interceptors are installed.
 // It avoids the SDK Retry response race when ReadContext cancels a wire request.
 func ConfigureReadCancellation(client *common.BaseClient) {
+	if readCancellationConfigured(client.HTTPClient) {
+		return
+	}
 	previous := client.Interceptor
 	client.Interceptor = func(request *http.Request) error {
 		if original := originalReadContext(request.Context()); original != nil {
@@ -45,6 +48,17 @@ func ConfigureReadCancellation(client *common.BaseClient) {
 		return request.Context().Err()
 	}
 	client.HTTPClient = readDispatcher{next: client.HTTPClient}
+}
+
+func readCancellationConfigured(dispatcher common.HTTPRequestDispatcher) bool {
+	switch dispatcher := dispatcher.(type) {
+	case readDispatcher:
+		return true
+	case *instrumentedDispatcher:
+		return readCancellationConfigured(dispatcher.next)
+	default:
+		return false
+	}
 }
 
 type readDispatcher struct{ next common.HTTPRequestDispatcher }
@@ -193,7 +207,11 @@ func shouldRetry(response common.OCIOperationResponse, replayable func(*http.Req
 	}
 	if status == 0 {
 		cause := response.Error
-		if failure, ok := errors.AsType[*readTransportError](cause); ok {
+		for {
+			failure, ok := errors.AsType[*readTransportError](cause)
+			if !ok {
+				break
+			}
 			cause = failure.err
 		}
 		return common.IsNetworkError(cause) || errors.Is(cause, io.EOF) ||
