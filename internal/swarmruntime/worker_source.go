@@ -24,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -46,13 +47,15 @@ type WorkerRegistrationSnapshot struct {
 }
 
 type workerAuthority struct {
-	identity bootstrapstart.RuntimeIdentity
-	public   ed25519.PublicKey
-	target   vaultsecret.Target
-	vault    vaultsecret.VaultClient
-	bundles  vaultsecret.BundleClient
-	observer *bootstrapstart.OCIInstanceObserver
-	refresh  func(context.Context) error
+	identity    bootstrapstart.RuntimeIdentity
+	public      ed25519.PublicKey
+	target      vaultsecret.Target
+	vault       vaultsecret.VaultClient
+	bundles     vaultsecret.BundleClient
+	observer    *bootstrapstart.OCIInstanceObserver
+	refresh     func(context.Context) error
+	homeIAM     *region.HomeIAMAuthority
+	foundations region.FoundationResolver
 }
 
 func readCurrentWorkerRegistration(ctx context.Context, query WorkerRegistrationQuery) (WorkerRegistrationSnapshot, error) {
@@ -244,6 +247,9 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	}
 	currentQuery := WorkerRegistrationQuery{Request: query.Request, Response: signed.Response}
 	if _, _, _, _, _, err := authority.current(ctx, currentQuery); err != nil {
+		return nil, err
+	}
+	if err := n.authorizeWorkerVaultRead(ctx, verified, currentQuery); err != nil {
 		return nil, err
 	}
 	return signed.Response, nil

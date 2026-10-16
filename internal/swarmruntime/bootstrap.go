@@ -98,11 +98,15 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 	if err != nil {
 		return nil, err
 	}
+	homeIAM, err := region.NewRuntimeHomeIAMAuthority(ctx, reader, accepted, foundations)
+	if err != nil {
+		return nil, err
+	}
 	n, err := startAcceptedNodeAt(ctx, swarmStateDirectory, identity, target, vault, bundles, executor, refresh)
 	if err != nil {
 		return nil, err
 	}
-	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh}
+	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh, homeIAM: homeIAM, foundations: foundations}
 	return n, nil
 }
 
