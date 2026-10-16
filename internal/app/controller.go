@@ -81,6 +81,11 @@ func runAdmittedControllerFounder(ctx context.Context) error {
 		accepted.InstanceOCID != identity.InstanceOCID || accepted.PrimaryVNICOCID != identity.PrimaryVNICOCID {
 		return errors.New("initial formation history differs from accepted installation")
 	}
+	if _, derived, present, err := installedAutomaticStartup(ctx); err != nil {
+		return err
+	} else if present {
+		return bootstrapstart.RunAdmittedDerivedFounder(ctx, baked, accepted, derived, serviceUID, serviceGID)
+	}
 	return bootstrapstart.RunAdmittedFounder(ctx, baked, accepted, serviceUID, serviceGID)
 }
 

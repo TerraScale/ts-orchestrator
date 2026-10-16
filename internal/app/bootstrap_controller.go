@@ -312,7 +312,32 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
 	var vault *bootstrap.Vault
-	gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	local, derived, automatic, err := installedAutomaticStartup(ctx)
+	if err != nil {
+		return err
+	}
+	if automatic {
+		if local.anchor.Digest() != anchor.Digest() {
+			return errors.New("automatic startup anchor changed during initial admission")
+		}
+		gate, err = gate.WithDerivedStartupAuthority(derived)
+		if err != nil {
+			return err
+		}
+		gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
+			return bootstrapstart.ProvisionInitialDerivedFounderFloor(ctx, baked, marker, derived, floor, serviceUID, serviceGID, now, clockCheck)
+		}
+		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
+			continuation, err := bootstrapstart.NewDerivedFounderPeerContinuation(baked, marker, derived, serviceUID, serviceGID)
+			if err != nil {
+				return err
+			}
+			return continuation.Initialize(ctx, marker, state, now)
+		}
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewDerivedOCIAdmissionClients(ctx, derived, baked.Roots)
+	} else {
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	}
 	if err != nil {
 		return err
 	}

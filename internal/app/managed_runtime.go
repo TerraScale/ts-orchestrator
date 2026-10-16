@@ -66,7 +66,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
-	reader, err := bootstrapstart.NewOCICurrentFounderAuthorityReader(local.baked, initial, floor)
+	reader, err := currentControllerFounderReader(ctx, local.baked, initial, floor)
 	if err != nil {
 		return err
 	}

@@ -109,7 +109,7 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 		if err != nil {
 			return err
 		}
-		founders, err := bootstrapstart.NewOCICurrentFounderAuthorityReader(local.baked, initial, floor)
+		founders, err := currentControllerFounderReader(ctx, local.baked, initial, floor)
 		if err != nil {
 			return err
 		}
