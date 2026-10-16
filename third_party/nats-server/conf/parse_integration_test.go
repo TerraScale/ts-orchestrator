@@ -363,7 +363,6 @@ authorization {
 func TestConfigFileUsedKeyMonitorRuntime(t *testing.T) {
 	path := configDiskFixture(t, `
 		host: 127.0.0.1
-		http_host: 127.0.0.1
 		port = -1
 		monitor_port = $port
 	`, nil)
