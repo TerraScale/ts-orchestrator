@@ -192,8 +192,18 @@ func publishService(ctx context.Context, location Location, role string, claim [
 				if record.ReleaseSequence < existing.ReleaseSequence {
 					return ErrStale
 				}
-				if record.ReleaseSequence == existing.ReleaseSequence && record.ManifestDigest != existing.ManifestDigest {
-					return fmt.Errorf("%w: sequence already names another artifact", ErrInvalid)
+				if record.ReleaseSequence == existing.ReleaseSequence {
+					incomingContent, err := record.ContentManifestDigest()
+					if err != nil {
+						return err
+					}
+					retainedContent, err := existing.ContentManifestDigest()
+					if err != nil {
+						return err
+					}
+					if incomingContent != retainedContent || record.SequenceMigrationSHA256 != existing.SequenceMigrationSHA256 {
+						return fmt.Errorf("%w: sequence already names another artifact", ErrInvalid)
+					}
 				}
 			case record.ReleaseSequence > 0:
 				if migration == nil || !migration.AdmitsLegacyFloor(strings.ToUpper(record.Cell), 0, existingIssued) {
