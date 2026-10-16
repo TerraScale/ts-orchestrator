@@ -1,0 +1,13 @@
+{
+  "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+  "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+  "original_packet": "/tmp/ts-vendor-scoped-evidence-dd038410-remote-race",
+  "manifest_sha256": "dbacd38c2a89bbea7f21b5dafa0a0b9eed5c8f03d129cdd72105884e20fd5c7d",
+  "archive_sha256": "7fed628df4dcd1795ded7fb93f480712e735e3c2174cbef598aa73a24f071987",
+  "FIFO_position": 1,
+  "session": 20969,
+  "result": "PASS one root/no skips/package0.177s",
+  "selector": "^TestAccountRemoteTrackingLatencyRaceOverTCP$",
+  "remaining": "10 serial batches /12 never-run roots /106 TCP-eligible cases",
+  "boundary": "Standard execution only; private rc interleaving/race/equivalence/removal/central closure remain open; no source import into main or APP union."
+}

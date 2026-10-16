@@ -110,3 +110,12 @@ feature branch. The [three-contract source review](../first-party-oci-contract-r
 is bound to frozen `bfca6036`; its F1 status finding is corrected by the
 separate evidence above. Its isolated-negative and live-witness gaps remain
 open.
+
+## First bounded vendor FIFO result
+
+[Remote latency evidence](../vendor-fifo1-dd038410/README.md) retains FIFO
+position 1 on exact separate vendor `dd038410`: one never-run TCP/cluster-route
+root passed in 0.177s package time, with no skips. All 55 frozen bindings
+matched before and after. Ten serial batches, twelve never-run roots and 106
+TCP-eligible cases remain. The original private interleaving and race-detector
+contract remain unqualified; no source removal or central closure is implied.
