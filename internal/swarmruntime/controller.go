@@ -65,6 +65,11 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 func (c *controller) Prepare(ctx context.Context) error {
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
+	ports, unlock, err := c.reservePorts(ctx)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	ctx = runtimeContext(ctx)
 	ctx, release, err := c.executor.client.WithLease(ctx)
 	if err != nil {
@@ -119,7 +124,7 @@ func (c *controller) Prepare(ctx context.Context) error {
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
-			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint}),
+			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}),
 			containerd.WithNewSpec(opts...))
 		if err != nil {
 			return err

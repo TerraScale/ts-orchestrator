@@ -25,6 +25,7 @@ const logSegmentBytes = 1 << 20
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
 	client     *containerd.Client
+	socket     string
 	logRoot    string
 	executable string
 	mu         sync.Mutex
@@ -39,6 +40,10 @@ func NewExecutor(socket, stateDir string) (*Executor, error) {
 	if runtime.GOOS != "linux" {
 		return nil, fmt.Errorf("container runtime requires Linux")
 	}
+	socket, err := filepath.EvalSymlinks(socket)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local runtime socket: %w", err)
+	}
 	executable, err := os.Executable()
 	if err != nil {
 		return nil, err
@@ -51,7 +56,7 @@ func NewExecutor(socket, stateDir string) (*Executor, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Executor{client: c, logRoot: root, executable: executable}, nil
+	return &Executor{client: c, socket: socket, logRoot: root, executable: executable}, nil
 }
 
 func runtimeContext(ctx context.Context) context.Context {
