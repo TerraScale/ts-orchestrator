@@ -382,6 +382,9 @@ func (catalog *metricCatalog) History(ctx context.Context, query HistoryQuery) (
 	if !newest.IsZero() {
 		result.State, result.Reason = "available", ""
 		step := DefaultHistoryInterval
+		if result.IntervalSeconds > 0 {
+			step = time.Duration(result.IntervalSeconds * float64(time.Second))
+		}
 		for _, series := range result.Series {
 			switch series.Tier {
 			case Tier1m:

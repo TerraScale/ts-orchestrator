@@ -172,3 +172,64 @@ func TestMetricDashboardMissingProviderHTTP(t *testing.T) {
 		t.Fatalf("missing provider: status=%d err=%v body=%s", response.StatusCode, err, body)
 	}
 }
+
+func TestMetricDashboardUsesSourceCadenceHTTP(t *testing.T) {
+	t.Parallel()
+	observed := time.Now().UTC()
+	now := observed.Add(40 * time.Second)
+	history := observability.NewHistory(observability.HistoryConfig{Interval: time.Minute})
+	for _, ago := range []time.Duration{2 * time.Minute, time.Minute, 0} {
+		history.Append(observed.Add(-ago), []observability.Sample{{Metric: "host_cadence", Value: 1}})
+	}
+	const token = "cadence-private-integration-token"
+	listener, err := observability.NewTokenServer(observability.Config{}, token, observability.ServerDeps{Registry: observability.NewRegistry(false), Health: new(observability.Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.HandleMetricHistory(history)
+	New(Options{Now: func() time.Time { return now }, Journal: &Journal{Metrics: listener.MetricCatalog()}}).Mount(listener)
+	server := httptest.NewServer(listener)
+	defer server.Close()
+	get := func(path string) []byte {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status=%d error=%v", path, response.StatusCode, err)
+		}
+		return body
+	}
+	query := url.Values{"metric": {"host_cadence"}, "tier": {"raw"}, "end": {now.Format(time.RFC3339Nano)}}
+	var result observability.CatalogHistory
+	body := get("/v1/history?" + query.Encode())
+	if err := json.Unmarshal(body, &result); err != nil || result.State != "available" || result.IntervalSeconds != 60 {
+		t.Fatalf("source cadence state=%s body=%s error=%v", result.State, body, err)
+	}
+	for _, window := range []string{"15m", "6h"} {
+		body := string(get("/metric-catalog?metric=host_cadence&range=" + window))
+		if strings.Contains(body, "Gaps / partial observations:") || strings.Contains(body, "gap / partial observation") || strings.Contains(body, "predates the requested range end") {
+			t.Fatalf("normal minute cadence shown as missing: %s", body)
+		}
+		match := regexp.MustCompile(`<ts-chart[^>]*data-spec="([^"]*)"`).FindStringSubmatch(body)
+		if len(match) != 2 {
+			t.Fatal("cadence chart missing")
+		}
+		var chart struct {
+			Series []struct {
+				Points [][2]float64 `json:"points"`
+			} `json:"series"`
+		}
+		if err := json.Unmarshal([]byte(html.UnescapeString(match[1])), &chart); err != nil || len(chart.Series) != 1 || len(chart.Series[0].Points) != 3 {
+			t.Fatalf("normal cadence chart split: %+v error=%v", chart, err)
+		}
+	}
+}

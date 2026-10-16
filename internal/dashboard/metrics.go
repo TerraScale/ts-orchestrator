@@ -141,7 +141,14 @@ func metricSeriesName(series observability.HistorySeries) string {
 	return strings.Join(parts, " ")
 }
 
-func metricStep(tier string) time.Duration {
+func (current view) metricInterval() time.Duration {
+	if current.MetricHistory != nil && current.MetricHistory.IntervalSeconds > 0 {
+		return time.Duration(current.MetricHistory.IntervalSeconds * float64(time.Second))
+	}
+	return observability.DefaultHistoryInterval
+}
+
+func metricStep(tier string, interval time.Duration) time.Duration {
 	switch tier {
 	case observability.Tier1m:
 		return time.Minute
@@ -150,24 +157,24 @@ func metricStep(tier string) time.Duration {
 	case observability.Tier1h:
 		return time.Hour
 	default:
-		return observability.DefaultHistoryInterval
+		return interval
 	}
 }
 
 // metricGap detects missing intervals and partially observed rollup buckets.
-func metricGap(series observability.HistorySeries, index int) bool {
+func metricGap(series observability.HistorySeries, index int, interval time.Duration) bool {
 	point := series.Points[index]
-	step := metricStep(series.Tier)
+	step := metricStep(series.Tier, interval)
 	if index > 0 && point.Time.Sub(series.Points[index-1].Time) > 2*step {
 		return true
 	}
-	return metricPartial(series, index)
+	return metricPartial(series, index, interval)
 }
 
-func metricPartial(series observability.HistorySeries, index int) bool {
+func metricPartial(series observability.HistorySeries, index int, interval time.Duration) bool {
 	point := series.Points[index]
 	if series.Tier != observability.TierRaw && point.Samples > 0 {
-		return time.Duration(point.Samples)*observability.DefaultHistoryInterval < metricStep(series.Tier)
+		return time.Duration(point.Samples)*interval < metricStep(series.Tier, interval)
 	}
 	return false
 }
@@ -191,7 +198,7 @@ func (current view) metricHistoryChart(metric observability.CatalogMetric) chart
 				flush()
 				continue
 			}
-			if metricGap(series, index) || index > 0 && metricPartial(series, index-1) {
+			if metricGap(series, index, current.metricInterval()) || index > 0 && metricPartial(series, index-1, current.metricInterval()) {
 				flush()
 			}
 			segment.Points = append(segment.Points, [2]float64{float64(point.Time.UnixMilli()), point.Value})
@@ -214,7 +221,7 @@ func (current view) metricHistoryTable() table {
 	for _, series := range current.MetricHistory.Series {
 		for index, point := range series.Points {
 			coverage := "observed"
-			if metricGap(series, index) {
+			if metricGap(series, index, current.metricInterval()) {
 				coverage = "gap / partial observation"
 			}
 			listing.Rows = append(listing.Rows, []cell{textCell(metricSeriesName(series)),
@@ -251,7 +258,7 @@ func (current view) metricHistoryWarnings() []string {
 	gaps := 0
 	for _, series := range history.Series {
 		for index := range series.Points {
-			if metricGap(series, index) {
+			if metricGap(series, index, current.metricInterval()) {
 				gaps++
 			}
 		}
