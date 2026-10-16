@@ -15,13 +15,13 @@ import (
 // LinkRecipient is a public regional source bound to the same signed foundation
 // registration as GRU. It conveys only an exact Link delivery destination.
 type LinkRecipient struct {
-	regional, home                               DerivedStartupAuthority
+	regional, home                               VerifiedRegionalSource
 	sourceSHA256, homeSHA256, bindingSHA256, key string
 }
 
 // VerifyLinkRecipient checks both current public source objects. Neither source
 // escrow nor a caller-selected Vault or object path supplies recipient authority.
-func VerifyLinkRecipient(ctx context.Context, regional, home DerivedStartupAuthority, now time.Time) (LinkRecipient, error) {
+func VerifyLinkRecipient(ctx context.Context, regional, home VerifiedRegionalSource, now time.Time) (LinkRecipient, error) {
 	if ctx.Err() != nil || now.IsZero() || !regional.IsVerified() || !home.IsVerified() {
 		return LinkRecipient{}, ErrManifestInvalid
 	}
