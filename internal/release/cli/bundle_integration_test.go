@@ -155,8 +155,8 @@ func TestBundleRefusesBeforeCredentialsOrOutput(t *testing.T) {
 		"--root-key", f.rootPath, "--source-checkout", f.sourceDir, "--namespace", "ns", "--sequence-migration", migrationPath,
 		"--update-delegation-secret", "unavailable", "--signing-key-secret", "unavailable", "--vault-id", "invalid-vault",
 		"--cell", "FRA", "--cell", "GRU", "--cell", "SFO", "--arch", "amd64"}
-	if err := (command{ctx: t.Context(), output: io.Discard}).bundleWith(args, env); err == nil {
-		t.Fatal("unqualified release produced a bundle")
+	if err := (command{ctx: t.Context(), output: io.Discard}).bundleWith(args, env); !errors.Is(err, release.ErrProductionQualification) {
+		t.Fatalf("missing independent production qualification was not classified: %v", err)
 	}
 	if err := os.WriteFile(binaryPath(f.releaseDir, "amd64"), []byte("tampered retained candidate"), 0o600); err != nil {
 		t.Fatal(err)

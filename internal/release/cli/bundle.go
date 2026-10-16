@@ -372,7 +372,7 @@ func (c command) snapshotBundleProduction(source, destination string, roots trus
 	for architecture, binary := range binaries {
 		proof, err := readProductionProof(source, cell, architecture)
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %s %s record: %w", release.ErrProductionQualification, cell, architecture, err)
 		}
 		expected := release.ProductionExpectation{SourceRevision: binary.SourceRevision, ArtifactSHA256: binary.SHA256,
 			QualificationSHA256: binary.QualificationSHA256, Cell: cell, Environment: environment,
@@ -404,7 +404,7 @@ func (c command) snapshotBundleProduction(source, destination string, roots trus
 				return err
 			}
 			if err := c.copyBundleArtifact(filepath.Join(source, "objects", evidence.SHA256), path, evidence.SHA256, evidence.Bytes, release.MaxProductionEvidenceBytes); err != nil {
-				return err
+				return fmt.Errorf("%w: %s %s evidence: %w", release.ErrProductionQualification, cell, evidence.Gate, err)
 			}
 		}
 	}
