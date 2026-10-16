@@ -88,7 +88,7 @@ func startAutomaticFunctions(ctx context.Context, cfg Config, runtime *natscell.
 		if body, ok := files[name]; ok {
 			return body, nil
 		}
-		body, err := readExactControllerFile(directory, name, uid, gid, 0o600, bootstrap.MaxSecretBytes)
+		body, err := readExactControllerFile(directory, name, uid, gid, 0o600, int(bootstrap.MaxSecretBytes))
 		if err != nil {
 			return nil, err
 		}

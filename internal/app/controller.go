@@ -538,6 +538,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		roleIdentity = roleIdentityIssuer(issuer, runtime, cfg.NATS.Replicas)
 	}
 	var automaticFunctions atomic.Pointer[functionController]
+	var functionCalls sync.RWMutex
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
 			return host.NewController(attempt, host.ControllerConfig{
@@ -551,6 +552,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
 				FunctionMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
+					functionCalls.RLock()
+					defer functionCalls.RUnlock()
 					controller := automaticFunctions.Load()
 					if controller == nil {
 						return host.FunctionMaterialFiles{}, errors.New("automatic function authority is unavailable")
@@ -558,6 +561,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return controller.material(ctx, registration, binding)
 				},
 				RegistryAdmissionProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
+					functionCalls.RLock()
+					defer functionCalls.RUnlock()
 					controller := automaticFunctions.Load()
 					if controller == nil {
 						return host.RegistryAdmissionDocument{}, errors.New("automatic function registry authority is unavailable")
@@ -779,6 +784,8 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	automaticFunctions.Store(&functions)
 	defer func() {
 		automaticFunctions.Store(nil)
+		functionCalls.Lock()
+		defer functionCalls.Unlock()
 		stopFunctions()
 	}()
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
@@ -1037,7 +1044,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			return managedServiceObservations(ctx, region, services.identity.Environment)
 		},
 		functions: func(ctx context.Context) ([]globalview.FunctionObservation, error) {
-			return functions.observeFunctions(ctx, hostController.ListHosts, functionMembership)
+			functionCalls.RLock()
+			defer functionCalls.RUnlock()
+			controller := automaticFunctions.Load()
+			if controller == nil {
+				return nil, errors.New("automatic function observations are unavailable")
+			}
+			return controller.observeFunctions(ctx, hostController.ListHosts, functionMembership)
 		},
 		capacity: capacitySource},
 		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
