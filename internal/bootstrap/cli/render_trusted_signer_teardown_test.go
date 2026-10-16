@@ -74,7 +74,7 @@ func TestRenderedConfigsPreserveTerraBaseTeardownGrant(t *testing.T) {
 				render func() (app.Config, error)
 			}{
 				{name: "render-controller-config", render: func() (app.Config, error) {
-					return controllerConfigFromRecord(manifest, record, reviewed, now.Add(time.Minute))
+					return app.ControllerConfigFromRecord(manifest, record, reviewed, now.Add(time.Minute))
 				}},
 				{name: "render-operator-config", render: func() (app.Config, error) {
 					return operatorConfigFromRecord(record, reviewed, now.Add(time.Minute))

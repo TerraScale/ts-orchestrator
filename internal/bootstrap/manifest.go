@@ -124,11 +124,15 @@ type ManagedMaterialDomain struct {
 }
 
 func (domain ManagedMaterialDomain) Validate() error {
+	return domain.validateFoundation("")
+}
+
+func (domain ManagedMaterialDomain) validateFoundation(cell string) error {
 	prefix, err := netip.ParsePrefix(domain.MemberSubnetCIDR)
 	signer, signerErr := base64.StdEncoding.Strict().DecodeString(domain.RecipientSignerPublicKey)
 	if !ledgerIDPattern.MatchString(domain.Namespace) || !ledgerNamePattern.MatchString(domain.Bucket) ||
-		!isOCID(domain.KMSKeyOCID, "key") || !isOCID(domain.MemberCompartmentOCID, "compartment") ||
-		!isOCID(domain.MemberSubnetOCID, "subnet") || err != nil || !prefix.Addr().Is4() ||
+		!foundationResource(domain.KMSKeyOCID, "key", cell, "key") || !foundationResource(domain.MemberCompartmentOCID, "compartment", cell, "workload_compartment") ||
+		!foundationResource(domain.MemberSubnetOCID, "subnet", cell, "subnet") || err != nil || !prefix.Addr().Is4() ||
 		!prefix.Addr().IsPrivate() || prefix.Masked() != prefix || prefix.Bits() < 16 || prefix.Bits() > 29 ||
 		signerErr != nil || len(signer) != ed25519.PublicKeySize || !sha256RE.MatchString(domain.NativeVerifierSHA256) {
 		return fmt.Errorf("%w: invalid signed managed material domain", ErrManifestInvalid)
@@ -339,6 +343,10 @@ func validateManifestEnvelopeSize(envelope trust.Envelope) error {
 // Validate checks the closed manifest schema and all exact role, slot,
 // deployment, launch-profile, signer-delegation, and secret-scope constraints.
 func (manifest Manifest) Validate() error {
+	return manifest.validateStructure(false)
+}
+
+func (manifest Manifest) validateStructure(derived bool) error {
 	ociRegion, err := manifest.Cell.OCIRegion()
 	if err != nil || manifest.SchemaVersion != ManifestSchemaVersion || !entityid.Valid(manifest.DeploymentID) ||
 		!entityid.Valid(manifest.ClusterID) || manifest.Environment != "production" && manifest.Environment != "canary" ||
@@ -417,7 +425,7 @@ func (manifest Manifest) Validate() error {
 		secretFiles[secret.TargetFile] = struct{}{}
 	}
 	peerSlots := slices.DeleteFunc(slices.Clone(manifest.ControllerSlots), func(slot string) bool { return slot == manifest.SeedSlot })
-	if len(peerSlots) == 0 && manifest.PeerReceiptDelegation != nil || len(peerSlots) > 0 && manifest.PeerReceiptDelegation == nil {
+	if derived && manifest.PeerReceiptDelegation != nil || !derived && (len(peerSlots) == 0 && manifest.PeerReceiptDelegation != nil || len(peerSlots) > 0 && manifest.PeerReceiptDelegation == nil) {
 		return fmt.Errorf("%w: peer signer delegation must exactly match peer slot presence", ErrManifestInvalid)
 	}
 	payload, err := trust.EncodePayload(manifest)
@@ -448,9 +456,13 @@ func validateReleaseProofWires(manifest Manifest) error {
 }
 
 func (profile LaunchProfile) validate() error {
-	if !controllerSlotRE.MatchString(profile.Slot) || !isOCID(profile.CompartmentOCID, "compartment") ||
+	return profile.validateFoundation("")
+}
+
+func (profile LaunchProfile) validateFoundation(cell string) error {
+	if !controllerSlotRE.MatchString(profile.Slot) || !foundationResource(profile.CompartmentOCID, "compartment", cell, "control_compartment") ||
 		strings.TrimSpace(profile.AvailabilityDomain) == "" || strings.ContainsAny(profile.AvailabilityDomain, " \t\r\n") || len(profile.AvailabilityDomain) > 128 ||
-		!faultDomainRE.MatchString(profile.FaultDomain) || !isOCID(profile.SubnetOCID, "subnet") ||
+		!faultDomainRE.MatchString(profile.FaultDomain) || !foundationResource(profile.SubnetOCID, "subnet", cell, "subnet") ||
 		!shapeRE.MatchString(profile.Shape) || len(profile.NetworkSecurityGroupOCIDs) > 16 {
 		return fmt.Errorf("%w: invalid launch profile", ErrManifestInvalid)
 	}
@@ -458,7 +470,7 @@ func (profile LaunchProfile) validate() error {
 		return fmt.Errorf("%w: duplicate network security group", ErrManifestInvalid)
 	}
 	for _, nsg := range profile.NetworkSecurityGroupOCIDs {
-		if !isOCID(nsg, "networksecuritygroup") {
+		if !foundationResource(nsg, "networksecuritygroup", cell, "network_security_group") {
 			return fmt.Errorf("%w: invalid network security group OCID", ErrManifestInvalid)
 		}
 	}
@@ -471,7 +483,9 @@ func (secret SecretReference) validate(manifest Manifest) error {
 	}
 	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
 		"terrabase-member-ca.pem", "terrabase-member-ca.key"}
+	controllerIssuerFiles := []string{"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"}
 	if slices.Contains(hostIssuerFiles, secret.TargetFile) && secret.Purpose != SecretHostIssuer ||
+		slices.Contains(controllerIssuerFiles, secret.TargetFile) && secret.Purpose != SecretControllerIssuer ||
 		slices.Contains([]string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
 			"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem"}, secret.TargetFile) {
 		return fmt.Errorf("%w: offline or issuer material has the wrong publication role", ErrManifestInvalid)
@@ -484,6 +498,19 @@ func (secret SecretReference) validate(manifest Manifest) error {
 	case SecretHostIssuer:
 		if secret.Slot != "" || !slices.Contains(hostIssuerFiles, secret.TargetFile) {
 			return fmt.Errorf("%w: host issuer secret must name one exact regional issuer", ErrManifestInvalid)
+		}
+	case SecretControllerIssuer:
+		if secret.Slot != "" || !slices.Contains(controllerIssuerFiles, secret.TargetFile) {
+			return fmt.Errorf("%w: controller issuer secret must name one exact regional issuer", ErrManifestInvalid)
+		}
+	case SecretInterRegion:
+		shared := secret.TargetFile == "interregion-ca.pem" || secret.TargetFile == LinkCredentialsFile
+		if shared && secret.Slot == "" {
+			break
+		}
+		cert, key := InterRegionTLSFiles(secret.Slot)
+		if !slices.Contains(manifest.ControllerSlots, secret.Slot) || secret.TargetFile != cert && secret.TargetFile != key {
+			return fmt.Errorf("%w: Link secret must name exact regional CA, credentials or slot TLS", ErrManifestInvalid)
 		}
 	case SecretSeedFounder:
 		if secret.Slot != manifest.SeedSlot {

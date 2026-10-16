@@ -40,8 +40,11 @@ func OpenSelectedFounderLedger(ctx context.Context, selected CurrentFounderAutho
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if selected.Derived != nil {
+		return selected.Derived.SeedAuthority().OpenLedger(ctx, roots)
+	}
 	config, err := currentLedgerConfig(selected.Anchor, roots)
-	if err != nil || !selected.Plan.IsVerified() ||
+	if err != nil || selected.Plan == nil || !selected.Plan.IsVerified() ||
 		selected.Plan.Plan().AnchorSHA256 != selected.Anchor.Digest() {
 		return nil, ErrLedgerGrant
 	}

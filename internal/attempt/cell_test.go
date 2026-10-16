@@ -465,13 +465,8 @@ func TestSignRendersIdentityOnlyConfigs(t *testing.T) {
 		}
 		return "", stop
 	}
-	snapshot := a.Path("kv-snapshot.json")
-	a.writeJSON(snapshot, Object{"enabled": true})
-	a.Config["kv_snapshot"] = snapshot
-	digest := a.sha(snapshot)
 	a.PhaseSign()
-	if !errors.Is(a.Err(), stop) || slices.Contains(render, "--terrabase-profile") || render[len(render)-2] != "--out" ||
-		flagValue(render, "--kv-snapshot") != snapshot || flagValue(render, "--kv-snapshot-sha256") != digest {
+	if !errors.Is(a.Err(), stop) || slices.Contains(render, "--terrabase-profile") || render[len(render)-2] != "--out" {
 		t.Fatal(a.Err(), render)
 	}
 

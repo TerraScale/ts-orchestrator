@@ -198,6 +198,13 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 			return err
 		}
 	}
+	if active && descriptor.IsController() {
+		if _, err := os.Stat(filepath.Join(outputRoot, runtimeWorkerTransportFilename)); errors.Is(err, os.ErrNotExist) {
+			active = false
+		} else if err != nil {
+			return err
+		}
+	}
 	if active {
 		_, _ = fmt.Fprintf(output, "host %s enrollment is current in cell %s\n", descriptor.Node, bundle.Cell)
 		return cleanLegacyHostEnrollment(runtime, outputRoot, secrets)
@@ -274,6 +281,13 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 		return err
 	}
 	if err := validateHostCredentials(bundle, descriptor.Node, pending, request, response); err != nil {
+		return err
+	}
+	transport, err := protocol.EncodeJSON(hostenroll.WorkerTransport{Request: requestWire, Response: responseWire})
+	if err != nil {
+		return err
+	}
+	if err := writeAtomicHostFile(filepath.Join(outputRoot, runtimeWorkerTransportFilename), transport, 0o600); err != nil {
 		return err
 	}
 	if err := installHostEnrollment(ctx, outputRoot, secrets, bundle, descriptor, pending, response, runtime.ownerUID, runtime.netbird); err != nil {

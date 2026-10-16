@@ -190,7 +190,7 @@ func (s *Service) retainedArtifacts(ctx context.Context, legacy nats.JetStreamCo
 			continue
 		}
 		i := op.Intent
-		if i.Cell != s.config.Cell {
+		if i.Cell != s.config.Cell || i.Container != nil {
 			continue
 		}
 		// An exact durable decision supersedes its preparation copy; retain every distinct intent.

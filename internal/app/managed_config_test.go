@@ -40,15 +40,15 @@ func TestManagedControllerConfigRejectsGenericMemberRole(t *testing.T) {
 	}
 }
 
-func TestManagedControllerConfigRequiresSignedAdmissionInLab(t *testing.T) {
+func TestManagedControllerConfigRequiresSignedAdmission(t *testing.T) {
 	root := t.TempDir()
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{
 		OciRegionIntentFile: testJSONFile(t, root, "intent.json", map[string]any{}),
 		OciRegionConfig:     testJSONFile(t, root, "region.json", map[string]any{}),
 		PlacementConfig:     testJSONFile(t, root, "placement.json", map[string]any{}),
 	}}
 	if _, err := loadManagedControllerConfig(cfg); err == nil || strings.Contains(err.Error(), "OCI region intent") {
-		t.Fatalf("lab selected unsigned sidecar loading: %v", err)
+		t.Fatalf("controller selected unsigned sidecar loading: %v", err)
 	}
 }
 

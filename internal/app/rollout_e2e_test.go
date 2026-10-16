@@ -69,7 +69,7 @@ func TestRolloutExecutorUpdatesARunningCell(t *testing.T) {
 		configure: func(c *rolloutControl) { c.verify = testReceiptDigest }})
 	runtimes, stores, units := cell.runtimes, cell.stores, cell.units
 
-	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3, Lab: true},
+	operator := Config{NATS: natscell.Config{Cell: "lab", Replicas: 3},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	command := func(name string, receipt string, to uint64) rolloutReply {
@@ -251,18 +251,20 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 	for index := range routes {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", ports[3+index])
 	}
+	auth := newAuthenticatedNATS(t, config.cell, ids...)
 	configs := make([]Config, 3)
 	cell := &rolloutTestCell{runtimes: make([]*natscell.Runtime, 3), stores: make([]*rollout.Store, 3),
 		units: map[string]*rolloutTestUnit{}}
 	for index, id := range ids {
 		configs[index] = Config{
-			NATS: natscell.Config{Cell: config.cell, Instance: id, Replicas: 3, Lab: true,
+			NATS: natscell.Config{Cell: config.cell, Instance: id, Replicas: 3,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: ports[index], RouteHost: "127.0.0.1",
 					RoutePort: ports[3+index], Routes: natscell.PeerRoutes(routes, routes[index]),
 					StoreDir: filepath.Join(root, id), BrokerIDs: ids}},
 			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{config.grant}},
 		}
-		runtime, err := natscell.Start(ctx, configs[index].NATS)
+		configs[index].NATS = auth.config(t, configs[index].NATS)
+		runtime, err := auth.start(t, ctx, configs[index].NATS)
 		if err != nil {
 			t.Fatal(err)
 		}

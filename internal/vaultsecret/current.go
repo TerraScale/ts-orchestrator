@@ -9,13 +9,15 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 // Current holds a value in memory. Formatting and JSON expose metadata only.
 type Current struct {
-	ID      string `json:"id"`
-	Version int64  `json:"version"`
-	value   string
+	ID        string    `json:"id"`
+	Version   int64     `json:"version"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+	value     string
 }
 
 func (s Current) Value() string    { return s.value }
@@ -42,7 +44,13 @@ func ReadCurrent(ctx context.Context, client BundleClient, ref Ref) (Current, er
 	if err != nil {
 		return Current{}, err
 	}
-	return Current{ID: *bundle.SecretId, Version: *bundle.VersionNumber, value: value}, nil
+	expires := time.Time{}
+	for _, deadline := range []*common.SDKTime{bundle.TimeOfExpiry, bundle.TimeOfDeletion} {
+		if deadline != nil && (expires.IsZero() || deadline.Time.Before(expires)) {
+			expires = deadline.Time
+		}
+	}
+	return Current{ID: *bundle.SecretId, Version: *bundle.VersionNumber, ExpiresAt: expires, value: value}, nil
 }
 
 // ResolveCurrent reads a complete set before the consumer can publish it.

@@ -111,13 +111,14 @@ func TestSetBudgetRefusesCrossSiteAndBadInput(t *testing.T) {
 	}
 }
 
-func TestParseCentsReadsTheMajorUnit(t *testing.T) {
+func TestBudgetFormReadsTheMajorUnit(t *testing.T) {
 	t.Parallel()
-	for amount, want := range map[string]uint64{"500": 50000, "500.5": 50050, "500.50": 50050, "500.05": 50005, "0.01": 1,
-		"10000000000": 1_000_000_000_000} {
-		got, err := parseCents(amount)
-		if err != nil || got != want {
-			t.Errorf("parseCents(%q) = %d, %v; want %d", amount, got, err, want)
+	for amount, want := range map[string]uint64{"500": 50000, "500.5": 50050, "500.50": 50050, "500.05": 50005, "0.01": 1, "10000000000": 1_000_000_000_000} {
+		source := &fakeCapacity{}
+		handler := newTestDashboard(Options{Journal: &Journal{Capacity: source}}).Handler()
+		response := postBudget(handler, url.Values{"amount": {amount}, "currency": {"BRL"}}, nil)
+		if response.Code != http.StatusSeeOther || len(source.budgets) != 1 || source.budgets[0].MonthlyCapCents != want {
+			t.Fatalf("POST amount %s = %d, budgets %+v", amount, response.Code, source.budgets)
 		}
 	}
 }

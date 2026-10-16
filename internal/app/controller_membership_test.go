@@ -337,8 +337,7 @@ func TestMembershipReplacesTerminatedControllerUnderSameServerName(t *testing.T)
 		}
 		return oldInstance + "-a2", cluster.relaunch(ctx, 1)
 	}
-	reconciler, err := membership.New(membership.Config{Enabled: true, Replace: true, OfflineGraceSeconds: 120},
-		membership.Topology{Cell: "gru", Slots: cluster.ids, SeedSlot: "broker-a", SelfSlot: "broker-a"},
+	reconciler, err := membership.New(membership.Topology{Cell: "gru", Slots: cluster.ids, SeedSlot: "broker-a", SelfSlot: "broker-a"},
 		membership.Dependencies{Leadership: staticLeadership{epoch: 9}, Peers: peers, Ledger: fake,
 			Instances: fake, Evidence: fake, Replacer: fake,
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})

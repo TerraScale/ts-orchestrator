@@ -28,7 +28,7 @@ type InstallationIdentity struct {
 
 // ObserveInstalledIdentity never creates missing pins or starts a listener.
 func ObserveInstalledIdentity(cfg Config) (InstallationIdentity, error) {
-	if cfg.Lab || cfg.Embedded == nil {
+	if cfg.Embedded == nil {
 		return InstallationIdentity{}, errors.New("installed broker identity requires production configuration")
 	}
 	if err := cfg.validate(); err != nil {
@@ -148,7 +148,7 @@ func observeInstallationIdentity(cfg Config, dir int, nodeWire []byte) (Installa
 // PrepareInitialInstallationIdentity is only for a genuinely unaccepted current
 // first install. Existing-store rekeys use ObserveInstalledIdentity exclusively.
 func PrepareInitialInstallationIdentity(cfg Config, serviceUID, serviceGID uint32) (InstallationIdentity, error) {
-	if cfg.Lab || cfg.Embedded == nil || serviceUID == 0 || serviceGID == 0 {
+	if cfg.Embedded == nil || serviceUID == 0 || serviceGID == 0 {
 		return InstallationIdentity{}, ErrStoreIdentity
 	}
 	if err := cfg.validate(); err != nil {

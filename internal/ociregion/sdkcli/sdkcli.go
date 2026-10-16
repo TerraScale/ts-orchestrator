@@ -6,16 +6,18 @@
 // --output json: SDK models are marshaled and their camelCase member names are
 // rewritten to the CLI's kebab-case, except inside user-keyed maps such as
 // tags and metadata. Commands it does not serve report handled=false so the
-// caller can decide whether a CLI fallback is allowed.
+// caller can report unsupported operations without invoking another process.
 package sdkcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"os"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -26,35 +28,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
-
-// Backend selects how the region tools reach OCI.
-type Backend string
-
-const (
-	// BackendAuto serves supported commands in-binary and falls back to the
-	// Python CLI for the rest. It is the default while the migration is
-	// incomplete.
-	BackendAuto Backend = "auto"
-	// BackendSDK never runs the Python CLI; unsupported commands fail.
-	BackendSDK Backend = "sdk"
-	// BackendCLI keeps the previous Python CLI behavior for every command.
-	BackendCLI Backend = "cli"
-)
-
-// BackendEnv names the environment variable that selects the backend.
-const BackendEnv = "TS_OCI_BACKEND"
-
-// SelectedBackend reads BackendEnv, defaulting to BackendAuto.
-func SelectedBackend() (Backend, error) {
-	switch backend := Backend(strings.TrimSpace(os.Getenv(BackendEnv))); backend {
-	case "":
-		return BackendAuto, nil
-	case BackendAuto, BackendSDK, BackendCLI:
-		return backend, nil
-	default:
-		return "", fmt.Errorf("%s=%q is not auto, sdk, or cli", BackendEnv, backend)
-	}
-}
 
 // ErrUnsupported marks a command this package does not serve.
 var ErrUnsupported = errors.New("OCI command is not served in-binary")
@@ -143,20 +116,50 @@ type Client struct {
 	endpoint string
 }
 
+// NewClient shares the authenticated provider, rate limits and retry policy of factory.
+func NewClient(factory *ociclient.Factory, endpoint string) *Client {
+	return &Client{factory: factory, endpoint: endpoint}
+}
+
 // Factory is the shared rate-limited factory this client reads through.
 func (c *Client) Factory() *ociclient.Factory { return c.factory }
 
 func (c *Client) pin(client *common.BaseClient) {
+	client.HTTPClient = strictResponses{next: client.HTTPClient}
+	ociclient.ConfigureRequestCancellation(client)
 	if c.endpoint != "" {
 		client.Host = c.endpoint
 	}
 }
 
+// Strict decoding keeps ambiguous or truncated provider documents out of inventory.
+type strictResponses struct{ next common.HTTPRequestDispatcher }
+
+func (d strictResponses) Do(request *http.Request) (*http.Response, error) {
+	response, err := d.next.Do(request)
+	if err != nil || response == nil || request.Method == http.MethodHead || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return response, err
+	}
+	const limit = 32 << 20
+	wire, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	response.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read OCI response: %w", err)
+	}
+	if len(wire) > limit {
+		return nil, errors.New("OCI response exceeds 32 MiB")
+	}
+	var value any
+	if err := json.Unmarshal(wire, &value); err != nil {
+		return nil, fmt.Errorf("invalid OCI response: %w", err)
+	}
+	response.Body = io.NopCloser(bytes.NewReader(wire))
+	return response, nil
+}
+
 var (
 	clientsMu sync.Mutex
 	clients   = map[string]*Client{}
-	// newFactory is replaced in tests.
-	newFactory = ociclient.OperatorConfig
 )
 
 // ForRegion returns the shared client for region. An empty region selects
@@ -171,11 +174,11 @@ func ForRegion(region string) (*Client, error) {
 	if client := clients[region]; client != nil {
 		return client, nil
 	}
-	factory, err := newFactory(region)
+	factory, err := ociclient.OperatorConfig(region)
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{factory: factory}
+	client := NewClient(factory, "")
 	clients[region] = client
 	return client, nil
 }
@@ -197,7 +200,7 @@ func (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, 
 	if !ok {
 		return nil, false, fmt.Errorf("%w: %s", ErrUnsupported, command.Path)
 	}
-	value, err := handler(ctx, c, command)
+	value, err := handler(ociclient.RequestContext(ctx), c, command)
 	if err != nil {
 		return nil, true, fmt.Errorf("OCI read failed: %s: %w", command.Path, err)
 	}
@@ -213,19 +216,11 @@ func (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, 
 // Render marshals an SDK value and rewrites member names to the CLI's
 // kebab-case. Members of user-keyed maps keep their keys.
 func Render(value any) (jsontext.Value, error) {
-	wire, err := json.Marshal(value)
+	wire, err := json.Marshal(value, json.FormatNilSliceAsNull(true))
 	if err != nil {
 		return nil, fmt.Errorf("encode OCI response: %w", err)
 	}
-	var decoded any
-	if err := json.Unmarshal(wire, &decoded); err != nil {
-		return nil, fmt.Errorf("decode OCI response: %w", err)
-	}
-	wire, err = json.Marshal(kebab(decoded, false), json.Deterministic(true))
-	if err != nil {
-		return nil, fmt.Errorf("encode CLI-shaped OCI response: %w", err)
-	}
-	return jsontext.Value(wire), nil
+	return kebab(jsontext.Value(wire), false)
 }
 
 // userKeyed are SDK members whose object keys are user data, not schema.
@@ -243,36 +238,66 @@ var nameKeyed = map[string]bool{
 	"pathRouteSets": true, "ruleSets": true, "routingPolicies": true, "sslCipherSuites": true,
 }
 
-func kebab(value any, preserveKeys bool) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(typed))
+func kebab(value jsontext.Value, preserveKeys bool) (jsontext.Value, error) {
+	switch value.Kind() {
+	case '{':
+		var typed map[string]jsontext.Value
+		if err := json.Unmarshal(value, &typed); err != nil {
+			return nil, err
+		}
+		result := make(map[string]jsontext.Value, len(typed))
 		for key, member := range typed {
 			name := key
 			if !preserveKeys {
 				name = Kebab(key)
 			}
-			if named, ok := member.(map[string]any); ok && !preserveKeys && nameKeyed[key] {
-				entries := make(map[string]any, len(named))
-				for entryName, entry := range named {
-					entries[entryName] = kebab(entry, false)
+			if member.Kind() == '{' && !preserveKeys && nameKeyed[key] {
+				var named map[string]jsontext.Value
+				if err := json.Unmarshal(member, &named); err != nil {
+					return nil, err
 				}
-				result[name] = entries
+				entries := make(map[string]jsontext.Value, len(named))
+				for entryName, entry := range named {
+					converted, err := kebab(entry, false)
+					if err != nil {
+						return nil, err
+					}
+					entries[entryName] = converted
+				}
+				encoded, err := json.Marshal(entries, json.Deterministic(true))
+				if err != nil {
+					return nil, err
+				}
+				result[name] = encoded
 				continue
 			}
 			// The members of a user-keyed map are user data at any depth
 			// (defined tags nest one level), so preserve keys below it.
-			result[name] = kebab(member, preserveKeys || userKeyed[key])
+			converted, err := kebab(member, preserveKeys || userKeyed[key])
+			if err != nil {
+				return nil, err
+			}
+			result[name] = converted
 		}
-		return result
-	case []any:
-		result := make([]any, len(typed))
+		wire, err := json.Marshal(result, json.Deterministic(true))
+		return jsontext.Value(wire), err
+	case '[':
+		var typed []jsontext.Value
+		if err := json.Unmarshal(value, &typed); err != nil {
+			return nil, err
+		}
+		result := make([]jsontext.Value, len(typed))
 		for index, member := range typed {
-			result[index] = kebab(member, preserveKeys)
+			converted, err := kebab(member, preserveKeys)
+			if err != nil {
+				return nil, err
+			}
+			result[index] = converted
 		}
-		return result
+		wire, err := json.Marshal(result)
+		return jsontext.Value(wire), err
 	default:
-		return value
+		return value, nil
 	}
 }
 

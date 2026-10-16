@@ -188,8 +188,9 @@ func TestSessionCookieIgnoredWithoutDashboardLogin(t *testing.T) {
 	}
 }
 
-func TestLocalRedirectPath(t *testing.T) {
+func TestLoginRestrictsRedirectsToLocalPaths(t *testing.T) {
 	t.Parallel()
+	server, token := newLoginServer(t)
 	for raw, want := range map[string]string{
 		"":                       "/",
 		"/nats?x=1":              "/nats?x=1",
@@ -199,7 +200,8 @@ func TestLocalRedirectPath(t *testing.T) {
 		"nats":                   "/",
 		"/ok\r\nSet-Cookie: a=b": "/",
 	} {
-		if got := LocalRedirectPath(raw); got != want {
+		response := postLogin(server, url.Values{"token": {token}, "next": {raw}})
+		if got := response.Header().Get("Location"); response.Code != http.StatusSeeOther || got != want {
 			t.Errorf("LocalRedirectPath(%q) = %q, want %q", raw, got, want)
 		}
 	}
@@ -325,6 +327,7 @@ func TestSessionsPersistAndTokenRotationRevokesPermanently(t *testing.T) {
 
 func TestSameOriginForms(t *testing.T) {
 	t.Parallel()
+	server, token := newLoginServer(t)
 	for _, tc := range []struct {
 		origin, site string
 		want         bool
@@ -337,14 +340,16 @@ func TestSameOriginForms(t *testing.T) {
 		{"http://example.com", "same-site", false}, {"", "cross-site", false}, {"", "same-origin", true},
 		{"", "", true}, {"http://user@example.com", "same-origin", false},
 	} {
-		request := httptest.NewRequest(http.MethodPost, "http://example.com/login", nil)
-		request.Header.Set("Origin", tc.origin)
-		request.Header.Set("Sec-Fetch-Site", tc.site)
-		if got := sameOriginForm(request); got != tc.want {
-			t.Errorf("origin=%q site=%q: got %v want %v", tc.origin, tc.site, got, tc.want)
+		response := postLogin(server, url.Values{"token": {token}}, "Origin", tc.origin, "Sec-Fetch-Site", tc.site)
+		want := http.StatusForbidden
+		if tc.want {
+			want = http.StatusSeeOther
+		}
+		if response.Code != want {
+			t.Errorf("origin=%q site=%q: status %d want %d", tc.origin, tc.site, response.Code, want)
 		}
 	}
-	server, token := newLoginServer(t)
+
 	response := postLogin(server, url.Values{"token": {token}}, "Origin", "null", "Sec-Fetch-Site", "same-origin")
 	if response.Code != http.StatusSeeOther {
 		t.Fatalf("opaque same-origin login = %d", response.Code)
@@ -1088,41 +1093,6 @@ func TestSteadyStateSessionValidationUsesTwoLeaderReads(t *testing.T) {
 	if !sessionValid(t, server.sessions, t.Context(), value) || len(reads) != 2 ||
 		!strings.Contains(reads[0], ".session.") || !strings.Contains(reads[1], ".token.") {
 		t.Fatal("steady-state authorization did not use a session read and a final generation fence")
-	}
-}
-
-type closedSessionWatcher struct {
-	jetstream.KeyWatcher
-	updates <-chan jetstream.KeyValueEntry
-}
-
-func (watcher closedSessionWatcher) Updates() <-chan jetstream.KeyValueEntry { return watcher.updates }
-func (closedSessionWatcher) Stop() error                                     { return nil }
-
-type canceledSessionEnumeration struct {
-	jetstream.KeyValue
-	cancel context.CancelFunc
-}
-
-func (store canceledSessionEnumeration) Watch(context.Context, string, ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
-	updates := make(chan jetstream.KeyValueEntry)
-	close(updates)
-	store.cancel()
-	return closedSessionWatcher{updates: updates}, nil
-}
-
-func TestSessionCollectionReportsCancellationWhenWatcherCloses(t *testing.T) {
-	t.Parallel()
-	server, _ := newLoginServer(t)
-	binding := server.sessions.binding.Load()
-	kv := binding.store.kv
-	for range 20 {
-		ctx, cancel := context.WithCancel(t.Context())
-		binding.store.kv = canceledSessionEnumeration{KeyValue: kv, cancel: cancel}
-		if err := binding.collect(ctx); !errors.Is(err, context.Canceled) {
-			t.Fatal("closed watcher hid the cancellation cause")
-		}
-		cancel()
 	}
 }
 

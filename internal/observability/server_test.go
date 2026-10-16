@@ -14,39 +14,40 @@ import (
 	"github.com/VictoriaMetrics/metrics"
 )
 
-func TestValidateListenAddressAcceptsOnlyPrivateLiterals(t *testing.T) {
+func TestServerValidatesPrivateListenersAndTokenFiles(t *testing.T) {
 	t.Parallel()
-	for _, address := range []string{"127.0.0.1:9464", "[::1]:9464", "10.0.1.5:9464", "172.16.4.2:9464",
-		"192.168.1.10:9464", "10.200.106.253:9464", "[fd00::1]:9464"} {
-		if _, err := ValidateListenAddress(address); err != nil {
-			t.Errorf("ValidateListenAddress(%q) = %v", address, err)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(strings.Repeat("t", 40)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	deps := ServerDeps{Registry: NewRegistry(false), Health: new(Health)}
+	for _, address := range []string{"127.0.0.1:9464", "[::1]:9464", "10.0.1.5:9464", "172.16.4.2:9464", "192.168.1.10:9464", "10.200.106.253:9464", "[fd00::1]:9464"} {
+		service, err := NewServer(Config{ListenAddress: address, BearerTokenFile: tokenFile}, deps)
+		if err != nil {
+			t.Fatalf("NewServer(%q): %v", address, err)
+		}
+		request := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		request.Header.Set("Authorization", "Bearer "+strings.Repeat("t", 40))
+		response := httptest.NewRecorder()
+		service.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("listener %q metrics = %d", address, response.Code)
 		}
 	}
-	for _, address := range []string{"0.0.0.0:9464", "[::]:9464", ":9464", "localhost:9464", "8.8.8.8:9464",
-		"169.254.1.1:9464", "224.0.0.1:9464", "127.0.0.1:0", "127.0.0.1", "[fe80::1%eth0]:9464",
-		"127.000.0.1:9464", "[::ffff:8.8.8.8]:9464", "100.90.12.3:9464"} {
-		if _, err := ValidateListenAddress(address); err == nil {
-			t.Errorf("ValidateListenAddress(%q) accepted a non-private or ambiguous address", address)
+	service, err := NewServer(Config{}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, address := range []string{"0.0.0.0:9464", "[::]:9464", ":9464", "localhost:9464", "8.8.8.8:9464", "169.254.1.1:9464", "224.0.0.1:9464", "127.0.0.1:0", "127.0.0.1", "[fe80::1%eth0]:9464", "127.000.0.1:9464", "[::ffff:8.8.8.8]:9464", "100.90.12.3:9464", "off"} {
+		if _, err := service.Start(t.Context(), Config{ListenAddress: address}); err == nil {
+			service.Close()
+			t.Fatalf("Start accepted %q", address)
 		}
 	}
-}
-
-func TestConfigRequiresTokenOffLoopback(t *testing.T) {
-	t.Parallel()
-	if err := (Config{}).Validate(); err != nil {
-		t.Fatalf("default config: %v", err)
-	}
-	if err := (Config{ListenAddress: "off"}).Validate(); err == nil {
-		t.Fatal("listener off switch was accepted")
-	}
-	if err := (Config{ListenAddress: "10.0.0.4:9464"}).Validate(); err == nil {
-		t.Fatal("private listener without a token was accepted")
-	}
-	if err := (Config{ListenAddress: "10.0.0.4:9464", BearerTokenFile: "/token"}).Validate(); err != nil {
-		t.Fatalf("private listener with a token: %v", err)
-	}
-	if err := (Config{TLSCertFile: "/cert"}).Validate(); err == nil {
-		t.Fatal("TLS certificate without key was accepted")
+	for _, config := range []Config{{ListenAddress: "10.0.0.4:9464"}, {TLSCertFile: "/cert"}, {LogFormat: "xml"}, {LogLevel: "trace"}} {
+		if _, err := NewServer(config, deps); err == nil {
+			t.Fatalf("NewServer accepted %+v", config)
+		}
 	}
 }
 
@@ -142,10 +143,6 @@ func TestServerStartServesOnLoopback(t *testing.T) {
 	t.Parallel()
 	health := new(Health)
 	health.Add(Check{Name: "always", Run: func(context.Context) (bool, string) { return true, "" }})
-	config := Config{ListenAddress: "127.0.0.1:0"}
-	if _, err := ValidateListenAddress(config.ListenAddress); err == nil {
-		t.Fatal("port zero must be rejected by validation")
-	}
 	server, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(true), Health: health})
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +156,7 @@ func TestServerStartServesOnLoopback(t *testing.T) {
 	defer cancel()
 	result, err := server.Start(ctx, Config{ListenAddress: address})
 	if err != nil {
-		t.Skipf("ephemeral loopback port was reused: %v", err)
+		t.Fatalf("start loopback listener: %v", err)
 	}
 	response, err := http.Get("http://" + server.Addr().String() + "/metrics")
 	if err != nil {

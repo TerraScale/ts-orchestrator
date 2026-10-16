@@ -2,7 +2,6 @@ package image
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -34,7 +33,22 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	if e != nil {
 		return e
 	}
-	if e = client.VerifyBinary(o.NetBirdBinary, pin.Archives.Arm64.BinarySHA256, "arm64"); e != nil {
+	architecture, e := binaryArchitecture(o.Binary)
+	if e != nil {
+		return e
+	}
+	nativeArchitecture, e := binaryArchitecture(o.NativeVerifier)
+	if e != nil {
+		return e
+	}
+	if nativeArchitecture != architecture {
+		return errors.New("native verifier and orchestrator architectures differ")
+	}
+	archive, e := pin.Archive(architecture)
+	if e != nil {
+		return e
+	}
+	if e = client.VerifyBinary(o.NetBirdBinary, archive.BinarySHA256, architecture); e != nil {
 		return e
 	}
 	g, e := NewGuest(ctx, o.Image, false, nil)
@@ -42,7 +56,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 		return e
 	}
 	defer func() { result = errors.Join(result, g.Close(result != nil)) }()
-	if e = auditKernel(g, o.KernelRelease, o.Work, o.KernelOut, out); e != nil {
+	if e = auditKernel(g, o.KernelRelease, o.Work, o.KernelOut, architecture, out); e != nil {
 		return e
 	}
 	if e = requireDirectParents(g, path.Dir(Native)); e != nil {
@@ -144,7 +158,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	for _, dir := range []struct {
 		p       string
 		u, g, m int
-	}{{"/var/lib/terrascale-orchestrator", 0, 0, 0755}, {"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
+	}{{"/var/lib/terrascale-orchestrator", 0, 0, 0755}, {"/var/lib/terrascale-orchestrator/netbird-managed", 0, 0, 0700}, {"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
 		if e = g.Directory(dir.p, dir.u, dir.g, dir.m); e != nil {
 			return e
 		}
@@ -158,7 +172,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 		return e
 	}
 	uploads := []upload{{o.Sysusers, "/etc/sysusers.d/terrascale-orchestrator.conf", 0644}, {o.Profile, Profile, 0644}, {o.Binary, Helper, 0755}, {o.Binary, "/usr/local/bin/terrascale-orchestrator", 0755}, {o.NetBirdBinary, NetBird, 0755}, {o.NetBirdBinary, NetBirdFallback, 0755}, {pinPath, NetBirdPin, 0644}, {o.NetBirdConfig, NetBirdConfig, 0644}, {o.NativeVerifier, Native, 0755}, {o.Timesyncd, TimeConfig, 0644}, {filepath.Join(repo, "deploy/udev", path.Base(OCIDevicePaths)), OCIDevicePaths, 0644}}
-	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
+	for _, name := range append(append([]string{"terrascale-orchestrator-bootstrap.service", "terrascale-orchestrator-controller-install.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
 		uploads = append(uploads, upload{filepath.Join(repo, "deploy/systemd", name), "/etc/systemd/system/" + name, 0644})
 	}
 	for _, name := range append(append([]string{}, SelfUpdateDropins...), SelfUpdateUnitFiles...) {
@@ -184,6 +198,9 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 		if e = g.Replace(u.source, u.destination, u.mode); e != nil {
 			return e
 		}
+	}
+	if e = installRuntime(ctx, g, architecture, o.Work, out); e != nil {
+		return e
 	}
 	if e = installLinks(g, o.Work, repo, out); e != nil {
 		return e
@@ -384,7 +401,15 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	if e != nil {
 		return e
 	}
-	if o.NetBirdBinary != "" && o.NetBirdSHA256 != pin.Archives.Arm64.BinarySHA256 {
+	architecture, e := binaryArchitecture(o.Binary)
+	if e != nil {
+		return e
+	}
+	archive, e := pin.Archive(architecture)
+	if e != nil {
+		return e
+	}
+	if o.NetBirdBinary != "" && o.NetBirdSHA256 != archive.BinarySHA256 {
 		return errors.New("supplied NetBird SHA-256 differs from the image pin")
 	}
 	for _, tool := range []string{"qemu-img", "guestfish", "systemctl", "systemd-sysusers"} {
@@ -465,16 +490,16 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	}
 	netbird := filepath.Join(work, "netbird")
 	if o.NetBirdBinary == "" {
-		if e = client.Fetch(ctx, pin, "arm64", netbird, os.Getenv("TS_NETBIRD_CLIENT_CACHE"), nil); e != nil {
+		if e = client.Fetch(ctx, pin, architecture, netbird, os.Getenv("TS_NETBIRD_CLIENT_CACHE"), nil); e != nil {
 			return e
 		}
-		o.NetBirdSHA256 = pin.Archives.Arm64.BinarySHA256
+		o.NetBirdSHA256 = archive.BinarySHA256
 	} else {
 		if e = copyFile(o.NetBirdBinary, netbird, 0755); e != nil {
 			return e
 		}
 	}
-	if e = client.VerifyBinary(netbird, o.NetBirdSHA256, "arm64"); e != nil {
+	if e = client.VerifyBinary(netbird, o.NetBirdSHA256, architecture); e != nil {
 		return e
 	}
 	profile := filepath.Join(work, "runtime-priority.json")
@@ -505,15 +530,12 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	if nativeInfo.Size() <= 0 || nativeInfo.Size() > 128<<20 {
 		return errors.New("native verifier must be between 1 byte and 128 MiB")
 	}
-	nativeFile, e := os.Open(native)
+	nativeArchitecture, e := binaryArchitecture(native)
 	if e != nil {
 		return e
 	}
-	nativeData := make([]byte, 64)
-	_, e = io.ReadFull(nativeFile, nativeData)
-	nativeFile.Close()
-	if e != nil || string(nativeData[:6]) != "\x7fELF\x02\x01" || (binary.LittleEndian.Uint16(nativeData[16:]) != 2 && binary.LittleEndian.Uint16(nativeData[16:]) != 3) || binary.LittleEndian.Uint16(nativeData[18:]) != 183 || binary.LittleEndian.Uint32(nativeData[20:]) != 1 || binary.LittleEndian.Uint16(nativeData[52:]) != 64 {
-		return errors.New("native verifier must be an ELF64 little-endian AArch64 executable")
+	if nativeArchitecture != architecture {
+		return errors.New("native verifier and orchestrator architectures differ")
 	}
 	nativeDigest, e := fileHash(native)
 	if e != nil {
@@ -522,7 +544,7 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 	if nativeDigest != o.NativeSHA256 {
 		return errors.New("native verifier bytes do not match the supplied SHA-256")
 	}
-	fmt.Fprintf(out, "native verifier artifact sha256=%s bytes=%d architecture=aarch64\n", nativeDigest, nativeInfo.Size())
+	fmt.Fprintf(out, "native verifier artifact sha256=%s bytes=%d architecture=%s\n", nativeDigest, nativeInfo.Size(), architecture)
 	binaryPath := filepath.Join(work, "terrascale-orchestrator")
 	if e = copyFile(o.Binary, binaryPath, 0755); e != nil {
 		return e
@@ -581,6 +603,27 @@ func OfflineBuild(ctx context.Context, repo string, o OfflineOptions, out io.Wri
 		return e
 	}
 	expected := []string{"/usr/local/bin/terrascale-orchestrator=" + binaryDigest, NetBird + "=" + o.NetBirdSHA256, NetBirdConfig + "=" + configDigest, Native + "=" + o.NativeSHA256, "/boot/vmlinuz-" + o.KernelRelease + "=" + kernelDigest, OCIDevicePaths + "=" + ruleDigest}
+	for _, name := range []string{"containerd", "containerd-shim-runc-v2", "runc"} {
+		digest, err := fileHash(filepath.Join(work, name))
+		if err != nil {
+			return err
+		}
+		expected = append(expected, "/usr/local/bin/"+name+"="+digest)
+	}
+	for _, artifact := range [][2]string{
+		{"containerd.service", filepath.Join(work, "containerd.service")},
+		{"terrascale-orchestrator-controller.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
+		{"terrascale-orchestrator-host.service.d/70-containerd.conf", filepath.Join(work, "70-containerd.conf")},
+		{"terrascale-orchestrator-managed-runtime.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-managed-runtime.service")},
+		{"terrascale-orchestrator-managed-host-start.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-managed-host-start.service")},
+		{"terrascale-orchestrator-controller.service", filepath.Join(repo, "deploy/systemd/terrascale-orchestrator-controller.service")},
+	} {
+		digest, err := fileHash(artifact[1])
+		if err != nil {
+			return err
+		}
+		expected = append(expected, "/etc/systemd/system/"+artifact[0]+"="+digest)
+	}
 	pinDigest, e := fileHash(filepath.Join(work, "netbird-pin.json"))
 	if e != nil {
 		return e

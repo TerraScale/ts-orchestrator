@@ -171,18 +171,11 @@ func desiredEntries[S ociresource.Validator](entries map[string]OciDesiredEntry[
 	out := make([]ociresource.Entry, 0, len(entries))
 	for _, name := range slices.Sorted(maps.Keys(entries)) {
 		entry := entries[name]
-		policy := ociresource.PolicyReport
-		switch entry.Policy {
-		case "", string(ociresource.PolicyReport):
-		case string(ociresource.PolicyEnforce):
-			policy = ociresource.PolicyEnforce
-		default:
-			return nil, fmt.Errorf("OCI desired %q has unsupported policy %q", name, entry.Policy)
-		}
+
 		if err := entry.Spec.Validate(); err != nil {
 			return nil, fmt.Errorf("OCI desired %q: %w", name, err)
 		}
-		out = append(out, ociresource.Entry{Name: name, Policy: policy, Spec: entry.Spec})
+		out = append(out, ociresource.Entry{Name: name, Policy: ociresource.PolicyEnforce, Spec: entry.Spec})
 	}
 	return out, nil
 }

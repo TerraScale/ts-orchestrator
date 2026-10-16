@@ -9,8 +9,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
@@ -32,18 +35,16 @@ type ObjectClient interface {
 
 // Objects reads and conditionally writes one cell's snapshot objects.
 type Objects struct {
-	Client ObjectClient
-	Config Config
-	Cell   string
+	Client    ObjectClient
+	Namespace string
+	Bucket    string
+	Cell      string
 }
 
-// NewInstancePrincipalObjects builds the controller's Object Storage access
-// from its instance principal.
-func NewInstancePrincipalObjects(config Config, cell string) (*Objects, error) {
-	if err := config.Validate(); err != nil {
-		return nil, err
-	}
-	factory, err := ociclient.InstancePrincipal(config.Region)
+// NewInstancePrincipalObjects discovers the regional head bucket through the
+// controller's instance principal. Missing storage or grants fail closed.
+func NewInstancePrincipalObjects(ctx context.Context, region, cell string) (*Objects, error) {
+	factory, err := ociclient.InstancePrincipal(region)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +52,39 @@ func NewInstancePrincipalObjects(config Config, cell string) (*Objects, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Objects{Client: client, Config: config, Cell: cell}, nil
+	return discoverObjects(ctx, client, region, cell)
+}
+
+func discoverObjects(ctx context.Context, client objectstorage.ObjectStorageClient, region, cell string) (*Objects, error) {
+	entry, ok := catalog.CellForOCIRegion(region)
+	if !ok || cell != entry.Name() {
+		return nil, errors.New("kv snapshot region does not match the controller cell")
+	}
+	name, err := naming.RegionCell(entry.Cell).Name()
+	if err != nil {
+		return nil, err
+	}
+	bucket := name + "-head"
+	namespace, err := client.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("discover kv snapshot namespace: %w", err)
+	}
+	if namespace.Value == nil || !namespacePattern.MatchString(*namespace.Value) {
+		return nil, errors.New("kv snapshot namespace is missing or invalid")
+	}
+	response, err := client.GetBucket(ctx, objectstorage.GetBucketRequest{
+		NamespaceName: namespace.Value, BucketName: new(bucket),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("inspect regional kv snapshot bucket: %w", err)
+	}
+	if response.Namespace == nil || *response.Namespace != *namespace.Value ||
+		response.Name == nil || *response.Name != bucket ||
+		response.Versioning != objectstorage.BucketVersioningEnabled ||
+		response.KmsKeyId == nil || !strings.HasPrefix(*response.KmsKeyId, "ocid1.key.") {
+		return nil, errors.New("regional kv snapshot bucket must match its identity and retain versions with its managed KMS key")
+	}
+	return &Objects{Client: client, Namespace: *namespace.Value, Bucket: bucket, Cell: cell}, nil
 }
 
 // Get returns the bucket's snapshot and its ETag. Only OCI's ObjectNotFound
@@ -60,8 +93,8 @@ func NewInstancePrincipalObjects(config Config, cell string) (*Objects, error) {
 // unreadable snapshot for an empty one.
 func (objects *Objects) Get(ctx context.Context, bucket string) (Document, string, bool, error) {
 	response, err := objects.Client.GetObject(ctx, objectstorage.GetObjectRequest{
-		NamespaceName: new(objects.Config.Namespace), BucketName: new(objects.Config.Bucket),
-		ObjectName: new(objects.Config.objectName(objects.Cell, bucket)),
+		NamespaceName: new(objects.Namespace), BucketName: new(objects.Bucket),
+		ObjectName: new(objectName(objects.Cell, bucket)),
 	})
 	if err != nil {
 		if serviceErr, ok := errors.AsType[serviceError](err); ok &&
@@ -98,8 +131,8 @@ func (objects *Objects) Put(ctx context.Context, document Document, etag string)
 	}
 	digest := sha256.Sum256(data)
 	request := objectstorage.PutObjectRequest{
-		NamespaceName: new(objects.Config.Namespace), BucketName: new(objects.Config.Bucket),
-		ObjectName:    new(objects.Config.objectName(objects.Cell, document.Bucket)),
+		NamespaceName: new(objects.Namespace), BucketName: new(objects.Bucket),
+		ObjectName:    new(objectName(objects.Cell, document.Bucket)),
 		PutObjectBody: io.NopCloser(bytes.NewReader(data)), ContentLength: new(int64(len(data))),
 		ContentType:          new("application/json"),
 		OpcChecksumAlgorithm: objectstorage.PutObjectOpcChecksumAlgorithmSha256,
@@ -109,9 +142,6 @@ func (objects *Objects) Put(ctx context.Context, document Document, etag string)
 		request.IfNoneMatch = new("*")
 	} else {
 		request.IfMatch = new(etag)
-	}
-	if objects.Config.KMSKeyID != "" {
-		request.OpcSseKmsKeyId = new(objects.Config.KMSKeyID)
 	}
 	response, err := objects.Client.PutObject(ctx, request)
 	if err != nil {

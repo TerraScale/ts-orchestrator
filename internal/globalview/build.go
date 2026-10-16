@@ -47,6 +47,18 @@ func (s Sources) Collect(ctx context.Context) Inputs {
 		list, err := s.Volumes.Volumes(ctx)
 		in.Volumes, in.VolumesUnavailable = list, err != nil
 	}
+	if s.Services != nil {
+		services, err := s.Services(ctx)
+		if err == nil && ctx.Err() == nil {
+			in.Services, in.ServicesObservedAt = services, now().UTC()
+		}
+	}
+	if s.Functions != nil {
+		functions, err := s.Functions(ctx)
+		if err == nil && ctx.Err() == nil {
+			in.Functions, in.FunctionsObservedAt = functions, now().UTC()
+		}
+	}
 	if s.Links != nil {
 		in.Links = s.Links()
 	}
@@ -91,6 +103,10 @@ func Build(in Inputs) Rollup {
 	rollup.Nodes = keep(nodes, maxNodes, &truncated)
 	rollup.Volumes = buildVolumes(in.Volumes, &truncated)
 	rollup.VolumesUnavailable = in.VolumesUnavailable
+	rollup.Services = boundedManagedServices(in.Services, &truncated)
+	rollup.ServicesObservedAt = in.ServicesObservedAt
+	rollup.Functions = keep(in.Functions, 64, &truncated)
+	rollup.FunctionsObservedAt = in.FunctionsObservedAt
 	rollup.Links = keep(links, maxLinks, &truncated)
 	rollup.Routes = keep(routes, maxRoutes, &truncated)
 	rollup.Autoscale = Autoscale{Services: buildScaling(in.Autoscale)}

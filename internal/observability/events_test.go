@@ -1,10 +1,10 @@
 package observability
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -17,17 +17,17 @@ func TestEventBusRingKeepsNewestInOrder(t *testing.T) {
 	for _, message := range []string{"one", "two", "three", "four", "five"} {
 		bus.Publish(Event{Message: message})
 	}
-	recent := bus.Recent(0)
+	recent := eventsOverHTTP(t, bus, "")
 	if len(recent) != 3 || recent[0].Message != "three" || recent[2].Message != "five" {
 		t.Fatalf("Recent() = %+v", recent)
 	}
 	if recent[0].Sequence != 3 || recent[2].Sequence != 5 || recent[0].Time.IsZero() {
 		t.Fatalf("sequence or time not assigned: %+v", recent)
 	}
-	if since := bus.Since(4, 0); len(since) != 1 || since[0].Message != "five" {
+	if since := eventsOverHTTP(t, bus, "?after=4"); len(since) != 1 || since[0].Message != "five" {
 		t.Fatalf("Since(4) = %+v", since)
 	}
-	if limited := bus.Recent(2); len(limited) != 2 || limited[0].Message != "four" {
+	if limited := eventsOverHTTP(t, bus, "?limit=2"); len(limited) != 2 || limited[0].Message != "four" {
 		t.Fatalf("Recent(2) = %+v", limited)
 	}
 }
@@ -42,6 +42,9 @@ func TestEventBusSubscriberDropsInsteadOfBlocking(t *testing.T) {
 	}
 	if published, dropped := bus.Stats(); published != 5 || dropped != 3 {
 		t.Fatalf("Stats() = %d published, %d dropped; want 5 and 3", published, dropped)
+	}
+	if recent := eventsOverHTTP(t, bus, ""); len(recent) != 5 {
+		t.Fatalf("API lost published events: %+v", recent)
 	}
 	if first := <-events; first.Message != "a" {
 		t.Fatalf("first event = %q", first.Message)
@@ -85,6 +88,9 @@ func TestEventBusConcurrentPublishAndSubscribe(t *testing.T) {
 		})
 	}
 	group.Wait()
+	if events := eventsOverHTTP(t, bus, ""); len(events) != 64 || events[len(events)-1].Sequence != 400 {
+		t.Fatalf("concurrent events API = %+v", events)
+	}
 	if published, _ := bus.Stats(); published != 400 {
 		t.Fatalf("published = %d", published)
 	}
@@ -93,8 +99,8 @@ func TestEventBusConcurrentPublishAndSubscribe(t *testing.T) {
 func TestLoggerTeesWarningsAndMarkedEvents(t *testing.T) {
 	t.Parallel()
 	bus := NewEventBus(16)
-	var output bytes.Buffer
-	logger, err := NewLogger(&output, LogConfig{}, bus, slog.String("cell", "gru"), slog.String("role", "controller"))
+	output := newLogOutput(t)
+	logger, err := NewLogger(output, LogConfig{}, bus, slog.String("cell", "gru"), slog.String("role", "controller"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +109,7 @@ func TestLoggerTeesWarningsAndMarkedEvents(t *testing.T) {
 	logger.With(ComponentKey, "placement").Warn("placement held", "reason", "awaiting host")
 	logger.Info("member serving", EventKey, true, "seat", "a")
 	logger.WithGroup("lease").Error("lost", "epoch", 7)
-	events := bus.Recent(0)
+	events := eventsOverHTTP(t, bus, "")
 	if len(events) != 3 {
 		t.Fatalf("events = %+v", events)
 	}
@@ -134,8 +140,8 @@ func TestLoggerTeesWarningsAndMarkedEvents(t *testing.T) {
 
 func TestLoggerLogfmtAndValidation(t *testing.T) {
 	t.Parallel()
-	var output bytes.Buffer
-	logger, err := NewLogger(&output, LogConfig{Format: "logfmt", Level: "warn"}, nil)
+	output := newLogOutput(t)
+	logger, err := NewLogger(output, LogConfig{Format: "logfmt", Level: "warn"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +151,28 @@ func TestLoggerLogfmtAndValidation(t *testing.T) {
 		t.Fatalf("logfmt output = %q", text)
 	}
 	for _, config := range []LogConfig{{Format: "xml"}, {Level: "trace"}} {
-		if _, err := NewLogger(&output, config, nil); err == nil {
+		if _, err := NewLogger(output, config, nil); err == nil {
 			t.Fatalf("NewLogger(%+v) accepted an invalid setting", config)
 		}
 	}
+}
+
+func eventsOverHTTP(t *testing.T, bus *EventBus, query string) []Event {
+	t.Helper()
+	service, err := NewServer(Config{}, ServerDeps{Registry: NewRegistry(false), Health: new(Health), Events: bus})
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := httptest.NewServer(service)
+	defer endpoint.Close()
+	response, err := endpoint.Client().Get(endpoint.URL + "/v1/events" + query)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var events []Event
+	if err := json.NewDecoder(response.Body).Decode(&events); err != nil {
+		t.Fatal(err)
+	}
+	return events
 }

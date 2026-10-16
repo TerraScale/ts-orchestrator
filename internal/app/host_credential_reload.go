@@ -38,7 +38,7 @@ func hostCredentialReloader(path string, running Config, identity ed25519.Privat
 func sameHostIdentityConfig(running, reloaded Config) error {
 	left, right := running.NATS, reloaded.NATS
 	if left.Cell != right.Cell || left.Instance != right.Instance || left.Replicas != right.Replicas ||
-		left.Lab != right.Lab || left.URL != right.URL || left.NKeySeedFile != right.NKeySeedFile ||
+		left.URL != right.URL || left.NKeySeedFile != right.NKeySeedFile ||
 		left.Embedded != nil || right.Embedded != nil {
 		return errors.New("reloaded host NATS configuration changes more than credentials")
 	}

@@ -28,13 +28,14 @@ import (
 )
 
 func TestBackupAdmissionRechecksRosterAtFinalR3Commit(t *testing.T) {
+	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	root := t.TempDir()
 	const cell = "gru"
 
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: cell, Instance: "backup-roster-r3-integration",
-		Replicas: 1, Lab: true,
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: cell, Instance: "backup-roster-r3-integration",
+		Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")}})
 	if err != nil {
 		t.Fatal(err)

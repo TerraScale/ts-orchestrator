@@ -23,6 +23,36 @@ type DrainStore interface {
 	Create(DrainRecord) error
 }
 
+// Drain resumes durable intent before obtaining new evidence. A pending or
+// unknown result never authorizes stopping the member or transferring a writer.
+func (c *Client) Drain(ctx context.Context, survivor Survivor, operationID string, store DrainStore) (DrainEnvelope, error) {
+	if store == nil {
+		return DrainEnvelope{}, errors.New("member drain has no durable store")
+	}
+	record, found, err := store.Load()
+	if err != nil {
+		return DrainEnvelope{}, err
+	}
+	if found {
+		if !record.valid(c.scope, c.authority) || record.Request.OperationID != operationID || record.Survivor != survivor {
+			return DrainEnvelope{}, ErrOperationConflict
+		}
+	} else {
+		status, err := c.Status(ctx)
+		if err != nil {
+			return DrainEnvelope{}, err
+		}
+		proof, err := c.ServingProof(ctx, status, survivor)
+		if err != nil {
+			return DrainEnvelope{}, err
+		}
+		if _, err := c.PrepareDrain(status, proof, survivor, operationID, store); err != nil {
+			return DrainEnvelope{}, err
+		}
+	}
+	return c.ReconcileDrain(ctx, store)
+}
+
 // PrepareDrain saves an exact idempotent request only after a live serving
 // proof names the required survivor and its applied ACK covers the source.
 func (c *Client) PrepareDrain(status Status, proof ServingProof, survivor Survivor, operationID string, store DrainStore) (DrainRecord, error) {
@@ -88,7 +118,7 @@ func (c *Client) ReconcileDrain(ctx context.Context, store DrainStore) (DrainEnv
 	if err != nil {
 		return DrainEnvelope{}, errors.Join(ErrOutcomeUnknown, err)
 	}
-	if observed.PID != status.Process.PID {
+	if observed.ProtocolPID() != status.Process.PID {
 		return DrainEnvelope{}, ErrStaleBinding
 	}
 	switch code {
@@ -123,7 +153,7 @@ func (c *Client) drainStatus(ctx context.Context, record DrainRecord, current St
 	if err != nil {
 		return DrainEnvelope{}, 0, err
 	}
-	if process.PID != current.Process.PID {
+	if process.ProtocolPID() != current.Process.PID {
 		return DrainEnvelope{}, 0, ErrStaleBinding
 	}
 	if code == http.StatusNotFound {
@@ -186,6 +216,7 @@ func validateDrainEnvelope(body []byte, code int, challenge string, current Stat
 		!receipt.ReplicationQuiesced {
 		return DrainEnvelope{}, errors.New("member drain receipt violates signed survivor or root frontier")
 	}
+	envelope.verified = true
 	return envelope, nil
 }
 

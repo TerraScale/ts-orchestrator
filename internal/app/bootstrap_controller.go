@@ -53,9 +53,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 		return err
 	}
 	if !present {
-		if cfg.NATS.Lab {
-			return nil
-		}
 		return errors.New("production controller requires accepted identity or baked bootstrap inputs")
 	}
 	if clockCheck == nil {
@@ -70,15 +67,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 func bootstrapController(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("bootstrap-controller requires root")
-	}
-	if cfg.NATS.Lab {
-		present, err := controllerProductionInputsPresent()
-		if err != nil {
-			return err
-		}
-		if !present {
-			return nil
-		}
 	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err == nil {
@@ -143,6 +131,13 @@ func superviseControllerAdmission(ctx context.Context, cfg Config, commandName, 
 	child.Stderr = os.Stderr
 	child.Env = []string{"PATH=/usr/bin:/bin", "LANG=C"}
 	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if commandName == "bootstrap-admit-restart" && os.Geteuid() == 0 {
+		uid, gid, err := controllerServiceIdentity()
+		if err != nil {
+			return err
+		}
+		child.SysProcAttr.Credential = &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}}
+	}
 	child.Cancel = func() error {
 		if err := syscall.Kill(-child.Process.Pid, syscall.SIGKILL); err != nil {
 			if errors.Is(err, syscall.ESRCH) {
@@ -240,8 +235,8 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err != nil {
 		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
-		return errors.New("controller config does not match baked production cell and mode")
+	if cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
+		return errors.New("controller config does not match baked production cell")
 	}
 	serviceUID, serviceGID, err := controllerServiceIdentity()
 	if err != nil {
@@ -317,7 +312,32 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 		return fmt.Errorf("production controller startup NTP clock health: %w", err)
 	}
 	var vault *bootstrap.Vault
-	gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	local, derived, automatic, err := installedAutomaticStartup(ctx)
+	if err != nil {
+		return err
+	}
+	if automatic {
+		if local.anchor.Digest() != anchor.Digest() {
+			return errors.New("automatic startup anchor changed during initial admission")
+		}
+		gate, err = gate.WithDerivedStartupAuthority(derived)
+		if err != nil {
+			return err
+		}
+		gate.InitialFounderFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, now time.Time) error {
+			return bootstrapstart.ProvisionInitialDerivedFounderFloor(ctx, baked, marker, derived, floor, serviceUID, serviceGID, now, clockCheck)
+		}
+		gate.InitialPeerFloor = func(ctx context.Context, marker bootstrapstart.AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
+			continuation, err := bootstrapstart.NewDerivedFounderPeerContinuation(baked, marker, derived, serviceUID, serviceGID)
+			if err != nil {
+				return err
+			}
+			return continuation.Initialize(ctx, marker, state, now)
+		}
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewDerivedOCIAdmissionClients(ctx, derived, baked.Roots)
+	} else {
+		gate.Instances, gate.Ledgers, vault, err = bootstrapstart.NewCurrentOCIAdmissionClients(anchor, baked.Roots)
+	}
 	if err != nil {
 		return err
 	}
@@ -369,7 +389,7 @@ func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerSt
 	if err != nil {
 		return fail(fmt.Errorf("read accepted controller identity: %w", err))
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
+	if cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
 		cfg.Controller.CandidateID != entityid.Derive("controller", accepted.DeploymentID, accepted.Cell, accepted.Slot) {
 		return fail(errors.New("controller configuration differs from accepted deployment and slot"))
 	}

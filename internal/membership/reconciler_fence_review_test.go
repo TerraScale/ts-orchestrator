@@ -33,7 +33,7 @@ func TestReplacementIsCancelledWhenTheTermEnds(t *testing.T) {
 	leader := &fakeLeadership{snapshot: leaderSnapshot(4)}
 	cell := newFakeCell()
 	replacer := &blockingReplacer{started: make(chan struct{}), ended: make(chan error, 1)}
-	reconciler := newTestReconciler(t, testConfig(), leader, cell, replacer, &clock)
+	reconciler := newTestReconciler(t, leader, cell, replacer, &clock)
 	done := make(chan error, 1)
 	go func() { done <- reconciler.Tick(t.Context()) }()
 	select {

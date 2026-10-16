@@ -405,9 +405,6 @@ func validateIdentityRekeyFiles(accepted bootstrapstart.AcceptedIdentity, files 
 	if region.Region != oci.Region(accepted.Cell) {
 		return Config{}, errors.New("identity rekey launch image belongs to another cell")
 	}
-	if _, err := imageArchitectureForShape(region.Shape); err != nil {
-		return Config{}, err
-	}
 	return config, nil
 }
 

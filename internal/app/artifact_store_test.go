@@ -12,8 +12,9 @@ import (
 // the controller's embedded NATS store holds beside control state, and the
 // leader raises it only while the disk has room for the store to fill.
 func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true, Embedded: &natscell.Embedded{StoreMaxBytes: 6 << 30}},
+	cfg := Config{NATS: natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{StoreMaxBytes: 6 << 30}},
 		Controller: ControllerConfig{ArtifactStoreMaxBytes: 512 << 20}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)

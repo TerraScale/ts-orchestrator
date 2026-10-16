@@ -32,7 +32,7 @@ func TestNodeMonthlyCents(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			cents, known := NodeMonthlyCents(tc.prices, 4, 24, 50)
+			cents, known := NodeMonthlyCents(tc.prices, "VM.Standard.A1.Flex", 4, 24, 50)
 			if cents != tc.want || known != tc.known {
 				t.Fatalf("NodeMonthlyCents() = %d, %v, want %d, %v", cents, known, tc.want, tc.known)
 			}

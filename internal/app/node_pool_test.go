@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json/v2"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,7 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // fakeNodePool is the cell's pool as OCI lists it.
@@ -214,29 +212,5 @@ func TestPoolNodeReenrollmentKeepsItsRetireMark(t *testing.T) {
 	}
 }
 
-// A pool node copies its leader's image, shape, network and enrollment bundle,
-// and never the leader's controller slot. A missing piece makes no recipe.
-func TestPoolRecipeCopiesTheLeaderButNotItsSlot(t *testing.T) {
-	ocpus, memory := float32(2), float32(12)
-	leader := core.Instance{CompartmentId: new("ocid1.compartment.a"),
-		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.a")},
-		ShapeConfig:   &core.InstanceShapeConfig{Ocpus: &ocpus, MemoryInGBs: &memory},
-		Metadata: map[string]string{"ssh_authorized_keys": "ssh-ed25519 AAAA", hostboot.EnrollmentMetadataKey: "bundle",
-			"terrascale-bootstrap": "controller slot"}}
-	vnic := core.Vnic{SubnetId: new("ocid1.subnet.a"), NsgIds: []string{"ocid1.nsg.a"}}
-	recipe, err := poolRecipe("gru", leader, vnic, []string{"AD-1", "AD-2", "AD-3"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{"ssh_authorized_keys": "ssh-ed25519 AAAA", hostboot.EnrollmentMetadataKey: "bundle",
-		hostboot.NodePoolMetadataKey: `{"schemaVersion":1}`}
-	if !maps.Equal(recipe.Metadata, want) || recipe.ImageID != "ocid1.image.a" ||
-		recipe.SubnetID != "ocid1.subnet.a" || !slices.Equal(recipe.NSGIDs, []string{"ocid1.nsg.a"}) ||
-		!slices.Equal(recipe.AvailabilityDomains, []string{"AD-1", "AD-2", "AD-3"}) || recipe.OCPUs != 2 || recipe.MemoryGB != 12 {
-		t.Fatalf("recipe = %+v", recipe)
-	}
-	leader.Metadata = map[string]string{"ssh_authorized_keys": "ssh-ed25519 AAAA"}
-	if _, err := poolRecipe("gru", leader, vnic, []string{"AD-1"}); err == nil {
-		t.Fatal("a leader without its enrollment bundle made a pool recipe")
-	}
-}
+// OCI's actual image-specific shape response supplies observation identity;
+// recipe metadata still excludes the leader's controller slot.

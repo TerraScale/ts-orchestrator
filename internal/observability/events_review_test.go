@@ -1,7 +1,6 @@
 package observability
 
 import (
-	"bytes"
 	"context"
 	"log/slog"
 	"strings"
@@ -17,7 +16,7 @@ func TestZeroValueEventBusPublishesAndSubscribes(t *testing.T) {
 	defer cancel()
 	stream := bus.Subscribe(ctx, 4)
 	bus.Publish(Event{Message: "first"})
-	if events := bus.Recent(0); len(events) != 1 || events[0].Message != "first" {
+	if events := eventsOverHTTP(t, &bus, ""); len(events) != 1 || events[0].Message != "first" {
 		t.Fatalf("events = %+v", events)
 	}
 	if event := <-stream; event.Message != "first" {
@@ -27,10 +26,13 @@ func TestZeroValueEventBusPublishesAndSubscribes(t *testing.T) {
 
 func TestEventAttrTruncationKeepsValidUTF8(t *testing.T) {
 	t.Parallel()
-	attrs := map[string]string{}
-	// 511 ASCII bytes followed by three-byte runes straddle the 512-byte cut.
-	flattenAttr(attrs, "", slog.String("value", strings.Repeat("a", 511)+strings.Repeat("€", 10)))
-	value := attrs["value"]
+	bus := NewEventBus(8)
+	logger, err := NewLogger(newLogOutput(t), LogConfig{}, bus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logger.Warn("utf8", "value", strings.Repeat("a", 511)+strings.Repeat("€", 10))
+	value := eventsOverHTTP(t, bus, "")[0].Attrs["value"]
 	if !utf8.ValidString(value) || !strings.HasSuffix(value, "...") || len(value) > maxEventAttrBytes+3 {
 		t.Fatalf("truncated value = %q", value)
 	}
@@ -39,8 +41,8 @@ func TestEventAttrTruncationKeepsValidUTF8(t *testing.T) {
 func TestEventBusReceivesEventsBelowConfiguredLogLevel(t *testing.T) {
 	t.Parallel()
 	bus := NewEventBus(16)
-	var output bytes.Buffer
-	logger, err := NewLogger(&output, LogConfig{Level: "error"}, bus)
+	output := newLogOutput(t)
+	logger, err := NewLogger(output, LogConfig{Level: "error"}, bus)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +50,7 @@ func TestEventBusReceivesEventsBelowConfiguredLogLevel(t *testing.T) {
 	logger.Info("controller ready", EventKey, true)
 	logger.Warn("placement held")
 	logger.Error("lease lost")
-	events := bus.Recent(0)
+	events := eventsOverHTTP(t, bus, "")
 	if len(events) != 3 || events[0].Message != "controller ready" || events[1].Message != "placement held" {
 		t.Fatalf("events = %+v", events)
 	}
@@ -61,8 +63,8 @@ func TestEventBusReceivesEventsBelowConfiguredLogLevel(t *testing.T) {
 func TestRepeatedWarningsDoNotFloodEventRing(t *testing.T) {
 	t.Parallel()
 	bus := NewEventBus(16)
-	var output bytes.Buffer
-	logger, err := NewLogger(&output, LogConfig{}, bus)
+	output := newLogOutput(t)
+	logger, err := NewLogger(output, LogConfig{}, bus)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,18 +73,25 @@ func TestRepeatedWarningsDoNotFloodEventRing(t *testing.T) {
 		logger.Warn("placement reconcile failed", "error", "timeout")
 	}
 	logger.Warn("placement reconcile failed", "error", "0000000000V4MRM46HP1SNGDYW")
-	events := bus.Recent(0)
+	events := eventsOverHTTP(t, bus, "")
 	if len(events) != 3 || events[0].Message != "controller ready" || events[2].Attrs["error"] != "0000000000V4MRM46HP1SNGDYW" {
 		t.Fatalf("events = %+v", events)
 	}
 	if lines := strings.Count(output.String(), "\n"); lines != 52 {
 		t.Fatalf("every record must still be logged, got %d lines", lines)
 	}
-	repeats := newEventRepeats()
-	event := Event{Level: "WARN", Message: "same"}
+	windowBus := NewEventBus(8)
+	windowLogger, err := NewLogger(newLogOutput(t), LogConfig{}, windowBus)
+	if err != nil {
+		t.Fatal(err)
+	}
 	start := time.Unix(1000, 0)
-	if !repeats.admit(event, start) || repeats.admit(event, start.Add(time.Minute)) ||
-		!repeats.admit(event, start.Add(eventRepeatWindow)) {
-		t.Fatal("repeat window not applied")
+	for _, at := range []time.Time{start, start.Add(time.Minute), start.Add(eventRepeatWindow)} {
+		if err := windowLogger.Handler().Handle(t.Context(), slog.NewRecord(at, slog.LevelWarn, "same", 0)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if events := eventsOverHTTP(t, windowBus, ""); len(events) != 2 {
+		t.Fatalf("repeat window API = %+v", events)
 	}
 }

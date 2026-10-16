@@ -27,6 +27,8 @@ import (
 // clock skew between controllers; issued lifetimes allow for it.
 const issuedBackdate = time.Minute
 
+const controllerIssuedLifetime = 90 * 24 * time.Hour
+
 // IssuedFiles are the files a controller issues itself under a material
 // generation (TS-568): its TLS leaf followed by the controller issuer, the
 // leaf's key, and its NATS user credentials.
@@ -49,11 +51,17 @@ func ControllerLeafIdentity(cell, slot, privateIP string) LeafIdentity {
 // ControllerIssuer is a generation's online issuing material, which every
 // controller holds: the controller TLS issuer and the cell account signer.
 type ControllerIssuer struct {
-	generation bootstrap.MaterialGeneration
-	certPEM    []byte
-	cert       *x509.Certificate
-	key        *ecdsa.PrivateKey
-	signer     nkeys.KeyPair
+	identity issuerIdentity
+	certPEM  []byte
+	cert     *x509.Certificate
+	key      *ecdsa.PrivateKey
+	signer   nkeys.KeyPair
+}
+
+type issuerIdentity struct {
+	Cell, Environment, Operator, CellAccount, AccountSigner string
+	lifetime                                                time.Duration
+	expiresAt                                               time.Time
 }
 
 // LoadControllerIssuer parses the generation's controller-tls-issuer-cert.pem,
@@ -61,6 +69,12 @@ type ControllerIssuer struct {
 // CheckGenerationFiles has already verified against the generation.
 func LoadControllerIssuer(generation bootstrap.MaterialGeneration, certPEM, keyPEM, signerSeed []byte,
 ) (*ControllerIssuer, error) {
+	return loadControllerIssuer(issuerIdentity{Cell: string(generation.Cell), Environment: generation.Environment,
+		Operator: generation.Operator, CellAccount: generation.CellAccount, AccountSigner: generation.AccountSigner,
+		lifetime: time.Duration(generation.IssuedLifetimeHours) * time.Hour}, certPEM, keyPEM, signerSeed)
+}
+
+func loadControllerIssuer(identity issuerIdentity, certPEM, keyPEM, signerSeed []byte) (*ControllerIssuer, error) {
 	block, _ := pem.Decode(certPEM)
 	if block == nil {
 		return nil, errors.New("controller TLS issuer certificate is invalid")
@@ -68,6 +82,9 @@ func LoadControllerIssuer(generation bootstrap.MaterialGeneration, certPEM, keyP
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("controller TLS issuer certificate: %w", err)
+	}
+	if identity.expiresAt.IsZero() || cert.NotAfter.Before(identity.expiresAt) {
+		identity.expiresAt = cert.NotAfter
 	}
 	keyBlock, _ := pem.Decode(keyPEM)
 	if keyBlock == nil {
@@ -81,11 +98,11 @@ func LoadControllerIssuer(generation bootstrap.MaterialGeneration, certPEM, keyP
 	if err != nil {
 		return nil, errors.New("controller account signer seed is invalid")
 	}
-	if public, err := signer.PublicKey(); err != nil || public != generation.AccountSigner {
+	if public, err := signer.PublicKey(); err != nil || public != identity.AccountSigner {
 		signer.Wipe()
 		return nil, errors.New("controller account signer differs from the generation's")
 	}
-	return &ControllerIssuer{generation: generation, certPEM: pem.EncodeToMemory(block), cert: cert, key: key,
+	return &ControllerIssuer{identity: identity, certPEM: pem.EncodeToMemory(block), cert: cert, key: key,
 		signer: signer}, nil
 }
 
@@ -93,13 +110,16 @@ func LoadControllerIssuer(generation bootstrap.MaterialGeneration, certPEM, keyP
 func (issuer *ControllerIssuer) Wipe() { issuer.signer.Wipe() }
 
 func (issuer *ControllerIssuer) lifetime() time.Duration {
-	return time.Duration(issuer.generation.IssuedLifetimeHours) * time.Hour
+	return issuer.identity.lifetime
 }
 
 // RenewTLS issues a leaf with identity and a fresh key, valid for the
 // generation's issued lifetime and never past the issuer. certPEM holds the
 // leaf followed by the issuer, so peers can build the chain to the bundle.
 func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (certPEM, keyPEM []byte, err error) {
+	if issuer == nil || issuer.cert == nil || issuer.key == nil || !now.Before(issuer.identity.expiresAt) {
+		return nil, nil, errors.New("controller TLS issuer has expired")
+	}
 	ip := net.ParseIP(identity.IP)
 	if identity.CommonName == "" || identity.DNSName == "" || ip == nil {
 		return nil, nil, errors.New("controller leaf identity is incomplete")
@@ -113,8 +133,8 @@ func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (
 		return nil, nil, err
 	}
 	notAfter := now.Add(issuer.lifetime() - issuedBackdate)
-	if notAfter.After(issuer.cert.NotAfter) {
-		notAfter = issuer.cert.NotAfter
+	if notAfter.After(issuer.identity.expiresAt) {
+		notAfter = issuer.identity.expiresAt
 	}
 	template := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: identity.CommonName},
 		NotBefore: now.Add(-issuedBackdate), NotAfter: notAfter, KeyUsage: x509.KeyUsageDigitalSignature,
@@ -137,6 +157,9 @@ func (issuer *ControllerIssuer) RenewTLS(identity LeafIdentity, now time.Time) (
 // lifetime. A NATS JWT is always stamped with the wall clock, so the lifetime
 // starts now.
 func (issuer *ControllerIssuer) RenewCredentials(current []byte) ([]byte, error) {
+	if issuer == nil || issuer.cert == nil || issuer.signer == nil || !time.Now().Before(issuer.identity.expiresAt) {
+		return nil, errors.New("controller account issuer has expired")
+	}
 	raw, err := jwt.ParseDecoratedJWT(current)
 	if err != nil {
 		return nil, err
@@ -158,10 +181,10 @@ func (issuer *ControllerIssuer) RenewCredentials(current []byte) ([]byte, error)
 		return nil, err
 	}
 	defer clear(seed)
-	claims.IssuerAccount = issuer.generation.CellAccount
+	claims.IssuerAccount = issuer.identity.CellAccount
 	// Encode stamps IssuedAt with the wall clock (nats-io/jwt claims.go), so
 	// Expires is set from the same clock just before.
-	claims.Expires = time.Now().Add(issuer.lifetime() - issuedBackdate).Unix()
+	claims.Expires = minTime(time.Now().Add(issuer.lifetime()-issuedBackdate), issuer.identity.expiresAt).Unix()
 	claims.NotBefore = 0
 	encoded, err := claims.Encode(issuer.signer)
 	if err != nil {

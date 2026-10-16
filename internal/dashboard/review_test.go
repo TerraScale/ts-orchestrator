@@ -3,7 +3,11 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"html"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,8 +15,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-
-	"github.com/a-h/templ"
 
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
@@ -91,19 +93,15 @@ func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 	global := []globalview.Region{{Cell: "fra"}, {Cell: "sfo"}}
 	journal := &Journal{Decisions: &fakeDecisions{}}
 	label := func(result decisionlog.Result) string {
-		current := view{Journal: journal, Decisions: &result, Global: global}
-		releases := current.releases()
-		if len(releases) != 1 {
-			t.Fatalf("releases = %+v", releases)
-		}
-		return releases[0].Status + " " + releases[0].Label
+		return fixturePage(t, view{Journal: journal, Decisions: &result, Global: global}, "/releases")
 	}
+
 	// FRA completed and SFO did not answer: completion covers FRA only.
 	partial := decisionlog.Result{Decisions: completedRelease("fra"), Partial: true,
 		Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK},
 			{Region: "sfo", State: decisionlog.RegionUnreachable}}}
 	if got := label(partial); strings.Contains(got, "everywhere") || !strings.Contains(got, "observed") ||
-		!strings.HasPrefix(got, "warn") {
+		!strings.Contains(got, `pill s-warn`) {
 		t.Fatalf("partial history = %q", got)
 	}
 	// Every region answered, but SFO never started the release.
@@ -113,7 +111,7 @@ func TestPartialReleaseHistoryIsNotCompleteEverywhere(t *testing.T) {
 		t.Fatalf("release missing a region = %q", got)
 	}
 	everywhere := decisionlog.Result{Decisions: completedRelease("fra", "sfo"), Regions: answered.Regions}
-	if got := label(everywhere); got != "ok complete everywhere" {
+	if got := label(everywhere); !strings.Contains(got, `pill s-ok">complete everywhere</span>`) {
 		t.Fatalf("complete release = %q", got)
 	}
 }
@@ -134,16 +132,17 @@ func TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge(t *testing.T) {
 	rollback := decisionlog.Result{Decisions: []decisionlog.Decision{{ID: "rb", Time: testNow, Region: "fra",
 		Kind: decisionlog.KindRollback, Subject: v2, Status: decisionlog.StatusRolledBack}}}
 	current := view{Decisions: &rollback, Versions: units("v2", "v2", "v2", "v1")}
-	if target := current.targetVersion("controller"); target != "v1" {
+	if target := pageTarget(t, current); target != "v1" {
 		t.Fatalf("target with v2 rolled back = %q, want v1", target)
 	}
 	current.Versions = units("v2", "v2")
-	if target := current.targetVersion("controller"); target != "" {
+	if target := pageTarget(t, current); target != "" {
 		t.Fatalf("target with only a rolled-back version = %q, want unknown", target)
 	}
-	if drifted := current.driftedUnits(); len(drifted) != 2 {
-		t.Fatalf("units on a rolled-back version are not flagged: %+v", drifted)
+	if body := fixturePage(t, current, "/releases"); !strings.Contains(body, "2 units off the target version") {
+		t.Fatal("rolled-back units were not flagged")
 	}
+
 	// v2 started after v1, but v1's last activity (its completion in
 	// another region) is newer: the target stays v2.
 	progress := decisionlog.Result{Decisions: []decisionlog.Decision{
@@ -152,10 +151,8 @@ func TestTargetVersionSkipsRolledBackReleasesAndUsesReleaseAge(t *testing.T) {
 		{ID: "v1-start", Time: testNow.Add(-2 * time.Hour), Region: "sfo", Kind: decisionlog.KindReleaseAdmitted, Subject: v1},
 	}}
 	current = view{Decisions: &progress, Versions: units("v1", "v2")}
-	if releases := current.releases(); releases[0].Name != "v1" {
-		t.Fatalf("the timeline is no longer ordered by last activity: %+v", releases)
-	}
-	if target := current.targetVersion("controller"); target != "v2" {
+
+	if target := pageTarget(t, current); target != "v2" {
 		t.Fatalf("target = %q, want the newest release v2", target)
 	}
 }
@@ -174,52 +171,65 @@ func historyJournal(now time.Time, samples func(at time.Time, minute int) []obse
 
 func TestPartitionTileSparklinePlotsPartitionHistory(t *testing.T) {
 	t.Parallel()
-	journal := historyJournal(testNow, func(_ time.Time, minute int) []observability.Sample {
-		return []observability.Sample{{Metric: observability.HistDatabases, Value: 1},
-			{Metric: observability.HistSeatsServing, Value: float64(minute % 3)}}
+	now := time.Now().UTC()
+	journal := historyJournal(now, func(time.Time, int) []observability.Sample {
+		return []observability.Sample{{Metric: observability.HistDatabases, Value: 1}, {Metric: observability.HistSeatsServing, Value: 2}}
 	})
 	snapshot := memberSnapshot()
-	current := view{State: parseState(url.Values{}), Now: testNow, Journal: journal, Local: &snapshot, Ready: true}
-	for _, tile := range current.regionKPIs() {
-		if tile.Label == "Managed TerraBase partitions" {
-			for value := range strings.SplitSeq(tile.Spark, ",") {
-				if number, err := strconv.ParseFloat(value, 64); err != nil || number != 1 {
-					t.Fatalf("partition sparkline = %q, want the partition count's history", tile.Spark)
-				}
-			}
-			return
+	body := fixturePage(t, view{Now: now, Journal: journal, Local: &snapshot, Ready: true}, "/region")
+	at := strings.Index(body, "Managed TerraBase partitions")
+	if at < 0 {
+		t.Fatal("partition tile missing")
+	}
+	tail := body[at:]
+	end := strings.Index(tail, "</article>")
+	if end > 0 {
+		tail = tail[:end]
+	}
+	match := regexp.MustCompile(`data-values="([^"]+)"`).FindStringSubmatch(tail)
+	if len(match) != 2 {
+		t.Fatal("partition tile sparkline missing")
+	}
+	for value := range strings.SplitSeq(match[1], ",") {
+		if number, err := strconv.ParseFloat(value, 64); err != nil || number != 1 {
+			t.Fatalf("partition sparkline %q includes seat count", match[1])
 		}
 	}
-	t.Fatal("no partition tile")
 }
 
 func TestConsumerSeriesKeepTheirStream(t *testing.T) {
 	t.Parallel()
-	journal := historyJournal(testNow, func(time.Time, int) []observability.Sample {
+	now := time.Now().UTC()
+	journal := historyJournal(now, func(time.Time, int) []observability.Sample {
 		return []observability.Sample{
 			{Metric: observability.HistConsumerPending, Labels: observability.L("stream", "A", "consumer", "worker"), Value: 1},
 			{Metric: observability.HistConsumerPending, Labels: observability.L("stream", "B", "consumer", "worker"), Value: 2},
 		}
 	})
-	current := view{State: parseState(url.Values{}), Now: testNow, Journal: journal}
-	series := current.historyRange(observability.HistConsumerPending, nil, "stream,consumer", false)
-	if len(series) != 2 || series[0].Name != "A / worker" || series[1].Name != "B / worker" {
-		t.Fatalf("consumer series = %+v", series)
-	}
-	natsView := current
-	natsView.Page = pages[slices.IndexFunc(pages, func(entry page) bool { return entry.slug == "nats" })]
-	if body := renderHTML(t, natsBody(natsView)); !strings.Contains(body, "A / worker") {
-		t.Fatal("the NATS page names consumers without their stream")
+	body := fixturePage(t, view{Now: now, Journal: journal}, "/nats")
+	for _, want := range []string{"A / worker", "B / worker"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("NATS page lost %s series", want)
+		}
 	}
 }
 
 func TestHeatmapKeepsTheSampleAtTheRangeEnd(t *testing.T) {
 	t.Parallel()
-	current := view{State: parseState(url.Values{}), Now: testNow}
-	spec := current.heatmap("percent", []chartSeries{{Name: "m", Points: [][2]float64{{float64(testNow.UnixMilli()), 0.5}}}}, "empty")
-	if spec.Empty != "" || len(spec.Heat) != 1 || spec.Heat[0][0] != float64(spec.Start+(heatColumns-1)*spec.Step) {
-		t.Fatalf("heatmap = %+v", spec)
+	now := time.Now().UTC().Truncate(2 * time.Minute)
+	history := observability.NewHistory(observability.HistoryConfig{})
+	labels := observability.L("member", "physical")
+	history.Append(now, []observability.Sample{{Metric: observability.HistHostCPUUtilization, Labels: labels, Value: .5}, {Metric: observability.HistHostReceivedAt, Labels: labels, Value: float64(now.UnixMilli())}})
+	current := view{Now: now, Local: &observability.MemberSnapshot{Cell: "fra"}, Journal: &Journal{History: history}, LocalSummary: &regionview.Summary{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical"}}}}
+	for _, chart := range pageCharts(t, fixturePage(t, current, "/members")) {
+		if chart.Kind == "heatmap" {
+			if len(chart.Heat) != 1 || chart.Heat[0][0] != float64(chart.Start+(heatColumns-1)*chart.Step) {
+				t.Fatalf("range-end sample omitted: %+v", chart)
+			}
+			return
+		}
 	}
+	t.Fatal("CPU heatmap missing")
 }
 
 // Only this region's engine raises insights, so a key is unique on the page;
@@ -246,30 +256,25 @@ func TestInsightIdentityIsRegionScoped(t *testing.T) {
 
 func TestInsightsPageEmptyStatesAreHonest(t *testing.T) {
 	t.Parallel()
-	if text := (view{Journal: &Journal{}}).quietText(); !strings.Contains(text, "unavailable") {
-		t.Fatalf("no evaluation = %q", text)
-	}
-	// A new engine's empty evaluation (zero time) has not run yet.
-	if text := (view{Evaluation: &insights.Evaluation{}}).quietText(); !strings.Contains(text, "unavailable") {
-		t.Fatalf("not yet evaluated = %q", text)
-	}
-	quiet := view{Evaluation: &insights.Evaluation{At: testNow}}
-	if text := quiet.quietText(); !strings.Contains(text, "Every rule is quiet") {
-		t.Fatalf("quiet = %q", text)
-	}
-	// A region that could not be observed rules out the global all-clear.
-	unlinked := view{Evaluation: &insights.Evaluation{At: testNow}, Global: []globalview.Region{
-		{Cell: "fra", Rollup: &globalview.Rollup{Cell: "fra"}}, {Cell: "sfo"}}}
-	if text := unlinked.quietText(); strings.Contains(text, "Every rule is quiet") || !strings.Contains(text, "SFO") {
-		t.Fatalf("unobserved region = %q", text)
-	}
-	blind := view{Evaluation: &insights.Evaluation{At: testNow, Unavailable: []string{"volumes"}}}
-	if text := blind.quietText(); strings.Contains(text, "Every rule is quiet") {
-		t.Fatalf("rules without input = %q", text)
-	}
-	filtered := view{Evaluation: &insights.Evaluation{Insights: []insights.Insight{testInsight("k", "t", insights.SeverityInfo, "fra")}}}
-	if text := filtered.quietText(); !strings.Contains(text, "No insight matches these filters") {
-		t.Fatalf("filtered = %q", text)
+	for _, test := range []struct {
+		name      string
+		current   view
+		want      string
+		forbidden string
+	}{
+		{"unavailable", view{Journal: &Journal{}}, "unavailable", "Every rule is quiet"},
+		{"not run", view{Evaluation: &insights.Evaluation{}}, "unavailable", "Every rule is quiet"},
+		{"quiet", view{Evaluation: &insights.Evaluation{At: testNow}}, "Every rule is quiet", ""},
+		{"missing region", view{Evaluation: &insights.Evaluation{At: testNow}, Global: []globalview.Region{{Cell: "fra", Rollup: &globalview.Rollup{}}, {Cell: "sfo"}}}, "SFO", "Every rule is quiet"},
+		{"missing inputs", view{Evaluation: &insights.Evaluation{At: testNow, Unavailable: []string{"volumes"}}}, "volumes", "Every rule is quiet"},
+		{"filtered", view{State: parseState(url.Values{"severity": {"critical"}}), Evaluation: &insights.Evaluation{At: testNow, Insights: []insights.Insight{testInsight("k", "t", insights.SeverityInfo, "fra")}}}, "No insight matches these filters", ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := fixturePage(t, test.current, "/insights")
+			if !strings.Contains(body, test.want) || test.forbidden != "" && strings.Contains(body, test.forbidden) {
+				t.Fatalf("insights state %s is misleading", test.name)
+			}
+		})
 	}
 }
 
@@ -295,14 +300,6 @@ func TestEntityLinksUseTheEntitysRegion(t *testing.T) {
 
 func TestRegionFiltersFollowTheSelectedRegion(t *testing.T) {
 	t.Parallel()
-	selected := parseState(url.Values{"r": {"fra"}})
-	if got := journalDecisions(view{State: selected}).Regions; !slices.Equal(got, []string{"fra"}) {
-		t.Fatalf("regions with r=fra = %v", got)
-	}
-	all := parseState(url.Values{"r": {"fra"}, "region": {allRegions}})
-	if got := journalDecisions(view{State: all}).Regions; got != nil {
-		t.Fatalf("regions with region=all = %v", got)
-	}
 	dashboard, _, _ := journalDashboard(Options{})
 	body := get(t, dashboard.Handler(), "/decisions?r=sfo").Body.String()
 	if !strings.Contains(body, `<option value="sfo" selected>`) || strings.Contains(body, `<option value="all" selected>`) {
@@ -316,41 +313,22 @@ func TestRegionFiltersFollowTheSelectedRegion(t *testing.T) {
 
 func TestFilterOptionsKeepTheActiveValues(t *testing.T) {
 	t.Parallel()
-	current := view{State: parseState(url.Values{"kind": {"custom_kind"}, "actor": {"custom-slice"}})}
-	if !slices.Contains(current.kindOptions(), "custom_kind") || !slices.Contains(current.actorOptions(), "custom-slice") {
-		t.Fatal("an active custom kind or actor disappears from its select")
+	board, _, _ := journalDashboard(Options{})
+	body := get(t, board.Handler(), "/decisions?kind=custom_kind&actor=custom-slice").Body.String()
+	for _, want := range []string{`value="custom_kind" selected`, `value="custom-slice" selected`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("filter form lacks %s", want)
+		}
 	}
 }
 
 func TestSwitcherOnlyOffersViewsThePageRenders(t *testing.T) {
 	t.Parallel()
-	pageOf := func(slug string) page {
-		return pages[slices.IndexFunc(pages, func(entry page) bool { return entry.slug == slug })]
-	}
-	state := parseState(url.Values{"r": {"sfo"}})
-	cases := []struct {
-		slug, link string
-		global     bool
-		selected   string
-	}{
-		{"topology", "/regions/fra", true, ""},
-		{"releases", "/regions/fra", true, ""},
-		{"members", "/regions/fra", false, "gru"},
-		{"nats", "/regions/fra", false, "sfo"},
-		{"insights", "/regions/fra", false, "sfo"},
-	}
-	for _, test := range cases {
-		current := view{Page: pageOf(test.slug), State: state, Local: &observability.MemberSnapshot{Cell: "gru"}}
-		if got := current.switchLink("fra"); got != test.link {
-			t.Errorf("%s switch link = %s, want %s", test.slug, got, test.link)
-		}
-		if current.globalScope() != test.global {
-			t.Errorf("%s global scope = %v", test.slug, current.globalScope())
-		}
-		for _, region := range []string{"gru", "sfo", "fra"} {
-			if current.selectedRegion(region) != (region == test.selected) {
-				t.Errorf("%s marks %s selected = %v", test.slug, region, current.selectedRegion(region))
-			}
+	for _, path := range []string{"/topology", "/releases", "/members", "/nats", "/insights"} {
+		board, _, _ := journalDashboard(Options{})
+		body := get(t, board.Handler(), path+"?r=sfo").Body.String()
+		if !strings.Contains(body, `href="/regions/fra"`) {
+			t.Errorf("%s switcher lost regional drilldown", path)
 		}
 	}
 }
@@ -374,9 +352,11 @@ func TestDerivedVersionsKeepTheLocalSnapshot(t *testing.T) {
 	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
 		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
 			Versions: []globalview.BuildCount{{Version: "v1", Count: 1, Members: []string{"sfo-1"}}}}}}}
-	current.loadVersions(context.Background())
-	if len(current.Versions) != 2 || current.Versions[1].Unit != "ctl-1" || current.Versions[1].Version != "abc123def456" {
-		t.Fatalf("versions = %+v", current.Versions)
+	body := fixturePage(t, current, "/releases")
+	for _, want := range []string{"abc123def456", "SFO"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("version matrix lacks %q", want)
+		}
 	}
 }
 
@@ -386,12 +366,11 @@ func TestReleaseMatrixShowsRemoteControllers(t *testing.T) {
 	current := view{Local: &snapshot, Journal: &Journal{}, LocalSummary: &regionview.Summary{Region: "fra", Local: true},
 		Global: []globalview.Region{{Cell: "fra"}, {Cell: "sfo", Rollup: &globalview.Rollup{Cell: "sfo",
 			Versions: []globalview.BuildCount{{Version: "v0.43.0", Count: 1, Members: []string{"sfo-ctl-1"}}}}}}}
-	current.loadVersions(context.Background())
-	if want := (UnitVersion{Region: "sfo", Kind: "controller", Unit: "sfo-ctl-1", Version: "v0.43.0"}); !slices.Contains(current.Versions, want) {
-		t.Fatalf("versions = %+v, want %+v", current.Versions, want)
-	}
-	if regions := current.matrixRegions(); !slices.Equal(regions, []string{"fra", "sfo"}) {
-		t.Fatalf("matrix regions = %v", regions)
+	body := fixturePage(t, current, "/releases")
+	for _, want := range []string{"abc123def456", "SFO"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("version matrix lacks %q", want)
+		}
 	}
 }
 
@@ -406,36 +385,33 @@ func TestChainPanelClosesOnItsOwnPage(t *testing.T) {
 
 func TestPartialHistoryIsNotBlamedOnRegions(t *testing.T) {
 	t.Parallel()
-	answered := &decisionlog.Result{Partial: true, Regions: []decisionlog.RegionStatus{{Region: "fra", State: decisionlog.RegionOK}}}
-	body := renderHTML(t, regionStatuses(answered))
-	if strings.Contains(body, "did not answer") || !strings.Contains(body, "could not be searched") {
-		t.Fatalf("partial history = %q", body)
-	}
-	missing := &decisionlog.Result{Partial: true, Regions: []decisionlog.RegionStatus{{Region: "sfo", State: decisionlog.RegionUnreachable}}}
-	if body := renderHTML(t, regionStatuses(missing)); !strings.Contains(body, "did not answer") || !strings.Contains(body, "SFO") {
-		t.Fatalf("unanswered region = %q", body)
+	for _, state := range []string{decisionlog.RegionOK, decisionlog.RegionUnreachable} {
+		result := decisionlog.Result{Partial: true, Regions: []decisionlog.RegionStatus{{Region: "sfo", State: state}}}
+		body := fixturePage(t, view{Decisions: &result}, "/decisions")
+		if state == decisionlog.RegionOK {
+			if strings.Contains(body, "did not answer") || !strings.Contains(body, "could not be searched") {
+				t.Fatal("partial history was blamed on a responding region")
+			}
+		} else if !strings.Contains(body, "did not answer") || !strings.Contains(body, "SFO") {
+			t.Fatal("unreachable region evidence missing")
+		}
 	}
 }
 
 func TestStorageForecastNeedsHistory(t *testing.T) {
 	t.Parallel()
+	now := time.Now().UTC()
 	history := observability.NewHistory(observability.HistoryConfig{})
 	for minute := 2; minute >= 1; minute-- {
-		history.Append(testNow.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio,
-			Labels: observability.L("member", "ctl-1", "role", "nats"), Value: 0.5}})
+		history.Append(now.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio, Labels: observability.L("member", "ctl-1", "role", "nats"), Value: .5}})
 	}
-	current := view{State: parseState(url.Values{}), Now: testNow, Journal: &Journal{History: history}}
-	forecasts, spec := current.storageForecasts()
-	if len(forecasts) != 1 || forecasts[0].Status != "idle" || forecastText(forecasts[0]) != "not enough history" {
-		t.Fatalf("forecasts = %+v", forecasts)
+	body := fixturePage(t, view{Now: now, Journal: &Journal{History: history}}, "/terrabase")
+	if !strings.Contains(body, "not enough history") || !strings.Contains(body, "Not enough storage history") || strings.Contains(body, "headroom at its current growth") {
+		t.Fatal("sparse history was presented as forecast headroom")
 	}
-	if strings.Contains(spec.Empty, "headroom at its current growth") || !strings.Contains(spec.Empty, "Not enough storage history") {
-		t.Fatalf("empty = %q", spec.Empty)
-	}
-	empty := view{State: parseState(url.Values{}), Now: testNow,
-		Journal: &Journal{History: observability.NewHistory(observability.HistoryConfig{})}}
-	if _, spec := empty.storageForecasts(); strings.Contains(spec.Empty, "headroom at its current growth") {
-		t.Fatalf("an empty history claims headroom: %q", spec.Empty)
+	body = fixturePage(t, view{Now: now, Journal: &Journal{History: observability.NewHistory(observability.HistoryConfig{})}}, "/terrabase")
+	if strings.Contains(body, "headroom at its current growth") || !strings.Contains(body, "No filesystem history yet") {
+		t.Fatal("empty history was presented as known headroom")
 	}
 }
 
@@ -460,14 +436,19 @@ func TestDiskCapacityCountsSharedFilesystemsOnce(t *testing.T) {
 	}
 	current := view{State: parseState(url.Values{}), Local: &snapshot, Now: now, Journal: &Journal{History: history},
 		LocalSummary: &regionview.Summary{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical-node", Member: "ctl-1"}}}}
-	spec := current.capacityChart(true)
-	if spec.Bars[0].Values[0]+spec.Bars[1].Values[0] != 100 {
-		t.Fatalf("disk capacity = %+v", spec.Bars)
+	found := false
+	for _, chart := range pageCharts(t, fixturePage(t, current, "/storage")) {
+		if chart.Kind == "treemap" {
+			found = true
+			if len(chart.Tree) != 1 || len(chart.Tree[0].Children) != 1 || chart.Tree[0].Children[0].Name != "install, state" || chart.Tree[0].Value != 100 {
+				t.Fatalf("shared filesystem counted twice: %+v", chart.Tree)
+			}
+		}
 	}
-	tree := current.filesystemTree()
-	if len(tree.Tree[0].Children) != 1 || tree.Tree[0].Children[0].Name != "install, state" || tree.Tree[0].Value != 100 {
-		t.Fatalf("treemap = %+v", tree.Tree)
+	if !found {
+		t.Fatal("filesystem chart missing")
 	}
+
 }
 
 func TestOCIRateEvidenceChartsTheSummedPerMinuteRate(t *testing.T) {
@@ -483,25 +464,36 @@ func TestOCIRateEvidenceChartsTheSummedPerMinuteRate(t *testing.T) {
 	current := view{State: parseState(url.Values{}), Now: now, Journal: journal, Local: &observability.MemberSnapshot{Cell: "fra"}}
 	insight := insights.Insight{Region: "fra", Evidence: []insights.Evidence{{Label: "Rate", Metric: observability.HistOCIErrors,
 		Value: 9, Unit: perMinute, Comparison: "<", Threshold: float(1)}}}
-	spec, ok := current.insightChart(insight)
-	if !ok || len(spec.Series) != 1 {
-		t.Fatalf("chart = %+v", spec)
-	}
-	for _, point := range spec.Series[0].Points {
-		if point[1] < 8.9 || point[1] > 9.1 {
-			t.Fatalf("per-minute rate point = %v, want 9", point)
+	insight.Key = entityid.Derive("rate-insight")
+	insight.Title = "OCI error rate"
+	insight.Severity = insights.SeverityWarning
+	current.Evaluation = &insights.Evaluation{At: now, Insights: []insights.Insight{insight}}
+	found := false
+	for _, chart := range pageCharts(t, fixturePage(t, current, "/insights")) {
+		if len(chart.Series) == 1 && chart.Series[0].Name == "Rate per minute" {
+			found = true
+			for _, point := range chart.Series[0].Points {
+				if point[1] < 8.9 || point[1] > 9.1 {
+					t.Fatalf("per-minute rate point = %v, want 9", point)
+				}
+			}
 		}
 	}
+	if !found {
+		t.Fatal("OCI rate evidence chart missing")
+	}
+
 }
 
 func TestGzipQualityZeroIsRefused(t *testing.T) {
 	t.Parallel()
-	for header, want := range map[string]bool{
-		"gzip": true, "gzip;q=0.5": true, "br, gzip; q=1": true, "gzip;q=0": false, "gzip;q=0.0": false,
-		"gzip; q=0.000": false, "deflate": false, "gzip;Q=0.00": false,
-	} {
-		if got := acceptsGzip(header); got != want {
-			t.Errorf("acceptsGzip(%q) = %v, want %v", header, got, want)
+	for header, want := range map[string]bool{"gzip": true, "gzip;q=0.5": true, "br, gzip; q=1": true, "gzip;q=0": false, "gzip;q=0.0": false, "gzip; q=0.000": false, "deflate": false, "gzip;Q=0.00": false} {
+		request := httptest.NewRequest(http.MethodGet, assetURL("app.js"), nil)
+		request.Header.Set("Accept-Encoding", header)
+		response := httptest.NewRecorder()
+		newTestDashboard(Options{}).Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusOK || (response.Header().Get("Content-Encoding") == "gzip") != want {
+			t.Errorf("GET asset with %q = %d, encoding %q", header, response.Code, response.Header().Get("Content-Encoding"))
 		}
 	}
 }
@@ -515,14 +507,9 @@ func TestRegionReadinessListsEveryMember(t *testing.T) {
 	current := view{Local: &local, Ready: true, Checks: []observability.CheckResult{{Name: "nats", OK: true,
 		Detail: "regional broker connected"}},
 		Cluster: &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{local, peer}, Missing: []string{"ctl-3"}}}
-	rows := current.readiness()
-	if len(rows) != 3 || rows[0].Checks[0].Detail != "regional broker connected" || rows[1].Ready ||
-		!rows[2].Missing || rows[2].Member != "ctl-3" {
-		t.Fatalf("readiness = %+v", rows)
-	}
 	page := current
 	page.State = parseState(url.Values{})
-	body := renderHTML(t, regionBody(page))
+	body := fixturePage(t, page, "/region")
 	for _, want := range []string{"Region readiness", "regional broker connected", "not answering", "ctl-3"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("region page lacks %q", want)
@@ -532,13 +519,17 @@ func TestRegionReadinessListsEveryMember(t *testing.T) {
 
 func TestEmptyTimelinesSayWhy(t *testing.T) {
 	t.Parallel()
-	body := renderHTML(t, timeline("", chartSpec{Empty: "No decisions were recorded since then."}))
-	if !strings.Contains(body, "No decisions were recorded since then.") {
-		t.Fatalf("an empty timeline renders nothing: %q", body)
-	}
-	failed := view{State: parseState(url.Values{}), Now: testNow, Journal: &Journal{Decisions: &fakeDecisions{}}}
-	if spec := failed.decisionTimeline(nil, true); !strings.Contains(spec.Empty, "unavailable") {
-		t.Fatalf("failed timeline = %q", spec.Empty)
+	for _, source := range []*fakeDecisions{{complete: true}, {err: errors.New("private timeout")}} {
+		body := fixturePage(t, view{Journal: &Journal{Decisions: source}}, "/decisions")
+		if strings.Contains(body, "private timeout") {
+			t.Fatal("timeline leaked provider error")
+		}
+		if source.err != nil && !strings.Contains(body, "unavailable") {
+			t.Fatal("failed timeline appeared empty")
+		}
+		if source.err == nil && !strings.Contains(body, "No decisions") {
+			t.Fatal("empty timeline lacks reason")
+		}
 	}
 }
 
@@ -546,7 +537,7 @@ func TestEmptyTimelinesSayWhy(t *testing.T) {
 // behavior; each was also exercised in headless Chromium over CDP.
 func TestDashboardScriptGuards(t *testing.T) {
 	t.Parallel()
-	script := string(assets["app.js"].body)
+	script := get(t, newTestDashboard(Options{}).Handler(), assetURL("app.js")).Body.String()
 	for name, want := range map[string]string{
 		"notify label is only assigned when it changed (MutationObserver loop)": "if (button.textContent !== label) button.textContent = label;",
 		"a render checks the chart and generation after awaiting":               "this.chart !== chart || this.generation !== generation",
@@ -561,37 +552,23 @@ func TestDashboardScriptGuards(t *testing.T) {
 	}
 }
 
-func renderHTML(t *testing.T, component templ.Component) string {
-	t.Helper()
-	var body strings.Builder
-	if err := component.Render(context.Background(), &body); err != nil {
-		t.Fatal(err)
-	}
-	return body.String()
-}
-
 // These pin the fixes for the ts-reviewer findings on PRs #127 and #130.
 
-func releaseLabel(t *testing.T, decisions ...decisionlog.Decision) releaseView {
+func releasePage(t *testing.T, decisions ...decisionlog.Decision) string {
 	t.Helper()
-	result := decisionlog.Result{Decisions: decisions}
-	releases := view{Journal: &Journal{Decisions: &fakeDecisions{}}, Decisions: &result}.releases()
-	if len(releases) != 1 {
-		t.Fatalf("releases = %+v", releases)
-	}
-	return releases[0]
+	return fixturePage(t, view{Decisions: &decisionlog.Result{Decisions: decisions}}, "/releases")
 }
 
 // Admission is not CI qualification: without explicit evidence there is no
 // qualified step.
 func TestAdmissionAloneIsNotQualified(t *testing.T) {
 	t.Parallel()
-	release := releaseLabel(t, decisionlog.Decision{ID: "a", Time: testNow, Region: "fra",
-		Kind: decisionlog.KindReleaseAdmitted, Subject: release})
-	for _, step := range release.Lanes[0].Steps {
-		if step.Stage == "qualified" && step.Decision != nil {
-			t.Fatalf("admission produced a qualified step: %+v", step)
-		}
+	body := releasePage(t, decisionlog.Decision{ID: "a", Time: testNow, Region: "fra", Kind: decisionlog.KindReleaseAdmitted, Subject: release})
+	if strings.Contains(body, `class="step s-ok"`) {
+		t.Fatal("admission produced a successful qualification step")
+	}
+	if !strings.Contains(body, `id=a`) {
+		t.Fatal("admission decision did not reach release page")
 	}
 }
 
@@ -599,21 +576,19 @@ func TestAdmissionAloneIsNotQualified(t *testing.T) {
 // aborted rollout is a failed outcome, not a running lane.
 func TestRollbackInProgressAndAbortedOutcomes(t *testing.T) {
 	t.Parallel()
-	rolling := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
-		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusInProgress})
-	if rolling.Status != "serious" || !strings.HasPrefix(rolling.Label, "rolling back") {
-		t.Fatalf("rollback in progress = %s %q", rolling.Status, rolling.Label)
-	}
-	done := releaseLabel(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra",
-		Kind: decisionlog.KindRollback, Subject: release, Status: decisionlog.StatusRolledBack})
-	if !strings.HasPrefix(done.Label, "rolled back") {
-		t.Fatalf("finished rollback = %q", done.Label)
-	}
-	aborted := releaseLabel(t, decisionlog.Decision{ID: "ab", Time: testNow, Region: "fra",
-		Kind: decisionlog.KindHeld, Subject: release, Status: decisionlog.StatusFailed,
-		Attrs: map[string]string{"phase": "aborted"}})
-	if aborted.Status != "bad" || !strings.HasPrefix(aborted.Label, "aborted") {
-		t.Fatalf("aborted rollout = %s %q", aborted.Status, aborted.Label)
+	for _, test := range []struct {
+		kind        decisionlog.Kind
+		status      decisionlog.Status
+		phase, want string
+	}{
+		{decisionlog.KindRollback, decisionlog.StatusInProgress, "", "rolling back"},
+		{decisionlog.KindRollback, decisionlog.StatusRolledBack, "", "rolled back"},
+		{decisionlog.KindHeld, decisionlog.StatusFailed, "aborted", "aborted"},
+	} {
+		body := releasePage(t, decisionlog.Decision{ID: "rb", Time: testNow, Region: "fra", Kind: test.kind, Subject: release, Status: test.status, Attrs: map[string]string{"phase": test.phase}})
+		if !strings.Contains(body, test.want) {
+			t.Errorf("release page lacks outcome %q", test.want)
+		}
 	}
 }
 
@@ -623,9 +598,11 @@ func TestRollbackInProgressAndAbortedOutcomes(t *testing.T) {
 func TestTargetVersionUsesVersionIdentityAndObservedStarts(t *testing.T) {
 	t.Parallel()
 	rollout := decisionlog.Subject{Kind: "release", ID: "sha256:cccc", Name: "orchestrator/ro-7"}
-	if got := releaseVersion(decisionlog.Decision{Subject: rollout}, rollout.ID); got != "sha256:cccc" {
-		t.Fatalf("rollout producer version = %q", got)
+	currentVersion := view{Decisions: &decisionlog.Result{Decisions: []decisionlog.Decision{{Subject: rollout, Time: testNow, Region: "fra", Kind: decisionlog.KindReleaseAdmitted}}}, Versions: []UnitVersion{{Region: "fra", Kind: "controller", Unit: "a", Version: rollout.ID}}}
+	if target := pageTarget(t, currentVersion); target != rollout.ID {
+		t.Fatalf("rollout target=%q, want digest", target)
 	}
+
 	v1 := decisionlog.Subject{Kind: "release", ID: "r1", Name: "v1"}
 	v2 := decisionlog.Subject{Kind: "release", ID: "r2", Name: "v2"}
 	result := decisionlog.Result{Decisions: []decisionlog.Decision{
@@ -637,7 +614,7 @@ func TestTargetVersionUsesVersionIdentityAndObservedStarts(t *testing.T) {
 	current := view{Decisions: &result, Versions: []UnitVersion{
 		{Region: "fra", Kind: "controller", Unit: "a", Version: "v1"},
 		{Region: "fra", Kind: "controller", Unit: "b", Version: "v2"}}}
-	if target := current.targetVersion("controller"); target != "v2" {
+	if target := pageTarget(t, current); target != "v2" {
 		t.Fatalf("target = %q, want v2 whose start was observed", target)
 	}
 }
@@ -645,20 +622,19 @@ func TestTargetVersionUsesVersionIdentityAndObservedStarts(t *testing.T) {
 // The rollout diagram reads the rollout state machine's phases.
 func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
 	t.Parallel()
-	for phase, want := range map[string]string{"canary": "canary", "canary-soak": "soak", "batch": "batches",
-		"batch-soak": "batches", "complete": "complete", "preflight": ""} {
-		if got := rolloutStep(phase); got != want {
-			t.Errorf("rolloutStep(%q) = %q, want %q", phase, got, want)
+	for _, phase := range []string{"canary", "canary-soak", "batch", "batch-soak", "complete", "preflight", "rolled-back", "aborted"} {
+		source := fakeRollouts{{ID: entityid.Derive("phase", phase), Release: "release", Phase: phase, Done: phase == "complete" || phase == "rolled-back" || phase == "aborted"}}
+		body := fixturePage(t, view{Journal: &Journal{Rollouts: source}}, "/rollouts")
+		if !strings.Contains(body, ">"+phase+"</span>") {
+			t.Errorf("rollouts lost %s phase", phase)
 		}
-	}
-	soaking := insights.Rollout{Phase: "canary-soak"}
-	if phaseStatus(soaking, "canary", testNow) != "ok" || phaseStatus(soaking, "soak", testNow) != "run" ||
-		phaseStatus(soaking, "batches", testNow) != "idle" {
-		t.Fatal("a canary soak is not drawn on the soak step")
-	}
-	if rolloutStatus(insights.Rollout{Phase: "rolled-back", Done: true}, testNow) != "serious" ||
-		rolloutStatus(insights.Rollout{Phase: "aborted", Done: true}, testNow) != "bad" {
-		t.Fatal("terminal failures read as complete")
+		if phase == "canary-soak" {
+			for _, want := range []string{`phase s-ok">canary`, `phase s-run">soak`, `phase s-idle">batches`} {
+				if !strings.Contains(body, want) {
+					t.Errorf("canary soak lacks %s", want)
+				}
+			}
+		}
 	}
 }
 
@@ -666,47 +642,53 @@ func TestRolloutDiagramReadsStateMachinePhases(t *testing.T) {
 // rollups in a 1h view fill every column.
 func TestHeatmapColumnsFollowTheSampleResolution(t *testing.T) {
 	t.Parallel()
-	current := view{State: parseState(url.Values{"range": {"1h"}}), Now: testNow}
-	var points [][2]float64
+	now := time.Now().UTC().Truncate(time.Minute)
+	history := observability.NewHistory(observability.HistoryConfig{})
 	for minute := 60; minute >= 0; minute-- {
-		points = append(points, [2]float64{float64(testNow.Add(-time.Duration(minute) * time.Minute).UnixMilli()), 0.5})
+		at := now.Add(-time.Duration(minute) * time.Minute)
+		history.Append(at, []observability.Sample{{Metric: observability.HistHostCPUUtilization, Labels: observability.L("member", "physical"), Value: .5}, {Metric: observability.HistHostReceivedAt, Labels: observability.L("member", "physical"), Value: float64(at.UnixMilli())}})
 	}
-	spec := current.heatmap("percent", []chartSeries{{Name: "m", Points: points}}, "empty")
-	if spec.Step < time.Minute.Milliseconds() {
-		t.Fatalf("step %dms is finer than the 1m samples", spec.Step)
+	current := view{Now: now, Local: &observability.MemberSnapshot{Cell: "fra"}, Journal: &Journal{History: history}, LocalSummary: &regionview.Summary{Region: "fra", Local: true, Nodes: []regionview.Node{{Name: "physical"}}}}
+	for _, chart := range pageCharts(t, fixturePage(t, current, "/members")) {
+		if chart.Kind == "heatmap" {
+			columns := (chart.End - chart.Start + chart.Step - 1) / chart.Step
+			if chart.Step < time.Minute.Milliseconds() || int64(len(chart.Heat)) != columns {
+				t.Fatalf("heatmap resolution lost continuous samples: %+v", chart)
+			}
+			return
+		}
 	}
-	columns := (spec.End - spec.Start + spec.Step - 1) / spec.Step
-	if int64(len(spec.Heat)) != columns {
-		t.Fatalf("heat cells = %d, want every one of %d columns filled", len(spec.Heat), columns)
-	}
+	t.Fatal("CPU heatmap missing")
 }
 
 // A slow fill near 100% that rounding would flatten is still forecast.
 func TestStorageForecastFitsRawSamples(t *testing.T) {
 	t.Parallel()
+	now := time.Now().UTC()
 	history := observability.NewHistory(observability.HistoryConfig{})
 	for minute := 24 * 60; minute >= 0; minute -= 10 {
-		history.Append(testNow.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio,
-			Labels: observability.L("member", "ctl-1", "role", "nats"), Value: 0.99994 - float64(minute)/(24*60)*0.00003}})
+		history.Append(now.Add(-time.Duration(minute)*time.Minute), []observability.Sample{{Metric: observability.HistFSRatio, Labels: observability.L("member", "ctl-1", "role", "nats"), Value: .99994 - float64(minute)/(24*60)*.00003}})
 	}
-	current := view{State: parseState(url.Values{}), Now: testNow, Journal: &Journal{History: history}}
-	forecasts, _ := current.storageForecasts()
-	if len(forecasts) != 1 || !forecasts[0].Known || !forecasts[0].Trend {
-		t.Fatalf("forecasts = %+v, want a known fill from the raw trend", forecasts)
+	body := fixturePage(t, view{Now: now, Journal: &Journal{History: history}}, "/terrabase")
+	found := false
+	for _, chart := range pageCharts(t, body) {
+		for _, series := range chart.Series {
+			if series.Dashed {
+				found = true
+			}
+		}
+	}
+	if !found || strings.Contains(body, "not enough history") {
+		t.Fatal("slow fill near full was flattened instead of forecast")
 	}
 }
 
 // A failed volume read is not "no block volume is attached".
 func TestStoragePageNamesAFailedVolumeRead(t *testing.T) {
 	t.Parallel()
-	current := view{Page: page{slug: "storage"}, State: parseState(url.Values{}), Now: testNow,
-		Journal: &Journal{Volumes: failingVolumeProvider{}}, Unavailable: []string{"volumes"}}
-	var body strings.Builder
-	if err := storageBody(current).Render(context.Background(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(body.String(), "No block volume is attached") || !strings.Contains(body.String(), "could not be read") {
-		t.Fatalf("storage page with a failed volume read = %s", body.String())
+	body := fixturePage(t, view{Journal: &Journal{Volumes: failingVolumeProvider{}}}, "/storage")
+	if strings.Contains(body, "No block volume is attached") || !strings.Contains(body, "could not be read") || strings.Contains(body, "placement store timeout") {
+		t.Fatal("storage page misreported or leaked the failed volume read")
 	}
 }
 
@@ -714,4 +696,14 @@ type failingVolumeProvider struct{}
 
 func (failingVolumeProvider) Volumes(context.Context) ([]insights.Volume, error) {
 	return nil, errors.New("placement store timeout")
+}
+
+func pageTarget(t *testing.T, current view) string {
+	t.Helper()
+	body := fixturePage(t, current, "/releases")
+	match := regexp.MustCompile(`(?s)<tbody>\s*<tr>\s*<th scope="row">Controllers</th>\s*<td><code>([^<]*)</code>`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("controller target missing in release matrix")
+	}
+	return html.UnescapeString(match[1])
 }

@@ -1,7 +1,8 @@
 # Cluster CLI and dashboard contract
 
-Desired state, 2026-10-16. This records the user's CLI and full-visibility
-requirements; it does not establish live fleet coverage or completed UI changes.
+Source contract and remaining acceptance, 2026-10-16. The shared observation
+interfaces below are implemented in the refactor branches. They do not establish
+live fleet coverage, automatic operator authorization or runtime qualification.
 
 ## One operational interface
 
@@ -27,6 +28,46 @@ must not require a separate management script or a provider console.
 The current command inventory is in [cli.md](cli.md). Proposed output and
 operation contracts above are acceptance requirements, not invented working
 commands. Extend existing namespaces instead of building a parallel CLI.
+
+## Implemented observation interfaces
+
+`ts-orch observe --help` documents readable tables and version 1 JSON output.
+All requests use the same private bearer-authenticated services as the dashboard;
+partial observations are printed and return a nonzero exit status. Requests have
+a fixed 15-second deadline, 8 MiB response bound and at most 64 candidate endpoints.
+
+| CLI views | Shared source/API | Dashboard |
+| --- | --- | --- |
+| `metrics`, `history` | Actual registry and retained history; `/v1/metrics/catalog`, `/v1/history`, `/v1/history/metrics` | `/metric-catalog`, live Datastar updates and ECharts history with text tables |
+| `snapshot`, `cluster`, `events` | Existing member collector, regional NATS aggregation and event bus | Existing member, regional, event and feature pages |
+| `regions`, `region` | `/v1/regions` and `/v1/regions/{cell}` from the regional global-view cache | Global overview and region detail |
+| `nodes`, `node`, `services`, `service` | `/v1/regions/{cell}/nodes[/node[/services[/service]]]` | Node and service drilldowns |
+| `volumes`, `volume` | `/v1/regions/{cell}/volumes[/volume]` | Volume drilldowns |
+
+Resource commands select the authenticated endpoint's local region automatically;
+`--cell` selects another observed region. Singular node/service/volume views use
+`--node`, `--service` and `--volume`. Missing or stale observations cannot establish
+that an omitted resource is absent. Known stale resources retain their timestamps;
+unknown resources under stale/truncated data remain unknown. A failed volume read
+is unavailable. Complete current observations alone establish `not_found`.
+
+The catalog discovers the actual registry, including Go/process families, plus
+retained names. It bounds exposition to 1 MiB, 2,048 families, 4,096 current samples
+and 64 samples per family. Exceeding a bound is explicit. Current label names are
+shown without label values; unsupported description/unit/type/collection metadata
+is disclosed. This catalog describes the queried registry, not fleet-wide coverage.
+History queries expose pending replay, dropped series, incomplete/truncated data,
+source cadence, per-series freshness and gaps. Counter rates require counters.
+The maximum query is 14 days and 512 series; dashboard rendering keeps 32 series
+and 1,200 points while retaining access through the bounded history API.
+
+Normal zero-configuration operator access still depends on a trusted admitted
+endpoint and scoped Vault-token resolver from OCI. The current CLI bridge reuses
+existing benchmark configuration or explicit diagnostic `--url`/`--token-file`;
+it does not satisfy automatic production access. NetBird discovery alone grants
+no authority. Full SwarmKit service observations, regional operation progress and
+live function snapshots need their actual authenticated producer wiring before
+these interfaces can claim complete runtime or infrastructure coverage.
 
 ## Reuse the dashboard stack
 
@@ -118,6 +159,6 @@ and customer payloads at collection boundaries, with scope-appropriate access.
    responsiveness on the smallest qualified A1 host. Add ARM/x86/Wasm coverage
    as each runtime is admitted. Publish evidence under `benchmark/bench/`.
 
-Existing source is useful infrastructure, not evidence that this contract is
-complete. No live checks, UI redesign or CSS consolidation is implemented by
-this document.
+Local integration checks exercise the implemented source interfaces; retained
+results and remaining gaps are in [OBS evidence](evidence/obs-refactor-20261016.md).
+Live fleet, browser, cloud, runtime and cost acceptance remain unverified.

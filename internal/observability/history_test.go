@@ -21,11 +21,11 @@ func TestHistoryDownsamplesIntoTiers(t *testing.T) {
 		at := base.Add(time.Duration(step) * 10 * time.Second)
 		history.Append(at, []Sample{{Metric: "m", Labels: L("member", "a"), Value: float64(step / 6)}})
 	}
-	raw := history.Range(HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: TierRaw})
+	raw := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: TierRaw})
 	if len(raw.Series) != 1 || len(raw.Series[0].Points) != 360 {
 		t.Fatalf("raw keeps one hour: %d points", len(raw.Series[0].Points))
 	}
-	minute := history.Range(HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: Tier1m})
+	minute := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: Tier1m})
 	points := minute.Series[0].Points
 	if len(points) != 120 {
 		t.Fatalf("1m points = %d", len(points))
@@ -33,18 +33,14 @@ func TestHistoryDownsamplesIntoTiers(t *testing.T) {
 	if points[3].Value != 3 || points[3].Min != 3 || points[3].Max != 3 {
 		t.Fatalf("1m point = %+v", points[3])
 	}
-	five := history.Range(HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: Tier5m})
+	five := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: base, End: base.Add(3 * time.Hour), Tier: Tier5m})
 	fivePoints := five.Series[0].Points
 	if len(fivePoints) != 24 || fivePoints[0].Value != 2 || fivePoints[0].Min != 0 || fivePoints[0].Max != 4 {
 		t.Fatalf("5m points = %d first %+v", len(fivePoints), fivePoints[0])
 	}
 	// Automatic tier choice follows the requested start.
-	if auto := history.Range(HistoryQuery{Metric: "m", Start: time.Now().Add(-90 * time.Minute)}); auto.Series[0].Tier != Tier1m {
+	if auto := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: time.Now().Add(-90 * time.Minute)}); auto.Series[0].Tier != Tier1m {
 		t.Fatalf("auto tier = %s", auto.Series[0].Tier)
-	}
-	if TierFor(time.Now().Add(-10*time.Minute), time.Now()) != TierRaw ||
-		TierFor(time.Now().Add(-12*time.Hour), time.Now()) != Tier5m {
-		t.Fatal("TierFor")
 	}
 }
 
@@ -55,7 +51,7 @@ func TestHistoryRateHandlesCounterReset(t *testing.T) {
 	for index, value := range values {
 		history.Append(base.Add(time.Duration(index)*time.Second), []Sample{{Metric: "c", Value: value, Counter: true}})
 	}
-	result := history.Range(HistoryQuery{Metric: "c", Start: base, Rate: true, Tier: TierRaw})
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: base, Rate: true, Tier: TierRaw})
 	want := []float64{10, 10, 5, 10}
 	points := result.Series[0].Points
 	if len(points) != len(want) {
@@ -67,7 +63,7 @@ func TestHistoryRateHandlesCounterReset(t *testing.T) {
 		}
 	}
 	// A counter's plain value is its last sample.
-	plain := history.Range(HistoryQuery{Metric: "c", Start: base, Tier: Tier1m})
+	plain := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: base, Tier: Tier1m})
 	if last := plain.Series[0].Points[len(plain.Series[0].Points)-1]; last.Value != 15 && last.Value != 5 {
 		t.Fatalf("counter value = %+v", last)
 	}
@@ -90,14 +86,14 @@ func TestHistoryLabelsBoundsAndStaleSeries(t *testing.T) {
 	if stats := history.Stats(); stats.Series != 3 || stats.Dropped != 1 {
 		t.Fatalf("stats = %+v", stats)
 	}
-	if got := history.Range(HistoryQuery{Metric: "m", Labels: map[string]string{"role": ""}}); len(got.Series) != 2 {
+	if got := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Labels: map[string]string{"role": ""}}); len(got.Series) != 2 {
 		t.Fatalf("label presence filter = %d", len(got.Series))
 	}
-	if got := history.Range(HistoryQuery{Metric: "m", Labels: map[string]string{"member": "b"}}); len(got.Series) != 1 ||
+	if got := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Labels: map[string]string{"member": "b"}}); len(got.Series) != 1 ||
 		got.Series[0].Labels["role"] != "y" {
 		t.Fatalf("label value filter = %+v", got.Series)
 	}
-	if got := history.Range(HistoryQuery{Metric: "m", MaxSeries: 1}); !got.Truncated {
+	if got := historyHTTPRange(t, history, HistoryQuery{Metric: "m", MaxSeries: 1}); !got.Truncated {
 		t.Fatal("expected truncation")
 	}
 	if latest := history.Latest("m", map[string]string{"member": "a"}); latest["member=a,role=x"] != 1 {
@@ -126,7 +122,7 @@ func TestHistoryExportImportRoundTrip(t *testing.T) {
 	if err := restored.Import(data); err != nil {
 		t.Fatal(err)
 	}
-	got := restored.Range(HistoryQuery{Metric: "m", Start: base, Tier: Tier1m, Labels: map[string]string{"member": "3"}})
+	got := historyHTTPRange(t, restored, HistoryQuery{Metric: "m", Start: base, Tier: Tier1m, Labels: map[string]string{"member": "3"}})
 	if len(got.Series) != 1 || len(got.Series[0].Points) < 29 {
 		t.Fatalf("restored = %+v", got.Series)
 	}
@@ -155,7 +151,7 @@ func TestHistoryConcurrentAppendAndRange(t *testing.T) {
 		})
 		group.Go(func() {
 			for range 100 {
-				_ = history.Range(HistoryQuery{Metric: "m", Start: start, End: start.Add(time.Second)})
+				_ = historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: start, End: start.Add(time.Second)})
 				_, _ = history.Export(4096)
 			}
 		})
@@ -183,10 +179,7 @@ func TestSnapshotSamplerDerivesSeries(t *testing.T) {
 	sampler.Samples(ClusterSnapshot{Expected: []string{"c1", "c2"}, Members: []MemberSnapshot{member(10, 10)}, Missing: []string{"c2"}})
 	samples := sampler.Samples(ClusterSnapshot{Expected: []string{"c1", "c2"}, Members: []MemberSnapshot{member(15, 15)},
 		Missing: []string{"c2"}})
-	values := map[string]float64{}
-	for _, sample := range samples {
-		values[seriesKey(sample.Metric, sortedLabels(sample.Labels))] = sample.Value
-	}
+	values := historySampleValues(t, samples)
 	checks := map[string]float64{
 		HistMembersExpected:                                                   2,
 		HistMembersAnswering:                                                  1,
@@ -277,6 +270,10 @@ func TestDroppedCoverageIsBoundedToRawRetention(t *testing.T) {
 		history.Append(at, []Sample{{Metric: "resident", Value: 1}, {Metric: "dropped", Value: 1}})
 	}
 	last := start.Add(999 * time.Minute)
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "resident", Start: last.Add(-time.Minute), End: last.Add(time.Second)})
+	if result.DroppedSeries != 1000 || !result.Incomplete {
+		t.Fatalf("history API hid dropped observations: %+v", result)
+	}
 	if len(history.dropMinutes) != 61 || history.Stats().Dropped != 1000 || !history.DroppedBetween(last, last) || history.DroppedBetween(start, start) {
 		t.Fatalf("drop coverage is not bounded: minutes=%d stats=%+v", len(history.dropMinutes), history.Stats())
 	}

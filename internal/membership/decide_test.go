@@ -13,19 +13,17 @@ func testTopology() Topology {
 		SeedSlot: "controller-a", SelfSlot: "controller-a"}
 }
 
-func testConfig() Config { return Config{Enabled: true, Replace: true} }
-
 func TestAcceptedControllerWithoutLaunchHistoryRemainsObservedAndHeld(t *testing.T) {
 	observation := healthyObservation(testEpoch)
 	observation.Ledger["controller-b"] = LedgerSlot{InstanceOCID: instanceB, Complete: true}
-	state, actions := Decide(testConfig(), testTopology(), State{}, observation)
+	state, actions := Decide(testTopology(), State{}, observation)
 	if state.Slots["controller-b"].Phase != PhaseHealthy || len(actions) != 0 {
 		t.Fatal("accepted online controller was not observed as healthy")
 	}
 	observation = withPeer(observation, "gru-1-ctl-2", false)
 	observation.Lifecycle["controller-b"] = LifecycleTerminated
 	observation.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceB)
-	state, actions = Decide(testConfig(), testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if state.Slots["controller-b"].Phase != PhaseHeld ||
 		state.Slots["controller-b"].Reason != "accepted controller has no current replacement launch authority" || len(actions) != 0 {
 		t.Fatalf("accepted installation invented launch history: %+v, %+v", state.Slots["controller-b"], actions)
@@ -78,7 +76,7 @@ func lostB(at time.Time) Observation {
 }
 
 func TestDecideHealthyCellTakesNoAction(t *testing.T) {
-	state, actions := Decide(testConfig(), testTopology(), State{}, healthyObservation(testEpoch))
+	state, actions := Decide(testTopology(), State{}, healthyObservation(testEpoch))
 	if len(actions) != 0 {
 		t.Fatalf("healthy cell actions = %+v", actions)
 	}
@@ -93,30 +91,29 @@ func TestDecideHealthyCellTakesNoAction(t *testing.T) {
 }
 
 func TestDecideOfflinePeerWaitsForGraceThenRequiresTermination(t *testing.T) {
-	cfg := testConfig()
 	observation := withPeer(healthyObservation(testEpoch), "gru-1-ctl-2", false)
 	observation.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceB)
-	state, actions := Decide(cfg, testTopology(), State{}, observation)
+	state, actions := Decide(testTopology(), State{}, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Phase != PhaseSuspect ||
 		!state.Slots["controller-b"].OfflineSince.Equal(testEpoch) {
 		t.Fatalf("first offline pass = %+v %+v", state.Slots["controller-b"], actions)
 	}
-	observation.At = testEpoch.Add(cfg.OfflineGrace() - time.Second)
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	observation.At = testEpoch.Add(DefaultOfflineGrace - time.Second)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Phase != PhaseSuspect {
 		t.Fatalf("within grace = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// Past the grace the slot is lost, but a RUNNING instance may still come
 	// back under the same server name, so it is never relaunched.
-	observation.At = testEpoch.Add(cfg.OfflineGrace())
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	observation.At = testEpoch.Add(DefaultOfflineGrace)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Phase != PhaseHeld ||
 		!strings.HasPrefix(state.Slots["controller-b"].Reason, ReasonInstanceAlive) {
 		t.Fatalf("lost running instance = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// Once the operator terminates it the matching evidence replaces it.
 	observation.Lifecycle["controller-b"] = LifecycleTerminated
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 1 || actions[0].Slot != "controller-b" || actions[0].PreviousAttempt != 1 ||
 		state.Slots["controller-b"].Phase != PhaseReplacing || state.Slots["controller-b"].PendingAttempt != 2 {
 		t.Fatalf("terminated instance = %+v %+v", state.Slots["controller-b"], actions)
@@ -126,7 +123,7 @@ func TestDecideOfflinePeerWaitsForGraceThenRequiresTermination(t *testing.T) {
 func TestDecideTerminatedInstanceSkipsGrace(t *testing.T) {
 	observation := lostB(testEpoch)
 	observation.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceB)
-	_, actions := Decide(testConfig(), testTopology(), State{}, observation)
+	_, actions := Decide(testTopology(), State{}, observation)
 	if len(actions) != 1 || actions[0].PriorInstanceOCID != instanceB || string(actions[0].Retirement.Wire) != "signed" {
 		t.Fatalf("terminated instance actions = %+v", actions)
 	}
@@ -135,7 +132,6 @@ func TestDecideTerminatedInstanceSkipsGrace(t *testing.T) {
 func TestDecideHoldReasons(t *testing.T) {
 	for _, test := range []struct {
 		name   string
-		cfg    func(*Config)
 		mutate func(*Observation)
 		prior  func(*State)
 		want   string
@@ -147,8 +143,6 @@ func TestDecideHoldReasons(t *testing.T) {
 		{name: "evidence for other instance", want: ReasonAwaitingEvidence, mutate: func(o *Observation) {
 			o.Evidence["controller-b"] = evidenceFor("controller-b", 1, instanceC)
 		}},
-		{name: "observe only", want: ReasonObserveOnly, cfg: func(c *Config) { c.Replace = false },
-			mutate: withEvidenceB},
 		{name: "quorum lost", want: ReasonQuorumLost, mutate: func(o *Observation) {
 			withEvidenceB(o)
 			*o = withPeer(*o, "gru-1-ctl-3", false)
@@ -182,10 +176,6 @@ func TestDecideHoldReasons(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := testConfig()
-			if test.cfg != nil {
-				test.cfg(&cfg)
-			}
 			observation := lostB(testEpoch)
 			if test.mutate != nil {
 				test.mutate(&observation)
@@ -194,7 +184,7 @@ func TestDecideHoldReasons(t *testing.T) {
 			if test.prior != nil {
 				test.prior(&prior)
 			}
-			state, actions := Decide(cfg, testTopology(), prior, observation)
+			state, actions := Decide(testTopology(), prior, observation)
 			for _, action := range actions {
 				if action.Slot == "controller-b" {
 					t.Fatalf("held slot produced action %+v", action)
@@ -219,7 +209,7 @@ func TestDecideNeverReplacesSeedOrSelf(t *testing.T) {
 	observation.Meta.Peers = []Peer{{Name: "gru-1-ctl-1", Online: false}, {Name: "gru-1-ctl-3", Online: true}}
 	observation.Lifecycle = map[string]string{"controller-a": LifecycleTerminated, "controller-c": LifecycleRunning}
 	observation.Evidence["controller-a"] = evidenceFor("controller-a", 1, instanceA)
-	state, actions := Decide(testConfig(), topology, State{}, observation)
+	state, actions := Decide(topology, State{}, observation)
 	if len(actions) != 0 || state.Slots["controller-a"].Reason != ReasonSeedSlot ||
 		state.Slots["controller-b"].Reason != ReasonLocal {
 		t.Fatalf("seed/self = %+v %+v %+v", state.Slots["controller-a"], state.Slots["controller-b"], actions)
@@ -230,7 +220,7 @@ func TestDecideTerminatedButOnlineIsHeld(t *testing.T) {
 	observation := healthyObservation(testEpoch)
 	observation.Lifecycle["controller-b"] = LifecycleTerminated
 	withEvidenceB(&observation)
-	state, actions := Decide(testConfig(), testTopology(), State{}, observation)
+	state, actions := Decide(testTopology(), State{}, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Reason != ReasonTerminatedButOnline {
 		t.Fatalf("terminated but online = %+v %+v", state.Slots["controller-b"], actions)
 	}
@@ -248,7 +238,7 @@ func TestDecideReplacesOneSlotAtATime(t *testing.T) {
 	observation.Lifecycle["controller-c"] = LifecycleTerminated
 	withEvidenceB(&observation)
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
-	state, actions := Decide(testConfig(), topology, State{}, observation)
+	state, actions := Decide(topology, State{}, observation)
 	if len(actions) != 1 || actions[0].Slot != "controller-b" ||
 		state.Slots["controller-c"].Reason != ReasonOtherReplacement {
 		t.Fatalf("concurrent losses = %+v c=%+v", actions, state.Slots["controller-c"])
@@ -256,10 +246,9 @@ func TestDecideReplacesOneSlotAtATime(t *testing.T) {
 }
 
 func TestDecideReplacementLifecycle(t *testing.T) {
-	cfg := testConfig()
 	observation := lostB(testEpoch)
 	withEvidenceB(&observation)
-	state, actions := Decide(cfg, testTopology(), State{}, observation)
+	state, actions := Decide(testTopology(), State{}, observation)
 	if len(actions) != 1 {
 		t.Fatalf("actions = %+v", actions)
 	}
@@ -268,15 +257,15 @@ func TestDecideReplacementLifecycle(t *testing.T) {
 	status.LastFailure = observation.At
 	state.Slots["controller-b"] = status
 	observation.At = observation.At.Add(time.Minute)
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Reason != ReasonRetryBackoff ||
 		state.Slots["controller-b"].Phase != PhaseReplacing {
 		t.Fatalf("backoff = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// The ledger advanced but the successor has not completed: resume.
-	observation.At = observation.At.Add(cfg.RetryBackoff())
+	observation.At = observation.At.Add(DefaultRetryBackoff)
 	observation.Ledger["controller-b"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 1 || actions[0].PreviousAttempt != 1 || actions[0].Reason != "resume replacement" {
 		t.Fatalf("resume = %+v %+v", state.Slots["controller-b"], actions)
 	}
@@ -284,23 +273,23 @@ func TestDecideReplacementLifecycle(t *testing.T) {
 	observation.At = observation.At.Add(time.Minute)
 	observation.Ledger["controller-b"] = LedgerSlot{Attempt: 2, InstanceOCID: instanceB + "-a2", Complete: true}
 	observation.Lifecycle["controller-b"] = LifecycleRunning
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Phase != PhaseSuspect ||
 		state.Slots["controller-b"].Reason != ReasonRejoining ||
 		!state.Slots["controller-b"].OfflineSince.Equal(observation.At) {
 		t.Fatalf("rejoining = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// The old evidence can never retire the successor attempt.
-	observation.At = observation.At.Add(cfg.OfflineGrace())
+	observation.At = observation.At.Add(DefaultOfflineGrace)
 	observation.Lifecycle["controller-b"] = LifecycleTerminated
-	state, actions = Decide(cfg, testTopology(), state, observation)
+	state, actions = Decide(testTopology(), state, observation)
 	if len(actions) != 0 || !strings.HasPrefix(state.Slots["controller-b"].Reason, ReasonAwaitingEvidence) {
 		t.Fatalf("stale evidence = %+v %+v", state.Slots["controller-b"], actions)
 	}
 	// The rejoined successor is healthy again.
 	observation = withPeer(observation, "gru-1-ctl-2", true)
 	observation.Lifecycle["controller-b"] = LifecycleRunning
-	state, _ = Decide(cfg, testTopology(), state, observation)
+	state, _ = Decide(testTopology(), state, observation)
 	if state.Slots["controller-b"].Phase != PhaseHealthy || !state.Slots["controller-b"].OfflineSince.IsZero() {
 		t.Fatalf("rejoined = %+v", state.Slots["controller-b"])
 	}
@@ -309,9 +298,9 @@ func TestDecideReplacementLifecycle(t *testing.T) {
 func TestDecideReplacingHoldsWithoutQuorum(t *testing.T) {
 	observation := lostB(testEpoch)
 	withEvidenceB(&observation)
-	state, _ := Decide(testConfig(), testTopology(), State{}, observation)
+	state, _ := Decide(testTopology(), State{}, observation)
 	observation = withPeer(observation, "gru-1-ctl-3", false)
-	state, actions := Decide(testConfig(), testTopology(), state, observation)
+	state, actions := Decide(testTopology(), state, observation)
 	if len(actions) != 0 || state.Slots["controller-b"].Reason != ReasonQuorumLost {
 		t.Fatalf("replacing without quorum = %+v %+v", state.Slots["controller-b"], actions)
 	}
@@ -332,7 +321,7 @@ func TestDecideNewTermResumesAdmittedSuccessor(t *testing.T) {
 	observation.Evidence["controller-c"] = evidenceFor("controller-c", 1, instanceC)
 	observation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: "gru-1-ctl-4", Online: true},
 		Peer{Name: "gru-1-ctl-5", Online: true})
-	state, actions := Decide(testConfig(), topology, State{}, observation)
+	state, actions := Decide(topology, State{}, observation)
 	if len(actions) != 1 || actions[0].Slot != "controller-b" || actions[0].PreviousAttempt != 1 ||
 		actions[0].Reason != "resume replacement" {
 		t.Fatalf("new term actions = %+v", actions)
@@ -346,30 +335,8 @@ func TestDecideNewTermResumesAdmittedSuccessor(t *testing.T) {
 	// Evidence that did not advance this HEAD is never adopted.
 	observation.Evidence["controller-b"] = Evidence{Slot: "controller-b", PreviousAttempt: 1,
 		PriorInstanceOCID: instanceB, Digest: strings.Repeat("3", 64), Wire: []byte("other")}
-	state, _ = Decide(testConfig(), topology, State{}, observation)
+	state, _ = Decide(topology, State{}, observation)
 	if state.Slots["controller-b"].Phase == PhaseReplacing {
 		t.Fatalf("foreign evidence adopted = %+v", state.Slots["controller-b"])
-	}
-}
-
-func TestConfigValidation(t *testing.T) {
-	for _, test := range []struct {
-		cfg Config
-		ok  bool
-	}{
-		{Config{}, true},
-		{Config{Enabled: true, OfflineGraceSeconds: 600, IntervalSeconds: 10}, true},
-		{Config{Replace: true}, false},
-		{Config{Enabled: true, OfflineGraceSeconds: 30}, false},
-		{Config{Enabled: true, IntervalSeconds: 3600}, false},
-		{Config{Enabled: true, RetirementEvidenceDir: "relative"}, false},
-		{Config{Enabled: true, RetryBackoffSeconds: -1}, false},
-	} {
-		if err := test.cfg.Validate(); (err == nil) != test.ok {
-			t.Fatalf("Validate(%+v) = %v", test.cfg, err)
-		}
-	}
-	if (Config{}).OfflineGrace() != DefaultOfflineGrace || (Config{}).Interval() != DefaultInterval {
-		t.Fatal("defaults changed")
 	}
 }

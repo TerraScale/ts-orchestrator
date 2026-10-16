@@ -56,7 +56,7 @@ func (p *clockFenceProvider) LaunchInstance(context.Context, oci.LaunchRequest) 
 func TestUnhealthyAuthorityClockStopsOCILaunchBeforeIntent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "clock-oci", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{Cell: "gru", Instance: "clock-oci", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)

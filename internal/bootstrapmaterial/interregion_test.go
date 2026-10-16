@@ -85,13 +85,13 @@ func TestInterRegionMaterialMatchesTheContract(t *testing.T) {
 		return claim
 	}
 	interregion, cell, system := read("interregion.jwt"), read("cell-interregion.jwt"), read("system-interregion.jwt")
-	// The reissued cell account keeps the host and role signers.
+	// The reissued cell account keeps the host, role and controller signers.
 	baseRaw, err := os.ReadFile(filepath.Join(material, "cell.jwt"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	baseCell, err := jwt.DecodeAccountClaims(string(baseRaw))
-	if err != nil || len(baseCell.SigningKeys) != 2 {
+	if err != nil || len(baseCell.SigningKeys) != 3 {
 		t.Fatalf("material cell account %+v: %v", baseCell, err)
 	}
 	contract := natscell.InterRegionContract{Cell: "gru", Peers: []string{"fra", "sfo"}, GlobalHome: "gru",
@@ -441,7 +441,7 @@ func TestInterRegionCellClaimStartsFromTheBrokersClaim(t *testing.T) {
 		return decoded
 	}
 	cell := claim("cell-interregion.jwt")
-	if cell.IssuedAt <= held.IssuedAt || len(cell.SigningKeys) != 2 || !reflect.DeepEqual(cell.SigningKeys, held.SigningKeys) ||
+	if cell.IssuedAt <= held.IssuedAt || len(cell.SigningKeys) != 3 || !reflect.DeepEqual(cell.SigningKeys, held.SigningKeys) ||
 		cell.Limits.JetStreamLimits.Streams != 77 || cell.Expires != held.Expires || record.CellJWTSHA256 != digest([]byte(heldRaw)) {
 		t.Fatalf("cell claim %+v, record %s", cell, record.CellJWTSHA256)
 	}

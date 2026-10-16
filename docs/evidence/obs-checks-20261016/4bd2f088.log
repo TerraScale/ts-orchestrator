@@ -1,0 +1,27 @@
+# github.com/TerraScale/ts-orchestrator/internal/app
+internal/app/cell_spec_registry.go:6:2: "crypto/ed25519" imported and not used
+--- FAIL: TestHostMetricBatchSizeAndMalformedRecords (9.24s)
+    --- FAIL: TestHostMetricBatchSizeAndMalformedRecords/rejected_archive (0.10s)
+        --- FAIL: TestHostMetricBatchSizeAndMalformedRecords/rejected_archive/rejected_record (0.03s)
+            host_history_stream_test.go:992: nats: nats: API error: code=400 err_code=10054 description=message size exceeds maximum allowed
+    --- FAIL: TestHostMetricBatchSizeAndMalformedRecords/rejected_archive#01 (0.10s)
+        --- FAIL: TestHostMetricBatchSizeAndMalformedRecords/rejected_archive#01/rejected_record (0.03s)
+            host_history_stream_test.go:992: nats: nats: API error: code=400 err_code=10054 description=message size exceeds maximum allowed
+--- FAIL: TestServerValidatesPrivateListenersAndTokenFiles (0.00s)
+    server_test.go:50: Start accepted {ListenAddress: BearerTokenFile: TLSCertFile: TLSKeyFile: LogFormat:xml LogLevel:}
+--- FAIL: TestMetricCatalogHTTPRegistryAndHistoryIntegration (0.01s)
+    catalog_integration_test.go:156: missing range {Version:1 ObservedAt:2026-10-16 19:59:04.413276786 +0000 UTC State:available Reason: HistoryResult:{RetentionStart:2026-10-02 19:59:04.413 +0000 UTC IntervalSeconds:10 DroppedSeries:0 Series:[{Metric:retained_metric Labels:map[member:host-a] Tier:1m Points:[{Time:2026-10-16 19:58:00 +0000 UTC Value:2 Min:2 Max:2 Samples:1}] LastObservedAt:2026-10-16 19:58:54 +0000 UTC Stale:false Gaps:false}] UnsupportedReason: Truncated:false Pending:false Incomplete:false}}: <nil>
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration unavailable"
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration unavailable"
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration unavailable"
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration temporarily unavailable"
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration temporarily unavailable"
+2026/10/16 16:59:05 WARN dashboard session reclamation deferred component=dashboard error="session enumeration temporarily unavailable"
+FAIL
+FAIL	github.com/TerraScale/ts-orchestrator/internal/observability	63.499s
+FAIL	github.com/TerraScale/ts-orchestrator/internal/cli [build failed]
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard	1.006s
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard/accesscheck	1.609s
+ok  	github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake	2.059s
+ok  	github.com/TerraScale/ts-orchestrator/internal/globalview	5.162s
+FAIL

@@ -31,6 +31,7 @@ type Registry struct {
 // NewRegistry returns an empty registry. processMetrics adds the Go runtime
 // and process series that VictoriaMetrics/metrics collects.
 func NewRegistry(processMetrics bool) *Registry {
+	metrics.ExposeMetadata(true)
 	return &Registry{processMetrics: processMetrics}
 }
 

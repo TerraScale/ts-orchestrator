@@ -17,6 +17,7 @@ import (
 	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -106,6 +107,19 @@ type journal struct {
 // its original retry token; after 23 hours the command holds for inspection.
 // It never regenerates source material or silently rotates a Vault version.
 func Provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time) (Publication, error) {
+	return provision(ctx, directory, target, management, bundles, now, nil)
+}
+
+// ProvisionDurable checkpoints the exact publication journal to the source
+// authority before any secret create, preserving recovery across host loss.
+func ProvisionDurable(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {
+	if checkpoint == nil {
+		return Publication{}, ErrProvision
+	}
+	return provision(ctx, directory, target, management, bundles, now, checkpoint)
+}
+
+func provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {
 	if management == nil || bundles == nil || ctx.Err() != nil {
 		return Publication{}, ErrProvision
 	}
@@ -134,7 +148,7 @@ func Provision(ctx context.Context, directory string, target VaultTarget, manage
 		return Publication{}, ErrProvision
 	}
 	materialDigest := digest(metadata)
-	state, err := loadJournal(directory, record, target, materialDigest)
+	state, err := loadJournal(directory, record, target, materialDigest, checkpoint)
 	if err != nil {
 		return Publication{}, err
 	}
@@ -147,7 +161,7 @@ func Provision(ctx context.Context, directory string, target VaultTarget, manage
 		if !ok {
 			return Publication{}, ErrProvision
 		}
-		if err := publishOne(ctx, directory, target, record.Config.Region, management, bundles, file, entry, &state, now); err != nil {
+		if err := publishOne(ctx, directory, target, record.Config.Region, management, bundles, file, entry, &state, now, checkpoint); err != nil {
 			return Publication{}, err
 		}
 	}
@@ -173,7 +187,7 @@ func findFile(record Record, name string) (File, bool) {
 	return File{}, false
 }
 
-func loadJournal(directory string, record Record, target VaultTarget, materialDigest string) (journal, error) {
+func loadJournal(directory string, record Record, target VaultTarget, materialDigest string, checkpoint func([]byte) error) (journal, error) {
 	path := filepath.Join(directory, journalName)
 	wire, err := readOwnedFile(path, 1<<20)
 	if err != nil {
@@ -190,7 +204,7 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 		if len(state.Entries) == 0 || len(state.Entries) > 64 {
 			return journal{}, ErrProvision
 		}
-		if err := saveJournal(directory, state); err != nil {
+		if err := checkpointJournal(directory, state, checkpoint); err != nil {
 			return journal{}, err
 		}
 		return state, nil
@@ -225,7 +239,25 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 			return journal{}, ErrProvision
 		}
 	}
+	if err := checkpointJournal(directory, state, checkpoint); err != nil {
+		return journal{}, err
+	}
 	return state, nil
+}
+
+func checkpointJournal(directory string, state journal, checkpoint func([]byte) error) error {
+	if err := saveJournal(directory, state); err != nil {
+		return err
+	}
+	if checkpoint == nil {
+		return nil
+	}
+	wire, err := readOwnedFile(filepath.Join(directory, journalName), 1<<20)
+	if err != nil {
+		return err
+	}
+	defer clear(wire)
+	return checkpoint(wire)
 }
 
 func secretName(cfg Config, file File) string {
@@ -240,7 +272,7 @@ func secretName(cfg Config, file File) string {
 }
 
 func publishOne(ctx context.Context, directory string, target VaultTarget, region string, management VaultClient, bundles BundleClient,
-	file File, entry *journalEntry, state *journal, now time.Time) error {
+	file File, entry *journalEntry, state *journal, now time.Time, checkpoint func([]byte) error) error {
 	id, found, err := lookup(ctx, target, region, entry.Name, management)
 	if err != nil {
 		return ErrProvision
@@ -256,14 +288,14 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 			return ErrProvision
 		}
 		entry.SecretOCID, entry.Verified = id, true
-		return saveJournal(directory, *state)
+		return checkpointJournal(directory, *state, checkpoint)
 	}
 	if entry.Verified || entry.SecretOCID != "" || !entry.SentAt.IsZero() && (now.Before(entry.SentAt) || now.Sub(entry.SentAt) >= retryWindow) {
 		return ErrProvision
 	}
 	if entry.SentAt.IsZero() {
 		entry.SentAt = now.UTC()
-		if err := saveJournal(directory, *state); err != nil {
+		if err := checkpointJournal(directory, *state, checkpoint); err != nil {
 			return err
 		}
 	}
@@ -280,7 +312,13 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 	if ctx.Err() != nil {
 		return ErrProvision
 	}
-	response, err := management.CreateSecret(ctx, ocivault.CreateSecretRequest{
+	if checkpoint != nil {
+		if err := checkpointJournal(directory, *state, checkpoint); err != nil {
+			encoded = ""
+			return err
+		}
+	}
+	response, err := management.CreateSecret(ociclient.RequestContext(ctx), ocivault.CreateSecretRequest{
 		CreateSecretDetails: ocivault.CreateSecretDetails{
 			CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID),
 			SecretName: new(entry.Name), Description: new("Initial TerraScale regional controller credential material."),
@@ -295,14 +333,14 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 		return ErrProvision
 	}
 	entry.SecretOCID, entry.Verified = *response.Id, true
-	return saveJournal(directory, *state)
+	return checkpointJournal(directory, *state, checkpoint)
 }
 
 func lookup(ctx context.Context, target VaultTarget, region, name string, client VaultClient) (string, bool, error) {
 	var page *string
 	var found string
 	for range 32 {
-		response, err := client.ListSecrets(ctx, ocivault.ListSecretsRequest{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), Name: new(name), Page: page})
+		response, err := client.ListSecrets(ociclient.RequestContext(ctx), ocivault.ListSecretsRequest{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), Name: new(name), Page: page})
 		if err != nil {
 			return "", false, err
 		}
@@ -328,7 +366,7 @@ func lookup(ctx context.Context, target VaultTarget, region, name string, client
 func verifyBundle(ctx context.Context, target VaultTarget, id, name string, file File, management VaultClient, bundles BundleClient) error {
 	deadline := time.Now().Add(time.Minute)
 	for {
-		response, err := management.GetSecret(ctx, ocivault.GetSecretRequest{SecretId: new(id)})
+		response, err := management.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(id)})
 		if err == nil && response.Id != nil && *response.Id == id && response.CompartmentId != nil &&
 			*response.CompartmentId == target.CompartmentOCID && response.VaultId != nil && *response.VaultId == target.VaultOCID &&
 			response.KeyId != nil && *response.KeyId == target.KMSKeyOCID &&
@@ -349,7 +387,7 @@ func verifyBundle(ctx context.Context, target VaultTarget, id, name string, file
 		}
 	}
 	version := int64(1)
-	response, err := bundles.GetSecretBundle(ctx, ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: &version})
+	response, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: &version})
 	if err != nil || response.SecretId == nil || *response.SecretId != id || response.VersionNumber == nil || *response.VersionNumber != 1 {
 		return ErrProvision
 	}
@@ -405,6 +443,53 @@ func saveJournal(directory string, state journal) error {
 	}
 	if err := syncDirectory(directory); err != nil {
 		return ErrProvision
+	}
+	return nil
+}
+
+// ValidatePublication binds public host references to a complete, exact source
+// journal. Owner-only escrow material cannot appear in a host publication.
+func ValidatePublication(directory string, publication Publication, journalWire []byte) error {
+	record, err := Load(directory)
+	if err != nil {
+		return ErrProvision
+	}
+	return validatePublication(directory, record, publication, journalWire)
+}
+
+func validatePublication(directory string, record Record, publication Publication, journalWire []byte) error {
+	if publication.SchemaVersion != 1 || publication.Target.Validate(record.Config.Region) != nil {
+		return ErrProvision
+	}
+	metadata, err := readOwnedFile(filepath.Join(directory, metadataName), 1<<20)
+	if err != nil || publication.MaterialSHA256 != digest(metadata) {
+		return ErrProvision
+	}
+	var state journal
+	if json.Unmarshal(journalWire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Target != publication.Target || state.MaterialSHA256 != publication.MaterialSHA256 || len(state.Entries) != len(publication.References) {
+		return ErrProvision
+	}
+	expected := 0
+	for _, file := range record.Files {
+		if file.Purpose != "owner-only" {
+			expected++
+		}
+	}
+	if len(state.Entries) != expected {
+		return ErrProvision
+	}
+	for index, entry := range state.Entries {
+		file, ok := findFile(record, entry.FileName)
+		if !ok || file.Purpose == "owner-only" || entry.Name != secretName(record.Config, file) || !entry.Verified || entry.SentAt.IsZero() || !regionalResourceOCID(entry.SecretOCID, "vaultsecret", record.Config.Region) || index > 0 && state.Entries[index-1].FileName >= entry.FileName {
+			return ErrProvision
+		}
+		if _, err := uuid.Parse(entry.RetryToken); err != nil {
+			return ErrProvision
+		}
+		want := PublicReference{SecretName: entry.Name, Reference: bootstrap.SecretReference{Purpose: file.Purpose, Slot: file.Slot, SecretOCID: entry.SecretOCID, VersionNumber: 1, SHA256: file.SHA256, MaxBytes: file.MaxBytes, TargetFile: file.Name}}
+		if publication.References[index] != want {
+			return ErrProvision
+		}
 	}
 	return nil
 }

@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -58,25 +56,12 @@ func testRolloutStore(t *testing.T, fence authority.Fencer) *rollout.Store {
 // testRolloutJetStream starts a fresh single broker.
 func testRolloutJetStream(t *testing.T) jetstream.JetStream {
 	t.Helper()
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	auth := newAuthenticatedNATS(t, "gru")
+	runtime, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return js
+	return runtime.JetStream()
 }
 
 func newRolloutRequester(t *testing.T) *rolloutRequester {
@@ -91,7 +76,7 @@ func newRolloutRequester(t *testing.T) *rolloutRequester {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{{
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}, Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{{
 		Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public), Roles: []string{"terrabase"},
 		Environments: []string{"canary"}, CanRollOutOrchestrator: true}, {
 		Actor: "ci", PublicKey: base64.StdEncoding.EncodeToString(reader.Public().(ed25519.PublicKey)),
@@ -326,7 +311,8 @@ func (proofs fixedProofs) Latest(unit string) (rolloutexec.HealthProof, bool) {
 // Every cell uses the same policy without a configuration override.
 func TestNextRolloutUsesTheFixedPolicy(t *testing.T) {
 	ctx := t.Context()
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)

@@ -156,7 +156,7 @@ type VerifiedCompletedFounderPlan struct {
 // ReadForLaunch token; then they call LaunchRequest with a fresh UTC clock.
 type VerifiedFounderPeer struct {
 	row            FounderPeerRow
-	manifest       VerifiedManifest
+	manifest       StartupAuthority
 	manifestWire   []byte
 	launch         LaunchAuthorization
 	recovery       *ManagedPeerRecoveryAuthorization
@@ -169,6 +169,7 @@ type VerifiedFounderPeer struct {
 // FounderPeerLaunchRequest carries only the fields a pre-quorum OCI adapter
 // needs. It deliberately does not expose or serialize the underlying Intent.
 type FounderPeerLaunchRequest struct {
+	StartupAuthority  StartupAuthority
 	DeploymentID      string
 	Cell              oci.Region
 	Environment       string
@@ -634,6 +635,10 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 	if err != nil {
 		return VerifiedFounderPeer{}, err
 	}
+	return authorizeFounderPeer(current.snapshot(), slot, launch, now)
+}
+
+func authorizeFounderPeer(current founderPlanSnapshot, slot string, launch LaunchAuthorization, now time.Time) (VerifiedFounderPeer, error) {
 	index := slices.IndexFunc(current.plan.Peers, func(row FounderPeerRow) bool { return row.Slot == slot })
 	if index < 0 {
 		return VerifiedFounderPeer{}, fmt.Errorf("%w: slot %q is not a planned peer", ErrFounderPeerAuthorization, slot)
@@ -662,8 +667,8 @@ func (verified VerifiedFounderPlan) AuthorizePeer(
 		return VerifiedFounderPeer{}, ErrFounderPlanExpired
 	}
 	manifest := current.manifests[slot]
-	deadline := earlierTime(current.plan.LaunchDeadline, current.envelope.ExpiresAt, current.anchor.ExpiresAt(),
-		manifest.expiresAt, intentEnvelope.ExpiresAt, retryDeadline)
+	deadline := earlierTime(current.plan.LaunchDeadline, current.expiresAt, current.anchorExpiresAt,
+		manifest.ExpiresAt(), intentEnvelope.ExpiresAt, retryDeadline)
 	if !now.Before(deadline) {
 		return VerifiedFounderPeer{}, ErrFounderPlanExpired
 	}
@@ -682,6 +687,10 @@ func (verified VerifiedFounderPlan) InitialManagedPeerIntent(slot string, create
 	if !verified.verified || !validFounderNow(createdAt) {
 		return Intent{}, ErrFounderPeerAuthorization
 	}
+	return initialManagedPeerIntent(verified.snapshot(), slot, createdAt)
+}
+
+func initialManagedPeerIntent(verified founderPlanSnapshot, slot string, createdAt time.Time) (Intent, error) {
 	index := slices.IndexFunc(verified.plan.Peers, func(row FounderPeerRow) bool { return row.Slot == slot })
 	if index < 0 {
 		return Intent{}, fmt.Errorf("%w: slot %q is not a planned peer", ErrFounderPeerAuthorization, slot)
@@ -703,7 +712,7 @@ func (verified VerifiedFounderPlan) InitialManagedPeerIntent(slot string, create
 	if err != nil {
 		return Intent{}, err
 	}
-	anchor := verified.anchor.Anchor()
+	anchor := verified.anchor
 	token := "founder-" + slot + "-" + verified.digest[:24]
 	return Intent{SchemaVersion: 1, Mode: IntentModeManaged, DeploymentID: verified.plan.DeploymentID,
 		Cell: string(verified.plan.Cell), Environment: verified.plan.Environment, Role: roleController, Slot: slot,
@@ -759,6 +768,10 @@ func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
 	if current.digest != lowerBoundPlan.digest || current.anchor.Digest() != lowerBoundPlan.anchor.Digest() {
 		return VerifiedFounderPeer{}, fmt.Errorf("%w: root-authorized founder proof changed between trusted clock bounds", ErrFounderPeerAuthorization)
 	}
+	return authorizeFounderPeerRecovery(current.snapshot(), slot, recovery, authorizationTime, selectorExpiresAt)
+}
+
+func authorizeFounderPeerRecovery(current founderPlanSnapshot, slot string, recovery ManagedPeerRecoveryAuthorization, authorizationTime, selectorExpiresAt time.Time) (VerifiedFounderPeer, error) {
 	index := slices.IndexFunc(current.plan.Peers, func(row FounderPeerRow) bool { return row.Slot == slot })
 	if index < 0 {
 		return VerifiedFounderPeer{}, fmt.Errorf("%w: slot %q is not a planned peer", ErrFounderPeerAuthorization, slot)
@@ -863,8 +876,8 @@ func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
 	default:
 		return VerifiedFounderPeer{}, fmt.Errorf("%w: recovery phase is malformed", ErrFounderPeerAuthorization)
 	}
-	deadline := earlierTime(current.plan.LaunchDeadline, current.envelope.ExpiresAt,
-		current.anchor.ExpiresAt(), manifest.expiresAt, selectorExpiresAt)
+	deadline := earlierTime(current.plan.LaunchDeadline, current.expiresAt,
+		current.anchorExpiresAt, manifest.ExpiresAt(), selectorExpiresAt)
 	if recovery.phase == ManagedPeerRecoveryClean || recovery.phase == ManagedPeerRecoveryManifestOnly {
 		intentEnvelope, decodeErr := trust.DecodeEnvelope(state.IntentRecord.Bytes)
 		if decodeErr != nil || !intentEnvelope.ExpiresAt.After(authorizationTime) {
@@ -894,7 +907,7 @@ func (verified VerifiedFounderPlan) AuthorizePeerRecovery(
 	}, nil
 }
 
-func validateLaunchTokenBinding(launch LaunchAuthorization, plan VerifiedFounderPlan, row FounderPeerRow, rowDigest string) error {
+func validateLaunchTokenBinding(launch LaunchAuthorization, plan founderPlanSnapshot, row FounderPeerRow, rowDigest string) error {
 	intent := launch.intent
 	intentEnvelope, intentEnvelopeErr := trust.DecodeEnvelope(launch.intentRecord.Bytes)
 	headEnvelope, headEnvelopeErr := trust.DecodeEnvelope(launch.headRecord.Bytes)
@@ -947,7 +960,15 @@ func (verified VerifiedFounderPeer) IsVerified() bool { return verified.verified
 // depend on that retry window.
 func (verified VerifiedFounderPeer) EffectDeadline() time.Time { return verified.effectDeadline }
 
-// Manifest returns the exact current root-verified peer manifest.
+// StartupAuthority returns the actual root or source-derived startup seal.
+func (verified VerifiedFounderPeer) StartupAuthority() StartupAuthority {
+	if !verified.verified {
+		return nil
+	}
+	return verified.manifest
+}
+
+// Manifest returns the render-only manifest from the verified startup proof.
 func (verified VerifiedFounderPeer) Manifest() Manifest {
 	if !verified.verified {
 		return Manifest{}
@@ -991,7 +1012,8 @@ func (verified VerifiedFounderPeer) LaunchRequest(now time.Time) (FounderPeerLau
 func (verified VerifiedFounderPeer) launchRequest() FounderPeerLaunchRequest {
 	intent := verified.launch.intent
 	return FounderPeerLaunchRequest{
-		DeploymentID: intent.DeploymentID, Cell: oci.Region(intent.Cell), Environment: intent.Environment,
+		StartupAuthority: verified.manifest,
+		DeploymentID:     intent.DeploymentID, Cell: oci.Region(intent.Cell), Environment: intent.Environment,
 		Slot: intent.Slot, Node: intent.Node, Attempt: intent.Attempt, Generation: intent.Generation,
 		IntentSHA256: verified.launch.intentRecord.SHA256, FounderPlanSHA256: verified.planDigest,
 		PeerRowSHA256: verified.rowDigest, ManifestSHA256: verified.row.ManifestSHA256,

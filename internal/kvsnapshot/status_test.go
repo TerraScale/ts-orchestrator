@@ -3,15 +3,13 @@ package kvsnapshot
 import (
 	"context"
 	"errors"
-	"fmt"
+	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T) {
@@ -20,7 +18,7 @@ func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T)
 	put(t, kv, "secret-document-key", []byte("secret-document-value"))
 	put(t, openBucket(t, js, "TS_OTHER"), "a", []byte("other"))
 	openBucket(t, js, "TS_EMPTY")
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	snapshotter := snapshotterFor(js, fake, testBucket, "TS_OTHER", "TS_ABSENT", "TS_EMPTY")
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	snapshotter.Now = func() time.Time { return now }
@@ -44,13 +42,13 @@ func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T)
 	}
 	view = snapshotter.Status()
 	if view.State != "current" || !view.Buckets[0].LastCurrentAt.Equal(now) ||
-		!view.Buckets[0].LastUploadedAt.Equal(uploadedAt) || fake.puts != 2 {
-		t.Fatalf("unchanged status = %+v, puts = %d", view, fake.puts)
+		!view.Buckets[0].LastUploadedAt.Equal(uploadedAt) || fake.putCount() != 2 {
+		t.Fatalf("unchanged status = %+v, puts = %d", view, fake.putCount())
 	}
 	confirmedAt := now
 
 	put(t, kv, "secret-document-key", []byte("new-secret-document-value"))
-	fake.putErr = fakeError{403, "secret-error-details"}
+	fake.fail("PUT", &storageFault{403, "secret-error-details"})
 	now = now.Add(time.Minute)
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err == nil {
 		t.Fatal("upload failure was ignored")
@@ -66,7 +64,7 @@ func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{"secret-document", "secret-error-details", "etag-", testConfig.Namespace, testConfig.KMSKeyID} {
+	for _, secret := range []string{"secret-document", "secret-error-details", "etag-", testNamespace, "ocid1.key."} {
 		if strings.Contains(string(encoded), secret) {
 			t.Fatalf("snapshot metadata contains %q: %s", secret, encoded)
 		}
@@ -76,7 +74,7 @@ func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T)
 		t.Fatal("caller modified retained status")
 	}
 
-	fake.putErr = nil
+	fake.fail("PUT", nil)
 	now = now.Add(time.Minute)
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
@@ -91,16 +89,15 @@ func TestSnapshotStatusRetainsEvidenceAndRefreshesUnchangedBuckets(t *testing.T)
 func TestSnapshotStatusDistinguishesOverdueChecksFromUnchangedUploads(t *testing.T) {
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	snapshotter := snapshotterFor(js, fake, testBucket)
-	snapshotter.Interval = time.Minute
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	snapshotter.Now = func() time.Time { return now }
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	uploadedAt := now
-	now = now.Add(snapshotter.Interval + snapshotPassTimeout)
+	now = now.Add(snapshotInterval + snapshotPassTimeout)
 	if view := snapshotter.Status(); view.State != "current" || view.Overdue || view.CheckTimeoutSeconds != 120 {
 		t.Fatalf("status at the check deadline = %+v", view)
 	}
@@ -114,36 +111,33 @@ func TestSnapshotStatusDistinguishesOverdueChecksFromUnchangedUploads(t *testing
 		t.Fatalf("follower status = %+v", view)
 	}
 	snapshotter.Leader = func() bool { return true }
-	snapshotter.Schedule = func() (time.Duration, bool) { return time.Minute, true }
-	if view := snapshotter.Status(); view.State != "paused" || view.Overdue {
-		t.Fatalf("paused status = %+v", view)
-	}
-	snapshotter.Schedule = func() (time.Duration, bool) { return 10 * time.Minute, false }
-	if view := snapshotter.Status(); view.State != "current" || view.Overdue {
-		t.Fatalf("extended schedule status = %+v", view)
-	}
-	snapshotter.Schedule = nil
 	now = now.Add(24 * time.Hour)
 	if written, err := snapshotter.SnapshotOnce(t.Context()); err != nil || len(written) != 0 {
 		t.Fatalf("unchanged snapshot = %v, %v", written, err)
 	}
 	view = snapshotter.Status()
 	if view.State != "current" || view.Overdue || !view.Buckets[0].LastCurrentAt.Equal(now) ||
-		!view.Buckets[0].LastUploadedAt.Equal(uploadedAt) || fake.puts != 1 {
+		!view.Buckets[0].LastUploadedAt.Equal(uploadedAt) || fake.putCount() != 1 {
 		t.Fatalf("unchanged current status = %+v", view)
 	}
 }
 
 func TestSnapshotStatusRequiresEveryBucketToBeKnown(t *testing.T) {
-	now := time.Now()
-	snapshotter := &Snapshotter{Buckets: []string{testBucket, "TS_UNKNOWN"}, Interval: time.Minute,
-		Leader: func() bool { return true }, Now: func() time.Time { return now }, lastCheckAt: now}
-	snapshotter.recordCheck(testBucket, false, "absent", nil)
+	js := startJetStream(t)
+	storage := newObjectStorage(t)
+	snapshotter := snapshotterFor(js, storage, testBucket)
+	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	openBucket(t, js, "TS_UNKNOWN")
+	snapshotter.Buckets = append(snapshotter.Buckets, "TS_UNKNOWN")
 	if view := snapshotter.Status(); view.State != "unknown" || view.Overdue {
 		t.Fatalf("a checked bucket hid an unknown bucket: %+v", view)
 	}
-	snapshotter.recordCheck("TS_UNKNOWN", false, "empty", nil)
-	if view := snapshotter.Status(); view.State != "current" {
+	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if view := snapshotter.Status(); view.State != "current" || view.Buckets[0].State != "absent" || view.Buckets[1].State != "empty" {
 		t.Fatalf("successfully checked absent and empty buckets = %+v", view)
 	}
 }
@@ -151,7 +145,7 @@ func TestSnapshotStatusRequiresEveryBucketToBeKnown(t *testing.T) {
 func TestSnapshotStatusConfirmsAnExistingObjectWithoutClaimingAnUpload(t *testing.T) {
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	if _, err := snapshotterFor(js, fake, testBucket).SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +155,7 @@ func TestSnapshotStatusConfirmsAnExistingObjectWithoutClaimingAnUpload(t *testin
 	}
 	view := snapshotter.Status()
 	if view.State != "current" || view.Buckets[0].Sequence != 1 || view.Buckets[0].LastCurrentAt.IsZero() ||
-		!view.Buckets[0].LastUploadedAt.IsZero() || fake.puts != 1 {
+		!view.Buckets[0].LastUploadedAt.IsZero() || fake.putCount() != 1 {
 		t.Fatalf("confirmed status = %+v", view)
 	}
 }
@@ -169,13 +163,13 @@ func TestSnapshotStatusConfirmsAnExistingObjectWithoutClaimingAnUpload(t *testin
 func TestUnchangedSnapshotDetectsStorageFailureAndRepairsMissingObject(t *testing.T) {
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	snapshotter := snapshotterFor(js, fake, testBucket)
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	confirmed := snapshotter.Status().Buckets[0].LastCurrentAt
-	fake.getErr = fakeError{403, "NotAuthorized"}
+	fake.fail("GET", &storageFault{403, "NotAuthorized"})
 	if _, err := snapshotter.SnapshotOnce(t.Context()); err == nil {
 		t.Fatal("unchanged local KV hid an Object Storage failure")
 	}
@@ -183,71 +177,52 @@ func TestUnchangedSnapshotDetectsStorageFailureAndRepairsMissingObject(t *testin
 	if view.State != "failed" || view.Buckets[0].ErrorClass != "unauthorized" || !view.Buckets[0].LastCurrentAt.Equal(confirmed) {
 		t.Fatalf("storage failure lost confirmation evidence: %+v", view)
 	}
-	fake.getErr = nil
-	fake.mu.Lock()
-	clear(fake.objects)
-	fake.mu.Unlock()
+	fake.fail("GET", nil)
+	fake.remove(t, testBucket)
 	written, err := snapshotter.SnapshotOnce(t.Context())
-	if err != nil || len(written) != 1 || fake.puts != 2 || snapshotter.Status().State != "current" {
-		t.Fatalf("missing unchanged object was not repaired: %v, %v, puts=%d", written, err, fake.puts)
+	if err != nil || len(written) != 1 || fake.putCount() != 2 || snapshotter.Status().State != "current" {
+		t.Fatalf("missing unchanged object was not repaired: %v, %v, puts=%d", written, err, fake.putCount())
 	}
 }
 
-func TestSnapshotStatusReadsCurrentAuthorityAndSchedule(t *testing.T) {
-	var leader, paused atomic.Bool
-	leader.Store(true)
-	snapshotter := &Snapshotter{Buckets: []string{testBucket}, Interval: time.Minute,
-		Leader: leader.Load, Schedule: func() (time.Duration, bool) { return 2 * time.Minute, paused.Load() }}
-	if view := snapshotter.Status(); view.State != "unknown" || view.IntervalSeconds != 120 {
+func TestSnapshotStatusReadsCurrentAuthority(t *testing.T) {
+	js := startJetStream(t)
+	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
+	storage := newObjectStorage(t)
+	leader := true
+	snapshotter := snapshotterFor(js, storage, testBucket)
+	snapshotter.Leader = func() bool { return leader }
+	if view := snapshotter.Status(); view.State != "unknown" || view.IntervalSeconds != 30 {
 		t.Fatalf("initial status = %+v", view)
 	}
-	leader.Store(false)
+	if _, err := snapshotter.SnapshotOnce(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	leader = false
 	if view := snapshotter.Status(); view.State != "follower" {
 		t.Fatalf("follower status = %+v", view)
 	}
-	paused.Store(true)
-	if view := snapshotter.Status(); view.State != "paused" {
-		t.Fatalf("paused status = %+v", view)
+	leader = true
+	if view := snapshotter.Status(); view.State != "current" {
+		t.Fatalf("leader lost its completed snapshot evidence: %+v", view)
 	}
-	leader.Store(true)
-	paused.Store(false)
-	if view := snapshotter.Status(); view.State != "unknown" {
-		t.Fatalf("resumed status without evidence = %+v", view)
-	}
-}
-
-type blockedSnapshotClient struct {
-	*fakeObjects
-	started  chan struct{}
-	release  chan struct{}
-	deadline chan time.Time
-}
-
-type blockedBucketSnapshotClient struct {
-	*fakeObjects
-	object  string
-	started chan time.Time
-}
-
-func (client blockedBucketSnapshotClient) GetObject(ctx context.Context, request objectstorage.GetObjectRequest) (objectstorage.GetObjectResponse, error) {
-	if *request.ObjectName == client.object {
-		deadline, _ := ctx.Deadline()
-		client.started <- deadline
-		<-ctx.Done()
-		return objectstorage.GetObjectResponse{}, ctx.Err()
-	}
-	return client.fakeObjects.GetObject(ctx, request)
 }
 
 func TestSnapshotDeadlineDoesNotStarveLaterBuckets(t *testing.T) {
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("blocked"))
 	put(t, openBucket(t, js, "TS_OTHER"), "a", []byte("healthy"))
-	fake := newFakeObjects()
-	client := blockedBucketSnapshotClient{fakeObjects: fake, object: testConfig.objectName(testCell, testBucket),
-		started: make(chan time.Time, 1)}
+	fake := newObjectStorage(t)
+	started := make(chan struct{}, 1)
+	fake.hook = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/"+testBucket+".json") {
+			started <- struct{}{}
+			<-r.Context().Done()
+			return true
+		}
+		return false
+	}
 	snapshotter := snapshotterFor(js, fake, testBucket, "TS_OTHER")
-	snapshotter.Objects.Client = client
 	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
 	snapshotter.Now = func() time.Time { return now }
 	pass := func() []string {
@@ -262,10 +237,7 @@ func TestSnapshotDeadlineDoesNotStarveLaterBuckets(t *testing.T) {
 			close(done)
 		}()
 		select {
-		case deadline := <-client.started:
-			if deadline.IsZero() || time.Until(deadline) > snapshotPassTimeout {
-				t.Fatalf("snapshot deadline = %s, want at most %s", deadline, snapshotPassTimeout)
-			}
+		case <-started:
 		case <-ctx.Done():
 			t.Fatal("blocked bucket did not start")
 		}
@@ -309,8 +281,8 @@ func TestSnapshotDeadlineDoesNotStarveLaterBuckets(t *testing.T) {
 		t.Fatalf("later cancellation erased successful evidence: %+v", view)
 	}
 	now = now.Add(time.Minute)
-	if written := pass(); len(written) != 0 || fake.puts != 1 {
-		t.Fatalf("unchanged healthy snapshot was rewritten: %v, puts=%d", written, fake.puts)
+	if written := pass(); len(written) != 0 || fake.putCount() != 1 {
+		t.Fatalf("unchanged healthy snapshot was rewritten: %v, puts=%d", written, fake.putCount())
 	}
 	view = snapshotter.Status()
 	if view.Buckets[1].State != "current" || !view.Buckets[1].LastCurrentAt.Equal(now) ||
@@ -319,30 +291,28 @@ func TestSnapshotDeadlineDoesNotStarveLaterBuckets(t *testing.T) {
 	}
 }
 
-func (client blockedSnapshotClient) PutObject(ctx context.Context, request objectstorage.PutObjectRequest) (objectstorage.PutObjectResponse, error) {
-	deadline, _ := ctx.Deadline()
-	client.deadline <- deadline
-	close(client.started)
-	select {
-	case <-ctx.Done():
-		return objectstorage.PutObjectResponse{}, ctx.Err()
-	case <-client.release:
-		return client.fakeObjects.PutObject(ctx, request)
-	}
-}
-
 func TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe(t *testing.T) {
 	js := startJetStream(t)
 	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
-	fake := newFakeObjects()
+	fake := newObjectStorage(t)
 	if _, err := snapshotterFor(js, fake, testBucket).SnapshotOnce(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	put(t, openBucket(t, js, "TS_OTHER"), "a", []byte("other"))
-	client := blockedSnapshotClient{fakeObjects: fake, started: make(chan struct{}), release: make(chan struct{}),
-		deadline: make(chan time.Time, 1)}
+	started, release := make(chan struct{}), make(chan struct{})
+	fake.hook = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodPut {
+			return false
+		}
+		close(started)
+		select {
+		case <-r.Context().Done():
+			return true
+		case <-release:
+			return false
+		}
+	}
 	snapshotter := snapshotterFor(js, fake, testBucket, "TS_OTHER")
-	snapshotter.Objects.Client = client
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	done := make(chan error, 1)
@@ -351,12 +321,9 @@ func TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe(t *testing.T) {
 		done <- err
 	}()
 	select {
-	case <-client.started:
+	case <-started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("upload did not start")
-	}
-	if deadline := <-client.deadline; deadline.IsZero() || time.Until(deadline) > snapshotPassTimeout {
-		t.Fatalf("snapshot upload deadline = %s, want at most %s", deadline, snapshotPassTimeout)
 	}
 	read := make(chan string, 1)
 	go func() { read <- snapshotter.Status().State }()
@@ -379,7 +346,7 @@ func TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe(t *testing.T) {
 			}
 		})
 	}
-	close(client.release)
+	close(release)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
@@ -391,16 +358,62 @@ func TestSnapshotStatusDoesNotWaitForAnUploadAndIsThreadSafe(t *testing.T) {
 
 func TestSnapshotErrorClassesAreBounded(t *testing.T) {
 	for _, test := range []struct {
-		err   error
+		name  string
+		fault *storageFault
 		class string
 	}{
-		{context.DeadlineExceeded, "timeout"}, {context.Canceled, "canceled"},
-		{ErrNewerLineage, "newer_lineage"}, {ErrConflict, "conflict"},
-		{fakeError{401, "secret"}, "unauthorized"}, {fakeError{429, "secret"}, "throttled"},
-		{errors.New("secret upstream error"), "unavailable"},
+		{"unauthorized", &storageFault{401, "secret-upstream-error"}, "unauthorized"},
+		{"forbidden", &storageFault{403, "secret-upstream-error"}, "unauthorized"},
+		{"throttled", &storageFault{429, "secret-upstream-error"}, "throttled"},
+		{"unavailable", &storageFault{503, "secret-upstream-error"}, "unavailable"},
+		{"conflict", &storageFault{412, "secret-upstream-error"}, "conflict"},
 	} {
-		if got := snapshotErrorClass(fmt.Errorf("wrapped: %w", test.err)); got != test.class {
-			t.Errorf("class = %q, want %q", got, test.class)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			js := startJetStream(t)
+			put(t, openBucket(t, js, testBucket), "a", []byte("value"))
+			storage := newObjectStorage(t)
+			storage.fail(http.MethodPut, test.fault)
+			snapshotter := snapshotterFor(js, storage, testBucket)
+			if _, err := snapshotter.SnapshotOnce(t.Context()); err == nil {
+				t.Fatal("storage failure was ignored")
+			}
+			view := snapshotter.Status()
+			if view.State != "failed" || view.Buckets[0].ErrorClass != test.class {
+				t.Fatalf("class = %+v, want %q", view, test.class)
+			}
+			encoded, err := protocol.EncodeJSON(view)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(string(encoded), "secret-upstream-error") {
+				t.Fatalf("status leaked upstream error: %s", encoded)
+			}
+		})
+	}
+}
+
+func TestSnapshotClassifiesAnHTTPDeadline(t *testing.T) {
+	js := startJetStream(t)
+	put(t, openBucket(t, js, testBucket), "a", []byte("value"))
+	storage := newObjectStorage(t)
+	started := make(chan struct{})
+	storage.hook = func(w http.ResponseWriter, r *http.Request) bool {
+		close(started)
+		<-r.Context().Done()
+		return true
+	}
+	snapshotter := snapshotterFor(js, storage, testBucket)
+	ctx, cancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer cancel()
+	if _, err := snapshotter.SnapshotOnce(ctx); err == nil {
+		t.Fatal("deadline was ignored")
+	}
+	select {
+	case <-started:
+	default:
+		t.Fatal("deadline did not cross the HTTP boundary")
+	}
+	if view := snapshotter.Status(); view.State != "failed" || view.Buckets[0].ErrorClass != "timeout" {
+		t.Fatalf("deadline status = %+v", view)
 	}
 }

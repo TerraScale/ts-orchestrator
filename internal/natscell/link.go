@@ -21,6 +21,15 @@ const LinkHome = "gru"
 // LinkPort is the leafnode port of the home's controllers.
 const LinkPort = 7422
 
+// LinkServerName is the verified DNS identity of the GRU leaf listener.
+const LinkServerName = "leaf.gru.interregion.terrascale.internal"
+
+// LinkHomeHosts are the admitted GRU controller slot names used by both
+// credential material and NetBird DNS; no observed peer can add a leaf parent.
+func LinkHomeHosts() []string {
+	return []string{"ts-gru-1.nb.ts.internal", "ts-gru-2.nb.ts.internal", "ts-gru-3.nb.ts.internal"}
+}
+
 // linkLeafConnections bounds the home's leaf connections: 32 regions with 5
 // brokers each.
 const linkLeafConnections = 160
@@ -33,8 +42,14 @@ const linkRole = "link"
 // certificate, which the interregion CA signs.
 var (
 	linkListenPort = LinkPort
-	linkHomeURLs   = []string{"nats-leaf://ts-gru-1.nb.ts.internal:7422", "nats-leaf://ts-gru-2.nb.ts.internal:7422", "nats-leaf://ts-gru-3.nb.ts.internal:7422"}
-	linkServerName = "leaf.gru.interregion.terrascale.internal"
+	linkHomeURLs   = func() []string {
+		var urls []string
+		for _, host := range LinkHomeHosts() {
+			urls = append(urls, fmt.Sprintf("nats-leaf://%s:%d", host, LinkPort))
+		}
+		return urls
+	}()
+	linkServerName = LinkServerName
 )
 
 // Link joins this region to the home with mutual-TLS leafnodes that bind the
@@ -79,6 +94,12 @@ func LinkScope(signer string) *jwt.UserScope {
 		root + "." + cell + ".obs." + protocol.ObservabilityDecisionsLeaf, root + ".*.region.>",
 		protocol.InterRegionRoot + "." + cell + ".global", root + "." + cell + ".inbox.>", "_INBOX.>", "$JSC.R.>",
 	}
+	for _, action := range []string{"reserve", "revalidate", "observe"} {
+		scope.Template.Pub.Allow.Add(root + "." + cell + ".capacity." + action)
+	}
+	// Only the home answers spending requests. A spoke may receive its own
+	// replies, but cannot publish any capacity reply or receive any request.
+	scope.Template.Sub.Allow.Add(root + "." + cell + ".capacity-reply.>")
 	scope.Template.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
 	// A member answers each request once, on the requester's reply subject.
 	scope.Template.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
@@ -97,11 +118,21 @@ func ApplyLink(claim *jwt.AccountClaims, signer string) {
 // signer's template applies. The template alone makes it leafnode-only: the
 // server refuses a scoped user that sets allowed connection types.
 func IssueLinkUser(signer nkeys.KeyPair, homeAccount, cell string, issuedAt, expires time.Time) ([]byte, error) {
-	if token, err := protocol.RegionToken(cell); err != nil || token != cell {
-		return nil, errors.New("link user cell must be a lowercase regional cell")
+	if token, err := protocol.RegionToken(cell); err != nil || token != cell || cell == protocol.GlobalScope || cell == LinkHome {
+		return nil, errors.New("link user cell must be a lowercase spoke region")
 	}
 	if !nkeys.IsValidPublicAccountKey(homeAccount) {
 		return nil, errors.New("link user home account must be an account public key")
+	}
+	if signer == nil {
+		return nil, errors.New("link user requires a scoped account signing key")
+	}
+	signingKey, err := signer.PublicKey()
+	if err != nil || !nkeys.IsValidPublicAccountKey(signingKey) || signingKey == homeAccount {
+		return nil, errors.New("link user requires a scoped account signing key distinct from the home account")
+	}
+	if issuedAt.IsZero() || issuedAt.Unix() > time.Now().Unix() || expires.Unix() <= issuedAt.Unix() || expires.Unix() <= time.Now().Unix() {
+		return nil, errors.New("link user validity must be current with an expiration after its issuance")
 	}
 	user, err := nkeys.CreateUser()
 	if err != nil {
@@ -142,9 +173,6 @@ func (l *Link) Files() []string {
 
 // validate is the configuration check of a link block for cfg's cell.
 func (l *Link) validate(cfg Config) error {
-	if cfg.Lab {
-		return errors.New("link leafnodes require production operator accounts")
-	}
 	if !l.TLS.complete() {
 		return errors.New("link requires mutual TLS")
 	}
@@ -163,9 +191,15 @@ func (l *Link) validate(cfg Config) error {
 // VerifyLinkScope requires the cell account to hold exactly one link signing
 // key whose template is LinkScope's, and the leaf limit of the link.
 func VerifyLinkScope(claim *jwt.AccountClaims) error {
+	if claim == nil {
+		return errors.New("home cell account claim is required")
+	}
 	var links []*jwt.UserScope
-	for _, scope := range claim.SigningKeys {
+	for key, scope := range claim.SigningKeys {
 		if user, ok := scope.(*jwt.UserScope); ok && user != nil && user.Role == linkRole {
+			if user.Key != key || key == claim.Subject || !nkeys.IsValidPublicAccountKey(key) {
+				return errors.New("home link signing key must be a scoped account key distinct from the cell account")
+			}
 			links = append(links, user)
 		}
 	}
@@ -189,6 +223,18 @@ func VerifyLinkScope(claim *jwt.AccountClaims) error {
 	return nil
 }
 
+// verifyLinkAccount excludes remapping or account imports that could turn an
+// allowed read-only link request into a regional mutation.
+func verifyLinkAccount(claim *jwt.AccountClaims, cell string) error {
+	if len(claim.Mappings) != 0 || len(claim.Imports) != 0 || len(claim.Exports) != 0 {
+		return errors.New("link cell accounts must not have subject mappings, imports or exports")
+	}
+	if cell == LinkHome {
+		return VerifyLinkScope(claim)
+	}
+	return nil
+}
+
 // validateLinkCredentials requires a spoke's link user: a leafnode-only user of
 // a valid account, tagged for cell alone, unexpired and without permissions of
 // its own. The home's server verifies the operator chain.
@@ -204,6 +250,9 @@ func validateLinkCredentials(path, cell string) error {
 // ValidateLinkCredentialBytes is validateLinkCredentials for the bytes a
 // material generation pins as link.creds.
 func ValidateLinkCredentialBytes(data []byte, cell string) error {
+	if token, err := protocol.RegionToken(cell); err != nil || token != cell || cell == protocol.GlobalScope || cell == LinkHome {
+		return errors.New("link credentials require a lowercase spoke region")
+	}
 	raw, err := nkeys.ParseDecoratedJWT(data)
 	if err != nil {
 		return err
@@ -220,14 +269,16 @@ func ValidateLinkCredentialBytes(data []byte, cell string) error {
 	if public, err := pair.PublicKey(); err != nil || public != claim.Subject {
 		return errors.New("link credential seed and user JWT differ")
 	}
-	if !nkeys.IsValidPublicAccountKey(claim.IssuerAccount) || claim.BearerToken || claim.ProxyRequired || len(claim.Src) != 0 {
+	if !nkeys.IsValidPublicAccountKey(claim.IssuerAccount) || !nkeys.IsValidPublicAccountKey(claim.Issuer) ||
+		claim.Issuer == claim.IssuerAccount || claim.BearerToken || claim.ProxyRequired || len(claim.Src) != 0 {
 		return errors.New("link credentials must be issued for a home account and prove their key")
 	}
 	if len(claim.Tags) != 1 || claim.Tags[0] != "cell:"+cell {
 		return fmt.Errorf("link credentials must be tagged cell:%s alone", cell)
 	}
-	if claim.Expires <= time.Now().Unix() {
-		return errors.New("link credentials have expired")
+	now := time.Now().Unix()
+	if claim.IssuedAt <= 0 || claim.IssuedAt > now || claim.NotBefore > now || claim.Expires <= now || claim.Expires <= claim.IssuedAt {
+		return errors.New("link credentials must be currently valid with an expiration after their issuance")
 	}
 	// The server applies a scoped key's template only to a user with no
 	// permissions, limits or allowed connection types of its own.
@@ -246,15 +297,16 @@ func linkServerOptions(cfg Config, options *server.Options, resolver *accountRes
 	if err != nil {
 		return err
 	}
+	if err := verifyLinkAccount(cellClaim, cfg.Cell); err != nil {
+		return err
+	}
 	// The link rides the cell account, so the leaf accounts are the cell's.
 	resolver.interregion = resolver.cell
+	resolver.linkCell = cfg.Cell
 	options.LeafNode.NoAdvertise = true
 	// Same fast stale-path detection as the interregion leaves.
 	options.PingInterval, options.MaxPingsOut = 10*time.Second, 3
 	if cfg.Cell == LinkHome {
-		if err := VerifyLinkScope(cellClaim); err != nil {
-			return err
-		}
 		listenTLS, err := loadTLS(link.TLS, true)
 		if err != nil {
 			return fmt.Errorf("link listener TLS: %w", err)

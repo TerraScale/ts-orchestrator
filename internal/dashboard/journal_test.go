@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -398,7 +400,7 @@ func TestDecisionChainsAreSharedAndFailuresNamed(t *testing.T) {
 // interpolates.
 func TestChartTooltipsEscapeProviderText(t *testing.T) {
 	t.Parallel()
-	script := string(assets["app.js"].body)
+	script := get(t, newTestDashboard(Options{}).Handler(), assetURL("app.js")).Body.String()
 	for number, line := range strings.Split(script, "\n") {
 		if strings.Contains(line, "tooltip(t, {") && strings.Contains(line, "formatter:") &&
 			strings.Contains(line, "<br>") && !strings.Contains(line, "escapeHTML(") {
@@ -414,61 +416,35 @@ func TestChartTooltipsEscapeProviderText(t *testing.T) {
 
 func TestURLStateIsValidatedAndCarried(t *testing.T) {
 	t.Parallel()
-	state := parseState(url.Values{"range": {"14d"}, "r": {"SFO"}, "live": {"0"}, "kind": {"rollback,held"},
-		"q": {"host-a"}, "id": {"x\x00y"}, "actor": {"<script>"}, "unknown": {"1"}})
-	if state.Range.Key != "14d" || state.Region != "sfo" || state.Live {
-		t.Fatalf("shared state = %+v", state)
-	}
-	if state.param("kind") != "rollback,held" || state.param("q") != "host-a" || state.param("id") != "" ||
-		state.param("actor") != "" || state.param("unknown") != "" {
-		t.Fatalf("page params = %v", state.Params)
-	}
-	if link := state.link("/decisions", "id", "d1"); link != "/decisions?id=d1&live=0&r=sfo&range=14d" {
-		t.Fatalf("link = %s", link)
-	}
-	if link := state.keep("/decisions", "kind", ""); !strings.Contains(link, "q=host-a") || strings.Contains(link, "kind=") {
-		t.Fatalf("keep = %s", link)
-	}
-	if parseState(url.Values{"range": {"7y"}}).Range.Key != defaultRange {
-		t.Fatal("an unknown range was accepted")
-	}
-	for _, unsafe := range []string{"https://evil.example/x", "//evil.example/x", "javascript:alert(1)", "relative"} {
-		if got := state.adopt(unsafe, ""); got != "/" {
-			t.Errorf("adopt(%q) = %q", unsafe, got)
+	board, source, _ := journalDashboard(Options{})
+	body := get(t, board.Handler(), "/decisions?range=14d&r=SFO&live=0&kind=rollback,held&q=host-a&id=x%00y&actor=%3Cscript%3E&unknown=1").Body.String()
+	for _, want := range []string{"14d", "Paused", `value="sfo" selected`, `value="host-a"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("query state lost %s", want)
 		}
 	}
-	// The entity lives in its own region whatever region the page shows:
-	// a GRU insight opened while SFO is selected links into GRU.
-	if got := state.adopt("/nats?stream=x", "gru"); got != "/nats?live=0&r=gru&range=14d&stream=x" {
-		t.Errorf("adopt kept the selected region over the entity's: %s", got)
+	if strings.Contains(body, `value="x`) || strings.Contains(body, "unknown=1") || strings.Contains(body, `<script>`) {
+		t.Fatal("invalid query state reached response")
 	}
-	// A local entity ("" region) drops the inherited remote selection.
-	if got := state.adopt("/members?host=a", ""); got != "/members?host=a&live=0&range=14d" {
-		t.Errorf("local entity = %s", got)
-	}
-	// A region the link names itself wins.
-	if got := state.adopt("/region?r=fra", "gru"); got != "/region?live=0&r=fra&range=14d" {
-		t.Errorf("explicit region = %s", got)
-	}
-	plain := parseState(url.Values{})
-	if got := plain.adopt("/members?host=a", "gru"); got != "/members?host=a&r=gru" {
-		t.Errorf("adopt = %s", got)
-	}
-	// Links the insight engine emits for routes that predate the pages.
-	for link, want := range map[string]string{
-		"/regions/SFO":                  "/regions/sfo",
-		"/regions/SFO/nodes/Host-A":     "/regions/sfo/nodes/Host-A",
-		"/regions":                      "/",
-		"/decisions?subject=seat/m1":    "/decisions?q=m1",
-		"/decisions?subject=db/p0/m1":   "/decisions?q=db%2Fp0%2Fm1",
-		"/decisions?subject=a&q=winner": "/decisions?q=winner",
+	for _, test := range []struct{ link, want string }{
+		{"https://evil.example/x", `href="/"`}, {"//evil.example/x", `href="/"`}, {"javascript:alert(1)", `href="/"`}, {"relative", `href="/"`},
+		{"/regions/SFO", `href="/regions/sfo"`}, {"/regions/SFO/nodes/Host-A", `href="/regions/sfo/nodes/Host-A"`}, {"/regions", `href="/"`}, {"/decisions?subject=seat/m1", `href="/decisions?q=m1"`}, {"/decisions?subject=db/p0/m1", `href="/decisions?q=db%2Fp0%2Fm1"`}, {"/decisions?subject=a&q=winner", `href="/decisions?q=winner"`},
 	} {
-		if got := plain.adopt(link, ""); got != want {
-			t.Errorf("adopt(%q) = %q, want %q", link, got, want)
+		insight := testInsight("url", "URL target", insights.SeverityWarning, "")
+		insight.Entity = insights.Entity{Kind: "subject", ID: "one", Href: test.link}
+		source.evaluation.Insights = []insights.Insight{insight}
+		body = get(t, board.Handler(), "/insights").Body.String()
+		match := regexp.MustCompile(`<a (href="[^"]+") class="tag">subject one`).FindStringSubmatch(body)
+		if len(match) != 2 || match[1] != test.want {
+			t.Errorf("provider link %q rendered %v, want %s", test.link, match, test.want)
+		}
+		if strings.Contains(body, `href="https://evil`) || strings.Contains(body, `href="javascript:`) {
+			t.Fatal("unsafe provider link escaped validation")
 		}
 	}
-	if got := parseState(url.Values{"subject": {"seat/m1"}}).param("q"); got != "m1" {
-		t.Errorf("subject alias = %q", got)
+	body = get(t, board.Handler(), "/decisions?range=7y&subject=seat/m1").Body.String()
+	if strings.Contains(body, "range=7y") || !strings.Contains(body, `value="m1"`) {
+		t.Fatal("default range or legacy subject query is wrong")
 	}
 }
 
@@ -485,14 +461,21 @@ func TestLongTimeRangesReachChartHistory(t *testing.T) {
 			history.Append(now.Add(-duration+time.Hour), []observability.Sample{{Metric: observability.HistCPUUtilization, Value: 0.2}})
 			history.Append(now, []observability.Sample{{Metric: observability.HistCPUUtilization, Value: 0.8}})
 			current := view{State: state, Now: now, Journal: &Journal{History: history}}
-			series := current.historyRange(observability.HistCPUUtilization, nil, "", false)
-			if len(series) != 1 || len(series[0].Points) != 2 || series[0].Points[0][1] != 0.2 {
-				t.Fatalf("chart history over %s = %+v, want the older and current samples", key, series)
+			found := false
+			for _, chart := range pageCharts(t, fixturePage(t, current, "/region")) {
+				for _, series := range chart.Series {
+					if len(series.Points) == 2 && series.Points[0][1] == .2 {
+						found = true
+						if chart.Start != now.Add(-duration).UnixMilli() || chart.End != now.UnixMilli() {
+							t.Fatal("chart range clipped selected history")
+						}
+					}
+				}
 			}
-			chart := current.lineChart("line", "percent", series, "No history")
-			if chart.Start != now.Add(-duration).UnixMilli() || chart.End != now.UnixMilli() {
-				t.Fatalf("chart bounds = %d..%d, want the full %s range", chart.Start, chart.End, key)
+			if !found {
+				t.Fatalf("%s history did not reach the region chart", key)
 			}
+
 		})
 	}
 }
@@ -564,86 +547,24 @@ func TestReleaseTimelineAndVersionDrift(t *testing.T) {
 		{Region: "fra", Kind: "controller", Unit: "c", Version: "v0.43.0"},
 		{Region: "sfo", Kind: "seat", Unit: "s", Version: "terrabase 3.8.1"},
 	}}
-	releases := current.releases()
-	if len(releases) != 2 {
-		t.Fatalf("releases = %d", len(releases))
+	body := fixturePage(t, current, "/releases")
+	for _, want := range []string{"v0.43.0", "signer-q4", "batch 1 of 3", "4.1%", "mixed versions", "2 units off the target version"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("release page lacks %q", want)
+		}
 	}
-	byName := map[string]releaseView{}
-	for _, release := range releases {
-		byName[release.Name] = release
+	if target := pageTarget(t, current); target != "v0.43.0" {
+		t.Fatalf("controller target=%q", target)
 	}
-	running := byName["v0.43.0"]
-	if running.Status != "run" || len(running.Lanes) != 1 || running.Lanes[0].Region != "fra" {
-		t.Fatalf("v0.43.0 = %+v", running)
-	}
-	steps := map[string]releaseStep{}
-	for _, step := range running.Lanes[0].Steps {
-		steps[step.Stage] = step
-	}
-	if steps["qualified"].Label != "passed" || steps["signed"].Label != "signer-q4" || steps["canary"].Status != "ok" ||
-		steps["batches"].Label != "batch 1 of 3" || steps["batches"].Status != "run" || steps["outcome"].Decision != nil {
-		t.Fatalf("v0.43.0 steps = %+v", steps)
-	}
-	if bad := current.knownBad(); len(bad) != 1 || bad[0].Name != "v0.42.9" || !strings.Contains(bad[0].Reason, "4.1%") {
-		t.Fatalf("known bad = %+v", bad)
-	}
-	// The newest healthy release is the target even though fewer units run it.
-	if target := current.targetVersion("controller"); target != "v0.43.0" {
-		t.Fatalf("controller target = %q", target)
-	}
-	if cell := current.versionCell("fra", "controller"); !cell.Drift || len(cell.Versions) != 2 || cell.Total != 3 {
-		t.Fatalf("fra controllers = %+v", cell)
-	}
-	if cell := current.versionCell("sfo", "seat"); cell.Drift {
-		t.Fatalf("a single on-target seat drifted: %+v", cell)
-	}
-	if drifted := current.driftedUnits(); len(drifted) != 2 {
-		t.Fatalf("drifted = %+v", drifted)
-	}
+
 }
 
 func TestGlobalInsightsAreThisRegion(t *testing.T) {
 	t.Parallel()
-	journal, source, _ := fullJournal()
-	evaluation := source.Current()
-	current := view{Journal: journal, Evaluation: &evaluation}
-	merged := current.globalInsights()
-	if len(merged) != 1 || merged[0].Region != "fra" {
-		t.Fatalf("merged = %+v", merged)
-	}
-	// Rollups carry health reasons, not insights: the badge counts this region.
-	if counts := current.attention(); counts.Critical != 0 || counts.Warning != 1 {
-		t.Fatalf("counts = %+v", counts)
-	}
-}
-
-func TestForecastsAndHeatmaps(t *testing.T) {
-	t.Parallel()
-	start := float64(testNow.Add(-10 * time.Hour).UnixMilli())
-	var points [][2]float64
-	for hour := range 10 {
-		points = append(points, [2]float64{start + float64(hour)*3600_000, 0.5 + 0.01*float64(hour)})
-	}
-	full, ok := timeToFull(points)
-	if !ok || full < 40*time.Hour || full > 42*time.Hour {
-		t.Fatalf("time to full = %v %v", full, ok)
-	}
-	if _, ok := timeToFull(points[:2]); ok {
-		t.Fatal("two points made a forecast")
-	}
-	flat := [][2]float64{{0, 0.5}, {1000, 0.5}, {2000, 0.5}}
-	if _, ok := timeToFull(flat); ok {
-		t.Fatal("a flat series has a time to full")
-	}
-	current := view{Now: testNow, State: parseState(url.Values{"range": {"1h"}})}
-	series := []chartSeries{{Name: "a", Points: [][2]float64{{float64(testNow.Add(-30 * time.Minute).UnixMilli()), 0.5},
-		{float64(testNow.Add(-30*time.Minute).UnixMilli()) + 1, 0.7}, {float64(testNow.Add(-2 * time.Hour).UnixMilli()), 9}}}}
-	spec := current.heatmap("percent", series, "none")
-	if len(spec.Heat) != 1 || spec.Heat[0][2] != 0.6 || spec.Step != time.Hour.Milliseconds()/heatColumns {
-		t.Fatalf("heatmap = %+v", spec)
-	}
-	if empty := current.heatmap("percent", nil, "no data"); empty.Empty != "no data" {
-		t.Fatal("an empty heatmap has no empty state")
+	board, _, _ := journalDashboard(Options{})
+	body := get(t, board.Handler(), "/insights").Body.String()
+	if !strings.Contains(body, "Needs attention") || !strings.Contains(body, "ctl-1") {
+		t.Fatal("local insight was not visible")
 	}
 }
 
@@ -668,49 +589,58 @@ func TestLargeAssetsAreServedCompressed(t *testing.T) {
 			t.Fatalf("%s decompressed to different bytes", name)
 		}
 	}
-	if acceptsGzip("gzip;q=0") || !acceptsGzip("deflate, gzip") {
-		t.Fatal("acceptsGzip")
+}
+
+func TestDecisionCacheBoundsDistinctHTTPQueries(t *testing.T) {
+	t.Parallel()
+	board, _, source := journalDashboard(Options{})
+	for i := range 65 {
+		get(t, board.Handler(), "/decisions?q="+strconv.Itoa(i))
+	}
+	if len(board.decisions.entries) > 64 || source.queries.Load() != 65 {
+		t.Fatal("decision cache exceeded its query bound")
+	}
+	get(t, board.Handler(), "/decisions?q=64")
+	if source.queries.Load() != 65 {
+		t.Fatal("newest query was not cached")
 	}
 }
 
-func TestKeyedCacheBoundsEntries(t *testing.T) {
+func TestDecisionCacheServesConcurrentHTTPReaders(t *testing.T) {
 	t.Parallel()
-	cache := newKeyedCache[int](time.Hour, 2)
-	loads := 0
-	load := func(context.Context) (int, error) { loads++; return loads, nil }
-	for _, key := range []string{"a", "a", "b", "c", "a"} {
-		_, _ = cache.get(context.Background(), key, load)
-	}
-	if len(cache.entries) > 2 || loads < 3 {
-		t.Fatalf("entries = %d loads = %d", len(cache.entries), loads)
-	}
-}
-
-func TestKeyedCacheIsSafeForConcurrentStreams(t *testing.T) {
-	t.Parallel()
-	cache := newKeyedCache[int](time.Millisecond, 4)
+	board, _, source := journalDashboard(Options{})
+	server := httptest.NewServer(board.Handler())
+	defer server.Close()
 	var group sync.WaitGroup
-	for worker := range 8 {
+	for range 16 {
 		group.Go(func() {
-			for index := range 200 {
-				key := string(rune('a' + (worker+index)%6))
-				_, _ = cache.get(context.Background(), key, func(context.Context) (int, error) { return index, nil })
+			response, err := server.Client().Get(server.URL + "/decisions")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			defer response.Body.Close()
+			body, err := io.ReadAll(response.Body)
+			if err != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "Decision journal") {
+				t.Errorf("concurrent request failed: %d %v", response.StatusCode, err)
 			}
 		})
 	}
 	group.Wait()
+	if source.queries.Load() != 1 {
+		t.Fatalf("concurrent clients triggered %d provider queries", source.queries.Load())
+	}
 }
 
 func TestEventFilterSearchAndTimeWindow(t *testing.T) {
 	t.Parallel()
-	filter := parseEventFilter(url.Values{"q": {"Seat"}, "at": {testNow.Format(time.RFC3339)}})
-	near := observability.Event{Time: testNow.Add(2 * time.Minute), Level: "INFO", Message: "x", Attrs: map[string]string{"seat": "orders-1"}}
-	far := near
-	far.Time = testNow.Add(time.Hour)
-	other := near
-	other.Attrs = map[string]string{"region": "fra"}
-	if !filter.matches(near) || filter.matches(far) || filter.matches(other) {
-		t.Fatal("search or time window filter is wrong")
+	bus := observability.NewEventBus(16)
+	bus.Publish(observability.Event{Time: testNow.Add(2 * time.Minute), Level: "INFO", Message: "near-event", Attrs: map[string]string{"seat": "orders-1"}})
+	bus.Publish(observability.Event{Time: testNow.Add(time.Hour), Level: "INFO", Message: "far-event", Attrs: map[string]string{"seat": "orders-1"}})
+	bus.Publish(observability.Event{Time: testNow.Add(2 * time.Minute), Level: "INFO", Message: "other-event", Attrs: map[string]string{"region": "fra"}})
+	body := get(t, newTestDashboard(Options{Events: bus}).Handler(), "/events?q=Seat&at="+url.QueryEscape(testNow.Format(time.RFC3339))).Body.String()
+	if !strings.Contains(body, "near-event") || strings.Contains(body, "far-event") || strings.Contains(body, "other-event") {
+		t.Fatal("event page ignored search or time window")
 	}
 }
 

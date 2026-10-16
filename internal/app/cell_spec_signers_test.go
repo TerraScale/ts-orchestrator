@@ -8,11 +8,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -24,24 +19,7 @@ import (
 // as the spec is adopted, and a spec that stops trusting the key applying it
 // is refused so the cell always keeps an operator.
 func TestCellSpecSignersReplaceTheSignedSigners(t *testing.T) {
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := testRolloutJetStream(t)
 	signer := func(actor string) (TrustedSignerConfig, string) {
 		public, _, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
@@ -58,12 +36,13 @@ func TestCellSpecSignersReplaceTheSignedSigners(t *testing.T) {
 	ci, ciKey := signer("ci")
 	dir := t.TempDir()
 	keys := newTestSpecTrust(t, dir, cellspec.Identity{DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "gru", Environment: "canary"})
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+	cfg := Config{NATS: natscell.Config{Cell: "gru"},
 		Controller: ControllerConfig{SpecTrust: keys.config(), TrustedSigners: []TrustedSignerConfig{ops}}}
 	policy, err := buildSignerPolicy(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +109,9 @@ func TestCellSpecSignersReplaceTheSignedSigners(t *testing.T) {
 // signers are refused is not adopted, so no consumer sees one generation's
 // spec with another's signers.
 func TestCellSpecAdoptionSwapsSignersFirst(t *testing.T) {
-	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, "")
+	cfg := Config{NATS: natscell.Config{Cell: "gru"}}
+	newAcceptedSpecTrust(t, &cfg)
+	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
 	}

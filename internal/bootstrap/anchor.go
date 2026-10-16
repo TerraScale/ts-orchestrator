@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -36,18 +37,50 @@ var ErrBootstrapAnchorInvalid = errors.New("bootstrap anchor is invalid")
 // Image identity is intentionally absent because the image receipt does not
 // exist yet when this anchor is signed.
 type BootstrapAnchor struct {
-	SchemaVersion                 int           `json:"schemaVersion"`
-	DeploymentID                  string        `json:"deploymentId"`
-	Environment                   string        `json:"environment"`
-	ClusterID                     string        `json:"clusterId"`
-	Cell                          oci.Region    `json:"cell"`
-	OCIRegion                     string        `json:"ociRegion"`
-	StorageDomain                 StorageDomain `json:"storageDomain"`
-	ControllerSlots               []string      `json:"controllerSlots"`
-	LedgerDelegationWire          []byte        `json:"ledgerDelegationWire"`
-	InitialRegionIntentGeneration uint64        `json:"initialRegionIntentGeneration"`
-	InitialRegionIntentSHA256     string        `json:"initialRegionIntentSha256"`
-	InitialRegionIntentWire       []byte        `json:"initialRegionIntentWire"`
+	SchemaVersion                 int                        `json:"schemaVersion"`
+	DeploymentID                  string                     `json:"deploymentId"`
+	Environment                   string                     `json:"environment"`
+	ClusterID                     string                     `json:"clusterId"`
+	Cell                          oci.Region                 `json:"cell"`
+	OCIRegion                     string                     `json:"ociRegion"`
+	StorageDomain                 StorageDomain              `json:"storageDomain"`
+	FoundationScope               *FoundationScope           `json:"foundationScope,omitempty"`
+	InitialSourceRegistration     *InitialSourceRegistration `json:"initialSourceRegistration,omitempty"`
+	ControllerSlots               []string                   `json:"controllerSlots"`
+	LedgerDelegationWire          []byte                     `json:"ledgerDelegationWire"`
+	InitialRegionIntentGeneration uint64                     `json:"initialRegionIntentGeneration"`
+	InitialRegionIntentSHA256     string                     `json:"initialRegionIntentSha256"`
+	InitialRegionIntentWire       []byte                     `json:"initialRegionIntentWire"`
+}
+
+// FoundationScope is root-authenticated home discovery metadata. It does not
+// authorize writes: the separately root-signed grant must match every pin.
+// A missing reference on a historical anchor cannot authorize cold generation.
+type FoundationScope struct {
+	InstallationID  string        `json:"installationId"`
+	DeploymentID    string        `json:"deploymentId"`
+	ClusterID       string        `json:"clusterId"`
+	TenancyID       string        `json:"tenancyId"`
+	OCIRegion       string        `json:"ociRegion"`
+	StorageDomain   StorageDomain `json:"storageDomain"`
+	GrantGeneration uint64        `json:"grantGeneration"`
+	GrantSHA256     string        `json:"grantSha256"`
+}
+
+func (scope FoundationScope) Validate() error {
+	if !entityid.Valid(scope.InstallationID) || !entityid.Valid(scope.DeploymentID) || !entityid.Valid(scope.ClusterID) ||
+		!isOCID(scope.TenancyID, "tenancy") || scope.OCIRegion != "sa-saopaulo-1" || scope.GrantGeneration == 0 || !sha256RE.MatchString(scope.GrantSHA256) {
+		return fmt.Errorf("%w: invalid home foundation discovery reference", ErrBootstrapAnchorInvalid)
+	}
+	if err := scope.StorageDomain.Validate(); err != nil {
+		return fmt.Errorf("%w: invalid home foundation storage: %v", ErrBootstrapAnchorInvalid, err)
+	}
+	for _, key := range []string{scope.StorageDomain.HeadKMSKeyOCID, scope.StorageDomain.LedgerKMSKeyOCID} {
+		if !strings.HasPrefix(key, "ocid1.key.oc1.sa-saopaulo-1.") {
+			return fmt.Errorf("%w: home foundation KMS region differs", ErrBootstrapAnchorInvalid)
+		}
+	}
+	return nil
 }
 
 // Validate verifies the immutable deployment scope, complete ledger domain,
@@ -58,6 +91,14 @@ func (anchor BootstrapAnchor) Validate() error {
 		!entityid.Valid(anchor.DeploymentID) || !entityid.Valid(anchor.ClusterID) ||
 		(anchor.Environment != "production" && anchor.Environment != "canary") || anchor.OCIRegion != ociRegion {
 		return fmt.Errorf("%w: required identity or region binding", ErrBootstrapAnchorInvalid)
+	}
+	if anchor.FoundationScope != nil {
+		if err := anchor.FoundationScope.Validate(); err != nil {
+			return err
+		}
+		if anchor.Cell == "GRU" && (anchor.FoundationScope.DeploymentID != anchor.DeploymentID || anchor.FoundationScope.ClusterID != anchor.ClusterID || anchor.FoundationScope.StorageDomain != anchor.StorageDomain) {
+			return fmt.Errorf("%w: home discovery identity differs from home anchor", ErrBootstrapAnchorInvalid)
+		}
 	}
 	if err := anchor.StorageDomain.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", ErrBootstrapAnchorInvalid, err)
@@ -71,19 +112,26 @@ func (anchor BootstrapAnchor) Validate() error {
 			return fmt.Errorf("%w: invalid controller slot %q", ErrBootstrapAnchorInvalid, slot)
 		}
 	}
-	if len(anchor.LedgerDelegationWire) == 0 || len(anchor.LedgerDelegationWire) > MaxBootstrapLedgerGrantBytes {
-		return fmt.Errorf("%w: ledger delegation wire is absent or exceeds %d bytes", ErrBootstrapAnchorInvalid, MaxBootstrapLedgerGrantBytes)
-	}
-	grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
-	if err != nil {
-		return fmt.Errorf("%w: decode ledger delegation wire: %v", ErrBootstrapAnchorInvalid, err)
-	}
-	grant, err := decodeBootstrapLedgerDelegation(grantEnvelope)
-	if err != nil {
-		return err
-	}
-	if err := validateBootstrapLedgerCapabilities(grant, anchor); err != nil {
-		return err
+	if anchor.InitialSourceRegistration != nil {
+		registration := anchor.InitialSourceRegistration
+		if len(anchor.LedgerDelegationWire) != 0 || anchor.FoundationScope == nil || registration.Validate() != nil || registration.DeploymentID != anchor.DeploymentID || registration.Environment != anchor.Environment || registration.ClusterID != anchor.ClusterID || registration.Cell != anchor.Cell || registration.Generation != anchor.FoundationScope.GrantGeneration || registration.InstallationID != anchor.FoundationScope.InstallationID || registration.StorageDomain != anchor.StorageDomain || !slices.Equal(registration.ControllerSlots, anchor.ControllerSlots) {
+			return fmt.Errorf("%w: source registration differs from exact anchor or replaces pinned ledger signer", ErrBootstrapAnchorInvalid)
+		}
+	} else {
+		if len(anchor.LedgerDelegationWire) == 0 || len(anchor.LedgerDelegationWire) > MaxBootstrapLedgerGrantBytes {
+			return fmt.Errorf("%w: ledger delegation wire is absent or exceeds %d bytes", ErrBootstrapAnchorInvalid, MaxBootstrapLedgerGrantBytes)
+		}
+		grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
+		if err != nil {
+			return fmt.Errorf("%w: decode ledger delegation wire: %v", ErrBootstrapAnchorInvalid, err)
+		}
+		grant, err := decodeBootstrapLedgerDelegation(grantEnvelope)
+		if err != nil {
+			return err
+		}
+		if err := validateBootstrapLedgerCapabilities(grant, anchor); err != nil {
+			return err
+		}
 	}
 	if len(anchor.InitialRegionIntentWire) == 0 || len(anchor.InitialRegionIntentWire) > MaxInitialRegionIntentBytes ||
 		anchor.InitialRegionIntentGeneration == 0 || !sha256RE.MatchString(anchor.InitialRegionIntentSHA256) {
@@ -166,6 +214,16 @@ func (verified VerifiedBootstrapAnchor) StorageDomain() StorageDomain {
 	return verified.anchor.StorageDomain
 }
 
+// FoundationScope returns a defensive copy of the authenticated home reference.
+// Historical anchors without one retain historical validity but grant no cold
+// generation authority.
+func (verified VerifiedBootstrapAnchor) FoundationScope() (FoundationScope, error) {
+	if !verified.verified || verified.anchor.FoundationScope == nil {
+		return FoundationScope{}, fmt.Errorf("%w: home foundation reference is absent", ErrBootstrapAnchorInvalid)
+	}
+	return *verified.anchor.FoundationScope, nil
+}
+
 // Wire returns the exact canonical root-signed envelope bytes. A caller can
 // persist these bytes in an accepted-install marker for restart continuity.
 func (verified VerifiedBootstrapAnchor) Wire() []byte { return bytes.Clone(verified.wire) }
@@ -184,7 +242,7 @@ func (verified VerifiedBootstrapAnchor) ExpiresAt() time.Time { return verified.
 // five exact slot-ledger record domains. It must be supplied to the ledger
 // before opening signed records or performing a ledger action.
 func (verified VerifiedBootstrapAnchor) LedgerDelegation() (trust.VerifiedDelegation, error) {
-	if !verified.verified {
+	if !verified.verified || len(verified.anchor.LedgerDelegationWire) == 0 {
 		return trust.VerifiedDelegation{}, fmt.Errorf("%w: anchor verification is absent", ErrBootstrapAnchorInvalid)
 	}
 	return verified.ledgerDelegation, nil
@@ -257,7 +315,7 @@ func (verified HistoricalBootstrapAnchor) AcceptedAt() time.Time { return verifi
 // current root set and the accepted anchor interval. The result is for reading
 // historical ledger records only; it does not authorize present-day actions.
 func (verified HistoricalBootstrapAnchor) HistoricalLedgerDelegation() (trust.VerifiedDelegation, error) {
-	if !verified.verified {
+	if !verified.verified || len(verified.anchor.LedgerDelegationWire) == 0 {
 		return trust.VerifiedDelegation{}, fmt.Errorf("%w: historical anchor verification is absent", ErrBootstrapAnchorInvalid)
 	}
 	return verified.ledgerDelegation, nil
@@ -285,12 +343,14 @@ func SignBootstrapAnchor(anchor BootstrapAnchor, issuedAt, expiresAt time.Time, 
 	if err := anchor.Validate(); err != nil {
 		return trust.Envelope{}, err
 	}
-	grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
-	if err != nil {
-		return trust.Envelope{}, fmt.Errorf("decode bootstrap ledger delegation: %w", err)
-	}
-	if err := validateBootstrapAnchorGrantInterval(issuedAt, expiresAt, grantEnvelope); err != nil {
-		return trust.Envelope{}, err
+	if len(anchor.LedgerDelegationWire) > 0 {
+		grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
+		if err != nil {
+			return trust.Envelope{}, fmt.Errorf("decode bootstrap ledger delegation: %w", err)
+		}
+		if err := validateBootstrapAnchorGrantInterval(issuedAt, expiresAt, grantEnvelope); err != nil {
+			return trust.Envelope{}, err
+		}
 	}
 	payload, err := trust.EncodePayload(anchor)
 	if err != nil {
@@ -383,24 +443,26 @@ func verifyBootstrapAnchor(envelope trust.Envelope, roots trust.Keyring, expecte
 	if anchor.DeploymentID != expected.DeploymentID || anchor.Environment != expected.Environment || anchor.Cell != expected.Cell {
 		return VerifiedBootstrapAnchor{}, fmt.Errorf("%w: anchor does not match fixed local boot identity", ErrBootstrapAnchorInvalid)
 	}
-	grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
-	if err != nil {
-		return VerifiedBootstrapAnchor{}, fmt.Errorf("%w: decode ledger delegation wire: %v", ErrBootstrapAnchorInvalid, err)
-	}
 	var ledgerDelegation trust.VerifiedDelegation
-	if historical {
-		ledgerDelegation, err = trust.VerifyDelegationHistorical(grantEnvelope, roots, policy)
-	} else {
-		ledgerDelegation, err = trust.VerifyDelegationCurrent(grantEnvelope, roots, now, policy)
-	}
-	if err != nil {
-		return VerifiedBootstrapAnchor{}, fmt.Errorf("verify bootstrap ledger delegation: %w", err)
-	}
-	if err := validateBootstrapAnchorGrantInterval(envelope.IssuedAt, envelope.ExpiresAt, grantEnvelope); err != nil {
-		return VerifiedBootstrapAnchor{}, err
-	}
-	if err := validateVerifiedBootstrapLedgerCapabilities(ledgerDelegation, anchor); err != nil {
-		return VerifiedBootstrapAnchor{}, err
+	if len(anchor.LedgerDelegationWire) > 0 {
+		grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
+		if err != nil {
+			return VerifiedBootstrapAnchor{}, fmt.Errorf("%w: decode ledger delegation wire: %v", ErrBootstrapAnchorInvalid, err)
+		}
+		if historical {
+			ledgerDelegation, err = trust.VerifyDelegationHistorical(grantEnvelope, roots, policy)
+		} else {
+			ledgerDelegation, err = trust.VerifyDelegationCurrent(grantEnvelope, roots, now, policy)
+		}
+		if err != nil {
+			return VerifiedBootstrapAnchor{}, fmt.Errorf("verify bootstrap ledger delegation: %w", err)
+		}
+		if err := validateBootstrapAnchorGrantInterval(envelope.IssuedAt, envelope.ExpiresAt, grantEnvelope); err != nil {
+			return VerifiedBootstrapAnchor{}, err
+		}
+		if err := validateVerifiedBootstrapLedgerCapabilities(ledgerDelegation, anchor); err != nil {
+			return VerifiedBootstrapAnchor{}, err
+		}
 	}
 	intent, err := canonicalRegionIntent(anchor.InitialRegionIntentWire)
 	if err != nil {
@@ -523,6 +585,12 @@ func bootstrapAnchorScope(deploymentID, cell, environment string) trust.Scope {
 }
 
 func cloneBootstrapAnchor(anchor BootstrapAnchor) BootstrapAnchor {
+	if anchor.InitialSourceRegistration != nil {
+		anchor.InitialSourceRegistration = new(anchor.InitialSourceRegistration.Clone())
+	}
+	if anchor.FoundationScope != nil {
+		anchor.FoundationScope = new(*anchor.FoundationScope)
+	}
 	anchor.ControllerSlots = slices.Clone(anchor.ControllerSlots)
 	anchor.LedgerDelegationWire = bytes.Clone(anchor.LedgerDelegationWire)
 	anchor.InitialRegionIntentWire = bytes.Clone(anchor.InitialRegionIntentWire)

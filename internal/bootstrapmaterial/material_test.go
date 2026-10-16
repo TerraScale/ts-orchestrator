@@ -2,10 +2,12 @@ package bootstrapmaterial
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
@@ -13,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,6 +31,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nkeys"
 )
 
@@ -94,7 +98,7 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(first, second) {
 		t.Fatalf("rerun changed material: %v", err)
 	}
-	if len(first.Files) != 34 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
+	if len(first.Files) != 37 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
 		t.Fatal("incomplete or reused signing identities")
 	}
 	for _, name := range expectedNames() {
@@ -254,6 +258,62 @@ func TestControllerMaterialAlwaysGrantsTelemetryWithBoundGlobalHome(t *testing.T
 				if err != nil {
 					t.Fatalf("home %s lacks global grants: %v", slot.Name, err)
 				}
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+			defer cancel()
+			path := func(name string) string { return filepath.Join(directory, name) }
+			tlsFiles := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path("controller-a-tls-cert.pem"), KeyFile: path("controller-a-tls-key.pem")}
+			brokerConfig := natscell.Config{Cell: cfg.Cell, Instance: "controller-a", Replicas: 1, CredentialsFile: path("controller-a.creds"), TLS: tlsFiles,
+				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "broker"),
+					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: "integration-route", OperatorJWTFile: path("operator.jwt"),
+					SystemJWTFile: path("system.jwt"), CellJWTFile: path("cell.jwt"), SystemCredentialsFile: path("system.creds"),
+					TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: []string{"controller-a"}}}
+			if err := natscell.ValidateProductionCredentials(brokerConfig); err != nil {
+				t.Fatalf("generated controller preflight: %v", err)
+			}
+			broker, err := natscell.Start(ctx, brokerConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer broker.Close()
+			if err := broker.ApplyCellClaim(ctx, 1, broker.InitialCellJWT()); err != nil {
+				t.Fatal(err)
+			}
+			if err := broker.Bridge().OpenUntil(1, broker.InitialCellJWT(), time.Now().Add(time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			certificate, err := tls.LoadX509KeyPair(tlsFiles.CertFile, tlsFiles.KeyFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ca, err := os.ReadFile(tlsFiles.CAFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := x509.NewCertPool()
+			if !roots.AppendCertsFromPEM(ca) {
+				t.Fatal("generated CA is invalid")
+			}
+			client, err := nats.Connect(broker.URL(), nats.UserCredentials(brokerConfig.CredentialsFile),
+				nats.SetCustomDialer(&tls.Dialer{NetDialer: &net.Dialer{Timeout: time.Second}, Config: &tls.Config{
+					MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}, ServerName: "controller-a"}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			requests, err := broker.Conn().SubscribeSync(protocol.GlobalBudgetSetSubject())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer requests.Unsubscribe()
+			if err := broker.Conn().FlushWithContext(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := client.Publish(protocol.GlobalBudgetSetSubject(), []byte("budget")); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := requests.NextMsg(time.Second); err != nil {
+				t.Fatalf("generated controller cannot publish and receive global budget requests: %v", err)
 			}
 		})
 	}
@@ -574,7 +634,7 @@ func TestCellAccountRoleSignerIsExactOrAbsent(t *testing.T) {
 		}
 		var role string
 		for key := range claim.SigningKeys {
-			if key != record.Public.HostNATSIssuerNKey {
+			if key != record.Public.HostNATSIssuerNKey && key != record.Public.ControllerAccountSignerNKey {
 				role = key
 			}
 		}

@@ -43,7 +43,7 @@ func TestPartialJetStreamInventoryRemainsVisible(t *testing.T) {
 	member := memberSnapshot()
 	member.NATS.Truncated = true
 	current := view{Local: &member}
-	body := renderHTML(t, natsBody(current))
+	body := fixturePage(t, current, "/nats")
 	if !strings.Contains(body, "omitted resources have unknown health") {
 		t.Fatal("NATS page hides partial inventory")
 	}
@@ -77,9 +77,15 @@ func TestDashboardActiveCountsExcludeTerminalPartitions(t *testing.T) {
 			Rollout: &observability.RolloutView{Seats: 3}},
 	}}
 	current := view{Local: &member}
-	for _, tile := range current.regionKPIs() {
-		if tile.Label == "Managed TerraBase partitions" && tile.Value != "1" {
-			t.Fatalf("partition tile includes terminal state: %+v", tile)
-		}
+	body := fixturePage(t, current, "/region")
+	at := strings.Index(body, "Managed TerraBase partitions")
+	if at < 0 {
+		t.Fatal("region page lost partition tile")
 	}
+	tile := body[at:]
+	tile = tile[:strings.Index(tile, "</article>")]
+	if !strings.Contains(tile, "<strong>1</strong>") {
+		t.Fatalf("terminal partition changed active tile: %s", tile)
+	}
+
 }

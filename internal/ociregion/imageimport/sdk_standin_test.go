@@ -184,6 +184,77 @@ func TestSDKClientImportsIntoStandIn(t *testing.T) {
 			t.Fatalf("removed a shape of a compliant image: %q", region.Requests())
 		}
 	}
+	for _, operation := range []struct {
+		name string
+		run  func(context.Context, imageimport.API) error
+	}{
+		{"capability read", func(ctx context.Context, client imageimport.API) error {
+			_, err := client.GetCapabilitySchema(ctx, "ocid1.computeimagecapabilityschema.oc1.sa-saopaulo-1.test")
+			return err
+		}},
+		{"schema create", func(ctx context.Context, client imageimport.API) error {
+			_, err := client.CreateCapabilitySchema(ctx, "ocid1.compartment.oc1..c", imageID, "qualified", "1", imageimport.Capabilities())
+			return err
+		}},
+		{"shape delete", func(ctx context.Context, client imageimport.API) error {
+			return client.RemoveShape(ctx, imageID, imageimport.A1Shape)
+		}},
+	} {
+		t.Run("cancel "+operation.name, func(t *testing.T) {
+			started, disconnected := make(chan struct{}, 1), make(chan struct{}, 1)
+			release := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") == "" {
+					t.Error("SDK request was not signed")
+				}
+				if _, err := io.Copy(io.Discard, r.Body); err != nil {
+					t.Error(err)
+					return
+				}
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				select {
+				case <-r.Context().Done():
+					select {
+					case disconnected <- struct{}{}:
+					default:
+					}
+				case <-release:
+				}
+			}))
+			defer server.Close()
+			defer close(release)
+			client, err := imageimporttest.Client(server.URL, "sa-saopaulo-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- operation.run(ctx, client) }()
+			select {
+			case <-started:
+			case <-time.After(5 * time.Second):
+				t.Fatal("signed SDK request did not reach the HTTP server")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("request cancellation lost: %v", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("SDK request did not return after cancellation")
+			}
+			select {
+			case <-disconnected:
+			case <-time.After(2 * time.Second):
+				t.Fatal("HTTP request remained connected after cancellation")
+			}
+		})
+	}
 }
 
 func anyStrings(value any) []string {

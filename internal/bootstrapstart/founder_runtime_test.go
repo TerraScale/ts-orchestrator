@@ -283,6 +283,7 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 			RouteCertificate: digest([]byte(slot + "-tls-cert.pem")), RoutePrivateKey: digest([]byte(slot + "-tls-key.pem")),
 		}
 	}
+
 	imageWire, grantWire := founderRuntimeImageWires(t, fixture)
 	manifests := make(map[string][]byte, 3)
 	for slot, wire := range fixture.manifests {
@@ -671,7 +672,7 @@ func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Cont
 }
 
 func (checker *founderAdmissionCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins,
-	_ bootstrap.VerifiedManifest,
+	_ bootstrap.StartupAuthority,
 ) error {
 	return checker.VerifyLiveCredentials(ctx, expected, AcceptedIdentity{})
 }

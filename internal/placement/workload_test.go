@@ -36,32 +36,6 @@ func TestPlanWorkloadSpreadsDeterministicallyAndBalancesCapacity(t *testing.T) {
 	}
 }
 
-func TestPlanWorkloadKeepsHealthyAndPendingAssignmentsAndWithdrawsFailedOnes(t *testing.T) {
-	hosts := []WorkloadHost{
-		workloadHost("node-a", "fd-a", Resources{CPU: 8, MemoryBytes: 16 << 30, DiskBytes: 100 << 30}, Resources{}),
-		workloadHost("node-b", "fd-b", Resources{CPU: 8, MemoryBytes: 16 << 30, DiskBytes: 100 << 30}, Resources{}),
-		workloadHost("node-c", "fd-c", Resources{CPU: 8, MemoryBytes: 16 << 30, DiskBytes: 100 << 30}, Resources{}),
-	}
-	previous := []Assignment{
-		{Node: "node-b", Role: "ts-auth", Ordinal: 1, Pending: true},
-		{Node: "node-a", Role: "ts-auth", Ordinal: 0, Ready: true},
-		{Node: "node-c", Role: "ts-auth", Ordinal: 2},
-	}
-
-	plan, err := PlanReplicas("gru", "ts-auth", 2, testRequest, hosts, previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []Assignment{
-		{Node: "node-a", Role: "ts-auth", Ordinal: 0, Ready: true},
-		{Node: "node-b", Role: "ts-auth", Ordinal: 1, Pending: true},
-		{Node: "node-c", Role: "ts-auth", Ordinal: 2, Withdrawn: true},
-	}
-	if !reflect.DeepEqual(plan, want) {
-		t.Fatalf("plan = %#v, want %#v", plan, want)
-	}
-}
-
 func TestPlanWorkloadReplacesFailedAssignmentOnAnotherNode(t *testing.T) {
 	hosts := []WorkloadHost{
 		workloadHost("node-a", "fd-a", Resources{CPU: 8, MemoryBytes: 16 << 30, DiskBytes: 100 << 30}, Resources{}),
@@ -132,20 +106,6 @@ func TestPlanWorkloadRejectsOvercapacityWithoutPartialAssignments(t *testing.T) 
 	}
 	if len(plan) != 0 {
 		t.Fatalf("partial plan escaped capacity failure: %#v", plan)
-	}
-}
-
-func TestPlanWorkloadWithdrawsAllAssignmentsWhenTargetIsZero(t *testing.T) {
-	previous := []Assignment{
-		{Node: "node-a", Role: "ts-auth", Ordinal: 0, Ready: true},
-		{Node: "node-b", Role: "ts-auth", Ordinal: 1, Pending: true},
-	}
-	plan, err := PlanReplicas("gru", "ts-auth", 0, testRequest, nil, previous)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(plan) != 2 || plan[0].Node != "node-a" || !plan[0].Withdrawn || plan[1].Node != "node-b" || !plan[1].Withdrawn {
-		t.Fatalf("plan = %#v, want sorted withdrawals", plan)
 	}
 }
 

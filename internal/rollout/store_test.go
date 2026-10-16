@@ -533,7 +533,7 @@ func TestReleaseGenerationsOfANewerBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.kv.Put(ctx, desiredKey, []byte(strings.Replace(string(desired.Value()), `"schema_version":1`, `"schema_version":2`, 1))); err != nil {
+	if _, err := store.kv.Put(ctx, desiredKey, []byte(strings.Replace(string(desired.Value()), fmt.Sprintf(`"schema_version":%d`, DesiredSchemaVersion), fmt.Sprintf(`"schema_version":%d`, DesiredSchemaVersion+1), 1))); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ReleaseGeneration(ctx, 1); !errors.Is(err, ErrInvalid) {

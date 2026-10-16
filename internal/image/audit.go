@@ -42,7 +42,7 @@ func requireDirectParents(g *Guest, p string) error {
 	}
 	return g.AssertAbsent(p, "managed-material verifier directory")
 }
-func auditKernel(g *Guest, release, work, output string, out io.Writer) error {
+func auditKernel(g *Guest, release, work, output, architecture string, out io.Writer) error {
 	names, e := g.List("/boot")
 	if e != nil {
 		return e
@@ -84,13 +84,13 @@ func auditKernel(g *Guest, release, work, output string, out io.Writer) error {
 			return e
 		}
 		defer gzipReader.Close()
-		header = make([]byte, 64)
+		header = make([]byte, 0x206)
 		if _, e = io.ReadFull(gzipReader, header); e != nil {
-			return errors.New("base guest kernel is not an AArch64 Linux boot Image")
+			return fmt.Errorf("base guest kernel is not a Linux %s boot image", architecture)
 		}
 	}
-	if len(header) < 64 || string(header[56:60]) != "ARM\x64" {
-		return errors.New("base guest kernel is not an AArch64 Linux boot Image")
+	if (architecture == "arm64" && (len(header) < 64 || string(header[56:60]) != "ARM\x64")) || (architecture == "amd64" && (len(header) < 0x206 || string(header[0x202:0x206]) != "HdrS" || header[0x1fe] != 0x55 || header[0x1ff] != 0xaa)) {
+		return fmt.Errorf("base guest kernel is not a Linux %s boot image", architecture)
 	}
 	if e = copyFile(kernel, output, 0644); e != nil {
 		return e
@@ -548,7 +548,7 @@ func installLinks(g *Guest, work, repo string, out io.Writer) error {
 		return e
 	}
 	etc := filepath.Join(stage, "etc/systemd/system")
-	for _, name := range append(append([]string{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
+	for _, name := range append(append([]string{"terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service"}, NetBirdUnits...), HostUnitFiles...) {
 		if e := copyFile(filepath.Join(repo, "deploy/systemd", name), filepath.Join(etc, name), 0644); e != nil {
 			return e
 		}

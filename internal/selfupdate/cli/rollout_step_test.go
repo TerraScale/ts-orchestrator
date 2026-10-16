@@ -23,9 +23,8 @@ import (
 )
 
 // The watchdog is the node's root step agent: with the production default
-// (no rollouts block, a host that is not a lab) it applies the step the
-// unit's process spooled and restarts the unit the step owes a restart; a
-// A lab host never applies production rollout steps.
+// (no rollouts block) it applies the step the unit's process spooled and
+// restarts the unit when the step owes a restart.
 func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 	controller, host := selfupdate.ControllerUnit, selfupdate.HostUnit
 	for _, tc := range []struct {
@@ -43,9 +42,6 @@ func TestWatchdogAppliesTheUnitsSpooledRolloutStep(t *testing.T) {
 		}, true},
 		{"host on a controller's VM", host, "gru-1-ctl-1", func(_, public string) string {
 			return `{"version":1,"nats":{"cell":"gru"},"host":{"node":"gru-1-ctl-1","controller_public_key":"` + public + `"}}`
-		}, false},
-		{"lab host", host, "gru-1-db-1", func(_, public string) string {
-			return `{"version":1,"nats":{"cell":"gru","lab":true},"host":{"node":"gru-1-db-1","controller_public_key":"` + public + `"}}`
 		}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

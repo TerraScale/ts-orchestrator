@@ -12,7 +12,7 @@ import (
 // ObserveIdentityRekeyInstallation measures an existing store against a node ID
 // independently read from its serving process. Ordinary admission requires pins.
 func ObserveIdentityRekeyInstallation(cfg Config, observedRaftNodeID string) (InstallationIdentity, error) {
-	if cfg.Lab || cfg.Embedded == nil || !validNodeID(observedRaftNodeID) {
+	if cfg.Embedded == nil || !validNodeID(observedRaftNodeID) {
 		return InstallationIdentity{}, ErrStoreIdentity
 	}
 	if err := cfg.validate(); err != nil {
@@ -54,7 +54,7 @@ func PinIdentityRekeyInstallation(cfg Config, expected InstallationIdentity, ser
 }
 
 func pinIdentityRekeyInstallation(cfg Config, expected InstallationIdentity, serviceUID, serviceGID uint32) error {
-	if cfg.Lab || cfg.Embedded == nil || serviceUID == 0 || serviceGID == 0 || !validNodeID(expected.RaftNodeID) {
+	if cfg.Embedded == nil || serviceUID == 0 || serviceGID == 0 || !validNodeID(expected.RaftNodeID) {
 		return ErrStoreIdentity
 	}
 	if err := cfg.validate(); err != nil {

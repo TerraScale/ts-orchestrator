@@ -42,9 +42,7 @@ type step struct {
 // fill it in for later steps.
 type refs struct {
 	groups       map[string]string
-	network      string
 	resource     resourceRef
-	routerPeer   string
 	serversGroup string
 }
 
@@ -71,10 +69,6 @@ type plan struct {
 	steps    []step
 	warnings []string
 	refs     refs
-	// networkDeferred is set on a fresh account whose router peer has not
-	// joined the gateway group yet: the network, its resource and router and
-	// the policies targeting the resource wait for a later sync.
-	networkDeferred bool
 }
 
 func (p *plan) add(change Change, apply func(context.Context, *refs) error) {
@@ -151,7 +145,8 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) 
 	if err := api.do(ctx, "GET", "/peers", nil, &peers); err != nil {
 		return Report{}, err
 	}
-	if err := p.planNetwork(ctx, api, d, peers); err != nil {
+	records, err := admittedPeerRecords(d, peers, groups)
+	if err != nil {
 		return Report{}, err
 	}
 	if err := p.planPolicies(ctx, api, d); err != nil {
@@ -160,7 +155,7 @@ func Sync(ctx context.Context, api *API, d Desired, apply bool, only ...string) 
 	if err := p.planAccount(ctx, api, d); err != nil {
 		return Report{}, err
 	}
-	if err := p.planDNS(ctx, api, d); err != nil {
+	if err := p.planDNS(ctx, api, d, records); err != nil {
 		return Report{}, err
 	}
 	if err := p.verifySetupKey(ctx, api, d); err != nil {
@@ -247,172 +242,15 @@ func hasGroup(groups []groupMinimum, id string) bool {
 	return id != "" && slices.ContainsFunc(groups, func(g groupMinimum) bool { return g.ID == id })
 }
 
-func (p *plan) planNetwork(ctx context.Context, api *API, d Desired, peers []apiPeer) error {
-	spec := d.Network
-	var networks []apiNetwork
-	if err := api.do(ctx, "GET", "/networks", nil, &networks); err != nil {
-		return err
-	}
-	network, err := matchName(networks, func(n apiNetwork) string { return n.Name }, spec.Name, nil, "network")
-	if err != nil {
-		return err
-	}
-	// The router peer must already be in the gateway group.
-	gateway := p.refs.groups[spec.RouterGroup]
-	var routers []apiPeer
-	for _, peer := range peers {
-		if peer.Name == spec.RouterPeer && hasGroup(peer.Groups, gateway) {
-			routers = append(routers, peer)
-		}
-	}
-	if len(routers) == 0 && network == nil {
-		// Fresh account: the gateway group may only be planned. Create the
-		// groups and other policies now; an operator adds the router peer to
-		// the group and the next sync creates the network.
-		p.networkDeferred = true
-		p.warn("network %s deferred: add peer %s to group %s, then sync again", spec.Name, spec.RouterPeer, spec.RouterGroup)
-		return nil
-	}
-	if len(routers) != 1 {
-		return fmt.Errorf("refusing NetBird network sync: expected exactly one peer named %s in group %s, found %d",
-			spec.RouterPeer, spec.RouterGroup, len(routers))
-	}
-	p.refs.routerPeer = routers[0].ID
-	var resources []apiResource
-	var routerRows []apiRouter
-	if network == nil {
-		p.add(Change{"create", "network", spec.Name, ""}, func(ctx context.Context, r *refs) error {
-			var out created
-			if err := api.do(ctx, "POST", "/networks", networkRequest{spec.Name, spec.Description}, &out); err != nil {
-				return err
-			}
-			if out.ID == "" {
-				return errors.New("manager returned no network ID")
-			}
-			r.network = out.ID
-			return nil
-		})
-	} else {
-		p.refs.network = network.ID
-		if network.Description != spec.Description {
-			id := network.ID
-			p.add(Change{"update", "network", spec.Name, "description"}, func(ctx context.Context, _ *refs) error {
-				return api.do(ctx, "PUT", "/networks/"+id, networkRequest{spec.Name, spec.Description}, nil)
-			})
-		}
-		if err := api.do(ctx, "GET", "/networks/"+network.ID+"/resources", nil, &resources); err != nil {
-			return err
-		}
-		if err := api.do(ctx, "GET", "/networks/"+network.ID+"/routers", nil, &routerRows); err != nil {
-			return err
-		}
-	}
-	if err := p.planResource(api, spec.Resource, resources); err != nil {
-		return err
-	}
-	return p.planRouter(api, spec, routerRows)
-}
-
-func (p *plan) planResource(api *API, spec ResourceSpec, resources []apiResource) error {
-	resource, err := matchName(resources, func(r apiResource) string { return r.Name }, spec.Name, spec.RenamedFrom, "network resource")
-	if err != nil {
-		return err
-	}
-	for _, other := range resources {
-		if resource != nil && other.ID == resource.ID {
-			continue
-		}
-		if other.Address == spec.Address {
-			return fmt.Errorf("refusing NetBird network sync: resource %s already routes %s", other.Name, spec.Address)
-		}
-		p.warn("network resource %s (%s) is not managed and was left alone", other.Name, other.Address)
-	}
-	if resource == nil {
-		p.add(Change{"create", "network resource", spec.Name, spec.Address}, func(ctx context.Context, r *refs) error {
-			var out apiResource
-			if err := api.do(ctx, "POST", "/networks/"+r.network+"/resources", resourceRequest{
-				Name: spec.Name, Description: spec.Description, Address: spec.Address, Enabled: true, Groups: []string{},
-			}, &out); err != nil {
-				return err
-			}
-			if out.ID == "" || out.Type == "" {
-				return errors.New("manager returned no network resource ID")
-			}
-			r.resource = resourceRef{out.ID, out.Type}
-			return nil
-		})
-		return nil
-	}
-	if resource.Address != spec.Address {
-		return fmt.Errorf("refusing NetBird network sync: resource %s routes %s, not %s", resource.Name, resource.Address, spec.Address)
-	}
-	if resource.Type != "subnet" {
-		return fmt.Errorf("refusing NetBird network sync: resource %s has type %s, not subnet", resource.Name, resource.Type)
-	}
-	p.refs.resource = resourceRef{resource.ID, resource.Type}
-	var diff []string
-	if resource.Name != spec.Name {
-		diff = append(diff, "from "+resource.Name)
-	}
-	if resource.Description != spec.Description {
-		diff = append(diff, "description")
-	}
-	if !resource.Enabled {
-		diff = append(diff, "enable")
-	}
-	if len(diff) == 0 {
-		return nil
-	}
-	action := "update"
-	if resource.Name != spec.Name {
-		action = "rename"
-	}
-	id := resource.ID
-	// Resource groups are not managed (no policy targets them): keep them.
-	groups := make([]string, 0, len(resource.Groups))
-	for _, g := range resource.Groups {
-		groups = append(groups, g.ID)
-	}
-	p.add(Change{action, "network resource", spec.Name, strings.Join(diff, ", ")}, func(ctx context.Context, r *refs) error {
-		return api.do(ctx, "PUT", "/networks/"+r.network+"/resources/"+id, resourceRequest{
-			Name: spec.Name, Description: spec.Description, Address: spec.Address, Enabled: true, Groups: groups,
-		}, nil)
-	})
-	return nil
-}
-
-func (p *plan) planRouter(api *API, spec NetworkSpec, routers []apiRouter) error {
-	label := spec.Name + "/" + spec.RouterPeer
-	desired := routerRequest{Metric: spec.Metric, Masquerade: spec.Masquerade, Enabled: true}
-	switch {
-	case len(routers) == 0:
-		p.add(Change{"create", "network router", label, ""}, func(ctx context.Context, r *refs) error {
-			request := desired
-			request.Peer = r.routerPeer
-			return api.do(ctx, "POST", "/networks/"+r.network+"/routers", request, nil)
-		})
-		return nil
-	case len(routers) > 1 || routers[0].Peer != p.refs.routerPeer || len(routers[0].PeerGroups) != 0:
-		return fmt.Errorf("refusing NetBird network sync: network %s has an unexpected router", spec.Name)
-	}
-	router := routers[0]
-	if router.Metric == spec.Metric && router.Masquerade == spec.Masquerade && router.Enabled {
-		return nil
-	}
-	id := router.ID
-	p.add(Change{"update", "network router", label, "masquerade, metric or enabled"}, func(ctx context.Context, r *refs) error {
-		request := desired
-		request.Peer = r.routerPeer
-		return api.do(ctx, "PUT", "/networks/"+r.network+"/routers/"+id, request, nil)
-	})
-	return nil
-}
-
 func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 	var policies []apiPolicy
 	if err := api.do(ctx, "GET", "/policies", nil, &policies); err != nil {
 		return err
 	}
+	if err := p.verifyHistoricalFabric(d, policies); err != nil {
+		return err
+	}
+
 	managed := map[string]bool{}
 	for _, spec := range d.Policies {
 		current, err := matchName(policies, func(p apiPolicy) string { return p.Name }, spec.Name, spec.RenamedFrom, "policy")
@@ -421,10 +259,6 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 		}
 		if current != nil {
 			managed[current.ID] = true
-		}
-		if spec.DestinationResource != "" && p.networkDeferred {
-			p.warn("policy %s deferred until network resource %s exists", spec.Name, spec.DestinationResource)
-			continue
 		}
 		build := func(r *refs, current *apiPolicy) (policyRequest, error) {
 			rule := ruleRequest{Name: spec.Name, Description: spec.Description, Enabled: true, Action: "accept",
@@ -488,6 +322,42 @@ func (p *plan) planPolicies(ctx context.Context, api *API, d Desired) error {
 	for _, policy := range policies {
 		if !managed[policy.ID] {
 			p.warn("policy %s is not in the desired state of cell %s", policy.Name, d.Cell)
+		}
+	}
+	return nil
+}
+
+// verifyHistoricalFabric admits only the exact old grant for migration.
+// Customized policies with the same name require explicit conflict resolution.
+func (p *plan) verifyHistoricalFabric(d Desired, policies []apiPolicy) error {
+	for _, group := range d.Groups {
+		if !regionServerGroup(group.Name) || group.Name == d.ServersGroup {
+			continue
+		}
+		cell := strings.ToUpper(strings.TrimSuffix(group.Name, "-servers"))
+		for _, reverse := range []bool{false, true} {
+			source, destination, description := "gru-servers", group.Name, "GRU servers → "+cell+" servers: NATS leafnodes 7422, TerraBase peers 9443"
+			if reverse {
+				source, destination, description = group.Name, "gru-servers", cell+" servers → GRU servers: NATS leafnodes 7422, TerraBase peers 9443"
+			}
+			historical := PolicySpec{Name: source + "-to-" + destination + "-fabric", Description: description,
+				Protocol: "tcp", Ports: []string{"7422", "9443"}, Sources: []string{source}, Destinations: []string{destination}}
+			current, err := matchName(policies, func(policy apiPolicy) string { return policy.Name }, historical.Name, nil, "policy")
+			if err != nil {
+				return err
+			}
+			if current == nil {
+				continue
+			}
+			if reverse && current.ID != "" && len(current.SourcePostureChecks) == 0 && len(current.Rules) == 1 && len(current.Rules[0].AuthorizedGroups) == 0 {
+				index := slices.IndexFunc(d.Policies, func(spec PolicySpec) bool { return spec.Name == current.Name })
+				if index >= 0 && len(policyDiff(*current, d.Policies[index], &p.refs)) == 0 {
+					continue
+				}
+			}
+			if current.ID == "" || len(current.SourcePostureChecks) != 0 || len(current.Rules) != 1 || len(current.Rules[0].AuthorizedGroups) != 0 || len(policyDiff(*current, historical, &p.refs)) != 0 {
+				return fmt.Errorf("historical NetBird fabric policy %s has a conflicting shape", historical.Name)
+			}
 		}
 	}
 	return nil
@@ -603,7 +473,7 @@ func (p *plan) planAccount(ctx context.Context, api *API, d Desired) error {
 	return nil
 }
 
-func (p *plan) planDNS(ctx context.Context, api *API, d Desired) error {
+func (p *plan) planDNS(ctx context.Context, api *API, d Desired, records []Record) error {
 	var settings dnsSettings
 	if err := api.do(ctx, "GET", "/dns/settings", nil, &settings); err != nil {
 		return err
@@ -619,10 +489,10 @@ func (p *plan) planDNS(ctx context.Context, api *API, d Desired) error {
 				return api.do(ctx, "PUT", "/dns/settings", dnsSettings{ids}, nil)
 			})
 	}
-	return p.planZone(ctx, api, d)
+	return p.planZone(ctx, api, d, records)
 }
 
-func (p *plan) planZone(ctx context.Context, api *API, d Desired) error {
+func (p *plan) planZone(ctx context.Context, api *API, d Desired, wanted []Record) error {
 	spec := d.Zone
 	var zones []apiZone
 	if err := api.do(ctx, "GET", "/dns/zones", nil, &zones); err != nil {
@@ -690,15 +560,19 @@ func (p *plan) planZone(ctx context.Context, api *API, d Desired) error {
 			return err
 		}
 	}
-	p.planRecords(api, d, zoneID, records)
+	if len(wanted) == 0 && len(records) > 0 {
+		p.warn("DNS zone %s retained: no admitted server peers observed", spec.Name)
+		return nil
+	}
+	p.planRecords(api, d, zoneID, records, wanted)
 	return nil
 }
 
 // planRecords owns the whole zone: missing records are created, extra ones
 // deleted and TTLs corrected.
-func (p *plan) planRecords(api *API, d Desired, zoneID *string, records []apiRecord) {
+func (p *plan) planRecords(api *API, d Desired, zoneID *string, records []apiRecord, desired []Record) {
 	wanted := map[Record]bool{}
-	for _, record := range d.Records() {
+	for _, record := range desired {
 		wanted[record] = true
 	}
 	matched := map[Record]bool{}
@@ -721,7 +595,7 @@ func (p *plan) planRecords(api *API, d Desired, zoneID *string, records []apiRec
 			})
 		}
 	}
-	for _, record := range d.Records() {
+	for _, record := range desired {
 		if matched[record] {
 			continue
 		}
@@ -743,7 +617,7 @@ func (p *plan) verifySetupKey(ctx context.Context, api *API, d Desired) error {
 	// unrevoked keys can enroll servers.
 	var found []apiSetupKey
 	for _, key := range keys {
-		if key.Name == d.SetupKeyName && !key.Revoked {
+		if (key.Name == d.SetupKeyName || IsManagedSetupKeyName(d.SetupKeyName, key.Name)) && !key.Revoked {
 			found = append(found, key)
 		}
 	}

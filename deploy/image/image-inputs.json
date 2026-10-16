@@ -29,7 +29,7 @@
   },
   "trust_roots": [
     {
-      "path": "deploy/image/inputs/bootstrap-root-002.pem",
+      "path": "internal/trust/bootstrap-root-002.pem",
       "sha256": "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e"
     }
   ],
@@ -77,7 +77,7 @@
     },
     "enrollment_config": {
       "path": "deploy/image/inputs/netbird-gru.json",
-      "sha256": "f185e882ed7a859922d2db34e58835aa7668aeac3cae5662dc4cbdba918ab14d"
+      "sha256": "e27ebddd2d62a04c3b8ba4e3b41fda11d5b75b2f4cdc8efa3ec57b33a244db3a"
     }
   }
 }

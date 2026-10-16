@@ -96,6 +96,18 @@ func (c *rolloutControl) admitChannel(channel releasechannel.Channel, now time.T
 				return rollout.Release{}, err
 			}
 			admitted.CreatedAt = envelope.IssuedAt
+			admitted.ReleaseSequence = channel.ReleaseSequence
+			if channel.ReleaseSequence > 0 {
+				migration, err := trust.DecodeEnvelope(channel.SequenceMigration)
+				if err != nil {
+					return rollout.Release{}, err
+				}
+				admitted.SequenceMigration = slices.Clone(channel.SequenceMigration)
+				admitted.SequenceMigrationSHA256, err = trust.Fingerprint(migration)
+				if err != nil {
+					return rollout.Release{}, err
+				}
+			}
 			return admitted, nil
 		}
 	}
@@ -203,15 +215,26 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Store, kv jetstream.KeyValue, epoch uint64,
 	wire []byte, now time.Time,
 ) error {
+	architectures := slices.Clone(c.architectures)
+	if c.managedArchitecture != nil {
+		architecture, err := c.managedArchitecture(ctx)
+		if err != nil {
+			return fmt.Errorf("observe managed host architecture for release channel: %w", err)
+		}
+		if !slices.Contains(architectures, architecture) {
+			architectures = append(architectures, architecture)
+			slices.Sort(architectures)
+		}
+	}
 	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now,
-		Environment: c.environment, Architectures: slices.Clone(c.architectures)}
+		Environment: c.environment, Architectures: architectures}
 	var channel releasechannel.Channel
 	if len(wire) == 0 {
 		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
 	} else if err := json.Unmarshal(wire, &channel); err != nil {
 		status.State, status.Reason = releasechannel.StateFailed, "the channel does not decode: "+err.Error()
 	} else {
-		status.RunNumber = channel.RunNumber
+		status.RunNumber, status.ReleaseSequence = channel.RunNumber, channel.ReleaseSequence
 		if release.ValidSourceRevision(channel.SourceRevision) {
 			status.SourceRevision = channel.SourceRevision
 		}
@@ -270,7 +293,7 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 }
 
 func sameReport(a, b releasechannel.Status) bool {
-	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
+	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.ReleaseSequence == b.ReleaseSequence && a.SourceRevision == b.SourceRevision &&
 		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins) &&
 		a.Environment == b.Environment && slices.Equal(a.Architectures, b.Architectures)
 }
@@ -361,7 +384,7 @@ func (c *rolloutControl) channelState(ctx context.Context, store *rollout.Store,
 	if admitted.CreatedAt.After(now) {
 		return releasechannel.StateRolling, fmt.Sprintf("the release is issued at %s; waiting for the cell clock", admitted.CreatedAt), nil
 	}
-	generation, refusal, err := channelGeneration(ctx, store, epoch, admitted)
+	generation, refusal, err := channelGeneration(ctx, store, epoch, admitted, c.roots.current(), c.cell, c.environment)
 	if err != nil || refusal != "" {
 		return releasechannel.StateFailed, refusal, err
 	}
@@ -373,7 +396,32 @@ func (c *rolloutControl) channelState(ctx context.Context, store *rollout.Store,
 // published. Generations are newest first, so an operator's rollback, a
 // generation that repeats an older run, never makes the channel publish
 // the release it rolled back from again.
-func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, admitted rollout.Release) (rollout.Release, string, error) {
+func channelGeneration(ctx context.Context, store *rollout.Store, epoch uint64, admitted rollout.Release,
+	roots trust.Keyring, cell, environment string,
+) (rollout.Release, string, error) {
+	if admitted.ReleaseSequence > 0 {
+		admitted.Actor = channelActor
+		published, err := store.PublishSequencedRelease(ctx, epoch, admitted, roots, cell, environment)
+		switch {
+		case errors.Is(err, rollout.ErrKnownBad):
+			return rollout.Release{}, "the release is known bad in this cell", nil
+		case errors.Is(err, rollout.ErrReleaseUnchanged):
+			return published, "", nil
+		case errors.Is(err, rollout.ErrInvalid):
+			return rollout.Release{}, "the release violates the retained signed ordering floor", nil
+		case err != nil:
+			return rollout.Release{}, "", err
+		default:
+			return published, "", nil
+		}
+	}
+	desired, _, err := store.Desired(ctx)
+	if err != nil {
+		return rollout.Release{}, "", err
+	}
+	if desired.OrderingFloor.ReleaseSequence > 0 {
+		return rollout.Release{}, "a legacy release cannot replace the retained signed ordering floor", nil
+	}
 	history, err := store.Releases(ctx, rollout.ReleaseHistory)
 	if err != nil {
 		return rollout.Release{}, "", err

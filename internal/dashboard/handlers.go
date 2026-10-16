@@ -30,6 +30,7 @@ func (dashboard *Dashboard) pageHandler(page page) http.Handler {
 			return
 		}
 		current := dashboard.load(request.Context(), page, request.URL.Query(), path)
+		current.loadMetrics(request.Context())
 		if page.slug == "region" && current.remote() {
 			// The region page shows this member's region only; another one
 			// has its own global view.
@@ -133,6 +134,7 @@ func (dashboard *Dashboard) streamContent(ctx context.Context, sse *datastar.Ser
 			}
 		}
 		current := dashboard.load(ctx, page, query, path)
+		current.loadMetrics(ctx)
 		var body bytes.Buffer
 		if err := page.body(current).Render(ctx, &body); err != nil {
 			return

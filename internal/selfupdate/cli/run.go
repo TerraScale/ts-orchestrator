@@ -1156,7 +1156,7 @@ func (c command) rolloutStep(layout selfupdate.Layout, unit, configPath string) 
 		if _, err := os.Stat(filepath.Join(filepath.Dir(configPath), "controller.json")); err == nil {
 			return
 		}
-		if role.NATS.Lab || role.Host.Node == "" {
+		if role.Host.Node == "" {
 			return
 		}
 		var decoded []byte
@@ -1253,7 +1253,6 @@ type rolloutRole struct {
 	NATS    struct {
 		Cell     string `json:"cell"`
 		Instance string `json:"instance"`
-		Lab      bool   `json:"lab"`
 	} `json:"nats"`
 	Controller struct {
 		ResponseKeyFile string         `json:"response_key_file"`

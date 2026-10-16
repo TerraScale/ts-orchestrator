@@ -95,7 +95,7 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return Teardown(ctx, plan, provider, *apply, out)
+	return provider.teardown(ctx, plan, *apply, out)
 }
 
 func (p Plan) Validate() error {

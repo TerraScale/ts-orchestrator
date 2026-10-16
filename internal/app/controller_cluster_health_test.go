@@ -18,6 +18,7 @@ func TestClusterHealthIsHealthyOnEveryFormedBroker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
+	auth := newAuthenticatedNATS(t, "lab", "peer0", "peer1", "peer2")
 	runtimes := make([]*natscell.Runtime, 3)
 	for index := range runtimes {
 		var routes []string
@@ -28,7 +29,7 @@ func TestClusterHealthIsHealthyOnEveryFormedBroker(t *testing.T) {
 			routes = []string{"nats-route://127.0.0.1:1"}
 		}
 		instance := fmt.Sprintf("peer%d", index)
-		runtime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
+		runtime, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: instance, Replicas: 3,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, RouteHost: "127.0.0.1",
 				RoutePort: -1, Routes: routes,
 				StoreDir: filepath.Join(root, instance), BrokerIDs: []string{"peer0", "peer1", "peer2"}}})

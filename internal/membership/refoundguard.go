@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (
@@ -36,6 +38,14 @@ type RefoundPending struct {
 	ServerName string    `json:"server_name"`
 	Attempt    uint64    `json:"attempt"`
 	StartedAt  time.Time `json:"started_at"`
+}
+
+func (pending RefoundPending) validate() error {
+	serverName, err := naming.RegionCell(pending.Cell).ControllerSlot(pending.Slot)
+	if err != nil || pending.ServerName != serverName || pending.Attempt < 2 || pending.StartedAt.IsZero() {
+		return errors.New("pending refound record lacks an exact regional slot, successor attempt or start time")
+	}
+	return nil
 }
 
 // RefoundGuard keeps break-glass re-founding to one slot at a time: a slot
@@ -77,8 +87,11 @@ func (guard RefoundGuard) Admit(cell, slot string, ledger map[string]LedgerSlot)
 	if err != nil {
 		return fmt.Errorf("read the pending refound record %s: %w", guard.PendingPath, err)
 	}
-	if pending.Cell != cell || pending.Slot == slot {
-		// A record of another cell is stale; the same slot may be retried.
+	if pending.Cell != cell {
+		return fmt.Errorf("pending refound belongs to cell %s, not %s", pending.Cell, cell)
+	}
+	if pending.Slot == slot {
+		// The same slot may be retried after interruption.
 		return nil
 	}
 	if err := guard.current(pending); err != nil {
@@ -90,6 +103,9 @@ func (guard RefoundGuard) Admit(cell, slot string, ledger map[string]LedgerSlot)
 
 // Begin records slot as the re-found in progress before any launch.
 func (guard RefoundGuard) Begin(pending RefoundPending) error {
+	if err := pending.validate(); err != nil {
+		return err
+	}
 	wire, err := json.Marshal(pending)
 	if err != nil {
 		return err
@@ -143,6 +159,9 @@ func (guard RefoundGuard) WaitCurrent(ctx context.Context, pending RefoundPendin
 // observed after the relaunch began: the successor reuses the lost
 // instance's server name, so an earlier view says nothing about it.
 func (guard RefoundGuard) current(pending RefoundPending) error {
+	if err := pending.validate(); err != nil {
+		return err
+	}
 	status, err := clusterhealth.ReadStatusFile(guard.HealthPath)
 	if err != nil {
 		return fmt.Errorf("read the controller's cluster health %s: %w", guard.HealthPath, err)
@@ -181,20 +200,28 @@ func (guard RefoundGuard) Lock() (release func(), err error) {
 }
 
 func (guard RefoundGuard) readPending() (RefoundPending, error) {
-	info, err := os.Lstat(guard.PendingPath)
+	file, err := os.OpenFile(guard.PendingPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return RefoundPending{}, err
 	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 4<<10 {
-		return RefoundPending{}, errors.New("pending refound record must be a small regular file")
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return RefoundPending{}, err
 	}
-	wire, err := os.ReadFile(guard.PendingPath)
+	if !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() <= 0 || info.Size() > 4<<10 {
+		return RefoundPending{}, errors.New("pending refound record must be a small owner-only regular file")
+	}
+	wire, err := io.ReadAll(io.LimitReader(file, (4<<10)+1))
 	if err != nil {
 		return RefoundPending{}, err
 	}
 	var pending RefoundPending
-	if err := json.Unmarshal(wire, &pending); err != nil || pending.Slot == "" || pending.ServerName == "" {
+	if err := protocol.DecodeStrict(wire, &pending, 4<<10); err != nil {
 		return RefoundPending{}, errors.New("pending refound record is malformed")
+	}
+	if err := pending.validate(); err != nil {
+		return RefoundPending{}, err
 	}
 	return pending, nil
 }

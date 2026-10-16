@@ -345,15 +345,23 @@ type HistoryQuery struct {
 
 // HistorySeries is one matching series in a range.
 type HistorySeries struct {
-	Metric string            `json:"metric"`
-	Labels map[string]string `json:"labels,omitempty"`
-	Tier   string            `json:"tier"`
-	Points []Point           `json:"points"`
+	Metric         string            `json:"metric"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	Tier           string            `json:"tier"`
+	Points         []Point           `json:"points"`
+	LastObservedAt time.Time         `json:"last_observed_at"`
+	Stale          bool              `json:"stale,omitzero"`
+	Gaps           bool              `json:"gaps,omitzero"`
 }
 
 // HistoryResult is a range query's answer.
 type HistoryResult struct {
-	Series []HistorySeries `json:"series"`
+	RetentionStart  time.Time `json:"retention_start"`
+	IntervalSeconds float64   `json:"interval_seconds"`
+	// DroppedSeries counts rejected new series over this store's lifetime.
+	DroppedSeries     uint64          `json:"dropped_series,omitzero"`
+	Series            []HistorySeries `json:"series"`
+	UnsupportedReason string          `json:"unsupported_reason,omitempty"`
 	// Truncated reports that more series matched than MaxSeries.
 	Truncated bool `json:"truncated,omitzero"`
 	// Pending marks regional history that has not completed archive replay.
@@ -399,15 +407,27 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 	if query.MaxSeries <= 0 {
 		query.MaxSeries = 64
 	}
+	query.MaxSeries = min(query.MaxSeries, 512)
 	start, end := query.Start.UnixMilli(), query.End.UnixMilli()
 	cutoff := time.Now().Add(-HistoryRetention).UnixMilli()
 	history.mu.RLock()
 	defer history.mu.RUnlock()
-	result := HistoryResult{}
+	result := HistoryResult{RetentionStart: time.UnixMilli(cutoff).UTC(),
+		IntervalSeconds: history.config.Interval.Seconds(), DroppedSeries: history.dropped}
+	for minute := range history.dropMinutes {
+		if minute >= start/time.Minute.Milliseconds() && minute <= end/time.Minute.Milliseconds() {
+			result.Incomplete = true
+			break
+		}
+	}
 	keys := slices.Sorted(maps.Keys(history.series))
 	for _, key := range keys {
 		current := history.series[key]
 		if current.metric != query.Metric || !labelsMatch(current.labels, query.Labels) {
+			continue
+		}
+		if query.Rate && !current.counter {
+			result.UnsupportedReason = "rate_requires_counter"
 			continue
 		}
 		tierName := chosen
@@ -420,13 +440,24 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 		}
 		out := HistorySeries{Metric: current.metric, Tier: tierName, Labels: labelMap(current.labels)}
 		var previous *bucket
+		var lastAt int64
+		expected := max(history.config.Interval, t.step).Milliseconds()
 		for _, b := range t.buckets() {
 			if b.lastAt() < cutoff {
 				continue
 			}
-			if b.Start < start-t.step.Milliseconds() || b.Start > end {
+			if b.Start > end {
+				break
+			}
+			if b.Start < start-t.step.Milliseconds() {
+				copied := b
+				previous = &copied
 				continue
 			}
+			if lastAt != 0 && b.lastAt()-lastAt > 2*expected {
+				out.Gaps = true
+			}
+			lastAt = b.lastAt()
 			if query.Rate {
 				if previous != nil && b.lastAt() > previous.lastAt() {
 					delta := b.Last - previous.Last
@@ -453,6 +484,8 @@ func (history *History) Range(query HistoryQuery) HistoryResult {
 			out.Points = append(out.Points, Point{Time: time.UnixMilli(b.Start).UTC(), Value: value,
 				Min: b.Min, Max: b.Max, Samples: b.Count})
 		}
+		out.LastObservedAt = time.UnixMilli(lastAt).UTC()
+		out.Stale = end-lastAt > 2*expected
 		// A stored series without points in the range does not take one
 		// of the result's slots.
 		if len(out.Points) == 0 {
@@ -522,8 +555,11 @@ func (history *History) Metrics() []string {
 	history.mu.RLock()
 	defer history.mu.RUnlock()
 	names := map[string]struct{}{}
+	cutoff := time.Now().Add(-HistoryRetention).UnixMilli()
 	for _, current := range history.series {
-		names[current.metric] = struct{}{}
+		if current.last >= cutoff {
+			names[current.metric] = struct{}{}
+		}
 	}
 	return slices.Sorted(maps.Keys(names))
 }

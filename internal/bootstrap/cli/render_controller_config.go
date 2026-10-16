@@ -2,26 +2,17 @@ package cli
 
 import (
 	"bytes"
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"net/netip"
-	"path/filepath"
-	"slices"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/app"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -52,8 +43,6 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	authProfileSHA := flags.String("ts-auth-profile-sha256", "", "reviewed ts-auth workload profile SHA-256")
 	authServicePath := flags.String("ts-auth-service", "", "reviewed ts-auth service spec JSON; requires pinned profile")
 	authServiceSHA := flags.String("ts-auth-service-sha256", "", "reviewed ts-auth service spec SHA-256")
-	kvSnapshotPath := flags.String("kv-snapshot", "", "optional reviewed KV snapshot location JSON (controller.kv_snapshot)")
-	kvSnapshotSHA := flags.String("kv-snapshot-sha256", "", "reviewed KV snapshot location SHA-256")
 	outputPath := flags.String("out", "", "new canonical controller role JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -97,7 +86,7 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	if err != nil || !bytes.Equal(canonicalGrant, grantWire) {
 		return errors.New("operator grant must use canonical app JSON")
 	}
-	cfg, err := controllerConfigFromRecord(manifest, record, grant, now)
+	cfg, err := app.ControllerConfigFromRecord(manifest, record, grant, now)
 	if err != nil {
 		return err
 	}
@@ -116,23 +105,6 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 			return errors.New("a TerraBase profile needs the member CA; regenerate the controller material")
 		}
 		cfg.Controller.Workloads = map[string]app.WorkloadProfile{terrabase.Role: profile}
-	}
-	// The snapshot location is boot configuration: restore runs before any
-	// KV bucket exists, so it cannot come from the cell spec.
-	if *kvSnapshotPath != "" || *kvSnapshotSHA != "" {
-		snapshotWire, err := readPinnedControllerFile(*kvSnapshotPath, *kvSnapshotSHA, 4<<10)
-		if err != nil {
-			return fmt.Errorf("read reviewed KV snapshot location: %w", err)
-		}
-		if err := protocol.DecodeStrict(snapshotWire, &cfg.Controller.KVSnapshot, 4<<10); err != nil {
-			return fmt.Errorf("decode reviewed KV snapshot location: %w", err)
-		}
-		if !cfg.Controller.KVSnapshot.Enabled {
-			return errors.New("a reviewed KV snapshot location must be enabled")
-		}
-		if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
-			return fmt.Errorf("reviewed KV snapshot location: %w", err)
-		}
 	}
 	if withTSAuth {
 		profileWire, err := readPinnedControllerFile(*authProfilePath, *authProfileSHA, 64<<10)
@@ -185,101 +157,6 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	}
 	fmt.Fprintf(c.output, "rendered controller config slot=%s sha256=%s\n", manifest.Slot, manifest.ControllerConfigSHA256)
 	return nil
-}
-
-func controllerConfigFromRecord(manifest bootstrap.Manifest, record bootstrapmaterial.Record,
-	grant app.TrustedSignerConfig, now time.Time,
-) (app.Config, error) {
-	publicKey, keyErr := base64.StdEncoding.Strict().DecodeString(record.Public.ControllerResponsePublicKey)
-	prefix, prefixErr := netip.ParsePrefix(record.Config.SubnetCIDR)
-	if record.SchemaVersion != 1 || record.Config.DeploymentID != manifest.DeploymentID ||
-		record.Config.ClusterID != manifest.ClusterID || record.Config.Environment != manifest.Environment ||
-		record.Config.Cell != strings.ToLower(string(manifest.Cell)) || record.Config.Region != manifest.OCIRegion ||
-		len(record.Config.Slots) != len(manifest.ControllerSlots) || len(record.Config.Slots) != 3 ||
-		!now.Before(record.ExpiresAt) || record.IssuedAt.IsZero() ||
-		keyErr != nil || len(publicKey) != ed25519.PublicKeySize ||
-		prefixErr != nil || !prefix.Addr().Is4() || !prefix.Addr().IsPrivate() || prefix.Masked() != prefix {
-		return app.Config{}, errors.New("reviewed material record does not match the candidate deployment")
-	}
-	secretFiles := make(map[string]bootstrapmaterial.File, len(record.Files))
-	for _, file := range record.Files {
-		if file.Name == "" || file.Name != filepath.Base(file.Name) || file.SHA256 == "" ||
-			file.MaxBytes <= 0 || len(secretFiles) >= 64 {
-			return app.Config{}, errors.New("reviewed material inventory is invalid")
-		}
-		if _, exists := secretFiles[file.Name]; exists {
-			return app.Config{}, errors.New("reviewed material inventory repeats an output")
-		}
-		secretFiles[file.Name] = file
-	}
-	for _, reference := range manifest.Secrets {
-		file, exists := secretFiles[reference.TargetFile]
-		if !exists || file.Purpose != reference.Purpose || file.Slot != reference.Slot ||
-			file.SHA256 != reference.SHA256 || file.MaxBytes != reference.MaxBytes {
-			return app.Config{}, fmt.Errorf("signed material reference %s differs from reviewed source", reference.TargetFile)
-		}
-	}
-	// Material generated before the member CA existed renders without it.
-	for _, name := range []string{"terrabase-member-ca.pem", "terrabase-member-ca.key"} {
-		if record.HasMemberCA() && !slices.ContainsFunc(manifest.Secrets, func(reference bootstrap.SecretReference) bool {
-			return reference.TargetFile == name && reference.Purpose == bootstrap.SecretHostIssuer
-		}) {
-			return app.Config{}, fmt.Errorf("candidate manifest does not reference the TerraBase member CA secret %s", name)
-		}
-	}
-	addresses := make(map[string]string, len(record.Config.Slots))
-	for index, slot := range record.Config.Slots {
-		address, err := netip.ParseAddr(slot.PrivateIP)
-		if err != nil || slot.Name != manifest.ControllerSlots[index] || !address.Is4() || !prefix.Contains(address) ||
-			address == prefix.Addr() || address == prefix.Addr().Next() || address.String() != slot.PrivateIP {
-			return app.Config{}, errors.New("reviewed controller slot address or order differs from signed candidate")
-		}
-		if slices.ContainsFunc(record.Config.Slots[:index], func(prior bootstrapmaterial.Slot) bool {
-			return prior.PrivateIP == slot.PrivateIP
-		}) {
-			return app.Config{}, errors.New("reviewed controller private addresses repeat")
-		}
-		addresses[slot.Name] = slot.PrivateIP
-	}
-	host, exists := addresses[manifest.Slot]
-	if !exists {
-		return app.Config{}, errors.New("candidate slot is absent from reviewed controller inventory")
-	}
-	path := func(name string) string { return filepath.Join(bootstrapstart.MaterialDirectory, name) }
-	tls := natscell.TLSFiles{CAFile: path("ca.pem"), CertFile: path(manifest.Slot + "-tls-cert.pem"),
-		KeyFile: path(manifest.Slot + "-tls-key.pem")}
-	routes := make([]string, 0, len(record.Config.Slots)-1)
-	for _, slot := range record.Config.Slots {
-		if slot.Name != manifest.Slot {
-			routes = append(routes, "nats-route://"+slot.PrivateIP+":6222")
-		}
-	}
-	cfg := app.Config{Version: app.ConfigVersion,
-		NATS: natscell.Config{Cell: record.Config.Cell, Instance: manifest.Slot, Replicas: len(record.Config.Slots),
-			ClientRole: "controller", URL: "tls://" + host + ":4222", CredentialsFile: path(manifest.Slot + ".creds"),
-			TLS: tls, Embedded: &natscell.Embedded{Host: host, Port: 4222, RouteHost: host, RoutePort: 6222,
-				Routes: routes, StoreDir: "/var/lib/terrascale-orchestrator-controller/nats", StoreMaxBytes: 4 << 30,
-				TLS: tls, RouteTLS: tls, RouteUser: "ts-route", RoutePasswordFile: path("route-password"),
-				OperatorJWTFile: path("operator.jwt"), SystemJWTFile: path("system.jwt"),
-				CellJWTFile: path("cell.jwt"), SystemCredentialsFile: path("system.creds"),
-				TicketPublicKeyFile: path("ticket.pub"), BrokerIDs: slices.Clone(manifest.ControllerSlots)}},
-		Controller: app.ControllerConfig{CandidateID: entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot),
-			ArtifactStoreMaxBytes: 512 << 20,
-			ResponseKeyFile:       path(manifest.Slot + "-response.key"), BrokerTicketKeyFile: path("ticket.key"),
-			HostNATSIssuerSeedFile:      path("host-nats-issuer.seed"),
-			HostTLSIssuerKeyFile:        path("host-tls-issuer-key.pem"),
-			HostTLSIssuerCertFile:       path("host-tls-issuer-cert.pem"),
-			HostEnrollmentListenAddress: host + ":8443",
-			OciRegionIntentFile:         "/etc/terrascale-orchestrator/oci-region-intent.json",
-			OciRegionConfig:             "/etc/terrascale-orchestrator/oci-region.json",
-			PlacementConfig:             "/etc/terrascale-orchestrator/placement.json",
-			TrustedSigners:              []app.TrustedSignerConfig{grant}},
-	}
-	if record.HasMemberCA() {
-		cfg.Controller.TerraBaseCACertFile = path("terrabase-member-ca.pem")
-		cfg.Controller.TerraBaseCAKeyFile = path("terrabase-member-ca.key")
-	}
-	return cfg, nil
 }
 
 func controllerConfigDigest(wire []byte) string {

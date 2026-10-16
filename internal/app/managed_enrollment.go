@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 type placementIntentLookup interface {
@@ -97,6 +99,10 @@ func (verifier managedRegistrationVerifier) VerifyManagedRegistration(ctx contex
 		return fmt.Errorf("read exact current placement seat: %w", err)
 	}
 	state := versioned.State
+	memberWire, err := protocol.EncodeJSON(versioned)
+	if err != nil {
+		return err
+	}
 	if versioned.Revision == 0 || state.Validate() != nil || state.DatabaseID != placementBinding.DatabaseID ||
 		state.PartitionID != placementBinding.PartitionID || state.MemberID != placementBinding.SeatID ||
 		state.Region != verifier.region || state.HostNode == "" || state.HostNode != registration.Node ||
@@ -172,7 +178,23 @@ func (verifier managedRegistrationVerifier) VerifyManagedRegistration(ctx contex
 		FailureDomain: row.FailureDomain, AllocatableMemoryBytes: profile.AllocatableMemoryBytes,
 		SystemReserveBytes: profile.SystemReserveBytes,
 	}
-	return host.ValidateManagedRegistrationPins(registration, pins)
+	if err := host.ValidateManagedRegistrationPins(registration, pins); err != nil {
+		return err
+	}
+	confirmed, err := verifier.intents.ReadPlacementIntent(ctx, placementBinding.DatabaseID, placementBinding.PartitionID)
+	if err != nil || confirmed.Kind != entry.Kind || confirmed.SubjectKey != entry.SubjectKey || confirmed.Epoch != entry.Epoch ||
+		confirmed.Sequence != entry.Sequence || confirmed.OperationID != entry.OperationID || !bytes.Equal(confirmed.Payload, entry.Payload) {
+		return errors.New("managed placement intent changed during OCI verification")
+	}
+	member, err := verifier.members.ReadMember(ctx, placementBinding.DatabaseID, placementBinding.PartitionID, placementBinding.SeatID)
+	if err != nil {
+		return err
+	}
+	currentWire, err := protocol.EncodeJSON(member)
+	if err != nil || !bytes.Equal(memberWire, currentWire) {
+		return errors.New("managed placement seat changed during OCI verification")
+	}
+	return nil
 }
 
 func managedRegistrationStage(stage placement.MemberStage) bool {

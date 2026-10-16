@@ -98,7 +98,7 @@ func releaseUnderLoad(t *testing.T, seated bool) (failures, served int64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	desiredStore := ociresource.NewMemoryStore()
+	desiredStore := testOCIResourceStore(t)
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 	edge.tags = owner.Stamp(key, 0, "")
 	publish := publicLBPass(desiredStore, leaderFence{}, key, public, func() map[string]WorkloadProfile { return profiles }, records.Drained)

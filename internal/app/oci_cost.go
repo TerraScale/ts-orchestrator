@@ -2,8 +2,8 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,6 +36,7 @@ type ociCostViews struct {
 	cell    string
 	store   *ocicost.Store
 	pool    atomic.Pointer[[]ocicost.Host]
+	pricing atomic.Pointer[string]
 	current atomic.Pointer[ocicost.View]
 }
 
@@ -61,55 +62,84 @@ func (views *ociCostViews) nodes() []ocicost.Host {
 	return nil
 }
 
-// nodeCost is the node scaler's Cost: this region's forecast with the pool's
-// nodes pending at one node's price, the price the home allocator grants
-// growth against. The same pending nodes feed the cost view, so /cost and the
-// allocator show the same projection. The recipe is read once; a node's shape
-// is the leader's own and never changes.
-func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Recipe, error), now func() time.Time,
+// nodeCost prices the exact candidate and this region's observed resources.
+// Usage forecasts remain display data; only the home ledger admits spending.
+func (views *ociCostViews) nodeCost(reservations *capacityReservations, compartment string,
+	recipe func(context.Context) (nodescale.Recipe, error), now func() time.Time,
 ) func(context.Context, nodescale.PoolState) (nodescale.Cost, error) {
-	var shape *nodescale.Recipe
-	return func(ctx context.Context, state nodescale.PoolState) (nodescale.Cost, error) {
-		if shape == nil {
-			read, err := recipe(ctx)
+	return func(ctx context.Context, state nodescale.PoolState) (cost nodescale.Cost, err error) {
+		defer func() {
 			if err != nil {
-				return nodescale.Cost{}, err
+				reason := err.Error()
+				views.pricing.Store(&reason)
+				views.pool.Store(nil)
+			} else {
+				views.pricing.Store(nil)
 			}
-			shape = &read
+		}()
+		if state.Pending != "" {
+			return nodescale.Cost{}, fmt.Errorf("node capacity price is pending: %s", state.Pending)
 		}
-		report, err := views.store.Report(ctx)
+		shape, err := recipe(ctx)
 		if err != nil {
 			return nodescale.Cost{}, err
 		}
-		at := now()
-		if at.Sub(report.ObservedAt) > ocicost.MaxReportAge {
-			return nodescale.Cost{}, fmt.Errorf("OCI cost report is %s old", at.Sub(report.ObservedAt))
+		reader, proof, inventory, err := reservations.facts(ctx)
+		if err != nil {
+			return nodescale.Cost{}, err
 		}
-		price, known := ocicost.NodeMonthlyCents(report.Prices, float64(shape.OCPUs), float64(shape.MemoryGB),
+		cell := ""
+		for _, scope := range proof.Footprint().Regions {
+			if strings.EqualFold(scope.Cell, shape.Cell) {
+				cell = scope.Cell
+			}
+		}
+		quote, err := reader.Quote(ctx, proof.Footprint(), cell, compartment, shape.Capacity.Shape, float64(shape.OCPUs), float64(shape.MemoryGB),
 			nodescale.BootVolumeGB)
-		if !known {
-			return nodescale.Cost{}, errors.New("the cost report has no unit price yet for a node's SKUs")
+		if err != nil {
+			return nodescale.Cost{}, err
 		}
+		if err := quote.Validate(proof.Footprint(), cell, compartment, shape.Capacity.Shape, float64(shape.OCPUs), float64(shape.MemoryGB), nodescale.BootVolumeGB, now()); err != nil {
+			return nodescale.Cost{}, err
+		}
+		price := quote.MonthlyCents()
 		hosts := make([]ocicost.Host, 0, len(state.Instances))
 		for _, instance := range state.Instances {
 			hosts = append(hosts, ocicost.Host{Created: instance.Created, MonthlyCents: price})
 		}
 		views.pool.Store(&hosts)
-		forecast := ocicost.Project(report, at, hosts)
-		return nodescale.Cost{NodeMonthlyCents: price, ProjectedCents: max(forecast.MonthEndCents, forecast.NextMonthCents),
-			Currency: report.Currency, At: report.ObservedAt}, nil
+		var projected uint64
+		for _, resource := range inventory.Resources {
+			if strings.EqualFold(resource.Cell, shape.Cell) {
+				if resource.MonthlyCents > math.MaxUint64-projected {
+					return nodescale.Cost{}, fmt.Errorf("regional resource cost overflows the accounting range")
+				}
+				projected += resource.MonthlyCents
+			}
+		}
+		return nodescale.Cost{NodeMonthlyCents: price, ProjectedCents: projected,
+			Currency: quote.Currency(), At: inventory.ObservedAt}, nil
 	}
 }
 
 // view is the latest view; nil before the first refresh.
 func (views *ociCostViews) view(context.Context) *ocicost.View {
-	return views.current.Load()
+	current := views.current.Load()
+	if issue := views.pricing.Load(); issue != nil {
+		view := ocicost.View{Cell: views.cell}
+		if current != nil {
+			view = *current
+		}
+		view.Missing = *issue
+		return &view
+	}
+	return current
 }
 
 // rollup is the view as the dashboard rollup's cost section: nil until the
 // region has a report. Per hour is the daily rate with pending hosts.
 func (views *ociCostViews) rollup() *globalview.Cost {
-	v := views.current.Load()
+	v := views.view(context.Background())
 	if v == nil || v.Missing != "" {
 		return nil
 	}

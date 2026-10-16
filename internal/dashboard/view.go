@@ -118,6 +118,7 @@ var pages = []page{
 	{slug: "capacity", title: "Capacity", group: "Infrastructure", needs: needCapacity, body: capacityBody},
 	{slug: "cost", title: "OCI cost", group: "Infrastructure", needs: needLocal | needGlobal | needCapacity, body: costBody},
 	{slug: "oci", title: "OCI", group: "Infrastructure", needs: needInventory, body: ociBody},
+	{slug: "metric-catalog", title: "Metrics", group: "Logs", body: metricsBody},
 	{slug: "events", title: "Events", group: "Logs", events: recentEvents, body: eventsBody},
 }
 
@@ -164,12 +165,15 @@ type view struct {
 	Chain      *decisionlog.Chain
 	Versions   []UnitVersion
 	// VersionsDerived reports that Versions came from region summaries.
-	VersionsDerived bool
-	Rollout         *insights.Rollout
-	Rollouts        []insights.Rollout
-	Volumes         []insights.Volume
-	Qualifications  []Qualification
-	Inventory       []InventoryItem
+	VersionsDerived      bool
+	Rollout              *insights.Rollout
+	Rollouts             []insights.Rollout
+	Volumes              []insights.Volume
+	Qualifications       []Qualification
+	Inventory            []InventoryItem
+	MetricCatalog        *observability.CatalogResult
+	MetricHistory        *observability.CatalogHistory
+	MetricHistoryLimited bool
 	// Unavailable names providers that are attached but failed.
 	Unavailable []string
 }

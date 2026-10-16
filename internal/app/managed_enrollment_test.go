@@ -67,10 +67,14 @@ type managedEnrollmentFleet struct {
 	instances []oci.Instance
 	err       error
 	calls     int
+	onObserve func()
 }
 
 func (fleet *managedEnrollmentFleet) Observe(context.Context) ([]oci.Instance, error) {
 	fleet.calls++
+	if fleet.onObserve != nil {
+		fleet.onObserve()
+	}
 	return fleet.instances, fleet.err
 }
 
@@ -79,16 +83,35 @@ func TestManagedRegistrationVerifierUsesExactCurrentPins(t *testing.T) {
 	if err := fixture.verifier.VerifyManagedRegistration(t.Context(), fixture.registration); err != nil {
 		t.Fatalf("verify current managed registration: %v", err)
 	}
-	if fixture.intents.calls != 1 || fixture.intents.database != fixture.registration.ManagedPlacement.DatabaseID ||
+	if fixture.intents.calls != 2 || fixture.intents.database != fixture.registration.ManagedPlacement.DatabaseID ||
 		fixture.intents.partition != fixture.registration.ManagedPlacement.PartitionID {
 		t.Fatalf("authority lookup was not exact: %+v", fixture.intents)
 	}
-	if fixture.members.calls != 1 || fixture.members.database != fixture.intents.database ||
+	if fixture.members.calls != 2 || fixture.members.database != fixture.intents.database ||
 		fixture.members.partition != fixture.intents.partition || fixture.members.seat != fixture.registration.ManagedPlacement.SeatID {
 		t.Fatalf("member lookup was not exact: %+v", fixture.members)
 	}
 	if fixture.fleet.calls != 1 {
 		t.Fatalf("fresh fleet observations = %d, want 1", fixture.fleet.calls)
+	}
+}
+
+func TestManagedRegistrationRejectsAuthorityChangesDuringOCIObservation(t *testing.T) {
+	for _, change := range []string{"intent", "seat"} {
+		t.Run(change, func(t *testing.T) {
+			fixture := newManagedEnrollmentFixture(t)
+			fixture.fleet.onObserve = func() {
+				if change == "intent" {
+					fixture.intents.entry.Sequence++
+				} else {
+					fixture.members.member.Revision++
+					fixture.members.member.State.HostAttempt++
+				}
+			}
+			if err := fixture.verifier.VerifyManagedRegistration(t.Context(), fixture.registration); err == nil {
+				t.Fatal("managed registration survived an authority change during the OCI wait")
+			}
+		})
 	}
 }
 

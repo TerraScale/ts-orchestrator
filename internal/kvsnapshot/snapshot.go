@@ -27,16 +27,11 @@ const (
 
 // Snapshotter uploads every changed bucket while this controller leads.
 type Snapshotter struct {
-	JS       jetstream.JetStream
-	Objects  *Objects
-	Buckets  []string
-	Leader   func() bool
-	Interval time.Duration
-	// Schedule, when set, returns the current interval and pause; Run reads
-	// it at least every five seconds, so a change applies without a
-	// restart.
-	Schedule func() (time.Duration, bool)
-	Now      func() time.Time
+	JS      jetstream.JetStream
+	Objects *Objects
+	Buckets []string
+	Leader  func() bool
+	Now     func() time.Time
 
 	passMu     sync.Mutex
 	nextBucket int
@@ -54,28 +49,19 @@ type upload struct {
 	etag     string
 }
 
-// Run checks the buckets every Interval until ctx ends.
+// Run checks the buckets every thirty seconds until ctx ends.
 func (snapshotter *Snapshotter) Run(ctx context.Context) error {
 	if err := validBuckets(snapshotter.Buckets); err != nil {
 		return err
 	}
-	if snapshotter.JS == nil || snapshotter.Objects == nil || snapshotter.Leader == nil || snapshotter.Interval <= 0 {
-		return errors.New("kv snapshotter requires JetStream, Object Storage, a leader check and an interval")
+	if snapshotter.JS == nil || snapshotter.Objects == nil || snapshotter.Leader == nil {
+		return errors.New("kv snapshotter requires JetStream, Object Storage, a leader check")
 	}
-	ticker := time.NewTicker(min(snapshotter.Interval, 5*time.Second))
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	var last time.Time
-	paused := false
 	for {
-		interval, pause := snapshotter.Interval, false
-		if snapshotter.Schedule != nil {
-			interval, pause = snapshotter.Schedule()
-		}
-		if pause != paused {
-			slog.WarnContext(ctx, "kv snapshot schedule changed", "paused", pause)
-			paused = pause
-		}
-		if !paused && snapshotter.Leader() && time.Since(last) >= interval {
+		if snapshotter.Leader() && time.Since(last) >= snapshotInterval {
 			last = time.Now()
 			written, err := snapshotter.SnapshotOnce(ctx)
 			if err != nil && ctx.Err() == nil {

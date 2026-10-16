@@ -1,0 +1,72 @@
+package dashboard
+
+templ metricsBody(current view) {
+	<div id="content">
+		<h1>Metrics</h1>
+		@notes(current)
+		<p class="muted">Local registry catalog and retained history from this controller. The region picker does not change this source; this is not a fleet coverage inventory.</p>
+		<form method="get" action="/metric-catalog" class="filters">
+			@stateFields(current.State)
+			<label>
+				Search metric catalog
+				<input type="search" name="q" value={ current.State.param("q") } placeholder="name, description, unit, source, label…"/>
+			</label>
+			<button type="submit" class="secondary">Search</button>
+			<a href={ safe(current.State.link("/metric-catalog")) }>Clear</a>
+		</form>
+		if current.MetricCatalog == nil {
+			if current.failed("metric catalog") {
+				@unavailable("Unavailable: the metric catalog could not be read. No current values are assumed.")
+			} else {
+				@unavailable("Missing: the metric catalog provider is not attached yet.")
+			}
+		} else {
+			<p>Catalog state: <strong>{ metricMetadata(current.MetricCatalog.State) }</strong>. Observed: { metricObserved(current.MetricCatalog.ObservedAt) }.</p>
+			if current.MetricCatalog.Truncated {
+				<p class="note">Truncated: registry exposition or catalog limits were reached; additional metric families or samples may be missing.</p>
+			}
+			@dataTable(current.metricCatalogTable())
+			if metric := current.selectedMetric(); metric != nil {
+				<article aria-labelledby="metric-detail-title">
+					<h2 id="metric-detail-title">{ metric.Name }</h2>
+					<p>{ metricMetadata(metric.Description) }</p>
+					<dl>
+						<dt>State</dt><dd>{ metricMetadata(metric.State) }</dd>
+						<dt>Type / unit</dt><dd>{ metricMetadata(metric.Type) } / { metricMetadata(metric.Unit) }</dd>
+						<dt>Source</dt><dd>{ metricMetadata(metric.Source) }</dd>
+						<dt>Collected at</dt><dd>{ metricObserved(metric.ObservedAt) }</dd>
+						<dt>Safe label dimensions</dt><dd>{ metricDimensions(metric.Labels) }</dd>
+						<dt>History state</dt><dd>{ metricMetadata(metric.HistoryState) }</dd>
+						<dt>Retained resolutions</dt><dd>{ metricDimensions(metric.HistoryTiers) }</dd>
+						<dt>Retention</dt><dd>{ metricRetention(*metric) }</dd>
+					</dl>
+					if len(metric.Unsupported) > 0 {
+						<p class="note">Unsupported metadata: { metricDimensions(metric.Unsupported) }.</p>
+					}
+					<h3>Current samples</h3>
+					<p class="muted">Values use the exported representation. Label values are omitted at the catalog boundary.</p>
+					@dataTable(metricSamplesTable(*metric))
+					<h3>Retained history</h3>
+					<p class="muted">Counters show cumulative observations; histogram components are shown individually. No rates or aggregate percentiles are inferred.</p>
+					if current.MetricHistory == nil {
+						@unavailable("Unavailable: retained metric history could not be read.")
+					} else {
+						<p>History state: <strong>{ metricMetadata(current.MetricHistory.State) }</strong>. Queried: { metricObserved(current.MetricHistory.ObservedAt) }.</p>
+						for _, warning := range current.metricHistoryWarnings() {
+							<p class="note">{ warning }</p>
+						}
+						@chart("chart-wide", current.metricHistoryChart(*metric))
+						<details>
+							<summary>History data table and keyboard accessible event links</summary>
+							@dataTable(current.metricHistoryTable())
+							</details>
+						}
+				</article>
+			} else if current.State.param("metric") != "" {
+				@unavailable("Missing: the selected metric is absent from the current catalog. Search or select another family.")
+			} else {
+				<p class="muted">Select a metric to inspect current samples and retained history.</p>
+			}
+		}
+	</div>
+}

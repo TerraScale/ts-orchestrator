@@ -155,7 +155,7 @@ type countingMaterialChecker struct {
 	restartErr                 error
 }
 
-func (checker *countingMaterialChecker) PrepareInitial(_ context.Context, _ bootstrap.VerifiedManifest,
+func (checker *countingMaterialChecker) PrepareInitial(_ context.Context, _ bootstrap.StartupAuthority,
 	_ bootstrap.VerifiedReceipt, _ map[string]string, verifyCurrent CurrentProofVerifier,
 ) error {
 	checker.initialCalls++
@@ -199,7 +199,7 @@ type stagedSecretMaterializer struct {
 	calls int
 }
 
-func (materializer *stagedSecretMaterializer) MaterializeCurrent(_ context.Context, _ bootstrap.VerifiedManifest,
+func (materializer *stagedSecretMaterializer) MaterializeCurrent(_ context.Context, _ bootstrap.StartupAuthority,
 	_ bootstrap.VerifiedReceipt, reference bootstrap.SecretReference, directory string, _ func(time.Time) error,
 ) error {
 	materializer.calls++
@@ -207,7 +207,7 @@ func (materializer *stagedSecretMaterializer) MaterializeCurrent(_ context.Conte
 	return os.WriteFile(filepath.Join(directory, reference.TargetFile), content, 0o600)
 }
 
-func (checker *countingCredentialChecker) VerifyInitialLiveCredentials(_ context.Context, expected MaterialPins, _ bootstrap.VerifiedManifest) error {
+func (checker *countingCredentialChecker) VerifyInitialLiveCredentials(_ context.Context, expected MaterialPins, _ bootstrap.StartupAuthority) error {
 	return checker.verify(expected)
 }
 func (checker *countingCredentialChecker) VerifyLiveCredentials(_ context.Context, expected MaterialPins, _ AcceptedIdentity) error {
@@ -716,7 +716,7 @@ func TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, receipt, _, err := fixture.gate.initialProofs(state, anchor, observed, now)
+	manifest, receipt, _, err := fixture.gate.initialProofs(t.Context(), state, anchor, observed, now)
 	if err != nil {
 		t.Fatal(err)
 	}

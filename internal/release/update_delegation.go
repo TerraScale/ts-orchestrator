@@ -320,6 +320,9 @@ func signBinaryUpdateReceipt(binary BinaryReceipt, qualification Qualification, 
 	if err != nil {
 		return trust.Envelope{}, err
 	}
+	if len(privateKey) != ed25519.PrivateKeySize {
+		return trust.Envelope{}, trust.ErrKeyMismatch
+	}
 	signerKeyID, err := trust.KeyID(privateKey.Public().(ed25519.PublicKey))
 	if err != nil || signerKeyID != verified.delegation.SubjectKeyID {
 		return trust.Envelope{}, trust.ErrKeyMismatch

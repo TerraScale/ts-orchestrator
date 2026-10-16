@@ -101,7 +101,7 @@ func identityRekeyConfigFixture(t *testing.T) (bootstrapstart.AcceptedIdentity, 
 	region := oci.RegionConfig{Region: oci.RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1..owned",
 		ImageCompartmentID: "ocid1.compartment.oc1..image", AvailabilityDomain: "AD-1", FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1..owned",
 		NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1..owned"},
-		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50, ImageID: accepted.ImageOCID, Shape: "VM.Standard.E4.Flex", Owner: "regional-owner"}
+		BootVolumeGB:            50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 50, ImageID: accepted.ImageOCID, Shape: "VM.Standard.Future.Flex", Owner: "regional-owner"}
 	files := map[string][]byte{"controller.json": encode(config), "oci-region-intent.json": encode(intent), "oci-region.json": encode(region),
 		"placement.json": encode(managedPlacementSettings{Environment: accepted.Environment, MemberRole: "terrabase"})}
 	accepted.ConfigSHA256 = map[string]string{}
@@ -170,7 +170,7 @@ func TestIdentityRekeyInstallerRequiresExactV1RoleAndAllPinnedFiles(t *testing.T
 				if fault == "region" {
 					region.Region = oci.RegionSFO
 				} else {
-					region.Shape = "VM.Unknown.Flex"
+					region.Shape = "/invalid-shape"
 				}
 				wire["oci-region.json"], _ = protocol.EncodeJSON(region)
 				identity.ConfigSHA256["oci-region.json"] = controllerSHA256(wire["oci-region.json"])

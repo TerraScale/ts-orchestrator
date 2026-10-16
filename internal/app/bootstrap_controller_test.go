@@ -169,21 +169,14 @@ func TestDirectControllerRunChecksAcceptedAdmissionBeforeNATS(t *testing.T) {
 	if err := admitControllerBootstrap(t.Context(), Config{}, func() error { return nil }); !errors.Is(err, sentinel) || !called {
 		t.Fatalf("production skipped pre-NATS gate: %v", err)
 	}
-	for _, lab := range []bool{false, true} {
-		called = false
-		cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Lab: lab}}
-		if err := runController(t.Context(), cfg, io.Discard); !errors.Is(err, sentinel) || !called {
-			t.Fatalf("baked input with lab=%t skipped pre-NATS gate: %v", lab, err)
-		}
+	called = false
+	if err := runController(t.Context(), Config{Version: ConfigVersion}, io.Discard); !errors.Is(err, sentinel) || !called {
+		t.Fatalf("baked input skipped pre-NATS gate: %v", err)
 	}
 	controllerBakedInputsPresent = func() (bool, error) { return false, nil }
 	called = false
 	if err := runController(t.Context(), Config{Version: ConfigVersion}, io.Discard); err == nil || !strings.Contains(err.Error(), "baked bootstrap") || called {
 		t.Fatalf("production without baked inputs = %v, gate called=%t", err, called)
-	}
-	if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
-		!strings.Contains(err.Error(), "embedded regional NATS") {
-		t.Fatalf("explicit lab without baked inputs did not reach normal controller validation: %v", err)
 	}
 }
 
@@ -215,13 +208,11 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			controllerBrokerClockProbe = func() brokerauth.ClockProbe { return test.clock }
-			for _, lab := range []bool{false, true} {
-				if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: lab}}, io.Discard); err == nil ||
-					!strings.Contains(err.Error(), "NTP clock health") {
-					t.Fatalf("run with baked inputs, lab=%t and %s clock = %v", lab, test.name, err)
-				}
+			if err := runController(t.Context(), Config{Version: ConfigVersion}, io.Discard); err == nil ||
+				!strings.Contains(err.Error(), "NTP clock health") {
+				t.Fatalf("run with baked inputs and %s clock = %v", test.name, err)
 			}
-			if admissionCalls != 0 || test.clock.calls != 2 {
+			if admissionCalls != 0 || test.clock.calls != 1 {
 				t.Fatalf("%s clock reached admission %d times after %d clock samples",
 					test.name, admissionCalls, test.clock.calls)
 			}
@@ -245,13 +236,13 @@ func TestProductionControllerRejectsUnhealthyClockBeforeAdmission(t *testing.T) 
 	}
 }
 
-func TestControllerBakedPresenceErrorCannotFallBackToLab(t *testing.T) {
+func TestControllerBakedPresenceErrorStopsStartup(t *testing.T) {
 	priorPresent := controllerBakedInputsPresent
 	t.Cleanup(func() { controllerBakedInputsPresent = priorPresent })
 	controllerBakedInputsPresent = func() (bool, error) { return false, errors.New("permission denied") }
-	if err := runController(t.Context(), Config{Version: ConfigVersion, NATS: natscell.Config{Lab: true}}, io.Discard); err == nil ||
+	if err := runController(t.Context(), Config{Version: ConfigVersion}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("baked path inspection error fell through to lab: %v", err)
+		t.Fatalf("baked path inspection error allowed startup: %v", err)
 	}
 }
 

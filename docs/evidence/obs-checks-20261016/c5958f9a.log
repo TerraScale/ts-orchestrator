@@ -1,0 +1,7 @@
+# github.com/TerraScale/ts-orchestrator/internal/release
+internal/release/container.go:39:26: undefined: ProductionProof
+internal/release/container.go:70:21: undefined: ProductionProof
+ok  	github.com/TerraScale/ts-orchestrator/internal/observability	57.952s
+FAIL	github.com/TerraScale/ts-orchestrator/internal/cli [build failed]
+FAIL	github.com/TerraScale/ts-orchestrator/internal/dashboard [build failed]
+FAIL

@@ -84,13 +84,13 @@ func NewInstancePrincipalVault(region oci.Region, provider common.ConfigurationP
 // Materialize checks the current manifest and receipt for one exact secret.
 // The production admission path uses MaterializeCurrent to additionally bind
 // each Vault read and file install to its still-current root proof chain.
-func (vault *Vault) Materialize(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt, reference SecretReference, destinationDirectory string) error {
+func (vault *Vault) Materialize(ctx context.Context, manifest StartupAuthority, receipt VerifiedReceipt, reference SecretReference, destinationDirectory string) error {
 	return vault.materialize(ctx, manifest, receipt, reference, destinationDirectory, nil)
 }
 
 // MaterializeCurrent additionally rechecks the whole current bootstrap proof
 // immediately before the Vault request and before installing its response.
-func (vault *Vault) MaterializeCurrent(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt,
+func (vault *Vault) MaterializeCurrent(ctx context.Context, manifest StartupAuthority, receipt VerifiedReceipt,
 	reference SecretReference, destinationDirectory string, verifyCurrent func(time.Time) error,
 ) error {
 	if verifyCurrent == nil {
@@ -99,7 +99,7 @@ func (vault *Vault) MaterializeCurrent(ctx context.Context, manifest VerifiedMan
 	return vault.materialize(ctx, manifest, receipt, reference, destinationDirectory, verifyCurrent)
 }
 
-func (vault *Vault) materialize(ctx context.Context, manifest VerifiedManifest, receipt VerifiedReceipt,
+func (vault *Vault) materialize(ctx context.Context, manifest StartupAuthority, receipt VerifiedReceipt,
 	reference SecretReference, destinationDirectory string, verifyCurrent func(time.Time) error,
 ) error {
 	if vault == nil || vault.reader == nil {
@@ -189,35 +189,40 @@ func (reader ociSecretBundleReader) GetSecretBundle(ctx context.Context, secretO
 	}, nil
 }
 
-func authorizeSecretMaterialization(manifest VerifiedManifest, receipt VerifiedReceipt, reference SecretReference, now time.Time) error {
-	if err := validateVerifiedManifest(manifest); err != nil {
+func authorizeSecretMaterialization(manifest StartupAuthority, receipt VerifiedReceipt, reference SecretReference, now time.Time) error {
+	if err := validateStartupAuthority(manifest); err != nil {
 		return err
 	}
-	if !receipt.verified || !now.Before(receipt.expiresAt) || !now.Before(manifest.expiresAt) ||
-		receipt.manifestDigest != manifest.digest || receipt.receipt.ManifestDigest != manifest.digest ||
-		receipt.receipt.DeploymentID != manifest.manifest.DeploymentID || receipt.receipt.Environment != manifest.manifest.Environment ||
-		receipt.receipt.ClusterID != manifest.manifest.ClusterID || receipt.receipt.Cell != manifest.manifest.Cell ||
-		receipt.receipt.OCIRegion != manifest.manifest.OCIRegion || receipt.receipt.IntentGeneration != manifest.manifest.IntentGeneration ||
-		receipt.receipt.ManifestIntentSHA256 != manifest.manifest.IntentSHA256 || receipt.receipt.Role != manifest.manifest.ControllerRole ||
-		receipt.receipt.Slot != manifest.manifest.Slot {
+	payload := manifest.Manifest()
+	if !receipt.verified || !now.Before(receipt.expiresAt) || !now.Before(manifest.ExpiresAt()) ||
+		receipt.manifestDigest != manifest.Digest() || receipt.receipt.ManifestDigest != manifest.Digest() ||
+		receipt.receipt.DeploymentID != payload.DeploymentID || receipt.receipt.Environment != payload.Environment ||
+		receipt.receipt.ClusterID != payload.ClusterID || receipt.receipt.Cell != payload.Cell ||
+		receipt.receipt.OCIRegion != payload.OCIRegion || receipt.receipt.IntentGeneration != payload.IntentGeneration ||
+		receipt.receipt.ManifestIntentSHA256 != payload.IntentSHA256 || receipt.receipt.Role != payload.ControllerRole ||
+		receipt.receipt.Slot != payload.Slot {
 		return fmt.Errorf("%w: secret retrieval requires a current receipt for this manifest and exact instance slot", ErrReceiptInvalid)
 	}
-	if err := reference.validate(manifest.manifest); err != nil {
+	if err := reference.validate(payload); err != nil {
 		return err
 	}
-	if !slices.Contains(manifest.manifest.Secrets, reference) {
+	if !slices.Contains(payload.Secrets, reference) {
 		return fmt.Errorf("%w: secret reference is not present in the signed manifest", ErrManifestInvalid)
 	}
 	switch reference.Purpose {
-	case SecretRegionalShared, SecretHostIssuer:
+	case SecretRegionalShared, SecretHostIssuer, SecretControllerIssuer:
 		return nil
 	case SecretSeedFounder, SecretSeedLedgerSigner:
-		if receipt.receipt.Slot != manifest.manifest.SeedSlot {
+		if receipt.receipt.Slot != payload.SeedSlot {
 			return fmt.Errorf("%w: seed signer secret requires the exact seed receipt", ErrReceiptInvalid)
 		}
 	case SecretController:
 		if reference.Slot != receipt.receipt.Slot {
 			return fmt.Errorf("%w: controller secret is bound to a different slot", ErrReceiptInvalid)
+		}
+	case SecretInterRegion:
+		if reference.Slot != "" && reference.Slot != receipt.receipt.Slot {
+			return fmt.Errorf("%w: Link TLS secret is bound to a different slot", ErrReceiptInvalid)
 		}
 	default:
 		return fmt.Errorf("%w: unknown secret purpose", ErrManifestInvalid)

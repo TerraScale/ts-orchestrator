@@ -14,14 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats-server/v2/server"
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
 )
 
 func rootKeys(keys ...ed25519.PrivateKey) []ed25519.PrivateKey { return keys }
@@ -118,24 +116,12 @@ func TestRootRegistryAdoptsOnlyExtendingChains(t *testing.T) {
 // adopt (here its persistence fails) is never overwritten with the older
 // adopted chain.
 func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
+	auth := newAuthenticatedNATS(t, "gru")
+	runtime, err := auth.start(t, t.Context(), natscell.Config{Cell: "gru", Embedded: &natscell.Embedded{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	js, err := jetstream.New(conn)
-	if err != nil {
-		t.Fatal(err)
-	}
+	js := runtime.JetStream()
 	r0, r1 := newRootKey(t), newRootKey(t)
 	genesis, err := trust.ParseKeyring(r0.Public().(ed25519.PublicKey))
 	if err != nil {
@@ -182,7 +168,7 @@ func TestRootRepairNeverRollsBackAValidRecord(t *testing.T) {
 }
 
 // TestRootRotationOnARunningController rotates the cell's root through the
-// operator path and checks that the controller switches roots without a
+// operator path on authenticated NATS and checks that the registries switch roots without a
 // restart or rebuild, and that the replaced root, treated as leaked, can
 // neither fork nor extend the chain nor authorize a cell spec.
 func TestRootRotationOnARunningController(t *testing.T) {
@@ -202,8 +188,9 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase", "web"}, Environments: []string{"test"}}
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
-	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
+	auth := newAuthenticatedNATS(t, "gru", "one")
+	controllerCfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
 				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true},
 					{PublicKey: operatorNKey, Role: "operator"}}}},
@@ -211,24 +198,80 @@ func TestRootRotationOnARunningController(t *testing.T) {
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads: map[string]WorkloadProfile{"terrabase": {Resources: resources}},
 			SpecTrust: genesisTrust.config()},
-	})
-	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
+	}
+	controllerCfg.NATS = auth.config(t, controllerCfg.NATS)
+	newAcceptedSpecTrust(t, &controllerCfg)
+	operatorCfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1,
 			URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
-		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}})
+		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
+	operatorCfg.NATS.ClientRole = "operator"
+	operatorCfg.NATS = auth.config(t, operatorCfg.NATS)
+	operatorCfg.Operator.BrokerTicketPublicKeyFile = auth.ticketPublicFile
+	operatorConfig := testJSONFile(t, root, "operator.json", operatorCfg)
+	rootPath := filepath.Join(root, "accepted-root-chain.json")
 	start := func() (context.CancelFunc, chan error) {
 		runCtx, stop := context.WithCancel(ctx)
-		output := &readyWriter{ready: make(chan struct{})}
-		done := make(chan error, 1)
-		go func() { done <- Run(runCtx, []string{"run", "--config", controllerConfig}, output) }()
-		select {
-		case <-output.ready:
-		case err := <-done:
-			t.Fatalf("controller exited before ready: %v", err)
-		case <-ctx.Done():
-			t.Fatal(ctx.Err())
+		runtime, err := auth.start(t, runCtx, controllerCfg.NATS)
+		if err != nil {
+			t.Fatal(err)
 		}
+		control, err := authority.Start(runCtx, runtime.JetStream(), authority.Config{
+			DeploymentID: identity.DeploymentID, Scope: "gru", CandidateID: controllerCfg.Controller.CandidateID,
+			Replicas: 1, LeaseDuration: 5 * time.Second, RenewInterval: 500 * time.Millisecond})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for !control.Current().CanMutate() {
+			if runCtx.Err() != nil {
+				t.Fatal(runCtx.Err())
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		services, err := newSpecRegistry(controllerCfg, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		services.roots.path, services.roots.fencer = rootPath, control
+		if wire, err := os.ReadFile(rootPath); err == nil {
+			chain, err := trust.DecodeRootChain(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := services.roots.adopt(chain); err != nil {
+				t.Fatal(err)
+			}
+		} else if !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if err := services.roots.open(runCtx, runtime.JetStream(), 1); err != nil {
+			t.Fatal(err)
+		}
+		if err := services.open(runCtx, runtime.JetStream(), 1); err != nil {
+			t.Fatal(err)
+		}
+		policy, err := buildSignerPolicy(controllerCfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		policy.services = services
+		subscription, err := serveHostEnrollment(runCtx, runtime.Conn(), "gru", policy, control, nil, nil, services)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finished := make(chan error, 2)
+		go func() { finished <- services.Run(runCtx) }()
+		go func() { finished <- services.roots.Run(runCtx) }()
+		done := make(chan error, 1)
+		go func() {
+			<-runCtx.Done()
+			_ = subscription.Unsubscribe()
+			<-finished
+			<-finished
+			_ = control.Close()
+			done <- runtime.Close()
+		}()
 		return stop, done
 	}
 	stop, done := start()
@@ -305,7 +348,7 @@ func TestRootRotationOnARunningController(t *testing.T) {
 	// A spec signed under r1 reaches the store before r1 is a root, as on a
 	// follower whose spec watch runs ahead of its root watch: it is refused
 	// now and adopted when the rotation adds r1.
-	probe, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1, Lab: true,
+	probe, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "probe", Replicas: 1,
 		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: controllerSeed})
 	if err != nil {
 		t.Fatal(err)

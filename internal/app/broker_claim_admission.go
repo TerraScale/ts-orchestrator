@@ -98,10 +98,8 @@ func verifyBrokerClaimReply(data []byte, cell, account, raw string, wire []byte,
 }
 
 func operatorBrokerClaimApply(ctx context.Context, cfg Config, runtime *natscell.Runtime, path, expectedText string, output io.Writer) error {
-	if !cfg.NATS.Lab {
-		if err := natscell.ValidateBrokerOperatorCredentials(cfg.NATS.CredentialsFile, cfg.NATS.Cell); err != nil {
-			return err
-		}
+	if err := natscell.ValidateBrokerOperatorCredentials(cfg.NATS.CredentialsFile, cfg.NATS.Cell); err != nil {
+		return err
 	}
 	if cfg.Operator.BrokerTicketPublicKeyFile == "" {
 		return errors.New("broker claim apply requires a pinned ticket public key")

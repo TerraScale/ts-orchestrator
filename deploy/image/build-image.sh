@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the qualified GRU ARM64 host image for one source revision.
+# Build the qualified GRU Linux host image for one source revision.
 #
 # usage: build-image.sh --source SHA --out DIRECTORY [--wait-for-ci SECONDS]
 #
@@ -12,7 +12,7 @@
 #   - the orchestrator binary is the retained release of the successful
 #     ci.yml run on main for SOURCE, found through the Actions API. With
 #     --wait-for-ci, a still-running ci.yml run is awaited.
-# Writes terrascale-gru-arm64.qcow2, guest-kernel, image-qualification.json
+# Writes the architecture-matching QCOW2, guest-kernel, image-qualification.json
 # and SHA256SUMS to DIRECTORY. Publishing is publish-image.sh's job.
 set -euo pipefail
 
@@ -21,7 +21,7 @@ cd "$repository_root"
 repository=TerraScale/ts-orchestrator
 export GH_HOST=github.com
 ci_job='verify/go + artifact/linux-amd64-arm64'
-image_job='build/qualified-gru-arm64-image'
+image_job=
 
 source_sha=
 output=
@@ -69,6 +69,14 @@ go build -trimpath -buildvcs=true -o "$work/tools/ts-orch" ./cmd/terrascale-orch
 export TS_ORCH_BIN="$work/tools/ts-orch"
 "$TS_ORCH_BIN" image inputs check
 input_json() { jq -r "$1" "$inputs"; }
+architecture=$(input_json .base.checksum_name)
+architecture=${architecture##*-}
+architecture=${architecture%.img}
+[[ $architecture == arm64 || $architecture == amd64 ]] || { echo 'pinned base must identify arm64 or amd64' >&2; exit 1; }
+image_job="build/qualified-gru-${architecture}-image"
+image_name="terrascale-gru-${architecture}.qcow2"
+native_artifact="tb-server-linux-${architecture}"
+orchestrator_artifact="terrascale-orchestrator-linux-${architecture}"
 
 sha256() { sha256sum -- "$1" | cut -d ' ' -f 1; }
 verify_file() {
@@ -129,17 +137,17 @@ terrabase_run_number=$(input_json .terrabase.run_number)
 terrabase_tag="ci-${terrabase_sha}-run-${terrabase_run_id}"
 if [[ $(input_json '.terrabase.archive != null') == true ]]; then
 	terrabase_tag=$(input_json .terrabase.archive.release_tag)
-	for asset in image-qualification.json tb-server-linux-arm64; do
+	for asset in image-qualification.json "$native_artifact"; do
 		gh release download "$terrabase_tag" --repo "$repository" --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	"$TS_ORCH_BIN" image inputs --file "$inputs" verify-terrabase-archive \
-		--qualification "$work/terrabase/image-qualification.json" --binary "$work/terrabase/tb-server-linux-arm64" >/dev/null
+		--qualification "$work/terrabase/image-qualification.json" --binary "$work/terrabase/$native_artifact" >/dev/null
 else
-	for asset in qualification.json tb-server-linux-arm64; do
+	for asset in qualification.json "$native_artifact"; do
 		gh release download "$terrabase_tag" --repo TerraScale/TerraBase --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	[[ $(sha256 "$work/terrabase/qualification.json") == "$(input_json .terrabase.qualification_sha256)" &&
-		$(sha256 "$work/terrabase/tb-server-linux-arm64") == "$(input_json .terrabase.binary_sha256)" ]] || {
+		$(sha256 "$work/terrabase/$native_artifact") == "$(input_json .terrabase.binary_sha256)" ]] || {
 		echo "TerraBase release $terrabase_tag differs from the pinned digests" >&2
 		exit 1
 	}
@@ -179,12 +187,13 @@ done
 go_run_id=$(jq -r .id <<< "$run")
 go_run_number=$(jq -r .run_number <<< "$run")
 go_tag="ci-${source_sha}-run-${go_run_id}"
-for asset in qualification.json terrascale-orchestrator-linux-arm64; do
+for asset in qualification.json "$orchestrator_artifact"; do
 	gh release download "$go_tag" --repo "$repository" --pattern "$asset" --output "$work/go/$asset" --clobber >/dev/null
 done
 qualification="$work/go/qualification.json"
-go_binary="$work/go/terrascale-orchestrator-linux-arm64"
+go_binary="$work/go/$orchestrator_artifact"
 jq -e --arg source "$source_sha" --arg tree "$source_tree" --arg job "$ci_job" \
+	--arg architecture "$architecture" --arg artifact "$orchestrator_artifact" \
 	--arg binary "$(sha256 "$go_binary")" --argjson bytes "$(stat -c '%s' -- "$go_binary")" \
 	--argjson run_id "$go_run_id" --argjson run_number "$go_run_number" '
   .schema == "terrascale.release.qualification.v1" and
@@ -192,7 +201,7 @@ jq -e --arg source "$source_sha" --arg tree "$source_tree" --arg job "$ci_job" \
   .source_tree == $tree and .verification.workflow == "ci.yml" and .verification.job == $job and
   .verification.run_id == $run_id and .verification.run_number == $run_number and
   .verification.conclusion == "success" and
-  ([.artifacts[] | select(.name == "terrascale-orchestrator-linux-arm64" and .architecture == "arm64" and
+  ([.artifacts[] | select(.name == $artifact and .architecture == $architecture and
     .sha256 == $binary and .bytes == $bytes)] | length) == 1
 ' "$qualification" >/dev/null || { echo "CI qualification of $go_tag does not match $source_sha" >&2; exit 1; }
 [[ $(jq -r .go_mod_sha256 "$qualification") == $(sha256 go.mod) &&
@@ -221,7 +230,7 @@ build_info=$(go version -m "$work/tools/ts-orch")
 grep -Fq "vcs.revision=$source_sha" <<< "$build_info" && grep -Fq 'vcs.modified=false' <<< "$build_info"
 
 kernel_release=$(input_json .base.kernel_release)
-"$TS_ORCH_BIN" netbird client fetch --architecture arm64 --out "$work/netbird/netbird"
+"$TS_ORCH_BIN" netbird client fetch --architecture "$architecture" --out "$work/netbird/netbird"
 roots=()
 while IFS= read -r root; do roots+=(--bootstrap-root "$root"); done < <(input_json '.trust_roots[].path')
 deploy/image/build-offline.sh \
@@ -230,10 +239,10 @@ deploy/image/build-offline.sh \
 	--binary "$go_binary" \
 	--qualification "$qualification" \
 	--source-revision "$source_sha" \
-	--native-verifier-binary "$work/terrabase/tb-server-linux-arm64" \
+	--native-verifier-binary "$work/terrabase/$native_artifact" \
 	--native-verifier-sha256 "$(input_json .terrabase.binary_sha256)" \
 	--netbird-binary "$work/netbird/netbird" \
-	--netbird-sha256 "$(input_json .netbird.archives.arm64.binary_sha256)" \
+	--netbird-sha256 "$(input_json ".netbird.archives.$architecture.binary_sha256")" \
 	--netbird-config "$(input_json .netbird.enrollment_config.path)" \
 	--release-tool "$work/tools/ts-orch" \
 	"${roots[@]}" \
@@ -246,9 +255,9 @@ deploy/image/build-offline.sh \
 	--controller-memory-low-bytes "$(input_json .priority.controller_memory_low_bytes)" \
 	--system-slice-memory-min-bytes "$(input_json .priority.system_slice_memory_min_bytes)" \
 	--system-slice-memory-low-bytes "$(input_json .priority.system_slice_memory_low_bytes)" \
-	--out "$output/terrascale-gru-arm64.qcow2" \
+	--out "$output/$image_name" \
 	--kernel-out "$output/guest-kernel"
-chmod 0644 "$output/terrascale-gru-arm64.qcow2" "$output/guest-kernel"
+chmod 0644 "$output/$image_name" "$output/guest-kernel"
 
 # Who built it: the image.yml job in CI, or a named local builder.
 if [[ -n ${GITHUB_RUN_ID:-} ]]; then
@@ -264,7 +273,7 @@ else
 fi
 
 jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
-	--arg source "$source_sha" --arg tree "$source_tree" \
+	--arg source "$source_sha" --arg tree "$source_tree" --arg architecture "$architecture" --arg image_name "$image_name" \
 	--arg inputs_sha256 "$(sha256 "$inputs")" \
 	--arg go_tag "$go_tag" --argjson go_run_id "$go_run_id" --argjson go_run_number "$go_run_number" \
 	--arg go_qualification "$(sha256 "$qualification")" --arg go_binary "$(sha256 "$go_binary")" \
@@ -275,8 +284,8 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
 	--arg gpgv "$(gpgv --version | head -n 1)" --arg tools "${TS_IMAGE_TOOLS_ID:-unrecorded}" \
 	--arg kernel_release "$kernel_release" --arg kernel "$(sha256 "$output/guest-kernel")" \
 	--argjson kernel_bytes "$(stat -c '%s' -- "$output/guest-kernel")" \
-	--arg image "$(sha256 "$output/terrascale-gru-arm64.qcow2")" \
-	--argjson image_bytes "$(stat -c '%s' -- "$output/terrascale-gru-arm64.qcow2")" '
+	--arg image "$(sha256 "$output/$image_name")" \
+	--argjson image_bytes "$(stat -c '%s' -- "$output/$image_name")" '
   {schema:"terrascale.image.qualification.v2", source_revision:$source, source_tree:$tree,
    builder:$builder,
    inputs:{path:"deploy/image/image-inputs.json", sha256:$inputs_sha256, manifest:$inputs[0]},
@@ -286,14 +295,14 @@ jq -n --slurpfile inputs "$inputs" --argjson builder "$builder" \
    toolchain:{go_version:$go_version, ts_release_sha256:$ts_release, qemu_img_version:$qemu_img,
      guestfish_version:$guestfish, gpgv_version:$gpgv, tools:$tools},
    kernel:{name:"guest-kernel", guest_path:("/boot/vmlinuz-" + $kernel_release), release:$kernel_release,
-     architecture:"arm64", bytes:$kernel_bytes, sha256:$kernel},
-   image:{name:"terrascale-gru-arm64.qcow2", format:"qcow2", architecture:"arm64",
+     architecture:$architecture, bytes:$kernel_bytes, sha256:$kernel},
+   image:{name:$image_name, format:"qcow2", architecture:$architecture,
      bytes:$image_bytes, sha256:$image},
    image_receipt_status:"requires OCI import and signing (ts-orch image promote)"}' \
 	> "$output/image-qualification.json"
 chmod 0644 "$output/image-qualification.json"
-(cd "$output" && sha256sum terrascale-gru-arm64.qcow2 guest-kernel image-qualification.json > SHA256SUMS)
+(cd "$output" && sha256sum "$image_name" guest-kernel image-qualification.json > SHA256SUMS)
 chmod 0644 "$output/SHA256SUMS"
 printf 'image built source=%s image_sha256=%s kernel_sha256=%s qualification_sha256=%s\n' \
-	"$source_sha" "$(sha256 "$output/terrascale-gru-arm64.qcow2")" "$(sha256 "$output/guest-kernel")" \
+	"$source_sha" "$(sha256 "$output/$image_name")" "$(sha256 "$output/guest-kernel")" \
 	"$(sha256 "$output/image-qualification.json")"

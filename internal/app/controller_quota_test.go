@@ -12,6 +12,8 @@ import (
 )
 
 func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
+	admission := Config{NATS: natscell.Config{Cell: "gru"}}
+	stubAuthenticatedController(t, &admission)
 	for _, test := range []struct {
 		name          string
 		artifactBytes int64
@@ -29,7 +31,7 @@ func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
 			storeBytes: (64+1536)<<20 + observability.HostMetricStreamBytes, want: "explicit workload profiles"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			cfg := Config{NATS: natscell.Config{Lab: true, Embedded: &natscell.Embedded{StoreMaxBytes: test.storeBytes}},
+			cfg := Config{NATS: natscell.Config{Embedded: &natscell.Embedded{StoreMaxBytes: test.storeBytes}},
 				Controller: ControllerConfig{ArtifactStoreMaxBytes: test.artifactBytes}}
 			if err := runController(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("startup error = %v, want %q", err, test.want)
@@ -38,17 +40,19 @@ func TestControllerRejectsInvalidStoreQuotaBeforeStartup(t *testing.T) {
 	}
 }
 
-func TestControllerRejectsLabWithoutTrustedDeployment(t *testing.T) {
+func TestControllerRejectsConfigTrustOutsideAcceptedImage(t *testing.T) {
+	admission := Config{NATS: natscell.Config{Cell: "lab"}}
+	stubAuthenticatedController(t, &admission)
 	public, _ := testEd25519(t, t.TempDir(), "operator.key")
-	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "lab", Instance: "controller", Lab: true,
+	cfg := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "lab", Instance: "controller",
 		Embedded: &natscell.Embedded{StoreMaxBytes: 4 << 30}},
-		Controller: ControllerConfig{ArtifactStoreMaxBytes: 64 << 20,
+		Controller: ControllerConfig{ArtifactStoreMaxBytes: 64 << 20, SpecTrust: &SpecTrustConfig{},
 			TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),
 				Roles: []string{"terrabase"}, Environments: []string{"test"}}},
 			Workloads: map[string]WorkloadProfile{"terrabase": {
 				Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20},
 			}}}}
-	if err := runController(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "spec_trust") {
-		t.Fatalf("lab authority without trusted deployment error = %v", err)
+	if err := runController(t.Context(), cfg, io.Discard); err == nil || !strings.Contains(err.Error(), "image trust roots") {
+		t.Fatalf("controller accepted config trust outside its image = %v", err)
 	}
 }

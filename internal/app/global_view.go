@@ -35,6 +35,8 @@ func (runtime *runtimeObservability) startGlobalView(ctx context.Context, observ
 		sources.Events = runtime.events.Recent
 	}
 	sources.Scale = observed.scale
+	sources.Services = observed.services
+	sources.Functions = observed.functions
 	if observed.costRollup != nil {
 		sources.Cost = observed.costRollup
 	}

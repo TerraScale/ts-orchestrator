@@ -17,7 +17,7 @@ func TestRollupRatesUseSampleTimes(t *testing.T) {
 		history.Append(now.Add(time.Duration(second-180)*time.Second),
 			[]Sample{{Metric: "c", Value: float64(second), Counter: true}})
 	}
-	result := history.Range(HistoryQuery{Metric: "c", Start: now.Add(-3 * time.Minute), End: now, Tier: Tier1m, Rate: true})
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: now.Add(-3 * time.Minute), End: now, Tier: Tier1m, Rate: true})
 	if len(result.Series) != 1 || len(result.Series[0].Points) == 0 {
 		t.Fatalf("result = %+v", result)
 	}
@@ -34,7 +34,7 @@ func TestEmptySeriesDoNotTakeResultSlots(t *testing.T) {
 	now := time.Now()
 	history.Append(now.Add(-2*time.Hour), []Sample{{Metric: "m", Labels: L("consumer", "a"), Value: 1}})
 	history.Append(now.Add(-time.Minute), []Sample{{Metric: "m", Labels: L("consumer", "b"), Value: 2}})
-	result := history.Range(HistoryQuery{Metric: "m", Start: now.Add(-15 * time.Minute), End: now, MaxSeries: 1})
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "m", Start: now.Add(-15 * time.Minute), End: now, MaxSeries: 1})
 	if len(result.Series) != 1 || result.Series[0].Labels["consumer"] != "b" || result.Truncated {
 		t.Fatalf("result = %+v", result)
 	}
@@ -59,7 +59,7 @@ func TestRestoredHistoryIsQueryableAndResumesItsOpenBucket(t *testing.T) {
 	after.Append(now.Add(30*time.Second), []Sample{{Metric: "g", Value: 3}})
 	// An automatic 30m query must reach the restored rollups, not only the
 	// fresh raw tier.
-	result := after.Range(HistoryQuery{Metric: "g", Start: now.Add(-30 * time.Minute), End: now.Add(time.Minute)})
+	result := historyHTTPRange(t, after, HistoryQuery{Metric: "g", Start: now.Add(-30 * time.Minute), End: now.Add(time.Minute)})
 	if len(result.Series) != 1 || len(result.Series[0].Points) < 25 {
 		t.Fatalf("restored range = %+v", result)
 	}
@@ -84,13 +84,8 @@ func TestSamplerCountersSurviveAMissingMember(t *testing.T) {
 	}
 	sampler := &SnapshotSampler{}
 	value := func(samples []Sample, metric string, pairs ...string) (float64, bool) {
-		key := Series(metric, pairs...)
-		for _, sample := range samples {
-			if seriesKey(sample.Metric, sortedLabels(sample.Labels)) == key {
-				return sample.Value, true
-			}
-		}
-		return 0, false
+		got, ok := historySampleValues(t, samples)[Series(metric, pairs...)]
+		return got, ok
 	}
 	first := sampler.Samples(ClusterSnapshot{Members: []MemberSnapshot{member("c1", 100), member("c2", 100)}})
 	if got, _ := value(first, HistOCIErrors, "operation", "compute.Get"); got != 200 {
@@ -131,10 +126,8 @@ func TestSamplerPrefersTheStreamLeadersReport(t *testing.T) {
 	leader := MemberSnapshot{Member: "b", NATS: &NATSView{ServerName: "b",
 		Streams: []StreamView{{Name: "S", Leader: "b", Messages: 9}}}}
 	samples := (&SnapshotSampler{}).Samples(ClusterSnapshot{Members: []MemberSnapshot{follower, leader}})
-	for _, sample := range samples {
-		if sample.Metric == HistStreamMessages && sample.Value != 9 {
-			t.Fatalf("stream messages = %v, want the leader's 9", sample.Value)
-		}
+	if got := historySampleValues(t, samples)[Series(HistStreamMessages, "stream", "S")]; got != 9 {
+		t.Fatalf("stream messages = %v, want leader's 9", got)
 	}
 }
 
@@ -146,15 +139,10 @@ func TestSamplerRecordsAClearedStageAsZero(t *testing.T) {
 	}
 	sampler.Samples(placement(map[string]int{"serving": 2, "joining": 1}))
 	cleared := sampler.Samples(placement(map[string]int{"serving": 3}))
-	for _, sample := range cleared {
-		if sample.Metric == HistStageMembers && sample.Labels[0].Value == "joining" {
-			if sample.Value != 0 {
-				t.Fatalf("joining = %v", sample.Value)
-			}
-			return
-		}
+	got, ok := historySampleValues(t, cleared)[Series(HistStageMembers, "stage", "joining")]
+	if !ok || got != 0 {
+		t.Fatalf("cleared joining stage = %v (present %v)", got, ok)
 	}
-	t.Fatal("the cleared stage got no sample")
 }
 
 // A short query whose start lies before a fresh tier's first bucket reads
@@ -177,7 +165,7 @@ func TestShortHistoricalQueryAfterRestoreReadsTheCoveringTier(t *testing.T) {
 	// Sampling resumes a minute later, so the fresh tiers begin after the
 	// query's start.
 	after.Append(now.Add(90*time.Second), []Sample{{Metric: "g", Value: 1}})
-	result := after.Range(HistoryQuery{Metric: "g", Start: now.Add(30 * time.Second), End: now.Add(80 * time.Second)})
+	result := historyHTTPRange(t, after, HistoryQuery{Metric: "g", Start: now.Add(30 * time.Second), End: now.Add(80 * time.Second)})
 	if len(result.Series) != 1 || len(result.Series[0].Points) == 0 {
 		t.Fatalf("short query after restore = %+v", result)
 	}
@@ -185,49 +173,34 @@ func TestShortHistoricalQueryAfterRestoreReadsTheCoveringTier(t *testing.T) {
 
 // A tier whose oldest bucket begins after the query's start does not cover
 // it, even when that bucket begins within one step of it.
-func TestCoveringTierNeedsABucketAtOrBeforeStart(t *testing.T) {
+func TestHistoryHTTPDoesNotInventLiveCoverage(t *testing.T) {
 	t.Parallel()
-	start := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC).UnixMilli()
-	minute := newTier(time.Minute, time.Hour, time.Second)
-	minute.open, minute.opened = bucket{Start: start + time.Minute.Milliseconds()}, true
-	five := newTier(5*time.Minute, time.Hour, time.Second)
-	five.open, five.opened = bucket{Start: start}, true
-	current := &series{tiers: map[string]*tier{TierRaw: newTier(0, time.Minute, time.Second), Tier1m: minute, Tier5m: five}}
-	if got := current.coveringTier(Tier1m, start, start, start-HistoryRetention.Milliseconds()); got != Tier5m {
-		t.Fatalf("covering tier = %s, want the 5m tier holding the start", got)
+	end := time.Now().Truncate(time.Minute).Add(-time.Minute)
+	history := NewHistory(HistoryConfig{})
+	first := end.Add(-30*time.Minute + 15*time.Second)
+	for second := 0; second <= 30*60; second += 10 {
+		history.Append(first.Add(time.Duration(second)*time.Second), []Sample{{Metric: "c", Value: float64(second), Counter: true}})
 	}
-}
-
-func TestCoveringTierDoesNotInventLiveCoverage(t *testing.T) {
-	t.Parallel()
-	base := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
-	for _, offset := range []time.Duration{21*time.Minute + 15*time.Second, 51*time.Minute + 15*time.Second} {
-		history := NewHistory(HistoryConfig{})
-		first := base.Add(offset)
-		for minute := 0; minute <= 30; minute++ {
-			history.Append(first.Add(time.Duration(minute)*time.Minute), []Sample{{Metric: "c", Value: float64(minute), Counter: true}})
-		}
-		current := history.series["c"]
-		for _, chosen := range []string{TierRaw, Tier1m} {
-			for _, start := range []time.Time{first.Add(-30 * time.Minute), first.Add(-10 * time.Second)} {
-				if got := current.coveringTier(chosen, start.UnixMilli(), current.last, base.Add(-HistoryRetention).UnixMilli()); got != chosen {
-					t.Errorf("first=%s start=%s chosen=%s: tier=%s, want finest live tier", first, start, chosen, got)
-				}
-			}
+	for _, start := range []time.Time{first.Add(-10 * time.Minute), first.Add(-10 * time.Second)} {
+		result := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: start, End: end})
+		if len(result.Series) != 1 || result.Series[0].Tier != TierRaw {
+			t.Fatalf("live coverage = %+v", result)
 		}
 	}
 }
 
-func TestCoveringTierKeepsFreshResolutionAcrossHourBoundary(t *testing.T) {
+func TestHistoryHTTPKeepsFreshResolutionAcrossHourBoundary(t *testing.T) {
 	t.Parallel()
-	now := time.Now().UTC().Truncate(time.Hour).Add(-50 * time.Minute)
+	end := time.Now().UTC().Truncate(time.Hour).Add(-5 * time.Minute)
 	history := NewHistory(HistoryConfig{})
 	for step := range 721 {
-		history.Append(now.Add(time.Duration(step-720)*10*time.Second), []Sample{{Metric: "g", Value: 1}})
+		history.Append(end.Add(time.Duration(step-720)*10*time.Second), []Sample{{Metric: "g", Value: 1}})
 	}
-	current := history.series["g"]
-	if got := current.coveringTier(TierRaw, now.Add(-15*time.Minute).UnixMilli(), now.UnixMilli(), now.Add(-HistoryRetention).UnixMilli()); got != TierRaw {
-		t.Fatalf("complete recent samples were hidden by expired pre-range samples: tier=%s", got)
+	// Request the latest fifteen minutes through automatic tier selection.
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "g", Start: end.Add(-15 * time.Minute), End: end})
+	want := TierFor(end.Add(-15*time.Minute), time.Now())
+	if len(result.Series) != 1 || result.Series[0].Tier != want {
+		t.Fatalf("fresh range = %+v, want %s", result, want)
 	}
 }
 
@@ -247,7 +220,7 @@ func TestHistoryIncompleteLiveCoverageKeepsMinuteRates(t *testing.T) {
 				history.Append(first.Add(time.Duration(minute)*time.Minute),
 					[]Sample{{Metric: "c", Value: float64(minute) * 60, Counter: true}})
 			}
-			result := history.Range(HistoryQuery{Metric: "c", Start: end.Add(-time.Hour), End: end, Rate: true})
+			result := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: end.Add(-time.Hour), End: end, Rate: true})
 			if len(result.Series) != 1 || result.Series[0].Tier != Tier1m || len(result.Series[0].Points) != 30 {
 				t.Fatalf("incomplete live range = %+v, want 30 minute rates", result)
 			}
@@ -273,7 +246,7 @@ func TestCounterResetInsideABucketKeepsItsGrowth(t *testing.T) {
 	for _, sample := range samples {
 		history.Append(base.Add(sample.offset), []Sample{{Metric: "c", Value: sample.value, Counter: true}})
 	}
-	result := history.Range(HistoryQuery{Metric: "c", Start: base.Add(-time.Minute), End: base.Add(2 * time.Minute),
+	result := historyHTTPRange(t, history, HistoryQuery{Metric: "c", Start: base.Add(-time.Minute), End: base.Add(2 * time.Minute),
 		Tier: Tier1m, Rate: true})
 	if len(result.Series) != 1 || len(result.Series[0].Points) != 1 {
 		t.Fatalf("rate = %+v", result)
