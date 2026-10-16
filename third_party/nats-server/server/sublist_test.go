@@ -15,12 +15,14 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -61,6 +63,7 @@ func TestSublistRoutingWildcardDelivery(t *testing.T) {
 				{"terminal-wildcard", []string{"a.>"}, []string{"a", "a.b", "a.b.c", "b.a"}, [][]string{{"a.b", "a.b.c"}}},
 				{"wildcard-literals", []string{"foo.*-", "foo.>-"}, []string{"foo.bar", "foo.*-", "foo.>-"}, [][]string{{"foo.*-"}, {"foo.>-"}}},
 				{"overlap", []string{"a.b.c", "a.*.c", "a.>"}, []string{"a.b.c", "a.x.c", "a.b.c.d"}, [][]string{{"a.b.c"}, {"a.b.c", "a.x.c"}, {"a.b.c", "a.x.c", "a.b.c.d"}}},
+				{"shorter-wildcard-sibling", []string{"stream.A.child", "stream.*"}, []string{"stream.A.child", "stream.A"}, [][]string{{"stream.A.child"}, {"stream.A"}}},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
@@ -225,7 +228,9 @@ func TestSublistRoutingSubscriptionChanges(t *testing.T) {
 				}
 			}
 			check("", nil)
-			check("SUB a.b.c 1\r\nSUB a.*.c 2\r\nSUB a.> 3\r\n", map[string]int{"1": 1, "2": 1, "3": 1})
+			check("SUB a.b.c 1\r\n", map[string]int{"1": 1})
+			check("SUB a.*.c 2\r\n", map[string]int{"1": 1, "2": 1})
+			check("SUB a.> 3\r\n", map[string]int{"1": 1, "2": 1, "3": 1})
 			check("UNSUB 999\r\n", map[string]int{"1": 1, "2": 1, "3": 1})
 			check("UNSUB 1\r\n", map[string]int{"2": 1, "3": 1})
 			check("UNSUB 3\r\n", map[string]int{"2": 1})
@@ -263,7 +268,7 @@ func TestSublistRoutingInvalidSubjects(t *testing.T) {
 			opts.NoSublistCache = noCache
 			s := RunServer(opts)
 			defer s.Shutdown()
-			for _, subject := range []string{".", ".foo", "foo.", "foo..bar", "foo.bar..baz", ">.bar", "foo.>.bar", "a.b..d", "a.>.b", "foo.bar.baz.\x00"} {
+			for _, subject := range []string{".", ".foo", "foo.", "foo..bar", "foo.bar..baz", ">.bar", "foo.>.bar", "a.b..d", "a.>.b"} {
 				t.Run(subject, func(t *testing.T) {
 					conn, reader := sublistRoutingClient(t, s)
 					got, rejected := sublistRoutingExchange(t, conn, reader, "a.b.c", fmt.Sprintf("SUB %s bad\r\n", subject))
@@ -378,8 +383,12 @@ func TestSublistRoutingInterestLifecycle(t *testing.T) {
 								require_Equal(t, len(rejected), 0)
 								if slices.Contains(test.miss, subject) || phase == 4 {
 									require_Equal(t, len(got), 0)
+									require_Equal(t, s.GlobalAccount().Interest(subject), 0)
+									require_False(t, s.GlobalAccount().SubscriptionInterest(subject))
 									continue
 								}
+								require_Equal(t, s.GlobalAccount().Interest(subject), 4-phase)
+								require_True(t, s.GlobalAccount().SubscriptionInterest(subject))
 								require_Equal(t, got["plain"], 1)
 								if phase == 0 {
 									require_Equal(t, got["a"], 1)
@@ -734,6 +743,71 @@ func TestSublistRoutingMappings(t *testing.T) {
 			msg := natsNexMsg(t, sub, time.Second)
 			require_Equal(t, msg.Subject, "bar")
 			require_Equal(t, string(msg.Data), "retained")
+		})
+	}
+}
+
+func TestSublistRoutingCorruptSubjectRecovery(t *testing.T) {
+	for _, corrupt := range []string{"foo.\x00bar", "foo.\ufffdbar"} {
+		t.Run(fmt.Sprintf("%q", corrupt), func(t *testing.T) {
+			dir := t.TempDir()
+			start := func() *Server {
+				opts := DefaultOptions()
+				opts.JetStream, opts.StoreDir = true, dir
+				s := RunServer(opts)
+				t.Cleanup(s.Shutdown)
+				return s
+			}
+			s := start()
+			nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			js, err := nc.JetStream()
+			require_NoError(t, err)
+			_, err = js.AddStream(&nats.StreamConfig{Name: "RECOVERY", Subjects: []string{"foo.*"}, Storage: nats.FileStorage})
+			require_NoError(t, err)
+			for _, subject := range []string{"foo.bar", "foo.baz"} {
+				_, err := js.Publish(subject, []byte(subject))
+				require_NoError(t, err)
+			}
+			mset, err := s.GlobalAccount().lookupStream("RECOVERY")
+			require_NoError(t, err)
+			fs := mset.store.(*fileStore)
+			// Persist the historic subject-index corruption, then assert recovery through the API.
+			fs.mu.Lock()
+			entry, found := fs.psim.Find(stringToBytes("foo.bar"))
+			if !found {
+				fs.mu.Unlock()
+				t.Fatal("Published subject missing from persistent index")
+			}
+			original := *entry
+			fs.psim.Delete(stringToBytes("foo.bar"))
+			fs.psim.Insert(stringToBytes(corrupt), original)
+			fs.tsl += len(corrupt) - len("foo.bar")
+			fs.dirty++
+			path := filepath.Join(fs.fcfg.StoreDir, msgDir, streamStreamStateFile)
+			fs.mu.Unlock()
+			nc.Close()
+			s.Shutdown()
+			state, err := os.ReadFile(path)
+			require_NoError(t, err)
+			require_True(t, bytes.Contains(state, []byte(corrupt)))
+			s = start()
+			nc = natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			js, err = nc.JetStream()
+			require_NoError(t, err)
+			for _, subject := range []string{"foo.bar", "foo.baz"} {
+				msg, err := js.GetLastMsg("RECOVERY", subject)
+				require_NoError(t, err)
+				require_Equal(t, msg.Subject, subject)
+				require_Equal(t, string(msg.Data), subject)
+			}
+			ack, err := js.Publish("foo.bar", []byte("after-recovery"))
+			require_NoError(t, err)
+			require_Equal(t, ack.Sequence, uint64(3))
+			msg, err := js.GetLastMsg("RECOVERY", "foo.bar")
+			require_NoError(t, err)
+			require_Equal(t, string(msg.Data), "after-recovery")
 		})
 	}
 }

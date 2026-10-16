@@ -14,10 +14,121 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
+	"io"
 	"net"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
+
+type splitTCPReadConn struct {
+	net.Conn
+	width int
+	reads atomic.Int64
+}
+
+func (c *splitTCPReadConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p[:min(len(p), c.width)])
+	if n > 0 {
+		c.reads.Add(1)
+	}
+	return n, err
+}
+
+func splitTCPClient(t *testing.T, s *Server, width int) (net.Conn, *bufio.Reader, *splitTCPReadConn) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require_NoError(t, err)
+	defer listener.Close()
+	nc, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	require_NoError(t, err)
+	t.Cleanup(func() { nc.Close() })
+	require_NoError(t, nc.SetDeadline(time.Now().Add(5*time.Second)))
+	accepted, err := listener.Accept()
+	require_NoError(t, err)
+	fragmented := &splitTCPReadConn{Conn: accepted, width: width}
+	// This is the production accept action; only real socket read sizes change.
+	s.createClient(fragmented)
+	reader := bufio.NewReader(nc)
+	line, err := reader.ReadString('\n')
+	require_NoError(t, err)
+	if !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("expected initial INFO, got %q", line)
+	}
+	_, err = io.WriteString(nc, "CONNECT {\"verbose\":false,\"pedantic\":true,\"user\":\"test\",\"pass\":\"pass\"}\r\nPING\r\n")
+	require_NoError(t, err)
+	line, err = reader.ReadString('\n')
+	require_NoError(t, err)
+	require_Equal(t, line, "PONG\r\n")
+	return nc, reader, fragmented
+}
+
+func TestSplitClientCommandsOverTCP(t *testing.T) {
+	opts := DefaultOptions()
+	opts.Username, opts.Password = "test", "pass"
+	opts.NoSystemAccount = true
+	s := RunServer(opts)
+	defer s.Shutdown()
+
+	for _, width := range []int{1, 2, 7, 64} {
+		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+			nc, reader, fragmented := splitTCPClient(t, s, width)
+			write := func(packet string) {
+				t.Helper()
+				_, err := io.WriteString(nc, packet)
+				require_NoError(t, err)
+			}
+			line := func(want string) {
+				t.Helper()
+				got, err := reader.ReadString('\n')
+				require_NoError(t, err)
+				require_Equal(t, got, want)
+			}
+			message := func(subject, sid, reply, payload string) {
+				t.Helper()
+				if reply != "" {
+					reply += " "
+				}
+				line(fmt.Sprintf("MSG %s %s %s%d\r\n", subject, sid, reply, len(payload)))
+				body := make([]byte, len(payload)+2)
+				_, err := io.ReadFull(reader, body)
+				require_NoError(t, err)
+				require_Equal(t, string(body), payload+"\r\n")
+			}
+
+			write("SUB foo.bar 1024\r\nPING\r\n")
+			line("PONG\r\n")
+			for _, test := range []struct{ reply, payload string }{
+				{"INBOX.22", "hello world"},
+				{"", "hello world"},
+				{"large.reply", strings.Repeat("A", 6040)},
+			} {
+				reply := test.reply
+				if reply != "" {
+					reply += " "
+				}
+				packet := fmt.Sprintf("PUB foo.bar %s%d\r\n%s\r\nPING\r\n", reply, len(test.payload), test.payload)
+				before := fragmented.reads.Load()
+				write(packet)
+				message("foo.bar", "1024", test.reply, test.payload)
+				line("PONG\r\n")
+				if reads := fragmented.reads.Load() - before; reads < int64((len(packet)+width-1)/width) {
+					t.Fatalf("packet was not fragmented: %d reads for %d bytes at width %d", reads, len(packet), width)
+				}
+			}
+			write("UNSUB 999\r\nPUB foo.bar 11\r\nhello world\r\nPING\r\n")
+			message("foo.bar", "1024", "", "hello world")
+			line("PONG\r\n")
+			write("UNSUB 1024\r\nSUB marker 2\r\nPUB foo.bar 11\r\nhello world\r\nPUB marker 2\r\nok\r\nPING\r\n")
+			message("marker", "2", "", "ok")
+			line("PONG\r\n")
+		})
+	}
+}
 
 func TestSplitBufferSubOp(t *testing.T) {
 	cli, trash := net.Pipe()

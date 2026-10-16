@@ -279,9 +279,9 @@ func TestNRGMalformedPeerMessagesTCP(t *testing.T) {
 			case "short_append", "short_response":
 				payload = []byte{1, 2, 3}
 			case "truncated_length":
-				payload = encode(t, ae)[:appendEntryBaseLen+2]
+				payload = encode(t, ae).buf[:appendEntryBaseLen+2]
 			case "truncated_data":
-				payload = encode(t, ae)[:appendEntryBaseLen+5]
+				payload = encode(t, ae).buf[:appendEntryBaseLen+5]
 			}
 			nc, err := nats.Connect(leader.server().ClientURL(), nats.UserInfo("admin", "s3cr3t!"), nats.NoReconnect())
 			require_NoError(t, err)
@@ -1063,7 +1063,7 @@ func TestNRGCandidateDoesntRevertTermAfterOldAETCP(t *testing.T) {
 	stale := encode(t, &appendEntry{leader: leader.node().ID(), term: before - 1, commit: commit, pterm: pterm, pindex: pindex})
 	assertRejected := func() {
 		t.Helper()
-		require_NoError(t, nc.PublishRequest("$NRG.AE.PARTITION", inbox, stale))
+		require_NoError(t, nc.PublishRequest("$NRG.AE.PARTITION", inbox, stale.buf))
 		msg, err := sub.NextMsg(time.Second)
 		require_NoError(t, err)
 		ar := decodeAppendEntryResponse(msg.Data)
