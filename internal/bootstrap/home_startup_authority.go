@@ -9,13 +9,35 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // VerifyRegionalStartupTemplate derives one regional identity from the exact
 // foundation grant pinned by the real local anchor. It manufactures no anchor.
 func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	return verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, nil, now)
+}
+
+// VerifyBoundRegionalStartupTemplate independently resolves the selected cell's
+// schema-2 resources from the same original protected foundation grant.
+func VerifyBoundRegionalStartupTemplate(ctx context.Context, factory *ociclient.Factory, wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, now time.Time) (VerifiedStartupTemplate, error) {
+	bindings, err := verifyStartupBindings(ctx, factory, wire, roots, anchor, now)
+	if err != nil {
+		return VerifiedStartupTemplate{}, err
+	}
+	if bindings.Cell() != string(requestedCell) {
+		bindings, err = bindings.ForCell(ctx, string(requestedCell))
+		if err != nil {
+			return VerifiedStartupTemplate{}, err
+		}
+	}
+	return verifyRegionalStartupTemplateBindings(wire, roots, anchor, requestedCell, &bindings, now)
+}
+
+func verifyRegionalStartupTemplateBindings(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, requestedCell oci.Region, bindings *foundationbinding.VerifiedBindings, now time.Time) (VerifiedStartupTemplate, error) {
 	ociRegion, regionErr := requestedCell.OCIRegion()
 	if !anchor.IsVerified() || regionErr != nil || now.IsZero() || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
@@ -28,7 +50,7 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 	// A same-region request must retain any baked ledger signer pin. A signed
 	// registration for a new source cannot replace that existing authority.
 	if requestedCell == local.Cell {
-		return VerifyStartupTemplate(wire, roots, anchor, now)
+		return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, local, bindings, now)
 	}
 	anchor, err = VerifyBootstrapAnchor(anchorEnvelope, roots, BootstrapAnchorExpectation{DeploymentID: local.DeploymentID, Environment: local.Environment, Cell: local.Cell}, now, BootstrapAnchorTrustPolicy())
 	if err != nil {
@@ -66,7 +88,7 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 			} `json:"bootstrapMaterial"`
 		} `json:"regions"`
 	}
-	if json.Unmarshal(payload, &grant) != nil || grant.SchemaVersion != 1 || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
+	if json.Unmarshal(payload, &grant) != nil || (grant.SchemaVersion != 1 || bindings != nil) && (grant.SchemaVersion != 2 || bindings == nil) || grant.InstallationID != home.InstallationID || grant.Generation != home.GrantGeneration || grant.TenancyID != home.TenancyID {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	var identity BootstrapAnchor
@@ -75,7 +97,10 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 			continue
 		}
 		material := region.BootstrapMaterial
-		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != ociRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.Startup.Validate() != nil || material.SourceRegistration == nil {
+		if identity.Cell != "" || region.Generation != grant.Generation || region.Plan.Region != ociRegion || material == nil || material.InstallationID != home.InstallationID || material.Startup == nil || material.SourceRegistration == nil {
+			return VerifiedStartupTemplate{}, ErrManifestInvalid
+		}
+		if bindings == nil && material.Startup.Validate() != nil || bindings != nil && material.Startup.ValidateFoundation(string(requestedCell)) != nil {
 			return VerifiedStartupTemplate{}, ErrManifestInvalid
 		}
 		registration := material.SourceRegistration.Clone()
@@ -99,7 +124,7 @@ func VerifyRegionalStartupTemplate(wire []byte, roots trust.Keyring, anchor Veri
 	if identity.Validate() != nil {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
-	return verifyStartupTemplateForIdentity(wire, roots, anchor, identity, now)
+	return verifyStartupTemplateForIdentityBindings(wire, roots, anchor, identity, bindings, now)
 }
 
 // VerifyHomeStartupTemplate additionally binds GRU to the baked home identity

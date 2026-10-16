@@ -70,7 +70,7 @@ func (source VerifiedRegionalSource) VerifyCurrent(ctx context.Context, now time
 // The existing founder registration admits its source key; no Vault read occurs.
 func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, now time.Time) (VerifiedRegionalSource, error) {
 	deny := func() (VerifiedRegionalSource, error) { return VerifiedRegionalSource{}, ErrManifestInvalid }
-	if client == nil || ctx.Err() != nil || template.VerifyCurrent(now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
+	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()
 	}
 	foundation, foundationErr := template.anchor.FoundationScope()

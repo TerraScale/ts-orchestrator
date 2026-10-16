@@ -123,7 +123,7 @@ func RestoreDerivedStartupAuthority(ctx context.Context, grantWire []byte, ancho
 // LoadDerivedStartupAuthority discovers a joining slot's immutable public
 // proof directly; first-boot metadata never needs a dynamic config payload.
 func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, slot string, now time.Time) (DerivedStartupAuthority, error) {
-	if client == nil || template.VerifyCurrent(now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
+	if client == nil || template.VerifyCurrentContext(ctx, now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
 		return DerivedStartupAuthority{}, ErrManifestInvalid
 	}
 	domain := template.startupSourceDomain()
@@ -163,7 +163,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	deny := func(reason string) (DerivedStartupAuthority, error) {
 		return DerivedStartupAuthority{}, fmt.Errorf("%w: derived startup %s", ErrManifestInvalid, reason)
 	}
-	if client == nil || ctx.Err() != nil || template.VerifyCurrent(now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
+	if client == nil || ctx.Err() != nil || template.VerifyCurrentContext(ctx, now) != nil || len(wire) == 0 || len(wire) > MaxManifestBytes {
 		return deny("current grant")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
@@ -462,4 +462,14 @@ func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Env
 }
 func (authority DerivedStartupAuthority) TemplateDigest() string {
 	return authority.template.TemplateDigest()
+}
+
+// RestoreBoundDerivedStartupAuthority reconstructs schema-2 provenance after a
+// process handoff using fresh protected grant and OCI binding observations.
+func RestoreBoundDerivedStartupAuthority(ctx context.Context, factory *ociclient.Factory, grantWire []byte, anchor VerifiedBootstrapAnchor, roots trust.Keyring, client ObjectStorageClient, wire []byte, now time.Time) (DerivedStartupAuthority, error) {
+	template, err := VerifyBoundStartupTemplate(ctx, factory, grantWire, roots, anchor, now)
+	if err != nil {
+		return DerivedStartupAuthority{}, err
+	}
+	return VerifyDerivedStartupAuthority(ctx, template, client, wire, now)
 }

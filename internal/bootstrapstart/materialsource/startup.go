@@ -83,7 +83,7 @@ func (projection StartupProjection) TrustedSigners() jsontext.Value {
 // BindConfigs records every slot's public provenance atomically before any
 // install. The app's private final wrapper renders and compares all config bytes.
 func (projection StartupProjection) BindConfigs(ctx context.Context, configs map[string][]byte) (bootstrap.DerivedStartupAuthority, error) {
-	if !projection.material.IsVerified() || projection.template.VerifyCurrent(time.Now()) != nil || len(configs) != len(projection.manifest.ControllerSlots) {
+	if !projection.material.IsVerified() || projection.template.VerifyCurrentContext(ctx, time.Now()) != nil || len(configs) != len(projection.manifest.ControllerSlots) {
 		return bootstrap.DerivedStartupAuthority{}, ErrMaterialSource
 	}
 	source := projection.material.source
