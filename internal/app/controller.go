@@ -804,13 +804,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 			}
 			bound, err := bindNodeScaler(ctx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
 				replicas: cfg.NATS.Replicas, ready: fullClusterReady,
-				control: client, canRetire: func(ctx context.Context, nodeID, instanceID string) error {
+				control: client, canRetire: func(ctx context.Context, nodeName, instanceID string) error {
 					effects, err := control.ListAllUnresolvedRuntimeEffects(ctx)
 					if err != nil {
 						return err
 					}
 					for _, effect := range effects {
-						if effect.NodeID == nodeID || effect.InstanceID == instanceID {
+						if effect.RegistrationID == entityid.Derive("host", cfg.NATS.Cell, nodeName) || effect.InstanceID == instanceID {
 							return errors.New("worker retains an unresolved runtime effect")
 						}
 					}
