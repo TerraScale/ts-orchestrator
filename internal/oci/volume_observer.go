@@ -167,7 +167,7 @@ func (o *VolumeMountObserver) InspectVolumeMount(ctx context.Context, pins Volum
 			attachment.Device == pins.Device && attachment.IsReadOnly != nil && !*attachment.IsReadOnly &&
 			attachment.IsShareable != nil && !*attachment.IsShareable && attachment.IsPvEncryptionInTransitEnabled != nil && *attachment.IsPvEncryptionInTransitEnabled:
 			current++
-		case predecessorInstanceID != "" && attachment.InstanceID != pins.InstanceID && attachment.LifecycleState == "DETACHED":
+		case attachment.InstanceID != pins.InstanceID && attachment.LifecycleState == "DETACHED":
 			if !terminated[attachment.InstanceID] {
 				if _, err := o.ObserveTerminatedInstance(ctx, attachment.InstanceID); err != nil {
 					return VerifiedVolumeObservation{}, fmt.Errorf("observe detached volume history: %w", err)
