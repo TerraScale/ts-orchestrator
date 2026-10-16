@@ -29,7 +29,7 @@ import (
 
 // The root manager derives the expected bytes from its actual upstream cluster.
 // An enrollment signature or a caller-selected secret reference is insufficient.
-func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery) error {
+func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
 	authority := n.workerAuthority
 	if authority == nil || authority.homeIAM == nil || authority.foundations.Store == nil {
 		return errors.New("worker Vault IAM requires current root and shared home authority")
@@ -37,7 +37,7 @@ func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.
 	if err := authority.homeIAM.Guard(ctx, 0); err != nil {
 		return err
 	}
-	request, response, registration, observed, execution, err := authority.current(ctx, query)
+	request, response, registration, observed, execution, err := authority.currentInPhase(ctx, query, phase)
 	if err != nil {
 		return err
 	}
@@ -143,8 +143,8 @@ func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.
 	return nil
 }
 
-func (n *Node) authorizeWorkerVaultRead(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery) error {
-	if err := n.currentWorkerVaultGrant(ctx, accepted, query); err != nil {
+func (n *Node) authorizeWorkerVaultRead(ctx context.Context, accepted hostenroll.VerifiedSwarmWorker, query WorkerRegistrationQuery, phase workerRegistrationPhase) error {
+	if err := n.currentWorkerVaultGrant(ctx, accepted, query, phase); err != nil {
 		return err
 	}
 	authority := n.workerAuthority
@@ -153,7 +153,7 @@ func (n *Node) authorizeWorkerVaultRead(ctx context.Context, accepted hostenroll
 		return err
 	}
 	defer release()
-	guard := func(ctx context.Context) error { return n.currentWorkerVaultGrant(ctx, accepted, query) }
+	guard := func(ctx context.Context) error { return n.currentWorkerVaultGrant(ctx, accepted, query, phase) }
 	ctx = ociclient.WithAuthority(ctx, guard)
 	if err := guard(ctx); err != nil {
 		return err
