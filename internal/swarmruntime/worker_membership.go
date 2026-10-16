@@ -3,7 +3,9 @@ package swarmruntime
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
@@ -18,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -288,6 +291,18 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 	}
 	if architecture != worker.Architecture {
 		return api.NodeAvailabilityDrain, true, nil
+	}
+	if n.workerAuthority.bundles == nil {
+		return pause(errors.New("current worker Vault source unavailable"))
+	}
+	name := vaultsecret.Name(strings.ToLower(identity.Cell)+"-"+strings.ToLower(identity.ClusterID)+"-"+strings.ToLower(worker.RegistrationID)+"-"+worker.SecretSHA256, "TS_ORCHESTRATOR_SWARM_WORKER")
+	version, err := vaultsecret.ReadVersioned(ctx, n.workerAuthority.bundles, n.workerAuthority.target.VaultID, name)
+	if err != nil || version.SecretID != worker.SecretID || version.Number != worker.SecretVersion {
+		return pause(errors.New("current worker Vault evidence unavailable or changed"))
+	}
+	digest := sha256.Sum256([]byte(version.Value))
+	if hex.EncodeToString(digest[:]) != worker.SecretSHA256 {
+		return pause(errors.New("current worker Vault material differs from retained admission"))
 	}
 	if err := n.workerAuthority.refresh(ctx); err != nil {
 		return pause(err)
