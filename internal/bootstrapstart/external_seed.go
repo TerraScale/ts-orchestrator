@@ -36,10 +36,10 @@ func NewOperatorLedger(ctx context.Context, anchor bootstrap.VerifiedBootstrapAn
 // with the first signed external intent and current signed seed manifest. The
 // create key is an additional OCI readback check, never a source of authority.
 func VerifyExternalSeedObservation(anchor bootstrap.VerifiedBootstrapAnchor,
-	manifest bootstrap.VerifiedManifest, state bootstrap.SlotState,
+	manifest bootstrap.StartupAuthority, state bootstrap.SlotState,
 	observed InstanceObservation, expectedPrivateIP string,
 ) (bootstrap.InstanceFacts, error) {
-	if !anchor.IsVerified() || manifest.Digest() == "" || state.IntentRecord.SHA256 == "" ||
+	if manifest == nil || !anchor.IsVerified() || manifest.Digest() == "" || state.IntentRecord.SHA256 == "" ||
 		state.Intent.Mode != bootstrap.IntentModeExternalSeed || state.Intent.SchemaVersion != 1 ||
 		state.Intent.Attempt != 1 || state.Intent.Generation != 1 ||
 		state.Head.Attempt != 1 || state.Head.Generation != 1 ||
