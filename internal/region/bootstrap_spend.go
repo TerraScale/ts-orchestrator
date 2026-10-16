@@ -55,8 +55,9 @@ type BootstrapLaunchRequest struct {
 // VerifiedBootstrapAllocation can only come from the same root-verified grant.
 // It carries no NATS or home-writer prerequisite.
 type VerifiedBootstrapAllocation struct {
-	spending VerifiedInfrastructureSpend
-	slot     BootstrapSlotIntent
+	spending     VerifiedInfrastructureSpend
+	slot         BootstrapSlotIntent
+	originalSlot BootstrapSlotIntent
 }
 
 func BootstrapSlotID(installation, cell, role, slot string) string {
@@ -113,31 +114,56 @@ func positiveBootstrapDimension(value float64) bool {
 }
 
 func (s *SignedFootprint) BootstrapAllocation(ctx context.Context, slotID string) (VerifiedBootstrapAllocation, error) {
-	spending, err := s.InfrastructureSpend(ctx)
+	spending, err := s.infrastructureSpend(ctx, nil, slotID)
 	if err != nil {
 		return VerifiedBootstrapAllocation{}, err
 	}
-	if spending.intent.Bootstrap != nil {
-		for _, slot := range spending.intent.Bootstrap.Slots {
-			if slot.SlotID == slotID {
-				return VerifiedBootstrapAllocation{spending: spending, slot: slot}, nil
+	return spending.bootstrapAllocation(slotID)
+}
+
+func (r FoundationResolver) BootstrapAllocation(ctx context.Context, slotID string) (VerifiedBootstrapAllocation, error) {
+	if signed, ok := r.Footprint.(*SignedFootprint); ok {
+		spending, err := signed.infrastructureSpend(ctx, r.ResourceBindingsFor, slotID)
+		if err != nil {
+			return VerifiedBootstrapAllocation{}, err
+		}
+		return spending.bootstrapAllocation(slotID)
+	}
+	spending, err := r.InfrastructureSpend(ctx)
+	if err != nil {
+		return VerifiedBootstrapAllocation{}, err
+	}
+	return spending.bootstrapAllocation(slotID)
+}
+
+func (v VerifiedInfrastructureSpend) bootstrapAllocation(slotID string) (VerifiedBootstrapAllocation, error) {
+	if v.intent.Bootstrap != nil {
+		for _, original := range v.intent.Bootstrap.Slots {
+			if original.SlotID == slotID {
+				slot := original
+				if actual, ok := v.resolved[slot.CompartmentID]; ok {
+					slot.CompartmentID = actual
+				}
+				if !physicalCompartmentID(slot.CompartmentID) {
+					return VerifiedBootstrapAllocation{}, errors.New("bootstrap slot lacks its exact independently verified physical compartment")
+				}
+				return VerifiedBootstrapAllocation{spending: v, slot: slot, originalSlot: original}, nil
 			}
 		}
 	}
 	return VerifiedBootstrapAllocation{}, errors.New("same root grant has no finite allocation for this bootstrap slot")
 }
 
-func (r FoundationResolver) BootstrapAllocation(ctx context.Context, slotID string) (VerifiedBootstrapAllocation, error) {
-	reader, ok := r.Footprint.(interface {
-		BootstrapAllocation(context.Context, string) (VerifiedBootstrapAllocation, error)
-	})
-	if !ok {
-		return VerifiedBootstrapAllocation{}, errors.New("foundation reader has no signed bootstrap allocation")
-	}
-	return reader.BootstrapAllocation(ctx, slotID)
+func (v VerifiedBootstrapAllocation) Slot() BootstrapSlotIntent       { return v.slot }
+func (v VerifiedBootstrapAllocation) SignedSlot() BootstrapSlotIntent { return v.originalSlot }
+func (v VerifiedBootstrapAllocation) ScopeDigest() string             { return v.spending.ScopeDigest() }
+func (v VerifiedBootstrapAllocation) PhysicalScopeDigest() string {
+	return v.spending.PhysicalScopeDigest()
 }
-
-func (v VerifiedBootstrapAllocation) Slot() BootstrapSlotIntent { return v.slot }
+func (v VerifiedBootstrapAllocation) BindingDigest() string { return v.spending.BindingDigest() }
+func (v VerifiedBootstrapAllocation) Revalidate(ctx context.Context) error {
+	return v.spending.RevalidateBindings(ctx)
+}
 func (v VerifiedBootstrapAllocation) IsVerified() bool {
 	return v.spending.IsVerified() && v.slot.SlotID != ""
 }
