@@ -119,6 +119,16 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				t.Fatalf("queried %d approved compartments", count)
 			}
 			if scenario == "observed" {
+				quote, err := reader.Quote(t.Context(), scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50)
+				if err != nil || quote.MonthlyCents() != 2147 || quote.Currency() != "USD" {
+					t.Fatalf("candidate quote=%+v err=%v", quote, err)
+				}
+				if err := quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+				if quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 20, 40, 500, time.Now()) == nil {
+					t.Fatal("cheap quote admitted a larger candidate")
+				}
 				if len(result.Resources) != 4 || len(result.CoveredCompartments) != 2 || result.MonthlyCents != 7421 {
 					t.Fatalf("snapshot=%+v", result)
 				}
