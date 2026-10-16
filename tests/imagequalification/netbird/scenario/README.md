@@ -10,24 +10,33 @@ finite approval must still bind the exact worker executable SHA-256; a matching
 source stamp alone grants no execution authority. There is no environment or
 runtime argument that overrides the stamp.
 
-Build only from a clean checkout of the exact candidate commit. `candidate_revision`
+Build only on an approved native Linux/arm64 builder from a clean checkout of
+the exact candidate commit. Cross compilation and QEMU execution do not establish
+native qualification. `candidate_revision`
 is the already authenticated candidate's 40-character lowercase Git SHA, and
 `artifact_dir` is an existing directory outside the checkout. Obtain the QA
 build lease before running the build locally.
 
 ```sh
+test "$(uname -s)" = Linux
+test "$(uname -m)" = aarch64
+test "$(go env GOOS)" = linux
+test "$(go env GOARCH)" = arm64
 test "$(git rev-parse HEAD)" = "$candidate_revision"
 test -z "$(git status --porcelain)"
 nice -n 19 go test -c -mod=readonly -trimpath -buildvcs=false \
   -ldflags "-X github.com/TerraScale/ts-orchestrator/internal/netbird/foundation.nativeQualificationSourceRevision=$candidate_revision" \
   -o "$artifact_dir/netbird-worker" ./internal/netbird/foundation
-"$artifact_dir/netbird-worker" build-identity > "$artifact_dir/worker-build-identity.json"
+nice -n 19 "$artifact_dir/netbird-worker" build-identity > "$artifact_dir/worker-build-identity.json"
 sha256sum "$artifact_dir/netbird-worker" > "$artifact_dir/worker.sha256"
+uname -sm > "$artifact_dir/builder-platform.txt"
+go env GOOS GOARCH > "$artifact_dir/build-target.txt"
 go version > "$artifact_dir/compiler.txt"
 go version -m "$artifact_dir/netbird-worker" > "$artifact_dir/build-settings.txt"
 ```
 
-Retain the candidate source manifest, exact command above, compiler/build settings,
+Retain the candidate source manifest, exact command above, builder platform,
+GOOS/GOARCH, compiler/build settings,
 worker artifact, SHA-256, and `build-identity` output. Check the reported revision
 against the authenticated candidate and its reported worker hash against the
 actual artifact hash before constructing the signed approval. Unstamped or
