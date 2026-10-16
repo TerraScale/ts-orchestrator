@@ -351,6 +351,10 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 // runtimeRegistryPullAdmission derives Vault references exclusively from the
 // fresh root-signed OCI issuer binding, never from a task or controller reply.
 func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factory, task *api.Task, expected swarmruntime.ServiceIntent, verified release.VerifiedContainer, roots *rootRegistry) (*swarmruntime.RegistryAdmission, error) {
+	name, digest, ok := strings.Cut(verified.Claim().Image, "@")
+	if !ok || name == "" || digest == "" {
+		return nil, errors.New("signed release has no exact registry repository and digest")
+	}
 	secrets, err := ociregistry.NewPullSecrets(factory)
 	if err != nil {
 		return nil, err
@@ -363,19 +367,17 @@ func runtimeRegistryPullAdmission(ctx context.Context, factory *ociclient.Factor
 	if err != nil {
 		return nil, err
 	}
-	issuer, err := foundations.OCIRIssuer(ctx)
+	issuer, err := foundations.OCIRIssuer(ctx, name)
 	if err != nil {
 		return nil, err
 	}
-	entry, ok := catalog.CellForOCIRegion(expected.Region)
-	if !ok || issuer.Intent().OCIRegion != expected.Region {
-		return nil, errors.New("registry issuer differs from admitted OCI region")
+	if issuer.Intent().OCIRegion != expected.Region || issuer.ImageRepository() != name {
+		return nil, errors.New("registry issuer differs from admitted OCI region or signed image repository")
 	}
 	approved := issuer.Intent()
-	host := strings.ToLower(entry.OCIRegionKey) + ".ocir.io"
+	host := approved.RegistryHost
 	repository := approved.RegistryNamespace + "/" + approved.RepositoryName
-	name, digest, ok := strings.Cut(verified.Claim().Image, "@")
-	if !ok || name != host+"/"+repository {
+	if name != host+"/"+repository {
 		return nil, errors.New("signed release does not use the root-owned registry repository")
 	}
 	owned := ociregistry.PullSecret{RegistryHost: host, Repository: repository, Ref: vaultsecret.Ref{Vault: approved.VaultTarget.VaultID, Name: approved.SecretName}}
