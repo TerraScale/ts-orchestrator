@@ -416,6 +416,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		startup, _ := sourceImageRecipe(t, private, roots, now, material.Config, ids, anchor.Anchor().InitialRegionIntentWire)
 		material.Startup = &startup
 		material.SourceRegistration = &bootstrap.InitialSourceRegistration{InstallationID: material.InstallationID, DeploymentID: material.Config.DeploymentID, Environment: material.Config.Environment, ClusterID: material.Config.ClusterID, Cell: oci.Region(strings.ToUpper(material.Config.Cell)), Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: startup.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}, StorageDomain: anchor.StorageDomain(), LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
+		if material.Config.Cell == "sfo" {
+			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-sfo", LedgerBucket: "sfo-ledger", HeadBucket: "sfo-head", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "regional/sfo"}
+		}
 	}
 	publish()
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
@@ -497,7 +500,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err := projection.VerifyCurrent(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	assertHomeStartupPublicProof(t, replacement, projection, anchor, roots, private, protocol, now)
+	spokeAnchor := assertHomeStartupPublicProof(t, replacement, projection, anchor, roots, private, protocol, now)
 	for _, ref := range publication.References {
 		if ref.Reference.SecretOCID == replacement.state.Reference.SecretOCID {
 			t.Fatal("escrow reference leaked to normal host")
@@ -698,5 +701,38 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
 	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
 		t.Fatalf("matching pinned source recovery: %v", err)
+	}
+	// Regional ledger storage deliberately differs from the foundation source
+	// bucket; the public proof must read home while preserving SFO ledger pins.
+	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfo-control", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
+	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
+		t.Fatal(err)
+	}
+	spokeMaterial, err := spokeSource.InstallMaterial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeTemplate, err := bootstrap.VerifyStartupTemplate(spokeGrant.FoundationGrantWire(), roots, spokeAnchor, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	startup, err := NewStartupProjection(spokeTemplate, spokeMaterial, "controller-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs := map[string][]byte{}
+	for _, slot := range spokeAnchor.Anchor().ControllerSlots {
+		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sfo", "slot": slot}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	bound, err := startup.BindConfigs(t.Context(), configs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := bootstrap.LoadDerivedStartupAuthority(t.Context(), spokeTemplate, &objects, "controller-a", now)
+	if err != nil || loaded.Digest() != bound.Digest() || loaded.StorageDomain() != spokeAnchor.StorageDomain() || !strings.HasPrefix(spokeSource.key, "private/bootstrap/") || strings.HasPrefix(spokeSource.key, "regional/sfo/") {
+		t.Fatalf("independent home source and regional ledger domains: %v", err)
 	}
 }
