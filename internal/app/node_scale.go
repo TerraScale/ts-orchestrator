@@ -75,9 +75,12 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 		if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
 			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, "")
 		}
-		base, err := nodeRecipe(ctx, in.factory, in.cell)
+		base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleContainer, "")
 		if err != nil {
 			return nodescale.Recipe{}, err
+		}
+		if compartment != in.pool.CompartmentID() {
+			return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
 		}
 		return in.reservations.choose(ctx, base, in.pool, in.factory, store, "")
 	}
@@ -108,11 +111,13 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 			if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
 				return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, architecture)
 			}
-			base, err := nodeRecipe(ctx, in.factory, in.cell)
+			base, compartment, err := in.reservations.workerBase(ctx, nodescale.RoleWasm, architecture)
 			if err != nil {
 				return nodescale.Recipe{}, err
 			}
-			base.Capacity.Role = nodescale.RoleWasm
+			if compartment != in.pool.CompartmentID() {
+				return nodescale.Recipe{}, fmt.Errorf("%w: authorized worker compartment differs from bound pool", nodescale.ErrCapacityPending)
+			}
 			return in.reservations.choose(ctx, base, in.pool, in.factory, store, architecture)
 		},
 		Reserve: func(ctx context.Context, operationID string, recipe nodescale.Recipe) (budget.Reservation, error) {

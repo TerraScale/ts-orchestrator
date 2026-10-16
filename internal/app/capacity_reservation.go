@@ -51,6 +51,8 @@ type capacityReservations struct {
 	conn                    *nats.Conn
 	global                  *globalControl
 	spending                capacitySpendAuthority
+	workers                 capacityWorkerAuthority
+	caFile                  string
 	specs                   *specRegistry
 	responseKey             ed25519.PrivateKey
 	homeKey                 func(context.Context) (ed25519.PublicKey, error)
@@ -81,7 +83,8 @@ func startCapacityReservations(ctx context.Context, cfg Config, conn *nats.Conn,
 		environment = specs.identity.Environment
 	}
 	r := &capacityReservations{cell: cfg.NATS.Cell, user: claim.Subject, environment: environment,
-		conn: conn, global: global, spending: spending, specs: specs, responseKey: responseKey, homeKey: homeKey}
+		conn: conn, global: global, spending: spending, specs: specs, responseKey: responseKey, homeKey: homeKey, caFile: cfg.NATS.TLS.CAFile}
+	r.workers, _ = spending.(capacityWorkerAuthority)
 	if global != nil && global.writer != nil && global.authority != nil {
 		go r.serve(ctx)
 	}
@@ -296,6 +299,13 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 	if regional.OCIRegion == "" {
 		return quote, errors.New("capacity source compartment is outside the signed footprint")
 	}
+	worker, err := r.authorizeWorker(ctx, recipe, request.Request.CompartmentID)
+	if err != nil {
+		return quote, err
+	}
+	if err := sameWorkerSpendingGrant(worker, proof); err != nil {
+		return quote, err
+	}
 	location, err := instancePrincipalChannel(regional.OCIRegion, strings.ToUpper(recipe.Cell)).get(ctx)
 	if err != nil {
 		return quote, err
@@ -310,6 +320,9 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 	image, expires, err := nodescale.QualifyImage(ctx, qualification, r.specs.hostImageSnapshot().roots, openEvidence, time.Now())
 	if err != nil {
 		return quote, err
+	}
+	if deadline := worker.Profile().ExpiresAt(); deadline.Before(expires) {
+		expires = deadline
 	}
 	quote, err = reader.Quote(ctx, proof.Footprint(), request.Request.Cell, request.Request.CompartmentID, recipe.Capacity.Shape,
 		float64(recipe.OCPUs), float64(recipe.MemoryGB), nodescale.BootVolumeGB)

@@ -186,18 +186,36 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 	if len(selection.Candidates) == 0 {
 		return nodescale.Recipe{}, fmt.Errorf("%w: %s", nodescale.ErrCapacityPending, strings.Join(append(pending, selection.Pending...), "; "))
 	}
-	chosen := selection.Candidates[0]
-	base.Capacity, base.ImageID = chosen.Capacity, chosen.ImageID
-	base.OCPUs, base.MemoryGB = chosen.OCPUs, chosen.MemoryGB
-	base.AvailabilityDomains = []string{chosen.AvailabilityDomain}
-	return base, base.Validate()
+	for _, chosen := range selection.Candidates {
+		candidate := base
+		candidate.Capacity, candidate.ImageID = chosen.Capacity, chosen.ImageID
+		candidate.OCPUs, candidate.MemoryGB = chosen.OCPUs, chosen.MemoryGB
+		candidate.AvailabilityDomains = []string{chosen.AvailabilityDomain}
+		worker, err := r.authorizeWorker(ctx, candidate, pool.CompartmentID())
+		if err == nil {
+			err = sameWorkerSpendingGrant(worker, proof)
+		}
+		if err != nil {
+			pending = append(pending, err.Error())
+			continue
+		}
+		return candidate, candidate.Validate()
+	}
+	return nodescale.Recipe{}, fmt.Errorf("%w: no current candidate matches independent worker authority: %s", nodescale.ErrCapacityPending, strings.Join(pending, "; "))
 }
 
 func (r *capacityReservations) prepare(ctx context.Context, operationID string, recipe nodescale.Recipe, compartment string) (capacityReservationRequest, error) {
 	request := capacityReservationRequest{Recipe: recipe}
+	worker, err := r.authorizeWorker(ctx, recipe, compartment)
+	if err != nil {
+		return request, err
+	}
 	reader, proof, snapshot, err := r.facts(ctx)
 	if err != nil {
 		return request, fmt.Errorf("%w: current complete spending facts: %v", nodescale.ErrCapacityPending, err)
+	}
+	if err := sameWorkerSpendingGrant(worker, proof); err != nil {
+		return request, err
 	}
 	cell := ""
 	for _, scope := range proof.Footprint().Regions {
@@ -226,6 +244,9 @@ func (r *capacityReservations) prepare(ctx context.Context, operationID string, 
 			if deadline.Before(expires) {
 				expires = deadline
 			}
+		}
+		if deadline := worker.Profile().ExpiresAt(); deadline.Before(expires) {
+			expires = deadline
 		}
 		request.Image = input
 		request.Request = budget.ReservationRequest{OperationID: operationID, RecipeSHA256: recipe.SHA256(), Cell: cell,
