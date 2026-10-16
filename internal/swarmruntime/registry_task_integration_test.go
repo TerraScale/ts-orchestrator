@@ -66,13 +66,18 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyID, _ := trust.KeyID(public)
-	roots := trust.Keyring{keyID: public}
+	rootPublic, rootKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := trust.KeyID(rootPublic)
+	roots := trust.Keyring{rootID: rootPublic}
 	now := time.Now().UTC().Truncate(time.Second)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "test", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: "ts-auth", Environment: "production", SequenceFloor: 100}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
-	migrationEnvelope, err := release.SignSequenceMigration(migration, now, key)
+	migrationEnvelope, err := release.SignSequenceMigration(migration, now, rootKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +95,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 		candidate := release.ProductionExpectation{SourceRevision: source, ArtifactSHA256: strings.Repeat("a", 64), QualificationSHA256: strings.Repeat("a", 64), Cell: "GRU", Environment: "production", Runtime: release.ProductionRuntime, Architecture: intent.Architecture, Role: intent.Role}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 		payload, _ := trust.EncodePayload(qualification)
-		proof, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), key)
+		proof, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), rootKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +107,15 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		wire, _ := trust.EncodeEnvelope(signed)
-		return release.ContainerBundle{Claim: wire, Migration: migrationWire}
+		target := release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
+		grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(public),
+			Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID,
+				Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-" + target.Architecture}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), rootKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		delegationWire, _ := trust.EncodeEnvelope(grant)
+		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Delegation: delegationWire}
 	}
 
 	target := release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
