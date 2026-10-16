@@ -23,7 +23,7 @@ func TestCapacityReservationPersistsBeforeOCIWrite(t *testing.T) {
 	recipe := capacityRecipe()
 	now := time.Now().UTC()
 	action := &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: now}
-	if _, err := store.Save(ctx, Record{Recipe: new(recipe), Action: action}, 0); err != nil {
+	if _, err := store.Save(ctx, Record{Recipe: new(recipe), Action: action, TargetFrom: new(0)}, 0); err != nil {
 		t.Fatal(err)
 	}
 	cloud := newCapacityCloud()
@@ -77,6 +77,62 @@ func TestCapacityReservationPersistsBeforeOCIWrite(t *testing.T) {
 	}
 }
 
+func TestChosenFallbackKeepsExistingCapacityPools(t *testing.T) {
+	ctx := t.Context()
+	cloud := newCapacityCloud()
+	cloud.shapeRows = []core.Shape{capacityShape("VM.Standard.A1.Flex", "Ampere"), capacityShape("VM.Standard.A2.Flex", "Ampere")}
+	base := capacityRecipe()
+	observed := protocolPool(t, cloud, base.Capacity)
+	initial, err := observed.Ensure(ctx, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := observed.Grow(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	old := cloud.launch("ts-gru-4", initial.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(base, roleNode, entityid.New()))
+	cloud.instances[old].CompartmentId = new(testCompartment)
+	chosen := base
+	chosen.Capacity.Shape = "VM.Standard.A2.Flex"
+	action := &InFlight{ID: entityid.New(), Kind: Up}
+	store, err := OpenStore(ctx, capacityJetStream(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action, From: 1, TargetFrom: new(0)}, 0); err != nil {
+		t.Fatal(err)
+	}
+	pool, err := NewChosenPool(observed, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Ensure(ctx, chosen); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.Grow(ctx, 1); err != nil {
+		t.Fatalf("fallback used aggregate size for empty target pool: %v", err)
+	}
+	updates := cloud.updates
+	if err := pool.Grow(ctx, 1); err != nil || cloud.updates != updates {
+		t.Fatalf("fallback retry duplicated growth: %v", err)
+	}
+	state, err := pool.Observe(ctx)
+	if err != nil || state.Pending != "" || state.Size != 2 || len(state.Instances) != 1 || state.Instances[0].ID != old || deref(cloud.pools[initial.PoolID].Size) != 1 {
+		t.Fatalf("fallback hid or changed existing capacity: %+v, %v", state, err)
+	}
+	if err := pool.Name(ctx, old, "ts-gru-5"); err != nil || deref(cloud.instances[old].DisplayName) != "ts-gru-5" {
+		t.Fatalf("old capacity instance was routed to the new pool: %v", err)
+	}
+	cloud.instances[old].FreeformTags[tagCapacityRole] = RoleWasm
+	if err := pool.Remove(ctx, old); !errors.Is(err, ErrNotPoolInstance) || len(cloud.detaches) != 0 {
+		t.Fatalf("different isolation role was detached: %v", err)
+	}
+	cloud.instances[old].FreeformTags[tagCapacityRole] = RoleContainer
+	if err := pool.Remove(ctx, old); err != nil || len(cloud.detaches) != 1 || cloud.detaches[0] != old || deref(cloud.pools[initial.PoolID].Size) != 0 {
+		t.Fatalf("old capacity retirement did not use its positively owned pool: %v", err)
+	}
+}
+
 func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	ctx := t.Context()
 	js := capacityJetStream(t)
@@ -99,7 +155,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 		t.Fatalf("uncommitted choice changed OCI: %v", err)
 	}
 	action := &InFlight{ID: entityid.New(), Kind: Up}
-	revision, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action}, 0)
+	revision, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action, TargetFrom: new(0)}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +183,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
+	if err := restarted.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
 		t.Fatalf("restart grew without readmission: %v", err)
 	}
 	if _, err := restarted.Ensure(ctx, chosen); err != nil {
@@ -137,7 +193,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 		t.Fatalf("restart did not recognize observed growth: %v", err)
 	}
 	nextAction := &InFlight{ID: entityid.New(), Kind: Up}
-	revision, err = store.Save(ctx, Record{Recipe: new(chosen), Action: nextAction}, revision)
+	revision, err = store.Save(ctx, Record{Recipe: new(chosen), Action: nextAction, From: 1, TargetFrom: new(1)}, revision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +216,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	updates = cloud.updates
 	changed := chosen
 	changed.ImageID = "ocid1.image.replacement"
-	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: nextAction}, revision); err != nil {
+	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: nextAction, From: 1, TargetFrom: new(1)}, revision); err != nil {
 		t.Fatal(err)
 	}
 	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {

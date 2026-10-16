@@ -79,6 +79,18 @@ func (pool *ChosenPool) Observe(ctx context.Context) (PoolState, error) {
 	return chosen.Observe(ctx)
 }
 
+func (pool *ChosenPool) TargetSize(ctx context.Context, recipe Recipe) (int, error) {
+	if recipe.Cell != pool.observed.cell || recipe.Capacity.Role != pool.observed.capacity.Role {
+		return 0, fmt.Errorf("selected capacity differs from regional isolation role")
+	}
+	chosen, err := newOCIPool(pool.observed.management, pool.observed.compute, pool.observed.network,
+		pool.observed.cell, pool.observed.compartmentID, recipe.Capacity)
+	if err != nil {
+		return 0, err
+	}
+	return chosen.TargetSize(ctx, recipe)
+}
+
 func (pool *ChosenPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) {
 	chosen, current, err := pool.selected(ctx)
 	if err != nil {
@@ -98,11 +110,32 @@ func (pool *ChosenPool) Grow(ctx context.Context, from int) error {
 	if current == nil || !entityid.Valid(chosen.operationID) {
 		return fmt.Errorf("%w: launch recipe has not been chosen durably", ErrCapacityPending)
 	}
-	return chosen.Grow(ctx, from)
+	record, _, err := pool.store.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if record.From != from || record.TargetFrom == nil || *record.TargetFrom < 0 || *record.TargetFrom > from {
+		return fmt.Errorf("%w: exact target pool starting size is not durable", ErrCapacityPending)
+	}
+	observed, err := chosen.Observe(ctx)
+	if err != nil {
+		return err
+	}
+	if observed.Pending != "" || observed.Size != from && observed.Size != from+1 {
+		return fmt.Errorf("%w: regional pool membership changed before growth", ErrPoolChanged)
+	}
+	size, err := chosen.TargetSize(ctx, *current)
+	if err != nil {
+		return err
+	}
+	if size-*record.TargetFrom != observed.Size-from {
+		return fmt.Errorf("%w: another capacity pool changed during the chosen launch", ErrPoolChanged)
+	}
+	return chosen.Grow(ctx, *record.TargetFrom)
 }
 
 func (pool *ChosenPool) Name(ctx context.Context, instanceID, node string) error {
-	chosen, _, err := pool.selected(ctx)
+	chosen, err := pool.observed.owner(ctx, instanceID)
 	if err != nil {
 		return err
 	}
@@ -110,7 +143,7 @@ func (pool *ChosenPool) Name(ctx context.Context, instanceID, node string) error
 }
 
 func (pool *ChosenPool) Remove(ctx context.Context, instanceID string) error {
-	chosen, _, err := pool.selected(ctx)
+	chosen, err := pool.observed.owner(ctx, instanceID)
 	if err != nil {
 		return err
 	}

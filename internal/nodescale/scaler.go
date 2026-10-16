@@ -333,6 +333,18 @@ func (s *Scaler) advance(ctx context.Context, t *tick) error {
 // grow raises the pool by one node. A size someone else set fails the action.
 func (s *Scaler) grow(ctx context.Context, t *tick) error {
 	if t.pool.Size == t.record.From+1 {
+		if t.record.Recipe == nil || t.record.TargetFrom == nil {
+			t.pool.Pending = "selected capacity pool lacks a durable starting size"
+			return nil
+		}
+		size, err := s.Pool.TargetSize(ctx, *t.record.Recipe)
+		if err != nil {
+			return fmt.Errorf("observe selected capacity growth: %w", err)
+		}
+		if size != *t.record.TargetFrom+1 {
+			s.fail(t, "another capacity pool changed during the chosen launch")
+			return nil
+		}
 		t.record.Action.Step = stepEnroll
 		return nil
 	}
@@ -362,6 +374,14 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		return nil
 	}
 	recipe := *t.record.Recipe
+	if t.record.TargetFrom == nil {
+		size, err := s.Pool.TargetSize(ctx, recipe)
+		if err != nil {
+			return fmt.Errorf("read selected pool starting size: %w", err)
+		}
+		t.record.TargetFrom = new(size)
+		return nil
+	}
 	if s.Reserve != nil && t.record.Reservation == nil {
 		receipt, err := s.Reserve(ctx, t.record.Action.ID, recipe)
 		if err != nil {
@@ -655,7 +675,12 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 		if err := recipe.Validate(); err != nil {
 			return decision, fmt.Errorf("validate chosen node recipe: %w", err)
 		}
+		size, err := s.Pool.TargetSize(ctx, recipe)
+		if err != nil {
+			return decision, fmt.Errorf("read chosen pool starting size: %w", err)
+		}
 		t.record.Recipe = new(recipe)
+		t.record.TargetFrom = new(size)
 		t.record.Reservation = nil
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: t.now}
 		t.record.From = t.pool.Size

@@ -145,9 +145,6 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 			(pool.FreeformTags[tagPool] != name || pool.FreeformTags[tagCapacityRole] != capacity.Role || pool.FreeformTags[tagArchitecture] != capacity.Architecture || pool.FreeformTags[tagShape] != capacity.Shape) {
 			return PoolState{}, fmt.Errorf("observed pool %s changed ownership", name)
 		}
-		if !legacy && capacity != o.capacity {
-			state.Pending = fmt.Sprintf("pool %s (%s, size %d) has a different capacity identity; verified migration and per-pool pricing are pending", name, deref(pool.Id), deref(pool.Size))
-		}
 		if legacy {
 			state.Pending = fmt.Sprintf("legacy pool %s (%s, size %d) requires verified migration; capacity is pending", name, deref(pool.Id), deref(pool.Size))
 		}
@@ -176,6 +173,32 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
 	})
 	return state, nil
+}
+
+// TargetSize reads the selected pool independently of the region's total size.
+func (o *OCIPool) TargetSize(ctx context.Context, recipe Recipe) (int, error) {
+	if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
+		return 0, fmt.Errorf("selected capacity differs from target pool")
+	}
+	pool, _, err := o.pool(ctx)
+	if err != nil || pool == nil {
+		return 0, err
+	}
+	return deref(pool.Size), nil
+}
+
+// owner routes an instance only after its own tags and its pool membership agree.
+func (o *OCIPool) owner(ctx context.Context, instanceID string) (*OCIPool, error) {
+	instance, _, err := o.instance(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	capacity := Capacity{Role: instance.FreeformTags[tagCapacityRole], Architecture: instance.FreeformTags[tagArchitecture], Shape: instance.FreeformTags[tagShape]}
+	if capacity.Validate() != nil || capacity.Role != o.capacity.Role || deref(instance.Id) != instanceID || deref(instance.CompartmentId) != o.compartmentID ||
+		instance.FreeformTags[tagCell] != o.cell || instance.FreeformTags[tagRole] != roleNode || instance.FreeformTags[tagPool] != PoolName(o.cell, capacity) {
+		return nil, fmt.Errorf("%w: instance %s lacks exact regional capacity ownership", ErrNotPoolInstance, instanceID)
+	}
+	return newOCIPool(o.management, o.compute, o.network, o.cell, o.compartmentID, capacity)
 }
 
 func (o *OCIPool) admit(ctx context.Context, recipe Recipe) (func(), error) {

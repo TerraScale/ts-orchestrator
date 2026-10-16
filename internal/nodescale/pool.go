@@ -139,6 +139,7 @@ var ErrNotPoolInstance = errors.New("instance is not in this node pool")
 // Pool is one region's instance pool of nodes with the same capacity identity.
 type Pool interface {
 	Observe(ctx context.Context) (PoolState, error)
+	TargetSize(ctx context.Context, recipe Recipe) (int, error)
 	Ensure(ctx context.Context, recipe Recipe) (PoolState, error)
 	Grow(ctx context.Context, from int) error
 	Name(ctx context.Context, instanceID, node string) error
