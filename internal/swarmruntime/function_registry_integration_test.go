@@ -32,7 +32,7 @@ func (functionRegistryRollbackExecutor) Controller(task *api.Task) (exec.Control
 }
 
 func TestFunctionRegistryManagerIntegration(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	client, workerConfig, platform := serviceCluster(t, ctx)
 	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
@@ -200,6 +200,9 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err != nil {
 		t.Fatal(err)
 	}
+	if err := VerifyFunctionMaterialTask(ctx, client, task, intent, current, worker); err != nil {
+		t.Fatal("ordinary current worker material was denied: ", err)
+	}
 	forged := task.Copy()
 	forged.NodeID = platform.ID()
 	if err := VerifyFunctionRegistryTask(ctx, client, forged, intent, current, worker); err == nil {
@@ -224,6 +227,9 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	}
 	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err == nil {
 		t.Fatal("superseded current worker authorized outside a previous service recipe")
+	}
+	if err := VerifyFunctionMaterialTask(ctx, client, task, intent, current, worker); err == nil {
+		t.Fatal("ordinary task obtained superseded material without rollback status")
 	}
 	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
 	if err != nil {
@@ -251,6 +257,9 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	}
 	if err := intent.VerifyWorkerFloor(ctx, client, worker); err == nil {
 		t.Fatal("previous worker pull authorization also authorized stale function material")
+	}
+	if err := VerifyFunctionMaterialTask(ctx, client, task, intent, current, worker); err == nil {
+		t.Fatal("PreviousSpec-only task obtained function material")
 	}
 	// Restore the fixed recipe before the genuine updater rolls back a rejected worker.
 	latest, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
@@ -308,6 +317,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, rollbackWorker); err == nil {
 		t.Fatal("rollback image pull also authorized superseded worker material")
 	}
+	testFunctionMaterialTaskManagerIntegration(t, ctx, client, intent, current, rollbackTask, rollbackWorker, renewedWorker, newWorker, functionProof(2), root)
 	current.proof = functionProof(2)
 	if err := VerifyFunctionRegistryTask(ctx, client, rollbackTask, intent, current, rollbackWorker); err == nil {
 		t.Fatal("rollback status authorized a superseded function proof")
