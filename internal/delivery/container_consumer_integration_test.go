@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -142,6 +143,33 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	if terminal, err := service.process(ctx, tampered); !terminal || err != nil || calls != 2 {
 		t.Fatal("tampered signature reached runtime", err)
 	}
+	// Fencing an already-retained pending operation produces a durable hold.
+	fence := &containerTestFence{}
+	service.config.Fencer = fence
+	pending := intent.Clone()
+	pending.OperationID = entityid.Derive("container-test", "fenced-pending")
+	pendingPayload, err := json.Marshal(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingWire, err := codec.Sign(ctx, pendingPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	service.config.ContainerApply = func(context.Context, Intent) error { attempts++; return errors.New("manager unavailable") }
+	if terminal, err := service.process(ctx, pendingWire); terminal || err == nil || attempts != 1 {
+		t.Fatal("pending fixture", err)
+	}
+	fence.fenced = true
+	if terminal, err := service.process(ctx, pendingWire); !terminal || err != nil || attempts != 1 {
+		t.Fatal("fenced pending re-applied", err)
+	}
+	held, err := service.Status(ctx, pending.OperationID)
+	if err != nil || held.Status != "held" {
+		t.Fatal("fenced pending not held", held, err)
+	}
+	fence.fenced = false
 	// A second controller instance recovers proof and receipt from the same store.
 	recovered, err := Open(ctx, service.config)
 	if err != nil {
@@ -153,4 +181,16 @@ func TestContainerIntentSignedBrokerRecovery(t *testing.T) {
 	if terminal, err := recovered.process(ctx, wire); !terminal || err != nil || calls != 2 {
 		t.Fatal("restart lost completion", err)
 	}
+}
+
+type containerTestFence struct {
+	testFence
+	fenced bool
+}
+
+func (f *containerTestFence) Guard(ctx context.Context, epoch uint64) error {
+	if f.fenced {
+		return authority.ErrFenced
+	}
+	return f.testFence.Guard(ctx, epoch)
 }

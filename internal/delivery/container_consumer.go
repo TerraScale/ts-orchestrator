@@ -20,11 +20,13 @@ func (s *Service) processContainer(ctx context.Context, wire []byte, intent Inte
 		return s.rejectIntent(ctx, wire, intent, actor, "container admission is unavailable")
 	}
 	key := operationKey(intent.OperationID)
-	if err := s.config.Fencer.Guard(ctx, intent.AuthorityEpoch); err != nil {
-		if errors.Is(err, authority.ErrFenced) && entry == nil {
-			return s.rejectIntent(ctx, wire, intent, actor, "authority epoch was fenced before acceptance")
+	if entry == nil {
+		if err := s.config.Fencer.Guard(ctx, intent.AuthorityEpoch); err != nil {
+			if errors.Is(err, authority.ErrFenced) {
+				return s.rejectIntent(ctx, wire, intent, actor, "authority epoch was fenced before acceptance")
+			}
+			return false, stageDeliveryError("container_guard", err)
 		}
-		return false, stageDeliveryError("container_guard", err)
 	}
 	op := operation{Intent: intent.Clone(), Fingerprint: fingerprint, Actor: actor}
 	var revision uint64
@@ -62,6 +64,9 @@ func (s *Service) processContainer(ctx context.Context, wire []byte, intent Inte
 		return false, stageDeliveryError("container_guard", err)
 	}
 	if err := s.config.ContainerApply(ctx, op.Intent.Clone()); err != nil {
+		if errors.Is(err, ErrInvalid) || errors.Is(err, ErrUnauthorized) {
+			return s.hold(ctx, key, op, revision, "container admission refused; reconcile with a new intent")
+		}
 		if errors.Is(err, authority.ErrFenced) {
 			return s.hold(ctx, key, op, revision, "authority epoch fenced; reconcile with a new intent")
 		}
