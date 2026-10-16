@@ -177,7 +177,7 @@ func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.C
 	default:
 		t.Fatalf("unsupported authenticated fixture role %q", role)
 	}
-	cfg.CredentialsFile = testBrokerJWTUserWithKey(t, a.root, public+".creds", a.account, user, claim)
+	cfg.CredentialsFile = testBrokerJWTUserWithKey(t, a.root, cfg.Instance+"-"+public+".creds", a.account, user, claim)
 	cfg.NKeySeedFile = ""
 	cfg.TLS = a.tls
 	cfg.URL = strings.ReplaceAll(cfg.URL, "nats://", "tls://")
