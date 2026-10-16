@@ -422,8 +422,27 @@ func Restore(ctx context.Context, target BackupTarget, object, replacementDir st
 	if !config || stores == 0 {
 		return manifestTime, errors.New("NetBird recovery lacks config or SQLite identity store")
 	}
+	if err := fs.WalkDir(root.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !entry.IsDir() {
+			return walkErr
+		}
+		directory, err := root.Open(path)
+		if err != nil {
+			return err
+		}
+		return errors.Join(directory.Sync(), directory.Close())
+	}); err != nil {
+		return manifestTime, fmt.Errorf("persist NetBird recovery directories: %w", err)
+	}
 	if err := unix.Renameat2(unix.AT_FDCWD, stage, unix.AT_FDCWD, replacementDir, unix.RENAME_NOREPLACE); err != nil {
 		return manifestTime, fmt.Errorf("install isolated NetBird recovery: %w", err)
+	}
+	parent, err := os.Open(filepath.Dir(replacementDir))
+	if err != nil {
+		return manifestTime, err
+	}
+	if err := errors.Join(parent.Sync(), parent.Close()); err != nil {
+		return manifestTime, fmt.Errorf("persist installed NetBird recovery: %w", err)
 	}
 	return manifest.CreatedAt, nil
 }

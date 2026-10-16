@@ -22,7 +22,7 @@ import (
 
 // Actual clients cross NetBird/OCI HTTP and protected escrow/filesystem boundaries.
 func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
-	for _, interruption := range []string{"key-response", "vault-response", "before-key-dispatch"} {
+	for _, interruption := range []string{"key-response", "vault-response", "before-key-dispatch", "vault-epoch-loss"} {
 		t.Run(interruption, func(t *testing.T) {
 			root := t.TempDir()
 			keyPath, vaultPath := filepath.Join(root, "upstream.json"), filepath.Join(root, "vault.json")
@@ -30,6 +30,7 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 			const secretID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.test.enrollment"
 			var interrupted atomic.Bool
 			var keysCreated, vaultsCreated atomic.Int32
+			var vaultAttempts atomic.Int32
 			var term atomic.Uint64
 			term.Store(1)
 			managerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +103,13 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 					}
 					writeEnrollmentJSON(t, w, items)
 				case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secrets"):
+					vaultAttempts.Add(1)
+					if interruption == "vault-epoch-loss" && interrupted.CompareAndSwap(false, true) {
+						term.Add(1)
+						w.WriteHeader(http.StatusServiceUnavailable)
+						writeEnrollmentJSON(t, w, map[string]string{"code": "Unavailable", "message": "authority lost before retry"})
+						return
+					}
 					var request struct {
 						SecretName    string `json:"secretName"`
 						SecretContent struct {
@@ -173,6 +181,9 @@ func TestEnrollmentRecoversCommittedResponsesAndDelivery(t *testing.T) {
 			first, firstErr := reconcile()
 			if interruption != "vault-response" && firstErr == nil {
 				t.Fatalf("interruption claimed success: %+v", first)
+			}
+			if interruption == "vault-epoch-loss" && vaultAttempts.Load() != 1 {
+				t.Fatalf("SDK redispatched a Vault write after authority loss: %d attempts", vaultAttempts.Load())
 			}
 			result, err := reconcile()
 			if err != nil || result.SecretID != secretID || result.KeyID == "" {

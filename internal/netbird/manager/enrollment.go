@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
@@ -241,5 +242,8 @@ func (v fencedEnrollmentVault) CreateSecret(ctx context.Context, request ocivaul
 	if err := v.check(); err != nil {
 		return ocivault.CreateSecretResponse{}, err
 	}
+	// Reconciliation rechecks authority before recovering an uncertain create.
+	retry := common.NoRetryPolicy()
+	request.RequestMetadata.RetryPolicy = &retry
 	return v.VaultClient.CreateSecret(ctx, request)
 }
