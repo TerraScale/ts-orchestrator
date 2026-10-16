@@ -124,9 +124,6 @@ func (ir *InterRegion) validate(cfg Config) error {
 	if ir == nil {
 		return nil
 	}
-	if cfg.Lab {
-		return errors.New("interregion leafnodes require production operator accounts")
-	}
 	if ir.AccountJWTFile == "" {
 		return errors.New("interregion account JWT is required")
 	}
