@@ -61,6 +61,7 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"},
 		TrustedSigners:    signers, OCIRRepositoryName: "terrascale/terrabase", OCIRPrincipalName: "terrascale-pull", OCIRPrincipalEmail: "terrascale-pull@terrascale.tech", OCIRSecretName: "gru-orch-ocir-pull",
 		GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
+	approval.ReleaseAuthorities = foundationPreparationReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
 	objects := map[string][]byte{}
 	var mu sync.Mutex
 	reads, writes := 0, 0
@@ -77,6 +78,11 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/availabilityDomains"):
 			fmt.Fprint(w, `[{"name":"scenario:AD-1"}]`)
+		case strings.HasSuffix(r.URL.Path, "/shapes"):
+			if r.URL.Query().Get("imageId") != "" {
+				t.Error("fixed worker authority must not depend on an initial image")
+			}
+			fmt.Fprint(w, `[{"shape":"VM.Standard.A1.Flex","processorDescription":"Ampere Altra","isFlexible":true,"ocpuOptions":{"min":1,"max":80},"memoryOptions":{"minInGBs":1,"maxInGBs":1024,"minPerOcpuInGBs":1,"maxPerOcpuInGBs":64}},{"shape":"VM.Standard.E4.Flex","processorDescription":"AMD EPYC","isFlexible":true,"ocpuOptions":{"min":1,"max":64},"memoryOptions":{"minInGBs":1,"maxInGBs":1024,"minPerOcpuInGBs":1,"maxPerOcpuInGBs":64}}]`)
 		case strings.HasSuffix(r.URL.Path, "/services"):
 			fmt.Fprint(w, `[{"id":"ocid1.service.oc1..services","cidrBlock":"all-scenario-services-in-oracle-services-network"}]`)
 		case r.URL.Path == "/n":
@@ -180,7 +186,7 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	if err := protocol.DecodeStrict(wire, &prepared, maxFoundationBundleBytes); err != nil {
 		t.Fatal(err)
 	}
-	if len(prepared.Grant.Regions) != 3 || len(prepared.Grant.InfrastructureSpend.Bootstrap.Slots) != 4 || prepared.Anchor.FoundationScope.GrantSHA256 != "" {
+	if len(prepared.Grant.Regions) != 3 || len(prepared.Grant.InfrastructureSpend.Bootstrap.Slots) != 4 || len(prepared.Grant.WorkerProfiles) != 12 || prepared.Anchor.FoundationScope.GrantSHA256 != "" {
 		t.Fatal("preparation did not preserve unsigned fixed footprint")
 	}
 	mu.Lock()
@@ -219,8 +225,8 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if grantEnvelope.ExpiresAt.After(now.Add(time.Hour)) || anchorEnvelope.ExpiresAt.After(grantEnvelope.ExpiresAt) {
-		t.Fatal("root ceremony extended the current image qualification or grant authority")
+	if !grantEnvelope.ExpiresAt.Equal(now.Add(30*time.Minute)) || anchorEnvelope.ExpiresAt.After(grantEnvelope.ExpiresAt) {
+		t.Fatal("root ceremony extended the shortest release delegation or grant authority")
 	}
 	t.Run("allocation cannot replace the startup recipe", func(t *testing.T) {
 		prepared.Grant.InfrastructureSpend.Bootstrap.Slots[0].ProfileSHA256 = strings.Repeat("0", 64)
@@ -254,6 +260,42 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 			t.Fatalf("rejected evidence left prepared output: %v", err)
 		}
 	})
+}
+
+func foundationPreparationReleaseAuthorities(t *testing.T, root ed25519.PrivateKey, public ed25519.PublicKey, home bootstrap.StorageDomain, now time.Time) []region.ContainerReleaseAuthorityIntent {
+	t.Helper()
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyWire, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var authorities []region.ContainerReleaseAuthorityIntent
+	for _, role := range []string{"container", "wasm"} {
+		delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire}
+		migration := release.SequenceMigration{Namespace: home.Namespace, Bucket: home.HeadBucket, Region: "GRU", Schema: release.SequenceMigrationSchema,
+			SignerKeyID: keyID, SignerPublicKey: keyWire, Role: role, Environment: "production", SequenceFloor: 42}
+		for _, cell := range []string{"GRU", "SFO", "FRA"} {
+			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Role: role, Environment: "production", Architecture: "arm64"})
+			delegation.Capabilities = append(delegation.Capabilities, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell,
+				Environment: scope.Environment, Role: scope.Role, Slots: []string{"linux-arm64", "linux-amd64"}, Actions: []string{"sign"}})
+			migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 41, IssuedAt: now.Add(-time.Hour), EvidenceSHA256: strings.Repeat("a", 64)})
+		}
+		delegated, err := trust.SignDelegation(delegation, now.Add(-time.Minute), now.Add(30*time.Minute), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		migrated, err := release.SignSequenceMigration(migration, now.Add(-time.Minute), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		authorities = append(authorities, region.ContainerReleaseAuthorityIntent{Role: role, Environment: "production", ImageRepository: "gru.ocir.io/ns/" + role,
+			SourceRepository: "https://github.com/TerraScale/" + role, Cells: []string{"GRU", "SFO", "FRA"}, Architectures: []string{"arm64", "amd64"},
+			DelegationWire: encodeEnvelope(t, delegated), SequenceMigrationWire: encodeEnvelope(t, migrated)})
+	}
+	return authorities
 }
 
 func foundationPreparationImage(t *testing.T, root, leaf ed25519.PrivateKey, roots trust.Keyring, cell, role string, now time.Time) ([]byte, []byte, map[string][]byte) {

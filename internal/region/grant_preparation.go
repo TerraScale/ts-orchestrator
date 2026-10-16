@@ -20,6 +20,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
@@ -156,6 +157,10 @@ func PrepareFoundationGrantSDK(ctx context.Context, input FoundationPreparationI
 	if err := ValidateContainerReleaseAuthorities(prepared.Grant, roots, input.HomeStorageDomain, time.Now()); err != nil {
 		return FoundationPreparation{}, err
 	}
+	prepared.Grant.WorkerProfiles, err = PrepareWorkerProfilesSDK(ctx, factory, namespace, roots, prepared.Grant, time.Now())
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
 	return prepared, nil
 }
 
@@ -220,6 +225,11 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		ids["boot_volumes"] = map[string]any{"controller-a": nil}
 		plan["budget"].(map[string]any)["currency"] = input.Currency
 		plan["budget"].(map[string]any)["monthly_limit"] = float64(input.MonthlyLimitMinor) / 100
+		validated, err := ociregion.ValidatePlan(ociregion.Object(plan))
+		if err != nil {
+			return FoundationPreparation{}, fmt.Errorf("validate prepared %s OCI plan: %w", cell, err)
+		}
+		plan = validated
 		regional := FoundationIntent{Generation: 1, Plan: plan, BootstrapMaterial: &material}
 		grant.Regions = append(grant.Regions, regional)
 		slot, err := controllerBootstrapSlot(installation, cell, *material.Startup, host)
