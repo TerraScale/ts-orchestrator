@@ -62,6 +62,30 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 			t.Fatalf("invalid source IAM accepted: %+v", invalid)
 		}
 	}
+	plan := loadPlan(t)
+	controller, err := ociregion.RequiredControllerStatements(plan, Object{"key": sourceTarget.KeyID}, "owned/bootstrap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrapReads, bootstrapWrites := 0, 0
+	for _, statement := range controller {
+		if strings.Contains(statement, "target.object.name=/owned/bootstrap/bootstrap/v2/*/") {
+			if strings.Contains(statement, "OBJECT_CREATE") || strings.Contains(statement, "OBJECT_OVERWRITE") {
+				bootstrapWrites++
+				if !strings.Contains(statement, "target.object.name != /owned/bootstrap/bootstrap/v2/material-source/*/") || strings.Contains(statement, "OBJECT_READ") {
+					t.Fatalf("ordinary controller can rewrite source registration: %s", statement)
+				}
+			} else if strings.Contains(statement, "OBJECT_READ") {
+				bootstrapReads++
+			}
+		}
+		if strings.Contains(statement, "read secret-bundles") && !strings.Contains(statement, "where target.secret.name != /ts-bootstrap-source-*/") {
+			t.Fatalf("controller can read source escrow: %s", statement)
+		}
+	}
+	if bootstrapReads != 2 || bootstrapWrites != 2 {
+		t.Fatalf("reserved source IAM reads=%d writes=%d", bootstrapReads, bootstrapWrites)
+	}
 	var live Object
 	var state sync.Mutex
 	var createToken string
@@ -86,7 +110,11 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 			if err := json.UnmarshalRead(r.Body, &policy); err != nil {
 				t.Error(err)
 			}
-			if command.JSON(policy["statements"]) != command.JSON(sourceStatements) || policy["compartmentId"] != resourceID || !strings.Contains(r.Host, "eu-frankfurt-1") {
+			expected := sourceStatements
+			if policy["name"] == "controller-scope" {
+				expected = controller
+			}
+			if command.JSON(policy["statements"]) != command.JSON(expected) || policy["compartmentId"] != resourceID || !strings.Contains(r.Host, "eu-frankfurt-1") {
 				t.Errorf("source policy transport changed exact scope: %v host=%s", policy, r.Host)
 			}
 			policy["id"] = "ocid1.policy.oc1..source"
@@ -148,16 +176,6 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := loadPlan(t)
-	controller, err := ociregion.RequiredControllerStatements(plan, Object{"key": sourceTarget.KeyID}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range controller {
-		if strings.Contains(statement, "read secret-bundles") && !strings.Contains(statement, "where target.secret.name != /ts-bootstrap-source-*/") {
-			t.Fatalf("controller can read source escrow: %s", statement)
-		}
-	}
 	provider := common.NewRawConfigurationProvider(text(plan["tenancy_id"]), "ocid1.user.oc1..test", sfo, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
 	factory, err := ociclient.New(provider, ociclient.Options{Region: sfo, Retry: ociclient.RetryOptions{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
 	if err != nil {
@@ -171,6 +189,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	cancelConstructor()
 	if err := foundation.buckets(t.Context(), plan, "", ""); err != nil {
 		t.Fatalf("dry-run buckets queried an uncreated compartment: %v", err)
+	}
+	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "controller-scope", "--description", "test-only controller IAM", "--statements", command.JSON(controller)); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "exact-founder-source", "--description", "test-only source IAM", "--statements", command.JSON(sourceStatements)); err != nil {
 		t.Fatal(err)

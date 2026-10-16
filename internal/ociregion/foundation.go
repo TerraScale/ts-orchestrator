@@ -412,16 +412,24 @@ func storageStatements(plan, ids Object, prefix string) []string {
 		r = append(r, fmt.Sprintf("Allow dynamic-group %s to read buckets in compartment %s where target.bucket.name='%s'", dg, control, str(buckets[role])))
 	}
 	for _, role := range []string{"ledger", "head"} {
-		permissions := "request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'"
+		permissions := "request.permission='OBJECT_CREATE'"
 		if role == "head" {
 			permissions += ", request.permission='OBJECT_OVERWRITE'"
 		}
 		for _, version := range []string{"v1", "v2"} {
 			name := "bootstrap/" + version + "/*"
+			reserved := "bootstrap/v2/material-source/*"
 			if prefix != "" {
 				name = prefix + "/" + name
+				reserved = prefix + "/" + reserved
 			}
-			r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='%s', any {%s}}", dg, control, str(buckets[role]), name, permissions))
+			exclusion := ""
+			if version == "v2" {
+				exclusion = fmt.Sprintf("target.object.name != /%s/, ", reserved)
+			}
+			r = append(r,
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, request.permission='OBJECT_READ'}", dg, control, str(buckets[role]), name),
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, %sany {%s}}", dg, control, str(buckets[role]), name, exclusion, permissions))
 		}
 	}
 	// The leader keeps the configuration KV buckets in the versioned head
