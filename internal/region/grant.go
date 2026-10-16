@@ -27,6 +27,7 @@ const foundationGrantObject = "foundation-scope-v1.json"
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
+	InstallationID      string             `json:"installationId"`
 	SchemaVersion       int                `json:"schemaVersion"`
 	Generation          uint64             `json:"generation"`
 	TenancyID           string             `json:"tenancyId"`
@@ -42,9 +43,10 @@ type FoundationGrant struct {
 // digest covers public generation inputs; secret output bytes are checkpointed
 // separately by the existing immutable source producer.
 type BootstrapMaterialIntent struct {
-	InstallationID string                   `json:"installationId"`
-	PlanSHA256     string                   `json:"planSha256"`
-	Config         bootstrapmaterial.Config `json:"config"`
+	InstallationID    string                        `json:"installationId"`
+	PlanSHA256        string                        `json:"planSha256"`
+	Config            bootstrapmaterial.Config      `json:"config"`
+	SourceVaultTarget bootstrapmaterial.VaultTarget `json:"sourceVaultTarget"`
 }
 
 type VerifiedBootstrapMaterial struct {
@@ -52,7 +54,10 @@ type VerifiedBootstrapMaterial struct {
 	generation uint64
 	storage    bootstrap.StorageDomain
 	expires    time.Time
+	escrow     bootstrapmaterial.VaultTarget
 }
+
+func (v VerifiedBootstrapMaterial) EscrowTarget() bootstrapmaterial.VaultTarget { return v.escrow }
 
 func (v VerifiedBootstrapMaterial) InstallationID() string                 { return v.intent.InstallationID }
 func (v VerifiedBootstrapMaterial) Generation() uint64                     { return v.generation }
@@ -84,12 +89,28 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		digest := sha256.Sum256(wire)
 		if err != nil || !entityid.Valid(material.InstallationID) || material.PlanSHA256 != hex.EncodeToString(digest[:]) ||
 			config.Validate() != nil || config.Cell != strings.ToLower(cell) || config.Region != intent.Plan["region"] ||
-			config.DeploymentID != s.scope.DeploymentID || config.ClusterID != s.scope.Slot || config.Environment != s.scope.Environment {
+			config.Environment != s.scope.Environment ||
+			(config.Cell == strings.ToLower(string(s.local.Cell)) && (config.DeploymentID != s.local.DeploymentID || config.ClusterID != s.local.ClusterID)) {
 			return VerifiedBootstrapMaterial{}, errors.New("bootstrap material intent differs from authenticated installation, region or digest")
+		}
+		escrow := material.SourceVaultTarget
+		if escrow.Validate("sa-saopaulo-1") != nil || escrow.KMSKeyOCID != s.storage.HeadKMSKeyOCID {
+			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow differs from signed home Vault/KMS target")
+		}
+		owned := false
+		for _, home := range footprint.Regions {
+			if home.Plan["cell"] != "GRU" {
+				continue
+			}
+			ids, _ := home.Plan["resource_ids"].(map[string]any)
+			owned = ids["control_compartment"] == escrow.CompartmentOCID && ids["vault"] == escrow.VaultOCID && ids["key"] == escrow.KMSKeyOCID
+		}
+		if !owned {
+			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow is outside the signed owned home foundation")
 		}
 		config.Slots = slices.Clone(config.Slots)
 		material.Config = config
-		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires}, nil
+		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
 }
@@ -104,19 +125,24 @@ type SignedFootprint struct {
 	expires time.Time
 	roots   trust.Keyring
 	tenancy string
+	home    bootstrap.FoundationScope
+	local   bootstrap.BootstrapAnchor
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
-	if client == nil || !anchor.IsVerified() || len(roots) == 0 || tenancy == "" || anchor.Anchor().Cell != "GRU" {
-		return nil, errors.New("foundation scope requires verified home bootstrap identity and trusted roots")
+	if client == nil || !anchor.IsVerified() || len(roots) == 0 {
+		return nil, errors.New("foundation scope requires verified bootstrap identity and roots")
 	}
-	if err := anchor.StorageDomain().Validate(); err != nil {
+	home, err := anchor.FoundationScope()
+	if err != nil {
 		return nil, err
 	}
+	if tenancy != home.TenancyID {
+		return nil, errors.New("authenticated tenancy differs from signed home reference")
+	}
 	identity := anchor.Anchor()
-	return &SignedFootprint{client: client, storage: anchor.StorageDomain(), expires: anchor.ExpiresAt(),
-		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: identity.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: identity.ClusterID},
-		roots: maps.Clone(roots), tenancy: tenancy}, nil
+	return &SignedFootprint{client: client, storage: home.StorageDomain, expires: anchor.ExpiresAt(), home: home, local: identity,
+		scope: trust.Scope{Domain: foundationGrantDomain, DeploymentID: home.DeploymentID, Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots: maps.Clone(roots), tenancy: tenancy}, nil
 }
 
 func (s *SignedFootprint) AuthorizedRegions(ctx context.Context) (ApprovedFootprint, error) {
@@ -132,7 +158,7 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 	name := strings.TrimSuffix(domain.Prefix, "/") + "/" + foundationGrantObject
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	response, err := s.client.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(name)})
+	response, err := s.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(name)})
 	if err != nil {
 		return ApprovedFootprint{}, time.Time{}, errors.New("authenticated foundation scope unavailable; initial tenancy authorization is required")
 	}
@@ -143,6 +169,10 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 	wire, err := io.ReadAll(io.LimitReader(response.Content, foundationRecordLimit+1))
 	if err != nil || len(wire) > foundationRecordLimit {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope object unreadable or oversized")
+	}
+	digest := sha256.Sum256(wire)
+	if hex.EncodeToString(digest[:]) != s.home.GrantSHA256 {
+		return ApprovedFootprint{}, time.Time{}, errors.New("foundation grant differs from root-pinned exact wire")
 	}
 	envelope, err := trust.DecodeEnvelope(wire)
 	if err != nil {
@@ -159,7 +189,7 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 	if err := json.Unmarshal(payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
-	if grant.SchemaVersion != 1 || grant.Generation == 0 || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
+	if grant.InstallationID != s.home.InstallationID || grant.SchemaVersion != 1 || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
 		(grant.Currency != "USD" && grant.Currency != "BRL") || grant.CleanupOwner == "" || len(grant.CleanupOwner) > 128 {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
 	}
@@ -178,13 +208,21 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 // scope. Missing grants remain blocked; this constructor performs no writes.
 func NewFoundationDiscovery(factory *ociclient.Factory, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring) (FoundationResolver, error) {
 	if factory == nil || !anchor.IsVerified() || factory.Region() != anchor.Anchor().OCIRegion {
-		return FoundationResolver{}, errors.New("foundation discovery requires the verified home-region OCI client")
+		return FoundationResolver{}, errors.New("foundation discovery requires the verified local-region OCI client")
 	}
 	tenancy, err := factory.Provider().TenancyOCID()
 	if err != nil {
 		return FoundationResolver{}, err
 	}
-	client, err := factory.ObjectStorage()
+	home, err := anchor.FoundationScope()
+	if err != nil {
+		return FoundationResolver{}, err
+	}
+	homeFactory, err := factory.ForRegion(home.OCIRegion)
+	if err != nil {
+		return FoundationResolver{}, err
+	}
+	client, err := homeFactory.ObjectStorage()
 	if err != nil {
 		return FoundationResolver{}, err
 	}
@@ -192,7 +230,7 @@ func NewFoundationDiscovery(factory *ociclient.Factory, anchor bootstrap.Verifie
 	if err != nil {
 		return FoundationResolver{}, err
 	}
-	domain := anchor.StorageDomain()
+	domain := home.StorageDomain
 	store, err := NewObjectFoundationStore(&client, domain.Namespace, domain.HeadBucket)
 	if err != nil {
 		return FoundationResolver{}, err

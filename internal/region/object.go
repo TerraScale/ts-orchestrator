@@ -15,6 +15,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
@@ -47,7 +48,7 @@ func (s *ObjectFoundationStore) Load(ctx context.Context, cell string) (Foundati
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	name := foundationObjectPrefix + cell + ".json"
-	response, err := s.client.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: new(s.namespace), BucketName: new(s.bucket), ObjectName: new(name)})
+	response, err := s.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(s.namespace), BucketName: new(s.bucket), ObjectName: new(name)})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
 		return FoundationRecord{}, "", ErrFoundationMissing
 	}
@@ -106,7 +107,7 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	} else {
 		request.IfMatch = new(etag)
 	}
-	response, err := s.client.PutObject(ctx, request)
+	response, err := s.client.PutObject(ociclient.RequestContext(ctx), request)
 	if service, ok := common.IsServiceError(err); ok && (service.GetHTTPStatusCode() == 409 || service.GetHTTPStatusCode() == 412) {
 		return "", ErrFoundationConflict
 	}
