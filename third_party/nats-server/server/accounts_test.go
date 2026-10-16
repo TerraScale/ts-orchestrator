@@ -751,6 +751,10 @@ func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
 				wait := 2 * time.Second
 				if removal == "expiry" {
 					wait = 7 * time.Second
+					if count == 1600 {
+						// A partial expiry sweep reschedules another full response threshold.
+						wait = 2*(5*time.Second) + 2*time.Second
+					}
 				}
 				checkFor(t, wait, 10*time.Millisecond, func() error {
 					if pending := accountResponseCountOverHTTP(t, s, "foo"); pending != 0 {
@@ -1580,11 +1584,20 @@ func TestAccountRemoteLimitEvictionOverTCP(t *testing.T) {
 	}
 	observer := natsConnect(t, a.ClientURL(), nats.UserInfo("sys", "sys"), nats.NoReconnect())
 	defer observer.Close()
-	events := natsSubSync(t, observer, "$SYS.ACCOUNT.TENANT.CONNS")
+	events := natsSubSync(t, observer, "$SYS.SERVER.ACCOUNT.TENANT.CONNS")
 	require_NoError(t, observer.FlushTimeout(2*time.Second))
 	require_NoError(t, os.WriteFile(config, []byte(configFor("nats://"+b.ClusterAddr().String())), 0600))
 	require_NoError(t, a.Reload())
 	checkClusterFormed(t, a, b)
+	ready, err := observer.Request(fmt.Sprintf("$SYS.REQ.SERVER.%s.VARZ", b.ID()), nil, 2*time.Second)
+	require_NoError(t, err)
+	var varz ServerAPIVarzResponse
+	require_NoError(t, json.Unmarshal(ready.Data, &varz))
+	require_NotNil(t, varz.Server)
+	require_Equal(t, varz.Server.ID, b.ID())
+	// The accounting reply subject delivers the real count to both A and the observer.
+	require_NoError(t, observer.PublishRequest("$SYS.REQ.ACCOUNT.TENANT.CONNS", "$SYS.SERVER.ACCOUNT.TENANT.CONNS", nil))
+	require_NoError(t, observer.FlushTimeout(2*time.Second))
 	deadline := time.Now().Add(2 * time.Second)
 	for {
 		remaining := time.Until(deadline)
