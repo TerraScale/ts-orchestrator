@@ -124,7 +124,7 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 		if image.ExpiresAt().Before(deadline) {
 			deadline = image.ExpiresAt()
 		}
-		for _, wire := range [][]byte{current.QualificationWire, current.QualificationDelegationWire} {
+		for _, wire := range [][]byte{current.DelegationWire, current.QualificationWire, current.QualificationDelegationWire} {
 			if len(wire) == 0 {
 				continue
 			}
@@ -481,7 +481,7 @@ func (s *SignedFootprint) workerSource(ctx context.Context, cell string) (bootst
 	if err != nil {
 		return bootstrap.VerifiedRegionalSource{}, err
 	}
-	template, err := bootstrap.VerifyRegionalStartupTemplate(wire, s.roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
+	template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, s.factory, wire, s.roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
 	if err != nil {
 		return bootstrap.VerifiedRegionalSource{}, err
 	}
