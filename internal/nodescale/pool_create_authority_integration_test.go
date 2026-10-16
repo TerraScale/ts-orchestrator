@@ -90,7 +90,7 @@ func TestPoolOriginalCreateRecoveryCrossesSDKAndJournal(t *testing.T) {
 	defer server.Close()
 	newPool := func(journal *oci.KVJournal) *OCIPool {
 		policy := common.NoRetryPolicy()
-		base := common.BaseClient{Host: server.URL, BasePath: "20160918", HTTPClient: server.Client(), Signer: capacitySigner{},
+		base := common.BaseClient{Host: server.URL, BasePath: "20160918", UserAgent: "pool-wire-integration", HTTPClient: server.Client(), Signer: capacitySigner{},
 			Configuration: common.CustomClientConfiguration{RetryPolicy: &policy}}
 		ociclient.ConfigureRequestCancellation(&base)
 		pool, err := newOCIPool(core.ComputeManagementClient{BaseClient: base}, core.ComputeClient{BaseClient: base}, core.VirtualNetworkClient{BaseClient: base}, "gru", testCompartment, recipe.Capacity)
@@ -187,7 +187,7 @@ func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
 			}))
 			defer server.Close()
 			policy := common.NoRetryPolicy()
-			base := common.BaseClient{Host: server.URL, BasePath: "20160918", HTTPClient: server.Client(), Signer: capacitySigner{},
+			base := common.BaseClient{Host: server.URL, BasePath: "20160918", UserAgent: "pool-wire-integration", HTTPClient: server.Client(), Signer: capacitySigner{},
 				Configuration: common.CustomClientConfiguration{RetryPolicy: &policy}}
 			ociclient.ConfigureRequestCancellation(&base)
 			client := core.ComputeManagementClient{BaseClient: base}
