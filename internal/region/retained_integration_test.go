@@ -152,6 +152,8 @@ func TestRetainedFoundationHTTPRejectsInvalidAndRollback(t *testing.T) {
 				snapshot.GrantWire = nil
 			case "retired chain":
 				f.rotate()
+				f.grant.Generation = 2
+				f.grant.Regions[0].Generation = 2
 				f.publish()
 				f.export(t)
 			case "lower generation":
