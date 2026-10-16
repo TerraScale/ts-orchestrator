@@ -19682,8 +19682,6 @@
       "clock": "2026-10-01T18:18:27.504946+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "manual monthly budget must be positive USD and no more than $200",
-      "error_type": "ValueError",
       "files": {
         "/tmp/tmp2oogbtsp/plan.json": {
           "$fixture": "fixture-0076"
@@ -19697,7 +19695,90 @@
       "kwargs": {},
       "plan": "/tmp/tmp2oogbtsp/plan.json",
       "test": "PreviewAdmissionTests.test_monthly_ceiling_accepts_200_and_rejects_more",
-      "writes": {}
+      "writes": {},
+      "result": {
+        "_source_path": {
+          "$path": "/tmp/tmpyew8p_b9/plan.json"
+        },
+        "availability_domain": "YDvv:SA-SAOPAULO-1-AD-1",
+        "bucket_retention_days": 35,
+        "budget": {
+          "baseline_object_requests_usd": 0.27,
+          "baseline_object_storage_gb": 57.93,
+          "currency": "USD",
+          "egress_gb_max": 100,
+          "misc_reserve_usd": 5,
+          "month_hours": 720,
+          "monthly_limit": "200.01",
+          "object_requests_max": 1000000,
+          "object_storage_gb_max": 10,
+          "rates": {
+            "$fixture": "fixture-0051"
+          },
+          "replacement_hosts_max": 1,
+          "replacement_overlap_hours_max": 72,
+          "snapshot_gb_max": 350,
+          "staging_object_storage_gb_max": 10
+        },
+        "cell": "GRU",
+        "controller_replicas": 3,
+        "database_members": 2,
+        "existing_operations_host": {
+          "$fixture": "fixture-0012"
+        },
+        "foundation_buckets": {
+          "$fixture": "fixture-0019"
+        },
+        "host_credential_secret": {
+          "compartment_id": null,
+          "secret_id": null
+        },
+        "hosts": {
+          "$fixture": "fixture-0050"
+        },
+        "identity": {
+          "$fixture": "fixture-0044"
+        },
+        "netbird": {
+          "$fixture": "fixture-0017"
+        },
+        "network_cidr": "10.251.0.0/24",
+        "network_security": {
+          "$fixture": "fixture-0043"
+        },
+        "operator_gateway": {
+          "$fixture": "fixture-0013"
+        },
+        "orchestrator_owner": "ts-preview-gru-20260926",
+        "parent_compartment_id": {
+          "$fixture": "fixture-0004"
+        },
+        "preview_compartment_names": {
+          "$fixture": "fixture-0018"
+        },
+        "public_api": {
+          "client_port": 9465,
+          "listener_port": 443,
+          "subnet_cidr": "10.251.0.128/26"
+        },
+        "purpose": {
+          "$fixture": "fixture-0002"
+        },
+        "region": "sa-saopaulo-1",
+        "resource_ids": {
+          "$fixture": "fixture-0054"
+        },
+        "schema_version": 2,
+        "seed_a_create_identity": null,
+        "shared_compartment_id": {
+          "$fixture": "fixture-0005"
+        },
+        "subnet_cidr": "10.251.0.0/25",
+        "tenancy_id": {
+          "$fixture": "fixture-0003"
+        },
+        "volume_vpus_per_gb": 10
+      }
     },
     {
       "args": [
