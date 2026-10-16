@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"runtime"
 	"strings"
@@ -62,9 +63,9 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 	}
 	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1}
 	template.FounderResources = &bootstrap.StartupFounderResources{LaunchDeadline: now.Add(15 * time.Minute)}
-	for _, slot := range config.Slots {
+	for index, slot := range config.Slots {
 		template.FounderResources.Slots = append(template.FounderResources.Slots, bootstrap.StartupSlotResources{Slot: slot.Name, ImageCompartmentOCID: ids["control_compartment"].(string), WholeOCPUs: 1, MemoryInGB: 8, BootVolumeGB: 50, BootVolumeTier: bootstrap.FounderBootVolumeTierBalanced})
-		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: ids["control_compartment"].(string), AvailabilityDomain: "test:" + strings.ToUpper(config.Region) + "-AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: ids["subnet"].(string), NetworkSecurityGroupOCIDs: []string{ids["network_security_group"].(string)}, Shape: "VM.Standard.E5.Flex"})
+		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: ids["control_compartment"].(string), AvailabilityDomain: "test:" + strings.ToUpper(config.Region) + "-AD-1", FaultDomain: fmt.Sprintf("FAULT-DOMAIN-%d", index+1), SubnetOCID: ids["subnet"].(string), NetworkSecurityGroupOCIDs: []string{ids["network_security_group"].(string)}, Shape: "VM.Standard.E5.Flex"})
 	}
 	for index, name := range bootstrap.ControllerConfigFileNames {
 		body := []byte(`{}`)
@@ -76,7 +77,7 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 			if err != nil {
 				t.Fatal(err)
 			}
-			body, err = json.Marshal(oci.RegionConfig{Region: oci.Region(strings.ToUpper(config.Cell)), Generation: intent.Generation, Endpoint: "https://iaas." + config.Region + ".oraclecloud.com", CompartmentID: ids["control_compartment"].(string), ImageCompartmentID: ids["control_compartment"].(string), AvailabilityDomain: template.Profiles[0].AvailabilityDomain, FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: ids["subnet"].(string), NetworkSecurityGroupIDs: []string{ids["network_security_group"].(string)}, ImageID: receipt.OCIImageOCID, Shape: template.Profiles[0].Shape, BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Owner: "ts-orchestrator"})
+			body, err = json.Marshal(oci.RegionConfig{Region: oci.Region(strings.ToUpper(config.Cell)), Generation: intent.Generation, Endpoint: "https://iaas." + config.Region + ".oraclecloud.com", CompartmentID: ids["control_compartment"].(string), ImageCompartmentID: ids["control_compartment"].(string), AvailabilityDomain: template.Profiles[0].AvailabilityDomain, FaultDomains: []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3"}, SubnetID: ids["subnet"].(string), NetworkSecurityGroupIDs: []string{ids["network_security_group"].(string)}, ImageID: receipt.OCIImageOCID, Shape: template.Profiles[0].Shape, BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Owner: "ts-orchestrator"})
 			if err != nil {
 				t.Fatal(err)
 			}
