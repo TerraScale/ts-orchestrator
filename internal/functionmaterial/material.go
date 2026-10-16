@@ -65,6 +65,11 @@ func NewPublicTrust(generation bootstrap.VerifiedMaterialGeneration, operatorJWT
 		operator.Subject != gen.Operator || operator.Issuer != gen.Operator || !operator.DidSign(operator) {
 		return PublicTrust{}, ErrMaterial
 	}
+	validation := jwt.CreateValidationResults()
+	operator.Validate(validation)
+	if validation.IsBlocking(true) {
+		return PublicTrust{}, ErrMaterial
+	}
 	endpoint, err := url.Parse(brokerURL)
 	if err != nil || endpoint.Scheme != "tls" || endpoint.Hostname() == "" || endpoint.User != nil || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return PublicTrust{}, ErrMaterial
@@ -166,7 +171,7 @@ func (reader Reader) currentAccount(ctx context.Context, proof release.VerifiedF
 		return brokerauth.Claim{}, err
 	}
 	decoded, err := brokerauth.DecodeAccountJWT(account.JWT, generation.CellAccount)
-	if err != nil || account.Sequence == 0 || account.Account != generation.CellAccount || !reader.Trust.operator.DidSign(decoded) {
+	if err != nil || account.Sequence == 0 || account.Account != generation.CellAccount || account.Cell != strings.ToLower(string(generation.Cell)) || !reader.Trust.operator.DidSign(decoded) {
 		return brokerauth.Claim{}, ErrMaterial
 	}
 	scope, registered := decoded.SigningKeys.GetScope(generation.AccountSigner)
