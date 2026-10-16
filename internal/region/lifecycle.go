@@ -55,6 +55,16 @@ func FoundationIntentDigest(intent FoundationIntent) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Independent verifiers read the signed JSON as objects, so normalize struct
+	// field order to the same recursively sorted representation before hashing.
+	var object map[string]any
+	if err := json.Unmarshal(wire, &object); err != nil {
+		return "", err
+	}
+	wire, err = json.Marshal(object, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
 	sum := sha256.Sum256(wire)
 	return hex.EncodeToString(sum[:]), nil
 }
