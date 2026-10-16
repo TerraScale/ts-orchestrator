@@ -34,6 +34,7 @@ type functionWorkerRelease struct {
 type functionControllerConfig struct {
 	Authority         *authority.Runtime
 	Material          functionmaterial.Controller
+	Retirement        functionmaterial.RetirementClient
 	Client            api.ControlClient
 	Worker            func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error)
 	Evidence          func(context.Context, string) (io.ReadCloser, error)
@@ -65,7 +66,7 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || config.Client == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil ||
+	if config.Authority == nil || config.Client == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
 		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
 		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
@@ -88,6 +89,9 @@ func (controller functionController) runSource(ctx context.Context) error {
 		if state.CanMutate() {
 			if err := controller.ingest(ctx, state.Epoch); err != nil && ctx.Err() == nil {
 				slog.WarnContext(ctx, "function publication source unavailable", "error", err)
+			}
+			if err := controller.retireMaterial(ctx); err != nil && ctx.Err() == nil {
+				slog.WarnContext(ctx, "function material retirement pending", "error", err)
 			}
 		}
 		select {
