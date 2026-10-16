@@ -192,7 +192,8 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	config.Specs.mu.Lock()
 	currentRevision := config.Specs.revision
 	config.Specs.mu.Unlock()
-	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead || config.Authority.Current().Epoch != epoch {
+	currentAuthority := config.Authority.Current()
+	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead || currentAuthority.Epoch != epoch || !currentAuthority.CanMutate() {
 		return fail()
 	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
@@ -228,7 +229,8 @@ func (controller *containerMaterialController) currentMaterialTask(ctx context.C
 	revision := config.Specs.revision
 	config.Specs.mu.Unlock()
 	now := time.Now().UTC()
-	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead || config.Authority.Current().Epoch != selected.epoch ||
+	currentAuthority := config.Authority.Current()
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead || currentAuthority.Epoch != selected.epoch || !currentAuthority.CanMutate() ||
 		!selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
 		return containermaterial.ErrPending
 	}
@@ -287,6 +289,9 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 	}
 	if err := controller.currentMaterialTask(ctx, confirmed, registration, binding); err != nil {
 		return result, err
+	}
+	if !time.Now().Before(result.ExpiresAt) {
+		return result, containermaterial.ErrPending
 	}
 	return result, nil
 }
