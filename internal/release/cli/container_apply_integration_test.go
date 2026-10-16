@@ -41,7 +41,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	client := clientInterface.(objectstorage.ObjectStorageClient)
 	client.Host = server.URL
 	client.HTTPClient = applyHTTPDispatcher{server}
-	env := deployEnv{timeout: 500 * time.Millisecond, storage: func(string) (releasechannel.ObjectClient, error) { return client, nil }}
+	env := deployEnv{timeout: 2 * time.Second, storage: func(string) (releasechannel.ObjectClient, error) { return client, nil }}
 	leaf, err := readDelegatedPrivateKey(base.leafPath)
 	if err != nil {
 		t.Fatal(err)
@@ -51,10 +51,12 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	encoded, _ := trust.EncodeDelegatedPublicKey(public)
 	now := time.Now().UTC()
 	role := "ts-auth"
-	caps := make([]trust.Capability, 0, 3)
+	caps := make([]trust.Capability, 0, 6)
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
-		scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: "amd64"})
-		caps = append(caps, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}})
+		for _, architecture := range []string{"amd64", "arm64"} {
+			scope := release.ContainerScope(release.ContainerTarget{Cell: cell, Environment: "production", Role: role, Architecture: architecture})
+			caps = append(caps, trust.Capability{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}})
+		}
 	}
 	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: caps}, now.Add(-time.Minute), now.Add(time.Hour), base.rootPrivate)
 	if err != nil {
@@ -65,16 +67,19 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	delegationPath, migrationPath := filepath.Join(inputs, "delegation.json"), filepath.Join(inputs, "migration.json")
 	writeFixtureFile(t, delegationPath, grantWire, 0o600)
 	writeFixtureFile(t, migrationPath, serviceMigrationFixture(t, base, role, public, now), 0o600)
-	layout, pin, child := containerCLIImageLayout(t)
+	layout, pin, children := containerCLIImageLayout(t)
+	child := children["amd64"]
 	evidenceDirectory := t.TempDir()
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		_, rootDigest, _ := strings.Cut(pin, "@sha256:")
-		expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: "amd64", Role: role}
-		proof := writeProductionEvidence(t, evidenceDirectory, expected)
-		writeProductionRecord(t, filepath.Join(evidenceDirectory, cell, "amd64", "production.json"), proof, base.rootPrivate, now.Add(-time.Minute), now.Add(time.Hour))
+		for architecture, child := range children {
+			expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
+			proof := writeProductionEvidence(t, evidenceDirectory, expected)
+			writeProductionRecord(t, filepath.Join(evidenceDirectory, cell, architecture, "production.json"), proof, base.rootPrivate, now.Add(-time.Minute), now.Add(time.Hour))
+		}
 	}
 	outputDirectory := t.TempDir()
-	producerArgs := []string{"--dir", outputDirectory, "--oci-layout", layout, "--image", pin, "--role", role, "--repository", "https://source.example.invalid/ts-auth", "--commit", base.binary.SourceRevision, "--source-checkout", base.sourceDir, "--environment", "production", "--root-key", base.rootPath, "--delegation", delegationPath, "--sequence-migration", migrationPath, "--production-evidence-dir", evidenceDirectory, "--signing-key", base.leafPath, "--arch", "amd64", "--cell", "GRU", "--cell", "SFO", "--cell", "FRA"}
+	producerArgs := []string{"--dir", outputDirectory, "--oci-layout", layout, "--image", pin, "--role", role, "--repository", "https://source.example.invalid/ts-auth", "--commit", base.binary.SourceRevision, "--source-checkout", base.sourceDir, "--environment", "production", "--root-key", base.rootPath, "--delegation", delegationPath, "--sequence-migration", migrationPath, "--production-evidence-dir", evidenceDirectory, "--signing-key", base.leafPath, "--cell", "GRU", "--cell", "SFO", "--cell", "FRA"}
 	c := command{ctx: t.Context(), output: io.Discard}
 	if err := c.containerBundleWith(producerArgs, env); err != nil {
 		t.Fatal(err)
@@ -87,11 +92,13 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 		t.Fatalf("regional failure: %v", err)
 	}
 	f.mu.Lock()
-	if f.channelWrites["GRU"] != 1 || f.channelWrites["FRA"] != 1 || f.channelWrites["SFO"] != 0 {
+	if f.channelWrites["GRU"] != 2 || f.channelWrites["FRA"] != 2 || f.channelWrites["SFO"] != 0 {
 		t.Fatal("regional independence", f.channelWrites)
 	}
 	f.failure = ""
 	f.mu.Unlock()
+	// Both qualified channels publish, but only one regional service completes.
+	// The unrelated status telemetry reports arm64 and cannot select admission.
 	if err := c.containerApplyWith(applyArgs, env); err != nil {
 		t.Fatal("retry", err)
 	}
@@ -106,9 +113,11 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		_, rootDigest, _ := strings.Cut(pin, "@sha256:")
-		expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: "amd64", Role: role}
-		proof := writeProductionEvidence(t, evidenceDirectory, expected)
-		writeProductionRecord(t, filepath.Join(evidenceDirectory, cell, "amd64", "production.json"), proof, base.rootPrivate, now.Add(-30*time.Second), now.Add(time.Hour))
+		for architecture, child := range children {
+			expected := release.ProductionExpectation{SourceRevision: base.binary.SourceRevision, ArtifactSHA256: child, QualificationSHA256: rootDigest, Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
+			proof := writeProductionEvidence(t, evidenceDirectory, expected)
+			writeProductionRecord(t, filepath.Join(evidenceDirectory, cell, architecture, "production.json"), proof, base.rootPrivate, now.Add(-30*time.Second), now.Add(time.Hour))
+		}
 	}
 	renewedDirectory := t.TempDir()
 	producerArgs[1] = renewedDirectory
@@ -228,7 +237,7 @@ func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Req
 	}
 	data, exists := f.objects[cell][name]
 	if name == releasechannel.StatusObject {
-		data, _ = json.Marshal(releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell, Environment: "production", Architectures: []string{"amd64"}, UpdatedAt: time.Now().UTC()})
+		data, _ = json.Marshal(releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: cell, Environment: "production", Architectures: []string{"arm64"}, UpdatedAt: time.Now().UTC()})
 		exists = true
 	}
 	if name == releasechannel.ContainerStatusObject("ts-auth", "amd64") {
@@ -266,7 +275,7 @@ func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Req
 	_, _ = w.Write(data)
 }
 
-func containerCLIImageLayout(t *testing.T) (string, string, string) {
+func containerCLIImageLayout(t *testing.T) (string, string, map[string]string) {
 	t.Helper()
 	directory := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(directory, "blobs", "sha256"), 0o700); err != nil {
@@ -299,14 +308,19 @@ func containerCLIImageLayout(t *testing.T) (string, string, string) {
 		t.Fatal(err)
 	}
 	layerDescriptor := blob(layer.Bytes(), ocispec.MediaTypeImageLayer)
-	platform := ocispec.Platform{OS: "linux", Architecture: "amd64"}
-	config := ocispec.Image{Platform: platform, RootFS: ocispec.RootFS{Type: "layers", DiffIDs: []digest.Digest{layerDescriptor.Digest}}}
-	manifest := ocispec.Manifest{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageManifest, Config: blob(encode(config), ocispec.MediaTypeImageConfig), Layers: []ocispec.Descriptor{layerDescriptor}}
-	child := blob(encode(manifest), ocispec.MediaTypeImageManifest)
-	child.Platform = &platform
-	index := ocispec.Index{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageIndex, Manifests: []ocispec.Descriptor{child}}
+	children := make(map[string]string)
+	index := ocispec.Index{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageIndex}
+	for _, architecture := range []string{"amd64", "arm64"} {
+		platform := ocispec.Platform{OS: "linux", Architecture: architecture}
+		config := ocispec.Image{Platform: platform, RootFS: ocispec.RootFS{Type: "layers", DiffIDs: []digest.Digest{layerDescriptor.Digest}}}
+		manifest := ocispec.Manifest{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageManifest, Config: blob(encode(config), ocispec.MediaTypeImageConfig), Layers: []ocispec.Descriptor{layerDescriptor}}
+		child := blob(encode(manifest), ocispec.MediaTypeImageManifest)
+		child.Platform = &platform
+		index.Manifests = append(index.Manifests, child)
+		children[architecture] = child.Digest.Encoded()
+	}
 	root := ocispec.Descriptor{Digest: digest.FromBytes(encode(index))}
 	writeFixtureFile(t, filepath.Join(directory, "index.json"), encode(index), 0o600)
 	writeFixtureFile(t, filepath.Join(directory, "oci-layout"), []byte(`{"imageLayoutVersion":"1.0.0"}`), 0o600)
-	return directory, "registry.example/terrascale/auth@" + root.Digest.String(), child.Digest.Encoded()
+	return directory, "registry.example/terrascale/auth@" + root.Digest.String(), children
 }

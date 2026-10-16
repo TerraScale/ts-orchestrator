@@ -56,7 +56,8 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 		verified release.VerifiedContainer
 		scope    release.ContainerTarget
 	}
-	var targets []target
+	targets := make(map[string][]target)
+	var cells []string
 	var source, repository, tree, role, environment string
 	var sequence uint64
 	budget := rollout.ObservationBudget
@@ -116,50 +117,52 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 			if inspected.Image != claim.Image {
 				return errors.New("retained OCI layout root differs from signed child image")
 			}
-			targets = append(targets, target{bundle: bundle, verified: verified, scope: scope})
+			if len(targets[scope.Cell]) == 0 {
+				cells = append(cells, scope.Cell)
+			}
+			targets[scope.Cell] = append(targets[scope.Cell], target{bundle: bundle, verified: verified, scope: scope})
 		}
 	}
 	if len(targets) == 0 {
 		return errors.New("container bundle contains no regions or architectures")
 	}
 	progress := &deploymentWriter{Writer: c.output}
-	failures := make([]error, len(targets))
+	failures := make([]error, len(cells))
 	var group errgroup.Group
 	group.SetLimit(4)
-	for index, target := range targets {
+	for index, cell := range cells {
 		group.Go(func() error {
 			ctx, cancel := context.WithTimeout(c.ctx, budget)
 			defer cancel()
 			regional := c
 			regional.ctx = ctx
 			apply := func() error {
-				claim := target.verified.Claim()
 				deadline := time.Now().UTC().Add(budget)
-				location, err := channelLocation(env, target.scope.Cell, *namespace)
+				location, err := channelLocation(env, cell, *namespace)
 				if err != nil {
 					return err
 				}
-				admitted, err := deploymentScope(ctx, location, target.scope.Cell)
-				if err != nil {
-					return err
+				alternatives := make([]release.VerifiedContainer, 0, len(targets[cell]))
+				// Qualified architectures are alternatives for one regional service.
+				// Trusted runtime placement selects one; status cannot admit a platform.
+				for _, target := range targets[cell] {
+					claim := target.verified.Claim()
+					if err := regional.uploadContainerEvidence(*directory, location, target.verified, roots, deadline); err != nil {
+						return err
+					}
+					if err := releasechannel.PublishContainer(ctx, location, target.bundle, roots, target.scope, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+						return releasechannel.ReadContainerEvidence(ctx, location, claim.Role, digest)
+					}); err != nil {
+						return err
+					}
+					fmt.Fprintf(progress, "%s %s %s published signed OCI %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
+					alternatives = append(alternatives, target.verified)
 				}
-				if admitted.Environment != claim.Environment || !slices.Contains(admitted.Architectures, claim.Architecture) {
-					return errors.New("container differs from admitted regional scope")
-				}
-				if err := regional.uploadContainerEvidence(*directory, location, target.verified, roots, deadline); err != nil {
-					return err
-				}
-				if err := releasechannel.PublishContainer(ctx, location, target.bundle, roots, target.scope, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
-					return releasechannel.ReadContainerEvidence(ctx, location, claim.Role, digest)
-				}); err != nil {
-					return err
-				}
-				fmt.Fprintf(progress, "%s %s %s published signed OCI %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
-				return awaitContainer(ctx, location, target.verified, deadline, progress)
+				return awaitContainer(ctx, location, alternatives, deadline, progress)
 			}
 			if err := apply(); err != nil {
-				failures[index] = fmt.Errorf("%s %s %s: %w", target.scope.Cell, target.scope.Role, target.scope.Architecture, err)
-				fmt.Fprintf(progress, "%s %s %s failed: %v\n", target.scope.Cell, target.scope.Role, target.scope.Architecture, err)
+				failures[index] = fmt.Errorf("%s %s: %w", cell, role, err)
+				fmt.Fprintf(progress, "%s %s failed: %v\n", cell, role, err)
 			}
 			return nil
 		})
@@ -213,14 +216,18 @@ func (c command) uploadContainerEvidence(directory string, location releasechann
 	return nil
 }
 
-func awaitContainer(ctx context.Context, location releasechannel.Location, verified release.VerifiedContainer, deadline time.Time, output io.Writer) error {
-	claim := verified.Claim()
+func awaitContainer(ctx context.Context, location releasechannel.Location, alternatives []release.VerifiedContainer, deadline time.Time, output io.Writer) error {
 	for {
-		status, found, err := releasechannel.ReadContainerStatus(ctx, location, claim.Role, claim.Architecture)
-		if err != nil {
-			return err
-		}
-		if found && status.Schema == releasechannel.ContainerStatusSchema && status.Cell == claim.Cell && status.Environment == claim.Environment && status.Role == claim.Role && status.Architecture == claim.Architecture && status.Image == claim.Image && status.ReleaseSequence == claim.ReleaseSequence && status.Fingerprint == verified.Fingerprint() {
+		var failures []error
+		for _, verified := range alternatives {
+			claim := verified.Claim()
+			status, found, err := releasechannel.ReadContainerStatus(ctx, location, claim.Role, claim.Architecture)
+			if err != nil {
+				return err
+			}
+			if !found || status.Schema != releasechannel.ContainerStatusSchema || status.Cell != claim.Cell || status.Environment != claim.Environment || status.Role != claim.Role || status.Architecture != claim.Architecture || status.Image != claim.Image || status.ReleaseSequence != claim.ReleaseSequence || status.Fingerprint != verified.Fingerprint() {
+				continue
+			}
 			switch status.State {
 			case releasechannel.StateComplete:
 				if !verified.Valid(time.Now().UTC()) {
@@ -229,8 +236,11 @@ func awaitContainer(ctx context.Context, location releasechannel.Location, verif
 				fmt.Fprintf(output, "%s %s %s complete: %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
 				return nil
 			case releasechannel.StateFailed:
-				return fmt.Errorf("%w: %s", releasechannel.ErrFailed, status.Reason)
+				failures = append(failures, fmt.Errorf("%s: %w: %s", claim.Architecture, releasechannel.ErrFailed, status.Reason))
 			}
+		}
+		if len(failures) == len(alternatives) {
+			return errors.Join(failures...)
 		}
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf("%w: container did not become ready before deadline", releasechannel.ErrFailed)
