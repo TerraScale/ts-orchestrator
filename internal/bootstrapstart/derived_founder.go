@@ -102,7 +102,7 @@ func (reader *CurrentFounderAuthorityReader) readDerivedCompletedPeer(ctx contex
 	}
 	return currentFounderPeerSelection{SelectionGeneration: selected.SelectionGeneration, SelectionSHA256: selected.SelectionSHA256,
 		SelectionExpiresAt: selected.SelectionExpiresAt, Plan: continuation, Anchor: selected.Anchor,
-		AnchorWire: selected.AnchorWire, ManifestWires: selected.ManifestWires}, nil
+		AnchorWire: selected.AnchorWire, ManifestWires: selected.ManifestWires, derived: selected.Derived}, nil
 }
 
 // ProvisionInitialDerivedFounderFloor binds first seed admission to the same

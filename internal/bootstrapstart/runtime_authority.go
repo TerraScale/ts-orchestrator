@@ -23,9 +23,13 @@ type RuntimeIdentity struct {
 
 // RuntimeAuthority is a read-only view of the existing founder authority.
 type RuntimeAuthority struct {
-	identity RuntimeIdentity
-	anchor   bootstrap.VerifiedBootstrapAnchor
-	expires  time.Time
+	identity                    RuntimeIdentity
+	anchor                      bootstrap.VerifiedBootstrapAnchor
+	expires                     time.Time
+	plan                        bootstrap.FounderPlan
+	planDigest, selectionDigest string
+	manifests                   map[string][]byte
+	derived                     *bootstrap.DerivedFounderPlan
 }
 
 func (a RuntimeAuthority) Identity() RuntimeIdentity                 { return a.identity }
@@ -52,24 +56,31 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 	var anchor bootstrap.VerifiedBootstrapAnchor
 	var expires time.Time
 	var manifests map[string][]byte
+	var planDigest, selectionDigest string
+	var derived *bootstrap.DerivedFounderPlan
 	if marker.Slot == marker.SeedSlot {
 		selected, err := reader.ReadCurrent(ctx, now)
 		if err != nil {
 			return RuntimeAuthority{}, err
 		}
 		plan, anchor, expires, manifests = selected.Plan.Plan(), selected.Anchor, selected.SelectionExpiresAt, selected.ManifestWires
+		planDigest, selectionDigest, derived = selected.Plan.Digest(), selected.SelectionSHA256, selected.Derived
 	} else {
 		selected, err := reader.readCurrentCompletedPeer(ctx, now, true)
 		if err != nil {
 			return RuntimeAuthority{}, err
 		}
-		// The completed-peer reader verified these exact signed bytes. Decoding
-		// exposes identity only, never a launch-capable VerifiedFounderPlan.
-		envelope, err := trust.DecodeEnvelope(selected.PlanWire)
-		if err != nil || protocol.DecodeStrict(envelope.Payload, &plan, bootstrap.MaxFounderPlanBytes) != nil {
-			return RuntimeAuthority{}, ErrFounderSelection
+		if selected.derived != nil {
+			plan = selected.derived.Plan()
+		} else {
+			// Legacy continuation retains the exact verified root-signed wire.
+			envelope, err := trust.DecodeEnvelope(selected.PlanWire)
+			if err != nil || protocol.DecodeStrict(envelope.Payload, &plan, bootstrap.MaxFounderPlanBytes) != nil {
+				return RuntimeAuthority{}, ErrFounderSelection
+			}
 		}
 		anchor, expires, manifests = selected.Anchor, selected.SelectionExpiresAt, selected.ManifestWires
+		planDigest, selectionDigest, derived = selected.Plan.Digest(), selected.SelectionSHA256, selected.derived
 	}
 	if !anchor.IsVerified() || anchor.Digest() != marker.AnchorSHA256 ||
 		anchor.Anchor().ClusterID != accepted.ClusterID || anchor.Anchor().Environment != accepted.Environment ||
@@ -95,7 +106,8 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 		OCIRegion: anchor.Anchor().OCIRegion,
 		Slot:      accepted.Slot, SeedSlot: accepted.SeedSlot, InstanceID: accepted.InstanceOCID,
 		PrivateIP: privateIP, SeedPrivateIP: plan.SeedPrivateIP,
-	}, anchor: anchor, expires: expires}, nil
+	}, anchor: anchor, expires: expires, plan: plan, planDigest: planDigest,
+		selectionDigest: selectionDigest, manifests: manifests, derived: derived}, nil
 }
 
 // RuntimeInstanceObserver shares the admission transport and accepted root scope.
