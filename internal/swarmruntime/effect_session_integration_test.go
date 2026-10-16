@@ -79,7 +79,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	scope := authority.WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
 	registration := host.Registration{ID: hostID, Cell: "gru", Node: "worker", PublicKey: base64.StdEncoding.EncodeToString(key), NATSUserPublicKey: public, Generation: 1,
 		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID},
-		ManagedOCI:       &host.ManagedOCIBinding{Region: "sa-saopaulo-1", InstanceID: workerCfg.Admission.InstanceID}}
+		ManagedOCI:       &host.ManagedOCIBinding{Region: "GRU", InstanceID: workerCfg.Admission.InstanceID}}
 	registrationBytes, err := json.Marshal(registration, json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 		t.Fatalf("actual manager admission: %v", err)
 	}
 	wrong := registration
-	wrong.ManagedOCI = &host.ManagedOCIBinding{Region: "sa-saopaulo-1", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.foreign"}
+	wrong.ManagedOCI = &host.ManagedOCIBinding{Region: "GRU", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.foreign"}
 	if _, err := sessions.admittedNode(ctx, wrong, worker.ID()); err == nil {
 		t.Fatal("manager admitted foreign worker instance")
 	}
@@ -159,7 +159,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if closing.Phase != authority.RuntimeEffectClosing || closing.Epoch != effect.Epoch || closing.StopChallenge == "" || held.release == nil {
+	if closing.Phase != authority.RuntimeEffectClosing || closing.Epoch != effect.Epoch || closing.LeaderEpoch != current.Current().Epoch || closing.StopChallenge == "" || held.release == nil {
 		t.Fatal("close after leader change released authority or lost original grant")
 	}
 	pending, err := current.ListUnresolvedRuntimeEffects(ctx, scope)

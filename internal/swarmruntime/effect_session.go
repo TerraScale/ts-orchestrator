@@ -295,10 +295,14 @@ func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Reg
 	if response == nil || response.Node == nil || registration.ManagedOCI == nil {
 		return nil, errors.New("manager worker unavailable")
 	}
+	region, err := oci.Region(registration.ManagedOCI.Region).OCIRegion()
+	if err != nil {
+		return nil, err
+	}
 	node := response.Node
 	labels := node.Spec.Annotations.Labels
 	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.Role != api.NodeRoleWorker ||
-		node.Spec.Annotations.Name != registration.ID || labels[LabelRegion] != registration.ManagedOCI.Region || labels[LabelHostRole] != "container" ||
+		node.Spec.Annotations.Name != registration.ID || labels[LabelRegion] != region || labels[LabelHostRole] != "container" ||
 		labels[LabelExecutionScope] != "platform" || labels[LabelInstanceID] != registration.ManagedOCI.InstanceID ||
 		node.Certificate.CN != nodeID || node.Certificate.Role != api.NodeRoleWorker || len(node.Certificate.Certificate) == 0 {
 		return nil, errors.New("manager worker differs from independently admitted host identity")
@@ -374,7 +378,9 @@ func (s *EffectSessions) readback(ctx context.Context, epoch uint64, expected au
 		if err := s.authority.Guard(ctx, epoch); err != nil {
 			return empty, err
 		}
-		return runtimePayload(effect, nonce, issued)
+		payload, err := runtimePayload(effect, nonce, issued)
+		payload.LeaderEpoch = epoch
+		return payload, err
 	}
 	return empty, errors.New("runtime effect durable readback unavailable")
 }

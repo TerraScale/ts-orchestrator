@@ -106,22 +106,26 @@ func (c *Controller) serveRuntimeEffect(ctx context.Context, req request, regist
 	if query.Task == nil || query.Task.NodeID != identity.NodeID {
 		return nil, errors.New("runtime effect task assignment unavailable")
 	}
-	caller := RuntimeEffectCaller{registration: registration, sessionID: req.SessionID, epoch: current.Epoch, expiresAt: current.ExpiresAt, nonce: req.Nonce}
+	epoch := c.authorityEpoch()
+	if err := c.guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	caller := RuntimeEffectCaller{registration: registration, sessionID: req.SessionID, epoch: epoch, expiresAt: current.ExpiresAt, nonce: req.Nonce}
 	payload, err := c.runtimeEffects.HandleRuntimeEffect(ctx, caller, query)
 	if err != nil {
 		return nil, err
 	}
 	if payload.Identity != identity || payload.TaskID != query.Task.ID || payload.ServiceID != query.Task.ServiceID ||
 		payload.EffectID != query.EffectID || payload.Nonce != query.Nonce ||
-		payload.Epoch == 0 || payload.Epoch > current.Epoch || payload.Revision == 0 ||
-		query.Action != "close" && (payload.Epoch != current.Epoch || payload.Deadline.After(current.ExpiresAt)) {
+		payload.LeaderEpoch != epoch || payload.Epoch == 0 || payload.Epoch > epoch || payload.Revision == 0 ||
+		query.Action != "close" && (payload.Epoch != epoch || payload.Deadline.After(current.ExpiresAt)) {
 		return nil, errors.New("runtime effect grant differs from authenticated request")
 	}
 	if query.Action != "close" && (payload.IssuedAt.IsZero() || payload.IssuedAt.After(time.Now().Add(2*time.Second)) ||
 		!payload.Deadline.After(time.Now()) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > 15*time.Second) {
 		return nil, errors.New("runtime effect grant has no current bounded lifetime")
 	}
-	if err := c.authorityGuard(ctx, current.Epoch); err != nil {
+	if err := c.guard(ctx, epoch); err != nil {
 		return nil, err
 	}
 	return payload, nil
