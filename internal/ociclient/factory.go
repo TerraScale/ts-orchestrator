@@ -238,6 +238,7 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 	// a circuit breaker the SDK installed from OCI_SDK_DEFAULT_CIRCUITBREAKER_ENABLED
 	// or its global setting.
 	client.Configuration.RetryPolicy = &policy
+	ConfigureReadCancellation(client)
 }
 
 // PinHost replaces a client's endpoint with an exact canonical endpoint. It is
