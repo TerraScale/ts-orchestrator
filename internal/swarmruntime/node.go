@@ -256,6 +256,16 @@ func (n *Node) ID() string { return n.upstream.NodeID() }
 // RemoteAddress returns the manager's actual bound remote API address.
 func (n *Node) RemoteAddress() (string, error) { return n.upstream.RemoteAPIAddr() }
 
+// Wait reports upstream termination without changing the node's lifetime.
+func (n *Node) Wait(ctx context.Context) error {
+	select {
+	case <-n.done:
+		return n.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // ControlClient exposes the manager's trusted local control connection. Its
 // lifecycle belongs to Node; worker admission never grants control access.
 func (n *Node) ControlClient(ctx context.Context) (api.ControlClient, error) {

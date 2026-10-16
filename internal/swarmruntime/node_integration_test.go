@@ -96,7 +96,15 @@ func TestNodeIntegration(t *testing.T) {
 		t.Fatalf("worker retained a manager private key: %v", err)
 	}
 
+	waitCtx, cancelWait := context.WithCancel(ctx)
+	cancelWait()
+	if err := worker.Wait(waitCtx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("live node supervisor cancellation: %v", err)
+	}
 	nodeFixtureStop(t, worker)
+	if err := worker.Wait(ctx); err != nil {
+		t.Fatalf("supervisor lost completed node shutdown: %v", err)
+	}
 	workerCfg.Admission.ManagerAddress, workerCfg.Admission.JoinToken = "", ""
 	worker = nodeFixtureStart(t, ctx, workerCfg)
 	if worker.ID() != workerID {

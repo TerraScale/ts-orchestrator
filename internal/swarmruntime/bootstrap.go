@@ -46,16 +46,18 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 		return nil, err
 	}
 	identity := authority.Identity()
-	foundation, err := foundations.Resolve(ctx, strings.ToLower(identity.Cell))
+	foundation, err := foundations.Resolve(ctx, strings.ToUpper(identity.Cell))
 	if err != nil {
 		return nil, err
 	}
 	if foundation.OCIRegion != authority.Anchor().Anchor().OCIRegion {
 		return nil, errors.New("SwarmKit foundation differs from signed regional authority")
 	}
-	target := vaultsecret.Target{CompartmentID: foundation.ResourceIDs["control_compartment"],
-		VaultID: foundation.ResourceIDs["vault"], KeyID: foundation.ResourceIDs["key"]}
-	if target.CompartmentID == "" || target.VaultID == "" || target.KeyID == "" || vault == nil || bundles == nil {
+	target, err := foundation.VaultTarget()
+	if err != nil {
+		return nil, err
+	}
+	if vault == nil || bundles == nil {
 		return nil, errors.New("SwarmKit bootstrap requires the reconciled regional Vault target and clients")
 	}
 	refresh := func(ctx context.Context) error {
@@ -66,12 +68,15 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 		if current.Identity() != identity {
 			return errors.New("SwarmKit runtime authority changed during startup")
 		}
-		fresh, err := foundations.Resolve(ctx, strings.ToLower(identity.Cell))
+		fresh, err := foundations.Resolve(ctx, strings.ToUpper(identity.Cell))
 		if err != nil {
 			return err
 		}
-		if fresh.OCIRegion != foundation.OCIRegion || fresh.ResourceIDs["control_compartment"] != target.CompartmentID ||
-			fresh.ResourceIDs["vault"] != target.VaultID || fresh.ResourceIDs["key"] != target.KeyID {
+		freshTarget, err := fresh.VaultTarget()
+		if err != nil {
+			return err
+		}
+		if fresh.OCIRegion != foundation.OCIRegion || freshTarget != target {
 			return errors.New("SwarmKit regional Vault foundation changed during startup")
 		}
 		return nil
