@@ -257,10 +257,11 @@ func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation
 		return VerifiedAutomaticInstall{}, errors.New("automatic installation founder differs from the local instance")
 	}
 	slot := founder.SeedSlot()
-	address, err := template.SlotPrivateIP(slot)
+	observed, err := founder.ObserveCurrent(ctx)
 	if err != nil {
 		return VerifiedAutomaticInstall{}, err
 	}
+	local.observed = observed
 	target, err := automaticVaultTarget(ctx, *local, material.Grant())
 	if err != nil {
 		return VerifiedAutomaticInstall{}, err
@@ -287,7 +288,7 @@ func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation
 		}
 		configs[controllerSlot] = bytes.Clone(manifest.ControllerConfig)
 		if controllerSlot == slot {
-			if _, err := ValidateSignedControllerConfig(manifest, address); err != nil {
+			if _, err := ValidateSignedControllerConfig(manifest, observed.PrimaryPrivateIP); err != nil {
 				return VerifiedAutomaticInstall{}, err
 			}
 			localManifest = manifest
