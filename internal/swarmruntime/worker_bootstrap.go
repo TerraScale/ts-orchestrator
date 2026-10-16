@@ -117,6 +117,7 @@ func startAcceptedWorkerAt(ctx context.Context, directory string, accepted hoste
 	if err == nil && block != nil {
 		cert, certErr := x509.ParseCertificate(block.Bytes)
 		if certErr == nil && rootErr == nil && string(rootWire) == signed.CAPEM && len(cert.Subject.Organization) == 1 && cert.Subject.Organization[0] == signed.SwarmID && signed.Validate(time.Now().UTC()) == nil {
+			n.workerDirectory = directory
 			return n, nil
 		}
 	}
@@ -174,16 +175,42 @@ func persistWorkerEnrollment(directory string, accepted hostenroll.VerifiedSwarm
 	return errors.Join(dir.Sync(), dir.Close())
 }
 
-// WorkerBinding signs the post-join mapping without exporting the Swarm key.
-func (n *Node) WorkerBinding(accepted hostenroll.VerifiedSwarmWorker, hostKey ed25519.PrivateKey) (hostenroll.SwarmNodeBinding, error) {
+// RefreshWorkerEnrollment advances the signed admission floor without restarting
+// the agent or its tasks. The upstream node certificate has its own lifetime.
+func (n *Node) RefreshWorkerEnrollment(accepted hostenroll.VerifiedSwarmWorker) error {
 	worker := accepted.Worker()
-	if n.role == "manager" || n.role != worker.Role {
-		return hostenroll.SwarmNodeBinding{}, errors.New("worker binding requires the admitted worker role")
+	if n == nil || n.workerDirectory == "" || n.role == "manager" || n.role != worker.Role || worker.Architecture != runtime.GOARCH || worker.Validate(time.Now().UTC()) != nil {
+		return errors.New("worker refresh requires current signed native worker admission")
 	}
+	lock := flock.New(filepath.Join(n.workerDirectory, "bootstrap.lock"))
+	locked, err := lock.TryLock()
+	if err != nil || !locked {
+		return errors.New("worker enrollment floor is already in use")
+	}
+	defer lock.Unlock()
 	admissionWire, err := os.ReadFile(filepath.Join(n.stateDir, "admission.json"))
 	var admission admittedIdentity
 	if err != nil || json.Unmarshal(admissionWire, &admission) != nil || admission.HostID != worker.RegistrationID || admission.InstanceID != worker.InstanceID || admission.Region != worker.Region || admission.FounderID != worker.FounderID {
-		return hostenroll.SwarmNodeBinding{}, errors.New("worker binding differs from persistent admission")
+		return errors.New("worker refresh differs from persistent admission")
+	}
+	certificateWire, certErr := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-node.crt"))
+	rootWire, rootErr := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-root-ca.crt"))
+	block, _ := pem.Decode(certificateWire)
+	if certErr != nil || rootErr != nil || block == nil || string(rootWire) != worker.CAPEM {
+		return errors.New("worker refresh differs from current certificate authority")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil || certificate.Subject.CommonName != n.ID() || len(certificate.Subject.Organization) != 1 || certificate.Subject.Organization[0] != worker.SwarmID ||
+		len(certificate.Subject.OrganizationalUnit) != 1 || certificate.Subject.OrganizationalUnit[0] != "swarm-worker" {
+		return errors.New("worker refresh differs from current upstream identity")
+	}
+	return persistWorkerEnrollment(n.workerDirectory, accepted)
+}
+
+// WorkerBinding signs the post-join mapping without exporting the Swarm key.
+func (n *Node) WorkerBinding(accepted hostenroll.VerifiedSwarmWorker, hostKey ed25519.PrivateKey) (hostenroll.SwarmNodeBinding, error) {
+	if err := n.RefreshWorkerEnrollment(accepted); err != nil {
+		return hostenroll.SwarmNodeBinding{}, err
 	}
 	wire, err := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-node.key"))
 	if err != nil {

@@ -230,6 +230,22 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 	if worker.ID() != workerID {
 		t.Fatal("worker restart changed its actual certificate", err)
 	}
+	advanced := signed
+	advanced.Generation, advanced.Revision = 2, 3
+	refreshed := verify(advanced)
+	if err := worker.RefreshWorkerEnrollment(refreshed); err != nil {
+		t.Fatal("live worker could not advance its enrollment without restart", err)
+	}
+	refreshedBinding, err := worker.WorkerBinding(refreshed, hostKey)
+	if err != nil || worker.ID() != workerID {
+		t.Fatal("enrollment refresh changed the live worker identity", err)
+	}
+	if err := hostenroll.VerifyWorkerBinding(refreshedBinding, refreshed, hostPublic, certificate, time.Now().UTC()); err != nil {
+		t.Fatal("refreshed enrollment did not bind to the same live certificate", err)
+	}
+	if _, err := worker.WorkerBinding(accepted, hostKey); err == nil {
+		t.Fatal("live worker signed a binding below its refreshed enrollment floor")
+	}
 	nodeFixtureStop(t, worker)
 	orphaned := t.TempDir()
 	if err := os.Rename(filepath.Join(directory, "node"), filepath.Join(orphaned, "node")); err != nil {
@@ -239,11 +255,6 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		t.Fatal("persisted certificate without an enrollment floor was accepted")
 	}
 	if err := os.Rename(filepath.Join(orphaned, "node"), filepath.Join(directory, "node")); err != nil {
-		t.Fatal(err)
-	}
-	advanced := signed
-	advanced.Generation, advanced.Revision = 2, 3
-	if err := persistWorkerEnrollment(directory, verify(advanced)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := startAcceptedWorkerAt(ctx, directory, accepted, bundles, nodeIdleExecutor{}); err == nil {

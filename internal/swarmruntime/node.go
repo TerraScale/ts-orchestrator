@@ -50,6 +50,7 @@ type Node struct {
 	role            string
 	stateDir        string
 	workerAuthority *workerAuthority
+	workerDirectory string
 }
 
 type admittedIdentity struct {
