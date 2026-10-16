@@ -72,8 +72,9 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 	labels[LabelFunctionTenant], labels[LabelFunctionID] = f.TenantID, f.FunctionID
 	labels[LabelFunctionRevision], labels[LabelFunctionDigest] = f.Revision, f.Digest
 	labels[LabelFunctionProof], labels[LabelFunctionSequence] = function.EnvelopeSHA256(), strconv.FormatUint(f.Sequence, 10)
+	labels[labelFunctionWorkerBundle] = worker.BundleSHA256()
 	// Renewed proof material requires a new task even when module bytes match.
-	fingerprint := sha256.Sum256([]byte(function.EnvelopeSHA256()))
+	fingerprint := sha256.Sum256([]byte(function.EnvelopeSHA256() + "/" + worker.BundleSHA256()))
 	spec.Task.ForceUpdate = binary.BigEndian.Uint64(fingerprint[:8])
 	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: spec.Task, ServiceAnnotations: spec.Annotations}); err != nil {
 		return nil, err
@@ -143,7 +144,7 @@ func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api
 // ApplyFunctionService admits the qualified OCI worker separately from its
 // tenant function and waits for authenticated application readiness. Material
 // delivery remains bound to the actual scheduled task by the executor provider.
-func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent FunctionServiceIntent, current CurrentFunctionIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error) (*api.Service, error) {
+func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent FunctionServiceIntent, current CurrentFunctionIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error, allocations release.SequenceLocation) (*api.Service, error) {
 	if current == nil || probe == nil {
 		return nil, errors.New("function service requires current intent authority and authenticated readiness")
 	}
@@ -162,7 +163,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 		return nil, errors.New("function service requires an admitted OCI region")
 	}
 	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: intent.Architecture}
-	worker, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, time.Now().UTC(), deadline, evidence)
+	worker, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, time.Now().UTC(), deadline, evidence, allocations)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +211,9 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 		return ctx.Err()
 	}
 	if err := checkIntent(); err != nil {
+		return nil, err
+	}
+	if err := intent.retainWorkerBundle(ctx, client, bundle, worker); err != nil {
 		return nil, err
 	}
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}

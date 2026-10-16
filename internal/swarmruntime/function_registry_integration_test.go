@@ -101,6 +101,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	}
 	migrationWire, _ := trust.EncodeEnvelope(signedMigration)
 	migrationSHA, _ := trust.Fingerprint(signedMigration)
+	allocations := serviceAllocationStore(t, migration.Namespace, migration.Bucket)
 	evidence := []byte("test-only qualified registry worker runtime evidence")
 	evidenceSHA := fmt.Sprintf("%x", sha256.Sum256(evidence))
 	readEvidence := func(context.Context, string) (io.ReadCloser, error) {
@@ -111,7 +112,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	bundle := func(sequence uint64) release.ContainerBundle {
 		t.Helper()
 		digest := strings.Repeat("a", 64)
-		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat("c", 40), ArtifactSHA256: digest, QualificationSHA256: digest, Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: FunctionWorkerRole}
+		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat(string(rune('c'+sequence-101)), 40), ArtifactSHA256: digest, QualificationSHA256: digest, Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: FunctionWorkerRole}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 		payload, _ := trust.EncodePayload(qualification)
 		signed, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), root)
@@ -120,20 +121,21 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		}
 		proofWire, _ := trust.EncodeEnvelope(signed)
 		workerClaim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "registry.example/function-worker@sha256:" + digest, SourceRepository: "https://example.invalid/function-worker", SourceRevision: candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("d", 64), Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH, ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: digest, Production: release.ProductionProof{Qualification: proofWire}}
+		sequenceWire := serviceSequenceEvidence(t, ctx, allocations, signedMigration, workerClaim, roots, signer)
 		payload, _ = trust.EncodePayload(workerClaim)
 		signed, err = trust.Sign(payload, release.ContainerScope(target), now, now.Add(time.Hour), signer)
 		if err != nil {
 			t.Fatal(err)
 		}
 		wire, _ := trust.EncodeEnvelope(signed)
-		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Delegation: workerDelegation}
+		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Delegation: workerDelegation, Sequence: sequenceWire}
 	}
-	service, err := ApplyFunctionService(ctx, client, intent, current, bundle(101), roots, legacy, readEvidence, func(context.Context, *api.Task) error { return nil })
+	service, err := ApplyFunctionService(ctx, client, intent, current, bundle(101), roots, legacy, readEvidence, func(context.Context, *api.Task) error { return nil }, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
 	deadline, _ := ctx.Deadline()
-	worker, err := release.VerifyContainerCurrent(ctx, bundle(101), roots, target, now, deadline, readEvidence)
+	worker, err := release.VerifyContainerCurrent(ctx, bundle(101), roots, target, now, deadline, readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,6 +144,48 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		t.Fatalf("assigned function registry task: %+v %v", tasks, err)
 	}
 	task := tasks.Tasks[0]
+	retained, err := intent.WorkerBundleForTask(ctx, client, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retainedWorker, err := release.VerifyContainerCurrent(ctx, retained, roots, target, now, deadline, readEvidence, allocations)
+	if err != nil || retainedWorker.BundleSHA256() != worker.BundleSHA256() {
+		t.Fatalf("task did not retain its exact independently qualified bundle: %v", err)
+	}
+	// Renewing only delegation keeps the signed claim but creates a distinct proof.
+	renewed := retained
+	workerScope := release.ContainerScope(target)
+	renewedGrant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: encodedPublic, Capabilities: []trust.Capability{{Domain: workerScope.Domain, DeploymentID: workerScope.DeploymentID, Cell: workerScope.Cell, Environment: workerScope.Environment, Role: workerScope.Role, Slots: []string{workerScope.Slot}, Actions: []string{"sign"}}}}, now.Add(-30*time.Second), now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed.Delegation, _ = trust.EncodeEnvelope(renewedGrant)
+	renewedWorker, err := release.VerifyContainerCurrent(ctx, renewed, roots, target, now, deadline, readEvidence, allocations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renewedWorker.Fingerprint() != worker.Fingerprint() || renewedWorker.BundleSHA256() == worker.BundleSHA256() {
+		t.Fatal("whole-bundle identity did not distinguish renewed delegation under the same claim")
+	}
+	if err := intent.retainWorkerBundle(ctx, client, renewed, renewedWorker); err != nil {
+		t.Fatal(err)
+	}
+	renewedSpec, err := intent.serviceSpec(current.proof, renewedWorker)
+	if err != nil || renewedSpec.Task.ForceUpdate == service.Spec.Task.ForceUpdate {
+		t.Fatalf("renewed worker proof did not change the task recipe: %v", err)
+	}
+	if err := intent.VerifyTask(task, service, current.proof, renewedWorker); err == nil {
+		t.Fatal("an old task accepted independently renewed worker proof bytes")
+	}
+	retainedAgain, err := intent.WorkerBundleForTask(ctx, client, task)
+	if err != nil || !bytes.Equal(retainedAgain.Delegation, retained.Delegation) {
+		t.Fatalf("renewed delegation overwrote the original task bundle: %v", err)
+	}
+	missing := task.Copy()
+	missing.ServiceAnnotations.Labels[labelFunctionWorkerBundle] = strings.Repeat("0", 64)
+	if _, err := intent.WorkerBundleForTask(ctx, client, missing); err == nil {
+		t.Fatal("missing task-pinned proof selected a different worker bundle")
+	}
 	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +199,12 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 		t.Fatal("revoked function intent authorized a worker pull")
 	}
 	current.revoked = false
-	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(102), roots, target, now, deadline, readEvidence)
+	newBundle := bundle(102)
+	newWorker, err := release.VerifyContainerCurrent(ctx, newBundle, roots, target, now, deadline, readEvidence, allocations)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := intent.retainWorkerBundle(ctx, client, newBundle, newWorker); err != nil {
 		t.Fatal(err)
 	}
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
@@ -178,6 +226,17 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	}
 	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err != nil {
 		t.Fatal("current function's qualified previous worker pull was denied: ", err)
+	}
+	previousBundle, err := intent.WorkerBundleForTask(ctx, client, task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousWorker, err := release.VerifyContainerCurrent(ctx, previousBundle, roots, target, now, deadline, readEvidence, allocations)
+	if err != nil || previousWorker.BundleSHA256() != worker.BundleSHA256() {
+		t.Fatalf("previous task did not select its own qualified retained bundle: %v", err)
+	}
+	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, previousWorker); err != nil {
+		t.Fatal("retained previous worker was not authorized through actual manager state: ", err)
 	}
 	if err := intent.VerifyWorkerFloor(ctx, client, worker); err == nil {
 		t.Fatal("previous worker pull authorization also authorized stale function material")
