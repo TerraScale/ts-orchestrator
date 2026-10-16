@@ -22,7 +22,7 @@ runtime, measured savings, production readiness, or deployment authorization.
 | Security and joining | Substantially simplify custom protocols; automatic discovery and worker admission using OCI identity and Vault-delivered bootstrap material. |
 | First regional milestone | A small, working GRU / San Francisco Bay Area / FRA deployment, communicating through orchestrator-managed NetBird. |
 | NetBird control plane | One dedicated A1 Flex VM in GRU, owned and recovered by `ts-orch`. |
-| Build and release provider | GitHub-hosted Actions, GitHub artifacts/releases, and GitHub source/run verification; no Forgejo server, runner, token, CLI, or package-fetch requirement. |
+| Build and deployment boundary | GitHub-hosted Actions is the current build producer. Deployment consumes signed, digest-addressed artifacts through the orchestrator and object storage; it requires no particular source repository or live CI API. No Forgejo server, runner, token, CLI, or package-fetch requirement. |
 
 Wasmtime is the proposed first function runtime, subject to the compatibility
 prototype below. The user selected customer Wasm, not a particular WASI version
@@ -60,6 +60,48 @@ safety requirements. Close these gaps before implementing the replacement:
    Workers cannot create a new regional cluster after an empty discovery result.
 5. **Make migrations explicit.** A newer ARM family, ARM-to-x86 move, database
    relocation, and Wasm recompilation have different compatibility requirements.
+
+## Simpler deployment contract (user decision)
+
+Source hosting and CI are build inputs, not runtime deployment dependencies.
+A release must remain deployable while its source repository or CI API is
+unavailable. Do not solve missing historical repository pins by requiring those
+repositories to be recreated or by coupling rollout to a replacement monorepo.
+
+1. **Publish signed artifacts.** A trusted publisher produces immutable bytes
+   addressed by digest and signed release metadata binding service, source,
+   runtime/architecture, size, environment, region, validity and ordering. Keep
+   existing root delegation, compatibility, database fencing and rollback rules.
+   Source/CI identity is provenance governed by trust policy, not a hostname the
+   deployment consumer must contact.
+2. **Apply through existing channels.** Reuse the regional release channels and
+   their signature/digest admission, CAS publication, durable ordering and health
+   gates. `ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS`
+   applies existing signed orchestrator channels and digest-named binaries. It
+   requires no `gh`, Git checkout or signing key. Service publishers already have
+   a generic signed-claim channel; unify the producer/apply boundary across roles.
+3. **Notify without granting authority.** An artifact-published webhook or object
+   event may wake reconciliation. It must not authorize a release or supply an
+   arbitrary download URL. Fetch only admitted object locations and verify signed
+   metadata and bytes. Duplicate/out-of-order events are harmless; periodic
+   reconciliation recovers missed notifications. No new webhook listener is
+   implemented by the current migration.
+4. **Keep one release order.** Allocate a durable signer-owned release sequence
+   across producers. Current channel ordering uses the signed historical
+   `run_number` field; independent repositories' CI counters must not replace that
+   shared ordering. This migration preserves the existing ordering and refuses
+   stale releases; cross-producer sequence allocation remains required work.
+5. **Compare storage using total cost.** Evaluate OCI Object Storage and Tigris
+   for actual region placement, durable copies, transfer, request and restore
+   traffic. A global endpoint is not proof of three durable regional replicas.
+   Preserve the existing storage interface and postpone a new adapter until the
+   cost/reliability comparison identifies a benefit.
+
+Legacy GitHub-specific signing/discovery tools remain publisher adapters during
+migration. Missing historical service repositories block those old qualification
+and E2E inputs; they are not prerequisites of applying already admitted releases.
+Never replace signature verification with a webhook shared secret or a successful
+CI status, and never relabel historical provider evidence.
 
 ## First desired state: three regions that actually communicate
 
@@ -540,10 +582,11 @@ commit. External tests use fakes/contract fixtures; do not download or run
 TerraBase from this repository's tests. Real TerraBase integration belongs in
 the monorepo using its same-commit build. Local build/test/benchmark commands run
 with `nice -n 19`; GitHub CI runs normally on hosted runners. No local check is
-required before opening a PR. Use GitHub-hosted CI and retain exact-commit
-qualification, binaries, images, logs, and rollback history in GitHub-backed
-release paths. Replace Forgejo qualification/lineage checks with GitHub run,
-job, repository, SHA, and artifact validation; never bypass admission to migrate.
+required before opening a PR. Use GitHub-hosted CI for the current build adapter and retain exact-commit
+qualification, binaries, images, logs and rollback history with signed artifacts.
+The adapter verifies its GitHub run/job/source proof before signing; deployment
+consumes the resulting admitted artifacts without contacting GitHub. Preserve
+historical evidence and never bypass admission to migrate.
 Move SDK fetching and operational tools to their GitHub equivalents, remove
 private-builder/`fj` requirements, and preserve credential and production gates.
 
@@ -576,14 +619,16 @@ risk-based source review, not exhaustive inspection of every file or live proof.
 
 ### Must fix before claiming the first milestone
 
-1. **Qualify GitHub release continuity.** The reviewed baseline had no GitHub
+1. **Qualify signed artifact continuity.** The reviewed baseline had no GitHub
    workflows. This change migrates all seven workflows to hosted Actions, SDK
    fetching and the Go module to GitHub, and producers/consumers to native `gh`.
    Exact run ID/number, attempt, job, source, manifest and lineage checks remain.
-   GitHub CI results still need to establish the new pipeline. Old standalone
+   GitHub CI results still need to establish the build adapter. Deployment now
+   has a separate signed-bundle `release apply` path using existing channels,
+   independent of source repository availability. Old standalone
    TerraBase, ts-auth and ts-libs repositories/qualified releases return 404 to
-   the current account; agree their current source/artifact contract before
-   generating fresh GitHub qualifications. Never relabel old signatures or
+   the current account; replace these legacy fixture/producer assumptions with
+   the signed artifact contract, without making their recreation a deploy gate. Never relabel old signatures or
    run IDs. [Migration status](docs/github-migration.md) records remaining gates.
 2. **NetBird must bootstrap and recover independently.** The manager installer
    and `setup-owner.sh` require ts-ops; `netbirdManagementLoop` also requires
@@ -619,7 +664,7 @@ risk-based source review, not exhaustive inspection of every file or live proof.
    code exists. Preserve that code and correct docs from retained evidence;
    do not rebuild working services or call source tests production readiness.
 
-Verdict: establish GitHub release continuity and the managed NetBird foundation
+Verdict: establish signed artifact continuity and the managed NetBird foundation
 first, then prove the three-region milestone before replacing production tasks.
 Not checked: live OCI/NetBird state, credentials, real traffic, runtime benchmarks,
 or every source file. No infrastructure changes are implied by this review.

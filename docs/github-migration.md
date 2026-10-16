@@ -1,5 +1,32 @@
 # GitHub migration status
 
+## Deployment boundary
+
+The primary deployment contract is a signed bundle, independent of GitHub
+repository availability:
+
+```sh
+ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
+```
+
+`BUNDLE/GRU/channel.json` (and other region directories) holds existing
+root-delegated release channel proofs; `BUNDLE/binaries/<sha256>` holds exact
+binary bytes. Application verifies trust, scope, digests and ordering before
+publishing through the existing OCI path. It needs no `gh`, Git, source
+checkout or signing secret. GitHub verification and signing remain producer
+adapter responsibilities; the combined `release deploy` flow is legacy.
+
+Webhooks may provide notification hints, never release authority. Consumers
+verify channels locally and poll to recover missed hints. No new webhook
+endpoint or provider storage adapter is implemented. The `run_number` channel
+field still carries a CI counter: preserving monotonic ordering across
+producers is required, and provider-independent sequence allocation remains
+unresolved. See [release application](releases.md#apply-a-signed-release-bundle).
+
+OCI is the current storage implementation. OCI versus Tigris cost and storage
+research remains pending; this change does not select a new backend or claim
+that OCI is cheapest.
+
 ## Repository changes
 
 The Go module is `github.com/TerraScale/ts-orchestrator`. The SDK replacement
@@ -8,8 +35,8 @@ All seven workflows live under `.github/workflows/` on GitHub-hosted Ubuntu
 runners, with commit-pinned checkout/toolchain/artifact actions. The custom
 Forgejo client, its build/patch/cache and token profiles are removed.
 
-Publication, promotion, service sync, deployment, pruning and local image tools
-use native `gh`. `ts-orch release run-detail --repository OWNER/REPO --run-id ID`
+The GitHub producer adapter uses native `gh` for publication, promotion,
+service sync, legacy combined deployment, pruning and local image tools. `ts-orch release run-detail --repository OWNER/REPO --run-id ID`
 normalizes GitHub's completed/conclusion fields and reads paginated jobs from the
 observed run attempt. Consumers separately compare run ID, run number, source
 SHA, workflow, required jobs, and exact retained-manifest log markers.
@@ -31,10 +58,11 @@ Production jobs name the GitHub `production` environment. Its reviewer/branch
 rules and existing credentials must be configured and verified before activation;
 merely naming an environment does not establish protection.
 
-## Gates still open
+## Producer, infrastructure and verification gaps
 
 1. Run GitHub CI on the migration PR and address current check/review findings.
-2. Resolve service source and artifact ownership. The current account gets 404
+2. Resolve service source and artifact ownership for the legacy producer/image/E2E paths;
+   these are not signed-bundle application prerequisites. The current account gets 404
    from `TerraScale/terrabase`, `TerraScale/ts-auth`, `TerraScale/ts-libs`, and the
    old pinned `ts-builder` policy. `TerraScale/terrascale` exists, but its monorepo
    output cannot be silently substituted for reviewed standalone contracts.

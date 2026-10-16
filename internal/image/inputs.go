@@ -301,7 +301,7 @@ func TerraBaseQualification(qualificationPath, detailPath string) (TerraBasePin,
 	if e := readJSON(detailPath, &detail); e != nil {
 		return TerraBasePin{}, e
 	}
-	if detail.RunID != v.RunID || detail.RunNumber != v.RunNumber || detail.HeadSHA != q.SourceRevision || detail.Workflow != "fast.yml" || (detail.Status != "success" && detail.Status != "running") {
+	if detail.RunID != v.RunID || detail.RunNumber != v.RunNumber || detail.HeadSHA != q.SourceRevision || detail.Workflow != "fast.yml" || (detail.Status != "success" && detail.Status != "in_progress") {
 		return TerraBasePin{}, errors.New("TerraBase run detail differs from its qualification or did not succeed")
 	}
 	count = 0

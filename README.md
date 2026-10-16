@@ -7,9 +7,22 @@ production activation instructions.
 TerraScale Orchestrator is a Go control plane distributed as one binary. A
 regional controller embeds its NATS server and JetStream store; hosts connect
 to the regional cell to receive signed, digest-pinned desired state. GitHub
-Actions owns source verification and binary builds. The orchestrator owns
+Actions supplies the current source-verification and binary-build adapter. The orchestrator owns
 artifact admission and rollout authority. `ts-deploy` is not the build or
 rollout engine for this repository.
+
+Apply an already signed release bundle with:
+
+```sh
+ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
+```
+
+Application verifies per-region signed channels and digest-named binaries;
+it requires no particular Git repository or signing secret. GitHub remains a
+producer adapter. Notification hooks are nonauthoritative hints; existing
+polling recovers missed notifications. No new webhook endpoint or storage
+adapter is implemented. See [the signed-bundle contract](docs/releases.md#apply-a-signed-release-bundle)
+for layout, ordering limits and the current OCI application path.
 
 Use **`ts-orch` as the operational CLI**. Implement new deployment,
 provisioning, bootstrap, release, and inspection tooling as Go subcommands in
@@ -133,6 +146,7 @@ failover, signed release publication, and guest-level rollback remain outside
 the evidence currently available here. Do not use this repository as a
 production-ready cloud control plane.
 
-GitHub migration currently blocks fresh qualified service inputs and full E2E:
+The legacy GitHub producer/image/E2E fixture paths still lack qualified inputs:
 `TerraScale/terrabase`, `TerraScale/ts-auth` and `TerraScale/ts-libs` return
-404 to the current account. See [E2E prerequisites](docs/e2e.md).
+404 to the current account. These repositories are not a prerequisite for
+applying an independently prepared signed bundle. See [E2E prerequisites](docs/e2e.md).

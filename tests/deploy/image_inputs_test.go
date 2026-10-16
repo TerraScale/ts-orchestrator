@@ -29,7 +29,7 @@ func newImageInputs(t *testing.T) *imageInputsFixture {
 	return f
 }
 func (f *imageInputsFixture) runDetail(run, fast string) {
-	write(f.t, f.detail, jsonBytes(f.t, map[string]any{"run_id": 11711, "run_number": 1018, "head_sha": inputSource, "workflow": "fast.yml", "status": run, "jobs": []any{map[string]any{"id": 1, "run_id": 11711, "name": "fast", "status": fast, "attempt": 1}, map[string]any{"id": 2, "run_id": 11711, "name": "publish", "status": "running", "attempt": 1}}}), 0600)
+	write(f.t, f.detail, jsonBytes(f.t, map[string]any{"run_id": 11711, "run_number": 1018, "head_sha": inputSource, "workflow": "fast.yml", "status": run, "jobs": []any{map[string]any{"id": 1, "run_id": 11711, "name": "fast", "status": fast, "attempt": 1}, map[string]any{"id": 2, "run_id": 11711, "name": "publish", "status": "in_progress", "attempt": 1}}}), 0600)
 }
 func (f *imageInputsFixture) tool(args ...string) script.Result {
 	return runTool(f.t, append([]string{"image", "inputs", "--file", f.manifest}, args...)...)
@@ -145,14 +145,14 @@ func TestImageInputsPinOnlyRewritesTerrabase(t *testing.T) {
 }
 func TestImageInputsAcceptPublishingRun(t *testing.T) {
 	f := newImageInputs(t)
-	f.runDetail("running", "success")
+	f.runDetail("in_progress", "success")
 	successful(t, f.pin())
 }
 func TestImageInputsRejectFailedOrMismatchedRunWithoutMutation(t *testing.T) {
 	for _, tc := range []struct {
 		name, run, fast string
 		wrongHead       bool
-	}{{"failed-run", "failure", "success", false}, {"failed-fast", "running", "failure", false}, {"wrong-head", "success", "success", true}} {
+	}{{"failed-run", "failure", "success", false}, {"failed-fast", "in_progress", "failure", false}, {"wrong-head", "success", "success", true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newImageInputs(t)
 			original := read(t, f.manifest)

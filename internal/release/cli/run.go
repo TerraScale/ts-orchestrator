@@ -12,6 +12,8 @@ import (
 const usage = `Usage: ts-orch release <command> [flags]
 
 Commands:
+  run-detail
+  apply
   sign-delegation
   binary-candidate
   sign-binary

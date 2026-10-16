@@ -1,14 +1,30 @@
 # Delivery pipeline
 
-GitHub migration status (2026-10-16): `TerraScale/terrabase`,
-`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
-current GitHub account (API returns 404). Fresh qualified service inputs and
-full E2E runs remain blocked until those repositories, pinned commits and
-release assets are available on GitHub. Commands below describe the target
-GitHub flow; they do not establish a successful deployment. Historical
-Forgejo evidence and signed records remain historical and must not be relabeled.
+The primary deployment input is an already signed bundle:
 
-How a merged change reaches the servers: merge → CI → retained artifacts →
+```sh
+ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
+```
+
+`BUNDLE/GRU/channel.json` and other region documents carry the existing
+root-delegated release proofs; `BUNDLE/binaries/<sha256>` supplies the bytes.
+Application verifies trust, scope, digests and channel ordering, then publishes
+to existing OCI channels. Region consumers verify locally and poll for updates.
+Application needs no GitHub repository, `gh`, Git checkout or signing secret.
+A webhook may hint that new data exists; no hint authorizes a release. No new
+webhook endpoint or provider storage adapter is implemented.
+
+The signed channel sequence remains the `run_number` wire field, currently a
+CI counter. Provider-independent allocation is unresolved: changing producers
+must preserve its monotonic ordering. See [release application](releases.md#apply-a-signed-release-bundle).
+
+The stages below describe the current GitHub producer and image adapter.
+Missing `TerraScale/terrabase`, `TerraScale/ts-auth` and `TerraScale/ts-libs`
+repositories (404 to the current account) block its fresh qualified image/E2E
+inputs, not application of an independently prepared signed bundle. Historical
+Forgejo evidence and signed records retain their original identities.
+
+The existing GitHub producer/image route: merge → CI → retained artifacts →
 image → OCI import → rollout. Every stage finds its input from the previous
 stage's retained record by source revision; nothing is copied by hand except
 the signing and authorization decisions policy requires.
@@ -95,7 +111,7 @@ travels in the root-signed manifest and each instance verifies it before its
 controller starts. TerraBase binary updates do not need a new image: they
 roll out through the managed update path and signed desired state.
 
-### 6. Fleet deployment (`.github/workflows/deploy.yml`)
+### 6. Legacy combined signing and deployment (`.github/workflows/deploy.yml`)
 
 Every successful push to `main`, including documentation changes, dispatches
 deployment automatically. `ci.yml` dispatches it after the image dispatch; it waits for the

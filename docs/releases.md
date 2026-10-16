@@ -1,5 +1,53 @@
 # Build and release boundaries
 
+## Apply a signed release bundle
+
+```sh
+ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
+```
+
+Deployment consumes signed release channels and exact binary bytes. It does
+not require a GitHub repository, `gh`, Git, a source checkout or a signing
+secret. The publisher prepares the root-delegated release proofs; application
+verifies them against the trusted root before publishing to each region's
+existing OCI channel. OCI access authorization is still required.
+
+```text
+BUNDLE/
+  GRU/channel.json
+  SFO/channel.json
+  FRA/channel.json
+  binaries/<sha256>
+```
+
+Each region directory contains its `releasechannel.Channel` document. Binary
+file names are their exact SHA-256 digests. Existing region consumers verify
+the delegated scope, signed receipts and binary digests locally, and enforce
+channel ordering and rollback rules.
+
+Application discovers every serving region and requires its fresh deployment
+scope plus a matching channel in the bundle. This updates existing regions;
+initial infrastructure, identity and regional bootstrap remain separate work.
+
+A webhook may notify consumers that new data is available. The notification
+carries no release authority: consumers must fetch and verify the signed
+channel and bytes. Polling recovers missed notifications. No new webhook
+endpoint or provider storage adapter is implemented by this change; the
+application path still publishes to existing OCI storage.
+
+The existing `run_number` wire field supplies the monotonically increasing
+channel sequence and currently holds a CI run number. Independent providers'
+counters are not interchangeable. A provider-independent sequence allocator
+or counter migration remains unresolved; switching producers must preserve
+the established ordering.
+
+GitHub Actions remains a source/build producer adapter. Its run/job checks and
+signing can prepare a bundle, but GitHub metadata is not an application-time
+authority. The combined `release deploy` signing workflow remains a legacy
+producer/application path, rather than the primary deployment contract.
+
+## GitHub producer verification
+
 The GitHub verification workflow checks out the event's exact Git revision and
 requires a clean tree. Its producing job runs `make ci-verify`: Go formatting
 checks, `go vet`, and the complete Go test suite with race detection, including
