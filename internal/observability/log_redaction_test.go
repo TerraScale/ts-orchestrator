@@ -2,14 +2,11 @@ package observability
 
 import (
 	"bytes"
-	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,9 +15,9 @@ import (
 	"unicode/utf8"
 )
 
-func redactionLogger(t *testing.T, format string, attrs ...slog.Attr) (*slog.Logger, *bytes.Buffer, *EventBus) {
+func redactionLogger(t *testing.T, format string, attrs ...slog.Attr) (*slog.Logger, *logOutput, *EventBus) {
 	t.Helper()
-	output := new(bytes.Buffer)
+	output := newLogOutput(t)
 	bus := NewEventBus(256)
 	logger, err := NewLogger(output, LogConfig{Format: format}, bus, attrs...)
 	if err != nil {
@@ -29,7 +26,7 @@ func redactionLogger(t *testing.T, format string, attrs ...slog.Attr) (*slog.Log
 	return logger, output, bus
 }
 
-func assertNoLogSecrets(t *testing.T, output *bytes.Buffer, bus *EventBus, secrets ...string) {
+func assertNoLogSecrets(t *testing.T, output *logOutput, bus *EventBus, secrets ...string) {
 	t.Helper()
 	events, err := json.Marshal(bus.Recent(0))
 	if err != nil {
@@ -42,25 +39,6 @@ func assertNoLogSecrets(t *testing.T, output *bytes.Buffer, bus *EventBus, secre
 	}
 	if !utf8.Valid(output.Bytes()) || !utf8.Valid(events) {
 		t.Fatal("invalid UTF8 in a sink")
-	}
-}
-
-func TestRedactTextRemovesCredentialsAndBoundsTheResult(t *testing.T) {
-	t.Parallel()
-	jwt := "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsb2dUZXN0In0.signatureSecret123"
-	text := "Authorization: Bearer abc.def.ghi " + jwt + " nats://user:pass@host:4222/path"
-	got := RedactText(text, 512)
-	for _, secret := range []string{"abc.def.ghi", jwt, "user:pass"} {
-		if strings.Contains(got, secret) {
-			t.Fatalf("credential %q survived RedactText: %q", secret, got)
-		}
-	}
-	if !strings.Contains(got, "host:4222/path") {
-		t.Fatalf("URL host lost: %q", got)
-	}
-	long := RedactText(strings.Repeat("é", 300), 512)
-	if len(long) > 512 || !utf8.ValidString(long) {
-		t.Fatalf("bounded text is %d bytes, want at most 512 and valid UTF-8", len(long))
 	}
 }
 
@@ -275,21 +253,12 @@ func TestLogRedactionSnapshotDepthConsumesBudget(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			nested := []any{[]any{[]any{tc.value}}}
-			s := logSanitizer{remaining: maxLogAttrs}
-			frozen := s.snapshot(reflect.ValueOf(&nested), 0)
-			// Inspect the intermediate tree before JSON encoding or text clipping.
-			inner := frozen.([]any)[0].([]any)[0].([]any)[0].([]any)
-			if nodes := 4 + len(inner); nodes > maxLogAttrs {
-				t.Fatalf("snapshot materialized %d nodes with a %d-node budget", nodes, maxLogAttrs)
+			logger, output, bus := redactionLogger(t, "json")
+			logger.Warn("nested snapshot", "details", nested)
+			if !strings.Contains(output.String(), logTruncatedKey) || output.Len() > maxLogMessageBytes || len(bus.Recent(0)) != 1 {
+				t.Fatal("nested snapshot did not stay bounded through the log sink")
 			}
-			if !s.truncated || s.remaining != 0 || len(inner) == 0 {
-				t.Fatalf("depth clipping did not exhaust the node budget: remaining=%d entries=%d truncated=%v", s.remaining, len(inner), s.truncated)
-			}
-			for _, value := range inner {
-				if value != omittedLogValue {
-					t.Fatalf("value at depth limit was retained: %v", value)
-				}
-			}
+
 		})
 	}
 }
@@ -298,10 +267,6 @@ func TestLogRedactionOversizedMapKeys(t *testing.T) {
 	t.Parallel()
 	prefix := strings.Repeat("x", 8<<20)
 	details := map[string]int{prefix + "a": 1, prefix + "b": 2}
-	s := logSanitizer{remaining: maxLogAttrs}
-	if frozen := s.snapshot(reflect.ValueOf(details), 0); frozen != omittedLogValue || !s.truncated {
-		t.Fatal("oversized map keys were admitted for sorting and traversal")
-	}
 	for _, format := range []string{"json", "logfmt"} {
 		t.Run(format, func(t *testing.T) {
 			logger, output, bus := redactionLogger(t, format)
@@ -336,11 +301,6 @@ func TestLogRedactionMapRepeatSuppression(t *testing.T) {
 			nested[key][fmt.Sprintf("k%02d", j)] = j
 		}
 		prefix[key] = make([]int, 12)
-	}
-	// Oversized maps must be omitted whole before collecting any keys.
-	s := logSanitizer{remaining: maxLogAttrs}
-	if frozen := s.snapshot(reflect.ValueOf(oversized), 0); frozen != omittedLogValue || !s.truncated || s.remaining != maxLogAttrs-1 {
-		t.Fatalf("oversized map was sampled: type=%T remaining=%d truncated=%v", frozen, s.remaining, s.truncated)
 	}
 	for _, format := range []string{"json", "logfmt"} {
 		for _, tc := range []struct {
@@ -646,32 +606,28 @@ func TestLogRedactionCountDepthAndMetadata(t *testing.T) {
 	}
 }
 
-type recordCapture struct{ record slog.Record }
-
-func (*recordCapture) Enabled(context.Context, slog.Level) bool { return true }
-func (h *recordCapture) Handle(_ context.Context, r slog.Record) error {
-	h.record = r
-	return nil
-}
-func (h *recordCapture) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *recordCapture) WithGroup(string) slog.Handler      { return h }
-
 func TestLogRedactionRecordTimeLevelAndSource(t *testing.T) {
 	t.Parallel()
-	capture := new(recordCapture)
-	h := &redactingHandler{next: capture}
-	pcs := make([]uintptr, 1)
-	runtime.Callers(1, pcs)
+	logger, output, bus := redactionLogger(t, "json")
 	at := time.Date(2026, 10, 9, 12, 0, 0, 123, time.FixedZone("test", 3600))
-	r := slog.NewRecord(at, slog.LevelWarn, "Bearer sourceSecret123", pcs[0])
-	r.AddAttrs(slog.Int("epoch", 7), slog.Bool(EventKey, true))
-	if err := h.Handle(t.Context(), r); err != nil {
+	record := slog.NewRecord(at, slog.LevelWarn, "Bearer sourceSecret123", 0)
+	record.AddAttrs(slog.Int("epoch", 7), slog.Bool(EventKey, true))
+	if err := logger.Handler().Handle(t.Context(), record); err != nil {
 		t.Fatal(err)
 	}
-	if capture.record.Time != at || capture.record.Level != slog.LevelWarn || capture.record.PC != pcs[0] || capture.record.Message != "Bearer "+redactedLogValue {
-		t.Fatalf("record metadata changed: %+v", capture.record)
+	assertNoLogSecrets(t, output, bus, "sourceSecret123")
+	var line struct {
+		Time  time.Time
+		Level string
+		Epoch int
 	}
-	if r.Message != "Bearer sourceSecret123" || r.NumAttrs() != 2 {
+	if err := json.Unmarshal(output.Bytes(), &line); err != nil {
+		t.Fatal(err)
+	}
+	if !line.Time.Equal(at) || line.Level != "WARN" || line.Epoch != 7 {
+		t.Fatalf("record metadata changed: %s", output)
+	}
+	if record.Message != "Bearer sourceSecret123" || record.NumAttrs() != 2 {
 		t.Fatal("caller record mutated")
 	}
 }

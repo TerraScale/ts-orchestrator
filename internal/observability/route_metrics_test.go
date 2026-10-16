@@ -2,6 +2,7 @@ package observability
 
 import (
 	"bytes"
+	"context"
 	"encoding/json/v2"
 	"net/http"
 	"net/http/httptest"
@@ -25,11 +26,12 @@ func TestRouteRTTMetricsAndHistoryPreservePartialCoverage(t *testing.T) {
 			view.RouteRTTs[0].RTTSeconds = new(0.005)
 			view.RouteRTTs[0].MeasuredConnections = 2
 		}
-		var output bytes.Buffer
-		WriteNATSMetrics(&output, view)
+		collector, _ := testCollector(t, "route", nil)
+		collector.config.NATS = func(context.Context) (NATSView, error) { return view, nil }
+		output := metricsOverHTTP(t, collector)
 		wantRTT := `ts_orch_nats_route_rtt_seconds{server="server-a",peer="peer-b"} 0.005`
-		if strings.Contains(output.String(), wantRTT) != measured || strings.Contains(output.String(), `nats_route_rtt_seconds{server="server-a",peer="peer-c"}`) {
-			t.Fatalf("RTT availability was not preserved:\n%s", output.String())
+		if strings.Contains(output, wantRTT) != measured || strings.Contains(output, `nats_route_rtt_seconds{server="server-a",peer="peer-c"}`) {
+			t.Fatalf("RTT availability was not preserved:\n%s", output)
 		}
 		for _, want := range []string{
 			`ts_orch_nats_route_connections{server="server-a",peer="peer-b"} 3`,
@@ -37,17 +39,22 @@ func TestRouteRTTMetricsAndHistoryPreservePartialCoverage(t *testing.T) {
 			`ts_orch_nats_route_measured_connections{server="server-a",peer="peer-c"} 0`,
 			`ts_orch_nats_route_rtts_truncated{server="server-a"} 1`,
 		} {
-			if !strings.Contains(output.String(), want) {
+			if !strings.Contains(output, want) {
 				t.Errorf("metrics lack %s", want)
 			}
 		}
 		values := map[string]float64{}
-		for _, sample := range sampler.Samples(cluster) {
-			if strings.HasPrefix(sample.Metric, "nats_route_") {
-				if sample.Counter || len(sample.Labels) != 3 && sample.Metric != HistNATSRouteRTTsTruncated {
-					t.Fatalf("invalid route labels or type: %+v", sample)
-				}
-				values[seriesKey(sample.Metric, sortedLabels(sample.Labels))] = sample.Value
+		history := NewHistory(HistoryConfig{})
+		history.Append(time.Now(), sampler.Samples(cluster))
+		for _, metric := range history.Metrics() {
+			recorder := httptest.NewRecorder()
+			HistoryHandler(history).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/v1/history?metric="+metric, nil))
+			var retained HistoryResult
+			if recorder.Code != http.StatusOK || json.Unmarshal(recorder.Body.Bytes(), &retained) != nil {
+				t.Fatalf("route history API = %d %s", recorder.Code, recorder.Body.String())
+			}
+			for _, series := range retained.Series {
+				values[Series(metric, "member", series.Labels["member"], "peer", series.Labels["peer"], "server", series.Labels["server"])] = series.Points[len(series.Points)-1].Value
 			}
 		}
 		key := func(metric, peer string) string {
