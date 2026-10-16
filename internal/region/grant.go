@@ -35,6 +35,7 @@ var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pe
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
+	WorkerProfiles      []WorkerProfile                   `json:"workerProfiles,omitempty"`
 	ReleaseAuthorities  []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
 	InstallationID      string                            `json:"installationId"`
 	SchemaVersion       int                               `json:"schemaVersion"`
