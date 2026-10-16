@@ -1,0 +1,6 @@
+Candidate: 2b0211b9
+Worktree: /tmp/ts-orchestrator-oci-sdk
+Command: flock /tmp/ts-orch-refactor-gate-check.lock env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test -race ./internal/ociclient -run 'TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline|TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite' -count=1 -timeout=30s
+Exit: 0
+Output:
+ok  	github.com/TerraScale/ts-orchestrator/internal/ociclient	2.285s

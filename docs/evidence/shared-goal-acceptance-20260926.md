@@ -647,3 +647,45 @@ relabeled as success. Exact integrated candidate build is running separately;
 no result is assumed before exit. START-SCOPE read-only inventory is retained
 under `/tmp/ts-refactor-start-scope-20261016/`; approved paid provisioning,
 new authority and destructive cloud operations remain unavailable.
+
+
+### Image admission closure in progress — 2026-10-16
+
+QA integrated source now `9feb2a59` (before this evidence-only append).
+The following are source/local checks, not live qualification or publication:
+
+| Boundary | Integrated provenance | Actual check |
+| --- | --- | --- |
+| Final-image receipt/current verifier and signer | Original `00e18a1c` → QA `9c7f7970`; original `5a4e7776`/`e38b295e` → QA `f28e06c1`/`ae70a249` | Focused receipt/historical/final-image race: release 1.139s, CLI 2.278s. Independent proof binds final QCOW2 digest, not just embedded binary. |
+| Signed prelaunch OCI identity | Original `29e3fdc8` → QA `88313464` | Focused real retained-file/crypto/process race PASS 2.489s; wrong retained OCI image ID refused. |
+| Image publication and interrupted evidence retrieval | Original `d8c20c8b`/`84bbaac9` → QA `fc7e7a69`/`801029a2`; publisher allowlist QA `7874afef` | Pipeline process scenario PASS 1.980s after atomic proof-last transport fix. Exact final-image proof is required after unsigned-byte retention and before release publication. |
+| Initial controller/bootstrap fixtures | Original `75103b35` → QA `e82d952f` | Equivalent input candidate `473199ab`: bootstrapstart 61.009s, selfupdate 1.314s, selfupdate CLI 5.951s. |
+| Fixed ARM promotion and other image fixtures | Original narrow `89e1281b` → QA `9feb2a59`; original `818c2c8c` → QA `1821c0e7` | Narrow promotion check pending. Bootstrap CLI 3.181s and cellspec 0.076s pass; fixturegen has three source-count failures because actual complete inventory exceeds its old 256-pin bound. Bounded cap correction and real signed-packet scenario are assigned. |
+
+Five small raw logs and hashes are retained in
+[`refactor-checks-20261016/`](refactor-checks-20261016/SHA256SUMS), rather than
+requiring ephemeral `/tmp` logs to survive continuation. The separate original
+`02360dca` binary build passed; SHA-256
+`b4736db7c04fe64a08b074ef83a821b34f9bca24f5f92c307f65195aae655ac7`.
+It predates image closure and is not the final publication build.
+
+Two real prelaunch gaps remain assigned: founder peer refresh/SDK effects
+must verify current selected image proof and clamp operation lifetime to that
+proof; direct attempt `PhaseMembers` must verify the retained signed image,
+final disk, exact OCI identity and current scope immediately before launch.
+Positive and zero-mutation rejection scenarios are being checked. Normal
+controller installation already precedes controller `Prepare`/`Seed`; no
+impossible pre-execution self-trust ceremony is required. Promotion alone does
+not close retained old-manifest launches. Main publication remains held.
+
+Additional independent integration conversions: logs original `ce5fafe7` → QA
+`87bde6be` (plain 4.074s, race 6.423s; 30 behavior cases mapped into 29 integrated
+cases); stablemtime original `aa5959a5` → QA `b6fa9bca` (four real filesystem/Git
+behavior groups, PASS 0.212s). These do not close the repository-wide unit ledger.
+
+Current shared-app dependency remains explicit: OCI verified identity/foundation
+must deliver admitted management endpoint and token authority to OBS's automatic
+CLI resolver. Names and `RecordFromPlan` cannot infer that authority. Shared app
+`c5958f9a` observability package passed 57.952s; CLI/dashboard compile was blocked
+by missing release `ProductionProof` dependency, now routed to app integration.
+No unchanged successful observability rerun is required for that compile fix.
