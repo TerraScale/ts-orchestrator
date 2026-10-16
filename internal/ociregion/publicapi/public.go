@@ -639,28 +639,16 @@ func token() (string, error) {
 	return t, nil
 }
 
-// newClient selects the in-binary SDK client pinned to the plan's region.
-// Commands that carry key material refuse the oci CLI, whose arguments
-// other local users can read, and SDK debug logging, which prints bodies.
+// newClient builds the in-binary client and rejects SDK settings that expose secrets.
 func newClient(region string, secret bool) (command.Client, error) {
-	backend, err := sdkcli.SelectedBackend()
-	if err != nil {
-		return nil, err
-	}
 	if secret {
-		if backend == sdkcli.BackendCLI {
-			return nil, fmt.Errorf("%s=cli is refused: this command handles private keys", sdkcli.BackendEnv)
-		}
 		for _, name := range ociclient.SecretUnsafeEnv {
 			if _, set := os.LookupEnv(name); set {
 				return nil, fmt.Errorf("%s is refused: this command handles private keys", name)
 			}
 		}
 	}
-	if backend == sdkcli.BackendCLI {
-		return command.CLI{Region: region}, nil
-	}
-	return NewSDKClient(region, backend)
+	return NewSDKClient(region)
 }
 
 // NewClient is the region's OCI client for commands that carry no key material.

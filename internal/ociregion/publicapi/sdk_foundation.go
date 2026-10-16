@@ -29,12 +29,16 @@ func createCompartment(ctx context.Context, c *SDKClient, command sdkcli.Command
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
 	response, err := client.CreateCompartment(ctx, identity.CreateCompartmentRequest{OpcRetryToken: retryToken(),
-		CreateCompartmentDetails: identity.CreateCompartmentDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2]}})
+		CreateCompartmentDetails: identity.CreateCompartmentDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2]}})
 	return response.Compartment, err
 }
 
@@ -43,12 +47,16 @@ func createDynamicGroup(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
 	response, err := client.CreateDynamicGroup(ctx, identity.CreateDynamicGroupRequest{OpcRetryToken: retryToken(),
-		CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2], MatchingRule: &values[3]}})
+		CreateDynamicGroupDetails: identity.CreateDynamicGroupDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2], MatchingRule: &values[3]}})
 	return response.DynamicGroup, err
 }
 
@@ -61,12 +69,16 @@ func createPolicy(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err := jsonFlag(command, "statements", &statements); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.identity()
 	if err != nil {
 		return nil, err
 	}
 	response, err := client.CreatePolicy(ctx, identity.CreatePolicyRequest{OpcRetryToken: retryToken(),
-		CreatePolicyDetails: identity.CreatePolicyDetails{CompartmentId: &values[0], Name: &values[1], Description: &values[2], Statements: statements}})
+		CreatePolicyDetails: identity.CreatePolicyDetails{FreeformTags: tags, CompartmentId: &values[0], Name: &values[1], Description: &values[2], Statements: statements}})
 	return response.Policy, err
 }
 
@@ -75,11 +87,15 @@ func createVCN(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateVcn(ctx, core.CreateVcnRequest{OpcRetryToken: retryToken(), CreateVcnDetails: core.CreateVcnDetails{
+	response, err := client.CreateVcn(ctx, core.CreateVcnRequest{OpcRetryToken: retryToken(), CreateVcnDetails: core.CreateVcnDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], CidrBlock: &values[2], DnsLabel: &values[3]}})
 	if err != nil {
 		return nil, err
@@ -99,12 +115,16 @@ func createServiceGateway(ctx context.Context, c *SDKClient, command sdkcli.Comm
 	if err := jsonFlag(command, "services", &services); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
 	response, err := client.CreateServiceGateway(ctx, core.CreateServiceGatewayRequest{OpcRetryToken: retryToken(),
-		CreateServiceGatewayDetails: core.CreateServiceGatewayDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], Services: services}})
+		CreateServiceGatewayDetails: core.CreateServiceGatewayDetails{FreeformTags: tags, CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], Services: services}})
 	if err != nil {
 		return nil, err
 	}
@@ -121,11 +141,15 @@ func createVault(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.KMSVaults()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateVault(ctx, keymanagement.CreateVaultRequest{OpcRetryToken: retryToken(), CreateVaultDetails: keymanagement.CreateVaultDetails{
+	response, err := client.CreateVault(ctx, keymanagement.CreateVaultRequest{OpcRetryToken: retryToken(), CreateVaultDetails: keymanagement.CreateVaultDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], VaultType: keymanagement.CreateVaultDetailsVaultTypeEnum(values[2])}})
 	return response.Vault, err
 }
@@ -139,11 +163,15 @@ func createKey(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err := jsonFlag(command, "key-shape", &shape); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.KMSManagement(values[3])
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateKey(ctx, keymanagement.CreateKeyRequest{OpcRetryToken: retryToken(), CreateKeyDetails: keymanagement.CreateKeyDetails{
+	response, err := client.CreateKey(ctx, keymanagement.CreateKeyRequest{OpcRetryToken: retryToken(), CreateKeyDetails: keymanagement.CreateKeyDetails{FreeformTags: tags,
 		CompartmentId: &values[0], DisplayName: &values[1], KeyShape: &shape, ProtectionMode: keymanagement.CreateKeyDetailsProtectionModeEnum(values[2])}})
 	return response.Key, err
 }
@@ -153,11 +181,15 @@ func createBucket(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.reader.Factory().ObjectStorage()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateBucket(ctx, objectstorage.CreateBucketRequest{NamespaceName: &values[0], CreateBucketDetails: objectstorage.CreateBucketDetails{
+	response, err := client.CreateBucket(ctx, objectstorage.CreateBucketRequest{NamespaceName: &values[0], CreateBucketDetails: objectstorage.CreateBucketDetails{FreeformTags: tags,
 		CompartmentId: &values[1], Name: &values[2], KmsKeyId: &values[3], Versioning: objectstorage.CreateBucketDetailsVersioningEnum(values[4]),
 		PublicAccessType: objectstorage.CreateBucketDetailsPublicAccessTypeEnum(values[5]), StorageTier: objectstorage.CreateBucketDetailsStorageTierEnum(values[6])}})
 	return response.Bucket, err

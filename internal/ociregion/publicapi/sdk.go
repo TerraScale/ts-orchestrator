@@ -23,11 +23,9 @@ import (
 
 // SDKClient serves the provisioner's commands through the OCI Go SDK inside
 // the binary: reads through sdkcli, and the handful of creates the public API
-// path needs here. With the auto backend, a command neither serves falls back
-// to the Python CLI.
+// path needs here. Unsupported commands fail before any subprocess can run.
 type SDKClient struct {
 	Region   string
-	Backend  sdkcli.Backend
 	reader   *sdkcli.Client
 	creators map[string]creator
 	// Pause is injectable so state waits run without sleeping in tests.
@@ -37,12 +35,17 @@ type SDKClient struct {
 type creator func(context.Context, *SDKClient, sdkcli.Command) (any, error)
 
 // NewSDKClient builds the client for one catalog OCI region.
-func NewSDKClient(region string, backend sdkcli.Backend) (*SDKClient, error) {
+func NewSDKClient(region string) (*SDKClient, error) {
 	reader, err := sdkcli.ForRegion(region)
 	if err != nil {
 		return nil, err
 	}
-	return &SDKClient{Region: region, Backend: backend, reader: reader, creators: creators}, nil
+	return &SDKClient{Region: region, reader: reader, creators: creators}, nil
+}
+
+// NewClientWithFactory shares the caller's authenticated OCI provider and rate limits.
+func NewClientWithFactory(factory *ociclient.Factory) *SDKClient {
+	return &SDKClient{Region: factory.Region(), reader: sdkcli.NewClient(factory, ""), creators: creators}
 }
 
 var creators = map[string]creator{
@@ -78,13 +81,13 @@ var creators = map[string]creator{
 
 // createFlags lists every flag each in-binary creator consumes.
 var createFlags = map[string][]string{
-	"network internet-gateway create": {"compartment-id", "vcn-id", "display-name", "is-enabled", "wait-for-state"},
-	"network route-table create":      {"compartment-id", "vcn-id", "display-name", "route-rules", "wait-for-state"},
-	"network security-list create": {"compartment-id", "vcn-id", "display-name", "ingress-security-rules",
+	"network internet-gateway create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "is-enabled", "wait-for-state"},
+	"network route-table create":      {"freeform-tags", "compartment-id", "vcn-id", "display-name", "route-rules", "wait-for-state"},
+	"network security-list create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "ingress-security-rules",
 		"egress-security-rules", "wait-for-state"},
-	"network subnet create": {"compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
+	"network subnet create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "cidr-block", "dns-label", "route-table-id",
 		"security-list-ids", "prohibit-public-ip-on-vnic", "wait-for-state"},
-	"network nsg create":       {"compartment-id", "vcn-id", "display-name", "wait-for-state"},
+	"network nsg create":       {"freeform-tags", "compartment-id", "vcn-id", "display-name", "wait-for-state"},
 	"network nsg rules add":    {"nsg-id", "security-rules"},
 	"network nsg rules remove": {"nsg-id", "security-rule-ids"},
 	"lb load-balancer create": {"compartment-id", "display-name", "shape-name", "subnet-ids", "is-private",
@@ -100,21 +103,17 @@ var createFlags = map[string][]string{
 	"vault secret update-base64":     {"secret-id", "secret-content-content"},
 	"vault secret list":              {"compartment-id", "vault-id", "name"},
 	"secrets secret-bundle get":      {"secret-id"},
-	"iam compartment create":         {"compartment-id", "name", "description"},
-	"iam dynamic-group create":       {"compartment-id", "name", "description", "matching-rule"},
-	"iam policy create":              {"compartment-id", "name", "description", "statements"},
-	"network vcn create":             {"compartment-id", "display-name", "cidr-block", "dns-label", "wait-for-state"},
-	"network service-gateway create": {"compartment-id", "vcn-id", "display-name", "services", "wait-for-state"},
-	"kms management vault create":    {"compartment-id", "display-name", "vault-type"},
-	"kms management key create":      {"compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
-	"os bucket create": {"namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
+	"iam compartment create":         {"freeform-tags", "compartment-id", "name", "description"},
+	"iam dynamic-group create":       {"freeform-tags", "compartment-id", "name", "description", "matching-rule"},
+	"iam policy create":              {"freeform-tags", "compartment-id", "name", "description", "statements"},
+	"network vcn create":             {"freeform-tags", "compartment-id", "display-name", "cidr-block", "dns-label", "wait-for-state"},
+	"network service-gateway create": {"freeform-tags", "compartment-id", "vcn-id", "display-name", "services", "wait-for-state"},
+	"kms management vault create":    {"freeform-tags", "compartment-id", "display-name", "vault-type"},
+	"kms management key create":      {"freeform-tags", "compartment-id", "display-name", "key-shape", "protection-mode", "endpoint"},
+	"os bucket create": {"freeform-tags", "namespace-name", "compartment-id", "name", "kms-key-id", "versioning", "public-access-type",
 		"storage-tier"},
 	"os retention-rule create": {"namespace-name", "bucket-name", "display-name", "time-amount", "time-unit"},
 }
-
-// secretBearing commands carry private keys; they never reach the oci CLI,
-// whose arguments other local users can read.
-var secretBearing = []string{"lb load-balancer create", "lb certificate create", "vault secret create-base64", "vault secret update-base64", "secrets secret-bundle get"}
 
 // unacceptedCreateFlags returns, sorted, the flags of a create command that
 // its creator does not consume.
@@ -136,13 +135,8 @@ func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, e
 		return nil, err
 	}
 	if create, ok := c.creators[parsed.Path]; ok {
-		// A create is a mutation, so a flag it would not consume is caught
-		// before any effect: under auto the oci CLI serves the command,
-		// under sdk it fails instead of silently diverging.
+		// Reject unconsumed mutation flags before any effect.
 		if extra := unacceptedCreateFlags(parsed); len(extra) > 0 {
-			if c.Backend == sdkcli.BackendAuto && !slices.Contains(secretBearing, parsed.Path) {
-				return command.CLI{Region: c.Region}.Call(ctx, args...)
-			}
 			return nil, fmt.Errorf("%w: %s with --%s", sdkcli.ErrUnsupported, parsed.Path, strings.Join(extra, ", --"))
 		}
 		value, err := create(ctx, c, parsed)
@@ -151,10 +145,7 @@ func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, e
 		}
 		return c.wrap(value)
 	}
-	data, handled, err := c.reader.Call(ctx, args)
-	if !handled && c.Backend == sdkcli.BackendAuto && errors.Is(err, sdkcli.ErrUnsupported) {
-		return command.CLI{Region: c.Region}.Call(ctx, args...)
-	}
+	data, _, err := c.reader.Call(ctx, args)
 	if err != nil {
 		return nil, err
 	}
@@ -210,6 +201,15 @@ func jsonFlag(command sdkcli.Command, name string, target any) error {
 		return fmt.Errorf("--%s: %w", name, err)
 	}
 	return nil
+}
+
+func optionalTags(command sdkcli.Command) (map[string]string, error) {
+	var tags map[string]string
+	if command.Flags["freeform-tags"] == "" {
+		return nil, nil
+	}
+	err := jsonFlag(command, "freeform-tags", &tags)
+	return tags, err
 }
 
 func boolFlag(command sdkcli.Command, name string) (*bool, error) {
@@ -272,11 +272,15 @@ func createInternetGateway(ctx context.Context, c *SDKClient, command sdkcli.Com
 	if err != nil || enabled == nil {
 		return nil, errors.Join(err, errors.New("--is-enabled is required"))
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateInternetGateway(ctx, core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{
+	response, err := client.CreateInternetGateway(ctx, core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IsEnabled: enabled}})
 	if err != nil {
 		return nil, err
@@ -296,11 +300,15 @@ func createRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err := jsonFlag(command, "route-rules", &rules); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{OpcRetryToken: retryToken(), CreateRouteTableDetails: core.CreateRouteTableDetails{
+	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{OpcRetryToken: retryToken(), CreateRouteTableDetails: core.CreateRouteTableDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], RouteRules: rules}})
 	if err != nil {
 		return nil, err
@@ -324,11 +332,15 @@ func createSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err := jsonFlag(command, "egress-security-rules", &egress); err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{OpcRetryToken: retryToken(), CreateSecurityListDetails: core.CreateSecurityListDetails{
+	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{OpcRetryToken: retryToken(), CreateSecurityListDetails: core.CreateSecurityListDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IngressSecurityRules: ingress, EgressSecurityRules: egress}})
 	if err != nil {
 		return nil, err
@@ -352,11 +364,15 @@ func createSubnet(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{OpcRetryToken: retryToken(), CreateSubnetDetails: core.CreateSubnetDetails{
+	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{OpcRetryToken: retryToken(), CreateSubnetDetails: core.CreateSubnetDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], CidrBlock: &values[3], DnsLabel: &values[4],
 		RouteTableId: &values[5], SecurityListIds: securityLists, ProhibitPublicIpOnVnic: prohibitPublicIP}})
 	if err != nil {
@@ -373,12 +389,16 @@ func createNSG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
+	tags, err := optionalTags(command)
+	if err != nil {
+		return nil, err
+	}
 	client, err := c.network()
 	if err != nil {
 		return nil, err
 	}
 	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{OpcRetryToken: retryToken(),
-		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
+		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{FreeformTags: tags, CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err
 	}

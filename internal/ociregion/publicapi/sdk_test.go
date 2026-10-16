@@ -175,7 +175,7 @@ func TestSDKDecodesEveryCommandTheProvisionerSends(t *testing.T) {
 
 func TestSDKNeverHandsSecretsToTheCLI(t *testing.T) {
 	called := false
-	client := &SDKClient{Region: "sa-saopaulo-1", Backend: sdkcli.BackendAuto, creators: map[string]creator{
+	client := &SDKClient{Region: "sa-saopaulo-1", creators: map[string]creator{
 		"lb certificate create": func(context.Context, *SDKClient, sdkcli.Command) (any, error) {
 			called = true
 			return nil, nil
