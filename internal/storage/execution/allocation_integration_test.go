@@ -1,13 +1,16 @@
 package execution
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -80,13 +83,27 @@ func statefulSequenceLocation(t *testing.T) release.SequenceLocation {
 		t.Fatal(err)
 	}
 	client.Host = server.URL
-	client.HTTPClient = statefulAllocationHTTPClient{server: server}
+	transport := &http.Transport{DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		if network != "tcp" || address != server.Listener.Addr().String() {
+			t.Errorf("forbidden allocation fixture network dial: %s %s", network, address)
+			return nil, errors.New("allocation fixture permits only its literal loopback listener")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}}
+	t.Cleanup(transport.CloseIdleConnections)
+	loopback := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("allocation fixture rejects redirects")
+	}}
+	client.HTTPClient = statefulAllocationHTTPClient{server: server, client: loopback}
 	policy := common.NoRetryPolicy()
 	client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
 	return release.SequenceLocation{Client: client, Namespace: "fixture", Bucket: "gru-1-head"}
 }
 
-type statefulAllocationHTTPClient struct{ server *httptest.Server }
+type statefulAllocationHTTPClient struct {
+	server *httptest.Server
+	client *http.Client
+}
 
 func (client statefulAllocationHTTPClient) Do(request *http.Request) (*http.Response, error) {
 	cloned := request.Clone(request.Context())
@@ -94,5 +111,5 @@ func (client statefulAllocationHTTPClient) Do(request *http.Request) (*http.Resp
 	cloned.URL = &address
 	cloned.URL.Scheme = "http"
 	cloned.URL.Host = strings.TrimPrefix(client.server.URL, "http://")
-	return client.server.Client().Do(cloned)
+	return client.client.Do(cloned)
 }
