@@ -39,10 +39,20 @@ type CapacityRequest struct {
 }
 
 func (r CapacityRequest) validate() error {
+	if err := r.validateReceipt(); err != nil {
+		return err
+	}
+	if !strings.HasPrefix(r.PoolID, "ocid1.instancepool.") || r.IfMatch == "" || len(r.IfMatch) > 1024 || strings.ContainsAny(r.IfMatch, "\r\n") {
+		return errors.New("capacity SDK request lacks exact pool or precondition")
+	}
+	return nil
+}
+
+func (r CapacityRequest) validateReceipt() error {
 	if !entityid.Valid(r.OperationID) || r.GrantGeneration == 0 || !strings.HasPrefix(r.TenancyID, "ocid1.tenancy.") ||
-		!strings.HasPrefix(r.CompartmentID, "ocid1.compartment.") || !strings.HasPrefix(r.PoolID, "ocid1.instancepool.") ||
+		!strings.HasPrefix(r.CompartmentID, "ocid1.compartment.") ||
 		r.ReservedMonthlyCents == 0 || r.Currency != "USD" && r.Currency != "BRL" || r.StartedAt.IsZero() || r.StartedAt.Location() != time.UTC ||
-		r.IfMatch == "" || len(r.IfMatch) > 1024 || strings.ContainsAny(r.IfMatch, "\r\n") || r.RetryToken == "" || len(r.RetryToken) > 64 || strings.ContainsAny(r.RetryToken, " \t\r\n") {
+		r.RetryToken == "" || len(r.RetryToken) > 64 || strings.ContainsAny(r.RetryToken, " \t\r\n") {
 		return errors.New("capacity SDK request lacks its exact immutable scope, financial receipt or request identity")
 	}
 	if _, err := r.Region.OCIRegion(); err != nil {
