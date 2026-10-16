@@ -13,6 +13,7 @@ const usage = `Usage: ts-orch release <command> [flags]
 
 Commands:
   run-detail
+  verify-production
   apply
   sign-delegation
   binary-candidate
