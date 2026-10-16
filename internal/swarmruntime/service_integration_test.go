@@ -118,7 +118,7 @@ func serviceCluster(t *testing.T, ctx context.Context) (api.ControlClient, NodeC
 	return client, workerCfg, worker
 }
 func serviceIntent() ServiceIntent {
-	return ServiceIntent{ID: entityid.Derive("service", "production", "sa-saopaulo-1", "ts-auth"), Role: "ts-auth", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
+	return ServiceIntent{ID: entityid.Derive("service", "production", "sa-saopaulo-1", "ts-auth"), OperationID: entityid.Derive("operation", "service-integration"), Role: "ts-auth", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
 }
 func serviceEventually(t *testing.T, ctx context.Context, check func() bool) {
 	t.Helper()
@@ -144,6 +144,9 @@ func TestServiceManagerIntegration(t *testing.T) {
 	created, err := applyService(ctx, client, intent)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if created.Spec.Annotations.Labels[LabelOperationID] != intent.OperationID {
+		t.Fatal("delivery operation locator missing")
 	}
 	if created.Spec.Update.FailureAction != api.UpdateConfig_ROLLBACK || created.Spec.Rollback.FailureAction != api.UpdateConfig_PAUSE || created.Spec.Update.Parallelism != 1 {
 		t.Fatal("upstream rollback policy missing")
