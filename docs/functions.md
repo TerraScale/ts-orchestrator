@@ -335,9 +335,21 @@ and existing module admission passed at `2125e83f` (2.580 seconds). Sealed start
 retained-bundle app wiring and the separate credential guardian metadata require
 their combined integration checks; these earlier passes do not qualify them.
 The credential metadata reader and signed host chunk checks subsequently passed
-at `f754395f` (0.321 and 0.530 seconds); executor and app caller qualification
-remain separate. Generated startup issuer JWT/mTLS checks passed at `16c601be`
-(0.186 seconds); the genuine sealed actor scenario still requires its own pass.
+at `f754395f` (0.321 and 0.530 seconds). At coherent runtime revision `912c14ed`,
+the actual executor stopped the function process at its credential deadline
+after the host agent exited (15.20 seconds); the corresponding generic process
+scenario passed in 15.07 seconds. All seven focused runtime scenarios passed
+without skips, including missing/changed expiry and immutable material recovery.
+That direct authority fixture does not qualify the complete signed app producer.
+Generated startup issuer JWT/mTLS checks passed at `16c601be` (0.186 seconds).
+The genuine sealed actor scenario at `6281eb0c` measured a 16,403-byte escrow
+against the unchanged 25,600-byte Vault limit, then failed at external-seed
+ledger publication because retry-clock metadata was inconsistent. It has no
+completed sealed-startup pass. The concrete automatic startup helper and exact
+task-retained material selection (`05e42ddf`, `8c493857`) await coherent app
+compilation and caller checks. Positive WASM worker enrollment also requires
+the original authenticated pool creation lineage; a static descriptor cannot
+replace that authority.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
