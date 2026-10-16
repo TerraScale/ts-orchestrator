@@ -191,6 +191,14 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 			return nil, startupErr
 		}
 	}
+	if err := refresh(ctx); err != nil {
+		startupErr = err
+		return nil, err
+	}
+	if _, err := AdmitNode(ctx, client, n.ID(), admission); err != nil {
+		startupErr = err
+		return nil, err
+	}
 	return n, nil
 }
 

@@ -51,6 +51,20 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		running = append(running, n)
+		client, err := n.ControlClient(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		registered, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: n.ID()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		spec := registered.Node.Spec
+		if spec.Annotations.Name != binding.Slot || spec.Annotations.Labels[LabelRegion] != strings.ToLower(binding.Cell) ||
+			spec.Annotations.Labels[LabelInstanceID] != binding.InstanceID || spec.Annotations.Labels[LabelHostRole] != "manager" ||
+			spec.Annotations.Labels[LabelExecutionScope] != "platform" {
+			t.Fatal("manager returned without its trusted placement identity")
+		}
 		return n
 	}
 	founder := start(founderDir, identity)

@@ -21,8 +21,8 @@ func AdmitNode(ctx context.Context, client api.ControlClient, nodeID string, adm
 		return nil, err
 	}
 	node := response.Node
-	if node.Description == nil || node.Description.Hostname != admitted.HostID || (node.Role == api.NodeRoleManager) != (admitted.Role == "manager") {
-		return nil, errors.New("node does not match admitted host or certificate role")
+	if (node.Role == api.NodeRoleManager) != (admitted.Role == "manager") {
+		return nil, errors.New("node does not match admitted certificate role")
 	}
 	spec := node.Spec.Copy()
 	scope := "platform"
