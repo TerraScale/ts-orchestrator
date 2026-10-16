@@ -75,6 +75,8 @@ type facts struct {
 	Policies                                 []policyFact
 	User                                     identity.User
 	Memberships                              []identity.UserGroupMembership
+	Groups                                   []identity.Group
+	DynamicGroups                            []identity.DynamicGroup
 	Subnet                                   core.Subnet
 	VCN                                      core.Vcn
 	Route                                    core.RouteTable
@@ -186,6 +188,28 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	}
 	f.User = identity.User{Id: user.Id, CompartmentId: user.CompartmentId, Name: user.Name, LifecycleState: user.LifecycleState}
 	f.Memberships = memberships
+	groups, err := pages(func(page *string) ([]identity.Group, *string, error) {
+		r, e := iam.ListGroups(ctx, identity.ListGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
+		return r.Items, r.OpcNextPage, e
+	})
+	if err != nil {
+		return fail(err)
+	}
+	groupNames := map[string]string{}
+	groupIDs := map[string]bool{}
+	for _, current := range groups {
+		id, name := text(current.Id), strings.ToLower(text(current.Name))
+		if id == "" || name == "" || text(current.CompartmentId) != s.Tenancy || groupIDs[id] || groupNames[name] != "" {
+			return fail(errors.New("incomplete or ambiguous IAM group inventory"))
+		}
+		groupIDs[id] = true
+		groupNames[name] = id
+		f.Groups = append(f.Groups, identity.Group{Id: current.Id, CompartmentId: current.CompartmentId, Name: current.Name, LifecycleState: current.LifecycleState})
+	}
+	if !groupIDs[s.Group] || groupNames[strings.ToLower(text(group.Name))] != s.Group {
+		return fail(errors.New("approved group is absent from complete IAM group inventory"))
+	}
+	slices.SortFunc(f.Groups, func(a, b identity.Group) int { return strings.Compare(text(a.Id), text(b.Id)) })
 	dynamic, err := pages(func(page *string) ([]identity.DynamicGroup, *string, error) {
 		r, e := iam.ListDynamicGroups(ctx, identity.ListDynamicGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
 		return r.Items, r.OpcNextPage, e
@@ -193,11 +217,28 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if err != nil {
 		return fail(err)
 	}
-	// shortcut: reject every dynamic group, add a complete OCI matching-rule
-	// evaluator before qualifying in tenancies that contain production groups.
-	if len(dynamic) != 0 {
-		return fail(errors.New("dynamic groups could admit an unsigned qualification instance"))
+	dynamicNames := map[string]string{}
+	dynamicIDs := map[string]bool{}
+	if len(dynamic) != len(s.ProductionDynamicGroups) {
+		return fail(errors.New("dynamic-group inventory differs from independently approved production profiles"))
 	}
+	for _, current := range dynamic {
+		id := text(current.Id)
+		index := slices.IndexFunc(s.ProductionDynamicGroups, func(profile ProductionDynamicGroup) bool { return profile.ID == id })
+		if index < 0 {
+			return fail(errors.New("unknown production dynamic group"))
+		}
+		profile := s.ProductionDynamicGroups[index]
+		// This is the exact rule emitted by foundation's production generator.
+		rule := fmt.Sprintf("ALL {instance.compartment.id = '%s'}", profile.InstanceCompartment)
+		if dynamicIDs[id] || text(current.Name) != profile.Name || text(current.CompartmentId) != s.Tenancy || current.LifecycleState != identity.DynamicGroupLifecycleStateActive || text(current.MatchingRule) != rule {
+			return fail(errors.New("unknown, changed or overlapping production dynamic-group matching rule"))
+		}
+		dynamicIDs[id] = true
+		dynamicNames[strings.ToLower(profile.Name)] = id
+		f.DynamicGroups = append(f.DynamicGroups, identity.DynamicGroup{Id: current.Id, Name: current.Name, CompartmentId: current.CompartmentId, MatchingRule: current.MatchingRule, LifecycleState: current.LifecycleState})
+	}
+	slices.SortFunc(f.DynamicGroups, func(a, b identity.DynamicGroup) int { return strings.Compare(text(a.Id), text(b.Id)) })
 	compartments, err := pages(func(page *string) ([]identity.Compartment, *string, error) {
 		r, e := iam.ListCompartments(ctx, identity.ListCompartmentsRequest{CompartmentId: new(s.Tenancy), CompartmentIdInSubtree: new(true), AccessLevel: identity.ListCompartmentsAccessLevelAny, Page: page})
 		return r.Items, r.OpcNextPage, e
@@ -246,7 +287,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 				continue
 			}
 			for _, statement := range policy.Statements {
-				if !unrelatedGroup(statement, s.Group) {
+				if !unrelatedSubject(statement, s.Group, groupNames, groupIDs, dynamicNames, dynamicIDs) {
 					return fail(errors.New("unknown or additional potentially applicable IAM policy"))
 				}
 			}
@@ -276,12 +317,25 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	return Verified{scope: clone(s), observer: observer, candidate: candidate, evidence: hash(evidence), evidenceWire: wire, boundary: boundary, endpoint: endpoint}, nil
 }
 
-var unrelatedPolicy = regexp.MustCompile(`^Allow group id (ocid1\.group\.[a-zA-Z0-9.]+) to (inspect|read|use|manage) [a-z-]+ in (tenancy|compartment id ocid1\.compartment\.[a-zA-Z0-9.]+)$`)
+var simpleSubject = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
+var policySubject = regexp.MustCompile(`^Allow (group|dynamic-group) (id ocid1\.(group|dynamicgroup)\.[a-zA-Z0-9.]+|[a-zA-Z][a-zA-Z0-9_-]*) to [^\r\n]+$`)
 
-func unrelatedGroup(statement, id string) bool {
-	// Names, domains, compound subjects, conditions and unknown grammar fail.
-	match := unrelatedPolicy.FindStringSubmatch(statement)
-	return match != nil && match[1] != id
+func unrelatedSubject(statement, candidateGroup string, groupNames map[string]string, groupIDs map[string]bool, dynamicNames map[string]string, dynamicIDs map[string]bool) bool {
+	// The service already validated the rest of this one policy statement.
+	// Domains, quotes, compound subjects, newlines and unknown forms fail.
+	match := policySubject.FindStringSubmatch(statement)
+	if match == nil {
+		return false
+	}
+	names, ids := groupNames, groupIDs
+	if match[1] == "dynamic-group" {
+		names, ids = dynamicNames, dynamicIDs
+	}
+	id, explicit := strings.CutPrefix(match[2], "id ")
+	if !explicit {
+		id = names[strings.ToLower(match[2])]
+	}
+	return ids[id] && (match[1] != "group" || id != candidateGroup)
 }
 
 func text(value *string) string {

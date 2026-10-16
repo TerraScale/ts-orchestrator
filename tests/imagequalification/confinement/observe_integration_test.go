@@ -28,10 +28,11 @@ import (
 // This scenario traverses the actual OCI clients, HTTP signing and paginated
 // protocol. The local endpoint is a provider simulator, never live acceptance.
 func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
-	for _, mode := range []string{"valid", "late-policy", "late-membership", "late-dynamic-group", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
+	for _, mode := range []string{"valid", "late-policy", "late-membership", "late-dynamic-group", "dynamic-rule-overlap", "dynamic-rule-compound", "dynamic-profile-missing", "ambiguous-group", "domain-subject", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
 		t.Run(mode, func(t *testing.T) {
 			s := Scope{ApprovalSHA256: strings.Repeat("a", 64), RunID: "exact-run", Tenancy: "ocid1.tenancy.oc1..test", Principal: "ocid1.user.oc1..candidate", Group: "ocid1.group.oc1..candidate", PolicyID: "ocid1.policy.oc1..candidate", Compartment: "ocid1.compartment.oc1..disposable", Subnet: "ocid1.subnet.oc1..disposable", Namespace: "qualification", Bucket: "disposable", Object: "qualification/exact-run/image.qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16", HostNames: []string{"ts-qualification-exact-run-host"}, ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Second), CleanupUntil: time.Now().Add(2 * time.Hour).Truncate(time.Second)}
 			s.PolicyStatements = RequiredStatements(s)
+			s.ProductionDynamicGroups = []ProductionDynamicGroup{{ID: "ocid1.dynamicgroup.oc1..production", Name: "gru-1-controllers", InstanceCompartment: "ocid1.compartment.oc1..production"}}
 			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			if err != nil {
 				t.Fatal(err)
@@ -83,6 +84,17 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 					write([]identity.ApiKey{{UserId: new(s.Principal), Fingerprint: new(fp), LifecycleState: identity.ApiKeyLifecycleStateActive}})
 				case path == "/groups/"+s.Group:
 					write(identity.Group{Id: new(s.Group), CompartmentId: new(s.Tenancy), Name: new("qualification"), LifecycleState: identity.GroupLifecycleStateActive})
+				case path == "/groups":
+					if page == "" {
+						w.Header().Set("opc-next-page", "groups-2")
+						write([]identity.Group{{Id: new(s.Group), Name: new("qualification"), CompartmentId: new(s.Tenancy), LifecycleState: identity.GroupLifecycleStateActive}})
+					} else {
+						name := "Administrators"
+						if mode == "ambiguous-group" {
+							name = "qualification"
+						}
+						write([]identity.Group{{Id: new("ocid1.group.oc1..admin"), Name: new(name), CompartmentId: new(s.Tenancy), LifecycleState: identity.GroupLifecycleStateActive}})
+					}
 				case path == "/userGroupMemberships":
 					if page == "" {
 						w.Header().Set("opc-next-page", "membership-2")
@@ -95,7 +107,19 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 				case path == "/dynamicGroups":
 					if page == "" {
 						w.Header().Set("opc-next-page", "dynamic-2")
-						write([]identity.DynamicGroup{})
+						profile := s.ProductionDynamicGroups[0]
+						rule := "ALL {instance.compartment.id = '" + profile.InstanceCompartment + "'}"
+						if mode == "dynamic-rule-overlap" {
+							rule = "ALL {instance.compartment.id = '" + s.Compartment + "'}"
+						}
+						if mode == "dynamic-rule-compound" {
+							rule = "ANY {instance.compartment.id = '" + profile.InstanceCompartment + "', instance.compartment.id = '" + s.Compartment + "'}"
+						}
+						if mode == "dynamic-profile-missing" {
+							write([]identity.DynamicGroup{})
+						} else {
+							write([]identity.DynamicGroup{{Id: new(profile.ID), Name: new(profile.Name), CompartmentId: new(s.Tenancy), LifecycleState: identity.DynamicGroupLifecycleStateActive, MatchingRule: new(rule)}})
+						}
 					} else if mode == "late-dynamic-group" {
 						write([]identity.DynamicGroup{{Id: new("ocid1.dynamicgroup.oc1..production"), MatchingRule: new("ALL {instance.compartment.id = '" + s.Compartment + "'}")}})
 					} else {
@@ -120,7 +144,11 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 					if r.URL.Query().Get("compartmentId") == s.Tenancy {
 						if page == "" {
 							w.Header().Set("opc-next-page", "policy-2")
-							write([]identity.Policy{{Id: new("ocid1.policy.oc1..admin"), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: []string{"Allow group id ocid1.group.oc1..admin to manage all-resources in tenancy"}}})
+							subject := "Administrators"
+							if mode == "domain-subject" {
+								subject = "Default/Administrators"
+							}
+							write([]identity.Policy{{Id: new("ocid1.policy.oc1..admin"), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: []string{"Allow group " + subject + " to manage all-resources in tenancy", "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..production"}}})
 						} else if mode == "late-policy" || drift.Load() {
 							write([]identity.Policy{{Id: new("ocid1.policy.oc1..unknown"), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: []string{"Allow any-user to manage all-resources in tenancy"}}})
 						} else {

@@ -25,7 +25,16 @@ type Scope struct {
 	HostNames                                                  []string
 	ExistingHosts                                              map[string]string
 	PolicyStatements                                           []string
+	ProductionDynamicGroups                                    []ProductionDynamicGroup
 	ExpiresAt, CleanupUntil                                    time.Time
+}
+
+// ProductionDynamicGroup is a known production profile bound by the same
+// independent approval, never inferred from observed names or resource tags.
+type ProductionDynamicGroup struct {
+	ID                  string `json:"id"`
+	Name                string `json:"name"`
+	InstanceCompartment string `json:"instance_compartment"`
 }
 
 var identifier = regexp.MustCompile(`^[a-zA-Z0-9._:/-]+$`)
@@ -75,6 +84,15 @@ func (s Scope) validate(now time.Time) error {
 	if !slices.Equal(s.PolicyStatements, RequiredStatements(s)) {
 		return errors.New("approved policy differs from canonical disposable operations")
 	}
+	profiles := map[string]bool{}
+	names := map[string]bool{}
+	for _, profile := range s.ProductionDynamicGroups {
+		if !strings.HasPrefix(profile.ID, "ocid1.dynamicgroup.") || !identifier.MatchString(profile.ID) || !simpleSubject.MatchString(profile.Name) || !strings.HasPrefix(profile.InstanceCompartment, "ocid1.compartment.") || !identifier.MatchString(profile.InstanceCompartment) || profile.InstanceCompartment == s.Compartment || profiles[profile.ID] || names[strings.ToLower(profile.Name)] {
+			return errors.New("invalid, duplicate or overlapping signed production dynamic-group profile")
+		}
+		profiles[profile.ID] = true
+		names[strings.ToLower(profile.Name)] = true
+	}
 	return nil
 }
 
@@ -109,6 +127,7 @@ func clone(s Scope) Scope {
 	s.PolicyStatements = slices.Clone(s.PolicyStatements)
 	s.HostNames = slices.Clone(s.HostNames)
 	s.ExistingHosts = maps.Clone(s.ExistingHosts)
+	s.ProductionDynamicGroups = slices.Clone(s.ProductionDynamicGroups)
 	return s
 }
 
