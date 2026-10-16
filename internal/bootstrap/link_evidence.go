@@ -170,7 +170,7 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			CellAccountNKey string `json:"cellAccountNkey"`
 		} `json:"public"`
 	}
-	if json.Unmarshal(evidence.MaterialRecord, &record) != nil || json.Unmarshal(regional.MaterialRecord(), &sourceRecord) != nil || json.Unmarshal(home.MaterialRecord(), &homeRecord) != nil || record.SchemaVersion != 1 || digestBytes(record.Config) != template.PlanDigest() || !jsontext.Value(record.Public).Equal(sourceRecord.Public) || record.IssuedAt.IsZero() || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) || record.SourceSHA256 != digestBytes(regional.MaterialRecord()) || record.HomeSHA256 != digestBytes(home.MaterialRecord()) || record.HomeAccount != homeRecord.Public.CellAccountNKey || !nkeys.IsValidPublicAccountKey(record.Signer) || record.Signer == record.HomeAccount || !isHome && !validDigest(record.HomeLinkSHA256) || isHome && record.HomeLinkSHA256 != "" {
+	if json.Unmarshal(evidence.MaterialRecord, &record) != nil || json.Unmarshal(regional.MaterialRecord(), &sourceRecord) != nil || json.Unmarshal(home.MaterialRecord(), &homeRecord) != nil || record.SchemaVersion != 1 || digestBytes(record.Config) != template.PlanDigest() || !bytes.Equal(record.Public, sourceRecord.Public) || record.IssuedAt.IsZero() || now.Before(record.IssuedAt) || !now.Before(record.ExpiresAt) || record.SourceSHA256 != digestBytes(regional.MaterialRecord()) || record.HomeSHA256 != digestBytes(home.MaterialRecord()) || record.HomeAccount != homeRecord.Public.CellAccountNKey || !nkeys.IsValidPublicAccountKey(record.Signer) || record.Signer == record.HomeAccount || !isHome && !validDigest(record.HomeLinkSHA256) || isHome && record.HomeLinkSHA256 != "" {
 		return deny()
 	}
 	var journal struct {
@@ -238,7 +238,9 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 			FileName   string `json:"fileName"`
 			SecretOCID string `json:"secretOcid"`
 			Verified   bool   `json:"verified"`
-		}) bool { return entry.FileName == file.Name && entry.Verified && entry.SecretOCID == ref.SecretOCID })
+		}) bool {
+			return entry.FileName == file.Name && entry.Verified && entry.SecretOCID == ref.SecretOCID
+		})
 		if j < 0 {
 			return deny()
 		}
