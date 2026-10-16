@@ -241,6 +241,14 @@ material digest. A replacement task gets a fresh grant without inventing a new
 function release. Material for a given task remains immutable; expiry requires
 replacement rather than overwriting a running task's keys.
 
+The controller retires expired task secrets only after the manager confirms the
+exact task is terminal or absent. A desired shutdown, a live task or a failed
+observation cannot authorize retirement. It checks current Vault bytes/version,
+the committed material hash and metadata identity/ETag before scheduling deletion
+with a fixed 25-hour provider delay. The SDK rechecks leadership at the request
+boundary. Exact pending-deletion readback handles lost replies and restarts;
+immutable nonsecret authority grants remain available for audit.
+
 Verified modules use the shared artifact store's `sha256-<digest>` keys. The
 existing artifact collector must retain current function-intent digests alongside
 host references. Uploading before intent commit refreshes object metadata and
