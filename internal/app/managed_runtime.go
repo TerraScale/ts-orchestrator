@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/moby/swarmkit/v2/api"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 )
 
@@ -93,6 +94,17 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		return err
 	}
 	defer executor.Close()
+	admitted, err := swarmruntime.ReadAcceptedManagerAdmission(ctx, reader, accepted)
+	if err != nil {
+		return err
+	}
+	ownhost := &managedRuntimeHost{reader: reader, accepted: accepted.Clone()}
+	if err := executor.BindContainerMaterial(admitted, ownhost); err != nil {
+		return err
+	}
+	if err := executor.SetRegistryResolver(ownhost.registryResolver); err != nil {
+		return err
+	}
 	node, err := swarmruntime.StartAcceptedNode(ctx, reader, accepted, local.foundations, &vault, &bundles, executor)
 	if err != nil {
 		return err
@@ -107,6 +119,9 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		return err
 	}
 	defer management.Close()
+	if err := setManagedRuntimeAvailability(ctx, node, admitted, api.NodeAvailabilityPause); err != nil {
+		return err
+	}
 	notifier := sdnotify.FromEnvironment()
 	if err := notifier.Ready("admitted regional runtime management is ready"); err != nil {
 		return err
@@ -115,6 +130,13 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if _, err := fmt.Fprintln(output, "regional runtime management ready"); err != nil {
 		return err
 	}
+	ownhostCtx, stopOwnhost := context.WithCancel(ctx)
+	ownhostDone := make(chan struct{})
+	go func() {
+		defer close(ownhostDone)
+		runManagedRuntimeOwnHost(ownhostCtx, cfg, reader, accepted, node, admitted, ownhost)
+	}()
+	defer func() { stopOwnhost(); <-ownhostDone }()
 	if err := node.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

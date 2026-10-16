@@ -198,6 +198,13 @@ func runHostSetupWithMetadata(ctx context.Context, bundle hostenroll.PublicBundl
 			return err
 		}
 	}
+	if active && descriptor.IsController() {
+		if _, err := os.Stat(filepath.Join(outputRoot, runtimeWorkerTransportFilename)); errors.Is(err, os.ErrNotExist) {
+			active = false
+		} else if err != nil {
+			return err
+		}
+	}
 	if active {
 		_, _ = fmt.Fprintf(output, "host %s enrollment is current in cell %s\n", descriptor.Node, bundle.Cell)
 		return cleanLegacyHostEnrollment(runtime, outputRoot, secrets)

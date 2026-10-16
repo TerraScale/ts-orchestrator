@@ -241,8 +241,8 @@ func (output *runtimeRegistryOutput) Write(wire []byte) (int, error) {
 	return len(wire), nil
 }
 
-func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, node *swarmruntime.Node) (swarmruntime.RegistryResolver, error) {
-	if os.Geteuid() != 0 || reader == nil || node == nil {
+func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, node *swarmruntime.Node, agent *host.Agent, transport hostenroll.WorkerTransport) (swarmruntime.RegistryResolver, error) {
+	if os.Geteuid() != 0 || reader == nil || node == nil || agent == nil {
 		return nil, errors.New("registry requires the current root-owned regional runtime")
 	}
 	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
@@ -262,7 +262,7 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 	// The fixed controller child owns persistence of the manager's root chain.
 	rootState.path = ""
 	return swarmruntime.NewOCIRegistryResolver(factory, func(ctx context.Context, task *api.Task) (*swarmruntime.RegistryAdmission, error) {
-		if task == nil || !entityid.Valid(task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID]) {
+		if task == nil || task.NodeID != node.ID() || !entityid.Valid(task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID]) {
 			return nil, errors.New("registry task has no authenticated operation locator")
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -276,19 +276,33 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			return nil, err
 		}
 		assigned, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
-		if err != nil || assigned.Node == nil || assigned.Node.Description == nil || assigned.Node.Description.Platform == nil {
+		if err != nil || assigned == nil || assigned.Node == nil || assigned.Node.Description == nil || assigned.Node.Description.Platform == nil {
 			return nil, errors.New("registry task node admission is unavailable")
 		}
-		query := runtimeRegistryQuery{OperationID: task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID], Architecture: assigned.Node.Description.Platform.Architecture}
-		snapshot, err := readRuntimeRegistrySource(ctx, query)
+		ownhost, err := swarmruntime.ReadControllerHostBinding(ctx, reader, accepted, agent, transport.Request, transport.Response)
+		if err != nil || ownhost.Identity() != identity || ownhost.ControllerSlot() != identity.Slot {
+			return nil, errors.New("registry manager requires its current completed ownhost binding")
+		}
+		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 		if err != nil {
+			return nil, err
+		}
+		binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID,
+			InstanceID: identity.InstanceID, Region: identity.OCIRegion, HostID: ownhost.HostID(), Fingerprint: fingerprint}
+		document, err := agent.CurrentRegistryAdmission(ctx, binding)
+		if err != nil {
+			return nil, err
+		}
+		var snapshot runtimeRegistrySnapshot
+		if err := protocol.DecodeStrict(document.Document, &snapshot, runtimeRegistrySourceBytes); err != nil {
 			return nil, err
 		}
 		intent := snapshot.Intent
 		expected := snapshot.Service
 		if intent.Validate() != nil || intent.Container == nil || intent.Cell != strings.ToLower(identity.Cell) || intent.Environment != identity.Environment ||
 			expected.ID != entityid.Derive("platform-service", intent.Role, identity.Environment, identity.OCIRegion) ||
-			expected.OperationID != intent.OperationID || expected.Role != intent.Role || expected.Region != identity.OCIRegion || expected.Environment != identity.Environment {
+			expected.OperationID != intent.OperationID || expected.OperationID != task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] ||
+			expected.Role != intent.Role || expected.Region != identity.OCIRegion || expected.Environment != identity.Environment || expected.Architecture != assigned.Node.Description.Platform.Architecture {
 			return nil, errors.New("registry source differs from admitted service identity")
 		}
 		baked, err := bootstrapstart.LoadBakedInputs()
@@ -331,9 +345,17 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil || confirmed.Identity() != identity {
 			return nil, errors.New("registry runtime authority changed during credential admission")
 		}
-		confirmedSnapshot, err := readRuntimeRegistrySource(ctx, query)
+		confirmedDocument, err := agent.CurrentRegistryAdmission(ctx, binding)
 		if err != nil {
 			return nil, err
+		}
+		var confirmedSnapshot runtimeRegistrySnapshot
+		if err := protocol.DecodeStrict(confirmedDocument.Document, &confirmedSnapshot, runtimeRegistrySourceBytes); err != nil {
+			return nil, err
+		}
+		confirmedHost, err := swarmruntime.ReadControllerHostBinding(ctx, reader, accepted, agent, transport.Request, transport.Response)
+		if err != nil || confirmedHost.Identity() != identity || confirmedHost.HostID() != ownhost.HostID() || confirmedHost.ControllerSlot() != ownhost.ControllerSlot() {
+			return nil, errors.New("registry manager ownhost changed during credential admission")
 		}
 		before, beforeErr := intent.Fingerprint()
 		after, afterErr := confirmedSnapshot.Intent.Fingerprint()
@@ -343,6 +365,10 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		}
 		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
 			return nil, err
+		}
+		if !time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmedDocument.ExpiresAt) || !verified.Valid(time.Now().UTC()) ||
+			rootState.reply("").Head != rootHead || ctx.Err() != nil {
+			return nil, errors.New("registry manager admission expired during final task verification")
 		}
 		return admission, nil
 	})
