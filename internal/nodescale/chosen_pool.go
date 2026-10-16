@@ -44,6 +44,9 @@ func (pool *ChosenPool) selected(ctx context.Context) (*OCIPool, *Recipe, error)
 			return nil, nil, err
 		}
 		chosen.CheckpointGrowth = pool.observed.CheckpointGrowth
+		chosen.CheckpointCreate = pool.observed.CheckpointCreate
+		chosen.CheckpointPoint = pool.observed.CheckpointPoint
+		chosen.Journal = pool.observed.Journal
 		if pool.observed.Admit != nil {
 			chosen.Admit = func(ctx context.Context, recipe Recipe) (func(), error) {
 				release, err := pool.observed.admit(ctx, recipe)
@@ -89,6 +92,7 @@ func (pool *ChosenPool) TargetSize(ctx context.Context, recipe Recipe) (int, err
 	if err != nil {
 		return 0, err
 	}
+	chosen.Journal = pool.observed.Journal
 	return chosen.TargetSize(ctx, recipe)
 }
 

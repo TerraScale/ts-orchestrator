@@ -28,6 +28,8 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
+	PoolWireAttempt    PoolWireAttempt          `json:"pool_wire_attempt,omitzero"`
+	PoolWireOutcome    PoolWireOutcome          `json:"pool_wire_outcome,omitzero"`
 	PoolPointRequest   PoolPointRequest         `json:"pool_point_request,omitzero"`
 	PoolPointResult    PoolPointResult          `json:"pool_point_result,omitzero"`
 	PoolCreateRequest  PoolCreateRequest        `json:"pool_create_request,omitzero"`

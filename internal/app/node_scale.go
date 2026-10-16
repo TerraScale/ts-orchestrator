@@ -62,6 +62,9 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	}
 	in.pool.Admit = in.reservations.admit(in.pool, store, in.fencer)
 	in.pool.CheckpointGrowth = checkpointCapacityGrowth(in.pool.CompartmentID(), store, in.journal)
+	in.pool.Journal = in.journal
+	in.pool.CheckpointCreate = checkpointCapacityCreate(in.pool.CompartmentID(), store, in.journal)
+	in.pool.CheckpointPoint = checkpointCapacityPoint(in.pool.CompartmentID(), store, in.journal)
 	pool, err := nodescale.NewChosenPool(in.pool, store)
 	if err != nil {
 		return nil, err
