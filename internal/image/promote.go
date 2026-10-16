@@ -28,8 +28,8 @@ var imageAssets = []string{"terrascale-gru-arm64.qcow2", "guest-kernel", "image-
 const orchestratorAsset = "terrascale-orchestrator-linux-arm64"
 
 type PromotionOptions struct {
-	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, ReleaseTool string
-	SignBinary, DryRun, Resume                                                                                                                                            bool
+	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, ReleaseTool, ProductionEvidenceDir string
+	SignBinary, DryRun, Resume                                                                                                                                                                   bool
 	// Importer builds the OCI image importer; nil uses the in-binary SDK
 	// over the operator's ~/.oci/config. It is not a flag.
 	Importer imageimport.ImporterFactory
@@ -735,6 +735,20 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	}
 	candidate["binary_receipt_sha256"] = receiptDigest
 	p.step("signed binary receipt verified")
+	evidenceDir := o.ProductionEvidenceDir
+	if evidenceDir == "" {
+		evidenceDir = filepath.Join(filepath.Dir(files.qualification), "image-production")
+		if _, e = p.run(false, "bash", filepath.Join(root, "scripts/ci/fetch-image-production-evidence.sh"), p.manifest.Candidate.Tag,
+			p.manifest.Image.SHA256, region, "arm64", evidenceDir); e != nil {
+			return fmt.Errorf("acquire final image production qualification: %w", e)
+		}
+	}
+	if _, e = release(false, "verify-image-production", "--image-file", image, "--qualification", files.qualification,
+		"--root-key", o.RootKey, "--cell", region, "--environment", o.Environment, "--arch", "arm64",
+		"--production-evidence-dir", evidenceDir); e != nil {
+		return fmt.Errorf("final image production qualification: %w", e)
+	}
+	p.step("independent final image production qualification verified")
 	display := o.DisplayName
 	if display == "" {
 		display = fmt.Sprintf("terrascale-%s-arm64-%s-%s", strings.ToLower(region), p.manifest.SourceRevision[:12], p.manifest.Image.SHA256[:12])
@@ -806,7 +820,7 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 	if e = p.freshOutput(signed); e != nil {
 		return e
 	}
-	args = []string{"sign-image", "--candidate", imageCandidate, "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification, "--image-file", image, "--base-image-file", files.base, "--kernel-file", kernel, "--signing-key", o.SigningKey}
+	args = []string{"sign-image", "--candidate", imageCandidate, "--binary-receipt", files.receipt, "--binary", files.binary, "--qualification", files.qualification, "--image-file", image, "--base-image-file", files.base, "--kernel-file", kernel, "--signing-key", o.SigningKey, "--production-evidence-dir", evidenceDir}
 	args = append(args, imageTrust...)
 	args = append(args, "--environment", o.Environment, "--out", signed)
 	if _, e = release(false, args...); e != nil {
@@ -833,7 +847,7 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 	for _, f := range []struct {
 		p    *string
 		name string
-	}{{&o.ImageRelease, "image-release"}, {&o.ImageDir, "image-dir"}, {&o.Out, "out"}, {&o.Delegation, "delegation"}, {&o.ImageDelegation, "image-delegation"}, {&o.RootKey, "root-key"}, {&o.BinaryReceipt, "binary-receipt"}, {&o.SigningKey, "signing-key"}, {&o.CompartmentID, "compartment-id"}, {&o.Namespace, "namespace"}, {&o.Bucket, "bucket"}, {&o.DisplayName, "display-name"}, {&o.ReleaseTool, "release-tool"}} {
+	}{{&o.ImageRelease, "image-release"}, {&o.ImageDir, "image-dir"}, {&o.Out, "out"}, {&o.Delegation, "delegation"}, {&o.ImageDelegation, "image-delegation"}, {&o.RootKey, "root-key"}, {&o.BinaryReceipt, "binary-receipt"}, {&o.SigningKey, "signing-key"}, {&o.CompartmentID, "compartment-id"}, {&o.Namespace, "namespace"}, {&o.Bucket, "bucket"}, {&o.DisplayName, "display-name"}, {&o.ReleaseTool, "release-tool"}, {&o.ProductionEvidenceDir, "production-evidence-dir"}} {
 		fs.StringVar(f.p, f.name, "", f.name)
 	}
 	fs.StringVar(&o.Environment, "environment", "canary", "release environment")
