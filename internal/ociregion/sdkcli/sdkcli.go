@@ -159,8 +159,6 @@ func (d strictResponses) Do(request *http.Request) (*http.Response, error) {
 var (
 	clientsMu sync.Mutex
 	clients   = map[string]*Client{}
-	// newFactory is replaced in tests.
-	newFactory = ociclient.OperatorConfig
 )
 
 // ForRegion returns the shared client for region. An empty region selects
@@ -175,7 +173,7 @@ func ForRegion(region string) (*Client, error) {
 	if client := clients[region]; client != nil {
 		return client, nil
 	}
-	factory, err := newFactory(region)
+	factory, err := ociclient.OperatorConfig(region)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +215,7 @@ func (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, 
 // Render marshals an SDK value and rewrites member names to the CLI's
 // kebab-case. Members of user-keyed maps keep their keys.
 func Render(value any) (jsontext.Value, error) {
-	wire, err := json.Marshal(value)
+	wire, err := json.Marshal(value, json.FormatNilSliceAsNull(true))
 	if err != nil {
 		return nil, fmt.Errorf("encode OCI response: %w", err)
 	}
