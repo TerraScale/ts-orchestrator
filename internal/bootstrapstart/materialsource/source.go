@@ -100,6 +100,9 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	grant, cfg := source.grant, source.grant.Config()
 	state, etag, err := source.read(ctx)
 	if errors.Is(err, os.ErrNotExist) {
+		if err := source.allowNewRegionalSource(); err != nil {
+			return nil, err
+		}
 		state = materialSourceState{SchemaVersion: 1, InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), Kind: source.kind, BindingSHA256: source.binding, SecretName: source.secretName, RetryToken: uuid.New().String(), StartedAt: now.UTC()}
 		_, _ = source.write(ctx, state, "")
 		state, etag, err = source.read(ctx)
@@ -114,6 +117,9 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 	}
 	var candidate []byte
 	if id == "" {
+		if err := source.allowNewRegionalSource(); err != nil {
+			return nil, err
+		}
 		if state.Reference.SecretOCID != "" || now.Before(state.StartedAt) || now.Sub(state.StartedAt) >= 23*time.Hour {
 			return nil, ErrMaterialSource
 		}
@@ -193,6 +199,9 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 }
 
 func (source *ColdStartMaterial) generate(ctx context.Context, now time.Time) ([]byte, error) {
+	if err := source.allowNewRegionalSource(); err != nil {
+		return nil, err
+	}
 	parent, err := os.MkdirTemp(filepath.Dir(source.directory), ".material-candidate-")
 	if err != nil {
 		return nil, err
