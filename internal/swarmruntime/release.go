@@ -31,6 +31,17 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if err != nil {
 		return nil, err
 	}
+	return AwaitServiceReady(ctx, client, requested, probe)
+}
+
+// AwaitServiceReady consumes an already admitted upstream service revision.
+// Callers must validate its typed release and reserve its durable ordering floor before mutation.
+func AwaitServiceReady(ctx context.Context, client api.ControlClient, requested *api.Service, probe func(context.Context, *api.Task) error) (*api.Service, error) {
+	if requested == nil || requested.Spec.GetReplicated() == nil || probe == nil {
+		return nil, errors.New("service rollout requires an admitted replicated revision and application probe")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
 	var unhealthySince time.Time
@@ -45,7 +56,7 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 		}
 		current := response.Service
 		matches := func(spec *api.ServiceSpec) bool {
-			return spec != nil && proto.Equal(&current.Spec.Task, &spec.Task) && current.Spec.Annotations.Labels[labelReleaseSequence] == spec.Annotations.Labels[labelReleaseSequence] && current.Spec.Annotations.Labels[labelReleaseFingerprint] == spec.Annotations.Labels[labelReleaseFingerprint]
+			return spec != nil && proto.Equal(&current.Spec.Task, &spec.Task) && proto.Equal(&current.Spec.Annotations, &spec.Annotations) && proto.Equal(current.Spec.Endpoint, spec.Endpoint)
 		}
 		if !matches(&requested.Spec) {
 			if current.UpdateStatus == nil || !matches(requested.PreviousSpec) || (current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_STARTED && current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_COMPLETED && current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_PAUSED) {
