@@ -46,6 +46,7 @@ type FoundationGrant struct {
 	CleanupOwner        string                     `json:"cleanupOwner"`
 	Regions             []FoundationIntent         `json:"regions"`
 	InfrastructureSpend *InfrastructureSpendIntent `json:"infrastructureSpend,omitempty"`
+	OCIRIssuance        *OCIRIssuerIntent          `json:"ocirIssuance,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
