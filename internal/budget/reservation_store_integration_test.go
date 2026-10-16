@@ -3,7 +3,16 @@ package budget
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -11,13 +20,154 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/capacityinventory"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/region"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
+
+func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	writer, _, _ := reservationStoreHome(t, ctx)
+	now := time.Now().UTC().Truncate(time.Second)
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots, err := trust.ParseKeyring(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deployment, cluster, installation := entityid.New(), entityid.New(), entityid.New()
+	const tenancy = "ocid1.tenancy.oc1..integration"
+	const parent = "ocid1.compartment.oc1..parent"
+	const shared = "ocid1.compartment.oc1..shared"
+	grant := region.FoundationGrant{InstallationID: installation, SchemaVersion: 1, Generation: 1, TenancyID: tenancy,
+		ParentCompartmentID: parent, SharedCompartmentID: shared, Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "integration",
+		Regions: []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": tenancy,
+			"parent_compartment_id": parent, "shared_compartment_id": shared, "resource_ids": map[string]any{
+				"control_compartment": "ocid1.compartment.oc1..control", "network_compartment": "ocid1.compartment.oc1..network", "workload_compartment": "ocid1.compartment.oc1..workload"}}}}}
+	scopeDigest, err := region.FoundationInfrastructureScopeDigest(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant.InfrastructureSpend = &region.InfrastructureSpendIntent{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: scopeDigest}
+	payload, err := trust.EncodePayload(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: deployment, Cell: "GRU", Environment: "production", Role: "foundation", Slot: cluster}, now.Add(-time.Minute), now.Add(30*time.Minute), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantDigest := sha256.Sum256(grantWire)
+	store := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") == "" || !strings.HasSuffix(r.URL.Path, "/bootstrap/foundation-scope-v1.json") {
+			t.Errorf("unexpected or unsigned grant read: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "invalid grant request", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write(grantWire)
+	}))
+	defer store.Close()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := common.NewRawConfigurationProvider(tenancy, "ocid1.user.oc1..integration", "sa-saopaulo-1", "integration",
+		string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects, err := factory.ObjectStorage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects.Host = store.URL
+	domain := bootstrap.StorageDomain{Namespace: "integration", LedgerBucket: "ledger", HeadBucket: "heads", Prefix: "bootstrap",
+		LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
+	ledgerPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerKeyID, err := trust.KeyID(ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerPublicWire, err := trust.EncodeDelegatedPublicKey(ledgerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var capabilities []trust.Capability
+	for _, name := range []string{"bootstrap-slot-head", "bootstrap-intent", "bootstrap-result", "bootstrap-candidate", "bootstrap-progress"} {
+		capabilities = append(capabilities, trust.Capability{Domain: name, DeploymentID: deployment, Cell: "GRU", Environment: "production", Role: "controller", Slots: []string{"controller-a"}, Actions: []string{"sign"}})
+	}
+	ledgerGrant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: ledgerKeyID, SubjectPublicKey: ledgerPublicWire, Capabilities: capabilities}, now.Add(-2*time.Minute), now.Add(2*time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerWire, err := trust.EncodeEnvelope(ledgerGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentDigest := sha256.Sum256(intentWire)
+	anchor := bootstrap.BootstrapAnchor{SchemaVersion: bootstrap.BootstrapAnchorSchemaVersion, DeploymentID: deployment, Environment: "production", ClusterID: cluster,
+		Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1", StorageDomain: domain, ControllerSlots: []string{"controller-a"}, LedgerDelegationWire: ledgerWire,
+		InitialRegionIntentGeneration: 1, InitialRegionIntentSHA256: hex.EncodeToString(intentDigest[:]), InitialRegionIntentWire: intentWire,
+		FoundationScope: &bootstrap.FoundationScope{InstallationID: installation, DeploymentID: deployment, ClusterID: cluster, TenancyID: tenancy, OCIRegion: "sa-saopaulo-1", StorageDomain: domain, GrantGeneration: 1, GrantSHA256: hex.EncodeToString(grantDigest[:])}}
+	signedAnchor, err := bootstrap.SignBootstrapAnchor(anchor, now.Add(-time.Minute), now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifiedAnchor, err := bootstrap.VerifyBootstrapAnchor(signedAnchor, roots, bootstrap.BootstrapAnchorExpectation{DeploymentID: deployment, Environment: "production", Cell: oci.RegionGRU}, now, bootstrap.BootstrapAnchorTrustPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := region.NewSignedFootprint(&objects, verifiedAnchor, roots, tenancy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := signed.InfrastructureSpend(ctx)
+	if err != nil || !proof.ValidAt(time.Now()) {
+		t.Fatalf("signed infrastructure authority was not verified: %v", err)
+	}
+	inventory, err := capacityinventory.New(factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observationCtx, stop := context.WithCancel(ctx)
+	stop()
+	snapshot, err := inventory.Read(observationCtx, proof.Footprint())
+	if err != nil || len(snapshot.Pending) == 0 {
+		t.Fatalf("canceled SDK observation must retain unknown cost: pending=%v err=%v", snapshot.Pending, err)
+	}
+	headroom, err := InfrastructureHeadroom(ctx, &writer.Reader, proof, snapshot, entityid.New(), time.Now())
+	if err == nil || headroom != 0 || !strings.Contains(err.Error(), "incomplete") {
+		t.Fatalf("signed authority with canceled observation admitted capacity: headroom=%d err=%v", headroom, err)
+	}
+	if _, found, err := ReadCapacity(ctx, &writer.Reader); err != nil || found {
+		t.Fatalf("denied observation created a commitment: found=%v err=%v", found, err)
+	}
+}
 
 // This exercises persisted commitments, not spending admission: no fixture can
 // manufacture the complete accounting evidence the production producer lacks.
@@ -58,6 +208,12 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 			}
 			current.Reservations = append(current.Reservations, reservation)
 			slices.SortFunc(current.Reservations, func(a, b Reservation) int { return cmp.Compare(a.OperationID, b.OperationID) })
+			var commitments uint64
+			for _, receipt := range current.Reservations {
+				commitments += receipt.MonthlyCents
+			}
+			current.Spending = &InfrastructureSpending{InfrastructureBudgetID: seed.InfrastructureBudgetID, GrantSHA256: seed.GrantSHA256, ScopeSHA256: seed.ScopeSHA256,
+				Currency: "USD", MonthlyLimitCents: 1000, ProjectedCents: commitments, ObservedAt: now.Add(-time.Hour), ExpiresAt: now.Add(-59 * time.Minute)}
 			payload, err := current.Encode()
 			if err != nil {
 				return err
@@ -118,7 +274,7 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 			t.Fatal(err)
 		}
 		stored, found, err := ReadCapacity(ctx, &writer.Reader)
-		if err != nil || !found || len(stored.Reservations) != 2 {
+		if err != nil || !found || len(stored.Reservations) != 2 || stored.Spending == nil || stored.Spending.ProjectedCents != 600 {
 			t.Fatalf("unknown budget/spend or expired launch released commitments: %+v, found=%v, err=%v", stored, found, err)
 		}
 		for _, receipt := range stored.Reservations {
