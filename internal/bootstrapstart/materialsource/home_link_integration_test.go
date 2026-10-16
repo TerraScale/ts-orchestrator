@@ -192,10 +192,10 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	recovered := filepath.Join(t.TempDir(), "recovered")
-	if err := restoreRegionalLink(t.Context(), proof, record, publication, spokeBundles, recovered, now); err != nil {
+	if err := restoreRegionalLink(t.Context(), proof, publication, spokeBundles, recovered, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := restoreRegionalLink(t.Context(), proof, record, publication, spokeBundles, recovered, now); err != nil {
+	if err := restoreRegionalLink(t.Context(), proof, publication, spokeBundles, recovered, now); err != nil {
 		t.Fatal("exact retry:", err)
 	}
 	if _, err := bootstrapmaterial.LoadLink(recovered, now); err != nil {
@@ -216,7 +216,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	if err := proof.VerifyCurrent(t.Context(), now); err == nil {
 		t.Fatal("revoked recipient inventory remained current")
 	}
-	if err := restoreRegionalLink(t.Context(), proof, record, publication, spokeBundles, filepath.Join(t.TempDir(), "revoked"), now); err == nil {
+	if err := restoreRegionalLink(t.Context(), proof, publication, spokeBundles, filepath.Join(t.TempDir(), "revoked"), now); err == nil {
 		t.Fatal("revoked recipient inventory restored files")
 	}
 }
