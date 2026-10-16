@@ -176,6 +176,63 @@ The raw `ctr` identity-before/after files each contain the identical PID/status
 shown above. Full daemon logs and downloaded artifacts remain in the disposable
 local fixture; they are not required to inflate this small retained result.
 
+## Logical three-manager leader loss
+
+`TestRuntimeThreeManagerLeaderLoss` passed in **27.13 seconds** on the same
+local runtime at approximately `2026-10-16T20:12:46Z`. Three independently
+persisted managers joined through real upstream manager tokens, certificate
+exchange and Raft. The fixture paused task admission on the current leader so
+the serving task ran on a surviving agent. It stopped the actual leader node,
+probed the real HTTP container during election, and observed a new two-manager
+quorum leader after **17.053651416 seconds**:
+
+```text
+logical three-manager failover jp6fe4ifop5u2q3pnc7y96ac5 -> ewy7e16tfahp3gd3bxmt4b5c9 in 17.053651416s retained task c7na6vto3kw03eix68oghoi3l pid 3508635; new-leader create/update/remove passed
+--- PASS: TestRuntimeThreeManagerLeaderLoss (27.13s)
+PASS
+```
+
+The surviving application retained its original task and PID, with exactly one
+container for that service. The new leader created a second real workload,
+committed a service metadata CAS, and removed both services and their containers.
+Independent `ctr tasks ls` and `ctr containers ls` observations in namespace
+`terrascale` were empty before the fixture was released to NET. The daemon itself
+was not stopped or reconfigured during this scenario.
+
+This is one same-host logical manager-loss sample. It does not prove host-loss
+HA, regional HA, an ungraceful crash, continuous availability between probe
+samples, partitions, concurrent bootstrap, rollback or architecture portability.
+
+### Candidate and commands
+
+Own test commits: `9482beede024d1859a386987e33a11888cb857fe`,
+`61b29735e3fbb4f876349e2cf9be06ed6dc1e482`, and
+`70652e25` on CORE baseline `43ab842a`. The local development candidate also
+included borrowed autoscale fix `550e3653` (local cherry-pick `fcdd5337`), the
+shared dependency union patch, and an uncommitted baseline-only correction from
+`NewAutoscaler(..., tracing, ...)` to its declared variable `racing`. Two initial
+compiles failed on that inherited typo before it was corrected. These patches
+are not part of the new failover test commits. This is not a clean exact-commit
+or integrated-candidate qualification.
+
+| Input | SHA-256 |
+| --- | --- |
+| `/tmp/ts-core-failover.test` | `24f73dc891089cb9cd734be992995bd0e7badeb9e86c874dceb5e5efd47cf21b` |
+| Development `go.mod` | `19b439ed68fb22e3308a1c328638f2e8c82f573b77d721ac54a8a8d7f2c36c9f` |
+| Development `go.sum` | `fe49c8f0fe3996e14c628180f5aaf32adef2b064487450c44bd4495dcbbd43a6` |
+| `/tmp/core-combined-dependencies.patch` | `8169be8ffa27ade2d5b4af18d69299b4a0ec3e647023f7582f811ac60f832b0c` |
+| Raw `three-manager-failover.log` | `e20185e5a23da83d8dd99efea102da0bd82ba3b8646ab6add7fcc6ac7d9addf1` |
+
+The raw log is retained beside this document as
+`core-containerd-local-2026-10-16-failover.log.gz`, preserving its original bytes.
+The successful cached build used QA's explicitly reserved capacity lane:
+
+```sh
+# Working directory: /tmp/ts-orchestrator-failover
+flock /tmp/ts-orch-refactor-capacity-check.lock env GOMAXPROCS=2 GOFLAGS='-p=2 -mod=mod' nice -n 19 timeout 120s go test -c -o /tmp/ts-core-failover.test ./internal/swarmruntime
+sudo -n nice -n 19 /tmp/ts-core-failover.test -test.v -test.run '^TestRuntimeThreeManagerLeaderLoss$' -test.timeout=5m -containerd-socket /tmp/ts-core-runtime.45lrvd/containerd.sock > /tmp/ts-core-runtime.45lrvd/evidence/three-manager-failover.log 2>&1
+```
+
 ## Operational finding
 
 containerd 2.4's configuration version 4 moved gRPC/ttrpc addresses into
