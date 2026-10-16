@@ -157,6 +157,9 @@ func (o RuntimeObserver) Observe(ctx context.Context, pins RuntimePins) (Runtime
 	if err := verifyRuntimeLimits(after.Cgroup, id, pins.Resources); err != nil {
 		return RuntimeObservation{}, err
 	}
+	if err := mount.VerifyContainerMount(pid, pins.VolumeDestination); err != nil {
+		return RuntimeObservation{}, err
+	}
 	return RuntimeObservation{Process: before, ContainerID: id, PIDNamespace: pidNS.Ino, MountNamespace: mountNS.Ino, State: status.Status}, nil
 }
 
