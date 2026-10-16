@@ -128,6 +128,8 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	configSHA := put(configWire)
 	manifestWire := []byte(fmt.Sprintf(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:%s","size":%d},"layers":[]}`, configSHA, len(configWire)))
 	imageDigest := put(manifestWire)
+	indexWire := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":%d,"platform":{"architecture":"%s","os":"linux"}}]}`, imageDigest, len(manifestWire), runtime.GOARCH))
+	indexSHA := put(indexWire)
 	proof.ImageManifest = release.ProductionGateEvidence{Gate: "image-manifest", SHA256: imageDigest, Bytes: int64(len(manifestWire)), CompletedAt: now}
 	proof.ImageConfig = release.ProductionGateEvidence{Gate: "image-config", SHA256: configSHA, Bytes: int64(len(configWire)), CompletedAt: now}
 	proof.ResultData.SourceArtifactSHA256 = imageDigest
@@ -146,7 +148,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "registry.example/platform/terrabase@sha256:" + imageDigest, SourceRepository: "https://github.com/TerraScale/terrascale", SourceRevision: strings.Repeat("a", 40), SourceTreeSHA256: proof.CandidateSourceTreeSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("2", 64)}
+		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "registry.example/platform/terrabase@sha256:" + imageDigest, SourceRepository: "https://github.com/TerraScale/terrascale", SourceRevision: strings.Repeat("a", 40), SourceTreeSHA256: proof.CandidateSourceTreeSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: indexSHA}
 		ha := []byte("controlled runtime fixture evidence")
 		expected := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: release.ProductionRuntime}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: expected, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: put(ha), Bytes: int64(len(ha)), CompletedAt: now}, {Gate: "workload-safety", SHA256: put(wire), Bytes: int64(len(wire)), CompletedAt: now}}}
@@ -160,7 +162,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		claim.ReleaseSequence = sequence
-		return release.ContainerBundle{Sequence: sequenceWire, Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: grantWire}
+		return release.ContainerBundle{Index: indexWire, Sequence: sequenceWire, Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: grantWire}
 	}
 	bundle := makeBundle(proof)
 	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open, allocations)
