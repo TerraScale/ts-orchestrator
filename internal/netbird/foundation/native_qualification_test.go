@@ -356,7 +356,7 @@ func (w *nativeQualification) startFoundation(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	w.runtime = &foundationRuntime{client: client, executable: "/usr/local/bin/ts-orch", logRoot: DataDirectory + "/runtime-logs"}
+	w.runtime = &foundationRuntime{client: client, executable: "/usr/local/bin/terrascale-orchestrator", logRoot: DataDirectory + "/runtime-logs"}
 	w.client, err = newBootstrapClient(localOrigin)
 	if err != nil {
 		return err
@@ -449,8 +449,15 @@ func (w *nativeQualification) launchPeer(c protocol.Command, key string) error {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return err
 	}
-	w.peer = exec.Command(w.clientPath, "up", "--foreground-mode", "--management-url", publicOrigin, "--hostname", "ts-gru-1", "--config", directory+"/config.json", "--log-file", directory+"/client.log")
-	w.peer.Env = append(os.Environ(), "NB_SETUP_KEY="+key, "SSL_CERT_FILE="+DataDirectory+"/data/foundation-tls/caddy/pki/authorities/local/root.crt")
+	if _, err := os.Stat(directory + "/default.json"); errors.Is(err, os.ErrNotExist) {
+		if err = os.WriteFile(directory+"/default.json", []byte("{}"), 0600); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	w.peer = exec.Command(w.clientPath, "up", "--foreground-mode", "--management-url", publicOrigin, "--hostname", "ts-gru-1", "--config", directory+"/default.json", "--log-file", directory+"/client.log")
+	w.peer.Env = append(os.Environ(), "NB_SETUP_KEY="+key, "NB_STATE_DIR="+directory, "SSL_CERT_FILE="+DataDirectory+"/data/foundation-tls/caddy/pki/authorities/local/root.crt")
 	return w.peer.Start()
 }
 
@@ -523,7 +530,7 @@ func (w *nativeQualification) observe(ctx context.Context) (protocol.Account, er
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	config, err := os.ReadFile(DataDirectory + "/data/native-peer/config.json")
+	config, err := os.ReadFile(DataDirectory + "/data/native-peer/default.json")
 	if err != nil {
 		return result, err
 	}
