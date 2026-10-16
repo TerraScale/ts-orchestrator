@@ -19,6 +19,7 @@ import (
 type VerifiedStartupTemplate struct {
 	template                                                StartupTemplate
 	anchor                                                  VerifiedBootstrapAnchor
+	identity                                                BootstrapAnchor
 	roots                                                   trust.Keyring
 	grantWire                                               []byte
 	grantDigest, templateDigest, planDigest, installationID string
@@ -40,6 +41,10 @@ type StartupVaultTarget struct {
 func (verified VerifiedStartupTemplate) IsVerified() bool {
 	return verified.grantDigest != "" && verified.anchor.IsVerified() && verified.image.IsVerified()
 }
+func (verified VerifiedStartupTemplate) startupIdentity() BootstrapAnchor {
+	return cloneBootstrapAnchor(verified.identity)
+}
+
 func (verified VerifiedStartupTemplate) Template() StartupTemplate       { return verified.template.Clone() }
 func (verified VerifiedStartupTemplate) GrantWire() []byte               { return bytes.Clone(verified.grantWire) }
 func (verified VerifiedStartupTemplate) GrantDigest() string             { return verified.grantDigest }
@@ -91,17 +96,17 @@ func (verified VerifiedStartupTemplate) VerifyCurrent(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	_, err = VerifyStartupTemplate(verified.grantWire, verified.roots, anchor, now)
+	_, err = verifyStartupTemplateForIdentity(verified.grantWire, verified.roots, anchor, verified.startupIdentity(), now)
 	return err
 }
 
 // ManifestFor returns render-only structural inputs. It cannot be passed to a
 // materializer or admission gate as a verified signed manifest.
 func (verified VerifiedStartupTemplate) ManifestFor(slot string, refs []SecretReference) (Manifest, error) {
-	if !verified.IsVerified() || !slices.Contains(verified.anchor.Anchor().ControllerSlots, slot) {
+	if !verified.IsVerified() || !slices.Contains(verified.startupIdentity().ControllerSlots, slot) {
 		return Manifest{}, ErrManifestInvalid
 	}
-	anchor := verified.anchor.Anchor()
+	anchor := verified.startupIdentity()
 	template := verified.template.Clone()
 	manifest := Manifest{SchemaVersion: ManifestSchemaVersion, DeploymentID: anchor.DeploymentID,
 		Environment: anchor.Environment, ClusterID: anchor.ClusterID, Cell: anchor.Cell, OCIRegion: anchor.OCIRegion,
@@ -122,7 +127,11 @@ func (verified VerifiedStartupTemplate) ManifestFor(slot string, refs []SecretRe
 // VerifyStartupTemplate independently checks the same footprint signature and
 // exact grant pin used by OCI. No per-manifest signature or new root is minted.
 func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
-	if !anchor.IsVerified() || now.IsZero() || !now.Before(anchor.ExpiresAt()) || len(wire) == 0 || len(wire) > 1<<20 {
+	return verifyStartupTemplateForIdentity(wire, roots, anchor, anchor.Anchor(), now)
+}
+
+func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor VerifiedBootstrapAnchor, identity BootstrapAnchor, now time.Time) (VerifiedStartupTemplate, error) {
+	if !anchor.IsVerified() || identity.Validate() != nil || now.IsZero() || !now.Before(anchor.ExpiresAt()) || len(wire) == 0 || len(wire) > 1<<20 {
 		return VerifiedStartupTemplate{}, ErrManifestInvalid
 	}
 	home, err := anchor.FoundationScope()
@@ -133,7 +142,6 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 	if err != nil {
 		return VerifiedStartupTemplate{}, err
 	}
-	identity := anchor.Anchor()
 	payload, err := trust.VerifyCurrent(envelope, trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: home.DeploymentID,
 		Cell: "GRU", Environment: identity.Environment, Role: "foundation", Slot: home.ClusterID}, roots, now, BootstrapAnchorTrustPolicy())
 	if err != nil || envelope.ExpiresAt.After(anchor.ExpiresAt()) {
@@ -248,7 +256,7 @@ func VerifyStartupTemplate(wire []byte, roots trust.Keyring, anchor VerifiedBoot
 		for keyID, key := range roots {
 			clonedRoots[keyID] = bytes.Clone(key)
 		}
-		return VerifiedStartupTemplate{template: template, anchor: anchor, roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
+		return VerifiedStartupTemplate{template: template, anchor: anchor, identity: cloneBootstrapAnchor(identity), roots: clonedRoots, grantWire: bytes.Clone(wire), grantDigest: digestBytes(wire), templateDigest: digestBytes(templateWire),
 			planDigest: material.PlanSHA256, installationID: material.InstallationID, generation: grant.Generation, issuedAt: envelope.IssuedAt, expiresAt: expires, image: image, vault: vault, escrow: escrow, slotIPs: slotIPs}, nil
 	}
 	return VerifiedStartupTemplate{}, ErrManifestInvalid

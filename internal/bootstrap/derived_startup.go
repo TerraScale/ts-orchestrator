@@ -102,10 +102,10 @@ func RestoreDerivedStartupAuthority(ctx context.Context, grantWire []byte, ancho
 // LoadDerivedStartupAuthority discovers a joining slot's immutable public
 // proof directly; first-boot metadata never needs a dynamic config payload.
 func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTemplate, client ObjectStorageClient, slot string, now time.Time) (DerivedStartupAuthority, error) {
-	if client == nil || template.VerifyCurrent(now) != nil || !slices.Contains(template.anchor.Anchor().ControllerSlots, slot) {
+	if client == nil || template.VerifyCurrent(now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
 		return DerivedStartupAuthority{}, ErrManifestInvalid
 	}
-	domain := template.anchor.Anchor().StorageDomain
+	domain := template.startupIdentity().StorageDomain
 	key := startupSourceKey(template)
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(key)})
 	if err != nil {
@@ -126,7 +126,7 @@ func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTe
 }
 
 func startupSourceKey(template VerifiedStartupTemplate) string {
-	anchor := template.anchor.Anchor()
+	anchor := template.startupIdentity()
 	scopeHash := digestBytes([]byte(template.InstallationID() + "\x00" + strings.ToLower(string(anchor.Cell))))
 	return anchor.StorageDomain.Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
 }
@@ -177,7 +177,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		return deny("source keys")
 	}
 	keyID, _ := trust.KeyID(ledgerKey)
-	anchor := template.anchor.Anchor()
+	anchor := template.startupIdentity()
 	if len(anchor.LedgerDelegationWire) != 0 {
 		delegation, grantErr := template.anchor.LedgerDelegation()
 		if grantErr != nil || delegation.SubjectKeyID() != keyID {
