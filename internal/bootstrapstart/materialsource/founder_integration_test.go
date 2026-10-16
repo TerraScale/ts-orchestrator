@@ -140,7 +140,14 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/20160918/instances/"):
-			json.MarshalWrite(w, core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))}, LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
+			wire, err := json.Marshal(core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))}, LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("etag", digestWire(wire))
+			w.Write(wire)
 		case strings.HasPrefix(r.URL.Path, "/20160918/images/"):
 			json.MarshalWrite(w, core.Image{Id: new(manifest.ImageOCID), CompartmentId: new(resources.ImageCompartmentOCID), LifecycleState: core.ImageLifecycleStateAvailable})
 		case r.URL.Path == "/20160918/bootVolumeAttachments":
@@ -229,6 +236,10 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 	proof, err := bootstrapstart.VerifySourceFounderWithSources(t.Context(), factory, template, sourceMetadataHTTP{client: server.Client(), endpoint: server.URL}, observer)
 	if err != nil {
 		t.Fatal(err)
+	}
+	observed, err := proof.ObserveCurrent(t.Context())
+	if err != nil || observed.ETag == "" {
+		t.Fatalf("actual Compute observation omitted its resource ETag: %v", err)
 	}
 	store, err := region.NewObjectFoundationStore(objects, grant.StorageDomain().Namespace, grant.StorageDomain().HeadBucket)
 	if err != nil {
