@@ -299,6 +299,9 @@ func (location SequenceLocation) retainReservation(ctx context.Context, head seq
 	if err != nil {
 		return nil, err
 	}
+	if response.Content == nil {
+		return nil, fmt.Errorf("%w: retained sequence reservation has no body", ErrInvalidReceipt)
+	}
 	defer response.Content.Close()
 	retained, err := io.ReadAll(io.LimitReader(response.Content, MaxWorkerFamilyEvidenceBytes+1))
 	if err != nil {
