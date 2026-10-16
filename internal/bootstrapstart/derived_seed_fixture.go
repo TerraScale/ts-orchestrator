@@ -282,6 +282,21 @@ func exerciseDerivedInstallation(t *testing.T, seed bootstrap.DerivedStartupAuth
 	if err != nil || restarted.InstanceOCID != accepted.InstanceOCID || restarted.Slot != payload.Slot || restarted.ConfigSHA256["controller.json"] != payload.ControllerConfigSHA256 {
 		t.Fatalf("accepted derived seed reboot: %v", err)
 	}
+	if payload.Slot != payload.SeedSlot {
+		identity, err := markers.ReadIdentity()
+		if err != nil {
+			t.Fatalf("actual derived peer accepted identity: %v", err)
+		}
+		runtime, err := reader.ReadRuntimeAuthority(ctx, identity, time.Now().UTC())
+		expected := RuntimeIdentity{DeploymentID: payload.DeploymentID, ClusterID: payload.ClusterID,
+			Environment: payload.Environment, Cell: string(payload.Cell), OCIRegion: payload.OCIRegion,
+			Slot: payload.Slot, SeedSlot: payload.SeedSlot, InstanceID: restarted.InstanceOCID,
+			PrivateIP: restarted.PrimaryPrivateIP, SeedPrivateIP: selected.Plan.Plan().SeedPrivateIP}
+		if err != nil || runtime.Identity() != expected || runtime.Anchor().Digest() != seed.AnchorDigest() || !runtime.ExpiresAt().Equal(selected.SelectionExpiresAt) {
+			t.Fatalf("actual derived peer runtime authority: %v", err)
+		}
+		t.Logf("derived peer %s: public runtime authority retained its exact admitted identity and sealed plan", payload.Slot)
+	}
 	return derivedAdmissionInstallation{accepted: accepted, baked: baked, floor: floor, ledger: ledger, reader: reader, selected: selected, signers: signers, launch: launch}
 }
 
