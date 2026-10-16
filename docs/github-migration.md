@@ -13,7 +13,9 @@ ts-orch release apply --dir BUNDLE --root-key TRUSTED_ROOT --namespace NS
 root-delegated release channel proofs; `BUNDLE/binaries/<sha256>` holds exact
 binary bytes. Application verifies trust, scope, digests and ordering before
 publishing through the existing OCI path. It needs no `gh`, Git, source
-checkout or signing secret. GitHub verification and signing remain producer
+checkout, Atlas discovery or signing secret. Signed bundle directories name
+the targets; regional preflight and rollout fail independently with fixed bounded
+concurrency. GitHub verification and signing remain producer
 adapter responsibilities; the combined `release deploy` flow is legacy.
 
 Webhooks may provide notification hints, never release authority. Consumers
