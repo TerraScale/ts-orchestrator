@@ -42,7 +42,7 @@ func natsSeedRequester(conn *nats.Conn, subject string) membership.SeedRequester
 		reply, err := conn.RequestWithContext(ctx, subject, payload)
 		if err != nil {
 			if errors.Is(err, nats.ErrNoResponders) {
-				return nil, fmt.Errorf("no seed controller serves %s (seed down, route_to_seed off on the seed, or controller credentials without the membership.replace grant): %w", subject, err)
+				return nil, fmt.Errorf("no seed controller serves %s (seed unavailable or controller credentials without the membership.replace grant): %w", subject, err)
 			}
 			return nil, err
 		}

@@ -319,8 +319,8 @@ func RenderBreakGlassRetirementRequest(ctx context.Context, slot, dir string, no
 }
 
 // controllerMembership is the membership supervision of one production
-// controller: the reconciler every controller runs, and on the seed with
-// seed routing enabled, the server that executes replacements a non-seed
+// controller: the reconciler every controller runs, and on the seed,
+// the server that executes replacements a non-seed
 // authority leader decided.
 type controllerMembership struct {
 	reconciler *membership.Reconciler
@@ -345,18 +345,10 @@ func (m *controllerMembership) Run(ctx context.Context) error {
 	return errors.Join(first, <-errs)
 }
 
-// startControllerMembership builds the reconciler for a production controller
-// whose signed config enables supervision. It returns nil when disabled.
+// startControllerMembership builds the reconciler for every production controller.
 func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	control *authority.Runtime,
 ) (*controllerMembership, error) {
-	settings := cfg.Controller.Membership
-	if settings == nil || !settings.Enabled {
-		return nil, nil
-	}
-	if err := settings.Validate(); err != nil {
-		return nil, err
-	}
 	if cfg.NATS.Lab {
 		return nil, errors.New("controller membership supervision requires a production controller")
 	}
@@ -372,7 +364,7 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 	var replacer membership.Replacer
 	var seed *seedReplacementService
 	switch {
-	case opened.initial != nil && settings.Replace && accepted.Slot == accepted.SeedSlot:
+	case opened.initial != nil && accepted.Slot == accepted.SeedSlot:
 		// The seed's own reconciler and its seed-routing server share one
 		// founder replacer, which runs one replacement at a time.
 		founder := &serializedReplacer{inner: founderMembershipReplacer{
@@ -384,28 +376,27 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 				return bootstrapstart.NewAdmittedFounderReplacer(openCtx, baked, *opened.initial, serviceUID, serviceGID)
 			}}}
 		replacer = founder
-		if settings.RouteToSeed {
-			server, err := membership.NewSeedServer(ctx, topology, membership.SeedServerDependencies{
-				Leases: control, Instances: instances, Replacer: founder, Logger: logger})
-			if err != nil {
-				return nil, err
-			}
-			seed = &seedReplacementService{conn: runtime.Conn(), subject: protocol.MembershipReplaceSubject(cfg.NATS.Cell),
-				server: server}
+		server, err := membership.NewSeedServer(ctx, topology, membership.SeedServerDependencies{
+			Leases: control, Instances: instances, Replacer: founder, Logger: logger})
+		if err != nil {
+			return nil, err
 		}
-	case opened.initial != nil && settings.Replace && settings.RouteToSeed:
+		seed = &seedReplacementService{conn: runtime.Conn(), subject: protocol.MembershipReplaceSubject(cfg.NATS.Cell),
+			server: server}
+	case opened.initial != nil:
 		replacer = membership.SeedRoutedReplacer{Cell: cfg.NATS.Cell, Leadership: control,
 			Request: natsSeedRequester(runtime.Conn(), protocol.MembershipReplaceSubject(cfg.NATS.Cell))}
 	}
 	var requests membership.RetirementRequester
 	if opened.initial != nil {
-		requests = ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell, dir: settings.EvidenceDir()}
+		requests = ledgerRetirementRequests{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell,
+			dir: membership.DefaultRetirementEvidenceDir}
 	}
-	reconciler, err := membership.New(*settings, topology, membership.Dependencies{
+	reconciler, err := membership.New(topology, membership.Dependencies{
 		Leadership: control, Peers: natsMembershipPeers{runtime: runtime},
 		Ledger:    opened.slots,
 		Instances: instances,
-		Evidence:  membership.NewFileEvidence(settings.EvidenceDir(), topology.Slots, logger),
+		Evidence:  membership.NewFileEvidence(membership.DefaultRetirementEvidenceDir, topology.Slots, logger),
 		Requests:  requests,
 		Replacer:  replacer, Logger: logger,
 	})

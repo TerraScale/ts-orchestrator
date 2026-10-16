@@ -207,7 +207,7 @@ func TestControllerMembershipSurfacesASeedServiceFailureAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSlotOCI{}
-	reconciler, err := membership.New(membership.Config{Enabled: true, Replace: true, RouteToSeed: true}, topology,
+	reconciler, err := membership.New(topology,
 		membership.Dependencies{Leadership: followerLeadership{}, Peers: noPeers{}, Ledger: fake, Instances: fake,
 			Evidence: fake, Replacer: founder})
 	if err != nil {
