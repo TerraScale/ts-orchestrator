@@ -2,6 +2,8 @@ package publicapi
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -22,6 +24,35 @@ import (
 // Retry identity binds the durable operation to the provider target and
 // canonical mutation payload, including requests retried after process loss.
 func retryToken(ctx context.Context, client *SDKClient, command sdkcli.Command) (*string, error) {
+	step, err := canonicalRequest(client.Region, command)
+	if err != nil {
+		return nil, err
+	}
+	return new(ociresource.RetryToken(ctx, string(step))), nil
+}
+
+// CreateRetryIdentity shares the SDK's exact request identity with the durable
+// foundation journal. An empty token means OCI cannot deduplicate a replay.
+func CreateRetryIdentity(ctx context.Context, region string, args ...string) (digest, token string, err error) {
+	command, err := sdkcli.Parse(args)
+	if err != nil {
+		return "", "", err
+	}
+	if _, ok := creators[command.Path]; !ok || !strings.HasSuffix(command.Path, " create") {
+		return "", "", errors.New("OCI command is not a supported foundation create")
+	}
+	step, err := canonicalRequest(region, command)
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256(step)
+	if command.Path != "os bucket create" && command.Path != "os retention-rule create" {
+		token = ociresource.RetryToken(ctx, string(step))
+	}
+	return hex.EncodeToString(sum[:]), token, nil
+}
+
+func canonicalRequest(region string, command sdkcli.Command) ([]byte, error) {
 	flags := make(map[string]any, len(command.Flags))
 	for key, value := range command.Flags {
 		if key == "wait-for-state" {
@@ -36,11 +67,11 @@ func retryToken(ctx context.Context, client *SDKClient, command sdkcli.Command) 
 			flags[key] = payload
 		}
 	}
-	step, err := json.Marshal(map[string]any{"region": client.Region, "path": command.Path, "flags": flags}, json.Deterministic(true))
+	step, err := json.Marshal(map[string]any{"region": region, "path": command.Path, "flags": flags}, json.Deterministic(true))
 	if err != nil {
 		return nil, errors.New("OCI retry identity is invalid")
 	}
-	return new(ociresource.RetryToken(ctx, string(step))), nil
+	return step, nil
 }
 
 func (c *SDKClient) identity() (identity.IdentityClient, error) {

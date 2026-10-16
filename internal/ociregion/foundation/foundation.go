@@ -58,11 +58,18 @@ type Foundation struct {
 	Guard func(context.Context) error
 	// Checkpoint durably records each verified OCID before dependent work.
 	Checkpoint func(context.Context, string, string) error
-	ownership  map[string]string
-	expected   map[string]string
-	tenancy    string
-	region     string
-	inspect    func(context.Context, Object) error
+	// AuxiliaryIDs come from the authenticated regional journal, never tags.
+	AuxiliaryIDs        map[string]string
+	CheckpointAuxiliary func(context.Context, string, string) error
+	// PrepareCreate persists the exact request before its first mutation and
+	// authorizes bounded replay only for an identical pending request.
+	PrepareCreate func(context.Context, CreateIdentity, bool) error
+	ownership     map[string]string
+	expected      map[string]string
+	resourceKeys  map[string]string
+	tenancy       string
+	region        string
+	inspect       func(context.Context, Object) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -189,7 +196,7 @@ func (f *Foundation) Run(ctx context.Context, plan Object, out string) error {
 // Reconcile applies one authorized foundation without a CLI or file handoff.
 // The caller supplies durable authority and OCID checkpoints before NATS exists.
 func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error) {
-	if f.BeforeWrite == nil || f.Guard == nil || f.Checkpoint == nil || f.Check == nil || f.OperationID == "" || len(f.OperationID) > 256 {
+	if f.BeforeWrite == nil || f.Guard == nil || f.Checkpoint == nil || f.CheckpointAuxiliary == nil || f.PrepareCreate == nil || f.Check == nil || f.OperationID == "" || len(f.OperationID) > 256 {
 		return nil, errors.New("foundation reconciliation requires an operation ID, durable authority, checkpoints and live inspection")
 	}
 	working := *f
@@ -317,15 +324,18 @@ func (f *Foundation) find(c command.Client, field, name string, args ...string) 
 				found = r
 			}
 		}
-		if expected := f.expected[name]; expected != "" && (found == nil || found["id"] != expected) {
-			return nil, fmt.Errorf("recorded resource %s (%s) is missing or differs; refusing replacement", name, expected)
-		}
-		if found != nil && len(f.ownership) > 0 && f.expected[name] == "" {
-			// Mutable tags cannot replace an authenticated resource checkpoint.
-			return nil, fmt.Errorf("resource %s has no authenticated foundation ownership checkpoint; refusing adoption", name)
-		}
-		return found, nil
+		return f.verifyFound(name, found)
 	}
+}
+
+func (f *Foundation) verifyFound(name string, found Object) (Object, error) {
+	if expected := f.expected[name]; expected != "" && (found == nil || found["id"] != expected) {
+		return nil, fmt.Errorf("recorded resource %s (%s) is missing or differs; refusing replacement", name, expected)
+	}
+	if found != nil && len(f.ownership) > 0 && f.expected[name] == "" {
+		return nil, &unrecordedResource{name: name, id: text(found["id"])}
+	}
+	return found, nil
 }
 
 func (f *Foundation) create(c command.Client, args ...string) func(context.Context) (Object, error) {
@@ -333,6 +343,34 @@ func (f *Foundation) create(c command.Client, args ...string) func(context.Conte
 		words := slices.Clone(args)
 		if len(f.ownership) > 0 {
 			words = append(words, "--freeform-tags", command.JSON(f.ownership))
+		}
+		if f.PrepareCreate != nil {
+			parsed, err := sdkcli.Parse(words)
+			if err != nil {
+				return nil, err
+			}
+			name := parsed.Flags["display-name"]
+			if name == "" {
+				name = parsed.Flags["name"]
+			}
+			region := f.region
+			if sdk, ok := c.(*publicapi.SDKClient); ok {
+				region = sdk.Region
+			}
+			digest, token, err := publicapi.CreateRetryIdentity(ctx, region, words...)
+			if err != nil {
+				return nil, err
+			}
+			identity := CreateIdentity{Key: f.resourceKeys[name], Region: region, RequestDigest: digest, RetryToken: token}
+			if err := identity.Validate(); err != nil {
+				return nil, err
+			}
+			if recoveringCreate(ctx) && token == "" {
+				return nil, errors.New("OCI create has no retry token; unknown result requires exact provider observation")
+			}
+			if err := f.PrepareCreate(ctx, identity, recoveringCreate(ctx)); err != nil {
+				return nil, fmt.Errorf("prepare durable OCI create: %w", err)
+			}
 		}
 		return f.data(ctx, c, words...)
 	}
@@ -343,7 +381,17 @@ func (f *Foundation) create(c command.Client, args ...string) func(context.Conte
 func (f *Foundation) ensure(ctx context.Context, what string, find, create func(context.Context) (Object, error), valid func(Object) bool) (Object, error) {
 	r, err := find(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("find %s: %w", what, err)
+		unknown, recoverable := errors.AsType[*unrecordedResource](err)
+		if !recoverable || !f.Apply || f.PrepareCreate == nil || unknown.id == "" {
+			return nil, fmt.Errorf("find %s: %w", what, err)
+		}
+		r, err = create(context.WithValue(ctx, recoveringCreateKey{}, true))
+		if err != nil {
+			return nil, fmt.Errorf("recover %s: %w", what, errors.Join(unknown, err))
+		}
+		if text(r["id"]) != unknown.id {
+			return nil, fmt.Errorf("recovered %s differs from observed resource identity", what)
+		}
 	}
 	if r == nil {
 		if !f.Apply {
@@ -420,16 +468,27 @@ func (f *Foundation) bind(ctx context.Context, plan Object) (Object, error) {
 		f.ownership["terrascale.operation"] = f.OperationID
 	}
 	f.expected = map[string]string{}
+	f.resourceKeys = map[string]string{}
+	remember := func(name, key, expected string) {
+		f.expected[name], f.resourceKeys[name] = expected, key
+	}
 	names := obj(plan["preview_compartment_names"])
 	for _, role := range []string{"control", "network", "workload"} {
-		f.expected[text(names[role])] = text(ids[role+"_compartment"])
+		remember(text(names[role]), role+"_compartment", text(ids[role+"_compartment"]))
 	}
 	for key, suffix := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "service_gateway": "service-gateway", "route_table": "private-routes", "security_list": "private-security", "subnet": "private", "network_security_group": "controllers-nsg", "workload_network_security_group": "databases-nsg"} {
-		f.expected[cell+"-"+suffix] = text(ids[key])
+		remember(cell+"-"+suffix, key, text(ids[key]))
 	}
 	identity := obj(plan["identity"])
 	for key, field := range map[string]string{"controller_dynamic_group": "controller_dynamic_group_name", "host_dynamic_group": "host_dynamic_group_name", "controller_policy": "controller_policy_name", "objectstorage_key_policy": "objectstorage_key_policy_name"} {
-		f.expected[text(identity[field])] = text(ids[key])
+		remember(text(identity[field]), key, text(ids[key]))
+	}
+	for key, name := range map[string]string{"controller_usage_policy": cell + "-controller-usage", "netbird_enrollment_policy": cell + "-netbird-enrollment"} {
+		remember(name, key, f.AuxiliaryIDs[key])
+	}
+	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		key := role + "_bucket"
+		remember(text(obj(plan["foundation_buckets"])[role]), key, f.AuxiliaryIDs[key])
 	}
 	bind := func(key string, r Object) error {
 		if r == nil {
@@ -664,7 +723,7 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		{"controller_policy", text(identity["controller_policy_name"]), parent, controller},
 		// Usage API statements must name the tenancy, so this one sits in
 		// the root compartment; the controller policy's parent is not it.
-		{"", cell + "-controller-usage", tenancy, []string{fmt.Sprintf("Allow dynamic-group %s to read usage-report in tenancy", text(identity["controller_dynamic_group_name"]))}}}
+		{"controller_usage_policy", cell + "-controller-usage", tenancy, []string{fmt.Sprintf("Allow dynamic-group %s to read usage-report in tenancy", text(identity["controller_dynamic_group_name"]))}}}
 	if plan["netbird"] == nil {
 		// Without a plan-bound NetBird secret, both dynamic groups may read
 		// the setup key by its static name once it is stored. No resource ID
@@ -673,7 +732,7 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		for _, g := range []string{"controller_dynamic_group_name", "host_dynamic_group_name"} {
 			statements = append(statements, fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.name = '%s-netbird-setup-key'", text(identity[g]), control, cell))
 		}
-		policies = append(policies, policy{"", cell + "-netbird-enrollment", control, statements})
+		policies = append(policies, policy{"netbird_enrollment_policy", cell + "-netbird-enrollment", control, statements})
 	}
 	for _, p := range policies {
 		name := p.name
@@ -685,7 +744,10 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		if err != nil {
 			return err
 		}
-		if p.key == "" {
+		if p.key == "controller_usage_policy" || p.key == "netbird_enrollment_policy" {
+			if err := f.bindAuxiliary(ctx, p.key, r); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := bind(p.key, r); err != nil {
@@ -713,20 +775,39 @@ func (f *Foundation) buckets(ctx context.Context, plan Object, control, key stri
 		if role == "head" || role == "material" {
 			versioning = "Enabled"
 		}
-		list := f.find(f.Region, "name", name, "os", "bucket", "list", "--compartment-id", control, "--all")
 		bucket, err := f.ensure(ctx, "bucket "+name, func(ctx context.Context) (Object, error) {
-			// A summary lacks the encryption and versioning to check.
-			r, err := list(ctx)
-			if r == nil || err != nil {
-				return r, err
+			v, err := f.call(ctx, f.Region, "os", "bucket", "list", "--compartment-id", control, "--all")
+			if err != nil {
+				return nil, err
 			}
-			return f.data(ctx, f.Region, "os", "bucket", "get", "--namespace-name", namespace, "--bucket-name", name)
+			rows, err := command.Rows(v)
+			if err != nil {
+				return nil, err
+			}
+			var found Object
+			for _, row := range rows {
+				if row["name"] != name {
+					continue
+				}
+				if found != nil {
+					return nil, fmt.Errorf("more than one live bucket is named %s", name)
+				}
+				// A summary omits the bucket OCID, encryption and versioning.
+				found, err = f.data(ctx, f.Region, "os", "bucket", "get", "--namespace-name", namespace, "--bucket-name", name)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return f.verifyFound(name, found)
 		}, f.create(f.Region, "os", "bucket", "create", "--namespace-name", namespace, "--compartment-id", control, "--name", name, "--kms-key-id", key,
 			"--versioning", versioning, "--public-access-type", "NoPublicAccess", "--storage-tier", "Standard"),
 			func(r Object) bool {
 				return r["compartment-id"] == control && r["public-access-type"] == "NoPublicAccess" && r["kms-key-id"] == key && r["versioning"] == versioning
 			})
 		if err != nil {
+			return err
+		}
+		if err := f.bindAuxiliary(ctx, role+"_bucket", bucket); err != nil {
 			return err
 		}
 		if versioning == "Enabled" {

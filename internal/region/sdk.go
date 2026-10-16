@@ -12,8 +12,8 @@ import (
 // Authority and checkpoints come from the durable regional attempt.
 type SDKFoundations struct{ Factory *ociclient.Factory }
 
-func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string]any, operationID string, beforeWrite func(context.Context, bool) (func(), error), checkpoint func(context.Context, string, string) error) (map[string]any, error) {
-	if s.Factory == nil || beforeWrite == nil || checkpoint == nil {
+func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string]any, progress FoundationProgress) (map[string]any, error) {
+	if s.Factory == nil || progress.BeforeWrite == nil || progress.Checkpoint == nil || progress.CheckpointAuxiliary == nil || progress.PrepareCreate == nil {
 		return nil, errors.New("foundation SDK requires authenticated client, authority and checkpoints")
 	}
 	region, ok := plan["region"].(string)
@@ -32,9 +32,10 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 	if err != nil {
 		return nil, err
 	}
-	provider.OperationID, provider.BeforeWrite, provider.Checkpoint = operationID, beforeWrite, checkpoint
+	provider.OperationID, provider.BeforeWrite, provider.Checkpoint = progress.OperationID, progress.BeforeWrite, progress.Checkpoint
+	provider.AuxiliaryIDs, provider.CheckpointAuxiliary, provider.PrepareCreate = progress.AuxiliaryIDs, progress.CheckpointAuxiliary, progress.PrepareCreate
 	provider.Guard = func(ctx context.Context) error {
-		release, err := beforeWrite(ctx, false)
+		release, err := progress.BeforeWrite(ctx, false)
 		if err != nil {
 			return err
 		}

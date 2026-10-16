@@ -173,6 +173,16 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	foundation.OperationID = "durable-sfo-foundation"
+	pending := map[string]CreateIdentity{}
+	foundation.PrepareCreate = func(_ context.Context, identity CreateIdentity, recovery bool) error {
+		old, exists := pending[identity.Key]
+		if recovery && !exists || exists && old != identity {
+			return errors.New("create has no matching durable pending request")
+		}
+		pending[identity.Key] = identity
+		return nil
+	}
+	foundation.CheckpointAuxiliary = func(context.Context, string, string) error { return nil }
 	foundation.Pause = func(context.Context, time.Duration) error { return nil }
 	foundation.Guard = func(context.Context) error { return nil }
 	foundation.BeforeWrite = func(_ context.Context, iam bool) (func(), error) {
@@ -210,15 +220,15 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if !owned {
 		t.Fatalf("creation omitted ownership: %v", tags)
 	}
-	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "refusing adoption") || numWrites() != 1 {
-		t.Fatalf("visible uncheckpointed create bypassed durable identity: writes=%d err=%v", numWrites(), err)
+	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || numWrites() != 1 || numPosts() != 3 {
+		t.Fatalf("visible pending create did not recover exact retry result: writes=%d posts=%d err=%v", numWrites(), numPosts(), err)
 	}
 	// Replay an unknown response while provider listing is still stale. OCI
 	// must see the same token across reconciliation calls and create only once.
 	state.Lock()
 	hideList = true
 	state.Unlock()
-	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || numWrites() != 1 || numPosts() != 3 {
+	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || numWrites() != 1 || numPosts() != 4 {
 		t.Fatalf("unknown-result replay duplicated resource: posts=%d writes=%d err=%v", numPosts(), numWrites(), err)
 	}
 	state.Lock()
@@ -246,6 +256,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		inspectionIDs[key] = resourceID
 	}
 	inspectionPlan := Object{"resource_ids": inspectionIDs, "bootstrap_object_prefix": ""}
+	state.Lock()
+	initialInspections := inspections
+	state.Unlock()
 	if err := foundation.inspect(t.Context(), inspectionPlan); err == nil || !strings.Contains(err.Error(), "identity differs") {
 		t.Fatalf("fresh inspection inherited constructor cancellation: %v", err)
 	}
@@ -259,7 +272,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	state.Lock()
 	defer state.Unlock()
-	if inspections != before || before != 1 {
+	if inspections != before || before != initialInspections+1 {
 		t.Fatalf("inspection cancellation reached provider: before=%d after=%d", before, inspections)
 	}
 }

@@ -330,8 +330,9 @@ func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (str
 	var log bytes.Buffer
 	foundation := &Foundation{Region: client{f, sfo}, Home: client{f, home}, Apply: apply, Out: &log,
 		BeforeWrite: allowWrite, Guard: allowGuard, Checkpoint: func(context.Context, string, string) error { return nil },
-		Pause: func(context.Context, time.Duration) error { return nil },
-		Check: (&ociregion.Engine{Context: t.Context(), Dependency: f.dependency}).CheckFoundation}
+		CheckpointAuxiliary: func(context.Context, string, string) error { return nil },
+		Pause:               func(context.Context, time.Duration) error { return nil },
+		Check:               (&ociregion.Engine{Context: t.Context(), Dependency: f.dependency}).CheckFoundation}
 	err := foundation.Run(t.Context(), plan, out)
 	return log.String(), err
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
 )
 
 const foundationLease = 45 * time.Second
@@ -56,32 +57,50 @@ type FoundationAuthority interface {
 // Foundations is the typed OCI foundation boundary; implementations observe
 // actual resources on every call and check beforeWrite before every API write.
 type Foundations interface {
-	ReconcileFoundation(ctx context.Context, plan map[string]any, operationID string,
-		beforeWrite func(context.Context, bool) (func(), error),
-		checkpoint func(context.Context, string, string) error) (map[string]any, error)
+	ReconcileFoundation(context.Context, map[string]any, FoundationProgress) (map[string]any, error)
+}
+
+// FoundationProgress connects provider effects to the same durable scoped
+// attempt. The snapshot IDs are authenticated journal values, never discovery.
+type FoundationProgress struct {
+	OperationID         string
+	BeforeWrite         func(context.Context, bool) (func(), error)
+	Checkpoint          func(context.Context, string, string) error
+	AuxiliaryIDs        map[string]string
+	CheckpointAuxiliary func(context.Context, string, string) error
+	PrepareCreate       func(context.Context, foundation.CreateIdentity, bool) error
+}
+
+type PendingFoundationCreate struct {
+	OperationID    string                    `json:"operationId"`
+	IntentDigest   string                    `json:"intentDigest"`
+	Request        foundation.CreateIdentity `json:"request"`
+	FirstAttemptAt time.Time                 `json:"firstAttemptAt"`
 }
 
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
-	SchemaVersion       int               `json:"schemaVersion"`
-	Cell                string            `json:"cell"`
-	OCIRegion           string            `json:"ociRegion"`
-	TenancyID           string            `json:"tenancyId"`
-	ParentCompartmentID string            `json:"parentCompartmentId"`
-	SharedCompartmentID string            `json:"sharedCompartmentId"`
-	Generation          uint64            `json:"generation"`
-	IntentDigest        string            `json:"intentDigest"`
-	OperationID         string            `json:"operationId"`
-	Epoch               uint64            `json:"epoch"`
-	LeaseID             string            `json:"leaseId,omitempty"`
-	ExpiresAt           time.Time         `json:"expiresAt,omitzero"`
-	Stage               string            `json:"stage"`
-	BlockedReason       string            `json:"blockedReason,omitempty"`
-	StartedAt           time.Time         `json:"startedAt"`
-	UpdatedAt           time.Time         `json:"updatedAt"`
-	CompletedAt         time.Time         `json:"completedAt,omitzero"`
-	ResourceIDs         map[string]string `json:"resourceIds"`
+	SchemaVersion       int                                `json:"schemaVersion"`
+	Cell                string                             `json:"cell"`
+	OCIRegion           string                             `json:"ociRegion"`
+	TenancyID           string                             `json:"tenancyId"`
+	ParentCompartmentID string                             `json:"parentCompartmentId"`
+	SharedCompartmentID string                             `json:"sharedCompartmentId"`
+	Generation          uint64                             `json:"generation"`
+	IntentDigest        string                             `json:"intentDigest"`
+	OperationID         string                             `json:"operationId"`
+	Epoch               uint64                             `json:"epoch"`
+	LeaseID             string                             `json:"leaseId,omitempty"`
+	ExpiresAt           time.Time                          `json:"expiresAt,omitzero"`
+	Stage               string                             `json:"stage"`
+	BlockedReason       string                             `json:"blockedReason,omitempty"`
+	StartedAt           time.Time                          `json:"startedAt"`
+	UpdatedAt           time.Time                          `json:"updatedAt"`
+	CompletedAt         time.Time                          `json:"completedAt,omitzero"`
+	ResourceIDs         map[string]string                  `json:"resourceIds"`
+	AuxiliaryIDs        map[string]string                  `json:"auxiliaryIds,omitempty"`
+	PendingCreates      map[string]PendingFoundationCreate `json:"pendingCreates,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -215,10 +234,22 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			return current, ErrFoundationBusy
 		}
 		if intent.Generation > current.Generation {
+			if len(current.PendingCreates) != 0 {
+				return current, errors.New("previous foundation intent has unresolved accepted creates")
+			}
 			current.Generation, current.IntentDigest = intent.Generation, digest
 			current.OperationID = entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation))
 			current.StartedAt = now
 		}
+	}
+	if current.ResourceIDs == nil {
+		current.ResourceIDs = map[string]string{}
+	}
+	if current.AuxiliaryIDs == nil {
+		current.AuxiliaryIDs = map[string]string{}
+	}
+	if current.PendingCreates == nil {
+		current.PendingCreates = map[string]PendingFoundationCreate{}
 	}
 	ids := plan["resource_ids"].(map[string]any)
 	for key, id := range current.ResourceIDs {
@@ -260,7 +291,9 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			}
 		}
 	}()
-	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, current.OperationID, attempt.beforeWrite, attempt.checkpoint)
+	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
+		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, progress)
 	close(stopped)
 	<-renewed
 	if cause := context.Cause(workCtx); cause != nil {
@@ -358,6 +391,49 @@ func (a *foundationAttempt) checkpoint(ctx context.Context, key, id string) erro
 		return errors.New("foundation resource identity cannot be silently replaced")
 	}
 	a.record.ResourceIDs[key] = id
+	delete(a.record.PendingCreates, key)
+	return a.update(ctx)
+}
+
+func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id string) error {
+	if !validAuxiliaryID(key, id, a.record.OCIRegion) {
+		return errors.New("auxiliary foundation checkpoint has invalid resource scope")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if old := a.record.AuxiliaryIDs[key]; old != "" && old != id {
+		return errors.New("auxiliary foundation identity cannot be silently replaced")
+	}
+	a.record.AuxiliaryIDs[key] = id
+	delete(a.record.PendingCreates, key)
+	return a.update(ctx)
+}
+
+func (a *foundationAttempt) prepareCreate(ctx context.Context, request foundation.CreateIdentity, recovery bool) error {
+	if err := request.Validate(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if err := a.guard(ctx); err != nil {
+		return err
+	}
+	if pending, exists := a.record.PendingCreates[request.Key]; exists {
+		now := time.Now().UTC()
+		if pending.OperationID != a.record.OperationID || pending.IntentDigest != a.record.IntentDigest || pending.Request != request ||
+			pending.FirstAttemptAt.After(now) || !now.Before(pending.FirstAttemptAt.Add(23*time.Hour)) {
+			return errors.New("foundation create cannot replay a changed or expired pending request")
+		}
+		if request.RetryToken == "" {
+			return errors.New("pending OCI create has no replay token; exact provider observation is required")
+		}
+		return nil
+	}
+	if recovery {
+		return errors.New("unrecorded OCI resource has no durable pending create")
+	}
+	a.record.PendingCreates[request.Key] = PendingFoundationCreate{OperationID: a.record.OperationID, IntentDigest: a.record.IntentDigest,
+		Request: request, FirstAttemptAt: time.Now().UTC()}
 	return a.update(ctx)
 }
 
@@ -368,6 +444,11 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 		return a.record, errors.Join(providerErr, err)
 	}
 	a.record.LeaseID, a.record.ExpiresAt = "", time.Time{}
+	if providerErr == nil {
+		if len(a.record.PendingCreates) != 0 {
+			providerErr = errors.New("foundation still has unresolved creates")
+		}
+	}
 	if providerErr == nil {
 		a.record.Stage, a.record.CompletedAt = "reconciled", time.Now().UTC()
 	} else {
@@ -381,5 +462,7 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	}
 	result := a.record
 	result.ResourceIDs = maps.Clone(result.ResourceIDs)
+	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
+	result.PendingCreates = maps.Clone(result.PendingCreates)
 	return result, errors.Join(providerErr, err)
 }
