@@ -1,0 +1,3 @@
+=== RUN   TestMaterialInstallUnderRestrictedCapabilities
+--- PASS: TestMaterialInstallUnderRestrictedCapabilities (0.01s)
+PASS

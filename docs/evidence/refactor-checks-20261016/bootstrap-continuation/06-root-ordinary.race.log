@@ -1,0 +1,35 @@
+=== RUN   TestServicePeerFloorRootReplayPreservesDistinctServiceOwner
+--- PASS: TestServicePeerFloorRootReplayPreservesDistinctServiceOwner (0.01s)
+=== RUN   TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename
+--- PASS: TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename (0.11s)
+=== RUN   TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries
+--- PASS: TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries (0.47s)
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/unverified
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/new_key
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/previous_key
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/expired
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/cancelled
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hold
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/late_hold
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/missing_gate
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/symlink
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hardlink
+--- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication (1.93s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/unverified (0.15s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/new_key (0.21s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/previous_key (0.20s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/expired (0.16s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/cancelled (0.16s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hold (0.21s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/late_hold (0.30s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/missing_gate (0.15s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/symlink (0.20s)
+    --- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hardlink (0.20s)
+=== RUN   TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory
+--- PASS: TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory (1.10s)
+=== RUN   TestRebootArmedSuccessorInstallsOnlyInMemory
+--- PASS: TestRebootArmedSuccessorInstallsOnlyInMemory (3.59s)
+=== RUN   TestServiceUIDCanReadRootInstalledMaterial
+--- PASS: TestServiceUIDCanReadRootInstalledMaterial (1.15s)
+PASS

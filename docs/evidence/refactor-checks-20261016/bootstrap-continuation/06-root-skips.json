@@ -1,0 +1,100 @@
+{
+  "skip_events": [
+    {
+      "log": "02-founder-authority.race.log",
+      "name": "TestServicePeerFloorRootReplayPreservesDistinctServiceOwner"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/unverified"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/new_key"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/previous_key"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/expired"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/cancelled"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hold"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/late_hold"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/missing_gate"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/symlink"
+    },
+    {
+      "log": "03-generation-identity.race.log",
+      "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hardlink"
+    },
+    {
+      "log": "04-launch-material-observation.race.log",
+      "name": "TestMaterialInstallUnderRestrictedCapabilities"
+    },
+    {
+      "log": "04-launch-material-observation.race.log",
+      "name": "TestMaterialInstallWithoutDACOverride"
+    },
+    {
+      "log": "04-launch-material-observation.race.log",
+      "name": "TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory"
+    },
+    {
+      "log": "04-launch-material-observation.race.log",
+      "name": "TestRebootArmedSuccessorInstallsOnlyInMemory"
+    },
+    {
+      "log": "04-launch-material-observation.race.log",
+      "name": "TestServiceUIDCanReadRootInstalledMaterial"
+    }
+  ],
+  "parents": [
+    "TestServicePeerFloorRootReplayPreservesDistinctServiceOwner",
+    "TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename",
+    "TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries",
+    "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication",
+    "TestMaterialInstallUnderRestrictedCapabilities",
+    "TestMaterialInstallWithoutDACOverride",
+    "TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory",
+    "TestRebootArmedSuccessorInstallsOnlyInMemory",
+    "TestServiceUIDCanReadRootInstalledMaterial"
+  ],
+  "root_ordinary": [
+    "TestServicePeerFloorRootReplayPreservesDistinctServiceOwner",
+    "TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename",
+    "TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries",
+    "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication",
+    "TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory",
+    "TestRebootArmedSuccessorInstallsOnlyInMemory",
+    "TestServiceUIDCanReadRootInstalledMaterial"
+  ],
+  "capability_exact": [
+    "TestMaterialInstallUnderRestrictedCapabilities",
+    "TestMaterialInstallWithoutDACOverride"
+  ]
+}

@@ -1,0 +1,11 @@
+=== RUN   TestFounderRuntimeStagedResultRestartReplaysWithoutOCI
+2026/10/16 17:36:39 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536WPA887VS9KNHB5QH90WB kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeStagedResultRestartReplaysWithoutOCI (15.20s)
+=== RUN   TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI
+2026/10/16 17:36:54 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536X5AB6ZFEF6HJ0Y9W5VM8 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI (14.82s)
+=== RUN   TestFounderRuntimeSupersededSelectionStopsBeforeLaunch
+2026/10/16 17:37:10 INFO Founder peer launch for slot controller-a failed component=decision event=true decision_id=01M536XMM2WEJ98DJVFE2J67CX kind=founder_launched actor=bootstrap subject=host/controller-a status=failed region=gru reason="The signed founder plan authorized the launch, but the launch attempt ended with an error; whether OCI created an instance could not be confirmed."
+--- PASS: TestFounderRuntimeSupersededSelectionStopsBeforeLaunch (3.23s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	34.348s

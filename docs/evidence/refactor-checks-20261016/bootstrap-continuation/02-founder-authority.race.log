@@ -1,0 +1,65 @@
+=== RUN   TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback
+--- PASS: TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback (0.01s)
+=== RUN   TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp
+--- PASS: TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp (0.00s)
+=== RUN   TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner
+--- PASS: TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner (0.01s)
+=== RUN   TestServicePeerFloorRootReplayPreservesDistinctServiceOwner
+    founder_selection_floor_test.go:134: requires root to publish for a distinct service UID
+--- SKIP: TestServicePeerFloorRootReplayPreservesDistinctServiceOwner (0.00s)
+=== RUN   TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination
+--- PASS: TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination (0.01s)
+=== RUN   TestFounderSelectionFloorRejectsTamperedFileAndDirectory
+--- PASS: TestFounderSelectionFloorRejectsTamperedFileAndDirectory (0.00s)
+=== RUN   TestFounderSelectionRejectsNonV1AndRetiredContinuityShape
+=== RUN   TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/-1
+=== RUN   TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/0
+=== RUN   TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/2
+=== RUN   TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/3
+--- PASS: TestFounderSelectionRejectsNonV1AndRetiredContinuityShape (0.17s)
+    --- PASS: TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/-1 (0.00s)
+    --- PASS: TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/0 (0.00s)
+    --- PASS: TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/2 (0.00s)
+    --- PASS: TestFounderSelectionRejectsNonV1AndRetiredContinuityShape/3 (0.00s)
+=== RUN   TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes
+--- PASS: TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes (0.39s)
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins/plan_digest
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins/manifest_digest
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins/wrong_scope
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins/missing_manifest
+=== RUN   TestCurrentFounderSelectionRejectsTornAndWrongPins/torn_selector
+--- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins (0.75s)
+    --- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins/plan_digest (0.14s)
+    --- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins/manifest_digest (0.16s)
+    --- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins/wrong_scope (0.15s)
+    --- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins/missing_manifest (0.15s)
+    --- PASS: TestCurrentFounderSelectionRejectsTornAndWrongPins/torn_selector (0.15s)
+=== RUN   TestCurrentFounderSelectionRejectsExpiredAndMissingFloor
+--- PASS: TestCurrentFounderSelectionRejectsExpiredAndMissingFloor (0.18s)
+=== RUN   TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain
+--- PASS: TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain (0.23s)
+=== RUN   TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain
+--- PASS: TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain (0.19s)
+=== RUN   TestCurrentFounderSelectionRequiresAcceptedSeedContinuity
+--- PASS: TestCurrentFounderSelectionRequiresAcceptedSeedContinuity (0.48s)
+=== RUN   TestCurrentFounderSelectionExpiresDuringRead
+--- PASS: TestCurrentFounderSelectionExpiresDuringRead (0.39s)
+=== RUN   TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem
+--- PASS: TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem (0.45s)
+=== RUN   TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial
+--- PASS: TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial (0.51s)
+=== RUN   TestPeerStartupSkipsFounderFloorAndLaunchClients
+--- PASS: TestPeerStartupSkipsFounderFloorAndLaunchClients (0.13s)
+=== RUN   TestCanceledSeedCannotOpenFounderProviderOrLaunch
+--- PASS: TestCanceledSeedCannotOpenFounderProviderOrLaunch (0.13s)
+=== RUN   TestRestartRejectsTamperedAcceptedSeedRole
+--- PASS: TestRestartRejectsTamperedAcceptedSeedRole (0.73s)
+=== RUN   TestFounderSupervisorRetriesWithBackoffUntilComplete
+--- PASS: TestFounderSupervisorRetriesWithBackoffUntilComplete (0.00s)
+=== RUN   TestFounderSupervisorReportsPlanExpiryAsOperatorAction
+--- PASS: TestFounderSupervisorReportsPlanExpiryAsOperatorAction (0.00s)
+=== RUN   TestFounderSupervisorStopsOnCancellationWithoutError
+--- PASS: TestFounderSupervisorStopsOnCancellationWithoutError (0.00s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	5.873s

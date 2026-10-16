@@ -1,0 +1,134 @@
+[
+  {
+    "ordinal": 122,
+    "name": "TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 49
+  },
+  {
+    "ordinal": 123,
+    "name": "TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 77
+  },
+  {
+    "ordinal": 124,
+    "name": "TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 104
+  },
+  {
+    "ordinal": 125,
+    "name": "TestServicePeerFloorRootReplayPreservesDistinctServiceOwner",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 132
+  },
+  {
+    "ordinal": 126,
+    "name": "TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 168
+  },
+  {
+    "ordinal": 127,
+    "name": "TestFounderSelectionFloorRejectsTamperedFileAndDirectory",
+    "file": "internal/bootstrapstart/founder_selection_floor_test.go",
+    "line": 204
+  },
+  {
+    "ordinal": 128,
+    "name": "TestFounderSelectionRejectsNonV1AndRetiredContinuityShape",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 23
+  },
+  {
+    "ordinal": 129,
+    "name": "TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 323
+  },
+  {
+    "ordinal": 130,
+    "name": "TestCurrentFounderSelectionRejectsTornAndWrongPins",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 389
+  },
+  {
+    "ordinal": 131,
+    "name": "TestCurrentFounderSelectionRejectsExpiredAndMissingFloor",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 421
+  },
+  {
+    "ordinal": 132,
+    "name": "TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 438
+  },
+  {
+    "ordinal": 133,
+    "name": "TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 473
+  },
+  {
+    "ordinal": 134,
+    "name": "TestCurrentFounderSelectionRequiresAcceptedSeedContinuity",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 505
+  },
+  {
+    "ordinal": 135,
+    "name": "TestCurrentFounderSelectionExpiresDuringRead",
+    "file": "internal/bootstrapstart/founder_selection_test.go",
+    "line": 543
+  },
+  {
+    "ordinal": 136,
+    "name": "TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem",
+    "file": "internal/bootstrapstart/founder_signer_test.go",
+    "line": 152
+  },
+  {
+    "ordinal": 137,
+    "name": "TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial",
+    "file": "internal/bootstrapstart/founder_signer_test.go",
+    "line": 175
+  },
+  {
+    "ordinal": 138,
+    "name": "TestPeerStartupSkipsFounderFloorAndLaunchClients",
+    "file": "internal/bootstrapstart/founder_signer_test.go",
+    "line": 213
+  },
+  {
+    "ordinal": 139,
+    "name": "TestCanceledSeedCannotOpenFounderProviderOrLaunch",
+    "file": "internal/bootstrapstart/founder_signer_test.go",
+    "line": 232
+  },
+  {
+    "ordinal": 140,
+    "name": "TestRestartRejectsTamperedAcceptedSeedRole",
+    "file": "internal/bootstrapstart/founder_signer_test.go",
+    "line": 241
+  },
+  {
+    "ordinal": 141,
+    "name": "TestFounderSupervisorRetriesWithBackoffUntilComplete",
+    "file": "internal/bootstrapstart/founder_supervisor_test.go",
+    "line": 23
+  },
+  {
+    "ordinal": 142,
+    "name": "TestFounderSupervisorReportsPlanExpiryAsOperatorAction",
+    "file": "internal/bootstrapstart/founder_supervisor_test.go",
+    "line": 51
+  },
+  {
+    "ordinal": 143,
+    "name": "TestFounderSupervisorStopsOnCancellationWithoutError",
+    "file": "internal/bootstrapstart/founder_supervisor_test.go",
+    "line": 82
+  }
+]

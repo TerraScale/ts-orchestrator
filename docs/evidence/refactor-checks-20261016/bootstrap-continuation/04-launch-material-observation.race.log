@@ -1,0 +1,239 @@
+=== RUN   TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles
+--- PASS: TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles (0.18s)
+=== RUN   TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage
+=== RUN   TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/missing_receipt
+=== RUN   TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/missing_delegation
+=== RUN   TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/foreign_signer
+=== RUN   TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/expired
+--- PASS: TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage (0.70s)
+    --- PASS: TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/missing_receipt (0.14s)
+    --- PASS: TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/missing_delegation (0.15s)
+    --- PASS: TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/foreign_signer (0.27s)
+    --- PASS: TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage/expired (0.14s)
+=== RUN   TestInstallLaunchMaterialRecoversBeforeManagedImagePublication
+--- PASS: TestInstallLaunchMaterialRecoversBeforeManagedImagePublication (0.16s)
+=== RUN   TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection
+--- PASS: TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection (0.18s)
+=== RUN   TestInstallLaunchMaterialRejectsBundleOutsideImageLayout
+--- PASS: TestInstallLaunchMaterialRejectsBundleOutsideImageLayout (0.14s)
+=== RUN   TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey
+--- PASS: TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey (1.35s)
+=== RUN   TestLaunchMetadataForwardsOperatorSSHKey
+--- PASS: TestLaunchMetadataForwardsOperatorSSHKey (0.00s)
+=== RUN   TestAcceptedLaunchLoadersReadOnlyPinnedPublicInputs
+--- PASS: TestAcceptedLaunchLoadersReadOnlyPinnedPublicInputs (0.81s)
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/symlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/hardlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/writable
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/special_mode
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/changed
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/FIFO
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/symlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/hardlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/writable
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/special_mode
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/changed
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/FIFO
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/symlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/hardlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/writable
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/special_mode
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/changed
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/FIFO
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/symlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/hardlink
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/writable
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/special_mode
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/changed
+=== RUN   TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/FIFO
+--- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles (16.53s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/symlink (0.68s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/hardlink (0.69s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/writable (0.68s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/special_mode (0.68s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/changed (0.68s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/host-enrollment-public.json/FIFO (0.66s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/symlink (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/hardlink (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/writable (0.64s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/special_mode (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/changed (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/operator-ssh-key.pub/FIFO (0.69s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/symlink (0.72s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/hardlink (0.69s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/writable (0.72s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/special_mode (0.66s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/changed (0.74s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-receipt.json/FIFO (0.75s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/symlink (0.73s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/hardlink (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/writable (0.68s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/special_mode (0.70s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/changed (0.67s)
+    --- PASS: TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles/managed-host-image-delegation.json/FIFO (0.69s)
+=== RUN   TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH
+=== RUN   TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/environment
+=== RUN   TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/cell
+=== RUN   TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/layout
+=== RUN   TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/SSH
+--- PASS: TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH (2.87s)
+    --- PASS: TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/environment (0.77s)
+    --- PASS: TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/cell (0.72s)
+    --- PASS: TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/layout (0.68s)
+    --- PASS: TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH/SSH (0.69s)
+=== RUN   TestAcceptedLaunchMaterialRequiresRootOwnedSnapshotAndJournal
+--- PASS: TestAcceptedLaunchMaterialRequiresRootOwnedSnapshotAndJournal (0.68s)
+=== RUN   TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof
+--- PASS: TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof (0.26s)
+=== RUN   TestInitialAdmissionRequiresLaunchFilesBeforeEffectsAndRetainsExactPins
+--- PASS: TestInitialAdmissionRequiresLaunchFilesBeforeEffectsAndRetainsExactPins (0.72s)
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller/sidecar_pin
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller/host_image
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller/host_shape
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller/expired
+=== RUN   TestSignedARMHostLaunchIsIndependentOfAMD64Controller/wrong_root
+--- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller (0.79s)
+    --- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller/sidecar_pin (0.00s)
+    --- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller/host_image (0.00s)
+    --- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller/host_shape (0.00s)
+    --- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller/expired (0.01s)
+    --- PASS: TestSignedARMHostLaunchIsIndependentOfAMD64Controller/wrong_root (0.00s)
+=== RUN   TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly
+--- PASS: TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly (0.19s)
+=== RUN   TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots
+--- PASS: TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots (0.03s)
+=== RUN   TestMarkerRequiresPrimaryVNICIdentity
+--- PASS: TestMarkerRequiresPrimaryVNICIdentity (0.00s)
+=== RUN   TestMarkerRequiresSignedSeedRole
+--- PASS: TestMarkerRequiresSignedSeedRole (0.00s)
+=== RUN   TestMarkerAtomicNoReplaceAndTamper
+--- PASS: TestMarkerAtomicNoReplaceAndTamper (0.01s)
+=== RUN   TestMarkerRejectsSymlinkAndUntrustedParent
+--- PASS: TestMarkerRejectsSymlinkAndUntrustedParent (0.00s)
+=== RUN   TestMaterialInstallUnderRestrictedCapabilities
+    material_caps_test.go:24: restricted material installation requires the privileged test invocation
+--- SKIP: TestMaterialInstallUnderRestrictedCapabilities (0.00s)
+=== RUN   TestMaterialInstallWithoutDACOverride
+    material_caps_test.go:76: restricted material denial requires the privileged test invocation
+--- SKIP: TestMaterialInstallWithoutDACOverride (0.00s)
+=== RUN   TestBootstrapUnitPinsMaterialInstallCapabilities
+--- PASS: TestBootstrapUnitPinsMaterialInstallCapabilities (0.00s)
+=== RUN   TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory
+    material_restore_test.go:21: requires a root private mount namespace
+--- SKIP: TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory (0.00s)
+=== RUN   TestRestoreIntactMaterialDoesNotReadVault
+--- PASS: TestRestoreIntactMaterialDoesNotReadVault (0.05s)
+=== RUN   TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor
+=== RUN   TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/unknown_file
+=== RUN   TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/tampered_secret
+=== RUN   TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/fork
+=== RUN   TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/old_Vault_unavailable
+--- PASS: TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor (0.93s)
+    --- PASS: TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/unknown_file (0.25s)
+    --- PASS: TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/tampered_secret (0.25s)
+    --- PASS: TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/fork (0.18s)
+    --- PASS: TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor/old_Vault_unavailable (0.24s)
+=== RUN   TestRebootArmedSuccessorDoesNotWriteSecretsBeforeMemoryMount
+--- PASS: TestRebootArmedSuccessorDoesNotWriteSecretsBeforeMemoryMount (0.21s)
+=== RUN   TestRebootArmedSuccessorInstallsOnlyInMemory
+    material_restore_test.go:346: requires a root private mount namespace
+--- SKIP: TestRebootArmedSuccessorInstallsOnlyInMemory (0.00s)
+=== RUN   TestRebootArmedSuccessorRechecksExpiryAfterVaultRead
+--- PASS: TestRebootArmedSuccessorRechecksExpiryAfterVaultRead (1.32s)
+=== RUN   TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain
+--- PASS: TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain (0.09s)
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/none
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/response_rotation
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/root
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/baseline
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/reference
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/immutable
+=== RUN   TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/vault
+--- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles (0.47s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/none (0.08s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/response_rotation (0.07s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/root (0.09s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/baseline (0.05s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/reference (0.06s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/immutable (0.05s)
+    --- PASS: TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles/vault (0.06s)
+=== RUN   TestRestoredOfflineControllerCredentialsPassRestartAdmission
+--- PASS: TestRestoredOfflineControllerCredentialsPassRestartAdmission (0.42s)
+=== RUN   TestRestoredMaterialPassesRestartAdmission
+--- PASS: TestRestoredMaterialPassesRestartAdmission (0.30s)
+=== RUN   TestRebootRestoresFullAcceptedBaselineWithoutRetiredFiles
+--- PASS: TestRebootRestoresFullAcceptedBaselineWithoutRetiredFiles (0.25s)
+=== RUN   TestRestoreKeepsTheNewerInstalledChain
+--- PASS: TestRestoreKeepsTheNewerInstalledChain (0.06s)
+=== RUN   TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly
+--- PASS: TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly (0.00s)
+=== RUN   TestServiceMaterialRejectsSymlinkAndUntrustedParent
+--- PASS: TestServiceMaterialRejectsSymlinkAndUntrustedParent (0.00s)
+=== RUN   TestServiceUIDCanReadRootInstalledMaterial
+    material_test.go:92: root-to-service process credential test requires root
+--- SKIP: TestServiceUIDCanReadRootInstalledMaterial (0.00s)
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_VNIC_compartment
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_subnet_compartment
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_subnet_identity
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_VCN_region
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/missing_VCN
+=== RUN   TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/subnet_unavailable
+--- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_VNIC_compartment (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_subnet_compartment (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_subnet_identity (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/wrong_VCN_region (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/missing_VCN (0.00s)
+    --- PASS: TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch/subnet_unavailable (0.00s)
+=== RUN   TestOCIObserverRequiresExactAttachedPrimaryVNIC
+--- PASS: TestOCIObserverRequiresExactAttachedPrimaryVNIC (0.00s)
+=== RUN   TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch
+--- PASS: TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch (0.00s)
+=== RUN   TestTrustInputsDoNotReadRetiredIdentityOrAnchor
+--- PASS: TestTrustInputsDoNotReadRetiredIdentityOrAnchor (0.01s)
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/deployment
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/cell
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/environment
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/uppercase_cell
+=== RUN   TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/damaged
+--- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage (0.04s)
+    --- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/deployment (0.00s)
+    --- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/cell (0.00s)
+    --- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/environment (0.00s)
+    --- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/uppercase_cell (0.00s)
+    --- PASS: TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage/damaged (0.00s)
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/symlink
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/directory_symlink
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/mode
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/hardlink
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/owner
+=== RUN   TestTrustInputsRejectUnsafeGenesisFiles/unknown_entry
+--- PASS: TestTrustInputsRejectUnsafeGenesisFiles (0.07s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/symlink (0.01s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/directory_symlink (0.01s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/mode (0.01s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/hardlink (0.01s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/owner (0.01s)
+    --- PASS: TestTrustInputsRejectUnsafeGenesisFiles/unknown_entry (0.01s)
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/symlink
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/parent_symlink
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/writable
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/special_mode
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/hardlink
+=== RUN   TestTrustInputsRejectIndirectOrWritableAdoptedChain/FIFO
+--- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain (0.08s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/symlink (0.01s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/parent_symlink (0.01s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/writable (0.02s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/special_mode (0.02s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/hardlink (0.01s)
+    --- PASS: TestTrustInputsRejectIndirectOrWritableAdoptedChain/FIFO (0.01s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	31.036s

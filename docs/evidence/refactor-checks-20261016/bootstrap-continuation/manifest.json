@@ -1,0 +1,119 @@
+{
+  "source_revision": "1d0042a827ca79268366b1ab66fb2f8cb4b466bd",
+  "package": "./internal/bootstrapstart",
+  "enumeration": "Read frozen git objects with git ls-tree/git show; sort *_test.go paths lexicographically; preserve lexical top-level func TestName(t *testing.T) order in each file. No conditional test-file build directives exist. Count 238 equals 0xee registry entries in retained timeout stack. No Go command was run.",
+  "timeout_log": "/tmp/ts-orch-gate-evidence/1d0042a8-bootstrap-race-closure.log",
+  "completed_prefix_count": 93,
+  "remaining_count": 145,
+  "interrupted_test_ordinal": 94,
+  "interrupted_test": "TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent",
+  "completed_prefix_evidence": "Sequential testing.M.Run registry order; interrupted test was ordinal 94 and had run 2 seconds at package timeout. No prior assertion/race failure appears in retained log.",
+  "shards": [
+    {
+      "id": "00-completed-prefix",
+      "purpose": "completed before package timeout; retained provenance, do not rerun",
+      "count": 93,
+      "ordinal_first": 1,
+      "ordinal_last": 93,
+      "files": {
+        "internal/bootstrapstart/accepted_identity_test.go": 9,
+        "internal/bootstrapstart/admission_flow_test.go": 16,
+        "internal/bootstrapstart/admission_local_test.go": 8,
+        "internal/bootstrapstart/admission_selfupdate_test.go": 4,
+        "internal/bootstrapstart/admission_test.go": 3,
+        "internal/bootstrapstart/baked_test.go": 3,
+        "internal/bootstrapstart/binary_test.go": 1,
+        "internal/bootstrapstart/controller_config_install_test.go": 2,
+        "internal/bootstrapstart/credentials_review_test.go": 1,
+        "internal/bootstrapstart/credentials_test.go": 5,
+        "internal/bootstrapstart/descriptor_test.go": 5,
+        "internal/bootstrapstart/external_seed_admission_test.go": 1,
+        "internal/bootstrapstart/founder_classification_review_test.go": 2,
+        "internal/bootstrapstart/founder_decisions_test.go": 1,
+        "internal/bootstrapstart/founder_floor_artifact_test.go": 1,
+        "internal/bootstrapstart/founder_formation_review_test.go": 1,
+        "internal/bootstrapstart/founder_formation_test.go": 3,
+        "internal/bootstrapstart/founder_image_proof_integration_test.go": 1,
+        "internal/bootstrapstart/founder_oci_test.go": 8,
+        "internal/bootstrapstart/founder_provision_test.go": 7,
+        "internal/bootstrapstart/founder_publish_initial_test.go": 4,
+        "internal/bootstrapstart/founder_replacement_review_test.go": 3,
+        "internal/bootstrapstart/founder_replacement_test.go": 4
+      },
+      "selector_file": "/tmp/ts-bootstrap-race-shards/00-completed-prefix.selector.txt",
+      "names_file": "/tmp/ts-bootstrap-race-shards/00-completed-prefix.names.txt"
+    },
+    {
+      "id": "01-founder-runtime",
+      "purpose": "remaining founder runtime cases, beginning at interrupted test 94",
+      "count": 28,
+      "ordinal_first": 94,
+      "ordinal_last": 121,
+      "files": {
+        "internal/bootstrapstart/founder_runtime_test.go": 28
+      },
+      "selector_file": "/tmp/ts-bootstrap-race-shards/01-founder-runtime.selector.txt",
+      "names_file": "/tmp/ts-bootstrap-race-shards/01-founder-runtime.names.txt",
+      "proposed_command": "timeout 8m flock /tmp/ts-orch-refactor-gate-check.lock env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test -race ./internal/bootstrapstart -run '^(TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent|TestFounderRuntimeReservesUnreservedPeersBeforeLaunch|TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch|TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate|TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan|TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor|TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding|TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding|TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor|TestFounderRuntimePeerGateWaitsForRealLedgerCompletion|TestFounderRuntimePeerGateWaitsForQuarantineRepair|TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry|TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline|TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry|TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication|TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline|TestFounderRuntimeMissingSignerCannotTouchOCI|TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects|TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult|TestFounderRuntimeResultKeepsActualOCIObservationDate|TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance|TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete|TestFounderRuntimeMissingOCIObservationDateCannotComplete|TestFounderRuntimeOCIContextEndsWithSelectedAuthority|TestFounderRuntimeWrongSignerCannotTouchOCI|TestFounderRuntimeStagedResultRestartReplaysWithoutOCI|TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI|TestFounderRuntimeSupersededSelectionStopsBeforeLaunch)$' -count=1 -v -timeout=6m > /tmp/ts-bootstrap-race-shards/01-founder-runtime.race.log 2>&1"
+    },
+    {
+      "id": "02-founder-authority",
+      "purpose": "remaining selection floor, selection, signer, and supervisor files",
+      "count": 22,
+      "ordinal_first": 122,
+      "ordinal_last": 143,
+      "files": {
+        "internal/bootstrapstart/founder_selection_floor_test.go": 6,
+        "internal/bootstrapstart/founder_selection_test.go": 8,
+        "internal/bootstrapstart/founder_signer_test.go": 5,
+        "internal/bootstrapstart/founder_supervisor_test.go": 3
+      },
+      "selector_file": "/tmp/ts-bootstrap-race-shards/02-founder-authority.selector.txt",
+      "names_file": "/tmp/ts-bootstrap-race-shards/02-founder-authority.names.txt",
+      "proposed_command": "timeout 8m flock /tmp/ts-orch-refactor-gate-check.lock env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test -race ./internal/bootstrapstart -run '^(TestFounderSelectionFloorRequiresProvisioningAndRejectsRollback|TestServiceFounderFloorPublishesCompleteOwnerCheckedFileAfterOrphanTemp|TestServicePeerFloorCrashReplayAdvancesWithoutLosingOwner|TestServicePeerFloorRootReplayPreservesDistinctServiceOwner|TestServiceFounderFloorReplaysVisiblePublicationAndRejectsIncompleteDestination|TestFounderSelectionFloorRejectsTamperedFileAndDirectory|TestFounderSelectionRejectsNonV1AndRetiredContinuityShape|TestCurrentFounderSelectionReadsRealSignedSnapshotAndSupersedes|TestCurrentFounderSelectionRejectsTornAndWrongPins|TestCurrentFounderSelectionRejectsExpiredAndMissingFloor|TestCurrentFounderSelectionRejectsSameGenerationEquivocationAndWrongDomain|TestCurrentFounderSelectionRejectsSelectedAnchorChangingDiscoveryDomain|TestCurrentFounderSelectionRequiresAcceptedSeedContinuity|TestCurrentFounderSelectionExpiresDuringRead|TestFounderSignerStoreLoadsSeparateDelegatedKeysAndClearsThem|TestFounderSignerStoreHoldsMissingTamperedOrWrongRoleMaterial|TestPeerStartupSkipsFounderFloorAndLaunchClients|TestCanceledSeedCannotOpenFounderProviderOrLaunch|TestRestartRejectsTamperedAcceptedSeedRole|TestFounderSupervisorRetriesWithBackoffUntilComplete|TestFounderSupervisorReportsPlanExpiryAsOperatorAction|TestFounderSupervisorStopsOnCancellationWithoutError)$' -count=1 -v -timeout=6m > /tmp/ts-bootstrap-race-shards/02-founder-authority.race.log 2>&1"
+    },
+    {
+      "id": "03-generation-identity",
+      "purpose": "remaining generation and identity-rekey files",
+      "count": 50,
+      "ordinal_first": 144,
+      "ordinal_last": 193,
+      "files": {
+        "internal/bootstrapstart/generation_adopt_test.go": 6,
+        "internal/bootstrapstart/generation_install_test.go": 10,
+        "internal/bootstrapstart/generation_pins_test.go": 6,
+        "internal/bootstrapstart/identity_rekey_abort_test.go": 1,
+        "internal/bootstrapstart/identity_rekey_completion_test.go": 4,
+        "internal/bootstrapstart/identity_rekey_install_test.go": 8,
+        "internal/bootstrapstart/identity_rekey_journal_test.go": 10,
+        "internal/bootstrapstart/identity_rekey_material_test.go": 2,
+        "internal/bootstrapstart/identity_rekey_response_test.go": 2,
+        "internal/bootstrapstart/identity_rekey_successor_test.go": 1
+      },
+      "selector_file": "/tmp/ts-bootstrap-race-shards/03-generation-identity.selector.txt",
+      "names_file": "/tmp/ts-bootstrap-race-shards/03-generation-identity.names.txt",
+      "proposed_command": "timeout 8m flock /tmp/ts-orch-refactor-gate-check.lock env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test -race ./internal/bootstrapstart -run '^(TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename|TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename|TestUncommittedStageLeavesUnrelatedFilesUntouched|TestRootOwnedRollForwardTemporaryRecoversAfterCrash|TestAdoptGenerationInstallsWhatRestartAdmits|TestFinishMaterialAdoptionAfterACrash|TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor|TestRestoreMatchingArmedGenerationAfterMemoryLoss|TestArmedSuccessorPreservesCommittedPendingConfigBeforeFailure|TestArmedRenewalInstallsAfterOldGenerationExpiry|TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck|TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss|TestInstallGenerationOnlyWhenArmed|TestInstallGenerationRefusesATamperedSpool|TestInstallGenerationConvergesAfterACrash|TestRestoreConvergesThePendingControllerConfig|TestAcceptedMaterialBaselineSurvivesSubsequentRenewal|TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline|TestRestartPinsFollowTheAdoptedGeneration|TestRestartPinsRefuseUntrustedOrStaleMaterial|TestRestartPinsAdoptWithRoleSignerInterRegion|TestRestartPinsAdoptLink|TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles|TestCompletionProbeRequiresImmutableOutcomeUnderRootedLocalIdentity|TestCompletionProbeRejectsDamagedJournalBeforeNATS|TestAcceptedRekeyRejectsMissingJournalBeforeAdmissionAndCompletion|TestInitialAcceptanceNeedsNoRekeyJournalOrCompletion|TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects|TestRootInstallerInterruptedOperationResumesOnlyExactJournal|TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance|TestRootInstallerRecomputesInstalledChainInsteadOfTrustingExportedRoots|TestRootInstallerLocalObservationIsIndependent|TestRootInstallerAdoptionRequiresExactInterruptedMaterial|TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain|TestCommittedInstallerRecoversExpiredProofsOnlyUnderExactDurableHold|TestIdentityRekeyJournalSeparatesHistoricalEvidenceAndMutation|TestIdentityRekeyVerifiedWireDistinguishesChangedReset|TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery|TestIdentityRekeyJournalRejectsChangedRootedInputs|TestIdentityRekeyJournalRetainsIndependentRootKeys|TestIdentityRekeyJournalPublicationAndLocalCommit|TestIdentityRekeyJournalRejectsResetIssuedAfterAcceptanceBeforeEffects|TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles|TestIdentityRekeyStagingMissingNodePinCannotAuthorizeRestart|TestIdentityRekeyStagingRefusesUnprovenOrChangedNode|TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors|TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename|TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries|TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication|TestCompletedRekeyStagesSuccessorWithoutLosingAcceptanceEvidence)$' -count=1 -v -timeout=6m > /tmp/ts-bootstrap-race-shards/03-generation-identity.race.log 2>&1"
+    },
+    {
+      "id": "04-launch-material-observation",
+      "purpose": "remaining launch material, ledger, marker, material, observer, and trust files",
+      "count": 45,
+      "ordinal_first": 194,
+      "ordinal_last": 238,
+      "files": {
+        "internal/bootstrapstart/launch_material_test.go": 7,
+        "internal/bootstrapstart/launch_pins_test.go": 7,
+        "internal/bootstrapstart/ledger_test.go": 2,
+        "internal/bootstrapstart/marker_test.go": 4,
+        "internal/bootstrapstart/material_caps_test.go": 3,
+        "internal/bootstrapstart/material_restore_test.go": 12,
+        "internal/bootstrapstart/material_test.go": 3,
+        "internal/bootstrapstart/oci_observer_test.go": 3,
+        "internal/bootstrapstart/trust_inputs_test.go": 4
+      },
+      "selector_file": "/tmp/ts-bootstrap-race-shards/04-launch-material-observation.selector.txt",
+      "names_file": "/tmp/ts-bootstrap-race-shards/04-launch-material-observation.names.txt",
+      "proposed_command": "timeout 8m flock /tmp/ts-orch-refactor-gate-check.lock env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test -race ./internal/bootstrapstart -run '^(TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles|TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage|TestInstallLaunchMaterialRecoversBeforeManagedImagePublication|TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection|TestInstallLaunchMaterialRejectsBundleOutsideImageLayout|TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey|TestLaunchMetadataForwardsOperatorSSHKey|TestAcceptedLaunchLoadersReadOnlyPinnedPublicInputs|TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles|TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH|TestAcceptedLaunchMaterialRequiresRootOwnedSnapshotAndJournal|TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof|TestInitialAdmissionRequiresLaunchFilesBeforeEffectsAndRetainsExactPins|TestSignedARMHostLaunchIsIndependentOfAMD64Controller|TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly|TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots|TestMarkerRequiresPrimaryVNICIdentity|TestMarkerRequiresSignedSeedRole|TestMarkerAtomicNoReplaceAndTamper|TestMarkerRejectsSymlinkAndUntrustedParent|TestMaterialInstallUnderRestrictedCapabilities|TestMaterialInstallWithoutDACOverride|TestBootstrapUnitPinsMaterialInstallCapabilities|TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory|TestRestoreIntactMaterialDoesNotReadVault|TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor|TestRebootArmedSuccessorDoesNotWriteSecretsBeforeMemoryMount|TestRebootArmedSuccessorInstallsOnlyInMemory|TestRebootArmedSuccessorRechecksExpiryAfterVaultRead|TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain|TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles|TestRestoredOfflineControllerCredentialsPassRestartAdmission|TestRestoredMaterialPassesRestartAdmission|TestRebootRestoresFullAcceptedBaselineWithoutRetiredFiles|TestRestoreKeepsTheNewerInstalledChain|TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly|TestServiceMaterialRejectsSymlinkAndUntrustedParent|TestServiceUIDCanReadRootInstalledMaterial|TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch|TestOCIObserverRequiresExactAttachedPrimaryVNIC|TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch|TestTrustInputsDoNotReadRetiredIdentityOrAnchor|TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage|TestTrustInputsRejectUnsafeGenesisFiles|TestTrustInputsRejectIndirectOrWritableAdoptedChain)$' -count=1 -v -timeout=6m > /tmp/ts-bootstrap-race-shards/04-launch-material-observation.race.log 2>&1"
+    }
+  ]
+}

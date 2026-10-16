@@ -1,0 +1,14 @@
+{
+  "partial_log": "/tmp/ts-bootstrap-race-shards/01-founder-runtime.race.log",
+  "partial_exit": 1,
+  "partial_seconds": 360.102,
+  "explicit_completed_count": 25,
+  "interrupted_test": "TestFounderRuntimeStagedResultRestartReplaysWithoutOCI",
+  "interrupted_seconds": 3,
+  "remaining_names": [
+    "TestFounderRuntimeStagedResultRestartReplaysWithoutOCI",
+    "TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI",
+    "TestFounderRuntimeSupersededSelectionStopsBeforeLaunch"
+  ],
+  "diagnosis": "cumulative package timeout; active goroutine runnable in protocol JSON decoding/anchor verification; no assertion failure or race report"
+}

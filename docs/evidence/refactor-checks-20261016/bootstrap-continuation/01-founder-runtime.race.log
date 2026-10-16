@@ -1,0 +1,166 @@
+=== RUN   TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent
+2026/10/16 17:30:15 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536GZTA58RZKV8VT773XKQV kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:30:27 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536HAYN8VQ8GNCM4A6AH7X5 kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent (23.66s)
+=== RUN   TestFounderRuntimeReservesUnreservedPeersBeforeLaunch
+2026/10/16 17:30:39 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536HPP74YSACYE59CXF3T0H kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:30:50 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536J1APTMV4CWJWGWRSH8JA kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeReservesUnreservedPeersBeforeLaunch (23.24s)
+=== RUN   TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch
+--- PASS: TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch (11.54s)
+=== RUN   TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate
+2026/10/16 17:31:14 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536JRTW7JV9THF7PVHDEPG2 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate (20.56s)
+=== RUN   TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan
+2026/10/16 17:31:34 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536KCZK4JXS4WXDJVENJ368 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:31:45 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536KQKMK96D6RNX3AT3EDX3 kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan (22.80s)
+=== RUN   TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor
+=== RUN   TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/missing_floor
+=== RUN   TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/invalid_floor
+=== RUN   TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/missing_lock
+--- PASS: TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor (0.86s)
+    --- PASS: TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/missing_floor (0.28s)
+    --- PASS: TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/invalid_floor (0.28s)
+    --- PASS: TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor/missing_lock (0.30s)
+=== RUN   TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding
+2026/10/16 17:31:58 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536M41KK3K8338T1HA2RXMN kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:32:09 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536MF3PMWK664SZAFGV93MW kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding (23.33s)
+=== RUN   TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding
+2026/10/16 17:32:21 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536MTTJBMD5VHWZX8XBJCH3 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:32:32 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536N5G9T1EA8WBQAZHN7VZJ kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding (22.82s)
+=== RUN   TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor
+--- PASS: TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor (0.30s)
+=== RUN   TestFounderRuntimePeerGateWaitsForRealLedgerCompletion
+2026/10/16 17:32:45 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536NHX5F6W3H7ZV0FYFGA3E kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimePeerGateWaitsForRealLedgerCompletion (15.02s)
+=== RUN   TestFounderRuntimePeerGateWaitsForQuarantineRepair
+2026/10/16 17:33:00 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536P0JGBC4RPCDCB5W659HM kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimePeerGateWaitsForQuarantineRepair (24.94s)
+=== RUN   TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry
+2026/10/16 17:33:25 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536PRZNCTE5DP0ZPGNFJB15 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:33:38 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536Q5K0G1DYS4CJ7XX1S1BT kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry (29.83s)
+=== RUN   TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline
+2026/10/16 17:33:55 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536QP5SYSPHZ2CM3487E0GN kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:34:08 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M536R2JY192J1ZR027J0F5VE kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline (28.08s)
+=== RUN   TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry
+2026/10/16 17:34:23 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536RHKN3DCZ1BNAPCGS07Y4 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry (14.15s)
+=== RUN   TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication
+2026/10/16 17:34:37 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536RZ7RN22HA066Q1H6DQ4B kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication (14.66s)
+=== RUN   TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline
+2026/10/16 17:34:52 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536SDQSK46FKNKW21J9NPJF kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline (14.12s)
+=== RUN   TestFounderRuntimeMissingSignerCannotTouchOCI
+--- PASS: TestFounderRuntimeMissingSignerCannotTouchOCI (1.09s)
+=== RUN   TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects
+--- PASS: TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects (1.00s)
+=== RUN   TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult
+--- PASS: TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult (15.72s)
+=== RUN   TestFounderRuntimeResultKeepsActualOCIObservationDate
+2026/10/16 17:35:23 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536TC60T98JGKHP9WT7P3CF kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeResultKeepsActualOCIObservationDate (11.51s)
+=== RUN   TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance
+2026/10/16 17:35:35 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536TQEZMGN9BV0MFE6W5FV5 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance (16.33s)
+=== RUN   TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete
+--- PASS: TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete (5.69s)
+=== RUN   TestFounderRuntimeMissingOCIObservationDateCannotComplete
+2026/10/16 17:35:57 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536VD84D01TGC6KCE0ZVRQF kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+--- PASS: TestFounderRuntimeMissingOCIObservationDateCannotComplete (13.06s)
+=== RUN   TestFounderRuntimeOCIContextEndsWithSelectedAuthority
+--- PASS: TestFounderRuntimeOCIContextEndsWithSelectedAuthority (1.86s)
+=== RUN   TestFounderRuntimeWrongSignerCannotTouchOCI
+--- PASS: TestFounderRuntimeWrongSignerCannotTouchOCI (1.15s)
+=== RUN   TestFounderRuntimeStagedResultRestartReplaysWithoutOCI
+2026/10/16 17:36:13 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M536VWMQ43ZZ4ER0D3A5K60D kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+panic: test timed out after 6m0s
+	running tests:
+		TestFounderRuntimeStagedResultRestartReplaysWithoutOCI (3s)
+
+goroutine 395 [running]:
+testing.(*M).startAlarm.func1()
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2959 +0x605
+created by time.goFunc
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0001a26c8, {0x18abb33, 0x36}, 0x2663480)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2266 +0xb3e
+testing.runTests.func1(0xc0001a26c8)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2742 +0x85
+testing.tRunner(0xc0001a26c8, 0xc0005bfa40)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2193 +0x21d
+testing.runTests({0x188a305, 0x25}, {0x18b6d21, 0x3d}, 0xc000136240, {0x26da250, 0xee, 0xee}, {0xc2acc08f65c5f343, 0x53d5801e1a, ...})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2740 +0x9ea
+testing.(*M).Run(0xc00054e460)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2600 +0xf45
+main.main()
+	_testmain.go:520 +0x165
+
+goroutine 20 [chan receive, 6 minutes]:
+github.com/TerraScale/ts-orchestrator/internal/authority.runAuthorityDiagnostics()
+	/tmp/ts-refactor-qa-gate-check/internal/authority/runtime.go:41 +0x74
+created by github.com/TerraScale/ts-orchestrator/internal/authority.init.0 in goroutine 1
+	/tmp/ts-refactor-qa-gate-check/internal/authority/runtime.go:37 +0x25
+
+goroutine 406 [runnable]:
+reflect.Value.SetString({0x24e42c8?, 0xc0001fcb80?, 0x198?}, {0xc000218bd0, 0x13})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/reflect/value.go:2328 +0x16b
+encoding/json/v2.makeStringArshaler.func2(0xc0008b6640, {{0x24e42c8?, 0xc0001fcb80?, 0x0?}, 0xa8?}, 0xc0008b6700)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_default.go:299 +0x4b5
+encoding/json/v2.makeStructArshaler.func3(0xc0008b6640, {{0x2607868?, 0xc0001fcb80?, 0x3?}, 0xad?}, 0xc0008b6700)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_default.go:1401 +0xda9
+encoding/json/v2.makeSliceArshaler.func3(0xc0008b6640, {{0x2422390?, 0xc00076d468?, 0x3?}, 0x10?}, 0xc0008b6700)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_default.go:1586 +0x85d
+encoding/json/v2.makeStructArshaler.func3(0xc0008b6640, {{0x25e52b8?, 0xc00076d440?, 0x2?}, 0x34?}, 0xc0008b6700)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_default.go:1401 +0xda9
+encoding/json/v2.unmarshalDecode(0xc0008b6640, {0x24029e0, 0xc00076d440}, 0xc0008b6700, 0x1)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal.go:471 +0x4a3
+encoding/json/v2.Unmarshal({0xc0008e3400, 0x4b8, 0x500}, {0x24029e0, 0xc00076d440}, {0xc0009a4998, 0x2, 0x2})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal.go:390 +0x138
+github.com/TerraScale/ts-orchestrator/internal/protocol.decode({0xc0008e3400, 0x4b8, 0x500}, {0x24029e0, 0xc00076d440}, 0x100000, 0x1)
+	/tmp/ts-refactor-qa-gate-check/internal/protocol/json.go:59 +0x168
+github.com/TerraScale/ts-orchestrator/internal/protocol.DecodeStrict(...)
+	/tmp/ts-refactor-qa-gate-check/internal/protocol/json.go:34
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.decodeBootstrapLedgerDelegation({0x1, {0xc00004eb90, 0x47}, {{0xc00054be20, 0x1b}, {0xc00054be80, 0x1a}, {0xc00025324a, 0x6}, {0xc00025324a, ...}, ...}, ...})
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/anchor.go:451 +0x165
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.BootstrapAnchor.Validate({0x1, {0xc00054bd00, 0x1a}, {0xc000252e26, 0xa}, {0xc00054bd60, 0x1a}, {0xc000252e3d, 0x3}, {0xc000252fc3, ...}, ...})
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/anchor.go:81 +0xf7a
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.verifyBootstrapAnchor({0x1, {0xc00004ea50, 0x47}, {{0xc00054b3a0, 0x1b}, {0xc00054b400, 0x1a}, {0xc000252bbd, 0x3}, {0xc000252bc6, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/anchor.go:380 +0x103b
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.VerifyBootstrapAnchor(...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/anchor.go:321
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.verifyFounderPlan({_, _, _}, _, {_, _, _}, _, {0x24a1a3bc, 0xee26481bd, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/founder_plan.go:456 +0x181b
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.VerifyFounderPlan(...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/founder_plan.go:375
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.(*CurrentFounderAuthorityReader).readCurrent(_, {_, _}, {_, _, _}, _)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_selection.go:265 +0x191b
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.(*CurrentFounderAuthorityReader).ReadCurrent(...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_selection.go:189
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.fresh({0xc0003af188, 0xc0005bf110, {0x1, {0xc0007cb480, 0x40}, {0xc00092e440, 0x40}, {0xc00070bec0, 0x40}, {0xc00070bec0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_runtime.go:290 +0x1f3
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.completionRefresh.func1({_, _})
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_runtime.go:368 +0x197
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.(*Ledger).refreshManagedPeer(_, {_, _}, {{_, _}, {_, _}, {_, _}}, {{0x1, ...}, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/ledger_head.go:1475 +0xba
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.(*Ledger).RecordManagedPeerCandidate(0xc0001ad540, {0x265e758, 0xc0000b66e0}, {{0x1875859, 0x1a}, {0x1858273, 0x3}, {0x1861a72, 0xc}}, {0xc0002c6a00, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrap/managed_recovery.go:88 +0x2296
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.pinCandidate({0xc0003af188, 0xc0005bf110, {0x1, {0xc0007cb480, 0x40}, {0xc00092e440, 0x40}, {0xc00070bec0, 0x40}, {0xc00070bec0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_runtime.go:554 +0x1267
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.runPeer({0xc0003af188, 0xc0005bf110, {0x1, {0xc0007cb480, 0x40}, {0xc00092e440, 0x40}, {0xc00070bec0, 0x40}, {0xc00070bec0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_runtime.go:411 +0x1178
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.TestFounderRuntimeStagedResultRestartReplaysWithoutOCI(0xc000561448)
+	/tmp/ts-refactor-qa-gate-check/internal/bootstrapstart/founder_runtime_test.go:1341 +0x215
+testing.tRunner(0xc000561448, 0x2663480)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2193 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2258 +0xb13
+FAIL	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	360.102s
+FAIL

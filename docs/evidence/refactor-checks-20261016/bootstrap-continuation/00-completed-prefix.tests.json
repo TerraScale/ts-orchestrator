@@ -1,0 +1,560 @@
+[
+  {
+    "ordinal": 1,
+    "name": "TestAcceptedIdentityStrictV1",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 168
+  },
+  {
+    "ordinal": 2,
+    "name": "TestAcceptedIdentityRejectsInvalidScopeAndInventories",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 206
+  },
+  {
+    "ordinal": 3,
+    "name": "TestAcceptedIdentityCheckpointProjectionAndProof",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 250
+  },
+  {
+    "ordinal": 4,
+    "name": "TestAcceptedIdentityConcurrentReplacementChecksExactPredecessor",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 325
+  },
+  {
+    "ordinal": 5,
+    "name": "TestAcceptedIdentityPublicationPredecessorAndNoReplace",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 362
+  },
+  {
+    "ordinal": 6,
+    "name": "TestAcceptedIdentityReaderRequiresOwnedDirectCanonicalFile",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 406
+  },
+  {
+    "ordinal": 7,
+    "name": "TestAcceptedIdentityPublicationRejectsIndirectOrWritableFiles",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 442
+  },
+  {
+    "ordinal": 8,
+    "name": "TestAcceptedIdentityRequiresObservedExistingStore",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 505
+  },
+  {
+    "ordinal": 9,
+    "name": "TestAcceptedIdentityInitialUsesCurrentFreshProofs",
+    "file": "internal/bootstrapstart/accepted_identity_test.go",
+    "line": 561
+  },
+  {
+    "ordinal": 10,
+    "name": "TestManagedPeerInitialAdmissionWaitsForPositiveHEAD",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 77
+  },
+  {
+    "ordinal": 11,
+    "name": "TestManagedPeerPendingClassifierPreservesMalformedPositiveResult",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 105
+  },
+  {
+    "ordinal": 12,
+    "name": "TestAdmissionRejectsLoadedConfigBeforeMaterial",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 518
+  },
+  {
+    "ordinal": 13,
+    "name": "TestGateInitialAndRestartThroughFakeAdapters",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 551
+  },
+  {
+    "ordinal": 14,
+    "name": "TestGateClockFailureStopsAdmissionBeforeLedgerOrMaterial",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 612
+  },
+  {
+    "ordinal": 15,
+    "name": "TestGateClockLossStopsMaterialAndMarkerEffects",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 635
+  },
+  {
+    "ordinal": 16,
+    "name": "TestGateRechecksCurrentProofBetweenObservationAndEachMaterialEffect",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 671
+  },
+  {
+    "ordinal": 17,
+    "name": "TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 699
+  },
+  {
+    "ordinal": 18,
+    "name": "TestRestartAdmissionFollowsTheGenerationsControllerConfig",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 784
+  },
+  {
+    "ordinal": 19,
+    "name": "TestInitialAdmissionRejectsChangedReceiptHashBeforeEffects",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 865
+  },
+  {
+    "ordinal": 20,
+    "name": "TestInitialAdmissionRechecksJournalAndProofBeforeIdentityPreparation",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 876
+  },
+  {
+    "ordinal": 21,
+    "name": "TestInitialAdmissionRecoversOnlyExactCurrentFormationAfterPublicationCrash",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 911
+  },
+  {
+    "ordinal": 22,
+    "name": "TestInitialAdmissionRecoveryRefusesDifferentOrExpiredCurrentProofsBeforeEffects",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 947
+  },
+  {
+    "ordinal": 23,
+    "name": "TestInitialAcceptedExportRetriesExactBytesBeforeRuntimeAcceptance",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 987
+  },
+  {
+    "ordinal": 24,
+    "name": "TestInitialAcceptedExportRecoversAfterCredentialMemoryLoss",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 1043
+  },
+  {
+    "ordinal": 25,
+    "name": "TestInitialAcceptedExportRejectsForeignMalformedOrExpiredRecoveryBeforeEffects",
+    "file": "internal/bootstrapstart/admission_flow_test.go",
+    "line": 1078
+  },
+  {
+    "ordinal": 26,
+    "name": "TestLocalRestartAdmissionNeedsNoInitialInputsOCIOrClock",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 14
+  },
+  {
+    "ordinal": 27,
+    "name": "TestAcceptedRestartRequiresExactInstalledBrokerAndStore",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 65
+  },
+  {
+    "ordinal": 28,
+    "name": "TestAcceptedRestartDetectsSnapshotChangesAndCancellation",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 106
+  },
+  {
+    "ordinal": 29,
+    "name": "TestRestartAdmissionRequiresExactAuthenticatedOCIObservation",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 141
+  },
+  {
+    "ordinal": 30,
+    "name": "TestRestartAdmissionChecksNTPBeforeAndAfterOCI",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 165
+  },
+  {
+    "ordinal": 31,
+    "name": "TestAdmissionRefusesRekeyJournalBeforeInitialOrRestartEffects",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 201
+  },
+  {
+    "ordinal": 32,
+    "name": "TestAcceptedRestartRefusesMaterialVerificationFailure",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 230
+  },
+  {
+    "ordinal": 33,
+    "name": "TestAcceptedRestartRejectsPendingRootedJournalBeforeAdapters",
+    "file": "internal/bootstrapstart/admission_local_test.go",
+    "line": 244
+  },
+  {
+    "ordinal": 34,
+    "name": "TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt",
+    "file": "internal/bootstrapstart/admission_selfupdate_test.go",
+    "line": 218
+  },
+  {
+    "ordinal": 35,
+    "name": "TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline",
+    "file": "internal/bootstrapstart/admission_selfupdate_test.go",
+    "line": 334
+  },
+  {
+    "ordinal": 36,
+    "name": "TestAcceptedBinaryUsesExactSharedFileMeasurement",
+    "file": "internal/bootstrapstart/admission_selfupdate_test.go",
+    "line": 411
+  },
+  {
+    "ordinal": 37,
+    "name": "TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly",
+    "file": "internal/bootstrapstart/admission_selfupdate_test.go",
+    "line": 438
+  },
+  {
+    "ordinal": 38,
+    "name": "TestObserveAssemblesIntentFactsAfterExactOCIComparison",
+    "file": "internal/bootstrapstart/admission_test.go",
+    "line": 55
+  },
+  {
+    "ordinal": 39,
+    "name": "TestObserveRejectsMismatchedCloudInstanceAndPrimaryVNIC",
+    "file": "internal/bootstrapstart/admission_test.go",
+    "line": 68
+  },
+  {
+    "ordinal": 40,
+    "name": "TestExpectedMaterialsIncludesRegionalHostIssuerForSeedAndPeer",
+    "file": "internal/bootstrapstart/admission_test.go",
+    "line": 89
+  },
+  {
+    "ordinal": 41,
+    "name": "TestBakedInputsRequireCanonicalRootOwnedPublicFiles",
+    "file": "internal/bootstrapstart/baked_test.go",
+    "line": 76
+  },
+  {
+    "ordinal": 42,
+    "name": "TestBakedInputsRejectSymlinkAndUnknownRootEntry",
+    "file": "internal/bootstrapstart/baked_test.go",
+    "line": 101
+  },
+  {
+    "ordinal": 43,
+    "name": "TestBakedInputsExtendGenesisWithTheAdoptedRootChain",
+    "file": "internal/bootstrapstart/baked_test.go",
+    "line": 138
+  },
+  {
+    "ordinal": 44,
+    "name": "TestRunningBinaryPinsInstalledExecutable",
+    "file": "internal/bootstrapstart/binary_test.go",
+    "line": 16
+  },
+  {
+    "ordinal": 45,
+    "name": "TestVerifyControllerConfigInstallBindsSignedEnvelopeAndOCIInstance",
+    "file": "internal/bootstrapstart/controller_config_install_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 46,
+    "name": "TestFounderLaunchMetadataReachesControllerConfigInstall",
+    "file": "internal/bootstrapstart/controller_config_install_test.go",
+    "line": 52
+  },
+  {
+    "ordinal": 47,
+    "name": "TestCredentialCheckerPinsTheOptionalMembershipCredential",
+    "file": "internal/bootstrapstart/credentials_review_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 48,
+    "name": "TestCredentialCheckerBindsPathsAndExactInventory",
+    "file": "internal/bootstrapstart/credentials_test.go",
+    "line": 46
+  },
+  {
+    "ordinal": 49,
+    "name": "TestCredentialCheckerBindsTerraBaseMemberCA",
+    "file": "internal/bootstrapstart/credentials_test.go",
+    "line": 76
+  },
+  {
+    "ordinal": 50,
+    "name": "TestCredentialCheckerRejectsExtraAndChangedInstalledFiles",
+    "file": "internal/bootstrapstart/credentials_test.go",
+    "line": 94
+  },
+  {
+    "ordinal": 51,
+    "name": "TestSeedSignerCredentialPathsFollowSelectedSignedManifest",
+    "file": "internal/bootstrapstart/credentials_test.go",
+    "line": 114
+  },
+  {
+    "ordinal": 52,
+    "name": "TestFreshInterregionCredentialPathsUseManifestRoleReferences",
+    "file": "internal/bootstrapstart/credentials_test.go",
+    "line": 179
+  },
+  {
+    "ordinal": 53,
+    "name": "TestDescriptorStrictAndFixedIMDS",
+    "file": "internal/bootstrapstart/descriptor_test.go",
+    "line": 18
+  },
+  {
+    "ordinal": 54,
+    "name": "TestIMDSRejectsRedirectOversizeAndForeignDial",
+    "file": "internal/bootstrapstart/descriptor_test.go",
+    "line": 45
+  },
+  {
+    "ordinal": 55,
+    "name": "TestFetchLaunchMaterialReportsNonControllerInstance",
+    "file": "internal/bootstrapstart/descriptor_test.go",
+    "line": 71
+  },
+  {
+    "ordinal": 56,
+    "name": "TestFetchLaunchMaterialReadsOperatorSSHKey",
+    "file": "internal/bootstrapstart/descriptor_test.go",
+    "line": 89
+  },
+  {
+    "ordinal": 57,
+    "name": "TestIMDSInstanceIDIsOnlyALocalLocator",
+    "file": "internal/bootstrapstart/descriptor_test.go",
+    "line": 110
+  },
+  {
+    "ordinal": 58,
+    "name": "TestExternalSeedProducedLedgerHistoryAdmitsInitial",
+    "file": "internal/bootstrapstart/external_seed_admission_test.go",
+    "line": 14
+  },
+  {
+    "ordinal": 59,
+    "name": "TestExpiredSelectedPlanIsClassifiedAsOperatorActionThroughWrappers",
+    "file": "internal/bootstrapstart/founder_classification_review_test.go",
+    "line": 15
+  },
+  {
+    "ordinal": 60,
+    "name": "TestSelectionFloorRollbackIsClassifiedAsOperatorActionThroughWrappers",
+    "file": "internal/bootstrapstart/founder_classification_review_test.go",
+    "line": 36
+  },
+  {
+    "ordinal": 61,
+    "name": "TestFailedFounderLaunchDoesNotClaimNoInstance",
+    "file": "internal/bootstrapstart/founder_decisions_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 62,
+    "name": "TestFounderFloorArtifactsMatchInitializedPeerFloor",
+    "file": "internal/bootstrapstart/founder_floor_artifact_test.go",
+    "line": 12
+  },
+  {
+    "ordinal": 63,
+    "name": "TestAntiAffinityRefusalLeavesThePeerSlotUnreserved",
+    "file": "internal/bootstrapstart/founder_formation_review_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 64,
+    "name": "TestFounderRuntimeRefusesLaunchIntoSeedFaultDomain",
+    "file": "internal/bootstrapstart/founder_formation_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 65,
+    "name": "TestFounderPeersCompleteFactBindsExactSeedInstall",
+    "file": "internal/bootstrapstart/founder_formation_test.go",
+    "line": 47
+  },
+  {
+    "ordinal": 66,
+    "name": "TestFounderRuntimeCompletedSeedRestartsWithoutOCI",
+    "file": "internal/bootstrapstart/founder_formation_test.go",
+    "line": 89
+  },
+  {
+    "ordinal": 67,
+    "name": "TestFounderImageProofBeforeSDKLaunch",
+    "file": "internal/bootstrapstart/founder_image_proof_integration_test.go",
+    "line": 81
+  },
+  {
+    "ordinal": 68,
+    "name": "TestFounderOCIObservationOnlyAttemptCannotLaunchOrChangeCandidate",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 47
+  },
+  {
+    "ordinal": 69,
+    "name": "TestFounderOCIProjectionUsesPinnedFlexNetworkImageAndBootTier",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 82
+  },
+  {
+    "ordinal": 70,
+    "name": "TestFounderOCILostResponseRetryKeepsOriginalTokenAndOneSDKAttempt",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 118
+  },
+  {
+    "ordinal": 71,
+    "name": "TestFounderOCIBootVolumeLaunchSizeBounds",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 150
+  },
+  {
+    "ordinal": 72,
+    "name": "TestFounderOCIAttemptRejectsChangedAuthorityTokenAndDeadline",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 177
+  },
+  {
+    "ordinal": 73,
+    "name": "TestFounderOCIObservationRejectsEveryPinnedMismatch",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 209
+  },
+  {
+    "ordinal": 74,
+    "name": "TestFounderVNICRequiresSubnetNetworkOwnership",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 333
+  },
+  {
+    "ordinal": 75,
+    "name": "TestFounderOCIUsesModernImageSourceAndRequiresPositiveProvenance",
+    "file": "internal/bootstrapstart/founder_oci_test.go",
+    "line": 353
+  },
+  {
+    "ordinal": 76,
+    "name": "TestInitialSeedAdmissionInvokesFloorBeforeMarkerAndRestartNeverReinitializes",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 13
+  },
+  {
+    "ordinal": 77,
+    "name": "TestInitialSeedAdmissionFloorFailureLeavesNoAcceptedMarker",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 35
+  },
+  {
+    "ordinal": 78,
+    "name": "TestInitialSeedAdmissionRequiresFloorProvisioner",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 49
+  },
+  {
+    "ordinal": 79,
+    "name": "TestFreshSeedProvisionValidatesSelectionBeforeDurableFloor",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 60
+  },
+  {
+    "ordinal": 80,
+    "name": "TestFreshSeedProvisionRejectsConflictingPreexistingFloor",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 81
+  },
+  {
+    "ordinal": 81,
+    "name": "TestFreshSeedProvisionRechecksExpiryAtPublication",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 96
+  },
+  {
+    "ordinal": 82,
+    "name": "TestFreshSeedProvisionHoldsChangedPlanAndLaterGeneration",
+    "file": "internal/bootstrapstart/founder_provision_test.go",
+    "line": 117
+  },
+  {
+    "ordinal": 83,
+    "name": "TestPublishInitialFounderSelectionCreatesOnlyAndReplaysExactBytes",
+    "file": "internal/bootstrapstart/founder_publish_initial_test.go",
+    "line": 29
+  },
+  {
+    "ordinal": 84,
+    "name": "TestPublishInitialFounderSelectionRejectsConflictingExistingSelector",
+    "file": "internal/bootstrapstart/founder_publish_initial_test.go",
+    "line": 47
+  },
+  {
+    "ordinal": 85,
+    "name": "TestPublishInitialFounderSelectionReconcilesAmbiguousCreate",
+    "file": "internal/bootstrapstart/founder_publish_initial_test.go",
+    "line": 64
+  },
+  {
+    "ordinal": 86,
+    "name": "TestPublishInitialFounderSelectionRejectsBadPinBeforeAnyWrite",
+    "file": "internal/bootstrapstart/founder_publish_initial_test.go",
+    "line": 76
+  },
+  {
+    "ordinal": 87,
+    "name": "TestFencedReplacementStopsBeforeEveryMutation",
+    "file": "internal/bootstrapstart/founder_replacement_review_test.go",
+    "line": 14
+  },
+  {
+    "ordinal": 88,
+    "name": "TestReplacementFinishesAStagedAdvanceAfterAHeadWriteFailure",
+    "file": "internal/bootstrapstart/founder_replacement_review_test.go",
+    "line": 55
+  },
+  {
+    "ordinal": 89,
+    "name": "TestReplacementLaunchNeedsTheSeedPlacementSource",
+    "file": "internal/bootstrapstart/founder_replacement_review_test.go",
+    "line": 93
+  },
+  {
+    "ordinal": 90,
+    "name": "TestFounderReplacementRelaunchesRetiredPeerAsNextAttempt",
+    "file": "internal/bootstrapstart/founder_replacement_test.go",
+    "line": 67
+  },
+  {
+    "ordinal": 91,
+    "name": "TestFounderReplacementRequiresRootSignedRetirement",
+    "file": "internal/bootstrapstart/founder_replacement_test.go",
+    "line": 131
+  },
+  {
+    "ordinal": 92,
+    "name": "TestObserveLifecycleReportsTerminatedWithoutVNIC",
+    "file": "internal/bootstrapstart/founder_replacement_test.go",
+    "line": 161
+  },
+  {
+    "ordinal": 93,
+    "name": "TestFounderReplacementInstanceIsAdmittedForMatchingAttempt",
+    "file": "internal/bootstrapstart/founder_replacement_test.go",
+    "line": 178
+  }
+]

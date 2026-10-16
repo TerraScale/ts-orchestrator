@@ -1,0 +1,272 @@
+[
+  {
+    "ordinal": 194,
+    "name": "TestInstallLaunchMaterialWritesVerifiedWriteOnceFiles",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 135
+  },
+  {
+    "ordinal": 195,
+    "name": "TestInstallLaunchMaterialRejectsMissingForeignAndExpiredManagedImage",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 162
+  },
+  {
+    "ordinal": 196,
+    "name": "TestInstallLaunchMaterialRecoversBeforeManagedImagePublication",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 190
+  },
+  {
+    "ordinal": 197,
+    "name": "TestInstallLaunchMaterialRejectsForeignAnchorAndRedirection",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 206
+  },
+  {
+    "ordinal": 198,
+    "name": "TestInstallLaunchMaterialRejectsBundleOutsideImageLayout",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 225
+  },
+  {
+    "ordinal": 199,
+    "name": "TestInstallLaunchMaterialRejectsNonCanonicalOperatorSSHKey",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 242
+  },
+  {
+    "ordinal": 200,
+    "name": "TestLaunchMetadataForwardsOperatorSSHKey",
+    "file": "internal/bootstrapstart/launch_material_test.go",
+    "line": 262
+  },
+  {
+    "ordinal": 201,
+    "name": "TestAcceptedLaunchLoadersReadOnlyPinnedPublicInputs",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 36
+  },
+  {
+    "ordinal": 202,
+    "name": "TestAcceptedLaunchLoadersRejectIndirectWritableAndChangedFiles",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 65
+  },
+  {
+    "ordinal": 203,
+    "name": "TestAcceptedHostLaunchMaterialRequiresScopeLayoutAndSSH",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 118
+  },
+  {
+    "ordinal": 204,
+    "name": "TestAcceptedLaunchMaterialRequiresRootOwnedSnapshotAndJournal",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 167
+  },
+  {
+    "ordinal": 205,
+    "name": "TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 188
+  },
+  {
+    "ordinal": 206,
+    "name": "TestInitialAdmissionRequiresLaunchFilesBeforeEffectsAndRetainsExactPins",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 253
+  },
+  {
+    "ordinal": 207,
+    "name": "TestSignedARMHostLaunchIsIndependentOfAMD64Controller",
+    "file": "internal/bootstrapstart/launch_pins_test.go",
+    "line": 289
+  },
+  {
+    "ordinal": 208,
+    "name": "TestHistoricalLedgerOpenerAcceptsCurrentFiveDomainGrantReadOnly",
+    "file": "internal/bootstrapstart/ledger_test.go",
+    "line": 98
+  },
+  {
+    "ordinal": 209,
+    "name": "TestLedgerOpenerUsesExactVerifiedGrantAndBakedRoots",
+    "file": "internal/bootstrapstart/ledger_test.go",
+    "line": 117
+  },
+  {
+    "ordinal": 210,
+    "name": "TestMarkerRequiresPrimaryVNICIdentity",
+    "file": "internal/bootstrapstart/marker_test.go",
+    "line": 29
+  },
+  {
+    "ordinal": 211,
+    "name": "TestMarkerRequiresSignedSeedRole",
+    "file": "internal/bootstrapstart/marker_test.go",
+    "line": 42
+  },
+  {
+    "ordinal": 212,
+    "name": "TestMarkerAtomicNoReplaceAndTamper",
+    "file": "internal/bootstrapstart/marker_test.go",
+    "line": 67
+  },
+  {
+    "ordinal": 213,
+    "name": "TestMarkerRejectsSymlinkAndUntrustedParent",
+    "file": "internal/bootstrapstart/marker_test.go",
+    "line": 98
+  },
+  {
+    "ordinal": 214,
+    "name": "TestMaterialInstallUnderRestrictedCapabilities",
+    "file": "internal/bootstrapstart/material_caps_test.go",
+    "line": 22
+  },
+  {
+    "ordinal": 215,
+    "name": "TestMaterialInstallWithoutDACOverride",
+    "file": "internal/bootstrapstart/material_caps_test.go",
+    "line": 74
+  },
+  {
+    "ordinal": 216,
+    "name": "TestBootstrapUnitPinsMaterialInstallCapabilities",
+    "file": "internal/bootstrapstart/material_caps_test.go",
+    "line": 110
+  },
+  {
+    "ordinal": 217,
+    "name": "TestInitialMaterialMountRequiresEmptyDirectoryAndKeepsSecretsInMemory",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 19
+  },
+  {
+    "ordinal": 218,
+    "name": "TestRestoreIntactMaterialDoesNotReadVault",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 92
+  },
+  {
+    "ordinal": 219,
+    "name": "TestRebootSuccessorDiskCleanupRefusesUnverifiedPredecessor",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 232
+  },
+  {
+    "ordinal": 220,
+    "name": "TestRebootArmedSuccessorDoesNotWriteSecretsBeforeMemoryMount",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 305
+  },
+  {
+    "ordinal": 221,
+    "name": "TestRebootArmedSuccessorInstallsOnlyInMemory",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 344
+  },
+  {
+    "ordinal": 222,
+    "name": "TestRebootArmedSuccessorRechecksExpiryAfterVaultRead",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 418
+  },
+  {
+    "ordinal": 223,
+    "name": "TestRestoreAcceptsOlderDiskPrefixButRejectsDivergentChain",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 446
+  },
+  {
+    "ordinal": 224,
+    "name": "TestReadIdentityRekeyMaterialChecksFullVaultUnionAndPreservesImmutableFiles",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 493
+  },
+  {
+    "ordinal": 225,
+    "name": "TestRestoredOfflineControllerCredentialsPassRestartAdmission",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 595
+  },
+  {
+    "ordinal": 226,
+    "name": "TestRestoredMaterialPassesRestartAdmission",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 644
+  },
+  {
+    "ordinal": 227,
+    "name": "TestRebootRestoresFullAcceptedBaselineWithoutRetiredFiles",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 717
+  },
+  {
+    "ordinal": 228,
+    "name": "TestRestoreKeepsTheNewerInstalledChain",
+    "file": "internal/bootstrapstart/material_restore_test.go",
+    "line": 807
+  },
+  {
+    "ordinal": 229,
+    "name": "TestServiceMaterialInstallIsExactNoReplaceAndOwnerOnly",
+    "file": "internal/bootstrapstart/material_test.go",
+    "line": 17
+  },
+  {
+    "ordinal": 230,
+    "name": "TestServiceMaterialRejectsSymlinkAndUntrustedParent",
+    "file": "internal/bootstrapstart/material_test.go",
+    "line": 53
+  },
+  {
+    "ordinal": 231,
+    "name": "TestServiceUIDCanReadRootInstalledMaterial",
+    "file": "internal/bootstrapstart/material_test.go",
+    "line": 75
+  },
+  {
+    "ordinal": 232,
+    "name": "TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+    "file": "internal/bootstrapstart/oci_observer_test.go",
+    "line": 78
+  },
+  {
+    "ordinal": 233,
+    "name": "TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+    "file": "internal/bootstrapstart/oci_observer_test.go",
+    "line": 127
+  },
+  {
+    "ordinal": 234,
+    "name": "TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+    "file": "internal/bootstrapstart/oci_observer_test.go",
+    "line": 142
+  },
+  {
+    "ordinal": 235,
+    "name": "TestTrustInputsDoNotReadRetiredIdentityOrAnchor",
+    "file": "internal/bootstrapstart/trust_inputs_test.go",
+    "line": 18
+  },
+  {
+    "ordinal": 236,
+    "name": "TestTrustInputsNonemptyChainRequiresAcceptedDeploymentLineage",
+    "file": "internal/bootstrapstart/trust_inputs_test.go",
+    "line": 46
+  },
+  {
+    "ordinal": 237,
+    "name": "TestTrustInputsRejectUnsafeGenesisFiles",
+    "file": "internal/bootstrapstart/trust_inputs_test.go",
+    "line": 132
+  },
+  {
+    "ordinal": 238,
+    "name": "TestTrustInputsRejectIndirectOrWritableAdoptedChain",
+    "file": "internal/bootstrapstart/trust_inputs_test.go",
+    "line": 169
+  }
+]

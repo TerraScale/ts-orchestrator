@@ -1,0 +1,170 @@
+[
+  {
+    "ordinal": 94,
+    "name": "TestFounderRuntimeCompletesTwoPlannedPeersAndRestartIsIdempotent",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 390
+  },
+  {
+    "ordinal": 95,
+    "name": "TestFounderRuntimeReservesUnreservedPeersBeforeLaunch",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 409
+  },
+  {
+    "ordinal": 96,
+    "name": "TestFounderRuntimeCandidateOnlyRestartObservesWithoutRelaunch",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 423
+  },
+  {
+    "ordinal": 97,
+    "name": "TestFounderRuntimeQuarantinedLateResultRepairsPinnedCandidate",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 465
+  },
+  {
+    "ordinal": 98,
+    "name": "TestFounderRuntimeCompletedCellRestartDoesNotNeedCurrentLaunchPlan",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 507
+  },
+  {
+    "ordinal": 99,
+    "name": "TestFounderRuntimeCompletedCellRequiresExistingCanonicalFloor",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 543
+  },
+  {
+    "ordinal": 100,
+    "name": "TestFounderRuntimeSupersedingPendingHEADCannotSkipFounding",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 595
+  },
+  {
+    "ordinal": 101,
+    "name": "TestFounderRuntimeMalformedPositiveHEADCannotSkipFounding",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 627
+  },
+  {
+    "ordinal": 102,
+    "name": "TestFounderRuntimeHistoricalCompletionRequiresExactBakedAnchor",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 645
+  },
+  {
+    "ordinal": 103,
+    "name": "TestFounderRuntimePeerGateWaitsForRealLedgerCompletion",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 796
+  },
+  {
+    "ordinal": 104,
+    "name": "TestFounderRuntimePeerGateWaitsForQuarantineRepair",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 843
+  },
+  {
+    "ordinal": 105,
+    "name": "TestFounderRuntimeTimelyCompletedPeersRemainAdmittedAfterProgressExpiry",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 892
+  },
+  {
+    "ordinal": 106,
+    "name": "TestFounderRuntimeCompletedPeerRestartAfterLaunchDeadline",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 951
+  },
+  {
+    "ordinal": 107,
+    "name": "TestFounderRuntimeFirstInstallHoldsAfterReceiptExpiry",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 988
+  },
+  {
+    "ordinal": 108,
+    "name": "TestFounderRuntimeFirstInstallHoldsIfReceiptExpiresDuringFloorPublication",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1025
+  },
+  {
+    "ordinal": 109,
+    "name": "TestFounderRuntimeLateCompletionCannotFirstAdmitAfterLaunchDeadline",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1062
+  },
+  {
+    "ordinal": 110,
+    "name": "TestFounderRuntimeMissingSignerCannotTouchOCI",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1100
+  },
+  {
+    "ordinal": 111,
+    "name": "TestFounderRuntimeLaterLedgerReadCrossesSelectionExpiryWithoutEffects",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1113
+  },
+  {
+    "ordinal": 112,
+    "name": "TestFounderRuntimeStaleObservationReobservesExactInstanceBeforeResult",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1132
+  },
+  {
+    "ordinal": 113,
+    "name": "TestFounderRuntimeResultKeepsActualOCIObservationDate",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1184
+  },
+  {
+    "ordinal": 114,
+    "name": "TestFounderRuntimeTrustedAgeGateReobservesPinnedInstance",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1209
+  },
+  {
+    "ordinal": 115,
+    "name": "TestFounderRuntimeChangedInstanceAfterStaleObservationCannotComplete",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1238
+  },
+  {
+    "ordinal": 116,
+    "name": "TestFounderRuntimeMissingOCIObservationDateCannotComplete",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1280
+  },
+  {
+    "ordinal": 117,
+    "name": "TestFounderRuntimeOCIContextEndsWithSelectedAuthority",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1293
+  },
+  {
+    "ordinal": 118,
+    "name": "TestFounderRuntimeWrongSignerCannotTouchOCI",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1325
+  },
+  {
+    "ordinal": 119,
+    "name": "TestFounderRuntimeStagedResultRestartReplaysWithoutOCI",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1338
+  },
+  {
+    "ordinal": 120,
+    "name": "TestFounderRuntimeResultReadyRestartReplaysExactResultWithoutOCI",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1357
+  },
+  {
+    "ordinal": 121,
+    "name": "TestFounderRuntimeSupersededSelectionStopsBeforeLaunch",
+    "file": "internal/bootstrapstart/founder_runtime_test.go",
+    "line": 1391
+  }
+]

@@ -1,0 +1,5 @@
+source: /tmp/ts-refactor-qa-logscan (base 7a7abb4136c0de6fe3560d43e2b3af414b6dfd4b; exact test file later committed as e936b72864c578353e61d880c207f4728e460b8e)
+command: flock /tmp/ts-orch-refactor-short-check-a.lock timeout 180s env GOMAXPROCS=2 GOFLAGS=-p=2 nice -n 19 go test ./internal/logscan -count=1 -timeout=60s
+exit: 0
+output: ok  	github.com/TerraScale/ts-orchestrator/internal/logscan	0.217s
+QA lane: SHORT-A RELEASED immediately after exit

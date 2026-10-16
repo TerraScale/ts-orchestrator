@@ -689,3 +689,64 @@ CLI resolver. Names and `RecordFromPlan` cannot infer that authority. Shared app
 `c5958f9a` observability package passed 57.952s; CLI/dashboard compile was blocked
 by missing release `ProductionProof` dependency, now routed to app integration.
 No unchanged successful observability rerun is required for that compile fix.
+
+### Independent admission enforcement checked — 2026-10-16
+
+The narrow candidate closes admission before credential-bearing deployment,
+final-image publication/import, founder SDK effects and retained direct-member
+launches. It does not establish live runtime or workload qualification. Ordinary
+release authority cannot replace the independent exact-candidate qualification.
+
+| Boundary | Integrated source | Retained local result |
+| --- | --- | --- |
+| Founder effects | Original `57622f7b` → QA `1d0042a8` | Each selected-image check precedes SDK effects and limits the operation deadline to current selector/image authority. Real signed-proof positives and zero-mutation negatives passed. |
+| Direct retained-member launch | Original `c827f68f` → QA `e3885178` | Current final disk, signed receipt, OCI image identity and exact scope are checked before launch; full attempt race passed on final code in 6.500s. |
+| Independent binary qualification expiry | Original `559a85d8` → QA `1cceab55` | The consumer proof expires at the earliest release/qualification/delegation boundary. Actual selfupdate Stage refuses at that boundary before filesystem effects. Release, selfupdate and image race packages passed on `174ec196` in 3.204s/5.711s/1.228s. |
+| Public raw OCI import | Original `edd6c1a6` → QA `c2eb7062` | Removed the unqualified public command and its callers. The already-qualified Attempt uses the typed SDK importer. Full attempt race 6.500s, real CLI dispatch refusal 1.158s and binary build passed. |
+| Completed-import reuse ordering | Original `2cf58e1c` → QA `174ec196` | Rejected proof cannot enter the completed-import resume branch or print successful import progress; full image race passed in 1.228s. |
+
+The final code build at `c2eb7062` has SHA-256
+`261b26665161990465a3465720d4529b1bb09f0818f62dbc20e8cdc9bed30265`.
+The earlier `1d0042a8` build passed and eleven of twelve full race packages
+passed; bootstrap exceeded a cumulative three-minute package budget. Its
+six-minute continuation also reached its package budget during runnable
+signature verification, with no assertion or race report. These invocations
+remain recorded as timeouts, not successful full-package runs.
+
+The exact 238-test bootstrap registry and sequential timeout stack identify 93
+preceding tests that completed without an emitted failure. The remaining 145
+names were partitioned without overlap. Every remaining name now has explicit
+race PASS evidence, including privileged reruns for all eight initially skipped
+parents and ten initially skipped child cases. The first runtime shard reached
+its cumulative budget after 25 explicit passes; only its three unfinished names
+were continued. Full logs, exact selectors, ownership/capability follow-ups and
+machine-readable counts are retained in
+[`bootstrap-continuation/`](refactor-checks-20261016/bootstrap-continuation/RESULTS.md).
+
+Bootstrap package source is unchanged between `1d0042a8` and `c2eb7062`;
+transitive source is not wholly identical. The only changed transitive
+production implementation is the independent binary expiry projection in
+`release/production_receipt.go`. Bootstrap's four admission/selfupdate cases
+that reach that API through Stage or qualification attachment were rerun on
+`c2eb7062` and passed race in 3.546s. The image/founder verifier path is unchanged;
+no blanket identity claim is made for the earlier 93-test prefix.
+
+The zero-configuration guard against actual remote main `4ad1acf5` passed,
+scanning 47 added configuration lines. Changed release/image scripts passed
+shellcheck, and deployment/image workflows passed actionlint. Logs and hashes
+remain in [`refactor-checks-20261016/`](refactor-checks-20261016/SHA256SUMS).
+
+Additional complete test conversions preserve their original behaviors:
+commandio original `1d5bf843` → QA `c85e30d6` uses real OS pipes/filesystem
+(PASS 0.005s); tier original `c93482e6` → QA `a8719cae` uses bounded actual test
+processes for all eleven modes (PASS 0.057s); logscan original `e936b728` → QA
+`569975a9` uses actual journal/Fly fixture pipelines and CLI processes for all
+six tests (PASS 0.217s). None changes production policy or closes the remaining
+repository-wide test-classification work.
+
+CONNECT, RUNTIME/HA, FUNCTIONS, STATEFUL and COMPLETE remain open. The actual
+managed-runtime startup cutover, trusted regional automatic credential delivery,
+complete infrastructure accounting, final native image qualification and live
+regional/workload evidence are separate active work. Missing independent proof
+continues to refuse production exposure; no paid provisioning, new IAM
+authority, credential installation or destructive cloud action was performed.

@@ -1,0 +1,51 @@
+=== RUN   TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt
+2026/10/16 17:39:29 INFO Activated release db77c8aa77f8 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M5371WD4TV8QWVCG30VFVSR7 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+--- PASS: TestSelfUpdatedBinaryNeedsRootVerifiedUpdateReceipt (0.17s)
+=== RUN   TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline
+2026/10/16 17:39:30 INFO Activated release db77c8aa77f8 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M5371X8PD71BN9KG54XMEVSJ kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:39:30 INFO Rolled terrascale-orchestrator-controller.service back to release db481622cd16 component=decision event=true decision_id=01M5371XDMJ0RGCABFVGC6TBK4 kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M5371X8PD71BN9KG54XMEVSJ
+2026/10/16 17:39:30 INFO Activated release 05a00fa7a366 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M5371XMNP6F3WD051EEZFAJ1 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:39:30 INFO Rolled terrascale-orchestrator-controller.service back to release db481622cd16 component=decision event=true decision_id=01M5371XQGPE123FVQT5QAGK08 kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M5371XMNP6F3WD051EEZFAJ1
+--- PASS: TestRestartAdmissionAcceptsSelfUpdatedReleaseAndAcceptedBaseline (1.30s)
+=== RUN   TestAcceptedBinaryUsesExactSharedFileMeasurement
+=== RUN   TestAcceptedBinaryUsesExactSharedFileMeasurement/zero_pin
+=== RUN   TestAcceptedBinaryUsesExactSharedFileMeasurement/hash
+=== RUN   TestAcceptedBinaryUsesExactSharedFileMeasurement/size
+=== RUN   TestAcceptedBinaryUsesExactSharedFileMeasurement/architecture
+--- PASS: TestAcceptedBinaryUsesExactSharedFileMeasurement (0.00s)
+    --- PASS: TestAcceptedBinaryUsesExactSharedFileMeasurement/zero_pin (0.00s)
+    --- PASS: TestAcceptedBinaryUsesExactSharedFileMeasurement/hash (0.00s)
+    --- PASS: TestAcceptedBinaryUsesExactSharedFileMeasurement/size (0.00s)
+    --- PASS: TestAcceptedBinaryUsesExactSharedFileMeasurement/architecture (0.00s)
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly
+2026/10/16 17:39:31 INFO Activated release 276f405b16a6 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M5371YJ6XGQ5JXWYJZ1DMAP6 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:39:31 INFO Activated release d8f72b9ccb62 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M5371YM4JPBCXRSZVVYHPHJ2 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/receipt
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/delegation
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/unreadable
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/restore
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/restore_moved
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/unsafe_activation
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/missing_rollback_pins
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_executable
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_environment
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_cell
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_root
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/known_bad
+=== RUN   TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/bad_predecessor
+--- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly (0.97s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/receipt (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/delegation (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/unreadable (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/restore (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/restore_moved (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/unsafe_activation (0.00s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/missing_rollback_pins (0.00s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_executable (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_environment (0.00s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_cell (0.01s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/wrong_root (0.00s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/known_bad (0.00s)
+    --- PASS: TestCompletionRecoveryVerifiesTheRunningSignedPredecessorOnly/bad_predecessor (0.00s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	3.546s

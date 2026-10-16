@@ -1,0 +1,302 @@
+[
+  {
+    "ordinal": 144,
+    "name": "TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 35
+  },
+  {
+    "ordinal": 145,
+    "name": "TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 74
+  },
+  {
+    "ordinal": 146,
+    "name": "TestUncommittedStageLeavesUnrelatedFilesUntouched",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 118
+  },
+  {
+    "ordinal": 147,
+    "name": "TestRootOwnedRollForwardTemporaryRecoversAfterCrash",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 132
+  },
+  {
+    "ordinal": 148,
+    "name": "TestAdoptGenerationInstallsWhatRestartAdmits",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 175
+  },
+  {
+    "ordinal": 149,
+    "name": "TestFinishMaterialAdoptionAfterACrash",
+    "file": "internal/bootstrapstart/generation_adopt_test.go",
+    "line": 207
+  },
+  {
+    "ordinal": 150,
+    "name": "TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 31
+  },
+  {
+    "ordinal": 151,
+    "name": "TestRestoreMatchingArmedGenerationAfterMemoryLoss",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 135
+  },
+  {
+    "ordinal": 152,
+    "name": "TestArmedSuccessorPreservesCommittedPendingConfigBeforeFailure",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 184
+  },
+  {
+    "ordinal": 153,
+    "name": "TestArmedRenewalInstallsAfterOldGenerationExpiry",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 257
+  },
+  {
+    "ordinal": 154,
+    "name": "TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 305
+  },
+  {
+    "ordinal": 155,
+    "name": "TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 382
+  },
+  {
+    "ordinal": 156,
+    "name": "TestInstallGenerationOnlyWhenArmed",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 545
+  },
+  {
+    "ordinal": 157,
+    "name": "TestInstallGenerationRefusesATamperedSpool",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 566
+  },
+  {
+    "ordinal": 158,
+    "name": "TestInstallGenerationConvergesAfterACrash",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 616
+  },
+  {
+    "ordinal": 159,
+    "name": "TestRestoreConvergesThePendingControllerConfig",
+    "file": "internal/bootstrapstart/generation_install_test.go",
+    "line": 670
+  },
+  {
+    "ordinal": 160,
+    "name": "TestAcceptedMaterialBaselineSurvivesSubsequentRenewal",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 46
+  },
+  {
+    "ordinal": 161,
+    "name": "TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 118
+  },
+  {
+    "ordinal": 162,
+    "name": "TestRestartPinsFollowTheAdoptedGeneration",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 346
+  },
+  {
+    "ordinal": 163,
+    "name": "TestRestartPinsRefuseUntrustedOrStaleMaterial",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 369
+  },
+  {
+    "ordinal": 164,
+    "name": "TestRestartPinsAdoptWithRoleSignerInterRegion",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 496
+  },
+  {
+    "ordinal": 165,
+    "name": "TestRestartPinsAdoptLink",
+    "file": "internal/bootstrapstart/generation_pins_test.go",
+    "line": 571
+  },
+  {
+    "ordinal": 166,
+    "name": "TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles",
+    "file": "internal/bootstrapstart/identity_rekey_abort_test.go",
+    "line": 17
+  },
+  {
+    "ordinal": 167,
+    "name": "TestCompletionProbeRequiresImmutableOutcomeUnderRootedLocalIdentity",
+    "file": "internal/bootstrapstart/identity_rekey_completion_test.go",
+    "line": 71
+  },
+  {
+    "ordinal": 168,
+    "name": "TestCompletionProbeRejectsDamagedJournalBeforeNATS",
+    "file": "internal/bootstrapstart/identity_rekey_completion_test.go",
+    "line": 136
+  },
+  {
+    "ordinal": 169,
+    "name": "TestAcceptedRekeyRejectsMissingJournalBeforeAdmissionAndCompletion",
+    "file": "internal/bootstrapstart/identity_rekey_completion_test.go",
+    "line": 147
+  },
+  {
+    "ordinal": 170,
+    "name": "TestInitialAcceptanceNeedsNoRekeyJournalOrCompletion",
+    "file": "internal/bootstrapstart/identity_rekey_completion_test.go",
+    "line": 168
+  },
+  {
+    "ordinal": 171,
+    "name": "TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 54
+  },
+  {
+    "ordinal": 172,
+    "name": "TestRootInstallerInterruptedOperationResumesOnlyExactJournal",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 109
+  },
+  {
+    "ordinal": 173,
+    "name": "TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 154
+  },
+  {
+    "ordinal": 174,
+    "name": "TestRootInstallerRecomputesInstalledChainInsteadOfTrustingExportedRoots",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 179
+  },
+  {
+    "ordinal": 175,
+    "name": "TestRootInstallerLocalObservationIsIndependent",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 197
+  },
+  {
+    "ordinal": 176,
+    "name": "TestRootInstallerAdoptionRequiresExactInterruptedMaterial",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 226
+  },
+  {
+    "ordinal": 177,
+    "name": "TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 315
+  },
+  {
+    "ordinal": 178,
+    "name": "TestCommittedInstallerRecoversExpiredProofsOnlyUnderExactDurableHold",
+    "file": "internal/bootstrapstart/identity_rekey_install_test.go",
+    "line": 392
+  },
+  {
+    "ordinal": 179,
+    "name": "TestIdentityRekeyJournalSeparatesHistoricalEvidenceAndMutation",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 112
+  },
+  {
+    "ordinal": 180,
+    "name": "TestIdentityRekeyVerifiedWireDistinguishesChangedReset",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 135
+  },
+  {
+    "ordinal": 181,
+    "name": "TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 170
+  },
+  {
+    "ordinal": 182,
+    "name": "TestIdentityRekeyJournalRejectsChangedRootedInputs",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 229
+  },
+  {
+    "ordinal": 183,
+    "name": "TestIdentityRekeyJournalRetainsIndependentRootKeys",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 262
+  },
+  {
+    "ordinal": 184,
+    "name": "TestIdentityRekeyJournalPublicationAndLocalCommit",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 282
+  },
+  {
+    "ordinal": 185,
+    "name": "TestIdentityRekeyJournalRejectsResetIssuedAfterAcceptanceBeforeEffects",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 327
+  },
+  {
+    "ordinal": 186,
+    "name": "TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 359
+  },
+  {
+    "ordinal": 187,
+    "name": "TestIdentityRekeyStagingMissingNodePinCannotAuthorizeRestart",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 404
+  },
+  {
+    "ordinal": 188,
+    "name": "TestIdentityRekeyStagingRefusesUnprovenOrChangedNode",
+    "file": "internal/bootstrapstart/identity_rekey_journal_test.go",
+    "line": 436
+  },
+  {
+    "ordinal": 189,
+    "name": "TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors",
+    "file": "internal/bootstrapstart/identity_rekey_material_test.go",
+    "line": 84
+  },
+  {
+    "ordinal": 190,
+    "name": "TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename",
+    "file": "internal/bootstrapstart/identity_rekey_material_test.go",
+    "line": 134
+  },
+  {
+    "ordinal": 191,
+    "name": "TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries",
+    "file": "internal/bootstrapstart/identity_rekey_response_test.go",
+    "line": 105
+  },
+  {
+    "ordinal": 192,
+    "name": "TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication",
+    "file": "internal/bootstrapstart/identity_rekey_response_test.go",
+    "line": 134
+  },
+  {
+    "ordinal": 193,
+    "name": "TestCompletedRekeyStagesSuccessorWithoutLosingAcceptanceEvidence",
+    "file": "internal/bootstrapstart/identity_rekey_successor_test.go",
+    "line": 18
+  }
+]

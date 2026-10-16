@@ -1,0 +1,290 @@
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/root
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/broker
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/slot
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/config
+=== RUN   TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/material
+--- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename (0.73s)
+    --- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/root (0.17s)
+    --- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/broker (0.16s)
+    --- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/slot (0.13s)
+    --- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/config (0.13s)
+    --- PASS: TestCommittedStageRequiresRootedAcceptedTargetBeforeAnyRename/material (0.13s)
+=== RUN   TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename
+    generation_adopt_test.go:76: distinct service ownership requires root
+--- SKIP: TestServiceOwnedCommittedStageUnderBadRootHasNoPrivilegedRename (0.00s)
+=== RUN   TestUncommittedStageLeavesUnrelatedFilesUntouched
+--- PASS: TestUncommittedStageLeavesUnrelatedFilesUntouched (0.04s)
+=== RUN   TestRootOwnedRollForwardTemporaryRecoversAfterCrash
+--- PASS: TestRootOwnedRollForwardTemporaryRecoversAfterCrash (0.12s)
+=== RUN   TestAdoptGenerationInstallsWhatRestartAdmits
+--- PASS: TestAdoptGenerationInstallsWhatRestartAdmits (0.15s)
+=== RUN   TestFinishMaterialAdoptionAfterACrash
+--- PASS: TestFinishMaterialAdoptionAfterACrash (0.62s)
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/expired
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/retired_signer
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/unarmed
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/missing_successor
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/tampered_successor
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/fork
+=== RUN   TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/tampered_predecessor
+--- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor (2.00s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/expired (0.51s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/retired_signer (0.60s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/unarmed (0.16s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/missing_successor (0.15s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/tampered_successor (0.18s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/fork (0.16s)
+    --- PASS: TestInterruptedStaleAdoptionRequiresFreshArmedSuccessor/tampered_predecessor (0.24s)
+=== RUN   TestRestoreMatchingArmedGenerationAfterMemoryLoss
+--- PASS: TestRestoreMatchingArmedGenerationAfterMemoryLoss (0.48s)
+=== RUN   TestArmedSuccessorPreservesCommittedPendingConfigBeforeFailure
+--- PASS: TestArmedSuccessorPreservesCommittedPendingConfigBeforeFailure (0.50s)
+=== RUN   TestArmedRenewalInstallsAfterOldGenerationExpiry
+--- PASS: TestArmedRenewalInstallsAfterOldGenerationExpiry (0.62s)
+=== RUN   TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck
+=== RUN   TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/fresh_successor
+=== RUN   TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/unarmed
+=== RUN   TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/tampered_successor
+--- PASS: TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck (1.67s)
+    --- PASS: TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/fresh_successor (0.73s)
+    --- PASS: TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/unarmed (0.49s)
+    --- PASS: TestRestoreInstallsFreshArmedSuccessorBeforeExpiredInventoryCheck/tampered_successor (0.45s)
+=== RUN   TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss
+--- PASS: TestRestoreArmedStageCannotRollBackDurableChainAfterMemoryLoss (0.65s)
+=== RUN   TestInstallGenerationOnlyWhenArmed
+--- PASS: TestInstallGenerationOnlyWhenArmed (0.48s)
+=== RUN   TestInstallGenerationRefusesATamperedSpool
+--- PASS: TestInstallGenerationRefusesATamperedSpool (0.98s)
+=== RUN   TestInstallGenerationConvergesAfterACrash
+--- PASS: TestInstallGenerationConvergesAfterACrash (1.38s)
+=== RUN   TestRestoreConvergesThePendingControllerConfig
+--- PASS: TestRestoreConvergesThePendingControllerConfig (0.19s)
+=== RUN   TestAcceptedMaterialBaselineSurvivesSubsequentRenewal
+--- PASS: TestAcceptedMaterialBaselineSurvivesSubsequentRenewal (0.33s)
+=== RUN   TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline
+--- PASS: TestMaterialPinsCannotBeReusedWithChangedAcceptedBaseline (0.08s)
+=== RUN   TestRestartPinsFollowTheAdoptedGeneration
+--- PASS: TestRestartPinsFollowTheAdoptedGeneration (0.27s)
+=== RUN   TestRestartPinsRefuseUntrustedOrStaleMaterial
+--- PASS: TestRestartPinsRefuseUntrustedOrStaleMaterial (0.66s)
+=== RUN   TestRestartPinsAdoptWithRoleSignerInterRegion
+--- PASS: TestRestartPinsAdoptWithRoleSignerInterRegion (1.37s)
+=== RUN   TestRestartPinsAdoptLink
+--- PASS: TestRestartPinsAdoptLink (0.31s)
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/renewal
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/empty_slot
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/committed_barrier
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_acceptance
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_journal
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/cancelled
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_store
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/wrong_digest
+=== RUN   TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/archive_collision
+--- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles (3.75s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/renewal (0.41s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/empty_slot (0.38s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/committed_barrier (0.54s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_acceptance (0.41s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_journal (0.30s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/cancelled (0.38s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/changed_store (0.39s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/wrong_digest (0.38s)
+    --- PASS: TestIdentityRekeyAbortRequiresPermanentFenceAndExactUnaffectedFiles/archive_collision (0.56s)
+=== RUN   TestCompletionProbeRequiresImmutableOutcomeUnderRootedLocalIdentity
+--- PASS: TestCompletionProbeRequiresImmutableOutcomeUnderRootedLocalIdentity (1.20s)
+=== RUN   TestCompletionProbeRejectsDamagedJournalBeforeNATS
+--- PASS: TestCompletionProbeRejectsDamagedJournalBeforeNATS (0.11s)
+=== RUN   TestAcceptedRekeyRejectsMissingJournalBeforeAdmissionAndCompletion
+--- PASS: TestAcceptedRekeyRejectsMissingJournalBeforeAdmissionAndCompletion (0.11s)
+=== RUN   TestInitialAcceptanceNeedsNoRekeyJournalOrCompletion
+--- PASS: TestInitialAcceptanceNeedsNoRekeyJournalOrCompletion (0.02s)
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/root
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/target
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/checkpoint
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/handoff
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/reset
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/expired
+=== RUN   TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/predecessor
+--- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects (0.90s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/root (0.09s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/target (0.12s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/checkpoint (0.11s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/handoff (0.14s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/reset (0.16s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/expired (0.11s)
+    --- PASS: TestRootInstallerRejectsWrongCurrentProofAndTargetBeforeEffects/predecessor (0.16s)
+=== RUN   TestRootInstallerInterruptedOperationResumesOnlyExactJournal
+--- PASS: TestRootInstallerInterruptedOperationResumesOnlyExactJournal (0.78s)
+=== RUN   TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance
+=== RUN   TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance/server-name
+=== RUN   TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance/node-identity.json
+--- PASS: TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance (0.60s)
+    --- PASS: TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance/server-name (0.30s)
+    --- PASS: TestRootInstallerChangedPhysicalStoreCannotPublishJournalOrAcceptance/node-identity.json (0.31s)
+=== RUN   TestRootInstallerRecomputesInstalledChainInsteadOfTrustingExportedRoots
+--- PASS: TestRootInstallerRecomputesInstalledChainInsteadOfTrustingExportedRoots (0.15s)
+=== RUN   TestRootInstallerLocalObservationIsIndependent
+--- PASS: TestRootInstallerLocalObservationIsIndependent (0.35s)
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/exact_partial
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/truncated_partial
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/empty_partial
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/chain_write_interrupted
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/symlink
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/unrelated
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/exact_committed
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/wrong_committed
+=== RUN   TestRootInstallerAdoptionRequiresExactInterruptedMaterial/signed_successor
+--- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial (1.88s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/exact_partial (0.30s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/truncated_partial (0.34s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/empty_partial (0.29s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/chain_write_interrupted (0.31s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/symlink (0.13s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/unrelated (0.13s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/exact_committed (0.12s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/wrong_committed (0.12s)
+    --- PASS: TestRootInstallerAdoptionRequiresExactInterruptedMaterial/signed_successor (0.13s)
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/complete
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/interrupted_rename
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/config
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/material
+=== RUN   TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/successor
+--- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain (1.54s)
+    --- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/complete (0.31s)
+    --- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/interrupted_rename (0.49s)
+    --- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/config (0.21s)
+    --- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/material (0.26s)
+    --- PASS: TestRootInstallerInstalledMaterialBindsConfigAndRecoversExactChain/successor (0.26s)
+=== RUN   TestCommittedInstallerRecoversExpiredProofsOnlyUnderExactDurableHold
+--- PASS: TestCommittedInstallerRecoversExpiredProofsOnlyUnderExactDurableHold (0.86s)
+=== RUN   TestIdentityRekeyJournalSeparatesHistoricalEvidenceAndMutation
+--- PASS: TestIdentityRekeyJournalSeparatesHistoricalEvidenceAndMutation (0.23s)
+=== RUN   TestIdentityRekeyVerifiedWireDistinguishesChangedReset
+--- PASS: TestIdentityRekeyVerifiedWireDistinguishesChangedReset (0.22s)
+=== RUN   TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery
+=== RUN   TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/wrong_root
+=== RUN   TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/expired
+=== RUN   TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/invalid_floor
+--- PASS: TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery (0.69s)
+    --- PASS: TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/wrong_root (0.06s)
+    --- PASS: TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/expired (0.02s)
+    --- PASS: TestIdentityRekeyFinalizationPreservesReviewedPinsAndHistoricalRecovery/invalid_floor (0.06s)
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/version
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/checkpoint
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/reset
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/host_facts
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/target
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/value
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/genesis
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/root_floor
+=== RUN   TestIdentityRekeyJournalRejectsChangedRootedInputs/replicas
+--- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs (1.00s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/version (0.09s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/checkpoint (0.09s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/reset (0.13s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/host_facts (0.14s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/target (0.12s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/value (0.13s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/genesis (0.09s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/root_floor (0.08s)
+    --- PASS: TestIdentityRekeyJournalRejectsChangedRootedInputs/replicas (0.13s)
+=== RUN   TestIdentityRekeyJournalRetainsIndependentRootKeys
+--- PASS: TestIdentityRekeyJournalRetainsIndependentRootKeys (0.14s)
+=== RUN   TestIdentityRekeyJournalPublicationAndLocalCommit
+--- PASS: TestIdentityRekeyJournalPublicationAndLocalCommit (0.67s)
+=== RUN   TestIdentityRekeyJournalRejectsResetIssuedAfterAcceptanceBeforeEffects
+--- PASS: TestIdentityRekeyJournalRejectsResetIssuedAfterAcceptanceBeforeEffects (0.21s)
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/symlink
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/hardlink
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/mode
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/whitespace
+=== RUN   TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/unknown
+--- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles (0.43s)
+    --- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/symlink (0.09s)
+    --- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/hardlink (0.09s)
+    --- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/mode (0.08s)
+    --- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/whitespace (0.09s)
+    --- PASS: TestIdentityRekeyJournalRefusesIndirectAndNoncanonicalFiles/unknown (0.08s)
+=== RUN   TestIdentityRekeyStagingMissingNodePinCannotAuthorizeRestart
+--- PASS: TestIdentityRekeyStagingMissingNodePinCannotAuthorizeRestart (0.29s)
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/unverified_proof
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/foreign_observation
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/missing_server
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/symlink_node
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/wrong_node
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/late_wrong_node
+=== RUN   TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/late_predecessor
+--- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode (1.35s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/unverified_proof (0.09s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/foreign_observation (0.21s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/missing_server (0.21s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/symlink_node (0.21s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/wrong_node (0.20s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/late_wrong_node (0.21s)
+    --- PASS: TestIdentityRekeyStagingRefusesUnprovenOrChangedNode/late_predecessor (0.22s)
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/none
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/installed
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/durable
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/symlink
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/hardlink
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/unverified
+=== RUN   TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/expired
+--- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors (2.51s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/none (0.41s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/installed (0.37s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/durable (0.37s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/symlink (0.40s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/hardlink (0.37s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/unverified (0.28s)
+    --- PASS: TestIdentityRekeyMaterialReplacesOnlyExactOpaquePredecessors/expired (0.31s)
+=== RUN   TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename
+--- PASS: TestIdentityRekeyMaterialRecoversAfterDurableCopyAndPartialRename (0.55s)
+=== RUN   TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries
+    identity_rekey_response_test.go:106: response-key publication requires root:root
+--- SKIP: TestIdentityRekeyResponseKeyPublishesServiceOwnedExactReplacementAndRetries (0.00s)
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/unverified
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/new_key
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/previous_key
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/expired
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/cancelled
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hold
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/late_hold
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/missing_gate
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/symlink
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+=== RUN   TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hardlink
+    identity_rekey_response_test.go:137: response-key publication requires root:root
+--- PASS: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/unverified (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/new_key (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/previous_key (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/expired (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/cancelled (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hold (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/late_hold (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/missing_gate (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/symlink (0.00s)
+    --- SKIP: TestIdentityRekeyResponseKeyRefusesMismatchCancellationAndLateHoldBeforePublication/hardlink (0.00s)
+=== RUN   TestCompletedRekeyStagesSuccessorWithoutLosingAcceptanceEvidence
+--- PASS: TestCompletedRekeyStagesSuccessorWithoutLosingAcceptanceEvidence (3.32s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	38.707s

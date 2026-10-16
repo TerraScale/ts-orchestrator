@@ -1,0 +1,118 @@
+ok  	github.com/TerraScale/ts-orchestrator/internal/release	2.607s
+ok  	github.com/TerraScale/ts-orchestrator/internal/release/cli	27.744s
+ok  	github.com/TerraScale/ts-orchestrator/internal/releasechannel	3.149s
+ok  	github.com/TerraScale/ts-orchestrator/internal/ociclient	4.617s
+2026/10/16 17:11:07 INFO Activated release db77c8aa77f8 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M535DYEA5JB1GPJHHXS2N2K4 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:11:08 INFO Activated release db77c8aa77f8 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M535DZH1M4HVZYXKX756SN5D kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:11:08 INFO Rolled terrascale-orchestrator-controller.service back to release db481622cd16 component=decision event=true decision_id=01M535DZQCB06QWVAGRS0Z91YA kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M535DZH1M4HVZYXKX756SN5D
+2026/10/16 17:11:09 INFO Activated release 05a00fa7a366 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M535DZXYR2R6KCJK15TD71VE kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:11:09 INFO Rolled terrascale-orchestrator-controller.service back to release db481622cd16 component=decision event=true decision_id=01M535E01PHH53CNZC5HBZFNYA kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M535DZXYR2R6KCJK15TD71VE
+2026/10/16 17:11:10 INFO Activated release 276f405b16a6 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M535E0WFPMTN569QA6CFG26P kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:11:10 INFO Activated release d8f72b9ccb62 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M535E0Y1BX07RK4CKVNC8A88 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 17:11:16 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M535E79HDF8CRQWXG6V44QT2 kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:11:34 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M535ERY1ZEEE5N1X1HRXZF2D kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:11:46 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M535F4ESY0JNE6RF76XH6WWB kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:12:27 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M535GCYVQ7HCAF2RVJYFZSJF kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:12:42 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M535GV4VX3JNRJATE7RDV00Q kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:12:57 INFO Founder peer launch for slot controller-a failed component=decision event=true decision_id=01M535H9HGS4GYNAT6WMDG5QT8 kind=founder_launched actor=bootstrap subject=host/controller-a status=failed region=gru reason="The signed founder plan authorized the launch, but the launch attempt ended with an error; whether OCI created an instance could not be confirmed."
+2026/10/16 17:12:59 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M535HC31ARA4ZZSC8P4SKQXP kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:13:16 INFO Founder peer launched for slot controller-a component=decision event=true decision_id=01M535HWCW7H73Y2T3TQM2B80R kind=founder_launched actor=bootstrap subject=host/controller-a status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+2026/10/16 17:13:30 INFO Founder peer launched for slot controller-b component=decision event=true decision_id=01M535JA1ZDV1H4MPR15Z9D2FK kind=founder_launched actor=bootstrap subject=host/controller-b status=succeeded region=gru reason="The signed founder plan authorized this slot and its reserved launch token was current."
+panic: test timed out after 3m0s
+	running tests:
+		TestReplacementFinishesAStagedAdvanceAfterAHeadWriteFailure (21s)
+
+goroutine 450 [running]:
+testing.(*M).startAlarm.func1()
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2959 +0x605
+created by time.goFunc
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/time/sleep.go:182 +0x45
+
+goroutine 1 [chan receive]:
+testing.(*T).Run(0xc0004f6008, {0x18b3ad1, 0x3b}, 0x2662a48)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2266 +0xb3e
+testing.runTests.func1(0xc0004f6008)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2742 +0x85
+testing.tRunner(0xc0004f6008, 0xc0005f1a40)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2193 +0x21d
+testing.runTests({0x188a305, 0x25}, {0x18b6d21, 0x3d}, 0xc000016078, {0x26d9250, 0xee, 0xee}, {0xc2acbf3bc445a20a, 0x29ee4e4d1e, ...})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2740 +0x9ea
+testing.(*M).Run(0xc000455720)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2600 +0xf45
+main.main()
+	_testmain.go:520 +0x165
+
+goroutine 20 [chan receive, 3 minutes]:
+github.com/TerraScale/ts-orchestrator/internal/authority.runAuthorityDiagnostics()
+	/tmp/ts-refactor-qa/internal/authority/runtime.go:41 +0x74
+created by github.com/TerraScale/ts-orchestrator/internal/authority.init.0 in goroutine 1
+	/tmp/ts-refactor-qa/internal/authority/runtime.go:37 +0x25
+
+goroutine 436 [runnable]:
+encoding/json/jsontext.(*objectNamespace).insert(0xc0008f63f0, {0xc00062caac, 0xa, 0x1454}, 0x0)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/state.go:797 +0x4b9
+encoding/json/jsontext.(*objectNamespace).insertQuoted(...)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/state.go:766
+encoding/json/jsontext.(*encoderState).reformatObject(0xc00066d680, {0xc0009f9500, 0x212a, 0x2a80}, {0xc00062c9c5, 0x1189, 0x153b}, 0x4)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:767 +0x1296
+encoding/json/jsontext.(*encoderState).reformatValue(0xc00066d680, {0xc0009f9500, 0x212a, 0x2a80}, {0xc00062c9c5, 0x1189, 0x153b}, 0x4)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:705 +0x7bd
+encoding/json/jsontext.(*encoderState).reformatArray(0xc00066d680, {0xc0004f2000, 0x1e3f, 0x2000}, {0xc00062c6da, 0x1474, 0x1826}, 0x3)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:863 +0x865
+encoding/json/jsontext.(*encoderState).reformatValue(0xc00066d680, {0xc0004f2000, 0x1e3f, 0x2000}, {0xc00062c6da, 0x1474, 0x1826}, 0x3)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:707 +0x157
+encoding/json/jsontext.(*encoderState).reformatObject(0xc00066d680, {0xc000410400, 0x165, 0x200}, {0xc00062aa00, 0x314e, 0x3500}, 0x2)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:792 +0x17d0
+encoding/json/jsontext.(*encoderState).reformatValue(0xc00066d680, {0xc000410400, 0x165, 0x200}, {0xc00062aa00, 0x314e, 0x3500}, 0x2)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:705 +0x7bd
+encoding/json/jsontext.(*encoderState).WriteValue(0xc00066d680, {0xc00062aa00, 0x314e, 0x3500})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:543 +0x652
+encoding/json/jsontext.(*Encoder).WriteValue(...)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/jsontext/encode.go:525
+encoding/json/v2.makeMethodArshaler.func3(0xc00066d680, {{0x25b5a88?, 0xc000549698?, 0x5?}, 0x0?}, 0xc00066d748)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_methods.go:243 +0x61e
+encoding/json/v2.makeStructArshaler.func2(0xc00066d680, {{0x2606c40?, 0xc0005495f0?, 0x2606c40?}, 0x50?}, 0xc00066d748)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal_default.go:1228 +0x12e3
+encoding/json/v2.marshalEncode(0xc00066d680, {0x2606c40, 0xc000549450}, 0xc00066d748)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal.go:248 +0x306
+encoding/json/v2.Marshal({0x2606c40, 0xc000549450}, {0xc000a92700, 0x1, 0x1})
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/encoding/json/v2/arshal.go:168 +0x212
+github.com/TerraScale/ts-orchestrator/internal/trust.EncodeEnvelope({0x1, {0xc00004f5e0, 0x47}, {{0xc0004f4080, 0x1d}, {0xc0004f4540, 0x1a}, {0xc0000ad16d, 0x3}, {0xc0000ad186, ...}, ...}, ...})
+	/tmp/ts-refactor-qa/internal/trust/envelope.go:195 +0xfc
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.validateManifestEnvelopeSize({0x1, {0xc00004f5e0, 0x47}, {{0xc0004f4080, 0x1d}, {0xc0004f4540, 0x1a}, {0xc0000ad16d, 0x3}, {0xc0000ad186, ...}, ...}, ...})
+	/tmp/ts-refactor-qa/internal/bootstrap/manifest.go:329 +0x79
+github.com/TerraScale/ts-orchestrator/internal/bootstrap.VerifyManifest({0x1, {0xc00004f5e0, 0x47}, {{0xc0004f4080, 0x1d}, {0xc0004f4540, 0x1a}, {0xc0000ad16d, 0x3}, {0xc0000ad186, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrap/manifest.go:271 +0xe5
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.verifiedFounderManifest({0x2, {0xc0006e5dc0, 0x40}, {0x0, 0xee2648a69, 0x0}, {{0x1, {0xc0002c4420, 0x1a}, {0xc000471acd, ...}, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:1038 +0x91a
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.FounderSignerStore.Load({{_, _}, _, _, _}, {0x2, {0xc0006e5dc0, 0x40}, {0x0, 0xee2648a69, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:924 +0x8d6
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.fresh({0xc000856288, 0xc0005b2900, {0x1, {0xc0006e4b00, 0x40}, {0xc000688380, 0x40}, {0xc0006b20c0, 0x40}, {0xc0006b20c0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:326 +0xf0f
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.peerRefresh.func1({_, _})
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:349 +0x197
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.(*FounderOCI).beforeEffect(_, {_, _}, {{{0xc0001d1380, 0x1a}, {0xc00047181d, 0x3}, {0xc000471826, 0xa}, {0xc000471844, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_oci.go:148 +0x1cf
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.(*FounderOCI).observeFounderVNIC(_, {_, _}, {{{0xc0001d1380, 0x1a}, {0xc00047181d, 0x3}, {0xc000471826, 0xa}, {0xc000471844, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_oci.go:471 +0xff4
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.(*FounderOCI).Observe(_, {_, _}, {{{0xc0001d1380, 0x1a}, {0xc00047181d, 0x3}, {0xc000471826, 0xa}, {0xc000471844, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_oci.go:362 +0xa1a
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.retryObserve({0xc000856288, 0xc0005b2900, {0x1, {0xc0006e4b00, 0x40}, {0xc000688380, 0x40}, {0xc0006b20c0, 0x40}, {0xc0006b20c0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:564 +0x26e
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.founderCaller.runPeer({0xc000856288, 0xc0005b2900, {0x1, {0xc0006e4b00, 0x40}, {0xc000688380, 0x40}, {0xc0006b20c0, 0x40}, {0xc0006b20c0, ...}, ...}, ...}, ...)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_runtime.go:422 +0x17e5
+github.com/TerraScale/ts-orchestrator/internal/bootstrapstart.TestReplacementFinishesAStagedAdvanceAfterAHeadWriteFailure(0xc000759688)
+	/tmp/ts-refactor-qa/internal/bootstrapstart/founder_replacement_review_test.go:60 +0x312
+testing.tRunner(0xc000759688, 0x2662a48)
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2193 +0x21d
+created by testing.(*T).Run in goroutine 1
+	/home/mariogk/.local/share/mise/installs/go/1.27.1/src/testing/testing.go:2258 +0xb13
+FAIL	github.com/TerraScale/ts-orchestrator/internal/bootstrapstart	180.132s
+ok  	github.com/TerraScale/ts-orchestrator/internal/selfupdate	5.856s
+ok  	github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli	13.921s
+ok  	github.com/TerraScale/ts-orchestrator/internal/image	1.221s
+ok  	github.com/TerraScale/ts-orchestrator/internal/attempt	7.288s
+ok  	github.com/TerraScale/ts-orchestrator/internal/bootstrap/cli	16.886s
+ok  	github.com/TerraScale/ts-orchestrator/internal/cellspec	1.775s
+ok  	github.com/TerraScale/ts-orchestrator/tests/firecracker/production/fixturegen	27.645s
+FAIL
