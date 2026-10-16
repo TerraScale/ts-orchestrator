@@ -343,7 +343,10 @@ func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInsta
 	for _, row := range seedInstall.selected.Plan.Plan().Peers {
 		t.Logf("derived peer %s: actual SDK launch and durable completion", row.Slot)
 		if err := caller.runPeer(ctx, row.Slot); err != nil {
-			t.Fatalf("actual derived founder peer %s: %v", row.Slot, err)
+			protocol.mu.Lock()
+			trace := strings.Join(protocol.requests, "\n")
+			protocol.mu.Unlock()
+			t.Fatalf("actual derived founder peer %s: %v\nactual SDK requests:\n%s", row.Slot, err, trace)
 		}
 		state, err := seedInstall.ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: seedInstall.accepted.DeploymentID, Cell: seedInstall.accepted.Cell, Slot: row.Slot})
 		if err != nil || state.ResultRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil || state.ManifestRecord == nil || state.Result == nil || state.Candidate == nil || state.Head.Attempt != 1 || state.Head.Generation != 1 || state.Head.ResultDigest != state.ResultRecord.SHA256 || state.Head.CandidateDigest != state.CandidateRecord.SHA256 || state.Result.InstanceOCID != state.Candidate.InstanceOCID || state.ManifestRecord.SHA256 != row.ManifestSHA256 {
@@ -427,6 +430,7 @@ type derivedPeerProtocol struct {
 	region         string
 	instances      map[string]derivedPeerInstance
 	retries        map[string]string
+	requests       []string
 	launchAttempts int
 	lostResponse   bool
 }
@@ -457,6 +461,7 @@ func (server *derivedPeerProtocol) ServeHTTP(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusUnauthorized)
 		return
 	}
+	server.requests = append(server.requests, fmt.Sprintf("%s %s %s", time.Now().UTC().Format(time.RFC3339Nano), r.Method, r.URL.RequestURI()))
 	if r.Method == http.MethodPost && r.URL.Path == "/20160918/instances" {
 		wire, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		var details derivedPeerLaunchDetails
