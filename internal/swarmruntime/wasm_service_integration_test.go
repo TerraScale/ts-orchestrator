@@ -163,7 +163,8 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if created.Spec.Annotations.Labels[LabelFunctionProof] != current.proof.EnvelopeSHA256() || created.Spec.Annotations.Labels[LabelRole] != FunctionWorkerRole {
 		t.Fatal("signed function identity missing")
 	}
-	workerProof, err := release.VerifyContainerCurrent(ctx, qualified, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	verificationDeadline, _ := ctx.Deadline()
+	workerProof, err := release.VerifyContainerCurrent(ctx, qualified, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, verificationDeadline, readEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if runtime.GOARCH == "arm64" {
 		siblingIntent.Architecture = "amd64"
 	}
-	sibling, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 101, siblingIntent.Architecture), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: siblingIntent.Architecture}, now, now.Add(time.Minute), readEvidence)
+	sibling, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 101, siblingIntent.Architecture), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: siblingIntent.Architecture}, now, verificationDeadline, readEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	testFunctionCapacityManagerIntegration(t, ctx, client, intent, current, workerProof, wasm.ID())
-	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, verificationDeadline, readEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
