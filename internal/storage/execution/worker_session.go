@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -43,10 +44,11 @@ type WorkerTransport interface {
 }
 
 type VerifiedWorkerGrant struct {
-	payload         WorkerGrantPayload
-	material        []byte
-	materialSHA256  string
-	admissionSHA256 string
+	payload           WorkerGrantPayload
+	material          []byte
+	materialSHA256    string
+	admissionSHA256   string
+	challengeIssuedAt time.Time
 }
 
 func (g VerifiedWorkerGrant) Identity() WorkerIdentity { return g.payload.Identity }
@@ -77,6 +79,7 @@ type WorkerSession struct {
 	identity   WorkerIdentity
 	controller ed25519.PublicKey
 	client     *containerd.Client
+	stopSigner RuntimeStopSigner
 	mu         sync.Mutex
 	acquire    sync.Mutex
 	source     *Source
@@ -116,7 +119,7 @@ func (s *WorkerSession) bindSource(source *Source) error {
 	return nil
 }
 
-func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, effectID string) (VerifiedWorkerGrant, error) {
+func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, effectID string, proofs ...*executionwire.SignedRuntimeStop) (VerifiedWorkerGrant, error) {
 	if s == nil || ctx == nil || ctx.Err() != nil || task == nil || task.NodeID != s.identity.NodeID {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
@@ -129,19 +132,28 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 		return VerifiedWorkerGrant{}, err
 	}
 	query := RuntimeEffectQuery{Action: action, EffectID: effectID, Nonce: hex.EncodeToString(nonce[:]), Task: task.Copy(), Identity: s.identity}
+	if len(proofs) > 0 {
+		if action != "close" || len(proofs) != 1 {
+			return VerifiedWorkerGrant{}, ErrUnsafe
+		}
+		query.StopProof = proofs[0]
+	}
 	envelope, err := s.transport.RuntimeEffect(ctx, query)
 	if err != nil {
 		return VerifiedWorkerGrant{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		return VerifiedWorkerGrant{}, err
+	}
 	var response struct {
-		Nonce     string          `json:"nonce"`
-		Node      string          `json:"node"`
-		SessionID string          `json:"session_id"`
-		Epoch     uint64          `json:"epoch"`
-		Operation string          `json:"operation"`
-		Error     string          `json:"error,omitempty"`
-		Retryable bool            `json:"retryable,omitzero"`
-		Payload   json.RawMessage `json:"payload,omitempty"`
+		Nonce     string         `json:"nonce"`
+		Node      string         `json:"node"`
+		SessionID string         `json:"session_id"`
+		Epoch     uint64         `json:"epoch"`
+		Operation string         `json:"operation"`
+		Error     string         `json:"error,omitempty"`
+		Retryable bool           `json:"retryable,omitzero"`
+		Payload   jsontext.Value `json:"payload,omitempty"`
 	}
 	if err := protocol.DecodeStrict([]byte(envelope.Payload), &response, 512<<10); err != nil {
 		return VerifiedWorkerGrant{}, ErrUnsafe
@@ -160,8 +172,11 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
 	if payload.Identity != s.identity || payload.TaskID != task.ID || payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.EffectID != effectID ||
-		payload.Nonce != query.Nonce || payload.Epoch != response.Epoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
+		payload.Nonce != query.Nonce || payload.Epoch == 0 || payload.Epoch > response.Epoch || action != "close" && payload.Epoch != response.Epoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
 		action != "close" && !payload.Deadline.After(now.Add(workerStopReserve)) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime {
+		return VerifiedWorkerGrant{}, ErrUnsafe
+	}
+	if action == "close" && payload.Phase != "closing" && payload.Phase != "settled" || action != "close" && (payload.Phase != "held" || payload.StopChallenge != "") {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
 	material, err := json.Marshal(payload.Material, json.Deterministic(true))
@@ -172,7 +187,7 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 	if err != nil {
 		return VerifiedWorkerGrant{}, err
 	}
-	return VerifiedWorkerGrant{payload: payload, material: material, materialSHA256: fmt.Sprintf("%x", sha256.Sum256(material)), admissionSHA256: admission}, nil
+	return VerifiedWorkerGrant{payload: payload, material: material, materialSHA256: fmt.Sprintf("%x", sha256.Sum256(material)), admissionSHA256: admission, challengeIssuedAt: envelope.IssuedAt}, nil
 }
 
 // WorkerAdmissionSHA256 computes the shared inert identity digest.
@@ -356,16 +371,68 @@ func (s *WorkerSession) expire(hash string, held *workerTaskSession) {
 	defer cancel()
 	// Withdrawal precedes the exact stop even if its acknowledgement is lost.
 	withdrawCtx, withdrawCancel := context.WithTimeout(ctx, time.Second)
-	withdrawErr := source.WithdrawTask(withdrawCtx, task, grant)
+	withdrawResult := make(chan error, 1)
+	go func() { withdrawResult <- source.WithdrawTask(withdrawCtx, task, grant) }()
+	var withdrawErr error
+	select {
+	case withdrawErr = <-withdrawResult:
+	case <-withdrawCtx.Done():
+		withdrawErr = withdrawCtx.Err()
+	}
 	withdrawCancel()
 	stopErr := s.stopRuntime(ctx, task, hash)
-	if errors.Join(withdrawErr, stopErr) != nil {
-		return
+	// A failed withdrawal or stop leaves the durable effect unresolved. The
+	// settlement observer still retries, allowing a delayed actual stop to settle.
+	_ = errors.Join(withdrawErr, stopErr)
+	s.settleStopped(task, hash, held)
+
+}
+
+func (s *WorkerSession) settleStopped(task *api.Task, hash string, held *workerTaskSession) {
+	for {
+		s.mu.Lock()
+		grant, signer := held.grant, s.stopSigner
+		s.mu.Unlock()
+		if wait := time.Until(grant.Deadline()); wait > 0 {
+			<-time.After(wait)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		closing, err := s.request(ctx, task, "close", grant.EffectID())
+		if err == nil && (closing.AdmissionSHA256() != grant.AdmissionSHA256() || closing.Deadline().Before(grant.Deadline()) || closing.Revision() < grant.Revision()) {
+			err = ErrUnsafe
+		}
+		if err == nil {
+			s.mu.Lock()
+			held.grant = closing
+			s.mu.Unlock()
+			if closing.payload.Phase == "settled" {
+				s.mu.Lock()
+				held.stopped = true
+				s.mu.Unlock()
+				cancel()
+				return
+			}
+			var observed ObservedRuntimeStop
+			observed, err = s.ObserveRuntimeStop(ctx, task, closing, closing.payload.StopChallenge)
+			if err == nil && signer != nil {
+				var proof executionwire.SignedRuntimeStop
+				proof, err = signer.SignRuntimeStop(ctx, observed)
+				if err == nil {
+					var settled VerifiedWorkerGrant
+					settled, err = s.request(ctx, task, "close", closing.EffectID(), &proof)
+					if err == nil && settled.payload.Phase == "settled" && settled.AdmissionSHA256() == closing.AdmissionSHA256() && settled.Deadline().Equal(closing.Deadline()) && settled.Revision() >= closing.Revision() {
+						s.mu.Lock()
+						held.grant, held.stopped = settled, true
+						s.mu.Unlock()
+						cancel()
+						return
+					}
+				}
+			}
+		}
+		cancel()
+		<-time.After(workerRenewInterval)
 	}
-	s.mu.Lock()
-	held.stopped = true
-	s.mu.Unlock()
-	_, _ = s.request(ctx, task, "close", grant.EffectID())
 }
 
 func (s *WorkerSession) stopRuntime(ctx context.Context, task *api.Task, hash string) error {
