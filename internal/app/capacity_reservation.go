@@ -209,7 +209,7 @@ func (r *capacityReservations) apply(ctx context.Context, source, action string,
 	if err != nil {
 		return budget.Reservation{}, err
 	}
-	if request.Request.Cell != source || request.Recipe.Cell != source || !entityid.Valid(request.Request.OperationID) ||
+	if !strings.EqualFold(request.Request.Cell, source) || !strings.EqualFold(request.Recipe.Cell, source) || !entityid.Valid(request.Request.OperationID) ||
 		request.Request.RecipeSHA256 != request.Recipe.SHA256() || request.Recipe.Validate() != nil {
 		return budget.Reservation{}, errors.New("capacity request differs from its authenticated source or exact recipe")
 	}
@@ -250,7 +250,7 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 	}
 	var regional capacityinventory.RegionScope
 	for _, candidate := range proof.Footprint().Regions {
-		if candidate.Cell == recipe.Cell && slices.Contains(candidate.CompartmentIDs, request.Request.CompartmentID) {
+		if candidate.Cell == request.Request.Cell && strings.EqualFold(candidate.Cell, recipe.Cell) && slices.Contains(candidate.CompartmentIDs, request.Request.CompartmentID) {
 			regional = candidate
 		}
 	}
@@ -272,7 +272,7 @@ func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capa
 	if err != nil {
 		return quote, err
 	}
-	quote, err = reader.Quote(ctx, proof.Footprint(), recipe.Cell, request.Request.CompartmentID, recipe.Capacity.Shape,
+	quote, err = reader.Quote(ctx, proof.Footprint(), request.Request.Cell, request.Request.CompartmentID, recipe.Capacity.Shape,
 		float64(recipe.OCPUs), float64(recipe.MemoryGB), nodescale.BootVolumeGB)
 	if err != nil {
 		return quote, err
@@ -330,6 +330,10 @@ func (r *capacityReservations) request(ctx context.Context, action string, reque
 	if r.homeKey == nil {
 		return budget.Reservation{}, fmt.Errorf("%w: independently verified current home response key is unavailable", nodescale.ErrCapacityPending)
 	}
+	public, err := r.homeKey(ctx)
+	if err != nil || len(public) != ed25519.PublicKeySize {
+		return budget.Reservation{}, fmt.Errorf("%w: current home response authority is unavailable: %v", nodescale.ErrCapacityPending, err)
+	}
 	request.Nonce = entityid.New()
 	reply := protocol.CapacityReservationReplySubject(r.cell, r.user, request.Nonce)
 	if reply == "" {
@@ -360,7 +364,7 @@ func (r *capacityReservations) request(ctx context.Context, action string, reque
 	if err := protocol.DecodeStrict(message.Data, &envelope, 32<<10); err != nil {
 		return budget.Reservation{}, err
 	}
-	public, err := r.homeKey(ctx)
+	public, err = r.homeKey(ctx)
 	if err != nil {
 		return budget.Reservation{}, fmt.Errorf("%w: current home response authority: %v", nodescale.ErrCapacityPending, err)
 	}

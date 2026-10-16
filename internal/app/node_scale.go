@@ -97,7 +97,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 			}
 			return in.reservations.request(ctx, "reserve", request)
 		},
-		Cost:  in.costViews.nodeCost(pricedRecipe, time.Now),
+		Cost:  in.costViews.nodeCost(in.reservations, in.pool.CompartmentID(), pricedRecipe, time.Now),
 		Loads: func() []nodescale.NodeLoad { return nodeLoads(in.load) },
 		Allowance: func(now time.Time) (int, bool) {
 			return allowance(in.global, in.cell, now)

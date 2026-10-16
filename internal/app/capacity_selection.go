@@ -165,7 +165,13 @@ func (r *capacityReservations) prepare(ctx context.Context, operationID string, 
 	if err != nil {
 		return request, fmt.Errorf("%w: current complete spending facts: %v", nodescale.ErrCapacityPending, err)
 	}
-	quote, err := reader.Quote(ctx, proof.Footprint(), recipe.Cell, compartment, recipe.Capacity.Shape,
+	cell := ""
+	for _, scope := range proof.Footprint().Regions {
+		if strings.EqualFold(scope.Cell, recipe.Cell) {
+			cell = scope.Cell
+		}
+	}
+	quote, err := reader.Quote(ctx, proof.Footprint(), cell, compartment, recipe.Capacity.Shape,
 		float64(recipe.OCPUs), float64(recipe.MemoryGB), nodescale.BootVolumeGB)
 	if err != nil {
 		return request, err
@@ -184,7 +190,7 @@ func (r *capacityReservations) prepare(ctx context.Context, operationID string, 
 			}
 		}
 		request.Image = input
-		request.Request = budget.ReservationRequest{OperationID: operationID, RecipeSHA256: recipe.SHA256(), Cell: recipe.Cell,
+		request.Request = budget.ReservationRequest{OperationID: operationID, RecipeSHA256: recipe.SHA256(), Cell: cell,
 			CompartmentID: compartment, Shape: recipe.Capacity.Shape, OCPUs: float64(recipe.OCPUs), MemoryGB: float64(recipe.MemoryGB),
 			BootGB: nodescale.BootVolumeGB, MonthlyCents: quote.MonthlyCents(), FactsExpireAt: expires}
 		return request, nil

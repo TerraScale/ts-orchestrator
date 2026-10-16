@@ -1,12 +1,81 @@
 package nodescale
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
+
+func TestCapacityReservationPersistsBeforeOCIWrite(t *testing.T) {
+	ctx := t.Context()
+	js := capacityJetStream(t)
+	store, err := OpenStore(ctx, js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe := capacityRecipe()
+	now := time.Now().UTC()
+	action := &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: now}
+	if _, err := store.Save(ctx, Record{Recipe: new(recipe), Action: action}, 0); err != nil {
+		t.Fatal(err)
+	}
+	cloud := newCapacityCloud()
+	observed := protocolPool(t, cloud, recipe.Capacity)
+	admissions := 0
+	observed.Admit = func(ctx context.Context, chosen Recipe) (func(), error) {
+		stored, _, err := store.Load(ctx)
+		if err != nil || stored.Reservation == nil || stored.Reservation.OperationID != action.ID || stored.Reservation.RecipeSHA256 != chosen.SHA256() {
+			return nil, ErrCapacityPending
+		}
+		admissions++
+		return func() {}, nil
+	}
+	pool, err := NewChosenPool(observed, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hosts := newSwarmHosts(t)
+	reservations := 0
+	scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Control: hosts.control,
+		Leader: &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: now.Add(time.Hour)}},
+		Now:    func() time.Time { return now }, Recipe: func(context.Context) (Recipe, error) { return recipe, nil },
+		Reserve: func(context.Context, string, Recipe) (budget.Reservation, error) {
+			reservations++
+			return budget.Reservation{OperationID: action.ID, RecipeSHA256: recipe.SHA256()}, nil
+		},
+		Allowance: func(time.Time) (int, bool) { return MaxNodes, true }, Loads: func() []NodeLoad { return nil },
+		Journal: func(context.Context, decisionlog.Decision) {},
+	}
+	if err := scaler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stored, _, err := store.Load(ctx)
+	if err != nil || stored.Reservation == nil || stored.Reservation.OperationID != action.ID || reservations != 1 || admissions != 0 || len(cloud.configs) != 0 || len(cloud.pools) != 0 {
+		t.Fatalf("reservation was not durable before OCI writes: record=%+v reservations=%d admissions=%d err=%v", stored, reservations, admissions, err)
+	}
+	reopened, err := OpenStore(ctx, js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaler.Store = reopened
+	scaler.Pool, err = NewChosenPool(observed, reopened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if reservations != 1 || admissions == 0 || len(cloud.configs) != 1 || len(cloud.pools) != 1 {
+		t.Fatalf("restart lost reservation or skipped per-write admission: reservations=%d admissions=%d configs=%d pools=%d", reservations, admissions, len(cloud.configs), len(cloud.pools))
+	}
+}
 
 func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	ctx := t.Context()
