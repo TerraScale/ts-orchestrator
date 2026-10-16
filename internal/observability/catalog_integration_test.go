@@ -83,6 +83,9 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 	if catalog.Version != 1 || catalog.ObservedAt.IsZero() {
 		t.Fatalf("missing version or collection time: %+v", catalog)
 	}
+	if catalog.Truncated {
+		t.Fatal("standard runtime metric families exceeded the catalog budget")
+	}
 	goMetrics, processMetrics := false, false
 	for _, metric := range catalog.Metrics {
 		goMetrics = goMetrics || strings.HasPrefix(metric.Name, "go_")
@@ -92,7 +95,7 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 		t.Fatal("actual Go/process metrics missing")
 	}
 	metric := find("ts_orch_catalog_requests_total")
-	if len(metric.Samples) != 1 || metric.Samples[0].Value != "3" || !slices.Equal(metric.Labels, []string{"service", "token"}) || !slices.Contains(metric.Unsupported, "description") || !slices.Contains(metric.Unsupported, "unit") {
+	if metric.Type != "counter" || len(metric.Samples) != 1 || metric.Samples[0].Value != "3" || !slices.Equal(metric.Labels, []string{"service", "token"}) || !slices.Contains(metric.Unsupported, "description") || !slices.Contains(metric.Unsupported, "unit") {
 		t.Fatalf("registry metric %+v", metric)
 	}
 	latency := find("ts_orch_catalog_latency")

@@ -17,7 +17,7 @@ const (
 	catalogMaxBytes         = 1 << 20
 	catalogMaxMetrics       = 2048
 	catalogMaxSamples       = 4096
-	catalogSamplesPerMetric = 8
+	catalogSamplesPerMetric = 64
 	catalogMaxLabels        = 32
 	catalogMaxHistoryPoints = 8192
 )
