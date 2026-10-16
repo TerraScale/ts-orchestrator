@@ -16,7 +16,7 @@ type sessionOnlyRunner struct{ Runner }
 func TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner(t *testing.T) {
 	fixture := newFunctionMaterialTransport(t)
 	fixture.controller.functionMaterial = fixture.current
-	agent := fixture.start(t)
+	agent := fixture.startUnacquired(t)
 	agent.runner = sessionOnlyRunner{}
 	ready := make(chan struct{})
 	agent.cfg.Initialized = func() { close(ready) }

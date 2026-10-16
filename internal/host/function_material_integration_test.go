@@ -223,6 +223,15 @@ func (f *functionMaterialTransport) current(ctx context.Context, registration Re
 
 func (f *functionMaterialTransport) start(t *testing.T) *Agent {
 	t.Helper()
+	agent := f.startUnacquired(t)
+	if err := agent.acquire(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	return agent
+}
+
+func (f *functionMaterialTransport) startUnacquired(t *testing.T) *Agent {
+	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- f.controller.Run(ctx) }()
@@ -238,9 +247,6 @@ func (f *functionMaterialTransport) start(t *testing.T) *Agent {
 		Conn: f.conn, Identity: f.hostKey, ControllerPublicKey: f.responseKey.Public().(ed25519.PublicKey),
 		Runner: &memoryRunner{observed: make(map[string]Observation)}, InstallRoot: testAgentInstallRoot(t), StateRoot: testAgentStateRoot(t)})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := agent.acquire(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	return agent
