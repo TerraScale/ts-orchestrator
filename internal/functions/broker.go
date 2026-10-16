@@ -34,49 +34,25 @@ func IssueWorkerCredentials(admitted release.VerifiedFunction, accountID, accoun
 	fail := func(reason string) ([]byte, WorkerBrokerIdentity, error) {
 		return nil, WorkerBrokerIdentity{}, fmt.Errorf("%w: %s", ErrScope, reason)
 	}
-	if !admitted.Valid() || signer == nil || !nkeys.IsValidPublicAccountKey(accountID) {
-		return fail("current release and regional signing authority required")
+	account, scope, err := workerBrokerAccount(admitted, accountID, accountJWT)
+	if err != nil {
+		return nil, WorkerBrokerIdentity{}, err
 	}
-	account, err := jwt.DecodeAccountClaims(accountJWT)
-	if err != nil || account.Subject != accountID {
-		return fail("regional account claim mismatch")
-	}
-	validation := jwt.CreateValidationResults()
-	account.Validate(validation)
-	if validation.IsBlocking(true) {
-		return fail("regional account claim invalid or expired")
+	if signer == nil {
+		return fail("regional signing authority required")
 	}
 	signerID, err := signer.PublicKey()
 	if err != nil || !nkeys.IsValidPublicAccountKey(signerID) {
 		return fail("invalid regional account signer")
 	}
-	authorized := func(public string) bool {
-		scope, registered := account.SigningKeys.GetScope(public)
-		return public == accountID || registered && scope == nil
-	}
-	if !authorized(signerID) {
+	if !workerBrokerSigner(account, signerID) {
 		return fail("worker requires the account key or a registered unscoped signer")
 	}
-	claim := admitted.Claim()
-	scope, err := QueueIdentity(Manifest{ABI: claim.ABI, TenantID: claim.TenantID, FunctionID: claim.FunctionID,
-		Revision: claim.Revision, Digest: claim.Digest, Capabilities: claim.Capabilities})
-	if err != nil {
-		return fail("invalid function broker scope")
-	}
 	var user nkeys.KeyPair
-	var previous *jwt.UserClaims
 	if len(existing) != 0 {
-		raw, err := jwt.ParseDecoratedJWT(existing)
+		user, _, err = workerBrokerUser(account, scope, existing)
 		if err != nil {
-			return fail("invalid existing worker credentials")
-		}
-		previous, err = jwt.DecodeUserClaims(raw)
-		if err != nil {
-			return fail("invalid existing worker JWT")
-		}
-		user, err = jwt.ParseDecoratedUserNKey(existing)
-		if err != nil {
-			return fail("invalid existing worker key")
+			return nil, WorkerBrokerIdentity{}, err
 		}
 	} else {
 		user, err = nkeys.CreateUser()
@@ -94,14 +70,6 @@ func IssueWorkerCredentials(admitted release.VerifiedFunction, accountID, accoun
 		return fail("invalid worker identity")
 	}
 	claims := workerBrokerClaim(public, accountID, inbox, scope)
-	if previous != nil {
-		if previous.Subject != public || !authorized(previous.Issuer) || previous.IssuerAccount != accountID ||
-			previous.Name != claims.Name || previous.Audience != "" || previous.NotBefore != 0 || len(previous.Tags) != 0 ||
-			previous.Expires <= previous.IssuedAt || previous.Expires-previous.IssuedAt > int64(time.Hour/time.Second) ||
-			previous.IssuedAt > time.Now().Unix() || !reflect.DeepEqual(previous.UserPermissionLimits, claims.UserPermissionLimits) {
-			return fail("existing worker credentials have another signer, identity or grants")
-		}
-	}
 	expires := min(admitted.ExpiresAt().Unix(), time.Now().Add(time.Hour).Unix())
 	if account.Expires != 0 {
 		expires = min(expires, account.Expires)
@@ -124,6 +92,93 @@ func IssueWorkerCredentials(admitted release.VerifiedFunction, accountID, accoun
 		return fail("format worker credentials")
 	}
 	return creds, WorkerBrokerIdentity{UserNKey: public, AccountNKey: accountID, InboxPrefix: inbox, ExpiresAt: time.Unix(expires, 0)}, nil
+}
+
+// VerifyWorkerCredentials checks existing worker material without any signing
+// authority. The caller verifies the account JWT's regional operator/generation.
+// It never creates or renews credentials, including when existing ones expired.
+func VerifyWorkerCredentials(admitted release.VerifiedFunction, accountID, accountJWT string, existing []byte) (WorkerBrokerIdentity, error) {
+	account, scope, err := workerBrokerAccount(admitted, accountID, accountJWT)
+	if err != nil {
+		return WorkerBrokerIdentity{}, err
+	}
+	user, claims, err := workerBrokerUser(account, scope, existing)
+	if err != nil {
+		return WorkerBrokerIdentity{}, err
+	}
+	defer user.Wipe()
+	validation := jwt.CreateValidationResults()
+	claims.Validate(validation)
+	if validation.IsBlocking(true) || account.IsClaimRevoked(claims) || claims.Expires <= time.Now().Unix() || !admitted.Valid() || claims.Expires > admitted.ExpiresAt().Unix() ||
+		account.Expires != 0 && claims.Expires > account.Expires {
+		return WorkerBrokerIdentity{}, fmt.Errorf("%w: worker credentials expired or exceed current authority", ErrScope)
+	}
+	inbox, _ := WorkerInboxPrefix(claims.Subject)
+	return WorkerBrokerIdentity{UserNKey: claims.Subject, AccountNKey: accountID, InboxPrefix: inbox, ExpiresAt: time.Unix(claims.Expires, 0)}, nil
+}
+
+func workerBrokerAccount(admitted release.VerifiedFunction, accountID, accountJWT string) (*jwt.AccountClaims, QueueScope, error) {
+	if !admitted.Valid() || !nkeys.IsValidPublicAccountKey(accountID) {
+		return nil, QueueScope{}, fmt.Errorf("%w: current release and regional account required", ErrScope)
+	}
+	account, err := jwt.DecodeAccountClaims(accountJWT)
+	if err != nil || account.Subject != accountID {
+		return nil, QueueScope{}, fmt.Errorf("%w: regional account claim mismatch", ErrScope)
+	}
+	validation := jwt.CreateValidationResults()
+	account.Validate(validation)
+	if validation.IsBlocking(true) || account.Expires != 0 && account.Expires <= time.Now().Unix() {
+		return nil, QueueScope{}, fmt.Errorf("%w: regional account claim invalid or expired", ErrScope)
+	}
+	claim := admitted.Claim()
+	scope, err := QueueIdentity(Manifest{ABI: claim.ABI, TenantID: claim.TenantID, FunctionID: claim.FunctionID,
+		Revision: claim.Revision, Digest: claim.Digest, Capabilities: claim.Capabilities})
+	if err != nil {
+		return nil, QueueScope{}, err
+	}
+	return account, scope, nil
+}
+
+func workerBrokerSigner(account *jwt.AccountClaims, public string) bool {
+	scope, registered := account.SigningKeys.GetScope(public)
+	return public == account.Subject || registered && scope == nil
+}
+
+func workerBrokerUser(account *jwt.AccountClaims, scope QueueScope, existing []byte) (nkeys.KeyPair, *jwt.UserClaims, error) {
+	fail := func() (nkeys.KeyPair, *jwt.UserClaims, error) {
+		return nil, nil, fmt.Errorf("%w: worker credentials have another signer, identity or grants", ErrScope)
+	}
+	raw, err := jwt.ParseDecoratedJWT(existing)
+	if err != nil {
+		return fail()
+	}
+	claims, err := jwt.DecodeUserClaims(raw)
+	if err != nil {
+		return fail()
+	}
+	user, err := jwt.ParseDecoratedUserNKey(existing)
+	if err != nil {
+		return fail()
+	}
+	public, err := user.PublicKey()
+	if err != nil {
+		user.Wipe()
+		return fail()
+	}
+	inbox, err := WorkerInboxPrefix(public)
+	if err != nil {
+		user.Wipe()
+		return fail()
+	}
+	expected := workerBrokerClaim(public, account.Subject, inbox, scope)
+	if claims.Subject != public || !workerBrokerSigner(account, claims.Issuer) || claims.IssuerAccount != account.Subject ||
+		claims.Name != expected.Name || claims.Audience != "" || claims.NotBefore != 0 || len(claims.Tags) != 0 ||
+		claims.Expires <= claims.IssuedAt || claims.Expires-claims.IssuedAt > int64(time.Hour/time.Second) ||
+		claims.IssuedAt > time.Now().Unix() || !reflect.DeepEqual(claims.UserPermissionLimits, expected.UserPermissionLimits) {
+		user.Wipe()
+		return fail()
+	}
+	return user, claims, nil
 }
 
 func workerBrokerClaim(public, account, inbox string, scope QueueScope) *jwt.UserClaims {

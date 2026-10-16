@@ -41,7 +41,12 @@ func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
 	if err != nil || renewed.UserNKey != identity.UserNKey || renewed.InboxPrefix != identity.InboxPrefix {
 		t.Fatalf("restart changed worker identity: %+v, %v", renewed, err)
 	}
-	nc, violations := connect(reissued, identity.InboxPrefix)
+	original := bytes.Clone(reissued)
+	verified, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, reissued)
+	if err != nil || verified != renewed || !bytes.Equal(original, reissued) {
+		t.Fatalf("signer-free verification changed credentials or identity: %v", err)
+	}
+	nc, violations := connect(reissued, verified.InboxPrefix)
 	worker, err := newWorker(t.Context(), artifact)
 	if err != nil {
 		t.Fatal(err)
@@ -159,6 +164,18 @@ func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
 		if _, _, err := IssueWorkerCredentials(otherProof, account.Subject, accountJWT, signer, creds); !errors.Is(err, ErrScope) {
 			t.Fatalf("reused credentials for another tenant or revision: %v", err)
 		}
+		if _, err := VerifyWorkerCredentials(otherProof, account.Subject, accountJWT, creds); !errors.Is(err, ErrScope) {
+			t.Fatalf("verified credentials for another tenant or revision: %v", err)
+		}
+	}
+	foreignUser, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer foreignUser.Wipe()
+	foreignPublic, err := foreignUser.PublicKey()
+	if err != nil {
+		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*jwt.UserClaims){
 		"broad publication":  func(c *jwt.UserClaims) { c.Pub.Allow.Add(">") },
@@ -166,39 +183,17 @@ func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
 		"bearer token":       func(c *jwt.UserClaims) { c.BearerToken = true },
 		"another account":    func(c *jwt.UserClaims) { c.IssuerAccount = identity.UserNKey },
 		"another revision":   func(c *jwt.UserClaims) { c.Name += "-other" },
+		"seed mismatch":      func(c *jwt.UserClaims) { c.Subject = foreignPublic },
 		"long lifetime":      func(c *jwt.UserClaims) { c.Expires = time.Now().Add(2 * time.Hour).Unix() },
 	} {
 		t.Run(name, func(t *testing.T) {
-			raw, err := jwt.ParseDecoratedJWT(creds)
-			if err != nil {
-				t.Fatal(err)
-			}
-			claims, err := jwt.DecodeUserClaims(raw)
-			if err != nil {
-				t.Fatal(err)
-			}
-			mutate(claims)
-			key, err := jwt.ParseDecoratedUserNKey(creds)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer key.Wipe()
-			seed, err := key.Seed()
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer clear(seed)
-			raw, err = claims.Encode(signer)
-			if err != nil {
-				t.Fatal(err)
-			}
-			altered, err := jwt.FormatUserConfig(raw, seed)
-			if err != nil {
-				t.Fatal(err)
-			}
+			altered := brokerCredentialMutation(t, creds, signer, mutate)
 			original := bytes.Clone(altered)
 			if _, _, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, altered); !errors.Is(err, ErrScope) {
 				t.Fatalf("accepted altered credentials: %v", err)
+			}
+			if _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, altered); !errors.Is(err, ErrScope) {
+				t.Fatalf("verified altered credentials: %v", err)
 			}
 			if !bytes.Equal(altered, original) {
 				t.Fatal("issuer mutated supplied credentials")
@@ -213,6 +208,66 @@ func TestWorkerBrokerJWTAndTLSIsolation(t *testing.T) {
 	if _, _, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, stranger, creds); !errors.Is(err, ErrScope) {
 		t.Fatalf("unregistered signer accepted: %v", err)
 	}
+	for name, wire := range map[string][]byte{"missing": nil, "malformed": []byte("invalid credentials")} {
+		t.Run(name, func(t *testing.T) {
+			original := bytes.Clone(wire)
+			if _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, wire); !errors.Is(err, ErrScope) {
+				t.Fatalf("verified absent or malformed credentials: %v", err)
+			}
+			if !bytes.Equal(original, wire) {
+				t.Fatal("verification mutated credentials")
+			}
+		})
+	}
+	for name, mutate := range map[string]func(*jwt.UserClaims){
+		"past proof": func(c *jwt.UserClaims) { c.Expires = admitted.ExpiresAt().Add(time.Second).Unix() },
+		"expired":    func(c *jwt.UserClaims) { c.Expires = time.Now().Add(-time.Second).Unix() },
+	} {
+		t.Run(name, func(t *testing.T) {
+			altered := brokerCredentialMutation(t, creds, signer, mutate)
+			original := bytes.Clone(altered)
+			if _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, altered); !errors.Is(err, ErrScope) {
+				t.Fatalf("verified credentials outside current authority: %v", err)
+			}
+			if !bytes.Equal(original, altered) {
+				t.Fatal("verification mutated rejected credentials")
+			}
+		})
+	}
+	expires := time.Now().Add(2 * time.Second).Unix()
+	shortLived := brokerCredentialMutation(t, creds, signer, func(c *jwt.UserClaims) { c.Expires = expires })
+	if _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, shortLived); err != nil {
+		t.Fatalf("current short-lived credentials rejected: %v", err)
+	}
+	time.Sleep(time.Until(time.Unix(expires, 0)))
+	original = bytes.Clone(shortLived)
+	if _, err := VerifyWorkerCredentials(admitted, account.Subject, accountJWT, shortLived); !errors.Is(err, ErrScope) {
+		t.Fatalf("reader renewed expired credentials: %v", err)
+	}
+	if !bytes.Equal(original, shortLived) {
+		t.Fatal("reader changed expired credentials")
+	}
+	if _, renewed, err := IssueWorkerCredentials(admitted, account.Subject, accountJWT, signer, shortLived); err != nil || renewed.UserNKey != identity.UserNKey {
+		t.Fatalf("issuer cannot renew expired exact credentials: %v", err)
+	}
+}
+
+func brokerCredentialMutation(t *testing.T, creds []byte, signer nkeys.KeyPair, mutate func(*jwt.UserClaims)) []byte {
+	t.Helper()
+	original, err := jwt.ParseDecoratedJWT(creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := jwt.DecodeUserClaims(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(claims)
+	raw, err := claims.Encode(signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bytes.Replace(creds, []byte(original), []byte(raw), 1)
 }
 
 func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, string, *nats.Conn, func([]byte, string) (*nats.Conn, <-chan error)) {
@@ -365,7 +420,37 @@ func workerBrokerFixture(t *testing.T) (*jwt.AccountClaims, nkeys.KeyPair, strin
 	if _, _, err := IssueWorkerCredentials(proof, accountID, retiredJWT, accountKey, previous); !errors.Is(err, ErrScope) {
 		t.Fatalf("retired signer credentials renewed: %v", err)
 	}
+	if _, err := VerifyWorkerCredentials(proof, accountID, retiredJWT, previous); !errors.Is(err, ErrScope) {
+		t.Fatalf("retired signer credentials verified: %v", err)
+	}
 	account.SigningKeys.Add(signerID)
+	account.SigningKeys.AddScopedSigner(scope)
+	scopedJWT, err = account.Encode(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyWorkerCredentials(proof, accountID, scopedJWT, previous); !errors.Is(err, ErrScope) {
+		t.Fatalf("scoped issuer credentials verified: %v", err)
+	}
+	account.SigningKeys.Add(signerID)
+	account.Expires = proof.ExpiresAt().Add(-time.Second).Unix()
+	shortAccountJWT, err := account.Encode(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyWorkerCredentials(proof, accountID, shortAccountJWT, previous); !errors.Is(err, ErrScope) {
+		t.Fatalf("credentials beyond account expiry verified: %v", err)
+	}
+	account.Expires = 0
+	account.Revoke(previousClaim.Subject)
+	revokedJWT, err := account.Encode(operator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyWorkerCredentials(proof, accountID, revokedJWT, previous); !errors.Is(err, ErrScope) {
+		t.Fatalf("revoked credentials verified: %v", err)
+	}
+	account.Revocations = nil
 	return account, signer, accountJWT, admin, connect
 }
 
