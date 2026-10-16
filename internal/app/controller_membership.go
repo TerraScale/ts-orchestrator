@@ -251,6 +251,24 @@ func openMembershipLedger(ctx context.Context) (membershipLedger, error) {
 	if err != nil || anchor.Digest() != initial.AnchorSHA256 {
 		return membershipLedger{}, errors.New("current formation anchor differs from root-owned history")
 	}
+	if _, derived, present, err := installedAutomaticStartup(ctx); err != nil {
+		return membershipLedger{}, err
+	} else if present {
+		instances, _, _, err := bootstrapstart.NewDerivedOCIAdmissionClients(ctx, derived, baked.Roots)
+		if err != nil {
+			return membershipLedger{}, err
+		}
+		observer, ok := instances.(lifecycleObserver)
+		if !ok {
+			return membershipLedger{}, errors.New("derived OCI observer cannot read lifecycle state")
+		}
+		ledger, err := derived.OpenLedger(ctx, baked.Roots)
+		if err != nil {
+			return membershipLedger{}, err
+		}
+		return membershipLedger{baked: baked, accepted: accepted, initial: &initial, observer: observer, ledger: ledger,
+			slots: ledgerMembershipSlots{ledger: ledger, deploymentID: accepted.DeploymentID, cell: accepted.Cell}}, nil
+	}
 	instances, _, err := bootstrapstart.NewHistoricalOCIAdmissionClients(anchor, baked.Roots)
 	if err != nil {
 		return membershipLedger{}, err
