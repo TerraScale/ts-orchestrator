@@ -19,7 +19,7 @@ import (
 // loads anything from a CDN. assets/VENDOR.md records each file's upstream
 // release, URL and sha256:
 //
-//   - pico.min.css: Pico CSS v2.1.1 (MIT).
+//   - dashboard.css includes the pinned Pico CSS v2.1.1 base (MIT).
 //   - datastar.js: Datastar v1.0.4 (MIT).
 //   - echarts.min.js: Apache ECharts 5.6.0 (Apache-2.0).
 //   - world.json: the world GeoJSON shipped with Apache ECharts 4.9.0.

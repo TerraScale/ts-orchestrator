@@ -428,7 +428,7 @@ func TestRegionPageBudgetTwentyRegions(t *testing.T) {
 	}
 
 	var cssGzip int
-	for _, name := range []string{"pico.min.css", "dashboard.css"} {
+	for _, name := range []string{"dashboard.css"} {
 		asset := getGzipped(t, handler, assetURL(name))
 		if asset.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", name, asset.Code)
@@ -472,7 +472,7 @@ func TestOverviewBudgetTwentyRegions(t *testing.T) {
 	}
 
 	var cssGzip int
-	for _, name := range []string{"pico.min.css", "dashboard.css"} {
+	for _, name := range []string{"dashboard.css"} {
 		asset := getGzipped(t, handler, assetURL(name))
 		if asset.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", name, asset.Code)

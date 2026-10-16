@@ -36,10 +36,10 @@ for the requested templates, live interaction and charts. Do not introduce a
 second template engine or frontend application.
 
 All dashboard CSS must live in `internal/dashboard/assets/dashboard.css`.
-Currently `layout.templ` loads both `pico.min.css` and `dashboard.css`; consolidation
-is still required. Preserve needed Pico base rules, cascade order and MIT notice
-when moving them into the single file. Update the layout, regenerate templ Go
-output, asset provenance and affected fixtures together. No stylesheet imports,
+`layout.templ` loads one content-addressed `dashboard.css`, containing the
+unchanged pinned Pico base followed by the dashboard overrides. The Pico MIT
+notice and original hash remain recorded in asset provenance. Layout and asset
+HTTP integration checks cover the consolidated file. No stylesheet imports,
 inline page styles or additional CSS files. ECharts rendering options continue
 to read shared theme values; the single CSS file owns the visual theme.
 

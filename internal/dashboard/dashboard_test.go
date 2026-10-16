@@ -239,7 +239,14 @@ func TestLoginPageKeepsRedirectLocal(t *testing.T) {
 func TestAssetsAreContentAddressed(t *testing.T) {
 	t.Parallel()
 	handler := newTestDashboard(Options{}).Handler()
-	for _, name := range []string{"pico.min.css", "dashboard.css", "datastar.js"} {
+	page := get(t, handler, "/login").Body.String()
+	if strings.Count(page, `rel="stylesheet"`) != 1 || !strings.Contains(page, assetURL("dashboard.css")) {
+		t.Fatal("dashboard must load its single embedded stylesheet")
+	}
+	if css := get(t, handler, assetURL("dashboard.css")).Body.String(); !strings.Contains(css, "Pico CSS") || !strings.Contains(css, "Licensed under MIT") {
+		t.Fatal("consolidated stylesheet lost its base rules or license notice")
+	}
+	for _, name := range []string{"dashboard.css", "datastar.js"} {
 		url := assetURL(name)
 		response := get(t, handler, url)
 		if response.Code != http.StatusOK || response.Body.Len() == 0 {

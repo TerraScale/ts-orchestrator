@@ -136,7 +136,7 @@ func TestDrilldownBudgetTwentyRegions(t *testing.T) {
 	html := string(gunzip(t, response.Body.Bytes()))
 
 	var cssGzip int
-	for _, name := range []string{"pico.min.css", "dashboard.css"} {
+	for _, name := range []string{"dashboard.css"} {
 		asset := getGzipped(t, handler, assetURL(name))
 		if asset.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d", name, asset.Code)
