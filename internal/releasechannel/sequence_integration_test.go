@@ -67,6 +67,7 @@ func TestSequenceChannelHTTPMigrationPreservesLegacyFloors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		receipt = fixture.qualify(t, receipt, "GRU", arch)
 		encoded, _ := trust.EncodeEnvelope(receipt)
 		next.Receipts = append(next.Receipts, jsontext.Value(encoded))
 	}
