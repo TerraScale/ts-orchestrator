@@ -1,0 +1,82 @@
+{
+  "app": {
+    "internal/app/cell_spec_host_images_test.go": {
+      "checked_source": "8a4b78b5",
+      "sha256": "d6ed29109a0e1ee70d3a5651d4fcb2635792148f73a319e0bed5d0dbe8e723ae",
+      "current_source_matches": true
+    },
+    "internal/app/managed_image_test.go": {
+      "checked_source": "8a4b78b5",
+      "sha256": "24222f62e5a8a7e8d97c1aa087162a6bd62de575ecd59474927a7524c2ec33eb",
+      "current_source_matches": true
+    },
+    "internal/app/operator_terrabase_sync_test.go": {
+      "checked_source": "8a4b78b5",
+      "sha256": "5d02948ee7780bf49fdf643b005bc97daabde364ddd8780a34e3857ad53f436a",
+      "current_source_matches": true
+    },
+    "internal/app/production_qualification_test.go": {
+      "checked_source": "8a4b78b5",
+      "sha256": "13f09d697b9654aa7c5b35205002b75bc79344faedac54c6eb68d316302d2134",
+      "current_source_matches": true
+    },
+    "internal/app/rollout_channel_test.go": {
+      "checked_source": "8a4b78b5",
+      "sha256": "527ff67cc0ba865ff88665a0452ba02be37e7948d0ebef47aafa66fe63ab700e",
+      "current_source_matches": true
+    }
+  },
+  "observation": {
+    "internal/dashboard/dashboard_test.go": {
+      "checked_source": "291c078a",
+      "sha256": "a8497c1a75861f362deee0d1222607ac81734e23137f2db5815b117c1868a302",
+      "current_source_matches": true
+    },
+    "internal/insights/insights_test.go": {
+      "checked_source": "291c078a",
+      "sha256": "a9bdefa58ab0ac3578c132c01f88656e9010adaa7d2cab83e90c017fee5cd6b6",
+      "current_source_matches": true
+    },
+    "internal/insights/review_test.go": {
+      "checked_source": "291c078a",
+      "sha256": "f03353ec46be539ae3924d4df1cb6a689a3abaf13a258d4924d25cf4dc382a3e",
+      "current_source_matches": true
+    },
+    "internal/observability/host_history_stream_test.go": {
+      "checked_source": "291c078a",
+      "sha256": "ba0a3193759750110a4229928d327f9f87af1e8160e3f1faa43f6e5b1d6705dc",
+      "current_source_matches": true
+    }
+  },
+  "admission": {
+    "internal/rolloutexec/spool_test.go": {
+      "checked_source": "d0009fe5",
+      "sha256": "4c163b9a93d815df425f6d234bc1a6dcf333c5d6b5a7b4543af768ddd7f51a70",
+      "current_source_matches": true
+    },
+    "tests/deploy/promote_image_test.go": {
+      "checked_source": "d0009fe5",
+      "sha256": "a2468fd68b464caf66177beaf16b511f740e44bfb98310e882b49d77c6467c2b",
+      "current_source_matches": true
+    }
+  },
+  "namespace": {
+    "internal/terrabase/restore_namespace.go": {
+      "checked_source": "f3354c8d",
+      "sha256": "ad8269862a3168fc504fa5621bef197f0f63bb4c07c4cfa0e09f716cadba63b7",
+      "current_source_matches": true
+    },
+    "internal/terrabase/restore_namespace_test.go": {
+      "checked_source": "f3354c8d",
+      "sha256": "7f14ef8c783b0fca6e09296a850750d6177d706175c7a2b69fdd1bc7ad641136",
+      "current_source_matches": true
+    }
+  },
+  "workflow": {
+    "tests/ci/workflows_test.go": {
+      "checked_source": "7943aa05",
+      "sha256": "a9e31ccecaef53e376e812e4ed038f1b2f082b64a150f58dd531feb0a7c363e1",
+      "current_source_matches": true
+    }
+  }
+}

@@ -1,0 +1,16 @@
+--- FAIL: TestPreviewAdmissionContracts (2.69s)
+    --- FAIL: TestPreviewAdmissionContracts/test_seed_preflight_binds_foundation_and_signed_image/003_create_identity (0.07s)
+        preview_test.go:98: API result:
+             got: "seed-a-b6ef2fbc0f15c1e6d9c5a39de1709788"
+            want: "seed-a-a0cf9116932a758a26dfd99c5bf3bff0"
+    --- FAIL: TestPreviewAdmissionContracts/test_seed_create_identity_survives_recording_the_launched_instance/006_create_identity (0.08s)
+        preview_test.go:98: API result:
+             got: "seed-a-8b4d2799ece774ac05f7cdd3c5b18dae"
+            want: "seed-a-0bf10826923bd98ab990a2c3df4be01f"
+    --- FAIL: TestPreviewAdmissionContracts/test_seed_create_identity_survives_recording_the_launched_instance/002_create_identity (0.04s)
+        preview_test.go:98: API result:
+             got: "seed-a-defccf20da9112e9c8f1d241149ef7b6"
+            want: "seed-a-10a0cb000c4bddac568fa753c12dcd17"
+FAIL
+FAIL	github.com/TerraScale/ts-orchestrator/deploy/oci-region	15.857s
+FAIL

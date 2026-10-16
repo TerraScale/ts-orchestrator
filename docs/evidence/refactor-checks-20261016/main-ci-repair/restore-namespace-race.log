@@ -1,0 +1,10 @@
+=== RUN   TestRestoreNamespaceCommandIsolatesBeforeExec
+--- PASS: TestRestoreNamespaceCommandIsolatesBeforeExec (1.05s)
+=== RUN   TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic
+    restore_namespace_test.go:108: namespaced restore check:
+        === RUN   TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic
+        --- PASS: TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic (1.07s)
+        PASS
+--- PASS: TestRestoreNamespaceHasOnlyLoopbackAndLocalTraffic (2.13s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/terrabase	4.232s
