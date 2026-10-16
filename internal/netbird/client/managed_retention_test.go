@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 func TestManagedRetainedExecutableRunsRollbackAfterReleasePruning(t *testing.T) {

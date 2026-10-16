@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func TestTransientControllerBootstrapErrorAuthorityClassifications(t *testing.T) {

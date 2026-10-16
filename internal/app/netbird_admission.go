@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 func netbirdAdmittedFence(record network.Record) (*cellspec.ReleaseFence, error) {

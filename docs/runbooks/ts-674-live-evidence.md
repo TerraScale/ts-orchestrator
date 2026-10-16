@@ -112,12 +112,12 @@ Tailscale session; do not replace NixOS binaries imperatively.
 
 Ku TS-632 was marked Done, but its 20:48 UTC
 comment records an active GRU rename waiting at `check`: the GRU2 TerraBase
-member remains down until [PR #312](https://git.terrascale.tech/TerraScale/ts-orchestrator/pulls/312)
+member remains down until [PR #312](https://github.com/TerraScale/ts-orchestrator/pulls/312)
 reaches its host agent. GRU1 and GRU3 serve. Do not drain another GRU node
 while that leaves only two serving members.
 
 TS-672's 20:50 UTC update reports native operator DNS fixed and
-[PR #313](https://git.terrascale.tech/TerraScale/ts-orchestrator/pulls/313)
+[PR #313](https://github.com/TerraScale/ts-orchestrator/pulls/313)
 open; its dashboard listener/deployment dependency on TS-670 remains.
 This refresh independently confirmed controller DNS, but did not confirm
 server-to-server service or NATS access. TS-676's 20:46 UTC coordination

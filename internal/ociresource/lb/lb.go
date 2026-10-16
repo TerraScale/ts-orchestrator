@@ -25,7 +25,7 @@ import (
 	"strconv"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 // Kind is the desired-state kind for L7 load balancer backend sets.

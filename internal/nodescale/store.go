@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // Bucket holds each region's scaler record. A new leader reads it to resume the action in flight and to

@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 func TestSignedObservabilityStaysOnLoopbackOrBrokerAddress(t *testing.T) {

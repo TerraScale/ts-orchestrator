@@ -12,15 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // staticTerraBaseMembers is the part of the effective terrabase profile that

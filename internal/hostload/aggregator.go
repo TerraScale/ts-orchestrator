@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 )
 
 const (

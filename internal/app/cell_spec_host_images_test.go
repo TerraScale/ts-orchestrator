@@ -13,12 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"

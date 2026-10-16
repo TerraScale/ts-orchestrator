@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 func attachReviewedControllerConfig(manifest *bootstrap.Manifest, configPath, configSHA,

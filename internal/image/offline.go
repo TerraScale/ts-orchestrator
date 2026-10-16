@@ -6,7 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
+	"github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 	"io"
 	"math"
 	"os"
@@ -18,8 +18,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 )
 
 func fileHash(path string) (string, error) { return client.SHA256(path) }

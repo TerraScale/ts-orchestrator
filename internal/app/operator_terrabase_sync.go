@@ -18,8 +18,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 const (

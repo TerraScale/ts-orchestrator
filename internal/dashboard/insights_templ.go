@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+import "github.com/TerraScale/ts-orchestrator/internal/insights"
 
 // insightsBody is the ranked needs-attention list across regions. Every
 // insight says why it fired, shows its evidence against the threshold,

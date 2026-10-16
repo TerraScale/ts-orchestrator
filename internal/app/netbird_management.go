@@ -7,8 +7,8 @@ import (
 	"maps"
 	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
 )
 
 // netbirdManagementLoop returns the loop through which the controller holding

@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 type cdTestFeed struct {

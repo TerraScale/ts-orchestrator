@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

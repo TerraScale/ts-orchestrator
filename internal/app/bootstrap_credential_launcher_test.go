@@ -20,13 +20,13 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // TestMain gives the test executable the same hidden-command dispatch as the

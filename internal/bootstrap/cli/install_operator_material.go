@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 

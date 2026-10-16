@@ -5,9 +5,9 @@ import (
 	"errors"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

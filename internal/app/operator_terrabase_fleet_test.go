@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 // deployTestProvider is an in-memory OCI region with any number of hosts,

@@ -7,7 +7,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // Loop lets the cell's leading controller keep the manager reconciled. It

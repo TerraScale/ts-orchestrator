@@ -11,7 +11,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // A service release channel (TS-610) carries one release of a native role

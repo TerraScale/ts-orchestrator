@@ -1,7 +1,7 @@
 package dashboard
 
 import (
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // regionKPIs are this region's tiles: readiness, members, leaders, TerraBase

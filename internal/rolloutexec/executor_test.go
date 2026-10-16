@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 type fakeUnit struct {

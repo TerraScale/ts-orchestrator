@@ -19,12 +19,12 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const (

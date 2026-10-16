@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // A restore never leaves a pending activation, and one interrupted after

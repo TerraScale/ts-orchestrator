@@ -17,11 +17,11 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logscan"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/logscan"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const usage = `Usage: ts-orch network check [--all] [--host SSH_ALIAS]... [--node NETBIRD_NAME]... [--vault-id OCID] [--netbird COMMAND]

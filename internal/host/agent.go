@@ -22,8 +22,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nkeys"
 )
 

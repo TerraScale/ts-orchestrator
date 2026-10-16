@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // OfflinePacketInput binds the local test-authority receipt to actual frozen

@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 )
 
 type Object = map[string]any

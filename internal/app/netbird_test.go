@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
 )
 
 func TestNetBirdEnrollCommandDispatchRejectsPositionalArguments(t *testing.T) {

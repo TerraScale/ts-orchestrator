@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestOperatorConfigUsesRegionalMaterialCell(t *testing.T) {

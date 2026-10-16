@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
 )
 
 // The providers below stand in for slices that are still being built

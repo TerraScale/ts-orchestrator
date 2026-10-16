@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // DrainRecord is written durably before the first POST. Its request nonce and

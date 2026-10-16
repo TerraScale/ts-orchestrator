@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/failover"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/failover"
 )
 
 // reattachRetainedVolume moves the retained volume of a replacement host

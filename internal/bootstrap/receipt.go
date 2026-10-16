@@ -6,11 +6,11 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // Receipt binds a signed bootstrap intent and root-authorized launch profile

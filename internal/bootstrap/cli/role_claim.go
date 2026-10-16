@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 )
 
 // runRoleClaim signs the cell account claim with the role signer added

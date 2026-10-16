@@ -16,16 +16,16 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/app"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/TerraScale/ts-orchestrator/internal/app"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // renderControllerConfigAt creates one deterministic production role config

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 

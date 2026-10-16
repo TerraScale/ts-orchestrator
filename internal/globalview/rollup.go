@@ -10,7 +10,7 @@ package globalview
 import (
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 const (

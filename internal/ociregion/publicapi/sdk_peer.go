@@ -6,7 +6,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 // The writes of `ts-orch oci-region peer` (TS-668), and the two reads whose

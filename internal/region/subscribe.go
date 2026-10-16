@@ -8,8 +8,8 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // Subscriptions is the identity API of the tenancy's home region, where region

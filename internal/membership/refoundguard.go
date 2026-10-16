@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 )
 
 const (

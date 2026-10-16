@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/image"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 const promoteSource = "5ff44290b67a91c3b27373c6661d778fe6ef8ffc"

@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // TerraScale's own organization in the production TerraBase, the one end

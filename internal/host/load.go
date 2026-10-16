@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // Host load telemetry: the agent samples its own load every 15 seconds and

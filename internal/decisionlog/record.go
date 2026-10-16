@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // Recorder accepts decisions. Implementations must not block on I/O and

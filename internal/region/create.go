@@ -15,13 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/foundation"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // Runner runs one ts-orch command with env added to its environment, and

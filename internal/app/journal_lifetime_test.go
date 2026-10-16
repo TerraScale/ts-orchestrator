@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // A controller that returns while its caller's context is still live (a

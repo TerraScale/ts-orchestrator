@@ -15,8 +15,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 var start = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)

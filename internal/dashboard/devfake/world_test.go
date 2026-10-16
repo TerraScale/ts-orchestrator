@@ -8,12 +8,12 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 var regionNames = []string{"gru", "sfo", "fra"}

@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 func TestDesiredMaterialMatchesReceiptPinsSQLAndBackupDigests(t *testing.T) {

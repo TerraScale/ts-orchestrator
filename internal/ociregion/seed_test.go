@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 )
 
 func TestSeedLaunchRequiresCurrentManifestSchema(t *testing.T) {

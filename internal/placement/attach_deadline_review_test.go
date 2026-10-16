@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 // The production fleet fails an attach whose settle wait expires and

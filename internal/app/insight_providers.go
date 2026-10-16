@@ -6,9 +6,9 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // The adapters below expose state the parallel slices already keep (the

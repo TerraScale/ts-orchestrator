@@ -11,7 +11,7 @@ import templruntime "github.com/a-h/templ/runtime"
 import (
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
 )
 
 const themeRestore = "localStorage.getItem('ts-orch-theme') && (document.documentElement.dataset.theme = localStorage.getItem('ts-orch-theme'))"

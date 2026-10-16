@@ -5,7 +5,7 @@ import (
 	"errors"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // hostCredentialReloader lets a running host agent present credentials that

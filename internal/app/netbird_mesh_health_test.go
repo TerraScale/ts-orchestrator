@@ -9,9 +9,9 @@ import (
 
 	"golang.org/x/net/dns/dnsmessage"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 type netbirdMeshHosts struct {

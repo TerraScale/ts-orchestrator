@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func fleetView(t *testing.T, region Region) (instances, volumes, attachments map[string]int, observed time.Time) {

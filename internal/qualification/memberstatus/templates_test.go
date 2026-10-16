@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func templateContains(t *testing.T, s, part string) {

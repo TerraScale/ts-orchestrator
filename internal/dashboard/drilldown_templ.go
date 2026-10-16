@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+import "github.com/TerraScale/ts-orchestrator/internal/globalview"
 
 // The drill-down pages (TS-805) render only the in-memory global view: a
 // region, node, volume or service of it, and the global node and volume

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // A startup open that is retrying when the embedded broker dies is

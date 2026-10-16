@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
 func TestNetBirdAdmissionSurvivesFenceAndGrantRemovalWithoutLosingQuorum(t *testing.T) {

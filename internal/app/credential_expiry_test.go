@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // The expiry scan covers every certificate and JWT a controller runs with

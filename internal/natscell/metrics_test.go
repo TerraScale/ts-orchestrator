@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/nats-io/nats.go/jetstream"
 )
 

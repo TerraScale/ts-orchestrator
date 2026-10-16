@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
 const usage = `Usage: ts-orch region <command> [flags]

@@ -11,8 +11,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 	"github.com/oracle/oci-go-sdk/v65/vault"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // OCI's shortest deletion windows, plus an hour of clock margin.

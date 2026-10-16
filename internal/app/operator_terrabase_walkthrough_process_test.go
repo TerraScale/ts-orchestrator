@@ -17,9 +17,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // walkthroughNamespaceEnv marks the re-executed test process that runs in a

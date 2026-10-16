@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 var ErrControllerConfigInstall = errors.New("controller configuration install proof is invalid")

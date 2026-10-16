@@ -13,7 +13,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 // TestSDKDecodesEveryCommandTheProvisionerSends runs cert, apply and an

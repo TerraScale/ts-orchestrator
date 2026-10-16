@@ -26,13 +26,13 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/commandio"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const usage = `Usage: ts-orch selfupdate <command> [flags]

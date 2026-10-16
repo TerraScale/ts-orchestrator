@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // Fetcher stages a release that is not (or no longer) in the release root,

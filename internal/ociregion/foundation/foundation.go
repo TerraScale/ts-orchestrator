@@ -21,11 +21,11 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 const usage = `Usage: ts-orch oci-region foundation --plan PLAN --out BOUND_PLAN [--apply]

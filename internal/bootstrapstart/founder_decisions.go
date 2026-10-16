@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // recordFounderLaunch journals the outcome of one founder peer launch. The

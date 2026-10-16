@@ -19,13 +19,13 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"golang.org/x/sys/unix"
 )
 

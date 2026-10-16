@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/artifact"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -753,7 +753,7 @@ func artifactTestRequest() ArtifactClaimRequest {
 	tree := sha256.Sum256([]byte("source tree"))
 	return ArtifactClaimRequest{
 		Source: ArtifactSource{
-			Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator",
+			Repository: "https://github.com/TerraScale/ts-orchestrator",
 			Commit:     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 			TreeDigest: hex.EncodeToString(tree[:]),
 		},

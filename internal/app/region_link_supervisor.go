@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 const regionLinkProbeInterval = time.Minute

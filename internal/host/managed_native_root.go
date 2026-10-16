@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nativerootoci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type managedNativeRoot struct {

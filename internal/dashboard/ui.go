@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 // The status color system. Every state maps to one token: ok, warn,

@@ -14,7 +14,7 @@ import (
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // Material publication admits exactly the region catalog, so a new catalog

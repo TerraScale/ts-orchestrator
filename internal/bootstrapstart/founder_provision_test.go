@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 func TestInitialSeedAdmissionInvokesFloorBeforeMarkerAndRestartNeverReinitializes(t *testing.T) {

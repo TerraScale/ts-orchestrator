@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 func summary(cell string, status *nodescale.Status) globalview.Region {

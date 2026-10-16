@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const fakeVault = "ocid1.vault.oc1..fake"

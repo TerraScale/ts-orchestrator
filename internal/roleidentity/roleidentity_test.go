@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
+	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 )
 
 func TestRoleScopePublishesObservationsInOwnCell(t *testing.T) {

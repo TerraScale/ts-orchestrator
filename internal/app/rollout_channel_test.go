@@ -20,14 +20,14 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rolloutexec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // releaseSigner is CI's signing side: an offline root, its scoped update

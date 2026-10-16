@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 type ppObject = map[string]any

@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 type regionalDeliveryPlanner struct {

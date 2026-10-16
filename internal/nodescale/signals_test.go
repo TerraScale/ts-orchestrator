@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
 func TestMeasure(t *testing.T) {

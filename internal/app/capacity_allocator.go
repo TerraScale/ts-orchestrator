@@ -10,13 +10,13 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalcontrol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/atlas"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/globalcontrol"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // capacityInterval is how often the home allocates node growth under the budget.

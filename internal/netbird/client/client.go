@@ -27,8 +27,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/commandio"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 const MaxBinaryBytes = 128 << 20

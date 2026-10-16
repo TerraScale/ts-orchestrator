@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const (

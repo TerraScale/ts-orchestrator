@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/VictoriaMetrics/metrics"
 )
 

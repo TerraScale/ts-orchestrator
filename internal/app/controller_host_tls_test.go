@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func testR3TLSMaterial(t *testing.T, root string) (natscell.TLSFiles, string) {

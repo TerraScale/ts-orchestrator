@@ -12,8 +12,8 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 )
 
 func loadIssuer(t *testing.T, material generationtest.Material) *bootstrapmaterial.ControllerIssuer {

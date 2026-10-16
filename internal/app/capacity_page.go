@@ -8,11 +8,11 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 // capacityPage is the capacity page's source. Every region reads the budget and

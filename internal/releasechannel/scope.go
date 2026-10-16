@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 // ValidateDeploymentScope validates fresh regional inventory independently of

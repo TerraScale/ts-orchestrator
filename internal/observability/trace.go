@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/nats-io/nats.go"
 	"github.com/oklog/ulid/v2"
 )

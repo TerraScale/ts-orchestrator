@@ -4,8 +4,8 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 var resourceMetrics = [...]string{"cpu_usage", "cpu_request", "cpu_limit", "cpu_headroom", "memory_usage", "memory_request", "memory_limit", "memory_headroom"}

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 // A replacement whose controller lost its authority term never advances the

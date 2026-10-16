@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 const testBalancerID = "ocid1.loadbalancer.oc1.sa-saopaulo-1.aaaaaaaabalancer"

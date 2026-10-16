@@ -19,12 +19,12 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // TestTerraBaseReleaseUnderLoadServesNoErrors is the TS-571 acceptance in

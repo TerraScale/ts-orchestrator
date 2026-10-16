@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )

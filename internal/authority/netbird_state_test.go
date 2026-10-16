@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"sync/atomic"
 	"testing"
 	"time"

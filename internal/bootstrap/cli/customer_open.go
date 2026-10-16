@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const maxCustomerReplyBytes = 64 << 10

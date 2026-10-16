@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // Authority is the mutation fence. The authority package's Fencer satisfies it.

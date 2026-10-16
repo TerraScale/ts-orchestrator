@@ -7,9 +7,9 @@ import (
 	"errors"
 	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 type netbirdStateReader interface {

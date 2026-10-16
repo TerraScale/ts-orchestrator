@@ -15,11 +15,11 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/artifact"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 func netbirdArtifactStore(t *testing.T, conn *nats.Conn) jetstream.ObjectStore {

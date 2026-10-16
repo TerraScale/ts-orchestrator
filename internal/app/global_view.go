@@ -7,12 +7,12 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabasestats"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/logs"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabasestats"
 )
 
 // startGlobalView follows every region's rollup into the dashboard's global

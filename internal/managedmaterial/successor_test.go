@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 func successorFixture(t *testing.T, service PreparationService, spec InitialSpec, now time.Time) SuccessorRequest {

@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 )
 
 func TestCapacityLimitDoesNotRejectAutoscalerReports(t *testing.T) {

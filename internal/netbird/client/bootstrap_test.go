@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 type canceledBootstrapPublication struct {

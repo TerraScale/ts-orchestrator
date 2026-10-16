@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 // drillView is the drill-down fixture: local gru and sfo report four nodes

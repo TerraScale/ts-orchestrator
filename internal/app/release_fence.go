@@ -16,15 +16,15 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
 // A release fence (TS-610, the cell spec's release_fence) restarts a

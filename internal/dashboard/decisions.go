@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // knownSlices are the deciding slices the journal filter offers even before

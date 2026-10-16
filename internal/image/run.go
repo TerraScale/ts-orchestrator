@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strconv"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/commandio"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 )
 
 type stringsFlag []string

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"maps"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 )

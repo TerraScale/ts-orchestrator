@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 const (

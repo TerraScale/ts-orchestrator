@@ -11,10 +11,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 )
 
 var seedFields = []string{"schema_version", "slot", "shape", "ocpus", "memory_gb", "boot_gb", "boot_vpus_per_gb", "assign_public_ip", "compartment_id", "availability_domain", "fault_domain", "subnet_id", "network_security_group_ids", "image_id", "anchor_sha256", "manifest_sha256", "image_receipt_sha256", "admission_sha256", "inventory_sha256", "admission_admitted_at", "admission_expires_at", "monthly_estimate_usd", "create_identity"}

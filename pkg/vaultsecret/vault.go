@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	internal "git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	internal "github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 type Ref = internal.Ref

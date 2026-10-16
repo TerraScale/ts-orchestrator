@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 func requireLiveID(v any, id any, label string) Object {

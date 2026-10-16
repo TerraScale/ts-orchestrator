@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 )
 
 // runGenerateInterRegionMaterial issues the interregion account, the

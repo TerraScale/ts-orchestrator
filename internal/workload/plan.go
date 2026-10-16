@@ -6,8 +6,8 @@ import (
 	"maps"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 // ReleaseShift splits a reconciled role's host desired generation into a

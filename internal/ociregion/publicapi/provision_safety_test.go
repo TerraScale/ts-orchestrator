@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 func TestLoadPlanMemberIdentityFollowsSlots(t *testing.T) {

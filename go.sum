@@ -1,7 +1,7 @@
-git.terrascale.tech/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6 h1:GHEZF8W+VOOxeSFoRZBOik1Fh5fSbehmpFcY3F4CY4c=
-git.terrascale.tech/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6/go.mod h1:wnG+Zg7VZSpDcSGm5B7j5QJ+DrpP1+bDUVfa0EIrc5I=
 github.com/CAFxX/httpcompression v0.0.9 h1:0ue2X8dOLEpxTm8tt+OdHcgA+gbDge0OqFQWGKSqgrg=
 github.com/CAFxX/httpcompression v0.0.9/go.mod h1:XX8oPZA+4IDcfZ0A71Hz0mZsv/YJOgYygkFhizVPilM=
+github.com/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6 h1:pcGGq9EwkJWp2ViTPpMsiNJDhJvQoj9QF7m1bZveRjs=
+github.com/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6/go.mod h1:wnG+Zg7VZSpDcSGm5B7j5QJ+DrpP1+bDUVfa0EIrc5I=
 github.com/VictoriaMetrics/metrics v1.44.1 h1:OMyGrMkhI3hnq+IpJ1gZK9VhXcsOjUX1CoOFv//bJ0I=
 github.com/VictoriaMetrics/metrics v1.44.1/go.mod h1:xDM82ULLYCYdFRgQ2JBxi8Uf1+8En1So9YUwlGTOqTc=
 github.com/a-h/parse v0.0.0-20250122154542-74294addb73e h1:HjVbSQHy+dnlS6C3XajZ69NYAb5jbGNfHanvm1+iYlo=

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 

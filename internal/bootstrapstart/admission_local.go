@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // AdmitRestartLocal verifies root-owned accepted state and installed identity

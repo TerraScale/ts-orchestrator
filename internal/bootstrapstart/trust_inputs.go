@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
 

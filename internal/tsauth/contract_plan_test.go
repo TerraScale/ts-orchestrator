@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 func TestBackendSet(t *testing.T) {

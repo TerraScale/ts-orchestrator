@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 func TestRolloutKnownBadFailsClosedUntilTheStoreOpens(t *testing.T) {

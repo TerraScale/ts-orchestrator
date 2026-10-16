@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/tests/firecracker/production/fixturegen"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/firecracker/production/fixturegen"
 )
 
 func main() {

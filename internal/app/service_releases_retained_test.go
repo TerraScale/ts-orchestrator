@@ -16,11 +16,11 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 const servicePinsActor = "01ARZ3NDEKTSV4RRFFQ69G5FAV"

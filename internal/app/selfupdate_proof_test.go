@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 func TestSelfUpdateProofUsesTheConfiguredReleaseRoot(t *testing.T) {

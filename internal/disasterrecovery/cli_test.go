@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 func TestReplicateRefusesUnsafeSDKEnvironmentBeforeCloudAccess(t *testing.T) {

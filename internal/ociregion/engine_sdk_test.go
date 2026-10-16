@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 func TestSDKReadOfARegionOutsideTheCatalogFallsBackOrFailsNamed(t *testing.T) {

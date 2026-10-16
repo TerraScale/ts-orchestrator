@@ -15,10 +15,10 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // GenerationChainCopy is the durable copy of the adopted generation chain.

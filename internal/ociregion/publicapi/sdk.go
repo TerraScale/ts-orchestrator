@@ -16,9 +16,9 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 	"github.com/oracle/oci-go-sdk/v65/vault"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
 // SDKClient serves the provisioner's commands through the OCI Go SDK inside

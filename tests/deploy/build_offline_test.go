@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 const offlineKernelRelease = "6.8.0-142-generic"

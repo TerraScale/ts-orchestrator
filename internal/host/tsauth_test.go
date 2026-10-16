@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 const tsAuthTestAPIKey = "tb_never-print-this-api-key"

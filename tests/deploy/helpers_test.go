@@ -4,8 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func deployRoot(t *testing.T) string { t.Helper(); return script.Root(t) }

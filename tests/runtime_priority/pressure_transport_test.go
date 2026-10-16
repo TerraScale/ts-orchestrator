@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	rp "github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func TestAlphaTransportPinsAndRemoteCompile(t *testing.T) {

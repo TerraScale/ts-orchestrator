@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
 // Verifier checks that a region serves: what TS-640 lacked when it was

@@ -8,8 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
 type activePlacementReader interface {

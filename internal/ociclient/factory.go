@@ -31,8 +31,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/workrequests"
 	"golang.org/x/time/rate"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // SecretUnsafeEnv are the OCI SDK variables that print request and response

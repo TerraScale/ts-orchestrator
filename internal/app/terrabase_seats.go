@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/seatrollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // TerraBaseSeatsConfig turns on zero-downtime TerraBase rollouts (TS-571):

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 // A region added to the catalog must also get a permanent seat mapping;

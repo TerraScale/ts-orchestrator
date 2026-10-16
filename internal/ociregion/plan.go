@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 var publicIDs = map[string]string{"internet_gateway": "internetgateway", "public_subnet": "subnet", "public_route_table": "routetable", "public_security_list": "securitylist", "network_load_balancer": "networkloadbalancer"}

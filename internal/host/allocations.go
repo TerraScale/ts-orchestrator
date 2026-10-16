@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // ListDesired reads all committed host allocations from the ordered control

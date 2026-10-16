@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/tests/firecracker/production"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/tests/firecracker/production/fixturegen"
+	"github.com/TerraScale/ts-orchestrator/tests/firecracker/production"
+	"github.com/TerraScale/ts-orchestrator/tests/firecracker/production/fixturegen"
 )
 
 type simulatorAudit struct {

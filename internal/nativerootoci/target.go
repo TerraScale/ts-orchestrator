@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oklog/ulid/v2"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const (

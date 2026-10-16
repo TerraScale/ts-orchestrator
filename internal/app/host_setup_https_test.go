@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/nats-io/nkeys"
 )
 

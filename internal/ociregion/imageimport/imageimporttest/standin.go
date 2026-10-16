@@ -31,8 +31,8 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 )
 
 // WorkRequestPolls is how many times a new import work request reports

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionsuggest"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/regionsuggest"
 )
 
 // fakeCapacity records budget changes and answers reads with view.

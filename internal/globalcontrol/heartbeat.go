@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // HeartbeatVersion is the only Heartbeat wire version.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // releaseStages are the columns of a release timeline, in order.

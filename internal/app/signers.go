@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 var grantToken = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)

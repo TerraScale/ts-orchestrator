@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // SummaryInput is everything a summary is generated from.

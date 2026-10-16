@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
 // readManagedServingProof uses the same native runner process binding as the

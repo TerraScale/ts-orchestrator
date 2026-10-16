@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func TestFleetCheckRequiresEveryAddressEndpointAndRegionToken(t *testing.T) {

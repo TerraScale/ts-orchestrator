@@ -1,6 +1,6 @@
 package memberstatus
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+import "github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 // VerifyReportedServing checks a current, signed host report against the
 // expected member process, accepted authority, and named signed survivor. A

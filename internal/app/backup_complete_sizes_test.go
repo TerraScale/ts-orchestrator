@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func sizeOnlyBackupEnvelopeAtMost(t *testing.T, limit int, signer ed25519.PrivateKey) []byte {

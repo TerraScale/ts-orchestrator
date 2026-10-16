@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // recordScale journals one applied autoscaling change. It is called only

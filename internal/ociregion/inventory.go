@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 var activeStates = []string{"CREATING", "PROVISIONING", "STARTING", "RUNNING", "STOPPING", "STOPPED", "AVAILABLE", "ACTIVE", "FAULTY", "UPDATING", "TERMINATING", "DELETING"}

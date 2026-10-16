@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/commandio"
+	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 )
 
 const usage = `Usage: ts-orch release <command> [flags]

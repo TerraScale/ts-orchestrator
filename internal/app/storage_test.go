@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/backup"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/backup"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
 
 type volumeListStore struct {

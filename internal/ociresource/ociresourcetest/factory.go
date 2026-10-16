@@ -14,7 +14,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // Region is the catalog region the test factory is pinned to.

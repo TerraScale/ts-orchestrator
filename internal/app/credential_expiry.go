@@ -1,8 +1,8 @@
 package app
 
 import (
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/maintenance"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/maintenance"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // controllerCredentialFiles lists every expiring credential file a

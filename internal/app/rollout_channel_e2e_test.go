@@ -18,10 +18,10 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // TestReleaseChannelRollsCIReleasesOutRegionByRegion runs CI's automatic

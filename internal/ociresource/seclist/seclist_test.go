@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 )
 
 const listID = "ocid1.securitylist.oc1.sa-saopaulo-1.private"

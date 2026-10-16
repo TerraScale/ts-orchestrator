@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func TestHostCredentialReloaderAcceptsOnlyRenewedCredentialPaths(t *testing.T) {

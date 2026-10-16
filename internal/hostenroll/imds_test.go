@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
 type imdsDoFunc func(*http.Request) (*http.Response, error)

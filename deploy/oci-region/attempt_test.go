@@ -14,8 +14,8 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/attempt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/attempt"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func attemptFixture(t *testing.T) (*attempt.Attempt, string) {

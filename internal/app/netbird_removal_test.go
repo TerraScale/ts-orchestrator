@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	local "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/agent"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	local "github.com/TerraScale/ts-orchestrator/internal/netbird/agent"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func TestNetBirdRemovalKeepsFailedRollbackExchangeUntilFenceReturns(t *testing.T) {

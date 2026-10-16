@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 const testLineageBase = "89abcdef0123456789abcdef0123456789abcdef"
@@ -53,7 +53,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	inspect := func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil }
 	check := func(release.Qualification, string) error { return nil }
 	var gitCalls []string
-	origin := "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n"
+	origin := "https://github.com/TerraScale/ts-orchestrator.git\n"
 	git := func(_ context.Context, args ...string) (string, error) {
 		gitCalls = append(gitCalls, strings.Join(args, " "))
 		if strings.Contains(strings.Join(args, " "), "remote get-url origin") {
@@ -104,7 +104,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	if err := c.signBinaryUpdateWith(rejected, check, inspect, git); !errors.Is(err, release.ErrLineage) {
 		t.Fatalf("a forked origin proved lineage: %v", err)
 	}
-	origin = "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n"
+	origin = "https://github.com/TerraScale/ts-orchestrator.git\n"
 	if err := c.signBinaryUpdateWith(rejected, func(release.Qualification, string) error { return errors.New("run failed") }, inspect, git); err == nil {
 		t.Fatal("unqualified run signed")
 	}
@@ -115,15 +115,15 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 
 func TestPinnedLineageRemote(t *testing.T) {
 	for remote, want := range map[string]bool{
-		"https://git.terrascale.tech/TerraScale/ts-orchestrator.git":             true,
-		"https://git.terrascale.tech/TerraScale/ts-orchestrator":                 true,
-		"ssh://git@git.terrascale.tech/TerraScale/ts-orchestrator.git":           true,
+		"https://github.com/TerraScale/ts-orchestrator.git":             true,
+		"https://github.com/TerraScale/ts-orchestrator":                 true,
+		"ssh://git@github.com/TerraScale/ts-orchestrator.git":           true,
 		"ssh://git@git.terrascale.tech:2222/TerraScale/ts-orchestrator.git":      true,
 		"git@git.terrascale.tech:TerraScale/ts-orchestrator.git":                 true,
 		"https://git.terrascale.tech/someone/ts-orchestrator.git":                false,
 		"https://evil.example/TerraScale/ts-orchestrator.git":                    false,
-		"https://user:secret@git.terrascale.tech/TerraScale/ts-orchestrator.git": false,
-		"http://git.terrascale.tech/TerraScale/ts-orchestrator.git":              false,
+		"https://user:secret@github.com/TerraScale/ts-orchestrator.git": false,
+		"http://github.com/TerraScale/ts-orchestrator.git":              false,
 		"file:///srv/TerraScale/ts-orchestrator.git":                             false,
 		"/srv/checkout/TerraScale/ts-orchestrator":                               false,
 		"git@evil.example:TerraScale/ts-orchestrator.git":                        false,

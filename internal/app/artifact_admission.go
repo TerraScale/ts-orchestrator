@@ -5,8 +5,8 @@ import (
 	"encoding/json/v2"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/nats-io/nats.go"
 )
 

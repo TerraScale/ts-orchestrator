@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostboot"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 )
 
 // hostBootDescriptor combines the durable placement attempt with this

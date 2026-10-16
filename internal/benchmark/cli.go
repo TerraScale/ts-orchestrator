@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 type RegionConfig struct {

@@ -3,7 +3,7 @@ package rolloutexec
 import (
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 func TestHostUnitsGroupEveryHostThatSharesAPartition(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 )
 
 func AtomicReplace(path string, value any) error {

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
 )
 
 // VolumeUsage is one statfs measurement. It is published with a TTL, so a

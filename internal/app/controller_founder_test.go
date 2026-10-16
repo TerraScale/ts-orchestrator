@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 )
 
 func shortFounderBackoff(t *testing.T) {

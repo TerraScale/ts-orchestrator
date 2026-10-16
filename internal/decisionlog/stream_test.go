@@ -11,7 +11,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionlink"
+	"github.com/TerraScale/ts-orchestrator/internal/regionlink"
 )
 
 func startJetStream(t *testing.T) *nats.Conn {

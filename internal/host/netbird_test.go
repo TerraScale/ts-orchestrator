@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 type networkSinkFake struct {

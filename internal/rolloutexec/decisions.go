@@ -4,8 +4,8 @@ import (
 	"context"
 	"log/slog"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 // The rollout store journals every committed phase change. The executor

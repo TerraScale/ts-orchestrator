@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 )
 
 func TestNodeEntriesSortKeys(t *testing.T) {

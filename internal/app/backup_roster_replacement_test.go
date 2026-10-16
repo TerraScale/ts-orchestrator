@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 // A member replaced after losing its host serves from host attempt N+1 with

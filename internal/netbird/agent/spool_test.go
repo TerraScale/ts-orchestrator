@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 	"golang.org/x/sys/unix"
 )
 

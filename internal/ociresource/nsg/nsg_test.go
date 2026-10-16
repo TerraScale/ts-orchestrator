@@ -10,7 +10,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const nsgID = "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.controller"

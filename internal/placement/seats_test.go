@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func TestRegionSeatsGeneralizesTheTwoSeatTopology(t *testing.T) {

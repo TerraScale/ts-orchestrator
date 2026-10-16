@@ -16,8 +16,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // ReadSecret uses the operator's OCI profile, not an instance principal on a laptop.

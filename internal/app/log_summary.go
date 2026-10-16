@@ -5,8 +5,8 @@ import (
 	"log/slog"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/logs"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // logSummaryRetry is how often a controller retries opening the log summary

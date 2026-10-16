@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 var ErrFounderPeerContinuation = errors.New("current founder peer continuation is unavailable")

@@ -9,8 +9,8 @@ import (
 
 	"github.com/nats-io/nkeys"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap/generationtest"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 )
 
 // During a CA rollover the bundle holds the old and the new CA, and the host

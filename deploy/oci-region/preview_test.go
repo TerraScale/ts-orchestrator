@@ -7,7 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"io/fs"
 	"maps"
 	"os"
@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 // These are data snapshots of API inputs and their observable contracts, not

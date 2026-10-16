@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 func TestExecutorRollbackDeadlineIncludesGateRecovery(t *testing.T) {

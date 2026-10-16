@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/ci/sourcedigest"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func TestSourceDigestV1FramingAndBytewisePathOrder(t *testing.T) {

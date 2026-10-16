@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logscan"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/logscan"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
 
 const usage = `Usage: ts-orch netbird path-audit --vault-id OCID --expected-ip IP [--netbird COMMAND] [--node NAME]...

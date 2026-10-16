@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // reviewedSeedPlan is the state-free seed preflight produced from the reviewed

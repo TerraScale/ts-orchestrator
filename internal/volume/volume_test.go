@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const testZone = "Uocm:SA-SAOPAULO-1-AD-1"

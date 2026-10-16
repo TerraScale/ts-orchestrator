@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // ResourceFreshFor matches the host report's five-minute freshness window.

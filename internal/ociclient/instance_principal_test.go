@@ -7,7 +7,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 func TestInstancePrincipalSerializesFetchesButNotCachedRegions(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // The delivery consumer journals the outcome of each intent it settles:

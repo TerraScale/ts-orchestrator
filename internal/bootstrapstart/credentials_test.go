@@ -7,8 +7,8 @@ import (
 	"slices"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 var peerCredentialManifest = bootstrap.Manifest{Slot: "controller-a", SeedSlot: "seed-a"}

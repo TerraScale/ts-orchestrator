@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 // FounderFloorArtifact describes one fixed-path guest artifact. Offline image

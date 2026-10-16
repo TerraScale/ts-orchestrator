@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
 )
 
 // insightChart charts the insight's most telling evidence: the first

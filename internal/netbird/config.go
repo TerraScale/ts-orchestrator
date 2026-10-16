@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 )
 
 const (

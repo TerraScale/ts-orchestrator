@@ -8,7 +8,7 @@ import (
 	"crypto/ed25519"
 	"encoding/binary"
 	"errors"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"net"
 	"os"
@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage/hostvolume"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/nats-io/nats.go"
 	"golang.org/x/sys/unix"
 )

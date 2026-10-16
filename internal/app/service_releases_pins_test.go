@@ -13,10 +13,10 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 func servicePinsFixture(t *testing.T) (*serviceReleases, jetstream.KeyValue, *channelBucket, releasechannel.Location) {

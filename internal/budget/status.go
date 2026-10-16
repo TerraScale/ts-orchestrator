@@ -11,7 +11,7 @@ import (
 
 	json "encoding/json/v2"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 // StatusOperatorURL is ts-status's operator API.

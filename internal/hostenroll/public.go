@@ -25,7 +25,7 @@ import (
 
 	"github.com/nats-io/nkeys"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const MaxPublicBundleBytes = 16 << 10

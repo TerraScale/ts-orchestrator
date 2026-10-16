@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/budget"
+import "github.com/TerraScale/ts-orchestrator/internal/budget"
 
 // capacityBody is the capacity page: the monthly budget and its form, the
 // capacity document, this region's node scaling and the region suggestion.

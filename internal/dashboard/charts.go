@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // chartSpec is the compact JSON a <ts-chart> element turns into an ECharts

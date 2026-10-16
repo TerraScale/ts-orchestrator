@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // TagAPI lists a region's resources and stamps freeform tags on one.

@@ -16,8 +16,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 const goPass = "=== RUN   " + GoTestName + "\n--- PASS: " + GoTestName + " (0.00s)\nPASS\n"

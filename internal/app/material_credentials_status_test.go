@@ -3,8 +3,8 @@ package app
 import (
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 )
 
 func TestCredentialStatusRequiresBothCurrentNativeReports(t *testing.T) {

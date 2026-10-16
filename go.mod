@@ -1,4 +1,4 @@
-module git.terrascale.tech/TerraScale/ts-orchestrator
+module github.com/TerraScale/ts-orchestrator
 
 go 1.27.0
 
@@ -54,4 +54,4 @@ replace github.com/nats-io/nats-server/v2 => ./third_party/nats-server
 
 tool github.com/a-h/templ/cmd/templ
 
-replace terrascale.tech/sdk => git.terrascale.tech/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6
+replace terrascale.tech/sdk => github.com/TerraScale/ts-go v0.0.0-20261009173424-f8f51d8a46c6

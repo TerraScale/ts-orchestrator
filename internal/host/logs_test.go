@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/logs"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const journalWarning = `{"_SYSTEMD_UNIT":"terrascale-orchestrator-host.service","_COMM":"terrascale-orch","_PID":"976","PRIORITY":"4","MESSAGE":"rollout step 3 relay failed"}`

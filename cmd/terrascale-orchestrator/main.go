@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/cli"
 )
 
 func main() {

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 func ptr[T any](value T) *T { return &value }

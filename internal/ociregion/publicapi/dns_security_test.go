@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 type dnsTransport func(*http.Request) (*http.Response, error)

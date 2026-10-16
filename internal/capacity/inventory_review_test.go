@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 )
 
 func TestUsageAPIUsesRequestedInventoryWindow(t *testing.T) {

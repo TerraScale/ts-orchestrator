@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
 )
 
 // TestTerraBaseBinaryPeerMesh runs three members of the real release binary,

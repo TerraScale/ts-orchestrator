@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 type linkHealthSource func(context.Context, bool) (observability.ClusterSnapshot, error)

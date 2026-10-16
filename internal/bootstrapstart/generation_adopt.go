@@ -3,7 +3,7 @@ package bootstrapstart
 import (
 	"errors"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"io"
 	"maps"
 	"os"
@@ -13,8 +13,8 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // generationStaging is the credential directory's staging subdirectory for

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 )
 
 func TestReleaseFenceContextLocksCancelWithoutEffectsAndRetry(t *testing.T) {

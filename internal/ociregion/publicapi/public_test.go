@@ -23,14 +23,14 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/loadbalancer"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

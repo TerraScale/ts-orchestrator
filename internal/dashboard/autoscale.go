@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // autoscaledService is one reconciled service's charts: replicas against

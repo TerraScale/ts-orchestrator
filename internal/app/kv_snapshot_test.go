@@ -4,11 +4,11 @@ import (
 	"slices"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostenroll"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machines"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/volume"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/kvsnapshot"
+	"github.com/TerraScale/ts-orchestrator/internal/machines"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/volume"
 )
 
 // Renaming a configuration bucket must not silently drop it from snapshots.

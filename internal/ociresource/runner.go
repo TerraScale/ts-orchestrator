@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
 // Pass is one reconcile step run at an authority epoch: a Controller, or a

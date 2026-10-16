@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 const bootstrapPendingFile = "netbird-bootstrap.pending"

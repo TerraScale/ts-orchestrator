@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func backupInitialFixture(t *testing.T) (InitialSpec, ed25519.PublicKey) {

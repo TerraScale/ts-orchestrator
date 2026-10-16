@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"golang.org/x/sys/unix"
 )
 

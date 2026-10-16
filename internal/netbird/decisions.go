@@ -3,7 +3,7 @@ package netbird
 import (
 	"context"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // recordEnrollment journals one enrollment outcome. Enrollment runs as a

@@ -8,7 +8,7 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 type rejectingWireVerifier struct{ calls int }

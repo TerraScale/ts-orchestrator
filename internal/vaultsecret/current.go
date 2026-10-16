@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // Current holds a value in memory. Formatting and JSON expose metadata only.

@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 )
 
 // The real SDK client imports into a stand-in region: it signs every request,

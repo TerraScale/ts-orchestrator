@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 func TestRunningBinaryPinsInstalledExecutable(t *testing.T) {

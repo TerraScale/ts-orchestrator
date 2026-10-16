@@ -7,8 +7,8 @@ import (
 	"io"
 	"path/filepath"
 
-	local "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/agent"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	local "github.com/TerraScale/ts-orchestrator/internal/netbird/agent"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 )
 
 func runNetBirdAgent(ctx context.Context, args []string) error {

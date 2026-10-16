@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 )
 
 func TestLocalRestartAdmissionNeedsNoInitialInputsOCIOrClock(t *testing.T) {

@@ -1,8 +1,8 @@
 package oci
 
 import (
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // Metrics holds the shared OCI API metrics and the fleet's inventory gauges.

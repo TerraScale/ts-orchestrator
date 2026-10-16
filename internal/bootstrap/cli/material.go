@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 )
 
 // runGenerateControllerMaterial creates the one durable local source for the

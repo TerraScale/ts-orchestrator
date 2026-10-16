@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 )
 
 var testNow = time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)

@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
+	"github.com/TerraScale/ts-orchestrator/internal/artifact"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
 func storeTestArtifact(t *testing.T, s *Service, ctx context.Context, role, body string, admit bool) (string, []byte) {
 	t.Helper()
-	source := ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
+	source := ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
 	record, claim, err := s.PrepareArtifact(ctx, bytes.NewReader([]byte(body)), ArtifactClaimRequest{Source: source, Cell: "lab", Role: role, Environment: "production"})
 	if err != nil {
 		t.Fatal(err)

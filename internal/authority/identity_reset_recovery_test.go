@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func TestOutOfWindowResetNeedsFreshRootAuthorizationForItsExactHold(t *testing.T) {

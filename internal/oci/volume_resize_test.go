@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
 // resizeProvider adds the optional UpdateVolume and VolumeId-filtered

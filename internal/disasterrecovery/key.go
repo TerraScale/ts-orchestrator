@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
 )
 

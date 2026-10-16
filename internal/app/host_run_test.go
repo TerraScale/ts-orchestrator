@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 func TestHostRunResultOnlyTreatsParentCancellationAsShutdown(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"slices"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/lb"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 const publicLBID = "ocid1.loadbalancer.oc1.sa-saopaulo-1.public"

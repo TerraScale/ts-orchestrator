@@ -7,8 +7,8 @@ import (
 	"encoding/json/v2"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // Rust's BackupCatalogHead::encode uses this framed canonical JSON. The

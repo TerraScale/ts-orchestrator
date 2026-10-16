@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 // FounderPhase is the seed founder worker's externally visible state.

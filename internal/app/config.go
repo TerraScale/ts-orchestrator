@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/kvsnapshot"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/machinesapi"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/kvsnapshot"
+	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
+	"github.com/TerraScale/ts-orchestrator/internal/membership"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const maxConfigBytes = 1 << 20

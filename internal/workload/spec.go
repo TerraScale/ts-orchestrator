@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"regexp"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/autoscale"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 var (

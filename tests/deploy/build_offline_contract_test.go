@@ -2,8 +2,8 @@ package deploy_test
 
 import (
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
+	rp "github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
 )
 
 func capture(t *testing.T, source, pattern string) []string {

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 func TestGRURebuildPlanKeepsFreshBindingsAndCSharpPeers(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 // Some bash releases stop reporting shards that already terminated to

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 // OCIFleet is the slice of the OCI fleet a reattach drives: the journaled

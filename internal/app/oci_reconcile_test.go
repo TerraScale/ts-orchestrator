@@ -9,14 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/cellspec"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/bucket"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/nsg"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource/routetable"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/bucket"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/routetable"
 )
 
 func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {

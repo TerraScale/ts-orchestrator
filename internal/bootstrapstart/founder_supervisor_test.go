@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 func instantAfter(delays *[]time.Duration) func(time.Duration) <-chan time.Time {

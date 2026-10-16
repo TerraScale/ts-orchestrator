@@ -17,7 +17,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 // Kind is the desired-state kind for route table rule sets.

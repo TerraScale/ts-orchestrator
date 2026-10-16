@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 // certSteps plans the load balancer's origin certificate: a Cloudflare

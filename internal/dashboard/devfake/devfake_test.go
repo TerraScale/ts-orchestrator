@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/devfake"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 func TestWorldHasThreeMovingRegions(t *testing.T) {
@@ -128,7 +128,7 @@ func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
 		t.Skip("lists the production binary's dependencies with the go tool")
 	}
 	t.Parallel()
-	output, err := exec.Command("go", "list", "-deps", "git.terrascale.tech/TerraScale/ts-orchestrator/cmd/terrascale-orchestrator").CombinedOutput()
+	output, err := exec.Command("go", "list", "-deps", "github.com/TerraScale/ts-orchestrator/cmd/terrascale-orchestrator").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, output)
 	}
@@ -138,7 +138,7 @@ func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
 	if !strings.Contains(string(output), "internal/dashboard\n") {
 		t.Fatal("go list did not list the dashboard; the check is not looking at the right binary")
 	}
-	sources, err := exec.Command("go", "list", "-f", "{{join .GoFiles \"\\n\"}}", "git.terrascale.tech/TerraScale/ts-orchestrator/internal/dashboard/devfake").CombinedOutput()
+	sources, err := exec.Command("go", "list", "-f", "{{join .GoFiles \"\\n\"}}", "github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list fixture sources: %v\n%s", err, sources)
 	}

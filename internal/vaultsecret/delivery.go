@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/sdnotify"
+	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 )
 
 // Deliver publishes named secrets only to a private memory-backed directory.

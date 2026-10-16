@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // HistoricalManifest proves that a manifest was validly signed for its exact

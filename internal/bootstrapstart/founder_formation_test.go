@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 func TestFounderRuntimeRefusesLaunchIntoSeedFaultDomain(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 type disappearingNetBirdStatusKV struct {

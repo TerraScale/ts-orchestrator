@@ -13,7 +13,7 @@ import (
 	"strings"
 	"unsafe"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
 	"golang.org/x/sys/unix"
 )
 

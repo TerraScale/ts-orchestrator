@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func TestD15PublisherReadback(t *testing.T) {

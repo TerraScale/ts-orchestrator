@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 )
 
 func TestImageBuildRejectsUnpinnedNetBirdBeforeGuestEffects(t *testing.T) {

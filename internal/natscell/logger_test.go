@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/nats-io/nats.go"
 )
 

@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 )
 
 func runRecover(t *testing.T, args ...string) (string, error) {

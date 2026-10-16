@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	v1 "terrascale.tech/sdk/v1"
 )
 

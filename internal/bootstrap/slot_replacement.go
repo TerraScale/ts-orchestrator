@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // SlotRetirementDisposition is the only disposition a managed controller slot

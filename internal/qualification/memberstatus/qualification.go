@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 )
 
 type Command func(context.Context, string, []string, time.Duration, []int) (int, string, error)

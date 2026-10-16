@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+import "github.com/TerraScale/ts-orchestrator/internal/observability"
 
 func terrabaseBody(current view) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {

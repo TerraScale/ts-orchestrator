@@ -20,11 +20,11 @@ import (
 	"syscall"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"golang.org/x/sys/unix"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 )
 
 // MemberScope and MemberAuthority are expected from a verified, signed member

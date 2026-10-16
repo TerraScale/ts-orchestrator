@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 const repository = "TerraScale/ts-orchestrator"

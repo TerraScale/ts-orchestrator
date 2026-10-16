@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // Every broker of a formed three-node cell, followers included, must evaluate

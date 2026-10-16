@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
 var (

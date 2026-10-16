@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var _ SelectiveObserver = (*fleet)(nil)

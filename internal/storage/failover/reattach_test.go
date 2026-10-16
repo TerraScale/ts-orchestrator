@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
 )
 
 var request = Request{DatabaseID: "0000000000FFE2BMB99VWR8Y1A", PartitionID: "00000000002J6YKHD7MH6HKSBC", VolumeID: "vol", OldInstanceID: "old",

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 // Path is a file argument. It remains distinguishable from a textual argument for injected dependencies.

@@ -11,15 +11,15 @@ import (
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
 	"fmt"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/memberstatus"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func backupHostRequestFrame(t *testing.T, key ed25519.PrivateKey, operation, node string,

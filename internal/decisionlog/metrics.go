@@ -5,7 +5,7 @@ import (
 
 	"github.com/VictoriaMetrics/metrics"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // Metrics is the decision journal's metric set.

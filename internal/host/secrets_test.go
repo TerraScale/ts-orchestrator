@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // TestDesiredSecretRefs accepts a role's own Vault secret names, and only

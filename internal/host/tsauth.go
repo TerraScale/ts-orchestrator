@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 // ts-auth replicas are generic native workloads of role "ts-auth" on a host

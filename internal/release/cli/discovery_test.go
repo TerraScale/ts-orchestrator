@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 func omitDeploymentFlags(args []string, flags ...string) []string {

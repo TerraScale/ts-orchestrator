@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
 var testSettings = Settings{CompartmentID: "ocid1.compartment.oc1..workload", Zone: testZone,

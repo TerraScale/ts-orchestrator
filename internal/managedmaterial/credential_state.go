@@ -10,9 +10,9 @@ import (
 	"errors"
 	"strconv"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 const credentialAuthorityDomain = "TS-CLIENT-CREDENTIALS-AUTHORITY-V1\x00"

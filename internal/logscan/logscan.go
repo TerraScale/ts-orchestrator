@@ -20,9 +20,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/logs"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/logs"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
 
 const usage = `Usage: ts-orch log-scan --vault-id OCID [--netbird COMMAND] [--since 20m] [--top 10] [--node NAME]... [--fly-app NAME]...

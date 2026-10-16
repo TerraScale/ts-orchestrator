@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	fc "git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	fc "github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 type mmObject = map[string]any

@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 	"golang.org/x/net/html"
 )
 

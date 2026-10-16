@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"math"
 	"os"

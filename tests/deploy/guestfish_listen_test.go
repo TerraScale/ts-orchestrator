@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json/v2"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/image"
 	"os"
 	"os/exec"
 	"path/filepath"

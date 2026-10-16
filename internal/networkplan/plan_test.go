@@ -4,7 +4,7 @@ import (
 	"net/netip"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 func TestReservationsAreDisjointAndCoverEveryFoundedCell(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 
 	"context"
 	"fmt"
-	rp "git.terrascale.tech/TerraScale/ts-orchestrator/internal/runtimepriority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	rp "github.com/TerraScale/ts-orchestrator/internal/runtimepriority"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 	"golang.org/x/sys/unix"
 	"os"
 )

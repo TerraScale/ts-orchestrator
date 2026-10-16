@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	releasecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/release/cli"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/tier"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/tier"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 // TestCellSpecAddsTSAuthToARunningCell bootstraps a three-controller cell

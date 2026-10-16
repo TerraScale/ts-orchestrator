@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"golang.org/x/sys/unix"
 )
 

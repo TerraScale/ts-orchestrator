@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 const inputSource = "470d1f898897d4a0cefc7d638ce8eb72f0ca73b8"

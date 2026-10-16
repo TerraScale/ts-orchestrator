@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func qualificationFixture(t *testing.T) (Qualification, []byte, string) {

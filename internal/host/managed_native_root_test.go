@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/nativerootoci"
+	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 )
 
 func TestNativeRootDesiredRequestFailureRevokesSocket(t *testing.T) {

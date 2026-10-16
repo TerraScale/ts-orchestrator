@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
 )
 
 // FSStat is the subset of statfs(2) the collector needs, in bytes and inodes.

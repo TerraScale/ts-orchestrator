@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/capacity"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/capacity"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 

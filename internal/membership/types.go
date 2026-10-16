@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 )
 
 // OCI instance lifecycle states the reconciler distinguishes. Every other

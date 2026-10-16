@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // Status reads metadata without waiting for an upload or contacting storage.

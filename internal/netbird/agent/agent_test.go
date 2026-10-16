@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func signedCommand(t *testing.T, action string) (Config, []byte) {

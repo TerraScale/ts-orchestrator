@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 func verifyForgejoQualification(qualification release.Qualification, qualificationSHA256 string) error {

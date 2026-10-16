@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"errors"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
 
 func readFounderIdentity(path string) (bootstrapstart.BakedIdentity, error) {

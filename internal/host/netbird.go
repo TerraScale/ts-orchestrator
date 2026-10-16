@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 // NetBirdSink uses the existing authenticated host session; hosts get no KV

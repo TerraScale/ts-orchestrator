@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // The self-update CLI runs as a one-shot process with no journal installed,

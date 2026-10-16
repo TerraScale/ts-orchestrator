@@ -6,7 +6,7 @@ import (
 	"slices"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 // Abort stops the cell's active rollout for an operator unless it already

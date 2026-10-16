@@ -8,8 +8,8 @@ import (
 	"testing/synctest"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/delivery"
-	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 )

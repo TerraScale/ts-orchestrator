@@ -5,7 +5,7 @@ import (
 	"net"
 	"net/netip"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/networkplan"
+	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 )
 
 // ListenNetBird adds an authenticated client path on the exact local mesh IP.

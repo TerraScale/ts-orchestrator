@@ -5,8 +5,8 @@ package host
 import (
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 func TestTerraBaseDataVolumeNameReuseGetsOneFreshFormatGrant(t *testing.T) {

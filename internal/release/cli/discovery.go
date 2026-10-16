@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/atlas"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
 func discoverServingCells(ctx context.Context) ([]string, error) {

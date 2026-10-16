@@ -18,8 +18,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 )
 
 func uploadFixture(t *testing.T, size int) (string, []byte, string) {

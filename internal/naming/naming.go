@@ -23,7 +23,7 @@ import (
 	"regexp"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // Server roles.

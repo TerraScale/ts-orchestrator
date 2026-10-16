@@ -143,7 +143,7 @@ sealed material; coordinate signing-ring changes separately with TS-703.
 ## Read a secret
 
 Go services can import
-`git.terrascale.tech/TerraScale/ts-orchestrator/pkg/vaultsecret`. `Read` returns
+`github.com/TerraScale/ts-orchestrator/pkg/vaultsecret`. `Read` returns
 OCIDs, CURRENT version numbers, and values accessible only through `Value()`;
 formatting and JSON show metadata only. `Watch` reads at startup, polls CURRENT,
 and invokes the consumer only when an OCID/version changes. The consumer must

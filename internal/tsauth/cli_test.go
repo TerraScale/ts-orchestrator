@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
 // TestReadOwnerOnlyRefusesFIFO refuses a FIFO at once instead of blocking

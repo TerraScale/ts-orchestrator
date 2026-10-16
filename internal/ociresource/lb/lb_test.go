@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const lbID = "ocid1.loadbalancer.oc1.sa-saopaulo-1.public"

@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 // Kind is the desired-state kind for NLB backend sets.

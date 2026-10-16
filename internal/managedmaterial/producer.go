@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 const recipientDomain = "TB-CUSTOMER-RECIPIENT-V1\x00"

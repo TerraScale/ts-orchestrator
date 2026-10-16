@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 // A --timeout that expires while a seat is awaited counts as a transient

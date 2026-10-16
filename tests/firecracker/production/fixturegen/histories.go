@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 )
 
 // SeedHistory and ManagedHistory contain public signed wire produced by the

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/artifact"
+	"github.com/TerraScale/ts-orchestrator/internal/artifact"
 	"github.com/nats-io/nats.go"
 )
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 var (

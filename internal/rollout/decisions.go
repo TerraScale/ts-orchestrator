@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
 )
 
 // ReleaseCorrelation is the decisionlog correlation key of a rollout's root

@@ -17,8 +17,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )

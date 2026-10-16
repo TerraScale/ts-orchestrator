@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
 
 func TestRegionLinkTableShowsDirectionUnitsAndUnknowns(t *testing.T) {

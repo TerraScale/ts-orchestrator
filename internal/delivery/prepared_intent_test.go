@@ -8,7 +8,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 )
 
 func TestUnpreparedIntentProducesDurableRefusalWithoutDesiredChanges(t *testing.T) {

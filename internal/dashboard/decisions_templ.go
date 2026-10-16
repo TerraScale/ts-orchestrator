@@ -8,7 +8,7 @@ package dashboard
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+import "github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 
 // decisionsBody is the global decision journal: what the orchestrator
 // decided in every region and why, filterable by region, kind, actor,

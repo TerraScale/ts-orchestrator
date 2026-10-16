@@ -4,7 +4,7 @@ import (
 	"maps"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // fleetViews lists the newest OCI fleet inventory of each region any

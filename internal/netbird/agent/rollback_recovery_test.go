@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
-	network "git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/rollout"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	network "github.com/TerraScale/ts-orchestrator/internal/netbird/rollout"
 )
 
 func TestWorkerUncommittedInstallRollbackSurvivesRestartAndRejectsLateInstall(t *testing.T) {

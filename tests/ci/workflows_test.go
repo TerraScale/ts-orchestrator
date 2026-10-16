@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	imagecli "git.terrascale.tech/TerraScale/ts-orchestrator/internal/image"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/testutil/script"
+	imagecli "github.com/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
 )
 
 func workflowText(t *testing.T, path string) string {

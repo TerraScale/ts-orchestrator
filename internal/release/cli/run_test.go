@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 func TestVerifiedBinaryWritesToCommandOutput(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"net/netip"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 )
 
 // Retry after enrollment or address changes; never delay the OCI control path.

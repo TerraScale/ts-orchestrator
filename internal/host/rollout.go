@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/selfupdate"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 )
 
 // Host self-update over the host session. A host cannot read the rollout

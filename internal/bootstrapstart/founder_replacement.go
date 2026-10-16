@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 

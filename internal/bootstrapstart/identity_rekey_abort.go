@@ -6,7 +6,7 @@ import (
 	"errors"
 	"os"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sys/unix"
 )

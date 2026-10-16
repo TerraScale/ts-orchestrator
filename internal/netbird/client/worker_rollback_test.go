@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 )
 
 func TestManagedWorkerAcknowledgesPreJournalFailure(t *testing.T) {

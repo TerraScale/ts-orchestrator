@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 )
 
 var gitSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)

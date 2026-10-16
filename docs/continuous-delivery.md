@@ -339,7 +339,7 @@ The leaf signs a `terrascale.release.binary-update.v1` receipt only after the
 qualification manifest matches the binary, the Forgejo run succeeded and git
 proves the source descends from the base and is on `origin/main`. The
 `--source-checkout` origin must resolve to
-`git.terrascale.tech/TerraScale/ts-orchestrator` (https or ssh), so a fork
+`github.com/TerraScale/ts-orchestrator` (https or ssh), so a fork
 cannot stand in for main. The delegated leaf must differ from the offline
 root. A receipt never outlives its delegation; signing is refused when the
 delegation has less than an hour left, and the CLI prints the effective

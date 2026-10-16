@@ -6,7 +6,7 @@ import (
 	"maps"
 	"slices"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
 // Host is a candidate host. Allocated holds everything the host runs except

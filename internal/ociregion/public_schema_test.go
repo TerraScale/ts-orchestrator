@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 )
 
 func legacyPublicPlan(p Object) {

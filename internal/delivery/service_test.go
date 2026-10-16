@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/natscell"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/placement"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
@@ -228,7 +228,7 @@ func testServiceWithRuntime(t *testing.T, writer *testWriter) (*Service, *natsce
 
 func testIntent(t *testing.T, s *Service, ctx context.Context) Intent {
 	t.Helper()
-	source := ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
+	source := ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
 	request := ArtifactClaimRequest{Source: source, Cell: "lab", Role: "worker", Environment: "production"}
 	artifact, wire, err := s.PrepareArtifact(ctx, bytes.NewReader([]byte("#!/bin/sh\necho ready\n")), request)
 	if err != nil {
@@ -647,7 +647,7 @@ func TestArtifactClaimMustBeFreshForAdmissionButRemainsReadable(t *testing.T) {
 	codec := Ed25519Codec{Cell: "lab", Actor: "operator", PrivateKey: priv, Trusted: map[string]TrustedSigner{keyID: {Actor: "operator", PublicKey: pub}}, Lifetime: time.Minute, MaxLifetime: time.Minute, Now: func() time.Time { return now }}
 	s.config.ArtifactSigner = codec
 	s.config.ArtifactVerifier = codec
-	source := ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
+	source := ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}
 	record, wire, err := s.PrepareArtifact(ctx, bytes.NewReader([]byte("artifact bytes")), ArtifactClaimRequest{Source: source, Cell: "lab", Role: "worker", Environment: "production"})
 	if err != nil {
 		t.Fatal(err)
@@ -926,7 +926,7 @@ func TestStrictIntentRejectsDuplicateAndUnknownFields(t *testing.T) {
 
 func TestSignedUnadmittedIntentHasQueryVisibleRejection(t *testing.T) {
 	s, ctx := testService(t, &testWriter{})
-	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://git.terrascale.tech/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
+	i := Intent{SchemaVersion: SchemaVersion, OperationID: "0000000000NQMHCVBYP1N8ZHTR", Source: ArtifactSource{Repository: "https://github.com/TerraScale/ts-orchestrator", Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", TreeDigest: hex.EncodeToString(sha256.New().Sum(nil))}, ArtifactDigest: hex.EncodeToString(sha256.New().Sum(nil)), ManifestDigest: hex.EncodeToString(sha256.New().Sum(nil)), Cell: "lab", Role: "worker", Environment: "production", Generation: 1, DesiredReplicas: 1, ConfigDigest: ConfigDigestOf(nil, nil, nil), AuthorityEpoch: 1}
 	if err := s.Submit(ctx, i); err != nil {
 		t.Fatal(err)
 	}

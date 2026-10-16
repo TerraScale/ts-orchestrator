@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
 )
 
 func terminalFixture(t *testing.T) (*fleet, *fakeProvider, *fakeJournal, *fakeFencer, authority.TerminalIntent) {

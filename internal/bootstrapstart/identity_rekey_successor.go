@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/identityrekey"
+	"github.com/TerraScale/ts-orchestrator/internal/identityrekey"
 	"github.com/nats-io/nats.go/jetstream"
 	"golang.org/x/sys/unix"
 )

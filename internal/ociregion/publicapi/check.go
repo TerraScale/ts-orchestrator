@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 // field reads a nested member of a CLI-shaped OCI object.

@@ -4,7 +4,7 @@ import (
 	"strconv"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // The host agent's default observability listener must leave the member's

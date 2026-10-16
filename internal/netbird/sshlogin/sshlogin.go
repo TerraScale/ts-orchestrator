@@ -27,10 +27,10 @@ import (
 
 	"golang.org/x/net/html"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/manager"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // The automation user's login, in the operator-only TerraScale compartment.

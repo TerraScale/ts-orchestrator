@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/brokerauth"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"golang.org/x/sys/unix"
 )
 

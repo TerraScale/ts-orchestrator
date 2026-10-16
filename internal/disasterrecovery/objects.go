@@ -15,8 +15,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"golang.org/x/sync/errgroup"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/command"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 )
 
 type objectClient interface {

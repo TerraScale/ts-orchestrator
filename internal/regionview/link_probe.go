@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 )
 
 // LinkProbe is the most recent scheduled request to another region.

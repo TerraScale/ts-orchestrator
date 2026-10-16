@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/insights"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/TerraScale/ts-orchestrator/internal/insights"
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 // These pin the fixes for the ts-reviewer findings on PR #121.

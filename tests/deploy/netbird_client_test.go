@@ -9,7 +9,7 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
 	"io"
 	"net/http"
 	"os"

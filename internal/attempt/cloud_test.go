@@ -11,7 +11,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 )
 
 // sampleLaunch has exactly the members `oci-region preview seed-launch`

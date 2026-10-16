@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	staged "git.terrascale.tech/TerraScale/ts-orchestrator/internal/rollout"
+	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 func TestTerraBaseSyncRetriesTransientFailuresWithoutBlocking(t *testing.T) {

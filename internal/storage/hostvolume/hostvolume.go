@@ -17,7 +17,7 @@ import (
 	"strconv"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/storage"
+	"github.com/TerraScale/ts-orchestrator/internal/storage"
 )
 
 // HardenedOptions are the per-mount options every managed TerraBase volume

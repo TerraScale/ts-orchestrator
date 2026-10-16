@@ -21,9 +21,9 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 type httpError int
@@ -160,7 +160,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 		inspect:  func(string, string, string) (binaryReceipt, error) { return testBinaryReceipt(), nil },
 		git: func(_ context.Context, args ...string) (string, error) {
 			if strings.HasSuffix(strings.Join(args, " "), "remote get-url origin") {
-				return "https://git.terrascale.tech/TerraScale/ts-orchestrator.git\n", nil
+				return "https://github.com/TerraScale/ts-orchestrator.git\n", nil
 			}
 			return "", nil
 		},

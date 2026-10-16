@@ -15,7 +15,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // FlyApp is the dashboard's Fly app. TS-472 reads its TerraBase settings

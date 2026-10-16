@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func initialFounderPublicationFixture(t *testing.T) (*founderSelectionFixture, bootstrap.VerifiedBootstrapAnchor, []byte, *founderLedgerObjects) {

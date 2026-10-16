@@ -21,8 +21,8 @@ import (
 	"regexp"
 	"syscall"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/qualification/firecracker"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/sys/unix"
 )

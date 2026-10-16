@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // VaultClient is the part of the OCI Vault management API that stores secrets.

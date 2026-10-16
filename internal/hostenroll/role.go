@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/roleidentity"
+	"github.com/TerraScale/ts-orchestrator/internal/roleidentity"
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nkeys"
 )

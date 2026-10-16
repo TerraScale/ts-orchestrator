@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
 )
 
 type shapedPlanner struct{ shape PlanShape }

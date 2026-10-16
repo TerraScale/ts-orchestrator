@@ -10,7 +10,7 @@ import (
 	"net"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/managedmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 )
 
 const (

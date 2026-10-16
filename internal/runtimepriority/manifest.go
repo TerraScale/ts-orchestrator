@@ -9,7 +9,7 @@ import (
 	"slices"
 	"strings"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 var identityKeys = []string{"oci_instance_id", "image_id", "artifact_id", "config_id", "profile_id", "architecture", "cell", "environment"}

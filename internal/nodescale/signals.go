@@ -3,7 +3,7 @@ package nodescale
 import (
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/hostload"
+	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 )
 
 type Signal string
