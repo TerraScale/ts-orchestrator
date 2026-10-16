@@ -17,6 +17,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const labelReleaseBaseline = "terrascale.release-baseline"
@@ -24,13 +26,13 @@ const labelReleaseArchitecture = "terrascale.release-architecture"
 
 // ApplySignedService admits a release and waits for actual application readiness.
 // The probe must resolve each task through independently admitted node inventory.
-func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error) (*api.Service, error) {
+func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error, allocations release.SequenceLocation) (*api.Service, error) {
 	if probe == nil {
 		return nil, errors.New("signed service rollout requires an application readiness probe")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
-	requested, err := applySignedService(ctx, client, intent, bundle, roots, retained, evidence)
+	requested, err := applySignedService(ctx, client, intent, bundle, roots, retained, evidence, allocations)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +115,7 @@ func AwaitServiceReady(ctx context.Context, client api.ControlClient, requested 
 // supplies the target from admitted membership and its retained legacy floor,
 // never from untrusted release metadata. OCI child images have their own signed
 // contract; native binary/tarball artifact records cannot enter this path.
-func applySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error)) (*api.Service, error) {
+func applySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) (*api.Service, error) {
 	operation, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	deadline, _ := operation.Deadline()
@@ -128,7 +130,7 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		return nil, errors.New("signed service requires durable delivery operation locator")
 	}
 	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
-	verified, err := release.VerifyContainerCurrent(operation, bundle, roots, target, time.Now().UTC(), deadline, evidence)
+	verified, err := release.VerifyContainerCurrent(operation, bundle, roots, target, time.Now().UTC(), deadline, evidence, allocations)
 	if err != nil {
 		return nil, err
 	}
@@ -190,6 +192,11 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	name, err := releaseFloorName(intent, verified)
 	if err != nil {
 		return nil, err
+	}
+	if verified.Claim().Role == "function-worker" {
+		if err := reserveWorkerFamily(ctx, client, verified, roots); err != nil {
+			return nil, err
+		}
 	}
 	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
 	if err != nil {
@@ -280,6 +287,41 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 		return nil, err
 	}
 	return updated.Config, nil
+}
+
+// Each generation retains its authenticated allocation independently of variant
+// high-water marks, so advancing one architecture cannot revoke its sibling.
+func reserveWorkerFamily(ctx context.Context, client api.ControlClient, verified release.VerifiedContainer, roots trust.Keyring) error {
+	wire, err := verified.WorkerFamilyEvidence()
+	if err != nil {
+		return err
+	}
+	if err := release.VerifyWorkerFamilyEvidence(wire, roots, verified); err != nil {
+		return err
+	}
+	claim := verified.Claim()
+	identity := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", claim.SequenceMigrationSHA256, claim.Role, claim.Environment, claim.ReleaseSequence)))
+	name := fmt.Sprintf("ts-worker-family-%x", identity[:16])
+	for range 3 {
+		listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
+		if err != nil {
+			return err
+		}
+		if len(listed.Configs) == 1 {
+			return release.VerifyWorkerFamilyEvidence(listed.Configs[0].Spec.Data, roots, verified)
+		}
+		if len(listed.Configs) != 0 {
+			return errors.New("ambiguous durable worker release family")
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			return errors.New("worker authorization expired before family reservation")
+		}
+		_, err = client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name}, Data: wire}})
+		if status.Code(err) != codes.AlreadyExists {
+			return err
+		}
+	}
+	return errors.New("worker release family changed concurrently")
 }
 
 // The worker artifact floor is shared by functions but independent per qualified architecture.
