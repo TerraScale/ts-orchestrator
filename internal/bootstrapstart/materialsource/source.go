@@ -69,6 +69,7 @@ type materialSourceState struct {
 	Delivery       []byte                        `json:"delivery,omitempty"`
 	Journal        []byte                        `json:"journal,omitempty"`
 	Startup        map[string][]byte             `json:"startup,omitempty"`
+	SeedCompletion []byte                        `json:"seedCompletion,omitempty"`
 }
 
 // ColdStartMaterial retains the one CAS revision authorizing source escrow and
@@ -379,7 +380,7 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Kind != source.kind || state.BindingSHA256 != source.binding || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 || len(state.Delivery) > bootstrap.MaxManifestBytes || len(state.Delivery) > 0 && (source.kind != "spoke-link-v1" || len(state.Journal) == 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
-	if state.SecretName != source.secretName {
+	if state.SecretName != source.secretName || len(state.SeedCompletion) > 256<<10 || len(state.SeedCompletion) > 0 && (state.Kind != "" || len(state.Startup) == 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	if _, err := uuid.Parse(state.RetryToken); err != nil {
