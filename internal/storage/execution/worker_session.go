@@ -554,7 +554,8 @@ func (s *WorkerSession) stopRuntime(ctx context.Context, task *api.Task, hash st
 	// Health drift must not prevent withdrawal; only the retained identity authorizes this signal.
 	verify := func() error {
 		actual, err := memberstatus.ObserveContainerProcess(pid, pid)
-		if err != nil || actual != expected.Process || actual.ProtocolPID() != 1 {
+		if err != nil || actual.PID != expected.Process.PID || actual.UID != expected.Process.UID || actual.GID != expected.Process.GID ||
+			actual.KernelStart != expected.Process.KernelStart || actual.Cgroup != expected.Process.Cgroup || actual.ProtocolPID() != 1 {
 			return errors.Join(ErrUnsafe, err)
 		}
 		for name, inode := range map[string]uint64{"pid": expected.PIDNamespace, "mnt": expected.MountNamespace} {
