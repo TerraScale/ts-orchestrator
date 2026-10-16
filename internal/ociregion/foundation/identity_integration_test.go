@@ -187,8 +187,10 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		return interrupted
 	}
 	parent = text(plan["parent_compartment_id"])
-	// Same-name foreign resources must be refused before any provider mutation.
-	setLive(Object{"id": resourceID, "name": "sfo-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE"})
+	// Even exact ownership tags cannot authorize an uncheckpointed resource.
+	setLive(Object{"id": resourceID, "name": "sfo-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE", "freeformTags": Object{
+		"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1", "terrascale.operation": foundation.OperationID,
+	}})
 	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "ownership") || numWrites() != 0 {
 		t.Fatalf("foreign adoption: writes=%d err=%v", numWrites(), err)
 	}
@@ -202,6 +204,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	state.Unlock()
 	if !owned {
 		t.Fatalf("creation omitted ownership: %v", tags)
+	}
+	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "refusing adoption") || numWrites() != 1 {
+		t.Fatalf("visible uncheckpointed create bypassed durable identity: writes=%d err=%v", numWrites(), err)
 	}
 	// Replay an unknown response while provider listing is still stale. OCI
 	// must see the same token across reconciliation calls and create only once.

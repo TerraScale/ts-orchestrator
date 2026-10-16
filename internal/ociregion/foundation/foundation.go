@@ -321,12 +321,8 @@ func (f *Foundation) find(c command.Client, field, name string, args ...string) 
 			return nil, fmt.Errorf("recorded resource %s (%s) is missing or differs; refusing replacement", name, expected)
 		}
 		if found != nil && len(f.ownership) > 0 && f.expected[name] == "" {
-			tags := obj(found["freeform-tags"])
-			for key, value := range f.ownership {
-				if tags[key] != value {
-					return nil, fmt.Errorf("resource %s has no verified foundation ownership", name)
-				}
-			}
+			// Mutable tags cannot replace an authenticated resource checkpoint.
+			return nil, fmt.Errorf("resource %s has no authenticated foundation ownership checkpoint; refusing adoption", name)
 		}
 		return found, nil
 	}
