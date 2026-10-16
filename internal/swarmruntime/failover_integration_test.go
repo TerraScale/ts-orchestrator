@@ -20,8 +20,9 @@ func TestRuntimeThreeManagerLeaderLoss(t *testing.T) {
 	if *integrationSocket == "" {
 		t.Fatal("provide -containerd-socket for a disposable real runtime")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
-	defer cancel()
+	// Managers must stay alive until service cleanup finishes.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	t.Cleanup(cancel)
 	var nodes []*Node
 	var clients []api.ControlClient
 	var executors []*Executor
@@ -241,6 +242,7 @@ func TestRuntimeThreeManagerLeaderLoss(t *testing.T) {
 			return err == nil && len(containers) == 0, err
 		})
 	}
+	services = nil
 	if _, err := executors[0].client.LoadContainer(runtimeContext(ctx), "ts-"+taskID); !errdefs.IsNotFound(err) {
 		t.Fatalf("serving container survived removal: %v", err)
 	}
