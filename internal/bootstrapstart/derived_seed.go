@@ -11,9 +11,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-// DerivedSeedJournal loads an existing completion when proposed is nil. A
-// proposal must be durably checkpointed before returning the winning bytes.
-type DerivedSeedJournal func(context.Context, *ExternalSeedCompletionRecords) (ExternalSeedCompletionRecords, error)
+// DerivedSeedRecords preserves the original reservation before any ledger write
+// and the completion before publishing the observed founder result.
+type DerivedSeedRecords struct {
+	Reservation ExternalSeedReservationRecords `json:"reservation"`
+	Completion  ExternalSeedCompletionRecords  `json:"completion"`
+}
+
+// DerivedSeedJournal loads existing records when proposed is nil. A proposal
+// must be durably checkpointed before returning the winning bytes.
+type DerivedSeedJournal func(context.Context, *DerivedSeedRecords) (DerivedSeedRecords, error)
 
 // EnsureDerivedSeed uses the original ledger transaction for an independently
 // observed source founder. No root signing key or replacement store is used.
@@ -43,13 +50,24 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 		return bootstrap.SlotState{}, err
 	}
 	scope := bootstrap.BootstrapScope{DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Slot: manifest.SeedSlot}
+	checkpoint, err := journal(ctx, nil)
+	if err != nil {
+		return bootstrap.SlotState{}, err
+	}
 	state, err := ledger.ReadSlot(ctx, scope)
 	if errors.Is(err, bootstrap.ErrRecordMissing) {
-		records, buildErr := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: observed.BootstrapCreateKey, LedgerPrivate: ledgerPrivate, Now: time.Now().UTC(), ExpiresAt: authority.ExpiresAt()})
-		if buildErr != nil {
-			return bootstrap.SlotState{}, buildErr
+		if len(checkpoint.Reservation.IntentWire) == 0 {
+			records, buildErr := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: observed.BootstrapCreateKey, LedgerPrivate: ledgerPrivate, Now: time.Now().UTC(), ExpiresAt: authority.ExpiresAt()})
+			if buildErr != nil {
+				return bootstrap.SlotState{}, buildErr
+			}
+			checkpoint.Reservation = records
+			checkpoint, err = journal(ctx, &checkpoint)
+			if err != nil {
+				return bootstrap.SlotState{}, err
+			}
 		}
-		state, err = ledger.ReserveSlot(ctx, scope, records.IntentWire, records.InitialHeadWire)
+		state, err = ledger.ReserveSlot(ctx, scope, checkpoint.Reservation.IntentWire, checkpoint.Reservation.InitialHeadWire)
 	}
 	if err != nil {
 		return bootstrap.SlotState{}, err
@@ -71,10 +89,7 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	if err != nil {
 		return bootstrap.SlotState{}, err
 	}
-	records, err := journal(ctx, nil)
-	if err != nil {
-		return bootstrap.SlotState{}, err
-	}
+	records := checkpoint.Completion
 	if len(records.ResultWire) == 0 {
 		observed, err = founder.ObserveCurrent(ctx)
 		if err != nil {
@@ -89,10 +104,12 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 		if err != nil {
 			return bootstrap.SlotState{}, err
 		}
-		records, err = journal(ctx, &records)
+		checkpoint.Completion = records
+		checkpoint, err = journal(ctx, &checkpoint)
 		if err != nil {
 			return bootstrap.SlotState{}, err
 		}
+		records = checkpoint.Completion
 	}
 	// A checkpoint can repair a committed result indefinitely. It cannot
 	// authorize the first write of an observation past its freshness bound.
