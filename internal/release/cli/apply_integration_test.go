@@ -75,7 +75,10 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 			if fixture.inspections.Load() != 1 {
 				t.Fatalf("same digest inspected %d times", fixture.inspections.Load())
 			}
-			if err := c.applyWith(fixture.args, fixture.env); err != nil {
+			// Race builds need time to read back and hash the real binary on retry.
+			retryEnv := fixture.env
+			retryEnv.timeout = 5 * time.Second
+			if err := c.applyWith(fixture.args, retryEnv); err != nil {
 				t.Fatalf("retry did not recover: %v\n%s", err, output.String())
 			}
 			fixture.mu.Lock()
