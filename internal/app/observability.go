@@ -210,8 +210,9 @@ type controllerObservation struct {
 	// capacity is the capacity page's source: budget, allowances and planner.
 	capacity dashboard.CapacitySource
 	// scale is the region's node scaling status, nil when the region runs no scaler.
-	scale    func() *nodescale.Status
-	services func(context.Context) ([]swarmruntime.ServiceObservation, error)
+	scale     func() *nodescale.Status
+	services  func(context.Context) ([]swarmruntime.ServiceObservation, error)
+	functions func(context.Context) ([]globalview.FunctionObservation, error)
 }
 
 // attachController registers controller metrics, readiness checks and the
