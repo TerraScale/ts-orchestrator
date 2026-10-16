@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -67,6 +66,10 @@ func verifiedWorkerMembership(info WorkerMembershipInfo) (VerifiedWorkerMembersh
 // ReadWorkerMembership independently verifies current ordered membership, OCI
 // state and actual Swarm identity. An old signed enrollment alone cannot pass.
 func (n *Node) ReadWorkerMembership(ctx context.Context, nodeID string) (VerifiedWorkerMembership, error) {
+	return n.readWorkerMembership(ctx, nodeID, nil)
+}
+
+func (n *Node) readWorkerMembership(ctx context.Context, nodeID string, source *hostenroll.WorkerMembershipSource) (VerifiedWorkerMembership, error) {
 	fail := func(err error) (VerifiedWorkerMembership, error) { return VerifiedWorkerMembership{}, err }
 	if n == nil || n.workerAuthority == nil || n.workerAuthority.observer == nil {
 		return fail(errors.New("worker membership requires admitted regional authority"))
@@ -86,7 +89,7 @@ func (n *Node) ReadWorkerMembership(ctx context.Context, nodeID string) (Verifie
 	if err != nil || len(clusters.Clusters) != 1 {
 		return fail(errors.New("worker membership requires one actual regional cluster"))
 	}
-	snapshot, err := readCurrentWorkerMembership(ctx, WorkerMembershipQuery{NodeID: nodeID, RegistrationID: node.Node.Spec.Annotations.Name, InstanceID: node.Node.Spec.Annotations.Labels[LabelInstanceID]})
+	snapshot, err := readWorkerMembershipSource(ctx, source, WorkerMembershipQuery{NodeID: nodeID, RegistrationID: node.Node.Spec.Annotations.Name, InstanceID: node.Node.Spec.Annotations.Labels[LabelInstanceID]})
 	if err != nil {
 		return fail(err)
 	}
@@ -94,7 +97,7 @@ func (n *Node) ReadWorkerMembership(ctx context.Context, nodeID string) (Verifie
 	if err != nil || revoke || availability != api.NodeAvailabilityActive {
 		return fail(errors.New("worker membership is not independently current"))
 	}
-	if _, err := n.confirmWorkerMembership(ctx, client, node.Node, clusters.Clusters[0], snapshot); err != nil {
+	if _, err := n.confirmWorkerMembershipSource(ctx, client, node.Node, clusters.Clusters[0], snapshot, source); err != nil {
 		return fail(err)
 	}
 	verified, err := hostenroll.VerifySwarmMembership(*snapshot.Admission, n.workerAuthority.public)
@@ -111,25 +114,17 @@ func (n *Node) ReadWorkerMembership(ctx context.Context, nodeID string) (Verifie
 
 // WorkerMembershipQuery contains locators, never authority. Admission is present
 // only when publishing the just-verified dual-key admission before placement.
-type WorkerMembershipQuery struct {
-	NodeID         string                      `json:"node_id"`
-	RegistrationID string                      `json:"registration_id"`
-	InstanceID     string                      `json:"instance_id"`
-	Admission      *hostenroll.SwarmMembership `json:"admission,omitempty"`
-}
+type WorkerMembershipQuery = hostenroll.WorkerMembershipQuery
 
 // WorkerMembershipSnapshot comes from the fixed service-account child reading
 // the ordered registration/retirement log and the existing instance grant.
-type WorkerMembershipSnapshot struct {
-	Registration             host.Registration           `json:"registration"`
-	Sequence                 uint64                      `json:"sequence"`
-	Retired                  bool                        `json:"retired"`
-	GrantInstanceID          string                      `json:"grant_instance_id"`
-	GrantRevision            uint64                      `json:"grant_revision"`
-	Disabled                 bool                        `json:"disabled"`
-	TerminalOperationID      string                      `json:"terminal_operation_id"`
-	IdentityResetOperationID string                      `json:"identity_reset_operation_id"`
-	Admission                *hostenroll.SwarmMembership `json:"admission,omitempty"`
+type WorkerMembershipSnapshot = hostenroll.WorkerMembershipSnapshot
+
+func readWorkerMembershipSource(ctx context.Context, source *hostenroll.WorkerMembershipSource, query WorkerMembershipQuery) (WorkerMembershipSnapshot, error) {
+	if source != nil {
+		return source.Read(ctx, query)
+	}
+	return readCurrentWorkerMembership(ctx, query)
 }
 
 func readCurrentWorkerMembership(ctx context.Context, query WorkerMembershipQuery) (WorkerMembershipSnapshot, error) {
@@ -219,7 +214,11 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 }
 
 func (n *Node) confirmWorkerMembership(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot) (*api.Node, error) {
-	confirmed, err := readCurrentWorkerMembership(ctx, WorkerMembershipQuery{NodeID: node.ID, RegistrationID: node.Spec.Annotations.Name, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID]})
+	return n.confirmWorkerMembershipSource(ctx, client, node, cluster, snapshot, nil)
+}
+
+func (n *Node) confirmWorkerMembershipSource(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot, source *hostenroll.WorkerMembershipSource) (*api.Node, error) {
+	confirmed, err := readWorkerMembershipSource(ctx, source, WorkerMembershipQuery{NodeID: node.ID, RegistrationID: node.Spec.Annotations.Name, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID]})
 	if err != nil {
 		return node, err
 	}
