@@ -189,6 +189,10 @@ func (s *bindingScenario) publish() {
 
 func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 	s := newBindingScenario(t)
+	s.grant.ReleaseAuthorities = jsontext.Value(`[{"service":"terrabase"}]`)
+	s.record.SourcePolicyIDs = jsontext.Value(`{"retained":{"policyId":"ocid1.policy.oc1..retained"}}`)
+	s.record.NetBirdManager = jsontext.Value(`{"slotId":"owned-by-netbird"}`)
+	s.publish()
 	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
 	if err != nil {
 		t.Fatal(err)
@@ -341,5 +345,28 @@ func TestLogicalBindingsRetainOriginalBirthAndExactDependencies(t *testing.T) {
 	}
 	if len(s.reads) != 4 {
 		t.Fatalf("read unrelated resource families: %v", s.reads)
+	}
+}
+
+func TestLogicalBindingsSpendIncludesUnboundCompartmentRoles(t *testing.T) {
+	s := newBindingScenario(t)
+	s.grant.InfrastructureSpend = jsontext.Value(`{"scopeSha256":"` + strings.Repeat("f", 64) + `"}`)
+	s.intent.BootstrapMaterial = nil
+	s.publish()
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment"} {
+		reference, err := Reference("SFO", key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := verified.Resolve(reference); err != nil || got != s.record.ResourceIDs[key] {
+			t.Fatalf("spend role %s: %s %v", key, got, err)
+		}
+	}
+	if _, err := verified.Resolve("foundation:SFO:key"); err == nil {
+		t.Fatal("spend scope authorized an unrelated key ref")
 	}
 }
