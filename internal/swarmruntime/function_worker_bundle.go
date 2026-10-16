@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -36,7 +37,9 @@ func (i FunctionServiceIntent) workerBundleAnnotations(digest string, sequence s
 		return api.Annotations{}, errors.New("function worker bundle requires a canonical release sequence")
 	}
 	key := sha256.Sum256([]byte(i.Environment + "/" + i.Region + "/" + i.Architecture + "/" + digest))
-	return api.Annotations{Name: fmt.Sprintf("ts-function-worker-%x", key), Labels: map[string]string{
+	// Base32 retains the full digest within SwarmKit's 64-character name limit.
+	name := "ts-fw-" + strings.ToLower(base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(key[:]))
+	return api.Annotations{Name: name, Labels: map[string]string{
 		LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region),
 		LabelRole:     FunctionWorkerRole, LabelRegion: i.Region, LabelEnvironment: i.Environment,
 		labelReleaseArchitecture: i.Architecture, labelReleaseSequence: sequence,
