@@ -1579,6 +1579,7 @@ func TestParserPreConnectAuthenticationIngress(t *testing.T) {
 				p.roundTrip(t, "")
 				p.roundTrip(t, "SUB marker 1\r\n")
 				p.write(t, "PUB marker 2\r\nok\r\n")
+				require_Equal(t, p.line(t), "+OK\r\n")
 				p.message(t, "marker", "1", "", "", "ok")
 				p.roundTrip(t, "")
 			})
@@ -1606,7 +1607,7 @@ func TestParserPreConnectAuthenticationIngress(t *testing.T) {
 						break
 					}
 				}
-				require_Equal(t, string(received), "MSG marker 1 2\r\nok\r\nPONG\r\n")
+				require_Equal(t, string(received), "+OK\r\n+OK\r\nMSG marker 1 2\r\nok\r\nPONG\r\n")
 			})
 			for _, kind := range []int{LEAF, ROUTER, GATEWAY} {
 				t.Run(fmt.Sprintf("peer-%d", kind), func(t *testing.T) {

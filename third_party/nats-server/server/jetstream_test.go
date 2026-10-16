@@ -52,6 +52,1136 @@ import (
 	"github.com/nats-io/nuid"
 )
 
+func jetStreamIntegrationRequest(t *testing.T, nc *nats.Conn, subject string, request, response any) {
+	t.Helper()
+	payload, err := json.Marshal(request)
+	require_NoError(t, err)
+	msg, err := nc.Request(subject, payload, 3*time.Second)
+	require_NoError(t, err)
+	require_NoError(t, json.Unmarshal(msg.Data, response))
+}
+
+func TestJetStreamIntegrationCanonicalNames(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := js.AddStream(&nats.StreamConfig{Name: "SAFE", Subjects: []string{"safe"}, Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	_, err = js.Publish("safe", []byte("retained"))
+	require_NoError(t, err)
+
+	names := []string{"foo.bar", "foo.bar.", "foo.*", "foo.>", "*", ">", "*>"}
+	for _, c := range " \t\r\n\f.*>\\/" {
+		names = append(names, string(c))
+	}
+	for _, name := range names {
+		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
+			// UPDATE validates the body before matching the route, keeping invalid names out of the protocol subject.
+			var resp JSApiStreamUpdateResponse
+			jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamUpdateT, "SAFE"), StreamConfig{Name: name}, &resp)
+			require_NotNil(t, resp.Error)
+			require_Equal(t, resp.Error.ErrCode, uint16(JSStreamInvalidConfigF))
+			require_Contains(t, resp.Error.Description, "can not contain")
+		})
+	}
+	si, err := js.StreamInfo("SAFE")
+	require_NoError(t, err)
+	require_Equal(t, si.Config.Name, "SAFE")
+	require_Equal(t, si.State.Msgs, uint64(1))
+	m, err := js.GetMsg("SAFE", 1)
+	require_NoError(t, err)
+	require_Equal(t, string(m.Data), "retained")
+	var namesResp JSApiStreamNamesResponse
+	jetStreamIntegrationRequest(t, nc, JSApiStreams, struct{}{}, &namesResp)
+	require_Nil(t, namesResp.Error)
+	require_True(t, reflect.DeepEqual(namesResp.Streams, []string{"SAFE"}))
+}
+
+func TestJetStreamIntegrationOverlappingSubjects(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := jsStreamCreate(t, nc, &StreamConfig{
+		Name: "ok", Storage: MemoryStorage,
+		Subjects: []string{"foo", "bar", "baz.*", "foo.bar.baz.>"},
+	})
+	require_NoError(t, err)
+	for _, cfg := range []StreamConfig{
+		{Name: "foo"},
+		{Name: "a", Subjects: []string{"baz", "bar"}},
+		{Name: "b", Subjects: []string{">"}, NoAck: true},
+		{Name: "c", Subjects: []string{"baz.33"}},
+		{Name: "d", Subjects: []string{"*.33"}, NoAck: true},
+		{Name: "e", Subjects: []string{"*.>"}, NoAck: true},
+		{Name: "f", Subjects: []string{"foo.bar", "*.bar.>"}, NoAck: true},
+	} {
+		t.Run(cfg.Name, func(t *testing.T) {
+			_, err := jsStreamCreate(t, nc, &cfg)
+			require_Error(t, err)
+			require_Contains(t, err.Error(), "subjects overlap")
+		})
+	}
+	for i, subject := range []string{"foo", "bar", "baz.33", "foo.bar.baz.tail"} {
+		pa, err := js.Publish(subject, []byte(subject))
+		require_NoError(t, err)
+		require_Equal(t, pa.Stream, "ok")
+		require_Equal(t, pa.Sequence, uint64(i+1))
+		m, err := js.GetMsg("ok", pa.Sequence)
+		require_NoError(t, err)
+		require_Equal(t, m.Subject, subject)
+		require_Equal(t, string(m.Data), subject)
+	}
+}
+
+func TestJetStreamIntegrationAPISubjectCapture(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	for i, subjects := range [][]string{
+		{"$JS.API.foo", "$JS.API.bar"}, {"$JS.API.>"}, {"$JS.API.*"},
+		{"$JS.>"}, {"$SYS.>"}, {"*.>"}, {">"},
+	} {
+		_, err := jsStreamCreate(t, nc, &StreamConfig{Name: fmt.Sprintf("REJECT%d", i), Subjects: subjects})
+		require_Error(t, err)
+	}
+	for _, cfg := range []StreamConfig{
+		{Name: "EVENTS", Subjects: []string{"$JS.EVENT.>"}},
+		{Name: "ACCOUNTS", Subjects: []string{"$SYS.ACCOUNT.>"}},
+	} {
+		_, err := jsStreamCreate(t, nc, &cfg)
+		require_NoError(t, err)
+		subject := strings.TrimSuffix(cfg.Subjects[0], ">") + "integration"
+		_, err = js.Publish(subject, []byte(cfg.Name))
+		require_NoError(t, err)
+		m, err := js.GetLastMsg(cfg.Name, subject)
+		require_NoError(t, err)
+		require_Equal(t, string(m.Data), cfg.Name)
+		require_NoError(t, js.DeleteStream(cfg.Name))
+	}
+	_, err := jsStreamCreate(t, nc, &StreamConfig{Name: "ALL", Subjects: []string{">"}, NoAck: true})
+	require_NoError(t, err)
+	require_NoError(t, nc.Publish("capture.integration", []byte("no-ack")))
+	require_NoError(t, nc.Flush())
+	checkFor(t, time.Second, 10*time.Millisecond, func() error {
+		m, err := js.GetLastMsg("ALL", "capture.integration")
+		if err != nil {
+			return err
+		}
+		if string(m.Data) != "no-ack" {
+			return fmt.Errorf("unexpected captured payload %q", m.Data)
+		}
+		return nil
+	})
+}
+
+func TestJetStreamIntegrationIdenticalCreate(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	cfg := &nats.StreamConfig{
+		Name: "ok", Storage: nats.MemoryStorage,
+		Subjects: []string{"foo", "bar", "baz.*", "foo.bar.baz.>"},
+	}
+	first, err := js.AddStream(cfg)
+	require_NoError(t, err)
+	pa, err := js.Publish("foo", []byte("before repeated create"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(1))
+	again, err := js.AddStream(cfg)
+	require_NoError(t, err)
+	require_True(t, first.Created.Equal(again.Created))
+	require_True(t, reflect.DeepEqual(first.Config, again.Config))
+	require_Equal(t, again.State.Msgs, uint64(1))
+	m, err := js.GetMsg("ok", 1)
+	require_NoError(t, err)
+	require_Equal(t, string(m.Data), "before repeated create")
+	pa, err = js.Publish("bar", []byte("after repeated create"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(2))
+}
+
+func TestJetStreamIntegrationMirrorFirstSeq(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := js.AddStream(&nats.StreamConfig{Name: "SOURCE"})
+	require_NoError(t, err)
+	_, err = jsStreamCreate(t, nc, &StreamConfig{Name: "M", Mirror: &StreamSource{Name: "SOURCE"}, FirstSeq: 123})
+	require_Error(t, err, NewJSMirrorWithFirstSeqError())
+	apiErr, ok := errors.AsType[*ApiError](err)
+	require_True(t, ok)
+	require_Equal(t, apiErr.ErrCode, NewJSMirrorWithFirstSeqError().ErrCode)
+	_, err = js.StreamInfo("M")
+	require_Error(t, err, nats.ErrStreamNotFound)
+	pa, err := js.Publish("SOURCE", []byte("origin remains usable"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(1))
+}
+
+func TestJetStreamIntegrationRequestShapes(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := js.AddStream(&nats.StreamConfig{Name: "SHAPES"})
+	require_NoError(t, err)
+	for _, test := range []struct {
+		name    string
+		payload string
+		array   bool
+	}{
+		{"empty", "", false}, {"object", "{}", false},
+		{"leading_object", "\t\n\r{ }", false}, {"array", "[]", true},
+		{"leading_array", "\t\n\r[ ]", true}, {"string", `""`, false},
+		{"whitespace", "   ", false}, {"spaced_object", "{   }", false},
+		{"spaced_array", "[   ]", true}, {"spaced_string", `   "text"`, false},
+		{"number", "123", false}, {"true", "true", false},
+		{"false", "false", false}, {"null", "null", false}, {"invalid", "invalid", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			msg, err := nc.Request(JSApiStreams, []byte(test.payload), time.Second)
+			require_NoError(t, err)
+			var resp JSApiStreamNamesResponse
+			require_NoError(t, json.Unmarshal(msg.Data, &resp))
+			if test.array {
+				require_NotNil(t, resp.Error)
+				require_Equal(t, resp.Error.ErrCode, uint16(JSInvalidJSONErr))
+			} else {
+				require_Nil(t, resp.Error)
+				require_True(t, reflect.DeepEqual(resp.Streams, []string{"SHAPES"}))
+			}
+		})
+	}
+}
+
+func TestJetStreamIntegrationWorkQueueConstraints(t *testing.T) {
+	for _, storage := range []nats.StorageType{nats.MemoryStorage, nats.FileStorage} {
+		t.Run(storage.String(), func(t *testing.T) {
+			s := RunBasicJetStreamServer(t)
+			defer s.Shutdown()
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			_, err := js.AddStream(&nats.StreamConfig{
+				Name: "MWQ", Subjects: []string{"MY_WORK_QUEUE.>"}, Storage: storage, Retention: nats.WorkQueuePolicy,
+			})
+			require_NoError(t, err)
+			_, err = js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "LAST", DeliverPolicy: nats.DeliverLastPolicy, AckPolicy: nats.AckExplicitPolicy})
+			require_Error(t, err)
+			_, err = js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "PBO", AckPolicy: nats.AckExplicitPolicy})
+			require_NoError(t, err)
+			_, err = js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "SECOND", AckPolicy: nats.AckExplicitPolicy})
+			require_Error(t, err)
+			require_NoError(t, js.DeleteConsumer("MWQ", "PBO"))
+			si, err := js.StreamInfo("MWQ")
+			require_NoError(t, err)
+			require_Equal(t, si.State.Consumers, 0)
+
+			for _, partition := range []string{"A", "B", "C"} {
+				_, err := js.AddConsumer("MWQ", &nats.ConsumerConfig{
+					Durable: partition, FilterSubject: "MY_WORK_QUEUE." + partition, AckPolicy: nats.AckExplicitPolicy,
+				})
+				require_NoError(t, err)
+			}
+			for _, partition := range []string{"A", "B"} {
+				_, err := js.AddConsumer("MWQ", &nats.ConsumerConfig{
+					Durable: "DUPLICATE_" + partition, FilterSubject: "MY_WORK_QUEUE." + partition, AckPolicy: nats.AckExplicitPolicy,
+				})
+				require_Error(t, err)
+			}
+			for _, partition := range []string{"A", "B", "C"} {
+				_, err := js.Publish("MY_WORK_QUEUE."+partition, []byte(partition))
+				require_NoError(t, err)
+				sub, err := js.PullSubscribe("MY_WORK_QUEUE."+partition, partition, nats.Bind("MWQ", partition))
+				require_NoError(t, err)
+				msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
+				require_NoError(t, err)
+				require_Equal(t, len(msgs), 1)
+				require_Equal(t, string(msgs[0].Data), partition)
+				require_NoError(t, msgs[0].AckSync())
+				require_NoError(t, sub.Unsubscribe())
+				require_NoError(t, js.DeleteConsumer("MWQ", partition))
+			}
+			for _, filters := range [][2]string{
+				{"MY_WORK_QUEUE.>", "MY_WORK_QUEUE.*.BAR"},
+				{"MY_WORK_QUEUE.*.BAR", "MY_WORK_QUEUE.>"},
+			} {
+				_, err := js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "FIRST", FilterSubject: filters[0], AckPolicy: nats.AckExplicitPolicy})
+				require_NoError(t, err)
+				_, err = js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "OVERLAP", FilterSubject: filters[1], AckPolicy: nats.AckExplicitPolicy})
+				require_Error(t, err)
+				require_NoError(t, js.DeleteConsumer("MWQ", "FIRST"))
+			}
+			_, err = js.AddConsumer("MWQ", &nats.ConsumerConfig{Durable: "DURABLE", DeliverSubject: "SOME.SUBJ", AckPolicy: nats.AckExplicitPolicy})
+			require_NoError(t, err)
+			sub, err := nc.SubscribeSync(nats.NewInbox())
+			require_NoError(t, err)
+			defer sub.Unsubscribe()
+			require_NoError(t, nc.Flush())
+			eph := &nats.ConsumerConfig{DeliverSubject: sub.Subject, AckPolicy: nats.AckExplicitPolicy}
+			_, err = js.AddConsumer("MWQ", eph)
+			require_Error(t, err)
+			require_NoError(t, js.DeleteConsumer("MWQ", "DURABLE"))
+			ci, err := js.AddConsumer("MWQ", eph)
+			require_NoError(t, err)
+			require_Equal(t, ci.Config.Durable, "")
+			_, err = js.Publish("MY_WORK_QUEUE.EPHEMERAL", []byte("ephemeral"))
+			require_NoError(t, err)
+			msg, err := sub.NextMsg(time.Second)
+			require_NoError(t, err)
+			require_Equal(t, string(msg.Data), "ephemeral")
+			_, err = nc.Request(msg.Reply, []byte("+ACK"), time.Second)
+			require_NoError(t, err)
+			require_NoError(t, js.DeleteConsumer("MWQ", ci.Name))
+			si, err = js.StreamInfo("MWQ")
+			require_NoError(t, err)
+			require_Equal(t, si.State.Consumers, 0)
+			require_Equal(t, si.State.Msgs, uint64(0))
+		})
+	}
+}
+
+func jetStreamIntegrationHTTP(t *testing.T, s *Server, path string, response any) int {
+	t.Helper()
+	addr := fmt.Sprintf("http://127.0.0.1:%d%s", s.MonitorAddr().Port, path)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, nil)
+	require_NoError(t, err)
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Do(req)
+	require_NoError(t, err)
+	defer resp.Body.Close()
+	require_NoError(t, json.NewDecoder(resp.Body).Decode(response))
+	return resp.StatusCode
+}
+
+func TestJetStreamIntegrationDefaultMonitoring(t *testing.T) {
+	// A nil JetStream config derives its store from os.TempDir, independently of opts.StoreDir.
+	for _, variable := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(variable, t.TempDir())
+	}
+	opts := DefaultTestOptions
+	opts.Port, opts.HTTPPort = -1, -1
+	opts.HTTPHost = "127.0.0.1"
+	opts.StoreDir = t.TempDir()
+	s := RunServer(&opts)
+	defer s.Shutdown()
+	require_NoError(t, s.EnableJetStream(nil))
+	var v Varz
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+	require_NotNil(t, v.JetStream.Config)
+	cfg := v.JetStream.Config
+	if hwMem := sysmem.Memory(); hwMem != 0 {
+		if limit := debug.SetMemoryLimit(-1); limit < hwMem {
+			hwMem = limit
+		}
+		require_Equal(t, cfg.MaxMemory, hwMem/4*3)
+	}
+	st, err := os.Stat(cfg.StoreDir)
+	require_NoError(t, err)
+	require_True(t, st.IsDir())
+	var accounts Accountz
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/accountz", &accounts), http.StatusOK)
+	require_NotEqual(t, accounts.SystemAccount, "")
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err = js.AccountInfo()
+	require_NoError(t, err)
+	_, err = js.AddStream(&nats.StreamConfig{Name: "DEFAULT"})
+	require_NoError(t, err)
+	_, err = js.Publish("DEFAULT", []byte("default resources are operational"))
+	require_NoError(t, err)
+}
+
+func TestJetStreamIntegrationResourceMonitoring(t *testing.T) {
+	const gb = int64(1024 * 1024 * 1024)
+	for _, test := range []struct {
+		name   string
+		limits string
+		memory int64
+		store  int64
+	}{
+		{"configured", "max_mem_store: 2GB, max_file_store: 1TB", 2 * gb, 1024 * gb},
+		{"negative", "max_mem_store: -1, max_file_store: -1", -1, -1},
+		{"zero", "max_mem_store: 0, max_file_store: 0", 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			conf := createConfFile(t, []byte(fmt.Sprintf(`
+				listen: 127.0.0.1:-1
+				http: 127.0.0.1:-1
+				jetstream: {%s, store_dir: %q}
+			`, test.limits, t.TempDir())))
+			s, _ := RunServerWithConfig(conf)
+			defer s.Shutdown()
+			var v Varz
+			require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+			require_NotNil(t, v.JetStream.Config)
+			if test.memory < 0 {
+				require_True(t, v.JetStream.Config.MaxMemory > 0)
+				require_True(t, v.JetStream.Config.MaxStore > 0)
+			} else {
+				require_Equal(t, v.JetStream.Config.MaxMemory, test.memory)
+				require_Equal(t, v.JetStream.Config.MaxStore, test.store)
+			}
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			_, err := js.AccountInfo()
+			require_NoError(t, err)
+			if test.memory != 0 {
+				for _, storage := range []nats.StorageType{nats.MemoryStorage, nats.FileStorage} {
+					name := "RESOURCE_" + storage.String()
+					_, err := js.AddStream(&nats.StreamConfig{Name: name, Storage: storage})
+					require_NoError(t, err)
+					_, err = js.Publish(name, []byte("resource boundary"))
+					require_NoError(t, err)
+				}
+			}
+		})
+	}
+}
+
+func TestJetStreamIntegrationProgrammaticResources(t *testing.T) {
+	const gb = int64(1024 * 1024 * 1024)
+	for _, test := range []struct {
+		name          string
+		memory, store int64
+	}{
+		{"only-max-store", 0, gb}, {"only-max-memory", 2 * gb, 0},
+		{"both", 2 * gb, gb}, {"neither", 0, 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opts := DefaultTestOptions
+			opts.Port, opts.HTTPPort = -1, -1
+			opts.HTTPHost = "127.0.0.1"
+			opts.JetStream = true
+			opts.StoreDir = t.TempDir()
+			opts.JetStreamMaxMemory, opts.JetStreamMaxStore = test.memory, test.store
+			s := RunServer(&opts)
+			defer s.Shutdown()
+			var v Varz
+			require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+			require_NotNil(t, v.JetStream.Config)
+			cfg := v.JetStream.Config
+			if test.memory > 0 {
+				require_Equal(t, cfg.MaxMemory, test.memory)
+			} else {
+				require_True(t, cfg.MaxMemory > 0)
+			}
+			if test.store > 0 {
+				require_Equal(t, cfg.MaxStore, test.store)
+			} else {
+				require_True(t, cfg.MaxStore > 0)
+			}
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			_, err := js.AddStream(&nats.StreamConfig{Name: "PROGRAMMATIC"})
+			require_NoError(t, err)
+			_, err = js.Publish("PROGRAMMATIC", []byte("programmatic resources"))
+			require_NoError(t, err)
+		})
+	}
+}
+
+func TestJetStreamIntegrationDomainMonitoring(t *testing.T) {
+	conf := createConfFile(t, []byte(fmt.Sprintf(`
+		listen: 127.0.0.1:-1
+		http: 127.0.0.1:-1
+		jetstream: {domain: HUB, store_dir: %q}
+	`, t.TempDir())))
+	s, _ := RunServerWithConfig(conf)
+	defer s.Shutdown()
+	var v Varz
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+	require_NotNil(t, v.JetStream.Config)
+	require_Equal(t, v.JetStream.Config.Domain, "HUB")
+	nc := clientConnectToServer(t, s)
+	defer nc.Close()
+	js, err := nc.JetStream(nats.Domain("HUB"))
+	require_NoError(t, err)
+	_, err = js.AccountInfo()
+	require_NoError(t, err)
+	_, err = js.AddStream(&nats.StreamConfig{Name: "DOMAIN"})
+	require_NoError(t, err)
+	pa, err := js.Publish("DOMAIN", []byte("domain routed"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Domain, "HUB")
+}
+
+func TestJetStreamIntegrationInvalidDomainStartup(t *testing.T) {
+	for _, domain := range []string{"HU..B", "HU B", " ", "\t", "CORE.", ".CORE", "C.*.O. RE", "C.ORE"} {
+		t.Run(fmt.Sprintf("%q", domain), func(t *testing.T) {
+			opts := DefaultTestOptions
+			opts.JetStreamDomain = domain
+			s, err := NewServer(&opts)
+			if s != nil {
+				s.Shutdown()
+			}
+			require_Error(t, err)
+			require_Contains(t, err.Error(), "invalid domain name")
+			require_Nil(t, s)
+		})
+	}
+}
+
+func TestJetStreamIntegrationDisabledHealthMonitoring(t *testing.T) {
+	opts := DefaultTestOptions
+	opts.Port, opts.HTTPPort = -1, -1
+	opts.HTTPHost = "127.0.0.1"
+	opts.JetStream, opts.StoreDir = true, t.TempDir()
+	s := RunServer(&opts)
+	defer s.Shutdown()
+	var before HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz?js-enabled-only=true", &before), http.StatusOK)
+	require_Equal(t, before.Status, "ok")
+	s.DisableJetStream()
+	var after HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz?js-enabled-only=true", &after), http.StatusServiceUnavailable)
+	require_Equal(t, after.Status, "unavailable")
+	require_Equal(t, after.Error, NewJSNotEnabledError().Error())
+}
+
+func TestJetStreamIntegrationRestoreStagingHealth(t *testing.T) {
+	opts := DefaultTestOptions
+	opts.Port, opts.HTTPPort = -1, -1
+	opts.HTTPHost = "127.0.0.1"
+	opts.JetStream, opts.StoreDir = true, t.TempDir()
+	s := RunServer(&opts)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := js.AddStream(&nats.StreamConfig{Name: "ORDERS", Subjects: []string{"orders.*"}})
+	require_NoError(t, err)
+	for range 1000 {
+		_, err := js.Publish("orders.created", []byte("new order"))
+		require_NoError(t, err)
+	}
+	var before HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz", &before), http.StatusOK)
+	require_Equal(t, before.Status, "ok")
+	require_Equal(t, before.Error, "")
+	var v Varz
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+	require_NotNil(t, v.JetStream.Config)
+	require_NoError(t, os.MkdirAll(filepath.Join(v.JetStream.Config.StoreDir, snapStagingDir), defaultDirPerms))
+	var after HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz", &after), http.StatusOK)
+	require_Equal(t, after.Status, "ok")
+	require_Equal(t, after.Error, "")
+	si, err := js.StreamInfo("ORDERS")
+	require_NoError(t, err)
+	require_Equal(t, si.State.Msgs, uint64(1000))
+	m, err := js.GetMsg("ORDERS", 1000)
+	require_NoError(t, err)
+	require_Equal(t, string(m.Data), "new order")
+}
+
+func TestJetStreamIntegrationDedupeRecovery(t *testing.T) {
+	opts := DefaultTestOptions
+	opts.Port, opts.JetStream, opts.StoreDir = -1, true, t.TempDir()
+	opts.ServerName = "dedupe-" + nuid.Next()
+	s := RunServer(&opts)
+	t.Cleanup(func() { s.Shutdown() })
+	nc, js := jsClientConnect(t, s)
+	t.Cleanup(func() { nc.Close() })
+	cfg := &nats.StreamConfig{Name: "DeDupe", Storage: nats.FileStorage, MaxAge: time.Hour, Subjects: []string{"foo.*"}}
+	si, err := js.AddStream(cfg)
+	require_NoError(t, err)
+	require_Equal(t, si.Config.Duplicates, StreamDefaultDuplicatesWindow)
+	for _, invalid := range []time.Duration{-25 * time.Millisecond, 2 * time.Hour} {
+		cfg.Duplicates = invalid
+		_, err := js.UpdateStream(cfg)
+		require_Error(t, err)
+	}
+	send := func(id string, seq uint64, duplicate bool) {
+		t.Helper()
+		pa, err := js.Publish("foo.data", []byte(id), nats.MsgId(id))
+		require_NoError(t, err)
+		require_Equal(t, pa.Sequence, seq)
+		require_Equal(t, pa.Duplicate, duplicate)
+	}
+	for i, id := range []string{"AA", "BB", "CC", "ZZ"} {
+		send(id, uint64(i+1), false)
+	}
+	send("AA", 1, true)
+	send("BB", 2, true)
+	send("ZZ", 4, true)
+	si, err = js.StreamInfo("DeDupe")
+	require_NoError(t, err)
+	require_Equal(t, si.State.Msgs, uint64(4))
+	cfg.Duplicates = 100 * time.Millisecond
+	_, err = js.UpdateStream(cfg)
+	require_NoError(t, err)
+	time.Sleep(200 * time.Millisecond)
+	for i, id := range []string{"AAA", "BBB", "CCC", "DDD", "ZZZ"} {
+		send(id, uint64(i+5), false)
+	}
+
+	_, err = js.AddStream(&nats.StreamConfig{Name: "EXPIRY", Duplicates: 100 * time.Millisecond})
+	require_NoError(t, err)
+	pa, err := js.Publish("EXPIRY", []byte("first"), nats.MsgId("expires"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(1))
+	time.Sleep(200 * time.Millisecond)
+	pa, err = js.Publish("EXPIRY", []byte("reused"), nats.MsgId("expires"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(2))
+	require_False(t, pa.Duplicate)
+
+	cfg.Duplicates = 30 * time.Minute
+	_, err = js.UpdateStream(cfg)
+	require_NoError(t, err)
+	require_NoError(t, js.PurgeStream("DeDupe"))
+	ids := []string{"AAAA", "BBBB", "CCCC", "DDDD", "EEEE"}
+	for i, id := range ids {
+		send(id, uint64(i+10), false)
+	}
+	nc.Close()
+	s.Shutdown()
+	s.WaitForShutdown()
+	opts.Port = -1
+	s = RunServer(&opts)
+	nc, js = jsClientConnect(t, s)
+	si, err = js.StreamInfo("DeDupe")
+	require_NoError(t, err)
+	require_Equal(t, si.State.Msgs, uint64(5))
+	for i, id := range ids {
+		seq := uint64(i + 10)
+		send(id, seq, true)
+		m, err := js.GetMsg("DeDupe", seq)
+		require_NoError(t, err)
+		require_Equal(t, string(m.Data), id)
+	}
+	require_NoError(t, js.PurgeStream("DeDupe"))
+	for i, id := range ids {
+		send(id, uint64(i+10), true)
+	}
+	si, err = js.StreamInfo("DeDupe")
+	require_NoError(t, err)
+	require_Equal(t, si.State.Msgs, uint64(0))
+	send("new-after-purge", 15, false)
+}
+
+func TestJetStreamIntegrationAsyncPersistRecovery(t *testing.T) {
+	opts := DefaultTestOptions
+	opts.Port, opts.JetStream, opts.StoreDir = -1, true, t.TempDir()
+	opts.ServerName = "async-" + nuid.Next()
+	s := RunServer(&opts)
+	t.Cleanup(func() { s.Shutdown() })
+	nc, js := jsClientConnect(t, s)
+	t.Cleanup(func() { nc.Close() })
+	cfg := &StreamConfig{Name: "ASYNC", Subjects: []string{"foo"}, Storage: MemoryStorage, PersistMode: AsyncPersistMode}
+	_, err := jsStreamCreate(t, nc, cfg)
+	require_Error(t, err, NewJSStreamInvalidConfigError(errors.New("async persist mode is only supported on file storage")))
+	cfg.Storage = FileStorage
+	created, err := jsStreamCreate(t, nc, cfg)
+	require_NoError(t, err)
+	require_Equal(t, created.PersistMode, AsyncPersistMode)
+	pa, err := js.Publish("foo", []byte("async persisted payload"))
+	require_NoError(t, err)
+	require_Equal(t, pa.Sequence, uint64(1))
+	cfg.PersistMode = DefaultPersistMode
+	_, err = jsStreamUpdate(t, nc, cfg)
+	require_Error(t, err, NewJSStreamInvalidConfigError(errors.New("stream configuration update can not change persist mode")))
+	nc.Close()
+	s.Shutdown()
+	s.WaitForShutdown()
+	opts.Port = -1
+	s = RunServer(&opts)
+	nc, js = jsClientConnect(t, s)
+	var resp JSApiStreamInfoResponse
+	jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamInfoT, "ASYNC"), struct{}{}, &resp)
+	require_Nil(t, resp.Error)
+	require_NotNil(t, resp.StreamInfo)
+	require_Equal(t, resp.Config.PersistMode, AsyncPersistMode)
+	require_Equal(t, resp.State.Msgs, uint64(1))
+	m, err := js.GetMsg("ASYNC", 1)
+	require_NoError(t, err)
+	require_Equal(t, string(m.Data), "async persisted payload")
+}
+
+func TestJetStreamIntegrationRetentionUpdates(t *testing.T) {
+	for _, policies := range [][2]nats.RetentionPolicy{
+		{nats.LimitsPolicy, nats.InterestPolicy}, {nats.InterestPolicy, nats.LimitsPolicy},
+	} {
+		t.Run(fmt.Sprintf("%sTo%s", policies[0], policies[1]), func(t *testing.T) {
+			s := RunBasicJetStreamServer(t)
+			defer s.Shutdown()
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			cfg := &nats.StreamConfig{Name: "RETENTION", Storage: nats.FileStorage, Retention: policies[0]}
+			_, err := js.AddStream(cfg)
+			require_NoError(t, err)
+			_, err = js.AddConsumer("RETENTION", &nats.ConsumerConfig{Durable: "EXISTING", AckPolicy: nats.AckExplicitPolicy})
+			require_NoError(t, err)
+			sub, err := js.PullSubscribe("", "EXISTING", nats.Bind("RETENTION", "EXISTING"))
+			require_NoError(t, err)
+			defer sub.Unsubscribe()
+			cfg.Retention = policies[1]
+			_, err = js.UpdateStream(cfg)
+			require_NoError(t, err)
+			pa, err := js.Publish("RETENTION", []byte("after retention update"))
+			require_NoError(t, err)
+			msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
+			require_NoError(t, err)
+			require_Equal(t, len(msgs), 1)
+			require_Equal(t, string(msgs[0].Data), "after retention update")
+			require_NoError(t, msgs[0].AckSync())
+			if policies[1] == nats.InterestPolicy {
+				checkFor(t, time.Second, 10*time.Millisecond, func() error {
+					_, err := js.GetMsg("RETENTION", pa.Sequence)
+					if errors.Is(err, nats.ErrMsgNotFound) {
+						return nil
+					}
+					return fmt.Errorf("acknowledged interest message remains: %v", err)
+				})
+			} else {
+				m, err := js.GetMsg("RETENTION", pa.Sequence)
+				require_NoError(t, err)
+				require_Equal(t, string(m.Data), "after retention update")
+			}
+			ci, err := js.ConsumerInfo("RETENTION", "EXISTING")
+			require_NoError(t, err)
+			require_Equal(t, ci.AckFloor.Stream, pa.Sequence)
+		})
+	}
+}
+
+func TestJetStreamIntegrationMetadataRecoveryHealth(t *testing.T) {
+	opts := DefaultTestOptions
+	opts.Port, opts.HTTPPort = -1, -1
+	opts.HTTPHost, opts.ServerName = "127.0.0.1", "metadata-"+nuid.Next()
+	opts.JetStream, opts.StoreDir = true, t.TempDir()
+	s := RunServer(&opts)
+	t.Cleanup(func() { s.Shutdown() })
+	nc, js := jsClientConnect(t, s)
+	t.Cleanup(func() { nc.Close() })
+	_, err := js.AddStream(&nats.StreamConfig{Name: "TEST", Subjects: []string{"foo"}})
+	require_NoError(t, err)
+	for range 10 {
+		_, err := js.Publish("foo", []byte("OK"))
+		require_NoError(t, err)
+	}
+	var v Varz
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/varz", &v), http.StatusOK)
+	require_NotNil(t, v.JetStream.Config)
+	sdir := filepath.Join(v.JetStream.Config.StoreDir, globalAccountName, "streams", "TEST")
+	nc.Close()
+	s.Shutdown()
+	s.WaitForShutdown()
+	for _, file := range []string{JetStreamMetaFile, JetStreamMetaFileSum} {
+		require_NoError(t, os.WriteFile(filepath.Join(sdir, file), nil, defaultFilePerms))
+	}
+	opts.Port, opts.HTTPPort = -1, -1
+	s = RunServer(&opts)
+	nc, js = jsClientConnect(t, s)
+	_, err = js.StreamInfo("TEST")
+	require_Error(t, err)
+	var health HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz", &health), http.StatusServiceUnavailable)
+	require_Equal(t, health.Status, "unavailable")
+	require_Equal(t, health.Error, "JetStream stream '$G > TEST' could not be recovered")
+	_, err = js.AddStream(&nats.StreamConfig{Name: "TEST", Subjects: []string{"foo"}})
+	require_NoError(t, err)
+	for phase := range 2 {
+		si, err := js.StreamInfo("TEST")
+		require_NoError(t, err)
+		require_Equal(t, si.State.Msgs, uint64(10))
+		for i := range 10 {
+			m, err := js.GetMsg("TEST", uint64(i+1))
+			require_NoError(t, err)
+			require_Equal(t, string(m.Data), "OK")
+		}
+		if phase == 0 {
+			nc.Close()
+			s.Shutdown()
+			s.WaitForShutdown()
+			opts.Port, opts.HTTPPort = -1, -1
+			s = RunServer(&opts)
+			nc, js = jsClientConnect(t, s)
+		}
+	}
+	var recovered HealthStatus
+	require_Equal(t, jetStreamIntegrationHTTP(t, s, "/healthz", &recovered), http.StatusOK)
+	require_Equal(t, recovered.Status, "ok")
+}
+
+func TestJetStreamIntegrationSourceCursorRecovery(t *testing.T) {
+	for _, storage := range []nats.StorageType{nats.MemoryStorage, nats.FileStorage} {
+		for _, purge := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/purge=%v", storage, purge), func(t *testing.T) {
+				opts := DefaultTestOptions
+				opts.Port, opts.JetStream, opts.StoreDir = -1, true, t.TempDir()
+				opts.ServerName = "source-" + nuid.Next()
+				s := RunServer(&opts)
+				t.Cleanup(func() { s.Shutdown() })
+				nc, js := jsClientConnect(t, s)
+				t.Cleanup(func() { nc.Close() })
+				_, err := js.AddStream(&nats.StreamConfig{Name: "ORIGIN", Storage: storage, Subjects: []string{"foo"}})
+				require_NoError(t, err)
+				cfg := &nats.StreamConfig{
+					Name: "SOURCE", Storage: storage, Subjects: []string{"local"},
+					Sources: []*nats.StreamSource{{Name: "ORIGIN"}},
+				}
+				_, err = js.AddStream(cfg)
+				require_NoError(t, err)
+				info := func() *StreamInfo {
+					t.Helper()
+					var resp JSApiStreamInfoResponse
+					jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamInfoT, "SOURCE"), struct{}{}, &resp)
+					require_Nil(t, resp.Error)
+					require_NotNil(t, resp.StreamInfo)
+					return resp.StreamInfo
+				}
+				check := func(messages, sequence uint64) {
+					t.Helper()
+					checkFor(t, 5*time.Second, 20*time.Millisecond, func() error {
+						si := info()
+						if len(si.Sources) != 1 || si.Sources[0].Seq != sequence || si.State.Msgs != messages {
+							return fmt.Errorf("source cursor/state: %+v, %+v", si.Sources, si.State)
+						}
+						if si.Sources[0].Error != nil {
+							return si.Sources[0].Error
+						}
+						return nil
+					})
+				}
+				check(0, 0)
+				for i := range 5 {
+					_, err := js.Publish("foo", []byte(fmt.Sprintf("origin-%d", i+1)))
+					require_NoError(t, err)
+				}
+				check(5, 5)
+				var count uint64 = 5
+				if purge {
+					require_NoError(t, js.PurgeStream("SOURCE"))
+					count = 0
+					check(0, 5)
+				}
+				if storage == nats.FileStorage {
+					nc.Close()
+					s.Shutdown()
+					s.WaitForShutdown()
+					opts.Port = -1
+					s = RunServer(&opts)
+					nc, js = jsClientConnect(t, s)
+					check(count, 5)
+				}
+				_, err = js.Publish("foo", []byte("origin-6"))
+				require_NoError(t, err)
+				check(count+1, 6)
+				m, err := js.GetMsg("SOURCE", 6)
+				require_NoError(t, err)
+				require_Equal(t, string(m.Data), "origin-6")
+				cfg.Sources = nil
+				_, err = js.UpdateStream(cfg)
+				require_NoError(t, err)
+				require_Equal(t, len(info().Sources), 0)
+				_, err = js.Publish("foo", []byte("origin-7"))
+				require_NoError(t, err)
+				_, err = js.Publish("local", []byte("source removed"))
+				require_NoError(t, err)
+				require_Equal(t, info().State.Msgs, count+2)
+			})
+		}
+	}
+}
+
+func TestJetStreamIntegrationSourceStartSequence(t *testing.T) {
+	for _, kind := range []string{"source", "mirror"} {
+		t.Run(kind, func(t *testing.T) {
+			s := RunBasicJetStreamServer(t)
+			defer s.Shutdown()
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			_, err := js.AddStream(&nats.StreamConfig{Name: "ORIGIN", Subjects: []string{"test"}})
+			require_NoError(t, err)
+			for i := range 10 {
+				_, err := js.Publish("test", []byte(fmt.Sprintf("origin-%d", i+1)))
+				require_NoError(t, err)
+			}
+			cfg := &nats.StreamConfig{Name: "DESTINATION"}
+			origin := &nats.StreamSource{Name: "ORIGIN", OptStartSeq: 20}
+			if kind == "source" {
+				cfg.Sources = []*nats.StreamSource{origin}
+			} else {
+				cfg.Mirror = origin
+			}
+			_, err = js.AddStream(cfg)
+			require_NoError(t, err)
+			checkFor(t, 5*time.Second, 20*time.Millisecond, func() error {
+				si, err := js.StreamInfo("DESTINATION")
+				if err != nil {
+					return err
+				}
+				active := si.Mirror
+				if kind == "source" && len(si.Sources) == 1 {
+					active = si.Sources[0]
+				}
+				if active == nil || active.Error != nil || active.Active < 0 {
+					return fmt.Errorf("%s not active: %+v", kind, active)
+				}
+				return nil
+			})
+			for i := range 9 {
+				_, err := js.Publish("test", []byte(fmt.Sprintf("origin-%d", i+11)))
+				require_NoError(t, err)
+			}
+			si, err := js.StreamInfo("DESTINATION")
+			require_NoError(t, err)
+			require_Equal(t, si.State.Msgs, uint64(0))
+			for i := range 2 {
+				_, err := js.Publish("test", []byte(fmt.Sprintf("origin-%d", i+20)))
+				require_NoError(t, err)
+			}
+			checkFor(t, 5*time.Second, 20*time.Millisecond, func() error {
+				si, err := js.StreamInfo("DESTINATION")
+				if err != nil {
+					return err
+				}
+				if si.State.Msgs != 2 {
+					return fmt.Errorf("expected only origin20/21, got %+v", si.State)
+				}
+				return nil
+			})
+			first := uint64(1)
+			if kind == "mirror" {
+				first = 20
+			}
+			for i := range 2 {
+				m, err := js.GetMsg("DESTINATION", first+uint64(i))
+				require_NoError(t, err)
+				require_Equal(t, string(m.Data), fmt.Sprintf("origin-%d", i+20))
+			}
+		})
+	}
+}
+
+func TestJetStreamIntegrationNumericDefaults(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	for _, field := range []string{"max_msgs", "max_msgs_per_subject", "max_bytes", "max_msg_size", "max_consumers"} {
+		for i, test := range []struct {
+			value    int
+			pedantic bool
+		}{{-10, true}, {0, true}, {-10, false}} {
+			t.Run(fmt.Sprintf("stream/%s/%d", field, i), func(t *testing.T) {
+				name := fmt.Sprintf("S_%s_%d", field, i)
+				var resp struct {
+					ApiResponse
+					Config map[string]json.RawMessage `json:"config"`
+				}
+				jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamCreateT, name), map[string]any{
+					"name": name, "storage": "memory", "pedantic": test.pedantic, field: test.value,
+				}, &resp)
+				if test.pedantic && test.value < -1 {
+					require_NotNil(t, resp.Error)
+					require_Equal(t, resp.Error.ErrCode, uint16(JSPedanticErrF))
+					require_Contains(t, resp.Error.Description, field+" must be set to -1")
+					return
+				}
+				require_Nil(t, resp.Error)
+				var value int64
+				require_NoError(t, json.Unmarshal(resp.Config[field], &value))
+				require_Equal(t, value, int64(-1))
+				_, err := js.Publish(name, []byte("normalized stream"))
+				require_NoError(t, err)
+			})
+		}
+	}
+	_, err := js.AddStream(&nats.StreamConfig{Name: "CONFIG", Subjects: []string{"data.*"}, Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	for _, field := range []struct {
+		name         string
+		defaultValue int64
+	}{
+		{"max_deliver", -1}, {"max_waiting", JSWaitQueueDefaultMax},
+		{"max_batch", 0}, {"max_expires", 0}, {"max_bytes", 0},
+		{"idle_heartbeat", 0}, {"inactive_threshold", 0}, {"priority_timeout", 0},
+		{"max_ack_pending", JsDefaultMaxAckPending},
+	} {
+		for i, test := range []struct {
+			value    int
+			pedantic bool
+		}{{-10, true}, {0, true}, {-10, false}} {
+			t.Run(fmt.Sprintf("consumer/%s/%d", field.name, i), func(t *testing.T) {
+				name := fmt.Sprintf("C_%s_%d", field.name, i)
+				filter := "data." + name
+				var resp struct {
+					ApiResponse
+					Config map[string]json.RawMessage `json:"config"`
+				}
+				jetStreamIntegrationRequest(t, nc, "$JS.API.CONSUMER.CREATE.CONFIG."+name, map[string]any{
+					"stream_name": "CONFIG", "pedantic": test.pedantic,
+					"config": map[string]any{"durable_name": name, "ack_policy": "explicit", "filter_subject": filter, field.name: test.value},
+				}, &resp)
+				if test.pedantic && test.value < 0 {
+					require_NotNil(t, resp.Error)
+					require_Equal(t, resp.Error.ErrCode, uint16(JSPedanticErrF))
+					fragment := field.name + " must not be negative"
+					if field.name == "max_deliver" || field.name == "max_ack_pending" {
+						fragment = field.name + " must be set to -1"
+					}
+					require_Contains(t, resp.Error.Description, fragment)
+					return
+				}
+				require_Nil(t, resp.Error)
+				var value int64
+				if data := resp.Config[field.name]; len(data) != 0 {
+					require_NoError(t, json.Unmarshal(data, &value))
+				}
+				expected := field.defaultValue
+				if field.name == "max_ack_pending" && test.value < -1 {
+					expected = -1
+				}
+				require_Equal(t, value, expected)
+				sub, err := js.PullSubscribe(filter, name, nats.Bind("CONFIG", name))
+				require_NoError(t, err)
+				defer sub.Unsubscribe()
+				_, err = js.Publish(filter, []byte(name))
+				require_NoError(t, err)
+				msgs, err := sub.Fetch(1, nats.MaxWait(time.Second))
+				require_NoError(t, err)
+				require_Equal(t, len(msgs), 1)
+				require_Equal(t, string(msgs[0].Data), name)
+				require_NoError(t, msgs[0].AckSync())
+			})
+		}
+	}
+}
+
+func TestJetStreamIntegrationInvalidConfigRequests(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	for _, field := range []string{"retention", "discard", "storage", "compression"} {
+		var resp JSApiStreamCreateResponse
+		jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamCreateT, "INVALID"), map[string]any{"name": "INVALID", field: -1}, &resp)
+		require_NotNil(t, resp.Error)
+		require_Equal(t, resp.Error.ErrCode, uint16(JSInvalidJSONErr))
+	}
+	_, err := jsStreamCreate(t, nc, &StreamConfig{Name: "INVALID", MaxAge: -time.Second})
+	require_Error(t, err, NewJSStreamInvalidConfigError(errors.New("max age can not be negative")))
+	_, err = js.AddStream(&nats.StreamConfig{Name: "CONFIG", Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	for _, test := range []struct {
+		field string
+		value any
+		code  ErrorIdentifier
+	}{
+		{"ack_policy", -1, JSInvalidJSONErr}, {"replay_policy", -1, JSInvalidJSONErr},
+		{"ack_wait", -int64(time.Second), JSConsumerAckWaitNegativeErr},
+		{"backoff", []int64{-int64(time.Second)}, JSConsumerBackOffNegativeErr},
+	} {
+		var resp JSApiConsumerCreateResponse
+		jetStreamIntegrationRequest(t, nc, "$JS.API.CONSUMER.CREATE.CONFIG.INVALID", map[string]any{
+			"stream_name": "CONFIG", "config": map[string]any{"name": "INVALID", test.field: test.value},
+		}, &resp)
+		require_NotNil(t, resp.Error)
+		require_Equal(t, resp.Error.ErrCode, uint16(test.code))
+	}
+	si, err := js.StreamInfo("CONFIG")
+	require_NoError(t, err)
+	require_Equal(t, si.State.Consumers, 0)
+	_, err = js.Publish("CONFIG", []byte("valid config remains operational"))
+	require_NoError(t, err)
+}
+
+func TestJetStreamIntegrationWorkQueueWaiting(t *testing.T) {
+	for _, storage := range []nats.StorageType{nats.MemoryStorage, nats.FileStorage} {
+		t.Run(storage.String(), func(t *testing.T) {
+			s := RunBasicJetStreamServer(t)
+			defer s.Shutdown()
+			nc, js := jsClientConnect(t, s)
+			defer nc.Close()
+			_, err := js.AddStream(&nats.StreamConfig{Name: "WAITING", Subjects: []string{"foo", "bar"}, Storage: storage})
+			require_NoError(t, err)
+			_, err = js.AddConsumer("WAITING", &nats.ConsumerConfig{Durable: "PUSH", AckPolicy: nats.AckExplicitPolicy, MaxWaiting: 10, DeliverSubject: "_INBOX.22"})
+			require_Error(t, err)
+			ci, err := js.AddConsumer("WAITING", &nats.ConsumerConfig{Durable: "PULL", AckPolicy: nats.AckExplicitPolicy})
+			require_NoError(t, err)
+			require_Equal(t, ci.Config.MaxWaiting, JSWaitQueueDefaultMax)
+			sub, err := nc.SubscribeSync("req.*")
+			require_NoError(t, err)
+			defer sub.Unsubscribe()
+			require_NoError(t, nc.Flush())
+			const next = "$JS.API.CONSUMER.MSG.NEXT.WAITING.PULL"
+			for i := range JSWaitQueueDefaultMax {
+				require_NoError(t, nc.PublishRequest(next, fmt.Sprintf("req.%d", i), nil))
+			}
+			waiting := func(expected int) {
+				t.Helper()
+				checkFor(t, time.Second, 10*time.Millisecond, func() error {
+					ci, err := js.ConsumerInfo("WAITING", "PULL")
+					if err != nil {
+						return err
+					}
+					if ci.NumWaiting != expected {
+						return fmt.Errorf("expected %d waiting, got %d", expected, ci.NumWaiting)
+					}
+					return nil
+				})
+			}
+			waiting(JSWaitQueueDefaultMax)
+			msg, err := nc.Request(next, nil, time.Second)
+			require_NoError(t, err)
+			require_Equal(t, msg.Header.Get("Status"), "409")
+			pending, _, err := sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+			for _, subject := range []string{"foo", "bar"} {
+				_, err := js.Publish(subject, []byte(subject))
+				require_NoError(t, err)
+			}
+			waiting(JSWaitQueueDefaultMax - 2)
+			for _, subject := range []string{"foo", "bar"} {
+				msg, err := sub.NextMsg(time.Second)
+				require_NoError(t, err)
+				require_Equal(t, string(msg.Data), subject)
+				_, err = nc.Request(msg.Reply, []byte("+ACK"), time.Second)
+				require_NoError(t, err)
+			}
+			pending, _, err = sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+		})
+	}
+}
+
+func TestJetStreamIntegrationPullExpiry(t *testing.T) {
+	s := RunBasicJetStreamServer(t)
+	defer s.Shutdown()
+	nc, js := jsClientConnect(t, s)
+	defer nc.Close()
+	_, err := js.AddStream(&nats.StreamConfig{Name: "EXPIRY", Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	_, err = js.AddConsumer("EXPIRY", &nats.ConsumerConfig{Durable: "PULL", AckPolicy: nats.AckExplicitPolicy})
+	require_NoError(t, err)
+	sub, err := nc.SubscribeSync(nats.NewInbox())
+	require_NoError(t, err)
+	defer sub.Unsubscribe()
+	require_NoError(t, nc.Flush())
+	before := time.Now()
+	require_NoError(t, nc.PublishRequest("$JS.API.CONSUMER.MSG.NEXT.EXPIRY.PULL", sub.Subject, []byte(`{"expires":5000000000}`)))
+	require_NoError(t, nc.Flush())
+	after := time.Now()
+	msg, err := sub.NextMsg(7 * time.Second)
+	require_NoError(t, err)
+	require_Equal(t, msg.Header.Get("Status"), "408")
+	require_True(t, !time.Now().Before(before.Add(5*time.Second)))
+	require_True(t, time.Now().Before(after.Add(7*time.Second)))
+	ci, err := js.ConsumerInfo("EXPIRY", "PULL")
+	require_NoError(t, err)
+	require_Equal(t, ci.NumWaiting, 0)
+	_, err = js.Publish("EXPIRY", []byte("after pull timeout"))
+	require_NoError(t, err)
+}
+
 func TestJetStreamBasicNilConfig(t *testing.T) {
 	s := RunRandClientPortServer(t)
 	defer s.Shutdown()

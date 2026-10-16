@@ -2653,8 +2653,26 @@ func TestMemStoreIntegrationMirrorGaps(t *testing.T) {
 }
 
 func TestMemStoreIntegrationPending(t *testing.T) {
-	nc, js := memStoreIntegrationClient(t)
-	_, err := js.AddStream(&nats.StreamConfig{Name: "MEM", Subjects: []string{"*.*.*.*"}, Storage: nats.MemoryStorage, AllowDirect: true})
+	opts := DefaultOptions()
+	opts.Cluster = ClusterOpts{}
+	opts.ServerName = "memstore-pending-" + nuid.Next()
+	opts.JetStream = true
+	opts.StoreDir = t.TempDir()
+	account := NewAccount("MEMSTORE")
+	opts.Accounts = []*Account{account}
+	opts.Users = []*User{{Username: "pending", Password: "pending", Account: account}}
+	s := RunServer(opts)
+	t.Cleanup(s.Shutdown)
+	account, err := s.LookupAccount("MEMSTORE")
+	require_NoError(t, err)
+	require_NoError(t, account.EnableJetStream(nil, nil))
+	nc, err := nats.Connect(s.ClientURL(), nats.UserInfo("pending", "pending"), nats.Timeout(2*time.Second))
+	require_NoError(t, err)
+	t.Cleanup(nc.Close)
+	js, err := nc.JetStream(nats.MaxWait(2 * time.Second))
+	require_NoError(t, err)
+	// Isolate system traffic; all API requests below have at least five tokens.
+	_, err = js.AddStream(&nats.StreamConfig{Name: "MEM", Subjects: []string{"*.*.*.*"}, Storage: nats.MemoryStorage, AllowDirect: true, NoAck: true})
 	require_NoError(t, err)
 	tokens := []string{"foo", "bar", "baz"}
 	rng := rand.New(rand.NewPCG(5, 6))
@@ -2664,14 +2682,10 @@ func TestMemStoreIntegrationPending(t *testing.T) {
 			fixture[i][j] = tokens[rng.IntN(len(tokens))]
 		}
 		x := fixture[i]
-		_, err := js.PublishAsync(fmt.Sprintf("%s.%s.%s.%s", x[0], x[1], x[2], x[3]), []byte("Hello World"))
+		err := nc.Publish(fmt.Sprintf("%s.%s.%s.%s", x[0], x[1], x[2], x[3]), []byte("Hello World"))
 		require_NoError(t, err)
 	}
-	select {
-	case <-js.PublishAsyncComplete():
-	case <-time.After(30 * time.Second):
-		t.Fatal("50000 publications did not complete")
-	}
+	require_NoError(t, nc.FlushTimeout(30*time.Second))
 	stream, err := js.StreamInfo("MEM")
 	require_NoError(t, err)
 	require_Equal(t, stream.State.Msgs, 50000)
@@ -2720,6 +2734,10 @@ func TestMemStoreIntegrationPending(t *testing.T) {
 			})
 		}
 	}
+	stream, err = js.StreamInfo("MEM")
+	require_NoError(t, err)
+	require_Equal(t, stream.State.Msgs, 50000)
+	require_Equal(t, stream.State.LastSeq, 50000)
 }
 
 func TestMemStoreIntegrationPendingMulti(t *testing.T) {
@@ -2760,10 +2778,11 @@ func TestMemStoreIntegrationPendingMulti(t *testing.T) {
 			expected = append(expected, seq)
 		}
 	}
+	// Creating 5000 filters validates every pair before calculating pending state.
 	info, err := js.AddConsumer("MEM", &nats.ConsumerConfig{
 		Durable: "MULTI", FilterSubjects: filters, AckPolicy: nats.AckExplicitPolicy,
 		DeliverPolicy: nats.DeliverByStartSequencePolicy, OptStartSeq: start,
-	})
+	}, nats.MaxWait(10*time.Second))
 	require_NoError(t, err)
 	require_Equal(t, info.NumPending, uint64(len(expected)))
 	sub, err := js.PullSubscribe("", "MULTI", nats.Bind("MEM", "MULTI"))

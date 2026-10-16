@@ -318,6 +318,73 @@ func TestNRGMalformedPeerMessagesTCP(t *testing.T) {
 	}
 }
 
+func TestNRGAppendEntryDecodeNonHeaderMutationTCP(t *testing.T) {
+	c := createJetStreamClusterWithTemplateAndModHook(t, jsClusterTempl, "DECODE_MUTATION", 3, func(serverName, clusterName, storeDir, conf string) string {
+		return conf + fmt.Sprintf("\nlog_file: %q\n", filepath.Join(storeDir, "raft.log"))
+	})
+	defer c.shutdown()
+	for _, s := range c.servers {
+		s.ConfigureLogger()
+	}
+	rg := c.createRaftGroup("DECODE_MUTATION", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+	n := leader.node().(*raft)
+	n.RLock()
+	subject, committed, term := n.asubj, n.commit, n.term
+	ae := &appendEntry{leader: n.id, term: n.term, commit: n.commit, pterm: n.pterm, pindex: n.pindex}
+	n.RUnlock()
+	ae.entries = make([]*Entry, math.MaxUint16)
+	for i := range ae.entries {
+		ae.entries[i] = newEntry(EntryNormal, nil)
+	}
+	full := encode(t, ae).buf
+	nc, err := nats.Connect(leader.server().ClientURL(), nats.UserInfo("admin", "s3cr3t!"), nats.NoReconnect())
+	require_NoError(t, err)
+	defer nc.Close()
+	require_NoError(t, nc.Publish(subject, full[:len(full)-1025]))
+	for i := range 100 {
+		entry := i * (math.MaxUint16 - 1) / 99
+		offset := appendEntryBaseLen + 5*entry
+		payload := bytes.Clone(full)
+		// Empty normal entries have a zero type byte but a nonzero length of1.
+		require_Equal(t, binary.LittleEndian.Uint32(payload[offset:]), uint32(1))
+		payload[offset] = 0
+		require_NoError(t, nc.Publish(subject, payload))
+	}
+	require_NoError(t, nc.Flush())
+	marker := " - DECODE_MUTATION] AppendEntry failed to be placed on internal channel: corrupt entry"
+	checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+		b, err := os.ReadFile(leader.server().getOpts().LogFile)
+		if err != nil {
+			return err
+		}
+		if count := strings.Count(string(b), marker); count != 101 {
+			return fmt.Errorf("persisted malformed-frame rejections=%d, expected101", count)
+		}
+		return nil
+	})
+	for _, sm := range rg {
+		index, commit, applied := sm.node().Progress()
+		require_Equal(t, index, committed)
+		require_Equal(t, commit, committed)
+		require_Equal(t, applied, committed)
+		require_Equal(t, sm.node().Term(), term)
+		require_Equal(t, sm.(*stateAdder).total(), int64(1))
+	}
+	leader.(*stateAdder).proposeDelta(2)
+	rg.waitOnTotal(t, 3)
+	waitRaftRouteMembership(t, rg, 3)
+	follower := rg.nonLeader()
+	follower.stop()
+	follower.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
+}
+
 func TestNRGPeerStateDecodeTruncatedTCP(t *testing.T) {
 	c := createJetStreamClusterExplicit(t, "CORRUPT_PEERS", 3)
 	defer c.shutdown()
@@ -348,6 +415,44 @@ func TestNRGPeerStateDecodeTruncatedTCP(t *testing.T) {
 	for _, sm := range rg {
 		require_Equal(t, len(sm.node().PeerNames()), 3)
 	}
+
+	current := rg.waitOnLeader()
+	require_NotNil(t, current)
+	removed := rg.nonLeader()
+	require_NoError(t, current.node().ProposeRemovePeer(removed.node().ID()))
+	var active smGroup
+	var expected []string
+	for _, sm := range rg {
+		if sm != removed {
+			active = append(active, sm)
+			expected = append(expected, sm.node().ID())
+		}
+	}
+	waitRaftRouteMembership(t, active, 2)
+	removed.stop()
+	slices.Sort(expected)
+	valid := encodePeerState(&peerState{knownPeers: expected, clusterSize: 2})
+	require_NoError(t, current.node().ProposeMulti(current.node().Term(), []*Entry{newEntry(EntryPeerState, valid)}))
+	current.(*stateAdder).proposeDelta(4)
+	active.waitOnTotal(t, 7)
+	waitRaftRouteMembership(t, active, 2)
+	checkExactPeers := func() {
+		t.Helper()
+		for _, sm := range active {
+			got := sm.node().PeerNames()
+			slices.Sort(got)
+			require_True(t, slices.Equal(got, expected))
+			require_Equal(t, sm.node().ClusterSize(), 2)
+		}
+	}
+	checkExactPeers()
+	validFollower := active.nonLeader()
+	require_NotNil(t, validFollower)
+	validFollower.stop()
+	validFollower.restart()
+	waitRaftRouteMembership(t, active, 2)
+	active.waitOnTotal(t, 7)
+	checkExactPeers()
 }
 
 func TestNRGMalformedAppendEntryResponse(t *testing.T) {
@@ -604,6 +709,93 @@ func TestNRGSwitchStateClearsQueues(t *testing.T) {
 	require_Equal(t, n.resp.len(), 0)
 }
 
+func TestNRGProposalFastPathTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "FAST_PATH", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("FAST_PATH", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	waitRaftRouteMembership(t, rg, 3)
+	n := leader.node().(*raft)
+	term := n.Term()
+	_, baseline, _ := n.Progress()
+	delta := func(value int64) []byte { return binary.AppendVarint(nil, value) }
+	store := n.wal.(*fileStore)
+	store.mu.Lock()
+	var once sync.Once
+	release := func() { once.Do(store.mu.Unlock) }
+	defer release()
+	// Real disk-store contention holds sendAppendEntryLocked at its WAL write
+	// while the production fast path remains open for additional proposals.
+	require_NoError(t, n.Propose(term, delta(1)))
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		if n.fastPathTerm.Load() != term {
+			return errors.New("real blocked WAL write has not opened the proposal fast path")
+		}
+		return nil
+	})
+	require_False(t, n.tryFastPathPropose(0, delta(1024)))
+	require_False(t, n.tryFastPathPropose(term+1, delta(1024)))
+	require_True(t, n.tryFastPathPropose(term, delta(2)))
+	multi := []*Entry{newEntry(EntryNormal, delta(4)), newEntry(EntryNormal, delta(8))}
+	require_True(t, n.tryFastPathProposeMulti(term, multi))
+	multi[0] = nil
+	release()
+	rg.waitOnTotal(t, 15)
+	waitRaftRouteMembership(t, rg, 3)
+	for _, sm := range rg {
+		follower := sm.node().(*raft)
+		_, committed, _ := follower.Progress()
+		var got []int64
+		for index := baseline + 1; index <= committed; index++ {
+			follower.Lock()
+			ae, err := follower.loadEntry(index)
+			follower.Unlock()
+			require_NoError(t, err)
+			require_NotNil(t, ae)
+			require_Equal(t, ae.term, term)
+			for _, entry := range ae.entries {
+				if entry.Type == EntryNormal {
+					value, _ := binary.Varint(entry.Data)
+					got = append(got, value)
+				}
+			}
+			ae.returnToPool()
+		}
+		require_True(t, slices.Equal(got, []int64{1, 2, 4, 8}))
+	}
+	n.Lock()
+	closed := n.fastPathTerm.Load()
+	rejected := !n.tryFastPathPropose(term, delta(1024))
+	n.Unlock()
+	require_Equal(t, closed, uint64(0))
+	require_True(t, rejected)
+	preferred := rg.nonLeader()
+	require_NoError(t, n.StepDown(preferred.node().ID()))
+	checkFor(t, 5*time.Second, time.Millisecond, func() error {
+		current := rg.leader()
+		if current == nil || current == leader || current.node().Term() <= term {
+			return errors.New("real fast-path leader has not transferred leadership")
+		}
+		return nil
+	})
+	require_Equal(t, n.fastPathTerm.Load(), uint64(0))
+	require_False(t, n.tryFastPathPropose(term, delta(1024)))
+	require_False(t, n.tryFastPathProposeMulti(term, []*Entry{newEntry(EntryNormal, delta(1024))}))
+	require_Error(t, n.Propose(term, delta(1024)), errNotLeader)
+	leader.stop()
+	require_Equal(t, n.fastPathTerm.Load(), uint64(0))
+	require_False(t, n.tryFastPathPropose(term, delta(1024)))
+	require_Error(t, n.Propose(term, delta(1024)), errNotLeader)
+	leader.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 15)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(16)
+	rg.waitOnTotal(t, 31)
+}
+
 func TestNRGProposalFastPath(t *testing.T) {
 	s := &Server{}
 
@@ -653,6 +845,72 @@ func TestNRGProposalFastPath(t *testing.T) {
 	n.fastPathTerm.Store(0)
 	require_Equal(t, n.fastPathTerm.Load(), uint64(0))
 	require_False(t, n.tryFastPathPropose(1, []byte("closed again")))
+}
+
+func TestNRGProposalFastPathLimitsTCP(t *testing.T) {
+	for _, limit := range []struct {
+		name                 string
+		entries, payloadSize int
+	}{
+		{"entries", 8*maxBatchEntries + 1, 1},
+		{"bytes", 9, maxBatchBytes - 1},
+	} {
+		for _, closer := range []string{"single", "multi"} {
+			t.Run(limit.name+"/"+closer, func(t *testing.T) {
+				c := createJetStreamClusterExplicit(t, "FAST_LIMITS", 3)
+				defer c.shutdown()
+				rg := c.createRaftGroup("FAST_LIMITS", 3, newStateAdder)
+				leader := rg.waitOnLeader()
+				require_NotNil(t, leader)
+				waitRaftRouteMembership(t, rg, 3)
+				n := leader.node().(*raft)
+				term := n.Term()
+				store := n.wal.(*fileStore)
+				store.mu.Lock()
+				var once sync.Once
+				release := func() { once.Do(store.mu.Unlock) }
+				defer release()
+				require_NoError(t, n.Propose(term, binary.AppendVarint(nil, 1)))
+				checkFor(t, time.Second, time.Millisecond, func() error {
+					if n.fastPathTerm.Load() != term {
+						return errors.New("actual blocked WAL write has not opened the fast path")
+					}
+					return nil
+				})
+				payload := make([]byte, limit.payloadSize)
+				binary.PutVarint(payload, 1)
+				for range limit.entries {
+					require_True(t, n.tryFastPathPropose(term, payload))
+				}
+				require_Equal(t, n.prop.len(), limit.entries)
+				require_Equal(t, n.prop.size(), uint64(limit.entries*(limit.payloadSize+1)))
+				require_Equal(t, n.fastPathTerm.Load(), term)
+				if closer == "single" {
+					require_False(t, n.tryFastPathPropose(term, payload))
+				} else {
+					require_False(t, n.tryFastPathProposeMulti(term, []*Entry{newEntry(EntryNormal, payload)}))
+				}
+				require_Equal(t, n.fastPathTerm.Load(), uint64(0))
+				require_False(t, n.tryFastPathPropose(term, payload))
+				require_False(t, n.tryFastPathProposeMulti(term, []*Entry{newEntry(EntryNormal, payload)}))
+				require_Equal(t, n.prop.len(), limit.entries)
+				release()
+				expected := int64(limit.entries + 1)
+				rg.waitOnTotal(t, expected)
+				waitRaftRouteMembership(t, rg, 3)
+				require_Equal(t, n.prop.len(), 0)
+				require_Equal(t, n.prop.size(), uint64(0))
+				require_False(t, n.checkFastPathLimits(term))
+				require_NoError(t, n.Propose(term, binary.AppendVarint(nil, 1)))
+				rg.waitOnTotal(t, expected+1)
+				follower := rg.nonLeader()
+				follower.stop()
+				follower.restart()
+				waitRaftRouteMembership(t, rg, 3)
+				rg.waitOnTotal(t, expected+1)
+			})
+		}
+	}
 }
 
 func TestNRGProposalFastPathLimits(t *testing.T) {
@@ -1474,6 +1732,111 @@ func TestNRGWALEntryWithoutQuorumMustTruncate(t *testing.T) {
 	}
 }
 
+func TestNRGTermNoDecreaseAfterWALResetTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 3)
+	peers := serverPeerNames(c.servers)
+	server := c.servers[0]
+	cfg := &RaftConfig{Name: "PARTITION", Store: t.TempDir(), Log: c.createWAL("PARTITION", FileStorage), NewTransport: defaultRaftTransport, Recovering: true}
+	require_NoError(t, server.bootstrapRaftNode(cfg, peers, true))
+	node, err := server.startRaftNode(globalAccountName, cfg, pprofLabels{})
+	require_NoError(t, err)
+	target := newStateAdder(server, cfg, node).(*stateAdder)
+	n := node.(*raft)
+	aq := n.ApplyQ()
+	select {
+	case <-aq.ch:
+		ces := aq.pop()
+		for _, ce := range ces {
+			require_True(t, ce == nil)
+		}
+		aq.recycle(&ces)
+	case <-time.After(time.Second):
+		t.Fatal("empty recovering node did not finish actual startup")
+	}
+	require_NoError(t, n.PauseApply())
+	var active smGroup
+	for _, server := range c.servers[1:] {
+		cfg := &RaftConfig{Name: "PARTITION", Store: t.TempDir(), Log: c.createWAL("PARTITION", FileStorage), NewTransport: defaultRaftTransport}
+		active = append(active, c.createStateMachine(server, cfg, peers, newStateAdder))
+	}
+	rg := append(active, target)
+	require_NoError(t, active[0].node().CampaignImmediately())
+	leader := active.waitOnLeader()
+	require_NotNil(t, leader)
+	for _, delta := range []int64{2, 4} {
+		leader.(*stateAdder).proposeDelta(delta)
+		active.waitOnTotal(t, delta*2-2)
+	}
+	waitRaftRouteMembership(t, active, 3)
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		n.RLock()
+		defer n.RUnlock()
+		if n.commit != 0 || n.pindex != 3 || len(n.pae) != 3 || n.paeBytes == 0 {
+			return fmt.Errorf("initial real uncommitted WAL/cache not ready: index=%d commit=%d cached=%d bytes=%d", n.pindex, n.commit, len(n.pae), n.paeBytes)
+		}
+		return nil
+	})
+	partition.sides[server.ID()].Store(1)
+	nc, err := nats.Connect(server.ClientURL(), nats.UserInfo("admin", "s3cr3t!"), nats.NoReconnect())
+	require_NoError(t, err)
+	defer nc.Close()
+	n.RLock()
+	oldTerm, lastTerm, lastIndex, voteSubject, appendSubject := n.term, n.pterm, n.pindex, n.vsubj, n.asubj
+	n.RUnlock()
+	newTerm := oldTerm + 1
+	request := &voteRequest{term: newTerm, lastTerm: lastTerm, lastIndex: lastIndex, candidate: leader.node().ID()}
+	msg, err := nc.Request(voteSubject, request.encode(), time.Second)
+	require_NoError(t, err)
+	vote := decodeVoteResponse(msg.Data)
+	require_NotNil(t, vote)
+	require_True(t, vote.granted)
+	require_Equal(t, vote.term, newTerm)
+	stale := encode(t, &appendEntry{leader: leader.node().ID(), term: oldTerm})
+	assertRejected := func() {
+		t.Helper()
+		msg, err := nc.Request(appendSubject, stale.buf, time.Second)
+		require_NoError(t, err)
+		response := decodeAppendEntryResponse(msg.Data)
+		require_NotNil(t, response)
+		require_False(t, response.success)
+		require_True(t, response.term >= newTerm)
+		require_True(t, n.Term() >= newTerm)
+	}
+	assertRejected()
+	// A higher-term wire heartbeat with an absent predecessor reaches the
+	// production resetWAL repair path without Reset's deliberate term clearing.
+	repair := encode(t, &appendEntry{leader: leader.node().ID(), term: newTerm})
+	require_NoError(t, nc.Publish(appendSubject, repair.buf))
+	require_NoError(t, nc.Flush())
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		n.RLock()
+		defer n.RUnlock()
+		state := n.wal.State()
+		if n.term < newTerm || n.pindex != 0 || state.Msgs != 0 || state.LastSeq != 0 || len(n.pae) != 0 || n.paeBytes != 0 {
+			return fmt.Errorf("wire WAL reset did not preserve term/clear log: term=%d index=%d messages=%d last=%d cached=%d bytes=%d", n.term, n.pindex, state.Msgs, state.LastSeq, len(n.pae), n.paeBytes)
+		}
+		return nil
+	})
+	assertRejected()
+	target.stop()
+	target.restart()
+	n = target.node().(*raft)
+	require_True(t, n.Term() >= newTerm)
+	assertRejected()
+	partition.heal()
+	rg.waitOnTotal(t, 6)
+	waitRaftRouteMembership(t, rg, 3)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(8)
+	rg.waitOnTotal(t, 14)
+	target.snapshot(t)
+	target.stop()
+	target.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 14)
+}
+
 func TestNRGTermNoDecreaseAfterWALReset(t *testing.T) {
 	c := createJetStreamClusterExplicit(t, "R3S", 3)
 	defer c.shutdown()
@@ -1554,6 +1917,203 @@ func TestNRGPendingAppendEntryCacheInvalidation(t *testing.T) {
 	}
 }
 
+func TestNRGTruncateWALClearsPendingAppendEntryCacheTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 3)
+	rg := c.createRaftGroup("PARTITION", 3, newStateAdder)
+	oldLeader := rg.waitOnLeader()
+	require_NotNil(t, oldLeader)
+	oldLeader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+	n := oldLeader.node().(*raft)
+	term := n.Term()
+	_, committed, _ := n.Progress()
+	n.Lock()
+	prefix, err := n.loadEntry(committed)
+	n.Unlock()
+	require_NoError(t, err)
+	require_NotNil(t, prefix)
+	committedEntry := bytes.Clone(prefix.buf)
+	prefix.returnToPool()
+	majority := rg.followers()
+	partition.sides[oldLeader.server().ID()].Store(1)
+	for i, value := range []int64{1024, 2048} {
+		require_NoError(t, n.Propose(term, binary.AppendVarint(nil, value)))
+		index := committed + uint64(i) + 1
+		checkFor(t, time.Second, time.Millisecond, func() error {
+			n.RLock()
+			defer n.RUnlock()
+			if n.pindex != index || n.commit != committed || n.pae[index] == nil {
+				return fmt.Errorf("uncommitted cached tail not stored at %d: index=%d commit=%d", index, n.pindex, n.commit)
+			}
+			return nil
+		})
+	}
+	require_Equal(t, oldLeader.(*stateAdder).total(), int64(1))
+	require_NoError(t, majority[0].node().CampaignImmediately())
+	newLeader := majority.waitOnLeader()
+	require_NotNil(t, newLeader)
+	newLeader.(*stateAdder).proposeDelta(2)
+	majority.waitOnTotal(t, 3)
+	waitRaftRouteMembership(t, majority, 3)
+	partition.heal()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
+	n.Lock()
+	prefix, err = n.loadEntry(committed)
+	n.Unlock()
+	require_NoError(t, err)
+	require_NotNil(t, prefix)
+	require_Equal(t, bytes.Equal(prefix.buf, committedEntry), true)
+	prefix.returnToPool()
+	for index := committed + 1; index <= committed+2; index++ {
+		n.Lock()
+		ae, err := n.loadEntry(index)
+		n.Unlock()
+		require_NoError(t, err)
+		require_NotNil(t, ae)
+		require_True(t, ae.term > term)
+		require_Equal(t, ae.leader, newLeader.node().ID())
+		for _, entry := range ae.entries {
+			if entry.Type == EntryNormal {
+				value, _ := binary.Varint(entry.Data)
+				require_NotEqual(t, value, int64(1024))
+				require_NotEqual(t, value, int64(2048))
+			}
+		}
+		ae.returnToPool()
+	}
+	n.RLock()
+	cached, cachedBytes := len(n.pae), n.paeBytes
+	n.RUnlock()
+	require_Equal(t, cached, 0)
+	require_Equal(t, cachedBytes, 0)
+	oldLeader.stop()
+	oldLeader.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(4)
+	rg.waitOnTotal(t, 7)
+}
+
+func TestNRGTruncateWALRetainsSafePendingAppendEntryTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 5)
+	rg := c.createRaftGroup("PARTITION", 5, newStateAdder)
+	oldLeader := rg.waitOnLeader()
+	require_NotNil(t, oldLeader)
+	oldLeader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 5)
+	target := rg.nonLeader()
+	n := target.node().(*raft)
+	_, baseline, _ := n.Progress()
+	term := n.Term()
+	require_NoError(t, n.PauseApply())
+	var active, majority smGroup
+	for _, sm := range rg {
+		if sm != target {
+			active = append(active, sm)
+			if sm != oldLeader {
+				majority = append(majority, sm)
+			}
+		}
+	}
+	oldLeader.(*stateAdder).proposeDelta(2)
+	active.waitOnTotal(t, 3)
+	common := baseline + 1
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		n.RLock()
+		defer n.RUnlock()
+		if n.pindex != common || n.commit != baseline || n.hcommit != common || n.pae[common] == nil {
+			return fmt.Errorf("quorum-backed cache entry not held: index=%d commit=%d held=%d", n.pindex, n.commit, n.hcommit)
+		}
+		return nil
+	})
+	partition.sides[oldLeader.server().ID()].Store(1)
+	partition.sides[target.server().ID()].Store(1)
+	for i, delta := range []int64{1024, 2048} {
+		require_NoError(t, oldLeader.node().Propose(term, binary.AppendVarint(nil, delta)))
+		index := common + uint64(i) + 1
+		checkFor(t, time.Second, time.Millisecond, func() error {
+			n.RLock()
+			defer n.RUnlock()
+			if n.pindex != index || n.commit != baseline || n.pae[index] == nil {
+				return fmt.Errorf("minority follower did not cache stale index%d: index=%d commit=%d", index, n.pindex, n.commit)
+			}
+			return nil
+		})
+	}
+	n.RLock()
+	beforeCount := len(n.pae)
+	n.RUnlock()
+	require_Equal(t, beforeCount, 3)
+	require_NoError(t, majority[0].node().CampaignImmediately())
+	newLeader := majority.waitOnLeader()
+	require_NotNil(t, newLeader)
+	newLeader.(*stateAdder).proposeDelta(4)
+	majority.waitOnTotal(t, 7)
+	waitRaftRouteMembership(t, majority, 5)
+	_, replaced, _ := newLeader.node().Progress()
+	require_Equal(t, replaced, common+2)
+	partition.heal()
+	checkFor(t, 5*time.Second, time.Millisecond, func() error {
+		n.Lock()
+		defer n.Unlock()
+		if !n.paused || n.commit != baseline || n.pindex != replaced || n.hcommit != replaced {
+			return fmt.Errorf("paused repaired follower: index=%d commit=%d held=%d paused=%v", n.pindex, n.commit, n.hcommit, n.paused)
+		}
+		safe := n.pae[common]
+		if safe == nil || safe.term != term || len(safe.entries) != 1 || safe.entries[0].Type != EntryNormal {
+			return errors.New("safe quorum-backed cached entry was lost or changed during tail replacement")
+		}
+		if value, _ := binary.Varint(safe.entries[0].Data); value != 2 {
+			return fmt.Errorf("safe cached payload=%d, expected2", value)
+		}
+		for index := common + 1; index <= replaced; index++ {
+			ae := n.pae[index]
+			if ae == nil || ae.term <= term {
+				return fmt.Errorf("stale cached term remains at index%d", index)
+			}
+			for _, entry := range ae.entries {
+				if entry.Type == EntryNormal {
+					value, _ := binary.Varint(entry.Data)
+					if value == 1024 || value == 2048 {
+						return fmt.Errorf("stale normal payload remains at index%d", index)
+					}
+				}
+			}
+		}
+		var cachedBytes uint64
+		for _, ae := range n.pae {
+			cachedBytes += n.entryStoreSize(ae)
+		}
+		if len(n.pae) != 3 || n.paeBytes != cachedBytes {
+			return fmt.Errorf("repaired cache accounting: count=%d bytes=%d expected%d", len(n.pae), n.paeBytes, cachedBytes)
+		}
+		return nil
+	})
+	require_Equal(t, target.(*stateAdder).total(), int64(1))
+	require_False(t, n.Healthy())
+	n.ResumeApply()
+	rg.waitOnTotal(t, 7)
+	waitRaftRouteMembership(t, rg, 5)
+	n.RLock()
+	cached, cachedBytes := len(n.pae), n.paeBytes
+	n.RUnlock()
+	require_Equal(t, cached, 0)
+	require_Equal(t, cachedBytes, 0)
+	target.stop()
+	target.restart()
+	waitRaftRouteMembership(t, rg, 5)
+	rg.waitOnTotal(t, 7)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(8)
+	rg.waitOnTotal(t, 15)
+}
+
 func TestNRGTruncateWALClearsPendingAppendEntryCache(t *testing.T) {
 	n, cleanup := initSingleMemRaftNode(t)
 	defer cleanup()
@@ -1593,6 +2153,251 @@ func TestNRGTruncateWALClearsPendingAppendEntryCache(t *testing.T) {
 	// the cache (bypassing the WAL load path).
 	require_Len(t, len(n.pae), 1)
 	require_NotNil(t, n.pae[1])
+}
+
+func TestNRGTruncateWALRevertsUncommittedMembershipTCP(t *testing.T) {
+	for _, change := range []string{"add", "remove"} {
+		for _, restart := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/restart=%v", change, restart), func(t *testing.T) {
+				c, partition := newRaftRoutePartition(t, 4)
+				rg := c.createRaftGroupWithPeers("PARTITION", c.servers[:3], newStateAdder, defaultRaftTransport, FileStorage)
+				oldLeader := rg.waitOnLeader()
+				require_NotNil(t, oldLeader)
+				oldLeader.(*stateAdder).proposeDelta(1)
+				rg.waitOnTotal(t, 1)
+				waitRaftRouteMembership(t, rg, 3)
+				majority := rg.followers()
+				n := oldLeader.node().(*raft)
+				_, committed, _ := n.Progress()
+				term := n.Term()
+				peer := serverPeerNames(c.servers[3:])[0]
+				pendingSize, pendingQuorum := 4, 3
+				if change == "remove" {
+					peer = majority[0].node().ID()
+					pendingSize, pendingQuorum = 2, 2
+				}
+				partition.sides[oldLeader.server().ID()].Store(1)
+				if change == "add" {
+					require_NoError(t, n.ProposeAddPeer(peer))
+				} else {
+					require_NoError(t, n.ProposeRemovePeer(peer))
+				}
+				checkPending := func() {
+					t.Helper()
+					checkFor(t, time.Second, time.Millisecond, func() error {
+						n.RLock()
+						defer n.RUnlock()
+						if n.membChange == nil || n.membChange.index != committed+1 || n.membChange.peer != peer ||
+							n.pindex != committed+1 || n.commit != committed || n.csz != pendingSize || n.qn != pendingQuorum {
+							return fmt.Errorf("pending %s not stored: index=%d commit=%d size=%d quorum=%d change=%+v", change, n.pindex, n.commit, n.csz, n.qn, n.membChange)
+						}
+						_, present := n.peers[peer]
+						_, removed := n.removed[peer]
+						if present != (change == "add") || removed || (n.membChange.prev == nil) != (change == "add") {
+							return fmt.Errorf("incorrect speculative %s: present=%v removed=%v", change, present, removed)
+						}
+						return nil
+					})
+				}
+				checkRaftz := func(pending bool) {
+					t.Helper()
+					rz := oldLeader.server().Raftz(&RaftzOptions{AccountFilter: globalAccountName, GroupFilter: "PARTITION"})
+					require_NotNil(t, rz)
+					gz, ok := (*rz)[globalAccountName]["PARTITION"]
+					require_True(t, ok)
+					expected := make(map[string]bool)
+					for _, sm := range majority {
+						expected[sm.node().ID()] = true
+					}
+					if pending {
+						if change == "add" {
+							expected[peer] = false
+						} else {
+							delete(expected, peer)
+						}
+						require_Equal(t, gz.Size, pendingSize)
+						require_Equal(t, gz.QuorumNeeded, pendingQuorum)
+					} else {
+						require_Equal(t, gz.Size, 3)
+						require_Equal(t, gz.QuorumNeeded, 2)
+					}
+					require_Equal(t, len(gz.Peers), len(expected))
+					for id, known := range expected {
+						got, ok := gz.Peers[id]
+						require_True(t, ok)
+						require_Equal(t, got.Known, known)
+					}
+				}
+				checkPending()
+				checkRaftz(true)
+				if restart {
+					oldLeader.stop()
+					oldLeader.restart()
+					n = oldLeader.node().(*raft)
+					checkPending()
+					checkRaftz(true)
+				}
+				require_NoError(t, majority[0].node().CampaignImmediately())
+				newLeader := majority.waitOnLeader()
+				require_NotNil(t, newLeader)
+				newLeader.(*stateAdder).proposeDelta(2)
+				majority.waitOnTotal(t, 3)
+				waitRaftRouteMembership(t, majority, 3)
+				partition.heal()
+				waitRaftRouteMembership(t, rg, 3)
+				rg.waitOnTotal(t, 3)
+				checkRaftz(false)
+				n.RLock()
+				_, present := n.peers[peer]
+				_, removed := n.removed[peer]
+				changing := n.membChange != nil
+				n.RUnlock()
+				require_Equal(t, present, change == "remove")
+				require_False(t, removed)
+				require_False(t, changing)
+				n.Lock()
+				ae, err := n.loadEntry(committed + 1)
+				n.Unlock()
+				require_NoError(t, err)
+				require_NotNil(t, ae)
+				require_True(t, ae.term > term)
+				for _, entry := range ae.entries {
+					require_False(t, entry.ChangesMembership())
+				}
+				ae.returnToPool()
+				oldLeader.stop()
+				oldLeader.restart()
+				n = oldLeader.node().(*raft)
+				waitRaftRouteMembership(t, rg, 3)
+				rg.waitOnTotal(t, 3)
+				checkRaftz(false)
+				recovered := rg.waitOnLeader()
+				require_NotNil(t, recovered)
+				recovered.(*stateAdder).proposeDelta(4)
+				rg.waitOnTotal(t, 7)
+			})
+		}
+	}
+	for _, change := range []string{"add", "remove"} {
+		t.Run("follower/"+change, func(t *testing.T) {
+			c, partition := newRaftRoutePartition(t, 6)
+			rg := c.createRaftGroupWithPeers("PARTITION", c.servers[:5], newStateAdder, defaultRaftTransport, FileStorage)
+			oldLeader := rg.waitOnLeader()
+			require_NotNil(t, oldLeader)
+			oldLeader.(*stateAdder).proposeDelta(1)
+			rg.waitOnTotal(t, 1)
+			waitRaftRouteMembership(t, rg, 5)
+			followers := rg.followers()
+			target, majority := followers[0], followers[1:]
+			n := target.node().(*raft)
+			_, committed, _ := n.Progress()
+			term := n.Term()
+			peer := serverPeerNames(c.servers[5:])[0]
+			pendingSize, pendingQuorum := 6, 4
+			if change == "remove" {
+				peer = majority[0].node().ID()
+				pendingSize, pendingQuorum = 4, 3
+			}
+			partition.sides[oldLeader.server().ID()].Store(1)
+			partition.sides[target.server().ID()].Store(1)
+			if change == "add" {
+				require_NoError(t, oldLeader.node().ProposeAddPeer(peer))
+			} else {
+				require_NoError(t, oldLeader.node().ProposeRemovePeer(peer))
+			}
+			checkPending := func() {
+				t.Helper()
+				checkFor(t, time.Second, time.Millisecond, func() error {
+					n.RLock()
+					defer n.RUnlock()
+					if n.membChange == nil || n.membChange.index != committed+1 || n.membChange.peer != peer ||
+						n.pindex != committed+1 || n.commit != committed || n.csz != pendingSize || n.qn != pendingQuorum {
+						return fmt.Errorf("follower pending %s not received/replayed: index=%d commit=%d size=%d quorum=%d change=%+v", change, n.pindex, n.commit, n.csz, n.qn, n.membChange)
+					}
+					_, present := n.peers[peer]
+					_, removed := n.removed[peer]
+					if present != (change == "add") || removed || (n.membChange.prev == nil) != (change == "add") {
+						return fmt.Errorf("incorrect follower speculative %s: present=%v removed=%v", change, present, removed)
+					}
+					return nil
+				})
+			}
+			checkRaftz := func(pending bool) {
+				t.Helper()
+				rz := target.server().Raftz(&RaftzOptions{AccountFilter: globalAccountName, GroupFilter: "PARTITION"})
+				require_NotNil(t, rz)
+				gz, ok := (*rz)[globalAccountName]["PARTITION"]
+				require_True(t, ok)
+				expected := make(map[string]bool)
+				for _, sm := range rg {
+					if sm != target {
+						expected[sm.node().ID()] = true
+					}
+				}
+				if pending {
+					if change == "add" {
+						expected[peer] = false
+					} else {
+						delete(expected, peer)
+					}
+					require_Equal(t, gz.Size, pendingSize)
+					require_Equal(t, gz.QuorumNeeded, pendingQuorum)
+				} else {
+					require_Equal(t, gz.Size, 5)
+					require_Equal(t, gz.QuorumNeeded, 3)
+				}
+				require_Equal(t, len(gz.Peers), len(expected))
+				for id, known := range expected {
+					got, ok := gz.Peers[id]
+					require_True(t, ok)
+					require_Equal(t, got.Known, known)
+				}
+			}
+			checkPending()
+			require_Equal(t, n.State(), Follower)
+			checkRaftz(true)
+			target.stop()
+			target.restart()
+			n = target.node().(*raft)
+			checkPending()
+			checkRaftz(true)
+			require_NoError(t, majority[0].node().CampaignImmediately())
+			newLeader := majority.waitOnLeader()
+			require_NotNil(t, newLeader)
+			newLeader.(*stateAdder).proposeDelta(2)
+			majority.waitOnTotal(t, 3)
+			waitRaftRouteMembership(t, majority, 5)
+			partition.heal()
+			waitRaftRouteMembership(t, rg, 5)
+			rg.waitOnTotal(t, 3)
+			checkRaftz(false)
+			n.RLock()
+			_, removed := n.removed[peer]
+			changing := n.membChange != nil
+			n.RUnlock()
+			require_False(t, removed)
+			require_False(t, changing)
+			n.Lock()
+			ae, err := n.loadEntry(committed + 1)
+			n.Unlock()
+			require_NoError(t, err)
+			require_NotNil(t, ae)
+			require_True(t, ae.term > term)
+			for _, entry := range ae.entries {
+				require_False(t, entry.ChangesMembership())
+			}
+			ae.returnToPool()
+			target.stop()
+			target.restart()
+			waitRaftRouteMembership(t, rg, 5)
+			rg.waitOnTotal(t, 3)
+			checkRaftz(false)
+			recovered := rg.waitOnLeader()
+			require_NotNil(t, recovered)
+			recovered.(*stateAdder).proposeDelta(4)
+			rg.waitOnTotal(t, 7)
+		})
+	}
 }
 
 func TestNRGTruncateWALRevertsUncommittedAddPeer(t *testing.T) {
@@ -2098,6 +2903,86 @@ func TestNRGEvictPeers(t *testing.T) {
 		_, ok = n.peers[nats1]
 		require_False(t, ok)
 	})
+}
+
+func TestNRGResetWALClearsPendingAppendEntryCacheTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 3)
+	rg := c.createRaftGroup("PARTITION", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	rg.waitOnTotal(t, 0)
+	waitRaftRouteMembership(t, rg, 3)
+	target := rg.nonLeader()
+	n := target.node().(*raft)
+	_, baseline, _ := n.Progress()
+	require_NoError(t, n.PauseApply())
+	var active smGroup
+	for _, sm := range rg {
+		if sm != target {
+			active = append(active, sm)
+		}
+	}
+	for i, delta := range []int64{1, 2, 4} {
+		leader.(*stateAdder).proposeDelta(delta)
+		active.waitOnTotal(t, delta*2-1)
+		index := baseline + uint64(i) + 1
+		checkFor(t, time.Second, time.Millisecond, func() error {
+			n.RLock()
+			defer n.RUnlock()
+			if n.pindex != index || n.commit != baseline || n.pae[index] == nil {
+				return fmt.Errorf("real pending cache entry%d not retained: index=%d commit=%d", index, n.pindex, n.commit)
+			}
+			return nil
+		})
+	}
+	n.RLock()
+	cached, cachedBytes := len(n.pae), n.paeBytes
+	n.RUnlock()
+	require_Equal(t, cached, 3)
+	require_True(t, cachedBytes > 0)
+	require_Equal(t, target.(*stateAdder).total(), int64(0))
+	leader.(*stateAdder).snapshot(t)
+	dropped := partition.dropped.Load()
+	partition.sides[target.server().ID()].Store(1)
+	checkFor(t, 2*hbInterval+time.Second, time.Millisecond, func() error {
+		if partition.dropped.Load() == dropped {
+			return errors.New("reset target has not dropped a real route frame")
+		}
+		return nil
+	})
+	n.SetObserver(true)
+	n.Reset()
+	n.RLock()
+	index, commit, applied, processed := n.pindex, n.commit, n.applied, n.processed
+	cached, cachedBytes = len(n.pae), n.paeBytes
+	state := n.wal.State()
+	n.RUnlock()
+	require_Equal(t, index, 0)
+	require_Equal(t, commit, 0)
+	require_Equal(t, applied, 0)
+	require_Equal(t, processed, 0)
+	require_Equal(t, state.Msgs, 0)
+	require_Equal(t, state.LastSeq, 0)
+	require_Equal(t, cached, 0)
+	require_Equal(t, cachedBytes, 0)
+	n.ResumeApply()
+	partition.heal()
+	rg.waitOnTotal(t, 7)
+	waitRaftRouteMembership(t, rg, 3)
+	n.SetObserver(false)
+	n.RLock()
+	cached, cachedBytes = len(n.pae), n.paeBytes
+	n.RUnlock()
+	require_Equal(t, cached, 0)
+	require_Equal(t, cachedBytes, 0)
+	target.stop()
+	target.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 7)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(8)
+	rg.waitOnTotal(t, 15)
 }
 
 func TestNRGResetWALClearsPendingAppendEntryCache(t *testing.T) {
@@ -5005,6 +5890,233 @@ func TestNRGNewEntriesFromOldLeaderResetsWALDuringCatchup(t *testing.T) {
 	n.processAppendEntry(aeMsg3, csub)
 	require_Equal(t, n.pindex, 3)
 	require_Equal(t, n.pterm, 20)
+}
+
+func TestNRGProcessedTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "PROCESSED", 3)
+	defer c.shutdown()
+	peers := serverPeerNames(c.servers)
+	var active smGroup
+	for _, server := range c.servers[1:] {
+		cfg := &RaftConfig{Name: "PROCESSED", Store: t.TempDir(), Log: c.createWAL("PROCESSED", FileStorage), NewTransport: defaultRaftTransport}
+		active = append(active, c.createStateMachine(server, cfg, peers, newStateAdder))
+	}
+	require_NoError(t, active[0].node().CampaignImmediately())
+	leader := active.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	active.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, active, 3)
+
+	// Drive the third voter's real application queue explicitly, so commits
+	// cannot be acknowledged by the normal state-machine loop before inspection.
+	server := c.servers[0]
+	cfg := &RaftConfig{Name: "PROCESSED", Store: t.TempDir(), Log: c.createWAL("PROCESSED", FileStorage), NewTransport: defaultRaftTransport}
+	require_NoError(t, server.bootstrapRaftNode(cfg, peers, true))
+	node, err := server.startRaftNode(globalAccountName, cfg, pprofLabels{})
+	require_NoError(t, err)
+	target := newStateAdder(server, cfg, node).(*stateAdder)
+	rg := append(active, target)
+	n := node.(*raft)
+	aq := n.ApplyQ()
+	var pending []*CommittedEntry
+	next := func() *CommittedEntry {
+		t.Helper()
+		for len(pending) == 0 {
+			select {
+			case <-aq.ch:
+				ces := aq.pop()
+				for _, ce := range ces {
+					if ce != nil {
+						pending = append(pending, ce)
+					}
+				}
+				aq.recycle(&ces)
+			case <-time.After(5 * time.Second):
+				t.Fatal("real follower application queue did not deliver a commit")
+			}
+		}
+		ce := pending[0]
+		pending = pending[1:]
+		return ce
+	}
+	_, baseline, _ := leader.node().Progress()
+	for {
+		ce := next()
+		target.applyEntry(ce)
+		if ce.Index == baseline {
+			break
+		}
+		require_True(t, ce.Index < baseline)
+	}
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 1)
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		if !n.Healthy() {
+			return errors.New("initial real catchup has not become healthy")
+		}
+		return nil
+	})
+	assertProgress := func(commit, processed, applied uint64) {
+		t.Helper()
+		n.RLock()
+		gotIndex, gotCommit, gotProcessed, gotApplied := n.pindex, n.commit, n.processed, n.applied
+		n.RUnlock()
+		require_Equal(t, gotIndex, commit)
+		require_Equal(t, gotCommit, commit)
+		require_Equal(t, gotProcessed, processed)
+		require_Equal(t, gotApplied, applied)
+	}
+	propose := func(delta, total int64) *CommittedEntry {
+		t.Helper()
+		leader.(*stateAdder).proposeDelta(delta)
+		active.waitOnTotal(t, total)
+		return next()
+	}
+
+	require_NoError(t, n.PauseApply())
+	require_True(t, n.Healthy())
+	leader.(*stateAdder).proposeDelta(2)
+	active.waitOnTotal(t, 3)
+	checkFor(t, time.Second, time.Millisecond, func() error {
+		n.RLock()
+		defer n.RUnlock()
+		if n.pindex != baseline+1 || n.hcommit != baseline+1 {
+			return fmt.Errorf("paused follower has not received real pending commit: index=%d held=%d", n.pindex, n.hcommit)
+		}
+		return nil
+	})
+	require_False(t, n.Healthy())
+	n.ResumeApply()
+	first := next()
+	require_Equal(t, first.Index, baseline+1)
+	assertProgress(first.Index, baseline, baseline)
+	require_False(t, n.Healthy())
+	require_Equal(t, target.total(), int64(1))
+	n.Processed(first.Index, baseline)
+	assertProgress(first.Index, first.Index, baseline)
+	require_False(t, n.Healthy())
+
+	second := propose(4, 7)
+	require_Equal(t, second.Index, first.Index+1)
+	assertProgress(second.Index, first.Index, baseline)
+	target.applyEntry(first)
+	n.Processed(second.Index, first.Index)
+	assertProgress(second.Index, second.Index, first.Index)
+	third := propose(8, 15)
+	require_Equal(t, third.Index, second.Index+1)
+	assertProgress(third.Index, second.Index, first.Index)
+	target.applyEntry(second)
+	target.applyEntry(third)
+	assertProgress(third.Index, third.Index, third.Index)
+	require_True(t, n.Healthy())
+	rg.waitOnTotal(t, 15)
+
+	fourth := propose(16, 31)
+	fifth := propose(32, 63)
+	require_Equal(t, fourth.Index, third.Index+1)
+	require_Equal(t, fifth.Index, fourth.Index+1)
+	assertProgress(fifth.Index, third.Index, third.Index)
+	n.Processed(fourth.Index, fifth.Index)
+	assertProgress(fifth.Index, fourth.Index, fourth.Index)
+	require_False(t, n.Healthy())
+	target.applyEntry(fourth)
+	target.applyEntry(fifth)
+	assertProgress(fifth.Index, fifth.Index, fifth.Index)
+	require_True(t, n.Healthy())
+	rg.waitOnTotal(t, 63)
+	establishTargetLeadership := func() uint64 {
+		t.Helper()
+		current := active.waitOnLeader()
+		require_NotNil(t, current)
+		_, committed, _ := current.node().Progress()
+		checkFor(t, 5*time.Second, time.Millisecond, func() error {
+			index, commit, _ := n.Progress()
+			if index != committed || commit != committed {
+				return fmt.Errorf("target has not received current leader's commit: %d/%d, expected %d", index, commit, committed)
+			}
+			return nil
+		})
+		for {
+			_, _, applied := n.Progress()
+			if applied == committed {
+				break
+			}
+			target.applyEntry(next())
+		}
+		require_NoError(t, current.node().StepDown(n.ID()))
+		checkFor(t, 5*time.Second, time.Millisecond, func() error {
+			n.RLock()
+			defer n.RUnlock()
+			if n.State() != Leader || n.aflr == 0 || n.commit < n.aflr {
+				return errors.New("target has not committed its establishing no-op")
+			}
+			return nil
+		})
+		n.RLock()
+		floor, term := n.aflr, n.term
+		n.RUnlock()
+		require_False(t, n.Leader())
+		for {
+			ce := next()
+			require_False(t, n.Leader())
+			target.applyEntry(ce)
+			if ce.Index == floor {
+				break
+			}
+			require_True(t, ce.Index < floor)
+		}
+		require_True(t, n.Leader())
+		select {
+		case lc := <-n.LeadChangeC():
+			require_True(t, lc.isLeader)
+			require_Equal(t, lc.term, term)
+		case <-time.After(time.Second):
+			t.Fatal("established leader did not deliver its real term notification")
+		}
+		return term
+	}
+	firstTerm := establishTargetLeadership()
+	require_NoError(t, n.StepDown(active[0].node().ID()))
+	select {
+	case lc := <-n.LeadChangeC():
+		require_False(t, lc.isLeader)
+		require_Equal(t, lc.term, firstTerm)
+	case <-time.After(time.Second):
+		t.Fatal("stepping down did not deliver its lost-term notification")
+	}
+	require_Error(t, n.Propose(firstTerm, binary.AppendVarint(nil, 1024)), errNotLeader)
+	require_Error(t, n.ProposeMulti(firstTerm, []*Entry{newEntry(EntryNormal, binary.AppendVarint(nil, 1024))}), errNotLeader)
+	newTerm := establishTargetLeadership()
+	require_True(t, newTerm > firstTerm)
+	for _, staleTerm := range []uint64{0, firstTerm, newTerm + 1} {
+		require_Error(t, n.Propose(staleTerm, binary.AppendVarint(nil, 1024)), errNotLeader)
+		require_Error(t, n.ProposeMulti(staleTerm, []*Entry{newEntry(EntryNormal, binary.AppendVarint(nil, 1024))}), errNotLeader)
+	}
+	for _, propose := range []func() error{
+		func() error { return n.Propose(newTerm, binary.AppendVarint(nil, 0)) },
+		func() error {
+			return n.ProposeMulti(newTerm, []*Entry{newEntry(EntryNormal, binary.AppendVarint(nil, 0))})
+		},
+		func() error { return n.ForwardProposal(binary.AppendVarint(nil, 0)) },
+	} {
+		_, before, _ := n.Progress()
+		require_NoError(t, propose())
+		ce := next()
+		require_Equal(t, ce.Index, before+1)
+		target.applyEntry(ce)
+	}
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 63)
+	target.snapshot(t)
+	target.stop()
+	target.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 63)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(64)
+	rg.waitOnTotal(t, 127)
 }
 
 func TestNRGProcessed(t *testing.T) {
@@ -9116,6 +10228,7 @@ func TestNRGPartitionedPeerRemoveTCP(t *testing.T) {
 	for time.Now().Before(until) {
 		require_NotEqual(t, follower.node().State(), Leader)
 		require_Equal(t, follower.node().ClusterSize(), 2)
+		require_False(t, follower.node().MembershipChangeInProgress())
 		require_Equal(t, follower.(*stateAdder).total(), int64(1))
 		time.Sleep(10 * time.Millisecond)
 	}

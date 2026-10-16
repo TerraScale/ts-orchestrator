@@ -5024,3 +5024,1227 @@ func TestClientMsgsMetric(t *testing.T) {
 		t.Fatalf("Did not get expected outClientMsg/Bytes for message sent on qsub")
 	}
 }
+
+// clientTCPWire uses the running server's listener, so commands reach the
+// production accept, read, authentication, delivery and write paths.
+type clientTCPWire struct {
+	t    *testing.T
+	nc   net.Conn
+	r    *bufio.Reader
+	info Info
+}
+
+func clientTCPDial(t *testing.T, s *Server) *clientTCPWire {
+	t.Helper()
+	nc, err := net.DialTimeout("tcp", s.Addr().String(), time.Second)
+	require_NoError(t, err)
+	t.Cleanup(func() { nc.Close() })
+	w := &clientTCPWire{t: t, nc: nc, r: bufio.NewReader(nc)}
+	line := w.line()
+	if !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("Expected initial INFO, got %q", line)
+	}
+	require_NoError(t, json.Unmarshal([]byte(line[5:]), &w.info))
+	return w
+}
+
+func (w *clientTCPWire) write(proto string) {
+	w.t.Helper()
+	require_NoError(w.t, w.nc.SetWriteDeadline(time.Now().Add(5*time.Second)))
+	_, err := io.WriteString(w.nc, proto)
+	require_NoError(w.t, err)
+}
+
+func (w *clientTCPWire) line() string {
+	w.t.Helper()
+	for {
+		require_NoError(w.t, w.nc.SetReadDeadline(time.Now().Add(5*time.Second)))
+		line, err := w.r.ReadString('\n')
+		require_NoError(w.t, err)
+		if line == "PING\r\n" {
+			w.write("PONG\r\n")
+			continue
+		}
+		return line
+	}
+}
+
+func (w *clientTCPWire) expect(line string) {
+	w.t.Helper()
+	require_Equal(w.t, w.line(), line)
+}
+
+func (w *clientTCPWire) flush(proto string) {
+	w.t.Helper()
+	w.write(proto + "PING\r\n")
+	w.expect("PONG\r\n")
+}
+
+func (w *clientTCPWire) message(line, payload string) {
+	w.t.Helper()
+	w.expect(line)
+	w.payload(payload)
+}
+
+func (w *clientTCPWire) payload(payload string) {
+	w.t.Helper()
+	buf := make([]byte, len(payload)+2)
+	require_NoError(w.t, w.nc.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err := io.ReadFull(w.r, buf)
+	require_NoError(w.t, err)
+	require_Equal(w.t, string(buf), payload+"\r\n")
+}
+
+func (w *clientTCPWire) rejected(contains string) {
+	w.t.Helper()
+	line := w.line()
+	if !strings.HasPrefix(line, "-ERR ") || !strings.Contains(line, contains) {
+		w.t.Fatalf("Expected rejection containing %q, got %q", contains, line)
+	}
+	w.closed()
+}
+
+func (w *clientTCPWire) closed() {
+	w.t.Helper()
+	require_NoError(w.t, w.nc.SetReadDeadline(time.Now().Add(5*time.Second)))
+	line, err := w.r.ReadString('\n')
+	if err == nil || line != "" {
+		w.t.Fatalf("Expected connection closure, got %q, %v", line, err)
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		w.t.Fatalf("Rejected connection remained open: %v", err)
+	}
+}
+
+func TestClientTCPInfoAndConnectIngress(t *testing.T) {
+	o := DefaultOptions()
+	o.MaxPayload = 1024
+	s := RunServer(o)
+	defer s.Shutdown()
+
+	for _, protocol := range []int{0, 1, 22} {
+		t.Run(fmt.Sprint(protocol), func(t *testing.T) {
+			w := clientTCPDial(t, s)
+			require_Equal(t, w.info.MaxPayload, int32(1024))
+			require_Equal(t, w.info.Port, s.Addr().(*net.TCPAddr).Port)
+			require_False(t, w.info.AuthRequired)
+			require_False(t, w.info.TLSRequired)
+			require_True(t, w.info.Headers)
+			require_True(t, w.info.CID > 0)
+			w.write(fmt.Sprintf("CONNECT {\"verbose\":true,\"pedantic\":true,\"protocol\":%d,\"name\":\"wire-client\",\"lang\":\"go\",\"version\":\"1.0.0\"}\r\n", protocol))
+			if protocol == 22 {
+				w.rejected(ErrBadClientProtocol.Error())
+				return
+			}
+			w.expect("+OK\r\n")
+			w.flush("")
+			cz, err := s.Connz(&ConnzOptions{CID: w.info.CID})
+			require_NoError(t, err)
+			require_Len(t, len(cz.Conns), 1)
+			ci := cz.Conns[0]
+			require_Equal(t, ci.Name, "wire-client")
+			require_Equal(t, ci.Lang, "go")
+			require_Equal(t, ci.Version, "1.0.0")
+			require_Equal(t, ci.IP, w.nc.LocalAddr().(*net.TCPAddr).IP.String())
+			require_Equal(t, ci.Port, w.nc.LocalAddr().(*net.TCPAddr).Port)
+			require_Equal(t, ci.TLSVersion, "")
+		})
+	}
+	// A rejected protocol must not disturb another connection.
+	w := clientTCPDial(t, s)
+	w.flush("CONNECT {\"verbose\":false}\r\nSUB healthy 1\r\n")
+	w.write("PUB healthy 2\r\nok\r\nPING\r\n")
+	w.message("MSG healthy 1 2\r\n", "ok")
+	w.expect("PONG\r\n")
+}
+
+func TestClientTCPHeaderNegotiationIngress(t *testing.T) {
+	for _, tc := range []struct {
+		name, connect, command, rejection string
+		noHeaders                         bool
+	}{
+		{name: "no responders requires headers", connect: `{"verbose":false,"no_responders":true}`, rejection: ErrNoRespondersRequiresHeaders.Error()},
+		{name: "client did not negotiate headers", connect: `{"verbose":false}`, command: "HPUB foo 0 2\r\nok\r\n", rejection: ErrMsgHeadersNotSupported.Error()},
+		{name: "server has no headers", noHeaders: true, connect: `{"verbose":false,"headers":true}`, command: "HPUB foo 0 2\r\nok\r\n", rejection: ErrMsgHeadersNotSupported.Error()},
+		{name: "negotiated zero length header", connect: `{"verbose":false,"headers":true}`, command: "HPUB foo 0 2\r\nok\r\n"},
+		{name: "no responder status", connect: `{"verbose":false,"headers":true,"no_responders":true}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := DefaultOptions()
+			o.NoHeaderSupport = tc.noHeaders
+			s := RunServer(o)
+			defer s.Shutdown()
+			w := clientTCPDial(t, s)
+			require_Equal(t, w.info.Headers, !tc.noHeaders)
+			w.write("CONNECT " + tc.connect + "\r\n" + tc.command)
+			if tc.rejection != "" {
+				if tc.rejection == ErrMsgHeadersNotSupported.Error() {
+					w.closed()
+				} else {
+					w.rejected(tc.rejection)
+				}
+				return
+			}
+			w.flush("")
+			if tc.name == "no responder status" {
+				w.write("SUB reply 1\r\nPUB foo reply 2\r\nok\r\nPING\r\n")
+				hdr := "NATS/1.0 503\r\nNats-Subject: foo\r\n\r\n"
+				w.message(fmt.Sprintf("HMSG reply 1 %d %d\r\n", len(hdr), len(hdr)), hdr)
+				w.expect("PONG\r\n")
+			}
+		})
+	}
+}
+
+func TestClientTCPHeaderDeliveryIngress(t *testing.T) {
+	s := RunServer(DefaultOptions())
+	defer s.Shutdown()
+	for _, queue := range []bool{false, true} {
+		for _, headers := range []bool{false, true} {
+			t.Run(fmt.Sprintf("queue=%v/headers=%v", queue, headers), func(t *testing.T) {
+				pub := clientTCPDial(t, s)
+				pub.flush("CONNECT {\"verbose\":false,\"headers\":true}\r\n")
+				sub := clientTCPDial(t, s)
+				q := ""
+				if queue {
+					q = " workers"
+				}
+				sub.flush(fmt.Sprintf("CONNECT {\"verbose\":false,\"headers\":%v}\r\nSUB foo%s 1\r\n", headers, q))
+				pub.flush("HPUB foo 12 14\r\nName:Derek\r\nOK\r\n")
+				if headers {
+					sub.message("HMSG foo 1 12 14\r\n", "Name:Derek\r\nOK")
+				} else {
+					sub.message("MSG foo 1 2\r\n", "OK")
+				}
+				// PONG must be the next record, including bytes not yet buffered locally.
+				sub.flush("")
+				require_NoError(t, sub.nc.Close())
+				require_NoError(t, pub.nc.Close())
+				checkClientsCount(t, s, 0)
+			})
+		}
+	}
+}
+
+func TestClientTCPSubscriptionLifecycleIngress(t *testing.T) {
+	for _, tc := range []struct {
+		name, setup, publish string
+		lines                []string
+		payload              string
+		remaining            int
+	}{
+		{name: "plain", setup: "SUB foo 1\r\n", publish: "PUB foo 5\r\nhello\r\n", lines: []string{"MSG foo 1 5\r\n"}, payload: "hello", remaining: 1},
+		{name: "reply", setup: "SUB foo 1\r\n", publish: "PUB foo bar 5\r\nhello\r\n", lines: []string{"MSG foo 1 bar 5\r\n"}, payload: "hello", remaining: 1},
+		{name: "empty reply payload", setup: "SUB foo 1\r\n", publish: "PUB foo bar 0\r\n\r\n", lines: []string{"MSG foo 1 bar 0\r\n"}, remaining: 1},
+		{name: "unsubscribe one SID", setup: "SUB foo 1\r\nSUB foo 2\r\nUNSUB 1\r\n", publish: "PUB foo bar 5\r\nhello\r\n", lines: []string{"MSG foo 2 bar 5\r\n"}, payload: "hello", remaining: 1},
+		{name: "max five", setup: "SUB foo 1\r\nUNSUB 1 5\r\n", publish: strings.Repeat("PUB foo bar 5\r\nhello\r\n", 10), lines: slices.Repeat([]string{"MSG foo 1 bar 5\r\n"}, 5), payload: "hello"},
+		{name: "exact max one", setup: "SUB foo 1\r\nUNSUB 1 1\r\n", publish: "PUB foo bar 2\r\nok\r\n", lines: []string{"MSG foo 1 bar 2\r\n"}, payload: "ok"},
+		{name: "explicit unsubscribe after auto unsubscribe", setup: "SUB foo 1\r\nUNSUB 1 1\r\nUNSUB 1\r\n", publish: "PUB foo bar 2\r\nok\r\n"},
+		{name: "two tokens do not match one", setup: "SUB foo 1\r\n", publish: "PUB foo.bar 5\r\nhello\r\n", remaining: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := RunServer(DefaultOptions())
+			defer s.Shutdown()
+			w := clientTCPDial(t, s)
+			w.flush("CONNECT {\"verbose\":false}\r\n" + tc.setup)
+			w.write(tc.publish + "PING\r\n")
+			for _, line := range tc.lines {
+				w.message(line, tc.payload)
+			}
+			w.expect("PONG\r\n")
+			cz, err := s.Connz(&ConnzOptions{CID: w.info.CID, Subscriptions: true})
+			require_NoError(t, err)
+			require_Len(t, len(cz.Conns), 1)
+			require_Equal(t, int(cz.Conns[0].NumSubs), tc.remaining)
+			require_NoError(t, w.nc.Close())
+			checkClientsCount(t, s, 0)
+			checkExpectedSubs(t, 0, s)
+		})
+	}
+}
+
+func TestClientTCPQueueAndNoEchoIngress(t *testing.T) {
+	s := RunServer(DefaultOptions())
+	defer s.Shutdown()
+	w := clientTCPDial(t, s)
+	w.flush("CONNECT {\"verbose\":false}\r\nSUB foo g1 1\r\nSUB foo g1 2\r\n")
+	w.write(strings.Repeat("PUB foo bar 5\r\nhello\r\n", 100) + "PING\r\n")
+	counts := map[string]int{}
+	for range 100 {
+		line := w.line()
+		fields := strings.Fields(line)
+		if len(fields) != 5 || fields[0] != "MSG" || fields[1] != "foo" || fields[3] != "bar" || fields[4] != "5" || (fields[2] != "1" && fields[2] != "2") {
+			t.Fatalf("Invalid queue message %q", line)
+		}
+		counts[fields[2]]++
+		w.payload("hello")
+	}
+	w.expect("PONG\r\n")
+	if counts["1"] < 20 || counts["2"] < 20 {
+		t.Fatalf("Expected both queue members to receive at least 20 of 100 messages: %v", counts)
+	}
+	w.flush("UNSUB 1\r\nUNSUB 2\r\n")
+
+	for _, sub := range []string{"SUB quiet 1\r\n", "SUB quiet workers 1\r\n"} {
+		t.Run(sub, func(t *testing.T) {
+			quiet := clientTCPDial(t, s)
+			quiet.flush("CONNECT {\"verbose\":false,\"echo\":false}\r\n" + sub)
+			quiet.flush("PUB quiet 4\r\nself\r\n")
+			w.flush("PUB quiet 5\r\nother\r\n")
+			quiet.message("MSG quiet 1 5\r\n", "other")
+			quiet.flush("")
+		})
+	}
+}
+
+func TestClientTCPDisconnectCleanupIngress(t *testing.T) {
+	s := RunServer(DefaultOptions())
+	defer s.Shutdown()
+	for i := range 20 {
+		w := clientTCPDial(t, s)
+		if i%2 == 0 {
+			w.flush("CONNECT {\"verbose\":false}\r\nSUB foo 1\r\nSUB bar 2\r\n")
+			checkExpectedSubs(t, 2, s)
+		} else {
+			// Closing while SUB is in flight must never leave orphaned interest.
+			w.write("CONNECT {\"verbose\":false}\r\nSUB foo 1\r\nSUB bar 2\r\n")
+		}
+		require_NoError(t, w.nc.Close())
+		checkClientsCount(t, s, 0)
+		checkExpectedSubs(t, 0, s)
+	}
+	w := clientTCPDial(t, s)
+	w.flush("CONNECT {\"verbose\":false}\r\n")
+}
+
+func TestClientTCPQueuePermissionsIngress(t *testing.T) {
+	cases := []struct {
+		name    string
+		perms   *SubjectPermission
+		subject string
+		queue   string
+		want    string
+	}{
+		{
+			name:    "plain subscription on foo",
+			perms:   &SubjectPermission{Allow: []string{"foo"}},
+			subject: "foo",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "queue subscribe with allowed group",
+			perms:   &SubjectPermission{Allow: []string{"foo bar"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "queue subscribe with wildcard allowed group",
+			perms:   &SubjectPermission{Allow: []string{"foo bar.*"}},
+			subject: "foo",
+			queue:   "bar.fizz",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "queue subscribe with full wildcard subject and subgroup",
+			perms:   &SubjectPermission{Allow: []string{"> bar.>"}},
+			subject: "whizz",
+			queue:   "bar.bang",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "plain subscribe with full wildcard subject and subgroup",
+			perms:   &SubjectPermission{Allow: []string{"> bar.>"}},
+			subject: "whizz",
+			want:    "-ERR 'Permissions Violation for Subscription to \"whizz\"'\r\n",
+		},
+		{
+			name:    "deny plain subscription on foo",
+			perms:   &SubjectPermission{Allow: []string{">"}, Deny: []string{"foo"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"bar\"'\r\n",
+		},
+		{
+			name:    "allow plain subscription, except foo",
+			perms:   &SubjectPermission{Allow: []string{">"}, Deny: []string{"foo"}},
+			subject: "bar",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "deny everything",
+			perms:   &SubjectPermission{Allow: []string{">"}, Deny: []string{">"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"bar\"'\r\n",
+		},
+		{
+			name:    "can only subscribe to queues v1",
+			perms:   &SubjectPermission{Allow: []string{"> v1.>"}},
+			subject: "foo",
+			queue:   "v1.prod",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "cannot subscribe to queues, plain subscribe ok",
+			perms:   &SubjectPermission{Allow: []string{">"}, Deny: []string{"> >"}},
+			subject: "foo",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "cannot subscribe to queues, queue subscribe not ok",
+			perms:   &SubjectPermission{Deny: []string{"> >"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"bar\"'\r\n",
+		},
+		{
+			name:    "deny all queue subscriptions on dev or stg only",
+			perms:   &SubjectPermission{Deny: []string{"> *.dev", "> *.stg"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "allow only queue subscription on dev or stg",
+			perms:   &SubjectPermission{Allow: []string{"> *.dev", "> *.stg"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"bar\"'\r\n",
+		},
+		{
+			name:    "deny queue subscriptions with subject foo",
+			perms:   &SubjectPermission{Deny: []string{"foo >"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"bar\"'\r\n",
+		},
+		{
+			name:    "plain sub is allowed, but queue subscribe with queue not in list",
+			perms:   &SubjectPermission{Allow: []string{"foo bar"}},
+			subject: "foo",
+			queue:   "fizz",
+			want:    "-ERR 'Permissions Violation for Subscription to \"foo\" using queue \"fizz\"'\r\n",
+		},
+		{
+			name:    "allow plain sub, but do queue subscribe",
+			perms:   &SubjectPermission{Allow: []string{"foo"}},
+			subject: "foo",
+			queue:   "bar",
+			want:    "+OK\r\n",
+		},
+		{
+			name:    "plain sub deny bypassed by queue deny rules",
+			perms:   &SubjectPermission{Allow: []string{">"}, Deny: []string{"admin.>", "> restricted"}},
+			subject: "admin.secret",
+			queue:   "workers",
+			want:    "-ERR 'Permissions Violation for Subscription to \"admin.secret\" using queue \"workers\"'\r\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			o := DefaultOptions()
+			o.Users = []*User{
+				{Username: "reader", Password: "pass", Permissions: &Permissions{Subscribe: tc.perms}},
+				{Username: "publisher", Password: "pass"},
+			}
+			s := RunServer(o)
+			defer s.Shutdown()
+			reader := clientTCPDial(t, s)
+			require_True(t, reader.info.AuthRequired)
+			reader.write("CONNECT {\"verbose\":true,\"user\":\"reader\",\"pass\":\"pass\"}\r\n")
+			reader.expect("+OK\r\n")
+			reader.write(fmt.Sprintf("SUB %s %s 1\r\n", tc.subject, tc.queue))
+			reader.expect(tc.want)
+			reader.flush("")
+			publisher := clientTCPDial(t, s)
+			publisher.flush("CONNECT {\"verbose\":false,\"user\":\"publisher\",\"pass\":\"pass\"}\r\n")
+			publisher.flush(fmt.Sprintf("PUB %s 2\r\nok\r\n", tc.subject))
+			if tc.want == "+OK\r\n" {
+				reader.message(fmt.Sprintf("MSG %s 1 2\r\n", tc.subject), "ok")
+			}
+			reader.flush("")
+			cz, err := s.Connz(&ConnzOptions{CID: reader.info.CID, Username: true, Subscriptions: true})
+			require_NoError(t, err)
+			require_Len(t, len(cz.Conns), 1)
+			require_Equal(t, cz.Conns[0].AuthorizedUser, "reader")
+			wantSubs := uint32(0)
+			if tc.want == "+OK\r\n" {
+				wantSubs = 1
+			}
+			require_Equal(t, cz.Conns[0].NumSubs, wantSubs)
+		})
+	}
+}
+
+func TestClientTCPPermissionReloadIngress(t *testing.T) {
+	const template = `
+		listen: "127.0.0.1:-1"
+		authorization { users: [
+			{user: reader, password: pass, permissions: {subscribe: {allow: [">"], deny: [%s]}}},
+			{user: publisher, password: pass}
+		] }
+	`
+	conf := createConfFile(t, []byte(fmt.Sprintf(template, `"foo.secret"`)))
+	s, _ := RunServerWithConfig(conf)
+	defer s.Shutdown()
+	reader := clientTCPDial(t, s)
+	reader.flush("CONNECT {\"verbose\":false,\"user\":\"reader\",\"pass\":\"pass\"}\r\nSUB foo.* 1\r\n")
+	publisher := clientTCPDial(t, s)
+	publisher.flush("CONNECT {\"verbose\":false,\"user\":\"publisher\",\"pass\":\"pass\"}\r\n")
+	publisher.flush("PUB foo.secret 6\r\nsecret\r\nPUB foo.public 2\r\nok\r\n")
+	reader.message("MSG foo.public 1 2\r\n", "ok")
+	reader.flush("")
+
+	reloadUpdateConfig(t, s, conf, fmt.Sprintf(template, ""))
+	publisher.flush("PUB foo.secret 8\r\nrestored\r\n")
+	reader.message("MSG foo.secret 1 8\r\n", "restored")
+	reader.flush("")
+	cz, err := s.Connz(&ConnzOptions{CID: reader.info.CID, Subscriptions: true})
+	require_NoError(t, err)
+	require_Len(t, len(cz.Conns), 1)
+	require_Equal(t, cz.Conns[0].NumSubs, uint32(1))
+}
+
+func TestClientTCPQueueQualifierPermissionsIngress(t *testing.T) {
+	t.Run("publish deny fails closed", func(t *testing.T) {
+		o := DefaultOptions()
+		o.Users = []*User{
+			{Username: "writer", Password: "pass", Permissions: &Permissions{Publish: &SubjectPermission{Deny: []string{"admin.secret workers"}}}},
+			{Username: "reader", Password: "pass"},
+		}
+		s := RunServer(o)
+		defer s.Shutdown()
+		reader := clientTCPDial(t, s)
+		reader.flush("CONNECT {\"verbose\":false,\"user\":\"reader\",\"pass\":\"pass\"}\r\nSUB admin.> 1\r\n")
+		writer := clientTCPDial(t, s)
+		writer.flush("CONNECT {\"verbose\":false,\"user\":\"writer\",\"pass\":\"pass\"}\r\n")
+		writer.write("PUB admin.secret 6\r\nsecret\r\nPING\r\n")
+		writer.expect("-ERR 'Permissions Violation for Publish to \"admin.secret\"'\r\n")
+		writer.expect("PONG\r\n")
+		writer.flush("PUB admin.public 2\r\nok\r\n")
+		reader.message("MSG admin.public 1 2\r\n", "ok")
+		reader.flush("")
+	})
+
+	t.Run("subscription qualifier exposed and enforced", func(t *testing.T) {
+		o := DefaultOptions()
+		o.Users = []*User{
+			{Username: "reader", Password: "pass", Permissions: &Permissions{Subscribe: &SubjectPermission{Allow: []string{"events.* readers"}, Deny: []string{"admin.secret workers"}}}},
+			{Username: "writer", Password: "pass"},
+		}
+		s := RunServer(o)
+		defer s.Shutdown()
+		reader := clientTCPDial(t, s)
+		reader.write("CONNECT {\"verbose\":true,\"user\":\"reader\",\"pass\":\"pass\"}\r\nSUB events.* readers 1\r\nSUB events.* workers 2\r\n")
+		reader.expect("+OK\r\n")
+		reader.expect("+OK\r\n")
+		reader.expect("-ERR 'Permissions Violation for Subscription to \"events.*\" using queue \"workers\"'\r\n")
+		reader.flush("")
+		writer := clientTCPDial(t, s)
+		writer.flush("CONNECT {\"verbose\":false,\"user\":\"writer\",\"pass\":\"pass\"}\r\nPUB events.created 2\r\nok\r\n")
+		reader.message("MSG events.created 1 2\r\n", "ok")
+		reader.flush("")
+		cz, err := s.Connz(&ConnzOptions{CID: reader.info.CID, SubscriptionsDetail: true})
+		require_NoError(t, err)
+		require_Len(t, len(cz.Conns), 1)
+		require_Len(t, len(cz.Conns[0].SubsDetail), 1)
+		require_Equal(t, cz.Conns[0].SubsDetail[0].Subject, "events.*")
+		require_Equal(t, cz.Conns[0].SubsDetail[0].Queue, "readers")
+	})
+}
+
+func clientTCPTrace(t *testing.T, msg []byte, hdr, maxTrace int, headersOnly bool, expectedIn, expectedOut string) {
+	t.Helper()
+	o := DefaultOptions()
+	o.MaxTracedMsgLen = maxTrace
+	o.TraceHeaders = headersOnly
+	s := RunServer(o)
+	defer s.Shutdown()
+	logger := &DummyLogger{AllMsgs: make([]string, 0, 32)}
+	s.SetLogger(logger, true, true)
+	pub := clientTCPDial(t, s)
+	pub.flush("CONNECT {\"verbose\":false,\"headers\":true}\r\n")
+	sub := clientTCPDial(t, s)
+	sub.flush("CONNECT {\"verbose\":false,\"headers\":true}\r\nSUB traced 1\r\n")
+	payload := string(msg)
+	if len(payload) > hdr {
+		payload = strings.TrimSuffix(payload, CR_LF)
+	}
+	if hdr > 0 {
+		pub.flush(fmt.Sprintf("HPUB traced %d %d\r\n%s\r\n", hdr, len(payload), payload))
+		sub.message(fmt.Sprintf("HMSG traced 1 %d %d\r\n", hdr, len(payload)), payload)
+	} else {
+		pub.flush(fmt.Sprintf("PUB traced %d\r\n%s\r\n", len(payload), payload))
+		sub.message(fmt.Sprintf("MSG traced 1 %d\r\n", len(payload)), payload)
+	}
+	sub.flush("")
+	var gotIn, gotOut []string
+	logger.Lock()
+	for _, line := range logger.AllMsgs {
+		if at := strings.Index(line, "<<- MSG_PAYLOAD:"); at >= 0 {
+			gotIn = append(gotIn, line[at:])
+		}
+		if at := strings.Index(line, "->> MSG_PAYLOAD:"); at >= 0 {
+			gotOut = append(gotOut, line[at:])
+		}
+	}
+	logger.Unlock()
+	for _, tc := range []struct {
+		got  []string
+		want string
+	}{{gotIn, expectedIn}, {gotOut, expectedOut}} {
+		if tc.want == "" {
+			require_Len(t, len(tc.got), 0)
+		} else {
+			require_Len(t, len(tc.got), 1)
+			require_Equal(t, tc.got[0], tc.want)
+		}
+	}
+}
+
+func TestClientTCPTracePayloadIngress(t *testing.T) {
+	cases := []struct {
+		Desc            string
+		Msg             []byte
+		Wanted          string
+		MaxTracedMsgLen int
+	}{
+		{
+			Desc:            "normal length",
+			Msg:             []byte(fmt.Sprintf("normal%s", CR_LF)),
+			Wanted:          "<<- MSG_PAYLOAD: [\"normal\"]",
+			MaxTracedMsgLen: 10,
+		},
+		{
+			Desc:            "over length",
+			Msg:             []byte(fmt.Sprintf("over length%s", CR_LF)),
+			Wanted:          "<<- MSG_PAYLOAD: [\"over lengt...\"]",
+			MaxTracedMsgLen: 10,
+		},
+		{
+			Desc:            "unlimited length",
+			Msg:             []byte(fmt.Sprintf("unlimited length%s", CR_LF)),
+			Wanted:          "<<- MSG_PAYLOAD: [\"unlimited length\"]",
+			MaxTracedMsgLen: 0,
+		},
+		{
+			Desc:            "negative max traced msg len",
+			Msg:             []byte(fmt.Sprintf("negative max traced msg len%s", CR_LF)),
+			Wanted:          "<<- MSG_PAYLOAD: [\"negative max traced msg len\"]",
+			MaxTracedMsgLen: -1,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.Desc, func(t *testing.T) {
+			clientTCPTrace(t, tc.Msg, 0, tc.MaxTracedMsgLen, false, tc.Wanted, strings.Replace(tc.Wanted, "<<-", "->>", 1))
+		})
+	}
+}
+
+func TestClientTCPTraceHeadersIngress(t *testing.T) {
+	hdr := "NATS/1.0\r\nFoo: 1\r\n\r\n"
+	hdr2 := "NATS/1.0\r\nFoo: 1\r\nBar: 2\r\n\r\n"
+	cases := []struct {
+		Desc            string
+		Msg             []byte
+		Hdr             int
+		Wanted          string
+		MaxTracedMsgLen int
+	}{
+		{
+			Desc:            "payload only",
+			Msg:             []byte(`test\r\n`),
+			Hdr:             0,
+			Wanted:          _EMPTY_,
+			MaxTracedMsgLen: 0,
+		},
+		{
+			Desc:            "header only",
+			Msg:             []byte(hdr),
+			Hdr:             len(hdr),
+			Wanted:          `<<- MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1"]`,
+			MaxTracedMsgLen: 0,
+		},
+		{
+			Desc:            "with header and payload",
+			Msg:             []byte(fmt.Sprintf("%stest%s", hdr, CR_LF)),
+			Hdr:             len(hdr),
+			Wanted:          `<<- MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1"]`,
+			MaxTracedMsgLen: 0,
+		},
+		{
+			Desc:            "max length",
+			Msg:             []byte(hdr),
+			Hdr:             len(hdr),
+			Wanted:          `<<- MSG_PAYLOAD: ["NATS/1..."]`,
+			MaxTracedMsgLen: 6,
+		},
+		{
+			Desc:            "two headers max length",
+			Msg:             []byte(hdr2),
+			Hdr:             len(hdr2),
+			Wanted:          `<<- MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1\r\nBar..."]`,
+			MaxTracedMsgLen: 21,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.Desc, func(t *testing.T) {
+			clientTCPTrace(t, tc.Msg, tc.Hdr, tc.MaxTracedMsgLen, true, tc.Wanted, strings.Replace(tc.Wanted, "<<-", "->>", 1))
+		})
+	}
+}
+
+func TestClientTCPTraceDeliveryIngress(t *testing.T) {
+	hdr := "NATS/1.0\r\nFoo: 1\r\n\r\n"
+	hdr2 := "NATS/1.0\r\nFoo: bar\r\nBar: baz\r\n\r\n"
+	cases := []struct {
+		name         string
+		msg          []byte
+		hdr          int
+		traceDeliver bool
+		traceHeaders bool
+		expected     string
+	}{
+		{
+			name:         "delivery with headers enabled",
+			msg:          []byte(hdr),
+			hdr:          len(hdr),
+			traceHeaders: true,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1"]`,
+		},
+		{
+			name:         "delivery with full message",
+			msg:          []byte(fmt.Sprintf("%stest%s", hdr, CR_LF)),
+			hdr:          len(hdr),
+			traceHeaders: false,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1\r\n\r\ntest"]`,
+		},
+		{
+			name:         "delivery with headers only",
+			msg:          []byte(fmt.Sprintf("%stest%s", hdr, CR_LF)),
+			hdr:          len(hdr),
+			traceHeaders: true,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1"]`,
+		},
+		{
+			name:         "delivery multiple headers",
+			msg:          []byte(hdr2),
+			hdr:          len(hdr2),
+			traceHeaders: true,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: bar\r\nBar: baz"]`,
+		},
+		{
+			name:         "delivery with payload but headers only tracing",
+			msg:          []byte(fmt.Sprintf("%spayload data%s", hdr2, CR_LF)),
+			hdr:          len(hdr2),
+			traceHeaders: true,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: bar\r\nBar: baz"]`,
+		},
+		{
+			name:         "delivery no headers but tracing enabled",
+			msg:          []byte(fmt.Sprintf("plain message%s", CR_LF)),
+			hdr:          0,
+			traceHeaders: false,
+			expected:     `->> MSG_PAYLOAD: ["plain message"]`,
+		},
+		{
+			name:         "delivery headers disabled but deliver enabled",
+			msg:          []byte(fmt.Sprintf("%spayload%s", hdr, CR_LF)),
+			hdr:          len(hdr),
+			traceHeaders: false,
+			expected:     `->> MSG_PAYLOAD: ["NATS/1.0\r\nFoo: 1\r\n\r\npayload"]`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clientTCPTrace(t, tc.msg, tc.hdr, 0, tc.traceHeaders, strings.Replace(tc.expected, "->>", "<<-", 1), tc.expected)
+		})
+	}
+}
+
+func TestClientTCPAuthenticationDiagnosticsIngress(t *testing.T) {
+	kp, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	pub, err := kp.PublicKey()
+	require_NoError(t, err)
+	for _, auth := range []string{"user", "token", "nkey", "none", "combined"} {
+		t.Run(auth, func(t *testing.T) {
+			o := DefaultOptions()
+			connect := map[string]any{"verbose": false}
+			label := ""
+			switch auth {
+			case "user", "combined":
+				o.Username, o.Password = "testuser", "wire-password"
+				connect["user"], connect["pass"] = o.Username, o.Password
+				label = `"$G/user:testuser"`
+			case "token":
+				o.Authorization = "wire-secret-token"
+				connect["auth_token"] = o.Authorization
+				label = `"$G/token"`
+			case "nkey":
+				o.Nkeys = []*NkeyUser{{Nkey: pub}}
+				connect["nkey"] = pub
+				label = fmt.Sprintf(`"$G/nkey:%s"`, pub)
+			}
+			if auth == "combined" {
+				connect["version"], connect["lang"], connect["name"] = "1.0.0", "go", "test-client"
+			}
+			s := RunServer(o)
+			defer s.Shutdown()
+			logger := &DummyLogger{AllMsgs: make([]string, 0, 32)}
+			s.SetLogger(logger, true, true)
+			w := clientTCPDial(t, s)
+			if auth == "nkey" {
+				sig, err := kp.Sign([]byte(w.info.Nonce))
+				require_NoError(t, err)
+				connect["sig"] = base64.RawURLEncoding.EncodeToString(sig)
+			}
+			encoded, err := json.Marshal(connect)
+			require_NoError(t, err)
+			w.flush("CONNECT " + string(encoded) + "\r\n")
+			pingPrefix := func() string {
+				t.Helper()
+				logger.Lock()
+				defer logger.Unlock()
+				for i := len(logger.AllMsgs) - 1; i >= 0; i-- {
+					if prefix, ok := strings.CutSuffix(logger.AllMsgs[i], " - <<- PING"); ok {
+						return prefix
+					}
+				}
+				t.Fatal("Missing production PING trace")
+				return ""
+			}
+			first := pingPrefix()
+			require_Contains(t, first, fmt.Sprintf("%s - cid:%d", w.nc.LocalAddr(), w.info.CID))
+			if label != "" {
+				require_Contains(t, first, label)
+			} else if strings.Contains(first, "$G/") {
+				t.Fatalf("Unauthenticated connection has auth label: %q", first)
+			}
+			if auth == "combined" {
+				require_Contains(t, first, `"v1.0.0:go:test-client"`)
+			}
+			for range 3 {
+				w.flush("CONNECT " + string(encoded) + "\r\n")
+				require_Equal(t, pingPrefix(), first)
+			}
+			connect["name"] = "test-client:new"
+			encoded, err = json.Marshal(connect)
+			require_NoError(t, err)
+			w.flush("CONNECT " + string(encoded) + "\r\n")
+			require_Equal(t, pingPrefix(), first)
+			logger.CheckForProhibited(t, "password must not appear in server logs", "wire-password")
+			logger.CheckForProhibited(t, "token must not appear in server logs", "wire-secret-token")
+		})
+	}
+}
+
+func TestClientTCPRejectedAuthenticationLabelsIngress(t *testing.T) {
+	kp, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	pub, err := kp.PublicKey()
+	require_NoError(t, err)
+	for _, tc := range []struct{ auth, want string }{
+		{"user", `User "foo"`},
+		{"token", `Token "[REDACTED]"`},
+		{"nkey", fmt.Sprintf(`Nkey %q`, pub)},
+		{"none", ""},
+	} {
+		t.Run(tc.auth, func(t *testing.T) {
+			o := DefaultOptions()
+			connect := map[string]any{"verbose": false}
+			switch tc.auth {
+			case "user", "none":
+				o.Username, o.Password = "foo", "correct-password"
+				if tc.auth == "user" {
+					connect["user"], connect["pass"] = "foo", "wrong-password"
+				}
+			case "token":
+				o.Authorization = "correct-token"
+				connect["auth_token"] = "wrong-token"
+			case "nkey":
+				o.Nkeys = []*NkeyUser{{Nkey: pub}}
+				sig, err := kp.Sign([]byte("different nonce"))
+				require_NoError(t, err)
+				connect["nkey"], connect["sig"] = pub, base64.RawURLEncoding.EncodeToString(sig)
+			}
+			s := RunServer(o)
+			defer s.Shutdown()
+			logger := &DummyLogger{AllMsgs: make([]string, 0, 32)}
+			s.SetLogger(logger, true, true)
+			w := clientTCPDial(t, s)
+			encoded, err := json.Marshal(connect)
+			require_NoError(t, err)
+			w.write("CONNECT " + string(encoded) + "\r\n")
+			w.rejected("Authorization Violation")
+			want := ErrAuthentication.Error()
+			if tc.want != "" {
+				want += " - " + tc.want
+			}
+			checkFor(t, time.Second, time.Millisecond, func() error {
+				logger.Lock()
+				defer logger.Unlock()
+				for _, msg := range logger.AllMsgs {
+					if strings.HasSuffix(msg, want) {
+						return nil
+					}
+				}
+				return fmt.Errorf("Missing authentication label %q", tc.want)
+			})
+			for _, secret := range []string{"correct-password", "wrong-password", "correct-token", "wrong-token"} {
+				logger.CheckForProhibited(t, "authentication secrets must not appear in logs", secret)
+			}
+		})
+	}
+}
+
+func TestClientTCPTLSFirstAliasesIngress(t *testing.T) {
+	const template = `
+		listen: "127.0.0.1:-1"
+		tls {
+			cert_file: "../test/configs/certs/server-cert.pem"
+			key_file: "../test/configs/certs/server-key.pem"
+			timeout: 1
+			first: %s
+		}
+	`
+	for _, tc := range []struct {
+		value string
+		first bool
+		delay time.Duration
+	}{
+		{"true", true, 0}, {"false", false, 0},
+		{`"true"`, true, 0}, {`"false"`, false, 0},
+		{"on", true, 0}, {"off", false, 0},
+		{"auto", true, DEFAULT_TLS_HANDSHAKE_FIRST_FALLBACK_DELAY},
+		{"auto_fallback", true, DEFAULT_TLS_HANDSHAKE_FIRST_FALLBACK_DELAY},
+		{"300ms", true, 300 * time.Millisecond},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			conf := createConfFile(t, []byte(fmt.Sprintf(template, tc.value)))
+			s, _ := RunServerWithConfig(conf)
+			defer s.Shutdown()
+			url := "tls://" + s.Addr().String()
+			options := []nats.Option{nats.RootCAs("../test/configs/certs/ca.pem"), nats.Timeout(2 * time.Second), nats.NoReconnect()}
+			if tc.first {
+				options = append(options, nats.TLSHandshakeFirst())
+			}
+			nc := natsConnect(t, url, options...)
+			natsFlush(t, nc)
+			cz, err := s.Connz(nil)
+			require_NoError(t, err)
+			require_Len(t, len(cz.Conns), 1)
+			require_Equal(t, cz.Conns[0].TLSFirst, tc.first)
+			require_True(t, cz.Conns[0].TLSVersion != "")
+			nc.Close()
+			checkClientsCount(t, s, 0)
+			if tc.first && tc.delay == 0 {
+				unexpected, err := nats.Connect(url, nats.RootCAs("../test/configs/certs/ca.pem"), nats.Timeout(2*time.Second), nats.NoReconnect())
+				if err == nil {
+					unexpected.Close()
+					t.Fatal("TLS-first-only listener accepted an INFO-first client")
+				}
+			} else if tc.delay > 0 {
+				start := time.Now()
+				legacy := natsConnect(t, url, nats.RootCAs("../test/configs/certs/ca.pem"), nats.Timeout(2*time.Second), nats.NoReconnect())
+				defer legacy.Close()
+				if elapsed := time.Since(start); elapsed < tc.delay-20*time.Millisecond {
+					t.Fatalf("INFO-first fallback completed before %v: %v", tc.delay, elapsed)
+				}
+				cz, err = s.Connz(nil)
+				require_NoError(t, err)
+				require_Len(t, len(cz.Conns), 1)
+				require_False(t, cz.Conns[0].TLSFirst)
+			}
+		})
+	}
+}
+
+func TestClientTCPTLSNoticeAndAcceptanceIngress(t *testing.T) {
+	tlsConfig, err := GenTLSConfig(&TLSConfigOpts{
+		CertFile: "../test/configs/certs/server-cert.pem",
+		KeyFile:  "../test/configs/certs/server-key.pem",
+		CaFile:   "../test/configs/certs/ca.pem",
+	})
+	require_NoError(t, err)
+	for _, tc := range []struct {
+		name        string
+		allowPlain  bool
+		first       bool
+		fallback    time.Duration
+		wantNotice  string
+		acceptPlain bool
+	}{
+		{"TLS only", false, false, 0, "TLS required for client connections", false},
+		{"TLS available", true, false, 0, "TLS available for client connections", true},
+		{"TLS first only", true, true, 0, "TLS required for client connections", false},
+		{"TLS fallback", true, true, 25 * time.Millisecond, "TLS available for client connections", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := DefaultOptions()
+			o.TLSConfig, o.TLSTimeout = tlsConfig.Clone(), 0.2
+			o.AllowNonTLS, o.TLSHandshakeFirst, o.TLSHandshakeFirstFallback = tc.allowPlain, tc.first, tc.fallback
+			s, err := NewServer(o)
+			require_NoError(t, err)
+			defer s.Shutdown()
+			logger := &captureNoticeLogger{}
+			s.SetLogger(logger, false, false)
+			s.Start()
+			require_NoError(t, s.readyForConnections(time.Second))
+			options := []nats.Option{nats.RootCAs("../test/configs/certs/ca.pem"), nats.Timeout(time.Second), nats.NoReconnect()}
+			if tc.first {
+				options = append(options, nats.TLSHandshakeFirst())
+			}
+			nc := natsConnect(t, "tls://"+s.Addr().String(), options...)
+			natsFlush(t, nc)
+			nc.Close()
+			checkClientsCount(t, s, 0)
+			plain, err := nats.Connect("nats://"+s.Addr().String(), nats.Timeout(time.Second), nats.NoReconnect())
+			if tc.acceptPlain {
+				require_NoError(t, err)
+				natsFlush(t, plain)
+				cz, err := s.Connz(nil)
+				require_NoError(t, err)
+				require_Len(t, len(cz.Conns), 1)
+				require_Equal(t, cz.Conns[0].TLSVersion, "")
+				plain.Close()
+			} else if err == nil {
+				plain.Close()
+				t.Fatal("TLS-required listener accepted plaintext CONNECT")
+			}
+			logger.Lock()
+			var notices []string
+			for _, msg := range logger.notices {
+				if strings.HasPrefix(msg, "TLS ") && strings.HasSuffix(msg, " for client connections") {
+					notices = append(notices, msg)
+				}
+			}
+			logger.Unlock()
+			require_Len(t, len(notices), 1)
+			require_Equal(t, notices[0], tc.wantNotice)
+		})
+	}
+}
+
+func TestClientTCPTLSHandshakeTimeoutIngress(t *testing.T) {
+	tlsConfig, err := GenTLSConfig(&TLSConfigOpts{
+		CertFile: "../test/configs/certs/server-cert.pem",
+		KeyFile:  "../test/configs/certs/server-key.pem",
+	})
+	require_NoError(t, err)
+	for _, kind := range []int{CLIENT, LEAF, ROUTER, GATEWAY} {
+		t.Run(kindStringMap[kind], func(t *testing.T) {
+			o := DefaultOptions()
+			switch kind {
+			case CLIENT:
+				o.TLSConfig, o.TLSTimeout, o.TLSHandshakeFirst = tlsConfig.Clone(), 0.1, true
+			case LEAF:
+				o.LeafNode.Host, o.LeafNode.Port = "127.0.0.1", -1
+				o.LeafNode.TLSConfig, o.LeafNode.TLSTimeout, o.LeafNode.TLSHandshakeFirst = tlsConfig.Clone(), 0.1, true
+			case ROUTER:
+				o.Cluster.TLSConfig, o.Cluster.TLSTimeout = tlsConfig.Clone(), 0.1
+			case GATEWAY:
+				o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = o.Cluster.Name, "127.0.0.1", -1
+				o.Gateway.TLSConfig, o.Gateway.TLSTimeout = tlsConfig.Clone(), 0.1
+			}
+			s := RunServer(o)
+			defer s.Shutdown()
+			logger := &captureTLSHandshakeLogger{debugCh: make(chan string, 128), errCh: make(chan string, 128)}
+			s.SetLogger(logger, true, false)
+			addr := s.Addr().String()
+			switch kind {
+			case LEAF:
+				addr = net.JoinHostPort(o.LeafNode.Host, fmt.Sprint(o.LeafNode.Port))
+			case ROUTER:
+				addr = s.ClusterAddr().String()
+			case GATEWAY:
+				addr = s.GatewayAddr().String()
+			}
+			conn, err := net.DialTimeout("tcp", addr, time.Second)
+			require_NoError(t, err)
+			defer conn.Close()
+			require_NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+			_, err = io.ReadAll(conn)
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				t.Fatal("Stalled TLS handshake did not close before the deadline")
+			}
+			var debugTimeouts, errorTimeouts int
+			for len(logger.debugCh) > 0 {
+				if strings.Contains(<-logger.debugCh, "TLS handshake timeout") {
+					debugTimeouts++
+				}
+			}
+			for len(logger.errCh) > 0 {
+				if strings.Contains(<-logger.errCh, "TLS handshake timeout") {
+					errorTimeouts++
+				}
+			}
+			if kind == CLIENT || kind == LEAF {
+				require_Equal(t, debugTimeouts, 1)
+				require_Equal(t, errorTimeouts, 0)
+			} else {
+				require_Equal(t, debugTimeouts, 0)
+				require_Equal(t, errorTimeouts, 1)
+			}
+			if kind == CLIENT {
+				nc := natsConnect(t, "tls://"+s.Addr().String(), nats.RootCAs("../test/configs/certs/ca.pem"), nats.TLSHandshakeFirst())
+				defer nc.Close()
+				natsFlush(t, nc)
+			} else {
+				w := clientTCPDial(t, s)
+				w.flush("CONNECT {\"verbose\":false}\r\n")
+			}
+		})
+	}
+}
+
+func TestClientTCPSignedLimitsIngress(t *testing.T) {
+	op, err := nkeys.CreateOperator()
+	require_NoError(t, err)
+	opPub, err := op.PublicKey()
+	require_NoError(t, err)
+	akp, err := nkeys.CreateAccount()
+	require_NoError(t, err)
+	apub, err := akp.PublicKey()
+	require_NoError(t, err)
+	ukp, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	upub, err := ukp.PublicKey()
+	require_NoError(t, err)
+	for _, tc := range []struct{ client, account, server, expected int32 }{
+		{1, 1, 1, 1}, {-1, -1, 0, -1},
+		{1, -1, 0, 1}, {-1, 1, 0, 1}, {-1, -1, 1, 1},
+		{1, 2, 3, 1}, {1, 3, 2, 1}, {2, 1, 3, 1},
+		{2, 3, 1, 1}, {3, 1, 2, 1}, {3, 2, 1, 1},
+	} {
+		t.Run(fmt.Sprintf("client=%d/account=%d/server=%d", tc.client, tc.account, tc.server), func(t *testing.T) {
+			ac := jwt.NewAccountClaims(apub)
+			ac.Limits.Payload, ac.Limits.Subs = int64(tc.account), int64(tc.account)
+			ajwt, err := ac.Encode(op)
+			require_NoError(t, err)
+			resolver := &MemAccResolver{}
+			require_NoError(t, resolver.Store(apub, ajwt))
+			o := DefaultOptions()
+			o.TrustedKeys, o.AccountResolver = []string{opPub}, resolver
+			o.MaxPayload, o.MaxSubs = tc.server, int(tc.server)
+			s := RunServer(o)
+			defer s.Shutdown()
+			uc := jwt.NewUserClaims(upub)
+			uc.Limits.Payload, uc.Limits.Subs = int64(tc.client), int64(tc.client)
+			ujwt, err := uc.Encode(akp)
+			require_NoError(t, err)
+			w := clientTCPDial(t, s)
+			sig, err := ukp.Sign([]byte(w.info.Nonce))
+			require_NoError(t, err)
+			w.flush(fmt.Sprintf("CONNECT {\"verbose\":false,\"jwt\":%q,\"sig\":%q}\r\n", ujwt, base64.RawURLEncoding.EncodeToString(sig)))
+			limit := int(tc.expected)
+			if limit < 0 {
+				// Startup normalizes server payload 0 to its finite default;
+				// this row proves no small user/account limit was introduced.
+				limit = 4
+			}
+			for i := range limit {
+				w.flush(fmt.Sprintf("SUB foo %d\r\n", i+1))
+			}
+			payload := strings.Repeat("X", limit)
+			w.write(fmt.Sprintf("PUB foo %d\r\n%s\r\nPING\r\n", limit, payload))
+			pending := make(map[string]bool, limit)
+			for i := range limit {
+				pending[fmt.Sprintf("MSG foo %d %d\r\n", i+1, limit)] = true
+			}
+			for range limit {
+				line := w.line()
+				if !pending[line] {
+					t.Fatalf("Unexpected or duplicate subscription delivery %q", line)
+				}
+				delete(pending, line)
+				w.payload(payload)
+			}
+			w.expect("PONG\r\n")
+			cz, err := s.Connz(&ConnzOptions{CID: w.info.CID, Username: true})
+			require_NoError(t, err)
+			require_Len(t, len(cz.Conns), 1)
+			require_Equal(t, cz.Conns[0].NumSubs, uint32(limit))
+			require_Equal(t, cz.Conns[0].AuthorizedUser, upub)
+			if tc.expected < 0 {
+				return
+			}
+			w.write(fmt.Sprintf("SUB extra %d\r\nPING\r\n", limit+1))
+			line := w.line()
+			if !strings.HasPrefix(line, "-ERR ") || !strings.Contains(line, "maximum subscriptions exceeded") {
+				t.Fatalf("Expected subscription limit rejection, got %q", line)
+			}
+			w.expect("PONG\r\n")
+			w.write(fmt.Sprintf("PUB foo %d\r\n%sX\r\n", limit+1, payload))
+			w.rejected("Maximum Payload")
+		})
+	}
+}
+
+func TestClientTCPStoredHeaderTransformIngress(t *testing.T) {
+	o := DefaultTestOptions
+	o.Port = -1
+	o.ServerName = "client-header-transform"
+	o.JetStream = true
+	o.StoreDir = t.TempDir()
+	s := RunServer(&o)
+	defer s.Shutdown()
+	nc, err := nats.Connect(s.ClientURL())
+	require_NoError(t, err)
+	defer nc.Close()
+	js, err := nc.JetStream(nats.MaxWait(10 * time.Second))
+	require_NoError(t, err)
+	_, err = js.AddStream(&nats.StreamConfig{Name: "S", Subjects: []string{"stored"}, Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	_, err = js.AddStream(&nats.StreamConfig{Name: "M", Mirror: &nats.StreamSource{Name: "S"}, Storage: nats.MemoryStorage})
+	require_NoError(t, err)
+	observer := clientTCPDial(t, s)
+	observer.flush("CONNECT {\"verbose\":false,\"headers\":true}\r\nSUB stored 1\r\n")
+	publisher := clientTCPDial(t, s)
+	publisher.flush("CONNECT {\"verbose\":false,\"headers\":true}\r\n")
+	const (
+		hdr = "NATS/1.0\r\n" +
+			"X-Note: see Nats-Expected-Stream and ClientInfo below\r\n" +
+			"a: 1\r\nPrevious-ClientInfo: keep\r\nClientInfo: old\r\n" +
+			"Nats-Expected-Stream: S\r\nNats-Expected-Last-Sequence: 0\r\n" +
+			"b: 2\r\nClientInfo: duplicate\r\n" +
+			"Nats-Expected-Last-Subject-Sequence-Subject: stored\r\n" +
+			"Nats-Expected-Last-Subject-Sequence: 0\r\nc: 3\r\n\r\n"
+		sourceHeader = "NATS/1.0\r\n" +
+			"X-Note: see Nats-Expected-Stream and ClientInfo below\r\n" +
+			"a: 1\r\nPrevious-ClientInfo: keep\r\n" +
+			"Nats-Expected-Stream: S\r\nNats-Expected-Last-Sequence: 0\r\n" +
+			"b: 2\r\nNats-Expected-Last-Subject-Sequence-Subject: stored\r\n" +
+			"Nats-Expected-Last-Subject-Sequence: 0\r\nc: 3\r\n\r\n"
+		mirrorHeader = "NATS/1.0\r\n" +
+			"X-Note: see Nats-Expected-Stream and ClientInfo below\r\n" +
+			"a: 1\r\nPrevious-ClientInfo: keep\r\nb: 2\r\nc: 3\r\n\r\n"
+		payload = "body must remain unchanged"
+	)
+	publisher.flush(fmt.Sprintf("HPUB stored %d %d\r\n%s%s\r\n", len(hdr), len(hdr)+len(payload), hdr, payload))
+	observer.message(fmt.Sprintf("HMSG stored 1 %d %d\r\n", len(hdr), len(hdr)+len(payload)), hdr+payload)
+	observer.flush("")
+	for _, tc := range []struct{ stream, headers string }{{"S", sourceHeader}, {"M", mirrorHeader}} {
+		checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+			msg, err := nc.Request(fmt.Sprintf(JSApiMsgGetT, tc.stream), []byte(`{"seq":1}`), time.Second)
+			if err != nil {
+				return err
+			}
+			var response JSApiMsgGetResponse
+			if err := json.Unmarshal(msg.Data, &response); err != nil {
+				return err
+			}
+			if response.Error != nil || response.Message == nil {
+				return fmt.Errorf("Stream %s has not stored the message: %s", tc.stream, msg.Data)
+			}
+			if string(response.Message.Header) != tc.headers || string(response.Message.Data) != payload || response.Message.Subject != "stored" {
+				return fmt.Errorf("Stream %s changed header order or body: %+v", tc.stream, response.Message)
+			}
+			return nil
+		})
+	}
+}

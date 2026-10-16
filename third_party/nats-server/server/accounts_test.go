@@ -14,11 +14,19 @@
 package server
 
 import (
+	"bufio"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,6 +54,1766 @@ func simpleAccountServer(t *testing.T) (*Server, *Account, *Account) {
 		t.Fatalf("Error creating account 'bar': %v", err)
 	}
 	return s, f, b
+}
+
+func runAccountProtocolServer(t *testing.T, config string) *Server {
+	t.Helper()
+	conf := createConfFile(t, []byte("listen: 127.0.0.1:-1\nhttp: 127.0.0.1:-1\n"+config))
+	s, _ := RunServerWithConfig(conf)
+	t.Cleanup(s.Shutdown)
+	return s
+}
+
+func accountInfoOverHTTP(t *testing.T, s *Server, account string) *Accountz {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		"http://"+s.MonitorAddr().String()+"/accountz?acc="+url.QueryEscape(account), nil)
+	require_NoError(t, err)
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(request)
+	require_NoError(t, err)
+	defer response.Body.Close()
+	require_Equal(t, response.StatusCode, http.StatusOK)
+	var accounts Accountz
+	require_NoError(t, json.NewDecoder(response.Body).Decode(&accounts))
+	if account != "" {
+		require_NotNil(t, accounts.Account)
+		require_Equal(t, accounts.Account.AccountName, account)
+	}
+	return &accounts
+}
+
+func sendAccountProtocol(t *testing.T, nc net.Conn, protocol string) {
+	t.Helper()
+	require_NoError(t, nc.SetWriteDeadline(time.Now().Add(2*time.Second)))
+	_, err := io.WriteString(nc, protocol)
+	require_NoError(t, err)
+}
+
+func readAccountProtocol(t *testing.T, nc net.Conn, reader *bufio.Reader) string {
+	t.Helper()
+	require_NoError(t, nc.SetReadDeadline(time.Now().Add(2*time.Second)))
+	line, err := reader.ReadString('\n')
+	require_NoError(t, err)
+	return line
+}
+
+func dialAccountProtocol(t *testing.T, s *Server) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	nc, err := net.DialTimeout("tcp", s.Addr().String(), 2*time.Second)
+	require_NoError(t, err)
+	t.Cleanup(func() { nc.Close() })
+	reader := bufio.NewReader(nc)
+	require_True(t, strings.HasPrefix(readAccountProtocol(t, nc, reader), "INFO "))
+	return nc, reader
+}
+
+func connectAccountProtocol(t *testing.T, s *Server, username string) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	nc, reader := dialAccountProtocol(t, s)
+	sendAccountProtocol(t, nc, fmt.Sprintf("CONNECT {\"user\":%q,\"pass\":%q,\"verbose\":false}\r\nPING\r\n", username, username))
+	require_Equal(t, readAccountProtocol(t, nc, reader), "PONG\r\n")
+	return nc, reader
+}
+
+func TestAccountIsolationOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `accounts {
+		foo {users: [{user: foo, password: foo}]}
+		bar {users: [{user: bar, password: bar}]}
+	}`)
+	foo, fr := connectAccountProtocol(t, s, "foo")
+	bar, br := connectAccountProtocol(t, s, "bar")
+	for _, peer := range []struct {
+		nc     net.Conn
+		reader *bufio.Reader
+	}{{foo, fr}, {bar, br}} {
+		sendAccountProtocol(t, peer.nc, "SUB foo 1\r\nPING\r\n")
+		require_Equal(t, readAccountProtocol(t, peer.nc, peer.reader), "PONG\r\n")
+	}
+	sendAccountProtocol(t, foo, "PUB foo 5\r\nhello\r\n")
+	require_Equal(t, readAccountProtocol(t, foo, fr), "MSG foo 1 5\r\n")
+	require_Equal(t, readAccountProtocol(t, foo, fr), "hello\r\n")
+	sendAccountProtocol(t, bar, "PING\r\n")
+	require_Equal(t, readAccountProtocol(t, bar, br), "PONG\r\n")
+	sendAccountProtocol(t, bar, "PUB foo 3\r\nbar\r\n")
+	require_Equal(t, readAccountProtocol(t, bar, br), "MSG foo 1 3\r\n")
+	require_Equal(t, readAccountProtocol(t, bar, br), "bar\r\n")
+	sendAccountProtocol(t, foo, "PING\r\n")
+	require_Equal(t, readAccountProtocol(t, foo, fr), "PONG\r\n")
+}
+
+func TestAccountExplicitSelectionRejectedOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `accounts {
+		A {users: [{user: ua, password: pa}]}
+		B {users: [{user: ub, password: pb}]}
+	}`)
+	for _, extra := range []string{"", `,"account":"ANY"`, `,"new_account":true`, `,"account":"B"`, `,"account":"A"`} {
+		t.Run(extra, func(t *testing.T) {
+			nc, reader := dialAccountProtocol(t, s)
+			sendAccountProtocol(t, nc, `CONNECT {"user":"ua","pass":"pa","verbose":false`+extra+"}\r\nPING\r\n")
+			line := readAccountProtocol(t, nc, reader)
+			if extra != "" {
+				require_True(t, strings.HasPrefix(line, "-ERR 'Authorization Violation'"))
+				return
+			}
+			require_Equal(t, line, "PONG\r\n")
+			sendAccountProtocol(t, nc, "SUB own 1\r\nPUB own 2\r\nok\r\n")
+			require_Equal(t, readAccountProtocol(t, nc, reader), "MSG own 1 2\r\n")
+			require_Equal(t, readAccountProtocol(t, nc, reader), "ok\r\n")
+		})
+	}
+}
+
+func TestAccountStreamMappingLifecycleOverTCP(t *testing.T) {
+	for _, finish := range []string{"unsubscribe", "disconnect"} {
+		t.Run(finish, func(t *testing.T) {
+			s := runAccountProtocolServer(t, `accounts {
+				foo {users: [{user: foo, password: foo}], exports: [{stream: foo}]}
+				bar {users: [{user: bar, password: bar}], imports: [{stream: {account: foo, subject: foo}, prefix: import}]}
+			}`)
+			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+			defer publisher.Close()
+			nc, reader := connectAccountProtocol(t, s, "bar")
+			sendAccountProtocol(t, nc, "SUB import.foo 1\r\nSUB import.foo bar 2\r\nPING\r\n")
+			require_Equal(t, readAccountProtocol(t, nc, reader), "PONG\r\n")
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(2))
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(2))
+			natsPub(t, publisher, "foo", []byte("hello"))
+			seen := make(map[string]bool)
+			for range 2 {
+				line := readAccountProtocol(t, nc, reader)
+				var subject, sid string
+				var size int
+				_, err := fmt.Sscanf(line, "MSG %s %s %d", &subject, &sid, &size)
+				require_NoError(t, err)
+				require_Equal(t, subject, "import.foo")
+				require_Equal(t, size, 5)
+				require_True(t, sid == "1" || sid == "2")
+				require_True(t, !seen[sid])
+				seen[sid] = true
+				require_Equal(t, readAccountProtocol(t, nc, reader), "hello\r\n")
+			}
+			if finish == "unsubscribe" {
+				sendAccountProtocol(t, nc, "UNSUB 1\r\nUNSUB 2\r\nPING\r\n")
+				require_Equal(t, readAccountProtocol(t, nc, reader), "PONG\r\n")
+			} else {
+				require_NoError(t, nc.Close())
+			}
+			checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+				if got := accountInfoOverHTTP(t, s, "foo").Account.SubCnt; got != 0 {
+					return fmt.Errorf("exporter retains %d shadow subscriptions", got)
+				}
+				if got := accountInfoOverHTTP(t, s, "bar").Account.SubCnt; got != 0 {
+					return fmt.Errorf("importer retains %d subscriptions", got)
+				}
+				return nil
+			})
+		})
+	}
+}
+
+func TestAccountStreamMappingMatrixOverTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name, imports, subscription string
+		subjects, mapped, payloads  []string
+	}{
+		{"no prefix", `{stream: {account: foo, subject: "*"}}`, "foo", []string{"foo"}, []string{"foo"}, []string{"hello"}},
+		{"prefix wildcard subscriber", `{stream: {account: foo, subject: "*"}, prefix: "pub.imports."}`, "pub.imports.*", []string{"foo"}, []string{"pub.imports.foo"}, []string{"hello"}},
+		{"prefix literal subscriber", `{stream: {account: foo, subject: "*"}, prefix: "pub.imports."}`, "pub.imports.foo", []string{"foo"}, []string{"pub.imports.foo"}, []string{"hello"}},
+		{"multiple imports wildcard subscriber", `{stream: {account: foo, subject: foo}, prefix: "pub."}, {stream: {account: foo, subject: bar}, prefix: "pub."}`, "pub.*", []string{"foo", "bar"}, []string{"pub.foo", "pub.bar"}, []string{"hello", "world"}},
+		{"literal prefix on full wildcard", `{stream: {account: foo, subject: "client.>"}, prefix: events}`, "events.>", []string{"client.one"}, []string{"events.client.one"}, []string{"hello"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := runAccountProtocolServer(t, fmt.Sprintf(`accounts {
+				foo {users: [{user: foo, password: foo}], exports: [{stream: ">", accounts: [bar]}]}
+				bar {users: [{user: bar, password: bar}], imports: [%s]}
+				other {users: [{user: other, password: other}]}
+			}`, tc.imports))
+			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+			defer publisher.Close()
+			client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+			defer client.Close()
+			other := natsConnect(t, s.ClientURL(), nats.UserInfo("other", "other"), nats.NoReconnect())
+			defer other.Close()
+			isolated := natsSubSync(t, other, ">")
+			sub := natsSubSync(t, client, tc.subscription)
+			require_NoError(t, other.FlushTimeout(2*time.Second))
+			require_NoError(t, client.FlushTimeout(2*time.Second))
+			for i, subject := range tc.subjects {
+				natsPub(t, publisher, subject, []byte(tc.payloads[i]))
+				msg := natsNexMsg(t, sub, 2*time.Second)
+				require_Equal(t, msg.Subject, tc.mapped[i])
+				require_Equal(t, string(msg.Data), tc.payloads[i])
+			}
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(len(tc.subjects)))
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(1))
+			require_NoError(t, sub.Unsubscribe())
+			require_NoError(t, client.FlushTimeout(2*time.Second))
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(0))
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(0))
+			require_NoError(t, other.FlushTimeout(2*time.Second))
+			pending, _, err := isolated.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+		})
+	}
+}
+
+func TestAccountMultiExporterStreamImportsOverTCP(t *testing.T) {
+	for _, separatePrefixes := range []bool{false, true} {
+		t.Run(strconv.FormatBool(separatePrefixes), func(t *testing.T) {
+			fooPrefix, barPrefix, subscription := "", "", "test"
+			if separatePrefixes {
+				fooPrefix, barPrefix, subscription = "foo", "bar", "*.test"
+			}
+			s := runAccountProtocolServer(t, fmt.Sprintf(`accounts {
+				foo {users: [{user: foo, password: foo}], exports: [{stream: test}]}
+				bar {users: [{user: bar, password: bar}], exports: [{stream: test}]}
+				importer {users: [{user: importer, password: importer}], imports: [
+					{stream: {account: foo, subject: test}, prefix: %q},
+					{stream: {account: bar, subject: test}, prefix: %q}
+				]}
+			}`, fooPrefix, barPrefix))
+			client := natsConnect(t, s.ClientURL(), nats.UserInfo("importer", "importer"), nats.NoReconnect())
+			defer client.Close()
+			sub := natsSubSync(t, client, subscription)
+			require_NoError(t, client.FlushTimeout(2*time.Second))
+			for _, exporter := range []string{"foo", "bar"} {
+				publisher := natsConnect(t, s.ClientURL(), nats.UserInfo(exporter, exporter), nats.NoReconnect())
+				defer publisher.Close()
+				natsPub(t, publisher, "test", []byte("hello-"+exporter))
+				msg := natsNexMsg(t, sub, 2*time.Second)
+				expected := "test"
+				if separatePrefixes {
+					expected = exporter + ".test"
+				}
+				require_Equal(t, msg.Subject, expected)
+				require_Equal(t, string(msg.Data), "hello-"+exporter)
+			}
+		})
+	}
+}
+
+func requireAccountStartupRejected(t *testing.T, config, diagnostic string) {
+	t.Helper()
+	configFile := createConfFile(t, []byte("listen: 127.0.0.1:-1\n"+config))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestAccountStartupContractsOverProcess$")
+	command.Env = append(os.Environ(), "NATS_TEST_ACCOUNT_STARTUP_CONFIG="+configFile)
+	output, err := command.CombinedOutput()
+	require_NoError(t, ctx.Err())
+	exit, ok := errors.AsType[*exec.ExitError](err)
+	require_True(t, ok)
+	require_Equal(t, exit.ExitCode(), 1)
+	require_True(t, len(output) > 0)
+	if diagnostic != "" {
+		require_Contains(t, string(output), diagnostic)
+	}
+}
+
+func TestAccountStartupContractsOverProcess(t *testing.T) {
+	if config := os.Getenv("NATS_TEST_ACCOUNT_STARTUP_CONFIG"); config != "" {
+		fs := flag.NewFlagSet("nats-server", flag.ContinueOnError)
+		opts, err := ConfigureOptions(fs, []string{"-c", config}, PrintServerAndExit, func() {}, PrintTLSHelpAndDie)
+		if err != nil {
+			PrintAndDie(err.Error())
+		}
+		s, err := NewServer(opts)
+		if err != nil {
+			PrintAndDie(err.Error())
+		}
+		s.ConfigureLogger()
+		if err := Run(s); err != nil {
+			PrintAndDie(err.Error())
+		}
+		s.WaitForShutdown()
+		return
+	}
+	for _, tc := range []struct{ name, config, diagnostic string }{
+		{"duplicate array account", `accounts: [foo, foo]`, "Duplicate Account Entry"},
+		{"latency wildcard results", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results.*",sampling: 100}}]}}`, ""},
+		{"latency results loops to service", `accounts {foo {exports: [{service: "track.service",latency: {subject: "track.service",sampling: 100}}]}}`, ""},
+		{"latency sampling negative", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: -1}}]}}`, ""},
+		{"latency sampling exceeds100", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: 101}}]}}`, ""},
+		{"mapping weight exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 150}]}}}`, ""},
+		{"mapping duplicate destination", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: bar,weight: 50}]}}}`, ""},
+		{"mapping weight total exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: baz,weight: 60}]}}}`, ""},
+		{"reserved global account", `accounts {$G {}}`, "Reserved Account"},
+		{"duplicate users across accounts", `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]} nats.io {users: [{user: alice, password: bar}]}}`, "Duplicate user"},
+		{"unknown exporter account", `accounts {nats.io {imports: [{stream: {account: synadia, subject: foo}}]}}`, "account not defined"},
+		{"missing service account original", `accounts {nats.io {imports = [{service: subject:"foo.*"}]}}`, ""},
+		{"malformed wildcard original", `accounts {nats.io {imports = [{service: {account: "nats.io", subject:"foo.*"}]}}`, ""},
+		{"unknown export keyword", `accounts {nats.io {exports: [{service: "foo.*", wat: true}]}}`, ""},
+		{"unknown import keyword", `accounts {nats.io {imports: [{stream: {account: nats.io, subject: "foo.*"}, wat: true}]}}`, ""},
+		{"export account object", `accounts {nats.io {exports: [{service: {account: nats.io, subject: "foo.*"}}]}}`, ""},
+		{"wildcard stream prefix", `accounts {foo {exports: [{stream: "client.>"}]} bar {imports: [{stream: {account: foo, subject: "client.>"}, prefix: "events.>"}]}}`, "prefix can not contain wildcard"},
+		{"duplicate stream import", `accounts {foo {exports: [{stream: test}]} bar {imports: [{stream: {account: foo, subject: test}}, {stream: {account: foo, subject: test}}]}}`, "stream import already exists"},
+		{"unauthorized stream import", `accounts {foo {} bar {imports: [{stream: {account: foo, subject: foo}, prefix: import}]}}`, "authorization"},
+		{"missing service exporter", `accounts {bar {imports: [{service: {account: missing, subject: "test.request"}, to: foo}]}}`, "account not defined"},
+		{"invalid service destination", `accounts {foo {exports: [{service: "test.request"}]} bar {imports: [{service: {account: foo, subject: "test..request."}, to: foo}]}}`, ""},
+		{"wildcard service with mapping", `accounts {foo {exports: [{service: "test.*"}]} bar {imports: [{service: {account: foo, subject: foo}, to: "test.*"}]}}`, ""},
+		{"service import broader than export", `accounts {foo {exports: [{service: "test.*"}]} bar {imports: [{service: {account: foo, subject: "test.>"}}]}}`, "authorization"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			requireAccountStartupRejected(t, tc.config, tc.diagnostic)
+		})
+	}
+}
+
+func TestAccountOptionsAndGlobalOverTCP(t *testing.T) {
+	t.Run("options accounts", func(t *testing.T) {
+		foo, bar := NewAccount("foo"), NewAccount("bar")
+		opts := DefaultOptions()
+		opts.Host, opts.Port, opts.HTTPHost, opts.HTTPPort = "127.0.0.1", -1, "127.0.0.1", -1
+		opts.Accounts = []*Account{foo, bar}
+		opts.Users = []*User{{Username: "foo", Password: "foo", Account: foo}, {Username: "bar", Password: "bar", Account: bar}}
+		s := RunServer(opts)
+		defer s.Shutdown()
+		accounts := accountInfoOverHTTP(t, s, "").Accounts
+		require_Equal(t, len(accounts), 3)
+		for _, name := range []string{"$G", "foo", "bar"} {
+			require_True(t, slices.Contains(accounts, name))
+		}
+		for _, name := range []string{"foo", "bar"} {
+			nc := natsConnect(t, s.ClientURL(), nats.UserInfo(name, name), nats.NoReconnect())
+			defer nc.Close()
+			sub := natsSubSync(t, nc, "initialized")
+			require_NoError(t, nc.FlushTimeout(2*time.Second))
+			natsPub(t, nc, "initialized", []byte(name))
+			require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), name)
+		}
+	})
+	t.Run("config array", func(t *testing.T) {
+		s := runAccountProtocolServer(t, `accounts: [foo,bar]`)
+		accounts := accountInfoOverHTTP(t, s, "").Accounts
+		require_Equal(t, len(accounts), 3)
+		for _, name := range []string{"$G", "foo", "bar"} {
+			require_True(t, slices.Contains(accounts, name))
+		}
+	})
+	t.Run("global default", func(t *testing.T) {
+		s := runAccountProtocolServer(t, "")
+		require_True(t, slices.Contains(accountInfoOverHTTP(t, s, "").Accounts, "$G"))
+		nc := natsConnect(t, s.ClientURL(), nats.NoReconnect())
+		defer nc.Close()
+		sub := natsSubSync(t, nc, "global")
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		natsPub(t, nc, "global", []byte("default account"))
+		require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), "default account")
+	})
+}
+
+func TestAccountUserBindingsOverTCP(t *testing.T) {
+	for _, nkeyUsers := range []bool{false, true} {
+		t.Run(strconv.FormatBool(nkeyUsers), func(t *testing.T) {
+			type identity struct {
+				name, account string
+				option        nats.Option
+			}
+			var config string
+			var users []identity
+			if !nkeyUsers {
+				config = `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]} nats.io {users: [{user: derek, password: foo}, {user: ivan, password: bar}], msg_trace: {dest: my.trace.dest, sampling: 50%}}}`
+				users = []identity{{"alice", "synadia", nats.UserInfo("alice", "foo")}, {"bob", "synadia", nats.UserInfo("bob", "bar")}, {"derek", "nats.io", nats.UserInfo("derek", "foo")}, {"ivan", "nats.io", nats.UserInfo("ivan", "bar")}}
+			} else {
+				config = `accounts {synadia {users: [{user: derek, password: foo}, {nkey: UCNGL4W5QX66CFX6A6DCBVDH5VOHMI7B2UZZU7TXAUQQSI2JPHULCKBR}]} nats {users: [{user: ivan, password: bar}, {nkey: UDPGQVFIWZ7Q5UH4I5E6DBCZULQS6VTVBG6CYBD7JV3G3N2GMQOMNAUH}]}}`
+				users = []identity{{"derek", "synadia", nats.UserInfo("derek", "foo")}, {"ivan", "nats", nats.UserInfo("ivan", "bar")}}
+				for i, seed := range []string{"SUAPM67TC4RHQLKBX55NIQXSMATZDOZK6FNEOSS36CAYA7F7TY66LP4BOM", "SUAIS5JPX4X4GJ7EIIJEQ56DH2GWPYJRPWN5XJEDENJOZHCBLI7SEPUQDE"} {
+					kp, err := nkeys.FromSeed([]byte(seed))
+					require_NoError(t, err)
+					pub, err := kp.PublicKey()
+					require_NoError(t, err)
+					account := "synadia"
+					if i == 1 {
+						account = "nats"
+					}
+					users = append(users, identity{pub, account, nats.Nkey(pub, func(nonce []byte) ([]byte, error) {
+						if len(nonce) == 0 {
+							return nil, fmt.Errorf("server omitted authentication nonce")
+						}
+						return kp.Sign(nonce)
+					})})
+				}
+			}
+			s := runAccountProtocolServer(t, config)
+			var clients []*nats.Conn
+			var subs []*nats.Subscription
+			for _, user := range users {
+				nc := natsConnect(t, s.ClientURL(), user.option, nats.NoReconnect())
+				defer nc.Close()
+				clients = append(clients, nc)
+				subs = append(subs, natsSubSync(t, nc, "binding"))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+			}
+			for i, publisher := range clients {
+				natsPub(t, publisher, "binding", []byte(users[i].name))
+				for j, sub := range subs {
+					if users[i].account == users[j].account {
+						require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), users[i].name)
+					}
+				}
+			}
+			for i, nc := range clients {
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				pending, _, err := subs[i].Pending()
+				require_NoError(t, err)
+				require_Equal(t, pending, 0)
+				require_Equal(t, accountInfoOverHTTP(t, s, users[i].account).Account.ClientCnt, 2)
+			}
+		})
+	}
+}
+
+func TestAccountServiceMappingsOverTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name, export, local, destination string
+		private                          bool
+	}{
+		{"literal public", "test.request", "foo", "test.request", false},
+		{"wildcard export public", "ngs.update.*", "ngs.update", "ngs.update.$bar", false},
+		{"wildcard export private", "ngs.update.*", "ngs.update", "ngs.update.$bar", true},
+		{"wildcard identity import", "test.*", "test.*", "test.*", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			approval := ""
+			if tc.private {
+				approval = ", accounts: [bar]"
+			}
+			to := ""
+			if tc.local != tc.destination {
+				to = fmt.Sprintf(", to: %q", tc.local)
+			}
+			s := runAccountProtocolServer(t, fmt.Sprintf(`accounts {
+				foo {users: [{user: foo,password: foo}], exports: [{service: %q%s}]}
+				bar {users: [{user: bar,password: bar}], imports: [{service: {account: foo,subject: %q}%s}]}
+			}`, tc.export, approval, tc.destination, to))
+			responder := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+			defer responder.Close()
+			client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+			defer client.Close()
+			requests := natsSubSync(t, responder, tc.export)
+			replies := natsSubSync(t, client, "reply")
+			require_NoError(t, responder.FlushTimeout(2*time.Second))
+			require_NoError(t, client.FlushTimeout(2*time.Second))
+			local, destination := tc.local, tc.destination
+			if tc.local == "test.*" {
+				local, destination = "test.22", "test.22"
+			}
+			natsPubReq(t, client, local, replies.Subject, []byte("help"))
+			request := natsNexMsg(t, requests, 2*time.Second)
+			require_Equal(t, request.Subject, destination)
+			require_Equal(t, string(request.Data), "help")
+			require_True(t, strings.HasPrefix(request.Reply, "_R_."))
+			require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+			natsPub(t, responder, request.Reply, []byte("22"))
+			response := natsNexMsg(t, replies, 2*time.Second)
+			require_Equal(t, response.Subject, "reply")
+			require_Equal(t, string(response.Data), "22")
+			require_Equal(t, response.Reply, "")
+			require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 0)
+		})
+	}
+}
+
+func TestAccountAdditiveExportPermissionsOverTCP(t *testing.T) {
+	for _, kind := range []string{"stream", "service"} {
+		t.Run(kind, func(t *testing.T) {
+			s := runAccountProtocolServer(t, fmt.Sprintf(`accounts {
+				foo {users: [{user: foo,password: foo}], exports: [
+					{%s: "test.request"},
+					{%s: "test.request",accounts: [bar]},
+					{%s: "test.request",accounts: [baz]}
+				]}
+				bar {users: [{user: bar,password: bar}], imports: [{%s: {account: foo,subject: "test.request"}}]}
+				baz {users: [{user: baz,password: baz}], imports: [{%s: {account: foo,subject: "test.request"}}]}
+			}`, kind, kind, kind, kind, kind))
+			exports := accountInfoOverHTTP(t, s, "foo").Account.Exports
+			require_Equal(t, len(exports), 1)
+			require_Equal(t, exports[0].Subject, jwt.Subject("test.request"))
+			require_Equal(t, len(exports[0].ApprovedAccounts), 2)
+			require_True(t, slices.Contains(exports[0].ApprovedAccounts, "bar"))
+			require_True(t, slices.Contains(exports[0].ApprovedAccounts, "baz"))
+			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+			defer publisher.Close()
+			var requests *nats.Subscription
+			if kind == "service" {
+				requests = natsSubSync(t, publisher, "test.request")
+				require_NoError(t, publisher.FlushTimeout(2*time.Second))
+			}
+			for _, account := range []string{"bar", "baz"} {
+				nc := natsConnect(t, s.ClientURL(), nats.UserInfo(account, account), nats.NoReconnect())
+				defer nc.Close()
+				if kind == "stream" {
+					sub := natsSubSync(t, nc, "test.request")
+					require_NoError(t, nc.FlushTimeout(2*time.Second))
+					natsPub(t, publisher, "test.request", []byte(account))
+					require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), account)
+					require_NoError(t, sub.Unsubscribe())
+				} else {
+					replies := natsSubSync(t, nc, nats.NewInbox())
+					require_NoError(t, nc.FlushTimeout(2*time.Second))
+					natsPubReq(t, nc, "test.request", replies.Subject, []byte(account))
+					request := natsNexMsg(t, requests, 2*time.Second)
+					require_Equal(t, request.Subject, "test.request")
+					require_Equal(t, string(request.Data), account)
+					natsPub(t, publisher, request.Reply, []byte("reply:"+account))
+					require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "reply:"+account)
+				}
+			}
+		})
+	}
+}
+
+func TestAccountConfiguredMappingsOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `accounts {synadia {
+		users: [{user: derek,password: foo}]
+		mappings: {
+			foo: bar
+			foo.*: [{dest: "bar.v1.$1",weight: 40%},{destination: "baz.v2.$1",weight: 20}]
+			bar.*.*: "RAB.$2.$1"
+		}
+	}}`)
+	mappings := accountInfoOverHTTP(t, s, "synadia").Account.Mappings
+	require_Equal(t, len(mappings), 3)
+	require_Equal(t, mappings["foo"][0].Subject, "bar")
+	require_Equal(t, mappings["bar.*.*"][0].Subject, "RAB.$2.$1")
+	nc := natsConnect(t, s.ClientURL(), nats.UserInfo("derek", "foo"), nats.NoReconnect())
+	defer nc.Close()
+	sub := natsSubSync(t, nc, ">")
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	for _, tc := range []struct {
+		subject      string
+		destinations []string
+	}{
+		{"foo", []string{"bar"}},
+		{"bar.first.second", []string{"RAB.second.first"}},
+		{"foo.key", []string{"foo.key", "bar.v1.key", "baz.v2.key"}},
+	} {
+		natsPub(t, nc, tc.subject, []byte(tc.subject))
+		msg := natsNexMsg(t, sub, 2*time.Second)
+		require_True(t, slices.Contains(tc.destinations, msg.Subject))
+		require_Equal(t, string(msg.Data), tc.subject)
+	}
+}
+
+func TestAccountWeightedMappingsOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `accounts {weighted {
+		users: [{user: weighted,password: weighted}]
+		mappings: {foo: [{dest: bar,weight: 50},{dest: baz,weight: 30}]}
+	}}`)
+	nc := natsConnect(t, s.ClientURL(), nats.UserInfo("weighted", "weighted"), nats.NoReconnect())
+	defer nc.Close()
+	var subs []*nats.Subscription
+	for _, subject := range []string{"foo", "bar", "baz"} {
+		subs = append(subs, natsSubSync(t, nc, subject))
+	}
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	total := 5000
+	for i := range total {
+		natsPub(t, nc, "foo", []byte(strconv.Itoa(i)))
+	}
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	seen := make(map[int]bool, total)
+	for i, weight := range []uint8{20, 50, 30} {
+		pending, _, err := subs[i].Pending()
+		require_NoError(t, err)
+		expected := total / int(100/weight)
+		tolerance := expected / 5
+		require_True(t, pending >= expected-tolerance && pending <= expected+tolerance)
+		for range pending {
+			msg := natsNexMsg(t, subs[i], 2*time.Second)
+			require_Equal(t, msg.Subject, subs[i].Subject)
+			id, err := strconv.Atoi(string(msg.Data))
+			require_NoError(t, err)
+			require_True(t, id >= 0 && id < total && !seen[id])
+			seen[id] = true
+		}
+	}
+	require_Equal(t, len(seen), total)
+}
+
+func TestAccountServiceResponseCleanupOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `accounts {
+		foo {users: [{user: foo,password: foo}], exports: [{service: "test.request",response_type: stream}]}
+		bar {users: [{user: bar,password: bar}], imports: [{service: {account: foo,subject: "test.request"},to: foo}]}
+	}`)
+	responder := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "test.request")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "bar")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPubReq(t, client, "foo", "bar", []byte("help"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, request.Subject, "test.request")
+	require_Equal(t, string(request.Data), "help")
+	require_True(t, strings.HasPrefix(request.Reply, "_R_."))
+	for i := range 10 {
+		natsPub(t, responder, request.Reply, []byte(strconv.Itoa(i)))
+	}
+	for i := range 10 {
+		response := natsNexMsg(t, replies, 2*time.Second)
+		require_Equal(t, response.Subject, "bar")
+		require_Equal(t, string(response.Data), strconv.Itoa(i))
+	}
+	require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+	client.Close()
+	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+		if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+			return fmt.Errorf("stream response remained after requester close: %d", pending)
+		}
+		return nil
+	})
+	client = natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	natsPubReq(t, client, "foo", "bar", []byte("no reply interest"))
+	request = natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, string(request.Data), "no reply interest")
+	natsPub(t, responder, request.Reply, []byte("discarded"))
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+		if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+			return fmt.Errorf("response with no reply interest remained: %d", pending)
+		}
+		return nil
+	})
+}
+
+func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
+	for _, count := range []int{15, 1600} {
+		for _, removal := range []string{"expiry", "unsubscribe", "disconnect"} {
+			t.Run(fmt.Sprintf("%d/%s", count, removal), func(t *testing.T) {
+				s := runAccountProtocolServer(t, `accounts {
+					foo {users: [{user: foo,password: foo}], exports: [{service: test,response_threshold: "5s"}]}
+					bar {users: [{user: bar,password: bar}], imports: [{service: {account: foo,subject: test}}]}
+				}`)
+				responder := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+				defer responder.Close()
+				requests := natsSubSync(t, responder, "test")
+				require_NoError(t, responder.FlushTimeout(2*time.Second))
+				client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+				defer client.Close()
+				replies := natsSubSync(t, client, "my.inbox")
+				require_NoError(t, client.FlushTimeout(2*time.Second))
+				for i := range count {
+					natsPubReq(t, client, "test", "my.inbox", []byte(strconv.Itoa(i)))
+				}
+				stale := make([]*nats.Msg, 0, count)
+				for i := range count {
+					request := natsNexMsg(t, requests, 2*time.Second)
+					require_Equal(t, request.Subject, "test")
+					require_Equal(t, string(request.Data), strconv.Itoa(i))
+					stale = append(stale, request)
+				}
+				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), count)
+				switch removal {
+				case "unsubscribe":
+					require_NoError(t, replies.Unsubscribe())
+					require_NoError(t, client.FlushTimeout(2*time.Second))
+				case "disconnect":
+					client.Close()
+				}
+				wait := 2 * time.Second
+				if removal == "expiry" {
+					wait = 7 * time.Second
+				}
+				checkFor(t, wait, 10*time.Millisecond, func() error {
+					if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+						return fmt.Errorf("%s left %d of %d responses", removal, pending, count)
+					}
+					return nil
+				})
+				if removal == "disconnect" {
+					client = natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+					defer client.Close()
+				}
+				if removal != "expiry" {
+					replies = natsSubSync(t, client, "my.inbox")
+					require_NoError(t, client.FlushTimeout(2*time.Second))
+				}
+				natsPubReq(t, client, "test", "my.inbox", []byte("current"))
+				current := natsNexMsg(t, requests, 2*time.Second)
+				require_Equal(t, string(current.Data), "current")
+				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+				for _, request := range stale {
+					natsPub(t, responder, request.Reply, []byte("stale"))
+				}
+				natsPub(t, responder, current.Reply, []byte("current reply"))
+				require_NoError(t, responder.FlushTimeout(2*time.Second))
+				require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "current reply")
+				natsPub(t, client, "my.inbox", []byte("local marker"))
+				require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "local marker")
+				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 0)
+			})
+		}
+	}
+}
+
+func TestAccountServiceLatencyOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `system_account: SYS
+ accounts {
+  SYS {}
+  foo {users: [{user: foo,password: foo}], exports: [{service: "track.service",latency: {subject: results,sampling: 100}}]}
+  bar {users: [{user: bar,password: bar}], imports: [{service: {account: foo,subject: "track.service"},to: req}]}
+ }`)
+	responder := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "track.service")
+	metrics := natsSubSync(t, responder, "results")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "resp")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	start := time.Now()
+	natsPubReq(t, client, "req", "resp", []byte("help"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, request.Subject, "track.service")
+	require_Equal(t, string(request.Data), "help")
+	time.Sleep(25 * time.Millisecond)
+	natsPub(t, responder, request.Reply, []byte("22"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "22")
+	metric := natsNexMsg(t, metrics, 2*time.Second)
+	var latency ServiceLatency
+	require_NoError(t, json.Unmarshal(metric.Data, &latency))
+	require_Equal(t, latency.Type, ServiceLatencyType)
+	require_Equal(t, latency.Status, 200)
+	require_True(t, latency.RequestStart.Sub(start) <= 5*time.Millisecond)
+	require_True(t, latency.ServiceLatency >= 25*time.Millisecond)
+	require_True(t, latency.TotalLatency >= latency.ServiceLatency)
+	require_True(t, latency.RequestHeader == nil)
+}
+
+func TestAccountLatencySamplingHeadersOverTCP(t *testing.T) {
+	s := runAccountProtocolServer(t, `system_account: SYS
+ accounts {
+  SYS {}
+  foo {users: [{user: foo,password: foo}], exports: [{service: "track.service",latency: {subject: results,sampling: headers}}]}
+  bar {users: [{user: bar,password: bar}], imports: [{service: {account: foo,subject: "track.service"},to: req}]}
+ }`)
+	responder := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "track.service")
+	metrics := natsSubSync(t, responder, "results")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "resp")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	issue := func(t *testing.T, payload string, header http.Header) {
+		t.Helper()
+		require_NoError(t, client.PublishMsg(&nats.Msg{Subject: "req", Reply: "resp", Data: []byte(payload), Header: nats.Header(header)}))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, string(request.Data), payload)
+		natsPub(t, responder, request.Reply, []byte(payload))
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), payload)
+	}
+	for i, tc := range []struct {
+		sample bool
+		header http.Header
+	}{
+		{false, http.Header{"Uber-Trace-Id": []string{"0:0:0:0"}}},
+		{false, http.Header{"Uber-Trace-Id": []string{"0:0:0:00"}}},
+		{true, http.Header{"Uber-Trace-Id": []string{"0:0:0:1"}}},
+		{true, http.Header{"Uber-Trace-Id": []string{"0:0:0:01"}}},
+		{true, http.Header{"Uber-Trace-Id": []string{"0:0:0:5"}}},
+		{true, http.Header{"Uber-Trace-Id": []string{"479fefe9525eddb:5adb976bfc1f95c1:479fefe9525eddb:1"}}},
+		{true, http.Header{"Uber-Trace-Id": []string{"479fefe9525eddb:479fefe9525eddb:0:1"}}},
+		{false, http.Header{"Uber-Trace-Id": []string{"479fefe9525eddb:5adb976bfc1f95c1:479fefe9525eddb:0"}}},
+		{false, http.Header{"Uber-Trace-Id": []string{"479fefe9525eddb:479fefe9525eddb:0:0"}}},
+		{true, http.Header{"X-B3-Sampled": []string{"1"}}},
+		{false, http.Header{"X-B3-Sampled": []string{"0"}}},
+		{true, http.Header{"X-B3-TraceId": []string{"80f198ee56343ba864fe8b2a57d3eff7"}}},
+		{false, http.Header{"X-B3-TraceId": []string{"80f198ee56343ba864fe8b2a57d3eff7"}, "X-B3-Sampled": []string{"0"}}},
+		{true, http.Header{"X-B3-TraceId": []string{"80f198ee56343ba864fe8b2a57d3eff7"}, "X-B3-Sampled": []string{"1"}}},
+		{false, http.Header{"B3": []string{"0"}}},
+		{false, http.Header{"B3": []string{"0-0-0-0"}}},
+		{false, http.Header{"B3": []string{"0-0-0"}}},
+		{true, http.Header{"B3": []string{"0-0-1-0"}}},
+		{true, http.Header{"B3": []string{"0-0-1"}}},
+		{true, http.Header{"B3": []string{"0-0-d"}}},
+		{true, http.Header{"B3": []string{"80f198ee56343ba864fe8b2a57d3eff7-e457b5a2e4d86bd1-1"}}},
+		{true, http.Header{"B3": []string{"80f198ee56343ba864fe8b2a57d3eff7-e457b5a2e4d86bd1-1-05e3ac9a4f6e3b90"}}},
+		{false, http.Header{"B3": []string{"80f198ee56343ba864fe8b2a57d3eff7-e457b5a2e4d86bd1-0-05e3ac9a4f6e3b90"}}},
+		{true, http.Header{"traceparent": []string{"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"}}},
+		{true, http.Header{"traceparent": []string{"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-27"}}},
+		{false, http.Header{"traceparent": []string{"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"}}},
+		{false, http.Header{"traceparent": []string{"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-22"}}},
+	} {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			issue(t, strconv.Itoa(i), tc.header)
+			expected := tc.header
+			if !tc.sample {
+				expected = http.Header{"X-B3-Traceid": []string{fmt.Sprintf("marker%d", i)}, "X-B3-Sampled": []string{"1"}}
+				// Both responses use one responder socket, so the sampled marker orders the internal metrics queue.
+				issue(t, "marker", expected)
+			}
+			metric := natsNexMsg(t, metrics, 2*time.Second)
+			var latency ServiceLatency
+			require_NoError(t, json.Unmarshal(metric.Data, &latency))
+			require_Equal(t, latency.Status, 200)
+			require_Equal(t, len(latency.RequestHeader), len(expected))
+			for key, values := range expected {
+				require_Equal(t, latency.RequestHeader.Get(key), values[0])
+			}
+		})
+	}
+}
+
+func TestAccountImportAuthorizationMatrixOverTCP(t *testing.T) {
+	exports := []string{
+		``,
+		`{stream: foo}`,
+		`{stream: foo},{stream: "*",accounts: ["$bar"]}`,
+		`{stream: ">"}`,
+		`{stream: "foo.*",account_token_position: 2},{stream: "bar.*.foo",account_token_position: 2}`,
+		`{service: "a.*",account_token_position: 2},{service: "b.*.a",account_token_position: 2}`,
+		`{stream: "foo.*.baz.>",accounts: ["$bar"]}`,
+	}
+	for i, tc := range []struct {
+		phase                  int
+		kind, account, subject string
+		allowed                bool
+	}{
+		{0, "stream", "$bar", "foo", false},
+		{0, "stream", "$bar", "*", false},
+		{0, "stream", "$bar", ">", false},
+		{0, "stream", "$bar", "foo.*", false},
+		{0, "stream", "$bar", "foo.>", false},
+		{1, "stream", "$bar", "foo", true},
+		{1, "stream", "$bar", "bar", false},
+		{1, "stream", "$bar", "*", false},
+		{2, "stream", "$bar", "foo", true},
+		{2, "stream", "$bar", "bar", true},
+		{2, "stream", "$bar", "baz", true},
+		{2, "stream", "$bar", "foo.bar", false},
+		{2, "stream", "$bar", ">", false},
+		{2, "stream", "$bar", "*", true},
+		{2, "stream", "$bar", "foo.*", false},
+		{2, "stream", "$bar", "*.*", false},
+		{2, "stream", "$bar", "*.>", false},
+		{3, "stream", "$bar", "foo", true},
+		{3, "stream", "$bar", "bar", true},
+		{3, "stream", "$bar", "baz", true},
+		{3, "stream", "$bar", "foo.bar", true},
+		{3, "stream", "$bar", ">", true},
+		{3, "stream", "$bar", "*", true},
+		{3, "stream", "$bar", "foo.*", true},
+		{3, "stream", "$bar", "*.*", true},
+		{3, "stream", "$bar", "*.>", true},
+		{4, "stream", "$bar", "foo.$bar", true},
+		{4, "stream", "$bar", "bar.$bar.foo", true},
+		{4, "stream", "$bar", "baz.foo.$bar", false},
+		{4, "stream", "$bar", "foo.X", false},
+		{4, "stream", "$bar", "bar.X.foo", false},
+		{4, "stream", "$bar", "baz.foo.X", false},
+		{5, "service", "$bar", "a.$bar", true},
+		{5, "service", "$bar", "b.$bar.a", true},
+		{5, "service", "$bar", "c.a.$bar", false},
+		{5, "service", "$bar", "a.X", false},
+		{5, "service", "$bar", "b.X.a", false},
+		{5, "service", "$bar", "c.a.X", false},
+		{6, "stream", "$bar", "foo.bar.baz.1", true},
+		{6, "stream", "$bar", "foo.bar.baz.*", true},
+		{6, "stream", "$bar", "foo.*.baz.1.1", true},
+		{6, "stream", "$bar", "foo.22.baz.22", true},
+		{6, "stream", "$bar", "foo.bar.baz", false},
+		{6, "stream", "$bar", "", false},
+		{6, "stream", "$bar", "foo.bar.*.*", false},
+		{6, "stream", "foobar", "foo.bar.baz.1", false},
+		{6, "stream", "baz", "foo.bar.baz.1", false},
+	} {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			config := fmt.Sprintf(`accounts {
+    "$foo" {users: [{user: foo,password: foo}],exports: [%s]}
+    %q {users: [{user: importer,password: importer}],imports: [{%s: {account: "$foo",subject: %q}}]}
+   }`, exports[tc.phase], tc.account, tc.kind, tc.subject)
+			if tc.account != "$bar" {
+				config = fmt.Sprintf(`accounts {
+     "$foo" {exports: [%s]}
+     "$bar" {}
+     %q {imports: [{%s: {account: "$foo",subject: %q}}]}
+    }`, exports[tc.phase], tc.account, tc.kind, tc.subject)
+			}
+			if !tc.allowed {
+				requireAccountStartupRejected(t, config, "")
+				return
+			}
+			s := runAccountProtocolServer(t, config)
+			require_Equal(t, len(accountInfoOverHTTP(t, s, tc.account).Account.Imports), 1)
+			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+			defer publisher.Close()
+			client := natsConnect(t, s.ClientURL(), nats.UserInfo("importer", "importer"), nats.NoReconnect())
+			defer client.Close()
+			literal := strings.ReplaceAll(tc.subject, "*", "one")
+			literal = strings.ReplaceAll(literal, ">", "two")
+			if tc.kind == "stream" {
+				observed := natsSubSync(t, client, tc.subject)
+				require_NoError(t, client.FlushTimeout(2*time.Second))
+				natsPub(t, publisher, literal, []byte(tc.subject))
+				msg := natsNexMsg(t, observed, 2*time.Second)
+				require_Equal(t, msg.Subject, literal)
+				require_Equal(t, string(msg.Data), tc.subject)
+			} else {
+				requests := natsSubSync(t, publisher, tc.subject)
+				replies := natsSubSync(t, client, nats.NewInbox())
+				require_NoError(t, publisher.FlushTimeout(2*time.Second))
+				require_NoError(t, client.FlushTimeout(2*time.Second))
+				natsPubReq(t, client, literal, replies.Subject, []byte(tc.subject))
+				request := natsNexMsg(t, requests, 2*time.Second)
+				require_Equal(t, request.Subject, literal)
+				require_Equal(t, string(request.Data), tc.subject)
+				natsPub(t, publisher, request.Reply, []byte("authorized reply"))
+				require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "authorized reply")
+			}
+		})
+	}
+	for _, kind := range []string{"stream", "service"} {
+		t.Run(kind+" invalid account token position", func(t *testing.T) {
+			requireAccountStartupRejected(t, fmt.Sprintf(`accounts {foo {exports: [{%s: "baz.*.>",account_token_position: 3}]}}`, kind), "")
+		})
+	}
+}
+
+func TestAccountStreamImportRefreshOverTCP(t *testing.T) {
+	header := "listen: 127.0.0.1:-1\nhttp: 127.0.0.1:-1\n"
+	configFor := func(imports string) string {
+		return header + fmt.Sprintf(`accounts {
+			foo {users: [{user: foo,password: foo}],exports: [{stream: ">"}]}
+			diff_name {users: [{user: diff_name,password: diff_name}],exports: [{stream: ">"}]}
+			bar {users: [{user: bar,password: bar}],imports: [%s]}
+		}`, imports)
+	}
+	phases := []struct {
+		imports string
+		want    map[string]string
+	}{
+		{`{stream: {account: foo,subject: foo},prefix: myPrefix}`, map[string]string{"foo:foo": "myPrefix.foo"}},
+		{`{stream: {account: foo,subject: foo},prefix: myPrefix}`, map[string]string{"foo:foo": "myPrefix.foo"}},
+		{`{stream: {account: foo,subject: foo},prefix: myPrefix},{stream: {account: foo,subject: "foo.>"}}`, map[string]string{"foo:foo": "myPrefix.foo", "foo:foo.one": "foo.one"}},
+		{`{stream: {account: foo,subject: "foo.>"}},{stream: {account: foo,subject: foo},prefix: myPrefix}`, map[string]string{"foo:foo": "myPrefix.foo", "foo:foo.one": "foo.one"}},
+		{`{stream: {account: foo,subject: bar}}`, map[string]string{"foo:bar": "bar"}},
+		{`{stream: {account: foo,subject: baz}}`, map[string]string{"foo:baz": "baz"}},
+		{`{stream: {account: foo,subject: bar},prefix: prefix}`, map[string]string{"foo:bar": "prefix.bar"}},
+		{`{stream: {account: foo,subject: bar},prefix: diff_prefix}`, map[string]string{"foo:bar": "diff_prefix.bar"}},
+		{`{stream: {account: diff_name,subject: bar},prefix: prefix}`, map[string]string{"diff_name:bar": "prefix.bar"}},
+	}
+	config := createConfFile(t, []byte(configFor(phases[0].imports)))
+	s, _ := RunServerWithConfig(config)
+	defer s.Shutdown()
+	client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	observed := natsSubSync(t, client, ">")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	var publishers []*nats.Conn
+	for _, account := range []string{"foo", "diff_name"} {
+		nc := natsConnect(t, s.ClientURL(), nats.UserInfo(account, account), nats.NoReconnect())
+		defer nc.Close()
+		publishers = append(publishers, nc)
+	}
+	for i, phase := range phases {
+		require_NoError(t, os.WriteFile(config, []byte(configFor(phase.imports)), 0600))
+		require_NoError(t, s.Reload())
+		for j, account := range []string{"foo", "diff_name"} {
+			for _, subject := range []string{"foo", "foo.one", "bar", "baz"} {
+				natsPub(t, publishers[j], subject, []byte(account+":"+subject))
+			}
+			require_NoError(t, publishers[j].FlushTimeout(2*time.Second))
+		}
+		marker := fmt.Sprintf("phase%d", i)
+		natsPub(t, client, "local.marker", []byte(marker))
+		seen := make(map[string]bool)
+		for {
+			msg := natsNexMsg(t, observed, 2*time.Second)
+			if msg.Subject == "local.marker" {
+				require_Equal(t, string(msg.Data), marker)
+				break
+			}
+			key := string(msg.Data)
+			destination, ok := phase.want[key]
+			require_True(t, ok && !seen[key])
+			require_Equal(t, msg.Subject, destination)
+			seen[key] = true
+		}
+		require_Equal(t, len(seen), len(phase.want))
+		require_True(t, client.IsConnected())
+	}
+}
+
+func TestAccountServiceImportMultiplicityOverTCP(t *testing.T) {
+	for _, exporter := range []string{"foo", "baz"} {
+		t.Run("duplicate "+exporter, func(t *testing.T) {
+			requireAccountStartupRejected(t, fmt.Sprintf(`accounts {
+				%s {exports: [{service: remote1},{service: remote2}]}
+				bar {imports: [{service: {account: %s,subject: remote1},to: foo},{service: {account: %s,subject: remote2},to: foo}]}
+			}`, exporter, exporter, exporter), "duplicate")
+		})
+	}
+	configFor := func(active []string) string {
+		var imports []string
+		for _, account := range active {
+			imports = append(imports, fmt.Sprintf(`{service: {account: %s,subject: remote1},to: foo}`, account))
+		}
+		return "listen: 127.0.0.1:-1\nhttp: 127.0.0.1:-1\n" + fmt.Sprintf(`accounts {
+			foo {users: [{user: foo,password: foo}],exports: [{service: remote1}]}
+			baz {users: [{user: baz,password: baz}],exports: [{service: remote1}]}
+			bat {users: [{user: bat,password: bat}],exports: [{service: remote1}]}
+			bar {users: [{user: bar,password: bar}],imports: [%s]}
+		}`, strings.Join(imports, ","))
+	}
+	config := createConfFile(t, []byte(configFor([]string{"foo", "baz", "bat"})))
+	s, _ := RunServerWithConfig(config)
+	defer s.Shutdown()
+	client := natsConnect(t, s.ClientURL(), nats.UserInfo("bar", "bar"), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "reply")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	var responders []*nats.Conn
+	var requests []*nats.Subscription
+	for _, account := range []string{"foo", "baz", "bat"} {
+		nc := natsConnect(t, s.ClientURL(), nats.UserInfo(account, account), nats.NoReconnect())
+		defer nc.Close()
+		responders = append(responders, nc)
+		requests = append(requests, natsSubSync(t, nc, "remote1"))
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+	}
+	for i, active := range [][]string{{"foo", "baz", "bat"}, {"foo", "baz", "bat"}, {"foo", "bat"}, {"foo"}, {"foo"}, {}} {
+		require_NoError(t, os.WriteFile(config, []byte(configFor(active)), 0600))
+		require_NoError(t, s.Reload())
+		require_Equal(t, len(accountInfoOverHTTP(t, s, "bar").Account.Imports), len(active))
+		payload := fmt.Sprintf("request%d", i)
+		natsPubReq(t, client, "foo", "reply", []byte(payload))
+		require_NoError(t, client.FlushTimeout(2*time.Second))
+		for j, account := range []string{"foo", "baz", "bat"} {
+			natsPub(t, responders[j], "remote1", []byte("local marker"))
+			if slices.Contains(active, account) {
+				request := natsNexMsg(t, requests[j], 2*time.Second)
+				require_Equal(t, string(request.Data), payload)
+				require_True(t, strings.HasPrefix(request.Reply, "_R_."))
+				natsPub(t, responders[j], request.Reply, []byte(account))
+			}
+			require_Equal(t, string(natsNexMsg(t, requests[j], 2*time.Second).Data), "local marker")
+			require_NoError(t, responders[j].FlushTimeout(2*time.Second))
+		}
+		seen := make(map[string]bool)
+		for range active {
+			account := string(natsNexMsg(t, replies, 2*time.Second).Data)
+			require_True(t, slices.Contains(active, account) && !seen[account])
+			seen[account] = true
+		}
+		natsPub(t, client, "reply", []byte("reply marker"))
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "reply marker")
+	}
+}
+
+func runAccountClaimsProtocolServer(t *testing.T, claims ...*jwt.AccountClaims) (*Server, nats.Option) {
+	t.Helper()
+	sysKP, sysAccount, sysClaim := NewJwtAccountClaim("sys")
+	preload := map[string]string{sysAccount: encodeClaim(t, sysClaim, sysAccount)}
+	for _, claim := range claims {
+		preload[claim.Subject] = encodeClaim(t, claim, claim.Subject)
+	}
+	encoded, err := json.Marshal(preload)
+	require_NoError(t, err)
+	s := runAccountProtocolServer(t, fmt.Sprintf(`
+		operator: %s
+		system_account: %s
+		resolver: {type: full,dir: %q,allow_delete: true}
+		resolver_preload: %s
+		jetstream: {store_dir: %q,max_mem_store: 64Mb,max_file_store: 64Mb}
+	`, ojwt, sysAccount, t.TempDir(), encoded, t.TempDir()))
+	return s, createUserCredsEx(t, jwt.NewUserClaims("sys"), sysKP)
+}
+
+func updateAccountClaimOverTCP(nc *nats.Conn, account, token string) error {
+	msg, err := nc.Request(fmt.Sprintf("$SYS.REQ.ACCOUNT.%s.CLAIMS.UPDATE", account), []byte(token), 2*time.Second)
+	if err != nil {
+		return err
+	}
+	var response ServerAPIClaimUpdateResponse
+	if err := json.Unmarshal(msg.Data, &response); err != nil {
+		return err
+	}
+	if response.Error != nil {
+		return fmt.Errorf("account update refused: %+v", response.Error)
+	}
+	if response.Data == nil || response.Data.Account != account || response.Data.Code != 200 {
+		return fmt.Errorf("unexpected account update: %s", msg.Data)
+	}
+	return nil
+}
+
+func TestAccountDefaultPermissionsAdmissionRaceOverTCP(t *testing.T) {
+	kp, account, claim := NewJwtAccountClaim("account")
+	claim.DefaultPermissions.Pub.Allow.Add("allowed", "even")
+	claim.DefaultPermissions.Sub.Allow.Add(">")
+	user := jwt.NewUserClaims("inherited")
+	creds := createUserCredsEx(t, user, kp)
+	explicit := jwt.NewUserClaims("explicit")
+	explicit.Permissions.Pub.Allow.Add("explicit")
+	explicit.Permissions.Sub.Allow.Add(">")
+	explicitCreds := createUserCredsEx(t, explicit, kp)
+	var tokens []string
+	for i := range 1000 {
+		claim.Name = fmt.Sprintf("refresh%d", i)
+		phase := "even"
+		if i%2 != 0 {
+			phase = "odd"
+		}
+		claim.DefaultPermissions.Pub.Allow = jwt.StringList{"allowed", phase}
+		tokens = append(tokens, encodeClaim(t, claim, account))
+	}
+	s, sysCreds := runAccountClaimsProtocolServer(t, claim)
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	results := make(chan error, 2)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		for range 1000 {
+			nc, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+			if err != nil {
+				results <- err
+				return
+			}
+			sub, err := nc.SubscribeSync("allowed")
+			if err == nil {
+				err = nc.FlushTimeout(2 * time.Second)
+			}
+			if err == nil {
+				err = nc.Publish("allowed", []byte("inherited"))
+			}
+			if err == nil {
+				var msg *nats.Msg
+				msg, err = sub.NextMsg(2 * time.Second)
+				if err == nil && string(msg.Data) != "inherited" {
+					err = fmt.Errorf("unexpected inherited payload: %q", msg.Data)
+				}
+			}
+			nc.Close()
+			if err != nil {
+				results <- err
+				return
+			}
+		}
+		results <- nil
+	})
+	workers.Go(func() {
+		for _, token := range tokens {
+			if err := updateAccountClaimOverTCP(sc, account, token); err != nil {
+				results <- err
+				return
+			}
+		}
+		results <- nil
+	})
+	workers.Wait()
+	for range 2 {
+		require_NoError(t, <-results)
+	}
+	for _, tc := range []struct {
+		creds           nats.Option
+		allowed, denied string
+	}{{creds, "odd", "even"}, {explicitCreds, "explicit", "allowed"}} {
+		violations := make(chan error, 1)
+		nc := natsConnect(t, s.ClientURL(), tc.creds, nats.NoReconnect(), nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { violations <- err }))
+		defer nc.Close()
+		sub := natsSubSync(t, nc, ">")
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		natsPub(t, nc, tc.allowed, []byte("allowed"))
+		require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), "allowed")
+		natsPub(t, nc, tc.denied, []byte("denied"))
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		select {
+		case err := <-violations:
+			require_True(t, errors.Is(err, nats.ErrPermissionViolation))
+			require_Contains(t, err.Error(), fmt.Sprintf("%q", tc.denied))
+		case <-time.After(2 * time.Second):
+			t.Fatal("missing inherited/explicit permission refusal")
+		}
+		natsPub(t, nc, tc.allowed, []byte("marker"))
+		require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), "marker")
+	}
+}
+
+func deleteAccountClaimsOverTCP(nc *nats.Conn, signer nkeys.KeyPair, accounts ...string) error {
+	issuer, err := signer.PublicKey()
+	if err != nil {
+		return err
+	}
+	claim := jwt.NewGenericClaims(issuer)
+	claim.Data["accounts"] = accounts
+	token, err := claim.Encode(signer)
+	if err != nil {
+		return err
+	}
+	msg, err := nc.Request("$SYS.REQ.CLAIMS.DELETE", []byte(token), 2*time.Second)
+	if err != nil {
+		return err
+	}
+	var response ServerAPIClaimUpdateResponse
+	if err := json.Unmarshal(msg.Data, &response); err != nil {
+		return err
+	}
+	if response.Error != nil {
+		return fmt.Errorf("account deletion refused: %+v", response.Error)
+	}
+	if response.Data == nil || response.Data.Code != 200 {
+		return fmt.Errorf("unexpected account deletion: %s", msg.Data)
+	}
+	return nil
+}
+
+func TestAccountJetStreamRemovalLifecycleOverTCP(t *testing.T) {
+	var claims []*jwt.AccountClaims
+	var keys []nkeys.KeyPair
+	for i := range 50 {
+		kp, _, claim := NewJwtAccountClaim(fmt.Sprintf("account%d", i))
+		claim.Limits.JetStreamLimits = jwt.JetStreamLimits{MemoryStorage: 65536, DiskStorage: 65536, Streams: 1, Consumer: 1}
+		claims = append(claims, claim)
+		keys = append(keys, kp)
+	}
+	s, sysCreds := runAccountClaimsProtocolServer(t, claims...)
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	for i, claim := range claims {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			creds := createUserCredsEx(t, jwt.NewUserClaims("tenant"), keys[i])
+			closed := make(chan struct{})
+			nc := natsConnect(t, s.ClientURL(), creds, nats.NoReconnect(), nats.ClosedHandler(func(_ *nats.Conn) { close(closed) }))
+			defer nc.Close()
+			js, err := nc.JetStream(nats.MaxWait(2 * time.Second))
+			require_NoError(t, err)
+			_, err = js.AddStream(&nats.StreamConfig{Name: "S", Subjects: []string{"work"}, Storage: nats.MemoryStorage})
+			require_NoError(t, err)
+			_, err = js.Publish("work", []byte("before deletion"))
+			require_NoError(t, err)
+			require_True(t, accountInfoOverHTTP(t, s, claim.Subject).Account.JetStream)
+			if i == 0 {
+				require_Error(t, deleteAccountClaimsOverTCP(sc, keys[i], claim.Subject))
+				_, err = js.AccountInfo()
+				require_NoError(t, err)
+			}
+			started, finished, stop := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			go func() {
+				defer close(finished)
+				first := true
+				for {
+					if _, err := js.AccountInfo(); err != nil {
+						return
+					}
+					if first {
+						close(started)
+						first = false
+					}
+					select {
+					case <-stop:
+						return
+					default:
+					}
+				}
+			}()
+			select {
+			case <-started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("JetStream reader did not reach the live account")
+			}
+			require_NoError(t, deleteAccountClaimsOverTCP(sc, oKp, claim.Subject))
+			select {
+			case <-closed:
+			case <-time.After(2 * time.Second):
+				t.Fatal("deleted JetStream tenant stayed connected")
+			}
+			close(stop)
+			select {
+			case <-finished:
+			case <-time.After(3 * time.Second):
+				t.Fatal("JetStream reader stayed blocked after deletion")
+			}
+			checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+				if accountInfoOverHTTP(t, s, claim.Subject).Account.JetStream {
+					return fmt.Errorf("deleted account still exposes JetStream")
+				}
+				return nil
+			})
+			rejected, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+			if rejected != nil {
+				rejected.Close()
+			}
+			require_Error(t, err)
+			claim.Name = fmt.Sprintf("restored%d", i)
+			require_NoError(t, updateAccountClaimOverTCP(sc, claim.Subject, encodeClaim(t, claim, claim.Subject)))
+			renewed := natsConnect(t, s.ClientURL(), creds, nats.NoReconnect())
+			defer renewed.Close()
+			js, err = renewed.JetStream(nats.MaxWait(2 * time.Second))
+			require_NoError(t, err)
+			_, err = js.AccountInfo()
+			require_NoError(t, err)
+		})
+	}
+}
+
+func TestAccountServiceRemovalConcurrentRefreshOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	importerKP, importer, importClaim := NewJwtAccountClaim("importer")
+	for i := range 8 {
+		subject := jwt.Subject(fmt.Sprintf("svc.%d", i))
+		exportClaim.Exports.Add(&jwt.Export{Subject: subject, Type: jwt.Service})
+		importClaim.Imports.Add(&jwt.Import{Account: exporter, Subject: subject, Type: jwt.Service})
+	}
+	var reads, restores []string
+	for i := range 2000 {
+		importClaim.Name = fmt.Sprintf("reader%d", i)
+		reads = append(reads, encodeClaim(t, importClaim, importer))
+	}
+	for i := range 50 {
+		importClaim.Name = fmt.Sprintf("restore%d", i)
+		restores = append(restores, encodeClaim(t, importClaim, importer))
+	}
+	s, sysCreds := runAccountClaimsProtocolServer(t, exportClaim, importClaim)
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	scDelete := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer scDelete.Close()
+	responder := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("responder"), exporterKP), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "svc.*")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	creds := createUserCredsEx(t, jwt.NewUserClaims("requester"), importerKP)
+	client := natsConnect(t, s.ClientURL(), creds, nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "reply")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPubReq(t, client, "svc.0", "reply", []byte("before deletion"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	natsPub(t, responder, request.Reply, request.Data)
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "before deletion")
+	results := make(chan error, 2)
+	var workers sync.WaitGroup
+	workers.Go(func() {
+		for _, token := range reads {
+			if err := updateAccountClaimOverTCP(sc, importer, token); err != nil {
+				results <- err
+				return
+			}
+		}
+		results <- nil
+	})
+	workers.Go(func() {
+		for _, token := range restores {
+			if err := deleteAccountClaimsOverTCP(scDelete, oKp, importer); err != nil {
+				results <- err
+				return
+			}
+			if err := updateAccountClaimOverTCP(scDelete, importer, token); err != nil {
+				results <- err
+				return
+			}
+		}
+		results <- nil
+	})
+	workers.Wait()
+	for range 2 {
+		require_NoError(t, <-results)
+	}
+	require_NoError(t, deleteAccountClaimsOverTCP(scDelete, oKp, importer))
+	rejected, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+	if rejected != nil {
+		rejected.Close()
+	}
+	require_Error(t, err)
+	importClaim.Name = "final restore"
+	require_NoError(t, updateAccountClaimOverTCP(sc, importer, encodeClaim(t, importClaim, importer)))
+	client = natsConnect(t, s.ClientURL(), creds, nats.NoReconnect())
+	defer client.Close()
+	replies = natsSubSync(t, client, "reply")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	for i := range 8 {
+		subject := fmt.Sprintf("svc.%d", i)
+		natsPubReq(t, client, subject, "reply", []byte(subject))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, subject)
+		require_Equal(t, string(request.Data), subject)
+		natsPub(t, responder, request.Reply, []byte("reply:"+subject))
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "reply:"+subject)
+	}
+	natsPub(t, client, "reply", []byte("local marker"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "local marker")
+	require_Equal(t, len(accountInfoOverHTTP(t, s, exporter).Account.Responses), 0)
+}
+
+func TestAccountRemoteTrackingLatencyRaceOverTCP(t *testing.T) {
+	accounts := `system_account: SYS
+	accounts {
+		SYS {}
+		foo {users: [{user: foo,password: foo}],exports: [{service: "track.service",latency: {subject: results,sampling: headers}}]}
+		bar {users: [{user: bar,password: bar}],imports: [{service: {account: foo,subject: "track.service"},to: req,share: true}]}
+	}`
+	a := runAccountProtocolServer(t, "server_name: A\ncluster: {name: latency,listen: 127.0.0.1:-1}\n"+accounts)
+	b := runAccountProtocolServer(t, fmt.Sprintf("server_name: B\ncluster: {name: latency,listen: 127.0.0.1:-1,routes: [nats://%s]}\n%s", a.ClusterAddr().String(), accounts))
+	checkClusterFormed(t, a, b)
+	responder := natsConnect(t, b.ClientURL(), nats.UserInfo("foo", "foo"), nats.Name("responder"), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "track.service")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	observer := natsConnect(t, a.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
+	defer observer.Close()
+	metrics := natsSubSync(t, observer, "results")
+	require_NoError(t, observer.FlushTimeout(2*time.Second))
+	checkSubInterest(t, a, "foo", "track.service", 2*time.Second)
+	client := natsConnect(t, a.ClientURL(), nats.UserInfo("bar", "bar"), nats.Name("requester"), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "reply")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	for i := range 1000 {
+		id := strconv.Itoa(i)
+		require_NoError(t, client.PublishMsg(&nats.Msg{Subject: "req", Reply: "reply", Data: []byte(id), Header: nats.Header{"X-B3-Traceid": []string{id}, "X-B3-Sampled": []string{"1"}}}))
+	}
+	for i := range 1000 {
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, "track.service")
+		require_Equal(t, string(request.Data), strconv.Itoa(i))
+		natsPub(t, responder, request.Reply, request.Data)
+	}
+	for i := range 1000 {
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), strconv.Itoa(i))
+	}
+	seen := make(map[string]bool)
+	for range 1000 {
+		metric := natsNexMsg(t, metrics, 2*time.Second)
+		var latency ServiceLatency
+		require_NoError(t, json.Unmarshal(metric.Data, &latency))
+		require_Equal(t, latency.Status, 200)
+		require_NotNil(t, latency.Requestor)
+		require_NotNil(t, latency.Responder)
+		require_Equal(t, latency.Requestor.Name, "requester")
+		require_Equal(t, latency.Responder.Name, "responder")
+		require_NotEqual(t, latency.Requestor.Server, latency.Responder.Server)
+		id := latency.RequestHeader.Get("X-B3-Traceid")
+		index, err := strconv.Atoi(id)
+		require_NoError(t, err)
+		require_True(t, index >= 0 && index < 1000 && !seen[id])
+		seen[id] = true
+		require_True(t, latency.TotalLatency >= latency.ServiceLatency)
+	}
+	require_Equal(t, len(seen), 1000)
+	require_Equal(t, len(accountInfoOverHTTP(t, a, "foo").Account.Responses), 0)
+}
+
+func TestAccountRemoteLimitEvictionOverTCP(t *testing.T) {
+	configFor := func(routes string) string {
+		return fmt.Sprintf(`listen: 127.0.0.1:-1
+			http: 127.0.0.1:-1
+			server_name: A
+			cluster: {name: limits,listen: 127.0.0.1:-1,routes: [%s]}
+			system_account: SYS
+			accounts {
+				SYS {users: [{user: sys,password: sys}]}
+				TENANT {users: [{user: tenant,password: tenant}],limits: {max_connections: 5}}
+			}`, routes)
+	}
+	config := createConfFile(t, []byte(configFor("")))
+	a, _ := RunServerWithConfig(config)
+	defer a.Shutdown()
+	// The original contract caps the local account; the remote peer keeps its four real connections.
+	b := runAccountProtocolServer(t, `server_name: B
+		cluster: {name: limits,listen: 127.0.0.1:-1}
+		system_account: SYS
+		accounts {
+			SYS {users: [{user: sys,password: sys}]}
+			TENANT {users: [{user: tenant,password: tenant}]}
+		}`)
+	var local, remote []*nats.Conn
+	for range 3 {
+		nc := natsConnect(t, a.ClientURL(), nats.UserInfo("tenant", "tenant"), nats.NoReconnect())
+		defer nc.Close()
+		local = append(local, nc)
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+	}
+	for range 4 {
+		nc := natsConnect(t, b.ClientURL(), nats.UserInfo("tenant", "tenant"), nats.NoReconnect())
+		defer nc.Close()
+		remote = append(remote, nc)
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+	}
+	observer := natsConnect(t, a.ClientURL(), nats.UserInfo("sys", "sys"), nats.NoReconnect())
+	defer observer.Close()
+	events := natsSubSync(t, observer, "$SYS.ACCOUNT.TENANT.CONNS")
+	require_NoError(t, observer.FlushTimeout(2*time.Second))
+	require_NoError(t, os.WriteFile(config, []byte(configFor("nats://"+b.ClusterAddr().String())), 0600))
+	require_NoError(t, a.Reload())
+	checkClusterFormed(t, a, b)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		remaining := time.Until(deadline)
+		require_True(t, remaining > 0)
+		msg := natsNexMsg(t, events, remaining)
+		var count AccountNumConns
+		require_NoError(t, json.Unmarshal(msg.Data, &count))
+		if count.Server.ID == b.ID() && count.Conns == 4 {
+			break
+		}
+	}
+	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+		if !local[1].IsClosed() || !local[2].IsClosed() {
+			return fmt.Errorf("newest local clients stayed connected")
+		}
+		return nil
+	})
+	require_True(t, local[0].IsConnected())
+	for _, nc := range remote {
+		require_True(t, nc.IsConnected())
+	}
+	require_Equal(t, accountInfoOverHTTP(t, a, "TENANT").Account.ClientCnt, 1)
+	require_Equal(t, accountInfoOverHTTP(t, b, "TENANT").Account.ClientCnt, 4)
+	sub := natsSubSync(t, local[0], "survivor")
+	require_NoError(t, local[0].FlushTimeout(2*time.Second))
+	natsPub(t, local[0], "survivor", []byte("oldest survived"))
+	require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), "oldest survived")
+}
+
+func TestAccountStaleActivationExpiryOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	otherKP, other, otherClaim := NewJwtAccountClaim("other")
+	importerKP, importer, importClaim := NewJwtAccountClaim("importer")
+	exportClaim.Exports.Add(&jwt.Export{Subject: "private", Type: jwt.Stream, TokenReq: true})
+	otherClaim.Exports.Add(&jwt.Export{Subject: "other.subject", Type: jwt.Stream})
+	activation := jwt.NewActivationClaims(importer)
+	activation.IssuerAccount, activation.ImportSubject, activation.ImportType = exporter, "private", jwt.Stream
+	activation.Expires = time.Now().Unix() + 3
+	token, err := activation.Encode(exporterKP)
+	require_NoError(t, err)
+	private := &jwt.Import{Account: exporter, Subject: "private", Type: jwt.Stream, Token: token}
+	public := &jwt.Import{Account: other, Subject: "other.subject", Type: jwt.Stream}
+	importClaim.Imports.Add(private, public)
+	s, sysCreds := runAccountClaimsProtocolServer(t, exportClaim, otherClaim, importClaim)
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	exporterClient := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("exporter"), exporterKP), nats.NoReconnect())
+	defer exporterClient.Close()
+	otherClient := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("other"), otherKP), nats.NoReconnect())
+	defer otherClient.Close()
+	client := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("importer"), importerKP), nats.NoReconnect())
+	defer client.Close()
+	privateSub := natsSubSync(t, client, "private")
+	publicSub := natsSubSync(t, client, "other.subject")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPub(t, exporterClient, "private", []byte("activation admitted"))
+	require_Equal(t, string(natsNexMsg(t, privateSub, 2*time.Second).Data), "activation admitted")
+	natsPub(t, otherClient, "other.subject", []byte("public baseline"))
+	require_Equal(t, string(natsNexMsg(t, publicSub, 2*time.Second).Data), "public baseline")
+	importClaim.Imports = jwt.Imports{public}
+	importClaim.Name = "private import removed"
+	require_NoError(t, updateAccountClaimOverTCP(sc, importer, encodeClaim(t, importClaim, importer)))
+	// checkActivation retains its AfterFunc closure without a cancel handle when this import is removed.
+	time.Sleep(time.Until(time.Unix(activation.Expires, 0).Add(time.Second + 100*time.Millisecond)))
+	for _, im := range accountInfoOverHTTP(t, s, importer).Account.Imports {
+		if im.Account == other && im.Subject == "other.subject" {
+			require_False(t, im.Invalid)
+		}
+	}
+	natsPub(t, otherClient, "other.subject", []byte("unrelated import survives stale expiry"))
+	require_Equal(t, string(natsNexMsg(t, publicSub, 2*time.Second).Data), "unrelated import survives stale expiry")
+	natsPub(t, exporterClient, "private", []byte("removed import leaked"))
+	require_NoError(t, exporterClient.FlushTimeout(2*time.Second))
+	natsPub(t, client, "private", []byte("local marker"))
+	require_Equal(t, string(natsNexMsg(t, privateSub, 2*time.Second).Data), "local marker")
+}
+
+func TestAccountServiceImportConcurrencyOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	importerKP, importer, importClaim := NewJwtAccountClaim("importer")
+	exportClaim.Exports.Add(&jwt.Export{Subject: "svc.>", Type: jwt.Service})
+	s, sysCreds := runAccountClaimsProtocolServer(t, exportClaim, importClaim)
+	var tokens []string
+	for i := range 100 {
+		importClaim.Imports.Add(&jwt.Import{Account: exporter, Subject: jwt.Subject(fmt.Sprintf("svc.%d", i)), Type: jwt.Service})
+		importClaim.Name = fmt.Sprintf("imports%d", i+1)
+		tokens = append(tokens, encodeClaim(t, importClaim, importer))
+	}
+	results := make(chan error, 100)
+	var workers sync.WaitGroup
+	for _, token := range tokens {
+		workers.Go(func() {
+			sc, err := nats.Connect(s.ClientURL(), sysCreds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+			if err != nil {
+				results <- err
+				return
+			}
+			defer sc.Close()
+			results <- updateAccountClaimOverTCP(sc, importer, token)
+		})
+	}
+	workers.Wait()
+	for range 100 {
+		require_NoError(t, <-results)
+	}
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	importClaim.Name = "final100"
+	require_NoError(t, updateAccountClaimOverTCP(sc, importer, encodeClaim(t, importClaim, importer)))
+	imports := make(map[jwt.Subject]bool)
+	for _, im := range accountInfoOverHTTP(t, s, importer).Account.Imports {
+		if im.Account == exporter {
+			require_False(t, im.Invalid)
+			require_False(t, imports[im.Subject])
+			imports[im.Subject] = true
+		}
+	}
+	require_Equal(t, len(imports), 100)
+	responder := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("responder"), exporterKP), nats.NoReconnect())
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "svc.>")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	client := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("requester"), importerKP), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, "reply")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	for i := range 100 {
+		subject := fmt.Sprintf("svc.%d", i)
+		require_True(t, imports[jwt.Subject(subject)])
+		natsPubReq(t, client, subject, "reply", []byte(subject))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, subject)
+		require_Equal(t, string(request.Data), subject)
+		natsPub(t, responder, request.Reply, []byte("reply:"+subject))
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "reply:"+subject)
+	}
+	natsPubReq(t, client, "svc.unimported", "reply", []byte("must not forward"))
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPub(t, responder, "svc.unimported", []byte("local marker"))
+	require_Equal(t, string(natsNexMsg(t, requests, 2*time.Second).Data), "local marker")
+}
+
+func TestAccountConfiguredImportsExportsOverTCP(t *testing.T) {
+	data, err := os.ReadFile("./configs/accounts.conf")
+	require_NoError(t, err)
+	config := string(data)
+	var credentials []nats.Option
+	for _, original := range []string{
+		"UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX",
+		"UBAAQWTW6CG2G6ANGNKB5U2B7HRWHSGMZEZX3AQSAJOQDAUGJD46LD2E",
+		"UBRYMDSRTC6AVJL6USKKS3FIOE466GMEU67PZDGOWYSYHWA7GSKO42VW",
+		"UDEREK22W43P2NFQCSKGM6BWD23OVWEDR7JE7LSNCD232MZIC4X2MEKZ",
+	} {
+		// The checked-in fixture has public keys only; fresh identities preserve all four account bindings.
+		kp, err := nkeys.CreateUser()
+		require_NoError(t, err)
+		pub, err := kp.PublicKey()
+		require_NoError(t, err)
+		config = strings.ReplaceAll(config, original, pub)
+		credentials = append(credentials, nats.Nkey(pub, func(nonce []byte) ([]byte, error) { return kp.Sign(nonce) }))
+	}
+	s := runAccountProtocolServer(t, config)
+	for _, tc := range []struct {
+		account          string
+		streams, service int
+		exports          int
+	}{{"synadia", 0, 1, 4}, {"nats.io", 2, 1, 4}, {"cncf", 0, 0, 0}} {
+		info := accountInfoOverHTTP(t, s, tc.account).Account
+		streams, service := 0, 0
+		for _, im := range info.Imports {
+			if im.Type == jwt.Stream {
+				streams++
+			} else if im.Type == jwt.Service {
+				service++
+			}
+		}
+		require_Equal(t, streams, tc.streams)
+		require_Equal(t, service, tc.service)
+		require_Equal(t, len(info.Exports), tc.exports)
+	}
+	for _, export := range accountInfoOverHTTP(t, s, "nats.io").Account.Exports {
+		want, ok := map[jwt.Subject]jwt.ResponseType{"nats.time": "Streamed", "nats.photo": "Chunked", "nats.add": "Singleton", "nats.sub": "Singleton"}[export.Subject]
+		require_True(t, ok)
+		require_Equal(t, export.ResponseType, want)
+	}
+	var clients []*nats.Conn
+	var probes []*nats.Subscription
+	for i, creds := range credentials {
+		account := "synadia"
+		if i >= 2 {
+			account = "nats.io"
+		}
+		nc := natsConnect(t, s.ClientURL(), creds, nats.Name(account), nats.NoReconnect())
+		defer nc.Close()
+		clients = append(clients, nc)
+		probes = append(probes, natsSubSync(t, nc, "binding"))
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+	}
+	for i, nc := range clients {
+		natsPub(t, nc, "binding", []byte(strconv.Itoa(i)))
+		for j, sub := range probes {
+			if i/2 == j/2 {
+				require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), strconv.Itoa(i))
+			}
+		}
+	}
+	for i, nc := range clients {
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		pending, _, err := probes[i].Pending()
+		require_NoError(t, err)
+		require_Equal(t, pending, 0)
+	}
+	for _, tc := range []struct {
+		subject, mapped string
+		trace           bool
+	}{{"public.synadia", "imports.synadia.public.synadia", true}, {"synadia.private.one", "synadia.private.one", false}} {
+		sub := natsSubSync(t, clients[2], tc.mapped)
+		trace := natsSubSync(t, clients[0], "trace.stream")
+		require_NoError(t, clients[2].FlushTimeout(2*time.Second))
+		require_NoError(t, clients[0].FlushTimeout(2*time.Second))
+		msg := &nats.Msg{Subject: tc.subject, Data: []byte(tc.subject), Header: nats.Header{MsgTraceDest: []string{trace.Subject}}}
+		require_NoError(t, clients[0].PublishMsg(msg))
+		received := natsNexMsg(t, sub, 2*time.Second)
+		require_Equal(t, received.Subject, tc.mapped)
+		require_Equal(t, string(received.Data), tc.subject)
+		var event MsgTraceEvent
+		require_NoError(t, json.Unmarshal(natsNexMsg(t, trace, 2*time.Second).Data, &event))
+		require_Equal(t, len(event.StreamExports()), 1)
+		if tc.trace {
+			require_Equal(t, len(event.Egresses()), 1)
+			require_Equal(t, event.Egresses()[0].Account, "nats.io")
+		} else {
+			require_Equal(t, len(event.Egresses()), 0)
+		}
+		require_NoError(t, sub.Unsubscribe())
+		require_NoError(t, trace.Unsubscribe())
+	}
+	for _, tc := range []struct {
+		requester, responder int
+		local, destination   string
+		responses            int
+		trace                bool
+	}{{0, 2, "nats.time", "nats.time", 3, true}, {2, 0, "synadia.request", "pub.special.request", 1, false}} {
+		requester, responder := clients[tc.requester], clients[tc.responder]
+		requests := natsSubSync(t, responder, tc.destination)
+		replies := natsSubSync(t, requester, "reply")
+		trace := natsSubSync(t, requester, "trace.service")
+		require_NoError(t, responder.FlushTimeout(2*time.Second))
+		require_NoError(t, requester.FlushTimeout(2*time.Second))
+		require_NoError(t, requester.PublishMsg(&nats.Msg{Subject: tc.local, Reply: "reply", Data: []byte("help"), Header: nats.Header{MsgTraceDest: []string{trace.Subject}}}))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, tc.destination)
+		require_Equal(t, string(request.Data), "help")
+		for i := range tc.responses {
+			natsPub(t, responder, request.Reply, []byte(strconv.Itoa(i)))
+			require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), strconv.Itoa(i))
+		}
+		var event MsgTraceEvent
+		require_NoError(t, json.Unmarshal(natsNexMsg(t, trace, 2*time.Second).Data, &event))
+		require_Equal(t, len(event.ServiceImports()), 1)
+		if tc.trace {
+			require_Equal(t, len(event.Egresses()), 1)
+		} else {
+			require_Equal(t, len(event.Egresses()), 0)
+		}
+		require_NoError(t, requests.Unsubscribe())
+		require_NoError(t, replies.Unsubscribe())
+		require_NoError(t, trace.Unsubscribe())
+	}
 }
 
 func TestRegisterDuplicateAccounts(t *testing.T) {

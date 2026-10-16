@@ -25,6 +25,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -5410,6 +5411,22 @@ func runOptsAPIChild(mode string, args []string) {
 			opts.HTTPHost, opts.HTTPPort, opts.PortsFileDir = "127.0.0.1", -1, portsDir
 			s, err = NewServer(opts)
 		}
+	case "clone-original", "clone-copy":
+		err = opts.ProcessConfigFile(config)
+		if err == nil {
+			clone := opts.Clone()
+			clone.Users[0].Password = "baz"
+			if mode == "clone-copy" {
+				opts.Gateway.Gateways[0].URLs[0] = nil
+				opts = clone
+			}
+			s, err = NewServer(opts)
+		}
+	case "queue-qualified-export":
+		opts.Cluster.Permissions = &RoutePermissions{
+			Export: &SubjectPermission{Deny: []string{"admin.secret workers"}},
+		}
+		s, err = NewServer(opts)
 	case "load-config":
 		opts = LoadConfig(config)
 		opts.PortsFileDir = portsDir
@@ -5755,6 +5772,68 @@ func TestOptsConfiguredSublistCacheProcess(t *testing.T) {
 	require_Equal(t, stats.NumCache, uint32(0))
 }
 
+func TestOptsConfiguredAccountCachesProcess(t *testing.T) {
+	var keys []nkeys.KeyPair
+	var public []string
+	for range 2 {
+		key, err := nkeys.CreateUser()
+		require_NoError(t, err)
+		identity, err := key.PublicKey()
+		require_NoError(t, err)
+		keys, public = append(keys, key), append(public, identity)
+	}
+	content := fmt.Sprintf(`
+		disable_sublist_cache: true
+		no_sys_acc: true
+		authorization {users: [{user: global, password: secret}]}
+		accounts {
+			synadia {users: [{nkey: %q}]}
+			nats.io {users: [{nkey: %q}]}
+		}
+	`, public[0], public[1])
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	var inventory Accountz
+	readOptsStartupJSON(t, ports.Monitoring[0]+AccountzPath, &inventory)
+	slices.Sort(inventory.Accounts)
+	require_True(t, slices.Equal(inventory.Accounts, []string{"$G", "nats.io", "synadia"}))
+	require_Equal(t, inventory.SystemAccount, "")
+	for _, account := range []struct {
+		name       string
+		credential nats.Option
+	}{
+		{"$G", nats.UserInfo("global", "secret")},
+		{"synadia", nats.Nkey(public[0], keys[0].Sign)},
+		{"nats.io", nats.Nkey(public[1], keys[1].Sign)},
+	} {
+		t.Run(account.name, func(t *testing.T) {
+			nc, err := nats.Connect(ports.Nats[0], account.credential, nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			sub, err := nc.SubscribeSync("cache.>")
+			require_NoError(t, err)
+			defer sub.Unsubscribe()
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			for i := range 3 {
+				subject := fmt.Sprintf("cache.%d", i)
+				require_NoError(t, nc.Publish(subject, []byte(subject)))
+				message, err := sub.NextMsg(time.Second)
+				require_NoError(t, err)
+				require_Equal(t, string(message.Data), subject)
+			}
+			var stats Subsz
+			readOptsStartupJSON(t, ports.Monitoring[0]+SubszPath+"?acc="+url.QueryEscape(account.name), &stats)
+			require_True(t, stats.NumSubs > 0)
+			require_Equal(t, stats.NumCache, uint32(0))
+			var details Accountz
+			readOptsStartupJSON(t, ports.Monitoring[0]+AccountzPath+"?acc="+url.QueryEscape(account.name), &details)
+			require_True(t, details.Account != nil && details.Account.Sublist != nil)
+			require_Equal(t, details.Account.Sublist.NumCache, uint32(0))
+		})
+	}
+}
+
 func TestOptsConfiguredStorageQuotaProcess(t *testing.T) {
 	for _, tc := range []struct {
 		input string
@@ -5947,6 +6026,65 @@ func TestOptsConfiguredAuthorizationTimeoutProcess(t *testing.T) {
 				require_NoError(t, err)
 				assertOptsAuthenticationTimeout(t, endpoint.Host, tc.expectRunning)
 			}
+		})
+	}
+}
+
+func TestOptsConfiguredDefaultAuthTimeoutProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name, tls string
+		timeout   float64
+	}{
+		{"plain-default", "", float64(AUTH_TIMEOUT) / float64(time.Second)},
+		{"tls-derived", `tls {
+			cert_file: "../test/configs/certs/server-cert.pem"
+			key_file: "../test/configs/certs/server-key.pem"
+			ca_file: "../test/configs/certs/ca.pem"
+			timeout: 4
+		}`, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := startOptsStartupProcess(t, "authorization {user: user, password: secret, timeout: 0}\n"+tc.tls, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			options := []nats.Option{nats.UserInfo("user", "secret"), nats.NoReconnect(), nats.Timeout(time.Second)}
+			var tlsConfig *tls.Config
+			if tc.tls != "" {
+				var err error
+				tlsConfig, err = GenTLSConfig(&TLSConfigOpts{CaFile: "../test/configs/certs/ca.pem"})
+				require_NoError(t, err)
+				tlsConfig.RootCAs = tlsConfig.ClientCAs
+				tlsConfig.ServerName = "127.0.0.1"
+				options = append(options, nats.Secure(tlsConfig.Clone()))
+			}
+			nc, err := nats.Connect(ports.Nats[0], options...)
+			require_NoError(t, err)
+			defer nc.Close()
+			exchangeOptsStartupMessage(t, nc, nc)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.AuthTimeout, tc.timeout)
+			endpoint, err := url.Parse(ports.Nats[0])
+			require_NoError(t, err)
+			if tlsConfig == nil {
+				assertOptsAuthenticationTimeout(t, endpoint.Host, tc.timeout)
+				return
+			}
+			require_Equal(t, info.TLSTimeout, float64(4))
+			started := time.Now()
+			connection, err := net.DialTimeout("tcp", endpoint.Host, time.Second)
+			require_NoError(t, err)
+			defer connection.Close()
+			require_NoError(t, connection.SetDeadline(time.Now().Add(7*time.Second)))
+			greeting, err := bufio.NewReader(connection).ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.HasPrefix(greeting, "INFO "))
+			secure := tls.Client(connection, tlsConfig)
+			require_NoError(t, secure.HandshakeContext(t.Context()))
+			response, err := io.ReadAll(io.LimitReader(secure, 4096))
+			require_NoError(t, err)
+			require_Contains(t, string(response), "Authentication Timeout")
+			require_True(t, time.Since(started) >= 4*time.Second)
 		})
 	}
 }
@@ -6398,6 +6536,662 @@ func TestOptsConfiguredWriteDeadlineProcess(t *testing.T) {
 			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
 			require_Equal(t, info.WriteDeadline, tc.deadline)
 		})
+	}
+}
+
+func TestOptsConfiguredAccountUsersProcess(t *testing.T) {
+	globalKey, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	globalPublic, err := globalKey.PublicKey()
+	require_NoError(t, err)
+	accountKey, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	accountPublic, err := accountKey.PublicKey()
+	require_NoError(t, err)
+	content := fmt.Sprintf(`
+		authorization {users: [
+			{user: ivan, password: bar}
+			{nkey: %q}
+		]}
+		accounts {synadia {users: [
+			{user: derek, password: foo}
+			{nkey: %q}
+		]}}
+	`, globalPublic, accountPublic)
+	for iteration := range 20 {
+		t.Run(fmt.Sprintf("iteration-%02d", iteration), func(t *testing.T) {
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			var clients []*nats.Conn
+			for _, identity := range []nats.Option{
+				nats.UserInfo("ivan", "bar"), nats.Nkey(globalPublic, globalKey.Sign),
+				nats.UserInfo("derek", "foo"), nats.Nkey(accountPublic, accountKey.Sign),
+			} {
+				nc, err := nats.Connect(ports.Nats[0], identity, nats.NoReconnect(), nats.Timeout(time.Second))
+				require_NoError(t, err)
+				defer nc.Close()
+				clients = append(clients, nc)
+			}
+			exchangeOptsStartupMessage(t, clients[0], clients[1])
+			exchangeOptsStartupMessage(t, clients[1], clients[0])
+			exchangeOptsStartupMessage(t, clients[2], clients[3])
+			exchangeOptsStartupMessage(t, clients[3], clients[2])
+			subject := nats.NewInbox()
+			global, err := clients[0].SubscribeSync(subject)
+			require_NoError(t, err)
+			defer global.Unsubscribe()
+			account, err := clients[2].SubscribeSync(subject)
+			require_NoError(t, err)
+			defer account.Unsubscribe()
+			require_NoError(t, clients[0].FlushTimeout(time.Second))
+			require_NoError(t, clients[2].FlushTimeout(time.Second))
+			for _, scope := range []struct {
+				publisher          *nats.Conn
+				expected, isolated *nats.Subscription
+				payload            string
+			}{
+				{clients[1], global, account, "global-only"},
+				{clients[3], account, global, "account-only"},
+			} {
+				require_NoError(t, scope.publisher.Publish(subject, []byte(scope.payload)))
+				require_NoError(t, scope.publisher.FlushTimeout(time.Second))
+				message, err := scope.expected.NextMsg(time.Second)
+				require_NoError(t, err)
+				require_Equal(t, string(message.Data), scope.payload)
+				_, err = scope.isolated.NextMsg(25 * time.Millisecond)
+				require_True(t, errors.Is(err, nats.ErrTimeout))
+			}
+		})
+	}
+}
+
+func TestOptsConfiguredQueueQualifierProcess(t *testing.T) {
+	t.Run("subscribe-deny", func(t *testing.T) {
+		child := startOptsStartupProcess(t, `
+			authorization {users: [
+				{user: u, password: p, permissions: {subscribe: {deny: ["admin.secret workers"]}}}
+				{user: observer, password: secret}
+			]}
+		`, nil)
+		defer stopOptsStartupProcess(t, child)
+		ports := optsStartupPorts(t, child)
+		failures := make(chan error, 8)
+		nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("u", "p"), nats.NoReconnect(), nats.Timeout(time.Second),
+			nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+		require_NoError(t, err)
+		defer nc.Close()
+		observer, err := nats.Connect(ports.Nats[0], nats.UserInfo("observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+		require_NoError(t, err)
+		defer observer.Close()
+		denied, err := nc.QueueSubscribeSync("admin.secret", "workers")
+		require_NoError(t, err)
+		defer denied.Unsubscribe()
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		select {
+		case err := <-failures:
+			require_Contains(t, err.Error(), `Permissions Violation for Subscription to "admin.secret"`)
+			require_Contains(t, err.Error(), `workers`)
+		case <-time.After(time.Second):
+			t.Fatal("missing workers queue permission rejection")
+		}
+		deliverOptsStartupSubject(t, observer, nc, "admin.secret")
+		allowed, err := nc.QueueSubscribeSync("admin.secret", "others")
+		require_NoError(t, err)
+		defer allowed.Unsubscribe()
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		require_NoError(t, observer.Publish("admin.secret", []byte("other-queue")))
+		require_NoError(t, observer.FlushTimeout(time.Second))
+		message, err := allowed.NextMsg(time.Second)
+		require_NoError(t, err)
+		require_Equal(t, string(message.Data), "other-queue")
+		_, err = denied.NextMsg(25 * time.Millisecond)
+		require_True(t, err != nil)
+	})
+	for _, tc := range []struct{ name, content string }{
+		{"publish-deny", `authorization {users: [{user: u, password: p, permissions: {publish: {deny: ["admin.secret workers"]}}}]}`},
+		{"leaf-deny-imports", `leafnodes {remotes: [{url: "nats://127.0.0.1:7422", deny_imports: ["admin.secret workers"]}]}`},
+		{"leaf-deny-exports", `leafnodes {remotes: [{url: "nats://127.0.0.1:7422", deny_exports: ["admin.secret workers"]}]}`},
+		{"cluster-export-deny", `cluster {name: C, permissions {export {deny: ["admin.secret workers"]}}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rejectOptsStartupProcess(t, tc.content, "configure", "is not a valid subject", nil)
+		})
+	}
+	t.Run("programmatic-cluster-export", func(t *testing.T) {
+		config := filepath.Join(t.TempDir(), "nats.conf")
+		require_NoError(t, os.WriteFile(config, nil, 0o600))
+		child := startOptsConfigProcess(t, config, nil, "opts-api-queue-qualified-export")
+		rejectOptsProcess(t, child, "api-queue-qualified-export", "is not a valid subject")
+	})
+}
+
+func readOptsResponseUserInfo(t *testing.T, nc, observer *nats.Conn, service *nats.Subscription, subject string) *UserInfo {
+	t.Helper()
+	// Grant the public info request as a real reply, preserving response-only auth.
+	require_NoError(t, observer.PublishRequest(subject, userDirectInfoSubj, nil))
+	request, err := service.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_Equal(t, request.Reply, userDirectInfoSubj)
+	// Reuse an allowed service subject for the response of users with restricted subscriptions.
+	require_NoError(t, nc.PublishRequest(userDirectInfoSubj, subject, nil))
+	message, err := service.NextMsg(time.Second)
+	require_NoError(t, err)
+	info := &UserInfo{}
+	response := ServerAPIResponse{Data: info}
+	require_NoError(t, json.Unmarshal(message.Data, &response))
+	require_True(t, response.Error == nil)
+	return info
+}
+
+func TestOptsConfiguredResponsePermissionsProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		max          int
+		ttl          time.Duration
+	}{
+		{"defaults", "", DEFAULT_ALLOW_RESPONSE_MAX_MSGS, DEFAULT_ALLOW_RESPONSE_EXPIRATION},
+		{"max-ten", "max: 10", 10, DEFAULT_ALLOW_RESPONSE_EXPIRATION},
+		{"ttl-five", "ttl: 5s", DEFAULT_ALLOW_RESPONSE_MAX_MSGS, 5 * time.Second},
+		{"max-zero-default", "max: 0", DEFAULT_ALLOW_RESPONSE_MAX_MSGS, DEFAULT_ALLOW_RESPONSE_EXPIRATION},
+		{"ttl-zero-default", `ttl: "0s"`, DEFAULT_ALLOW_RESPONSE_MAX_MSGS, DEFAULT_ALLOW_RESPONSE_EXPIRATION},
+		{"max-ten-ttl-five", `max: 10, ttl: "5s"`, 10, 5 * time.Second},
+		{"unlimited-count", `max: -1, ttl: "5s"`, -1, 5 * time.Second},
+		{"unlimited-ttl", `max: 10, ttl: "-1s"`, 10, -time.Second},
+		{"unlimited-both", `max: -1, ttl: "-1s"`, -1, -time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := fmt.Sprintf(`authorization {users: [
+				{user: ivan, password: pwd, permissions: {allow_responses: {%s}}}
+				{user: observer, password: secret}
+			]}`, tc.fields)
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			failures := make(chan error, 16)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("ivan", "pwd"), nats.NoReconnect(), nats.Timeout(time.Second),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+			require_NoError(t, err)
+			defer nc.Close()
+			observer, err := nats.Connect(ports.Nats[0], nats.UserInfo("observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer observer.Close()
+			rejectOptsStartupPermission(t, nc, failures, "Publish", "outside.responses")
+			subject := nats.NewInbox()
+			service, err := nc.SubscribeSync(subject)
+			require_NoError(t, err)
+			defer service.Unsubscribe()
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			info := readOptsResponseUserInfo(t, nc, observer, service, subject)
+			require_Equal(t, info.UserID, "ivan")
+			require_True(t, info.Permissions != nil && info.Permissions.Response != nil)
+			require_Equal(t, info.Permissions.Response.MaxMsgs, tc.max)
+			require_Equal(t, info.Permissions.Response.Expires, tc.ttl)
+			reply := nats.NewInbox()
+			responses, err := observer.SubscribeSync(reply)
+			require_NoError(t, err)
+			defer responses.Unsubscribe()
+			require_NoError(t, observer.FlushTimeout(time.Second))
+			require_NoError(t, observer.PublishRequest(subject, reply, []byte("request")))
+			request, err := service.NextMsg(time.Second)
+			require_NoError(t, err)
+			require_Equal(t, request.Reply, reply)
+			count := tc.max
+			if count < 0 {
+				count = 12
+			}
+			for i := range count {
+				require_NoError(t, nc.Publish(reply, []byte(fmt.Sprint(i))))
+				message, err := responses.NextMsg(time.Second)
+				require_NoError(t, err)
+				require_Equal(t, string(message.Data), fmt.Sprint(i))
+			}
+			if tc.max > 0 {
+				rejectOptsStartupPermission(t, nc, failures, "Publish", reply)
+			}
+		})
+	}
+	for _, tc := range []struct{ name, fields, diagnostic string }{
+		{"unknown-field", "unknown_field: 123", "Unknown field"},
+		{"numeric-ttl", "max: 10, ttl: 123", "not a duration string"},
+		{"malformed-ttl", "max: 10, ttl: xyz", "error parsing expires"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := fmt.Sprintf(`authorization {users: [{user: ivan, password: pwd, permissions: {allow_responses: {%s}}}]}`, tc.fields)
+			rejectOptsStartupProcess(t, content, "configure", tc.diagnostic, nil)
+		})
+	}
+}
+
+func TestOptsConfiguredAuthorizationProcess(t *testing.T) {
+	body, err := os.ReadFile("./configs/authorization.conf")
+	require_NoError(t, err)
+	content := strings.Replace(string(body), "users = [", `users = [ {user: observer, password: secret, permissions: {publish: ">", subscribe: ">"}}`, 1)
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	observer, err := nats.Connect(ports.Nats[0], nats.UserInfo("observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer observer.Close()
+	for _, tc := range []struct{ user, password string }{
+		{"alice", "foo"}, {"bob", "bar"}, {"susan", "baz"}, {"svca", "pc"}, {"svcb", "sam"},
+	} {
+		t.Run(tc.user, func(t *testing.T) {
+			failures := make(chan error, 16)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo(tc.user, tc.password), nats.NoReconnect(), nats.Timeout(time.Second),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+			require_NoError(t, err)
+			defer nc.Close()
+			switch tc.user {
+			case "alice":
+				deliverOptsStartupSubject(t, nc, observer, "one")
+				deliverOptsStartupSubject(t, observer, nc, "many.levels.allowed")
+				rejectOptsStartupPermission(t, nc, failures, "Publish", "two.levels")
+			case "bob":
+				for _, subject := range []string{"req.foo", "req.bar"} {
+					deliverOptsStartupSubject(t, nc, observer, subject)
+				}
+				deliverOptsStartupSubject(t, observer, nc, "_INBOX.opts.auth")
+				rejectOptsStartupPermission(t, nc, failures, "Publish", "req.other")
+				rejectOptsStartupPermission(t, nc, failures, "Subscription", "outside")
+			case "susan":
+				deliverOptsStartupSubject(t, observer, nc, "PUBLIC.allowed")
+				deliverOptsStartupSubject(t, nc, observer, "publish.unrestricted")
+				rejectOptsStartupPermission(t, nc, failures, "Subscription", "outside")
+			default:
+				rejectOptsStartupPermission(t, nc, failures, "Publish", "outside.responses")
+				rejectOptsStartupPermission(t, nc, failures, "Subscription", "other.service.req")
+				service, err := nc.SubscribeSync("my.service.req")
+				require_NoError(t, err)
+				defer service.Unsubscribe()
+				require_NoError(t, nc.FlushTimeout(time.Second))
+				info := readOptsResponseUserInfo(t, nc, observer, service, "my.service.req")
+				require_Equal(t, info.UserID, tc.user)
+				require_True(t, info.Permissions != nil && info.Permissions.Response != nil)
+				max, ttl := DEFAULT_ALLOW_RESPONSE_MAX_MSGS, DEFAULT_ALLOW_RESPONSE_EXPIRATION
+				if tc.user == "svcb" {
+					max, ttl = 10, time.Minute
+				}
+				require_Equal(t, info.Permissions.Response.MaxMsgs, max)
+				require_Equal(t, info.Permissions.Response.Expires, ttl)
+				reply := nats.NewInbox()
+				responses, err := observer.SubscribeSync(reply)
+				require_NoError(t, err)
+				defer responses.Unsubscribe()
+				require_NoError(t, observer.FlushTimeout(time.Second))
+				require_NoError(t, observer.PublishRequest("my.service.req", reply, nil))
+				request, err := service.NextMsg(time.Second)
+				require_NoError(t, err)
+				require_Equal(t, request.Reply, reply)
+				for i := range max {
+					require_NoError(t, nc.Publish(reply, []byte(fmt.Sprint(i))))
+					message, err := responses.NextMsg(time.Second)
+					require_NoError(t, err)
+					require_Equal(t, string(message.Data), fmt.Sprint(i))
+				}
+				rejectOptsStartupPermission(t, nc, failures, "Publish", reply)
+			}
+		})
+	}
+}
+
+func TestOptsConfiguredOperatorJWTProcess(t *testing.T) {
+	var operators, accounts, systems []nkeys.KeyPair
+	var operatorPublic, accountPublic, systemPublic []string
+	tokens := make(map[string]string)
+	for range 2 {
+		operator, err := nkeys.CreateOperator()
+		require_NoError(t, err)
+		public, err := operator.PublicKey()
+		require_NoError(t, err)
+		operators, operatorPublic = append(operators, operator), append(operatorPublic, public)
+		account, err := nkeys.CreateAccount()
+		require_NoError(t, err)
+		public, err = account.PublicKey()
+		require_NoError(t, err)
+		accounts, accountPublic = append(accounts, account), append(accountPublic, public)
+		system, err := nkeys.CreateAccount()
+		require_NoError(t, err)
+		public, err = system.PublicKey()
+		require_NoError(t, err)
+		systems, systemPublic = append(systems, system), append(systemPublic, public)
+		for _, key := range []nkeys.KeyPair{account, system} {
+			public, err := key.PublicKey()
+			require_NoError(t, err)
+			token, err := jwt.NewAccountClaims(public).Encode(operator)
+			require_NoError(t, err)
+			tokens[public] = token
+		}
+	}
+	var requests sync.Map
+	resolver := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Store(r.URL.Path, true)
+		account, ok := strings.CutPrefix(r.URL.Path, "/jwt/v1/accounts/")
+		if !ok || tokens[account] == "" {
+			http.NotFound(w, r)
+			return
+		}
+		io.WriteString(w, tokens[account])
+	}))
+	defer resolver.Close()
+	for _, tc := range []struct {
+		name                           string
+		operators                      int
+		urlResolver, explicit, version bool
+	}{
+		{"TestReadOperatorJWT", 1, true, false, false},
+		{"TestReadMultipleOperatorJWT", 2, false, true, false},
+		{"TestReadOperatorJWTSystemAccountMatch", 1, false, true, false},
+		{"TestReadOperatorAssertVersion", 1, false, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var trusted []string
+			for i := range tc.operators {
+				claims := jwt.NewOperatorClaims(operatorPublic[i])
+				claims.Name = []string{"OP", "op2"}[i]
+				claims.SystemAccount = systemPublic[i]
+				claims.AccountServerURL = resolver.URL + "/jwt/v1"
+				if tc.version {
+					claims.AssertServerVersion = "1.2.3"
+				}
+				token, err := claims.Encode(operators[i])
+				require_NoError(t, err)
+				trusted = append(trusted, token)
+			}
+			content := "operator: [" + strings.Join(trusted, ",") + "]\n"
+			system := 0
+			if tc.explicit {
+				system = tc.operators - 1
+				content += fmt.Sprintf("system_account: %s\n", systemPublic[system])
+			}
+			if !tc.urlResolver {
+				content += "resolver: MEMORY\nresolver_preload: {\n"
+				for i := range tc.operators {
+					for _, public := range []string{accountPublic[i], systemPublic[i]} {
+						content += fmt.Sprintf("%q: %q\n", public, tokens[public])
+					}
+				}
+				content += "}\n"
+			}
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.SystemAccount, systemPublic[system])
+			for i := range tc.operators {
+				credentials := createUserCredsEx(t, jwt.NewUserClaims(""), accounts[i])
+				nc, err := nats.Connect(ports.Nats[0], credentials, nats.NoReconnect(), nats.Timeout(time.Second))
+				require_NoError(t, err)
+				defer nc.Close()
+				exchangeOptsStartupMessage(t, nc, nc)
+			}
+			credentials := createUserCredsEx(t, jwt.NewUserClaims(""), systems[system])
+			admin, err := nats.Connect(ports.Nats[0], credentials, nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer admin.Close()
+			message, err := admin.Request(fmt.Sprintf(serverDirectReqSubj, info.ID, "VARZ"), nil, time.Second)
+			require_NoError(t, err)
+			var response ServerAPIVarzResponse
+			require_NoError(t, json.Unmarshal(message.Data, &response))
+			require_True(t, response.Error == nil && response.Data != nil)
+			require_Equal(t, response.Data.ID, info.ID)
+			if tc.operators == 2 {
+				credentials := createUserCredsEx(t, jwt.NewUserClaims(""), systems[0])
+				other, err := nats.Connect(ports.Nats[0], credentials, nats.NoReconnect(), nats.Timeout(time.Second))
+				require_NoError(t, err)
+				defer other.Close()
+				_, err = other.Request(fmt.Sprintf(serverDirectReqSubj, info.ID, "VARZ"), nil, 100*time.Millisecond)
+				require_True(t, errors.Is(err, nats.ErrNoResponders) || errors.Is(err, nats.ErrTimeout))
+			}
+			if tc.urlResolver {
+				for _, public := range []string{accountPublic[0], systemPublic[0]} {
+					_, fetched := requests.Load("/jwt/v1/accounts/" + public)
+					require_True(t, fetched)
+				}
+			}
+		})
+	}
+}
+
+func TestOptsEmbeddedCloneProcess(t *testing.T) {
+	peer := startOptsStartupProcess(t, `gateway {name: B, listen: "127.0.0.1:-1"}`, nil)
+	defer stopOptsStartupProcess(t, peer)
+	peerPorts := optsStartupPorts(t, peer)
+	var peerInfo Varz
+	readOptsStartupJSON(t, peerPorts.Monitoring[0]+VarzPath, &peerInfo)
+	require_True(t, peerInfo.Gateway.Port > 0)
+	remote, err := nats.Connect(peerPorts.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer remote.Close()
+	for _, tc := range []struct{ mode, password, denied string }{
+		{"clone-original", "bar", "baz"},
+		{"clone-copy", "baz", "bar"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			content := fmt.Sprintf(`
+				listen: "127.0.0.1:-1"
+				http: "127.0.0.1:-1"
+				authorization {users: [{user: foo, password: bar}]}
+				max_payload: 65536
+				max_connections: 100
+				max_control_line: 2048
+				ping_interval: "60s"
+				ping_max: 3
+				write_deadline: "3s"
+				gateway {name: A, listen: "127.0.0.1:-1", gateways: [{name: B, url: "nats://127.0.0.1:%d"}]}
+			`, peerInfo.Gateway.Port)
+			config := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(config, []byte(content), 0o600))
+			child := startOptsConfigProcess(t, config, nil, "opts-api-"+tc.mode)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("foo", tc.password), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			denied, err := nats.Connect(ports.Nats[0], nats.UserInfo("foo", tc.denied), nats.NoReconnect(), nats.Timeout(time.Second))
+			if denied != nil {
+				denied.Close()
+			}
+			require_True(t, errors.Is(err, nats.ErrAuthorization))
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.MaxPayload, 65536)
+			require_Equal(t, info.MaxConn, 100)
+			require_Equal(t, info.MaxControlLine, int32(2048))
+			require_Equal(t, info.PingInterval, time.Minute)
+			require_Equal(t, info.MaxPingsOut, 3)
+			require_Equal(t, info.WriteDeadline, 3*time.Second)
+			exchangeOptsRoutedMessage(t, nc, remote)
+			exchangeOptsRoutedMessage(t, remote, nc)
+		})
+	}
+}
+
+func optsClusterProcessConfig(routes string) string {
+	return fmt.Sprintf(`
+		authorization {users: [{user: client, password: secret}]}
+		accounts {SYS {users: [{user: admin, password: secret}]}}
+		system_account: SYS
+		cluster {
+			name: abc
+			listen: "127.0.0.1:-1"
+			authorization {user: ruser, password: top_secret, timeout: 0.5}
+			routes: [%s]
+			pool_size: 1
+			no_advertise: true
+		}
+		max_payload: 1024
+	`, routes)
+}
+
+func exchangeOptsRoutedMessage(t *testing.T, publisher, subscriber *nats.Conn) {
+	t.Helper()
+	subject := nats.NewInbox()
+	sub, err := subscriber.SubscribeSync(subject)
+	require_NoError(t, err)
+	defer sub.Unsubscribe()
+	require_NoError(t, subscriber.FlushTimeout(time.Second))
+	// A local flush does not wait for the subscription to reach a remote server.
+	checkFor(t, 3*time.Second, 10*time.Millisecond, func() error {
+		if err := publisher.Publish(subject, []byte(subject)); err != nil {
+			return err
+		}
+		msg, err := sub.NextMsg(25 * time.Millisecond)
+		if err != nil {
+			return err
+		}
+		if string(msg.Data) != subject {
+			return fmt.Errorf("unexpected routed payload %q", msg.Data)
+		}
+		return nil
+	})
+}
+
+func TestOptsConfiguredRouteFlagsProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		peers int
+	}{
+		{"TestRouteFlagOverride", 1},
+		{"TestRouteFlagOverrideWithMultiple", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			decoy := startOptsStartupProcess(t, optsClusterProcessConfig(""), nil)
+			defer stopOptsStartupProcess(t, decoy)
+			decoyPorts := optsStartupPorts(t, decoy)
+			require_Equal(t, len(decoyPorts.Cluster), 1)
+			decoyURL, err := url.Parse(decoyPorts.Cluster[0])
+			require_NoError(t, err)
+			fileRoute := fmt.Sprintf("nats-route://ruser:top_secret@%s", decoyURL.Host)
+			var peerPorts []Ports
+			var routeURLs, routeHosts, peerIDs []string
+			for range tc.peers {
+				peer := startOptsStartupProcess(t, optsClusterProcessConfig(""), nil)
+				defer stopOptsStartupProcess(t, peer)
+				ports := optsStartupPorts(t, peer)
+				require_Equal(t, len(ports.Cluster), 1)
+				endpoint, err := url.Parse(ports.Cluster[0])
+				require_NoError(t, err)
+				routeURLs = append(routeURLs, "nats-route://ruser:top_secret@"+endpoint.Host)
+				routeHosts = append(routeHosts, endpoint.Host)
+				peerPorts = append(peerPorts, ports)
+				var info Varz
+				readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+				peerIDs = append(peerIDs, info.ID)
+			}
+			content := optsClusterProcessConfig(fileRoute)
+			config := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(config, []byte(content), 0o600))
+			child := startOptsConfigProcess(t, config, nil, "-a", "127.0.0.1", "-p", "-1", "-m", "-1", "-routes", strings.Join(routeURLs, ", "))
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("client", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			admin, err := nats.Connect(ports.Nats[0], nats.UserInfo("admin", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer admin.Close()
+			for phase := range 2 {
+				var info Varz
+				readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+				require_True(t, slices.Equal(info.Cluster.URLs, routeHosts))
+				require_Equal(t, info.Cluster.Name, "abc")
+				require_Equal(t, info.Cluster.AuthTimeout, 0.5)
+				require_Equal(t, info.MaxPayload, 1024*(phase+1))
+				checkFor(t, 3*time.Second, 10*time.Millisecond, func() error {
+					var routes Routez
+					readOptsStartupJSON(t, ports.Monitoring[0]+RoutezPath, &routes)
+					connected := make(map[string]bool)
+					for _, route := range routes.Routes {
+						if !slices.Contains(peerIDs, route.RemoteID) {
+							return fmt.Errorf("unexpected remote server %s", route.RemoteID)
+						}
+						connected[route.RemoteID] = true
+					}
+					if len(connected) != tc.peers {
+						return fmt.Errorf("connected peers: got %d, want %d", len(connected), tc.peers)
+					}
+					return nil
+				})
+				for _, peer := range peerPorts {
+					remote, err := nats.Connect(peer.Nats[0], nats.UserInfo("client", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+					require_NoError(t, err)
+					exchangeOptsRoutedMessage(t, nc, remote)
+					exchangeOptsRoutedMessage(t, remote, nc)
+					remote.Close()
+				}
+				var isolated Routez
+				readOptsStartupJSON(t, decoyPorts.Monitoring[0]+RoutezPath, &isolated)
+				require_Equal(t, isolated.NumRoutes, 0)
+				if phase == 0 {
+					require_NoError(t, os.WriteFile(config, []byte(strings.Replace(content, "max_payload: 1024", "max_payload: 2048", 1)), 0o600))
+					msg, err := admin.Request(fmt.Sprintf(serverReloadReqSubj, info.ID), nil, 3*time.Second)
+					require_NoError(t, err)
+					var response ServerAPIResponse
+					require_NoError(t, json.Unmarshal(msg.Data, &response))
+					require_True(t, response.Error == nil)
+				}
+			}
+		})
+	}
+}
+
+func TestOptsConfiguredClusterFlagsProcess(t *testing.T) {
+	reservation, err := net.Listen("tcp", "127.0.0.1:0")
+	require_NoError(t, err)
+	clusterAddress := reservation.Addr().String()
+	require_NoError(t, reservation.Close())
+	content := optsClusterProcessConfig("")
+	config := filepath.Join(t.TempDir(), "nats.conf")
+	require_NoError(t, os.WriteFile(config, []byte(content), 0o600))
+	child := startOptsConfigProcess(t, config, nil, "-a", "127.0.0.1", "-p", "-1", "-m", "-1", "-cluster", "nats://"+clusterAddress)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	require_Equal(t, len(ports.Cluster), 1)
+	require_Equal(t, ports.Cluster[0], "nats://"+clusterAddress)
+	// The flag omits credentials, so a genuine peer must enter without file auth.
+	peer := startOptsStartupProcess(t, optsClusterProcessConfig("nats://"+clusterAddress), nil)
+	defer stopOptsStartupProcess(t, peer)
+	peerPorts := optsStartupPorts(t, peer)
+	nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("client", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer nc.Close()
+	remote, err := nats.Connect(peerPorts.Nats[0], nats.UserInfo("client", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer remote.Close()
+	admin, err := nats.Connect(ports.Nats[0], nats.UserInfo("admin", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer admin.Close()
+	for phase := range 2 {
+		connection, err := net.DialTimeout("tcp", clusterAddress, time.Second)
+		require_NoError(t, err)
+		require_NoError(t, connection.SetReadDeadline(time.Now().Add(time.Second)))
+		line, err := bufio.NewReader(connection).ReadString('\n')
+		connection.Close()
+		require_NoError(t, err)
+		body, ok := strings.CutPrefix(line, "INFO ")
+		require_True(t, ok)
+		var protocol Info
+		require_NoError(t, json.Unmarshal([]byte(body), &protocol))
+		require_False(t, protocol.AuthRequired)
+		require_Equal(t, protocol.Cluster, "abc")
+		var info Varz
+		readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+		require_Equal(t, info.Cluster.Name, "abc")
+		require_Equal(t, info.Cluster.Host, "127.0.0.1")
+		require_Equal(t, info.Cluster.AuthTimeout, 0.5)
+		require_Equal(t, info.MaxPayload, 1024*(phase+1))
+		exchangeOptsRoutedMessage(t, nc, remote)
+		exchangeOptsRoutedMessage(t, remote, nc)
+		if phase == 0 {
+			require_NoError(t, os.WriteFile(config, []byte(strings.Replace(content, "max_payload: 1024", "max_payload: 2048", 1)), 0o600))
+			msg, err := admin.Request(fmt.Sprintf(serverReloadReqSubj, info.ID), nil, 3*time.Second)
+			require_NoError(t, err)
+			var response ServerAPIResponse
+			require_NoError(t, json.Unmarshal(msg.Data, &response))
+			require_True(t, response.Error == nil)
+		}
 	}
 }
 
