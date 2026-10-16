@@ -100,7 +100,7 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 	}
 	if source.link != nil {
 		if err := source.link.verify(ctx); err != nil {
-			return err
+			return fmt.Errorf("verify Link source inputs: %w", err)
 		}
 	}
 	state, _, err := source.read(ctx)
@@ -112,7 +112,7 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 		return fmt.Errorf("%w: source escrow reference changed", ErrMaterialSource)
 	}
 	if _, err := source.loadRecord(source.directory); err != nil {
-		return err
+		return fmt.Errorf("load restored source record: %w", err)
 	}
 	for name, expected := range source.archive.Files {
 		actual, err := os.ReadFile(filepath.Join(source.directory, name))
