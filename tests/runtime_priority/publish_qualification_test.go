@@ -35,10 +35,26 @@ func TestD15PublisherReadback(t *testing.T) {
 			script.Write(t, filepath.Join(root, "bin", "gh"), []byte(`#!/usr/bin/env bash
 set -euo pipefail
 [[ $GH_HOST == github.com && $GH_TOKEN == fixture-token ]] || exit 5
+if [[ $1 == api ]]; then
+  [[ $2 == repos/TerraScale/ts-orchestrator/commits/ci-* && $3 == --jq && $4 == .sha ]] || exit 4
+  printf '%s\n' "$GITHUB_SHA"
+  exit 0
+fi
 [[ $1 == release ]] || exit 4
 case $2 in
+  view)
+    [[ -f $FAKE_GH_STATE/release-created ]] || exit 1
+    assets='[]'
+    for asset in "$FAKE_GH_STATE"/*.uploaded; do
+      [[ -e $asset ]] || continue
+      name=${asset##*/}
+      assets=$(jq -cn --argjson assets "$assets" --arg name "${name%.uploaded}" '$assets + [{name:$name}]')
+    done
+    jq -cn --arg tag "$3" --argjson assets "$assets" '{tagName:$tag,isDraft:false,isPrerelease:true,assets:$assets}' ;;
   create)
     [[ $4 == --repo && $5 == TerraScale/ts-orchestrator ]] || exit 4
+    [[ ! -e $FAKE_GH_STATE/release-created ]] || exit 4
+    touch "$FAKE_GH_STATE/release-created"
     printf 'release-created\n' >> "$FAKE_GH_EVENTS" ;;
   download)
     [[ $4 == --repo && $5 == TerraScale/ts-orchestrator && $6 == --pattern && $8 == --output ]] || exit 4
@@ -50,25 +66,30 @@ case $2 in
     [[ ! -f $count_file ]] || count=$(cat "$count_file")
     count=$((count + 1))
     printf '%s\n' "$count" > "$count_file"
-    [[ $FAKE_GH_HTTP_FAILURE != yes ]] || exit 22
-    if [[ $FAKE_GH_PERMANENT == yes || ( $name == terrascale-d15-qualify && $count == 1 ) ]]; then
+    [[ $FAKE_GH_HTTP_FAILURE != yes || $name != terrascale-d15-qualify ]] || exit 22
+    if [[ $name == terrascale-d15-qualify && ( $FAKE_GH_PERMANENT == yes || $count == 1 ) ]]; then
       printf 'transient wrong attachment body\n' > "$output"
     else
       cp -- "$FAKE_REPO/dist/$name" "$output"
     fi ;;
   upload)
-    [[ $4 == dist/qualification.json && $5 == --repo && $6 == TerraScale/ts-orchestrator ]] || exit 4
-    printf 'qualification-created\n' >> "$FAKE_GH_EVENTS" ;;
+    [[ $4 == dist/* && $5 == --repo && $6 == TerraScale/ts-orchestrator ]] || exit 4
+    [[ ! -e $FAKE_GH_STATE/${4#dist/}.uploaded ]] || exit 4
+    touch "$FAKE_GH_STATE/${4#dist/}.uploaded"
+    if [[ $4 == dist/qualification.json ]]; then
+      printf 'qualification-created\n' >> "$FAKE_GH_EVENTS"
+    fi ;;
   *) exit 4 ;;
 esac
 `), 0o755)
 
-			r := script.Exec(t, root, map[string]string{
+			env := map[string]string{
 				"PATH":          filepath.Join(root, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"GITHUB_RUN_ID": "123", "GITHUB_RUN_NUMBER": "7", "GITHUB_SHA": strings.Repeat("a", 40), "FIXTURE_TREE": strings.Repeat("b", 40),
 				"GH_TOKEN":      "fixture-token",
 				"FAKE_GH_STATE": root, "FAKE_GH_EVENTS": filepath.Join(root, "events"), "FAKE_GH_PERMANENT": tc.permanent, "FAKE_GH_HTTP_FAILURE": tc.httpFailure, "FAKE_REPO": root,
-			}, "bash", filepath.Join(root, "scripts/ci/publish-qualification.sh"))
+			}
+			r := script.Exec(t, root, env, "bash", filepath.Join(root, "scripts/ci/publish-qualification.sh"))
 			if (r.Code == 0) != tc.success {
 				t.Fatalf("exit %d: %s\n%s", r.Code, r.Stdout, r.Stderr)
 			}
@@ -89,6 +110,14 @@ esac
 			if tc.success {
 				if got := string(script.Read(t, filepath.Join(root, "terrascale-d15-probe.json.count"))); got != "1\n" {
 					t.Errorf("descriptor attempts: %q", got)
+				}
+				// A GitHub rerun keeps the run ID and must reuse the same release assets.
+				rerun := script.Exec(t, root, env, "bash", filepath.Join(root, "scripts/ci/publish-qualification.sh"))
+				if rerun.Code != 0 || !strings.Contains(rerun.Stdout, "TS_RELEASE_QUALIFICATION_V1") {
+					t.Fatalf("rerun: exit %d: %s\n%s", rerun.Code, rerun.Stdout, rerun.Stderr)
+				}
+				if got := string(script.Read(t, filepath.Join(root, "events"))); got != tc.events {
+					t.Errorf("rerun uploaded existing assets: %q", got)
 				}
 			} else if !strings.Contains(r.Stderr, "never matched") {
 				t.Fatal(r.Stderr)

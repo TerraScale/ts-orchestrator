@@ -161,10 +161,10 @@ echo "terrabase verified tag=$terrabase_tag binary_sha256=$(input_json .terrabas
 # Orchestrator candidate: the successful ci.yml run on main for this revision.
 deadline=$((SECONDS + wait_seconds))
 while :; do
-	api_get "/actions/workflows/ci.yml/runs?head_sha=$source_sha&branch=main&event=push&per_page=100" > "$work/go/runs.json"
-	run=$(jq -c --arg id "$ci_run_id" --arg source "$source_sha" \
+	api_get "/actions/workflows/ci.yml/runs?head_sha=$source_sha&branch=main&per_page=100" > "$work/go/runs.json"
+	run=$(jq -c --arg id "$ci_run_id" --arg number "$ci_run_number" --arg source "$source_sha" \
 		'[(.workflow_runs // [])[] | select(.head_branch == "main" and .head_sha == $source and .repository.full_name == "TerraScale/ts-orchestrator" and .head_repository.full_name == "TerraScale/ts-orchestrator" and
-		  ($id == "" or (.id | tostring) == $id))] | max_by(.id) // empty' "$work/go/runs.json")
+		  ($id == "" or (.id | tostring) == $id) and ($number == "" or (.run_number | tostring) == $number) and .event != "pull_request")] | max_by(.id) // empty' "$work/go/runs.json")
 	status=$(jq -r 'if .status == "completed" then .conclusion else (.status // "absent") end' <<< "${run:-null}")
 	case $status in
 		success) break ;;

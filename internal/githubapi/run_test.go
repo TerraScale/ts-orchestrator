@@ -8,13 +8,18 @@ import (
 )
 
 func TestRunDetail(t *testing.T) {
-	const runJSON = `{"id":42,"run_number":7,"head_sha":"abc","path":".github/workflows/ci.yml","status":"completed","conclusion":"success","run_attempt":2,"repository":{"full_name":"TerraScale/terrabase"},"head_repository":{"full_name":"TerraScale/terrabase"}}`
+	const runJSON = `{"id":42,"run_number":7,"head_sha":"abc","head_branch":"main","event":"push","path":".github/workflows/ci.yml","status":"completed","conclusion":"success","run_attempt":2,"repository":{"full_name":"TerraScale/terrabase"},"head_repository":{"full_name":"TerraScale/terrabase"}}`
 	const jobsJSON = `[{"jobs":[{"id":1,"run_id":42,"name":"build","status":"completed","conclusion":"success","run_attempt":2}]},{"jobs":[{"id":2,"run_id":42,"name":"extra","status":"completed","conclusion":"failure","run_attempt":2}]}]`
 	for _, tc := range []struct {
 		name, run, jobs string
 		wantError       bool
 	}{
 		{"success with failed additional job and multiple pages", runJSON, jobsJSON, false},
+		{"scheduled main", strings.Replace(runJSON, `"event":"push"`, `"event":"schedule"`, 1), jobsJSON, false},
+		{"dispatched main", strings.Replace(runJSON, `"event":"push"`, `"event":"workflow_dispatch"`, 1), jobsJSON, false},
+		{"wrong branch", strings.Replace(runJSON, `"head_branch":"main"`, `"head_branch":"other"`, 1), jobsJSON, true},
+		{"pull request event", strings.Replace(runJSON, `"event":"push"`, `"event":"pull_request"`, 1), jobsJSON, true},
+		{"pull request target event", strings.Replace(runJSON, `"event":"push"`, `"event":"pull_request_target"`, 1), jobsJSON, true},
 		{"wrong run", strings.Replace(runJSON, `"id":42`, `"id":43`, 1), jobsJSON, true},
 		{"wrong repository", strings.Replace(runJSON, `"full_name":"TerraScale/terrabase"`, `"full_name":"other/terrabase"`, 1), jobsJSON, true},
 		{"fork", strings.Replace(runJSON, `"head_repository":{"full_name":"TerraScale/terrabase"}`, `"head_repository":{"full_name":"other/terrabase"}`, 1), jobsJSON, true},

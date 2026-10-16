@@ -27,13 +27,14 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 		tag := fmt.Sprintf("ci-%s-run-%d", revision(i), 100+i)
 		releases = append(releases, map[string]any{
 			"id": i, "tag_name": tag, "prerelease": true,
-			"created_at": time.Now().UTC().Add(-time.Duration(i) * 24 * time.Hour).Format(time.RFC3339),
+			"created_at":   "2000-01-01T00:00:00Z",
+			"published_at": time.Now().UTC().Add(-time.Duration(i) * 24 * time.Hour).Format(time.RFC3339),
 			"assets": []map[string]any{{"name": "qualification.json", "size": 10,
 				"browser_download_url": "/download/" + strconv.Itoa(i)}, {"name": "binary", "size": 1000}},
 		})
 	}
 	releases = append(releases, map[string]any{"id": 99, "tag_name": "v1.0.0", "prerelease": false,
-		"created_at": "2020-01-01T00:00:00Z", "assets": []map[string]any{}})
+		"published_at": "2020-01-01T00:00:00Z", "assets": []map[string]any{}})
 
 	var mu sync.Mutex
 	var deleted []string

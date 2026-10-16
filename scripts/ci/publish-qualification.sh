@@ -74,13 +74,26 @@ work=$(mktemp -d)
 trap 'find "$work" -depth -delete' EXIT
 
 tag="ci-${GITHUB_SHA}-run-${GITHUB_RUN_ID}"
-gh release create "$tag" --repo "$repository" --target "$GITHUB_SHA" --prerelease \
-    --title "$tag" --notes '' \
-    dist/terrascale-orchestrator-linux-amd64 \
-    dist/terrascale-orchestrator-linux-arm64 \
-    "dist/$probe_name" dist/terrascale-d15-probe.json
+if ! gh release view "$tag" --repo "$repository" --json tagName,isDraft,isPrerelease,assets > "$work/view.json" 2>/dev/null; then
+    gh release create "$tag" --repo "$repository" --target "$GITHUB_SHA" --prerelease \
+        --title "$tag" --notes ''
+    gh release view "$tag" --repo "$repository" --json tagName,isDraft,isPrerelease,assets > "$work/view.json"
+fi
+jq -e --arg tag "$tag" '.tagName == $tag and .isDraft == false and .isPrerelease == true and
+    (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
+      .name == "terrascale-orchestrator-linux-arm64" or .name == "terrascale-d15-qualify" or
+      .name == "terrascale-d15-probe.json" or .name == "qualification.json"))' "$work/view.json" >/dev/null || {
+    echo 'retained release has an unexpected tag, state or asset' >&2; exit 1;
+}
+[[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {
+    echo 'retained release tag points to a different source revision' >&2; exit 1;
+}
 mkdir -m 0700 "$work/readback"
-for name in "$probe_name" terrascale-d15-probe.json; do
+retain() {
+    local name=$1 delay matched attempt readback
+    if ! jq -e --arg name "$name" 'any(.assets[]; .name == $name)' "$work/view.json" >/dev/null; then
+        gh release upload "$tag" "dist/$name" --repo "$repository"
+    fi
     delay=1
     matched=false
     for attempt in 1 2 3 4 5 6; do
@@ -102,9 +115,13 @@ for name in "$probe_name" terrascale-d15-probe.json; do
         delay=$((delay * 2))
     done
     [[ $matched == true ]] || { echo "D15 release asset readback never matched: $name" >&2; exit 1; }
-done
+}
+retain terrascale-orchestrator-linux-amd64
+retain terrascale-orchestrator-linux-arm64
+retain "$probe_name"
+retain terrascale-d15-probe.json
 # The manifest is the completion marker. A partial upload cannot be admitted.
-gh release upload "$tag" dist/qualification.json --repo "$repository"
+retain qualification.json
 printf 'TS_D15_PROBE_PUBLICATION_V1 source_sha=%s run_id=%s run_number=%s probe_sha256=%s descriptor_sha256=%s\n' \
     "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$probe_sha256" \
     "$(sha256sum dist/terrascale-d15-probe.json | awk '{print $1}')"

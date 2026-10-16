@@ -13,7 +13,16 @@ use native `gh`. `ts-orch release run-detail --repository OWNER/REPO --run-id ID
 normalizes GitHub's completed/conclusion fields and reads paginated jobs from the
 observed run attempt. Consumers separately compare run ID, run number, source
 SHA, workflow, required jobs, and exact retained-manifest log markers.
-GitHub run numbers must never be passed as run IDs.
+GitHub run numbers must never be passed as run IDs. Retained run proofs require
+main-branch push, schedule or workflow-dispatch events. An image dispatch may
+check out an older qualified main revision: its exact source is bound through
+the manifest/log marker, while the workflow revision is recorded separately in
+the promotion receipt. Binary and service qualifications still require the
+exact source SHA in run metadata.
+
+Same-run publication retries verify existing release tags/assets and finish
+partial uploads without overwriting different bytes. Release retention uses
+publication time, so newly published older revisions receive the retention window.
 
 Production runtime credentials remain OCI Vault responsibilities. The workflows
 retain the existing OCI authentication inputs; this change neither creates nor
@@ -49,7 +58,11 @@ merely naming an environment does not establish protection.
 ## Retained infrastructure and historical evidence
 
 Legacy OCI plans retain exact inventory/resource IDs for the existing operations
-host, shared network and buckets. Their presence prevents accidental deletion or
+host, shared network and buckets. Plans now use `existing_operations_host` in
+place of `existing_forgejo`; external plan files need the same key migration.
+This changes plan hashes: capture fresh inventory and obtain any required plan
+approval before applying one. Historical signed plans are not rewritten.
+Their presence prevents accidental deletion or
 cost undercounting; no running Forgejo service is a deployment prerequisite.
 NetBird retains legacy object names only as rename aliases so reconciliation can
 migrate existing policies without duplicates. Its generic operations-host policy

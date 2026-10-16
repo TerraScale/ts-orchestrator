@@ -10,7 +10,7 @@
 #               (64 hex) and release tags, separated by any whitespace or
 #               JSON; it must name at least one pin
 #
-# Kept: the newest TS_PRUNE_KEEP (default 20) CI pre-releases, any created in
+# Kept: the newest TS_PRUNE_KEEP (default 20) CI pre-releases, any published in
 # the last TS_PRUNE_KEEP_DAYS (default 7) days, and any release whose tag
 # names a pinned revision or tag, or whose small manifests (*.json, *.sha256,
 # SHA256SUMS) name a pinned digest. A manifest that cannot be read keeps its
@@ -52,9 +52,9 @@ cutoff=$(date -u -d "-$keep_days days" +%s)
 # Candidates: CI pre-releases past the newest $keep and older than the cutoff.
 jq -c --argjson keep "$keep" --argjson cutoff "$cutoff" '
 	[.[] | select(.prerelease and (.draft | not) and (.tag_name | test("^(ci|image)-[0-9a-f]{40}-run-[0-9]+(-attempt-[0-9]+)?$")))]
-	| sort_by(.created_at) | reverse | .[$keep:][]
-	| select((.created_at | fromdateiso8601) < $cutoff)
-	| {id, tag: .tag_name, created_at, bytes: ([.assets[].size] | add // 0),
+	| sort_by(.published_at) | reverse | .[$keep:][]
+	| select((.published_at | fromdateiso8601) < $cutoff)
+	| {id, tag: .tag_name, published_at, bytes: ([.assets[].size] | add // 0),
 		manifests: [.assets[] | select((.name | test("(\\.json|\\.sha256|^SHA256SUMS)$")) and .size <= 1048576)
 			| .name]}' "$work/releases.json" > "$work/candidates.json"
 
@@ -87,7 +87,7 @@ while IFS= read -r release; do
 	if [[ $dry_run == false ]]; then
 		gh api --method DELETE "repos/$repository/releases/$(jq -r .id <<< "$release")"
 	fi
-	echo "deleted $tag created=$(jq -r .created_at <<< "$release") bytes=$bytes dry_run=$dry_run"
+	echo "deleted $tag published=$(jq -r .published_at <<< "$release") bytes=$bytes dry_run=$dry_run"
 	deleted=$((deleted + 1)) freed=$((freed + bytes))
 done < "$work/candidates.json"
 printf 'TS_RELEASE_PRUNE repository=%s releases=%s deleted=%s kept_pinned=%s bytes=%s dry_run=%s\n' \

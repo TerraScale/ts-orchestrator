@@ -82,7 +82,7 @@ jobs:
         env:
           # Read-only artifact and source credentials; no production identity.
           TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-          E2E_GH_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
+          E2E_GITHUB_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
         run: go run .
 
       - name: Retain the local JSON report even on failure
@@ -129,7 +129,7 @@ jobs:
       - name: Run production E2E in the dedicated organization
         env:
           TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-          E2E_GH_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
+          E2E_GITHUB_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
           # This URL configures the harness, not a public SDK default.
           E2E_TERRABASE_URL: https://gru.api.terrascale.tech
           E2E_AUTH_URL: https://gru.auth.terrascale.tech

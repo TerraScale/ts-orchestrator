@@ -166,7 +166,7 @@ func (f *promotionFixture) writeImage() {
 }
 func (f *promotionFixture) writeRun(run, job string) {
 	write(f.t, filepath.Join(f.fixture, "run-detail/11738.json"), jsonBytes(f.t, map[string]any{
-		"id": 11738, "run_number": 713, "run_attempt": 1, "head_sha": promoteSource, "path": ".github/workflows/image.yml", "status": "completed", "conclusion": run,
+		"id": 11738, "run_number": 713, "run_attempt": 1, "head_sha": strings.Repeat("b", 40), "head_branch": "main", "event": "workflow_dispatch", "path": ".github/workflows/image.yml", "status": "completed", "conclusion": run,
 		"repository": map[string]any{"full_name": "TerraScale/ts-orchestrator"}, "head_repository": map[string]any{"full_name": "TerraScale/ts-orchestrator"},
 	}), 0600)
 	write(f.t, filepath.Join(f.fixture, "jobs/11738.json"), jsonBytes(f.t, []any{map[string]any{"jobs": []any{map[string]any{"id": 25300, "run_id": 11738, "run_attempt": 1, "name": "build/qualified-gru-arm64-image", "status": "completed", "conclusion": job}}}}), 0600)
@@ -288,6 +288,7 @@ func TestPromotionCIImageImportedSignedVerifiedAndReceipted(t *testing.T) {
 	equal(t, imp["shapes"], []any{"VM.Standard.A1.Flex"})
 	image := r["image"].(map[string]any)
 	equal(t, image["sha256"], digest(f.image))
+	equal(t, image["provenance"].(map[string]any)["workflow_run_head_sha"], strings.Repeat("b", 40))
 	equal(t, image["provenance"].(map[string]any)["release_tag"], imageTag)
 	equal(t, r["image_receipt"].(map[string]any)["image_ocid"], importedOCID)
 	equal(t, r["tools"].(map[string]any)["gh"].(map[string]any)["sha256"], digest(read(t, f.gh)))
@@ -335,9 +336,13 @@ func TestPromotionRejectsInvalidEvidenceBeforeEffects(t *testing.T) {
 			path := filepath.Join(f.fixture, "run-detail/11738.json")
 			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), `"run_number":713`, `"run_number":714`, 1)), 0600)
 		}, nil},
-		{"wrong-run-source", "image.yml run did not succeed", func(f *promotionFixture) {
+		{"wrong-run-branch", "GitHub release proof must originate", func(f *promotionFixture) {
 			path := filepath.Join(f.fixture, "run-detail/11738.json")
-			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), promoteSource, strings.Repeat("b", 40), 1)), 0600)
+			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), `"head_branch":"main"`, `"head_branch":"other"`, 1)), 0600)
+		}, nil},
+		{"wrong-run-event", "GitHub release proof must originate", func(f *promotionFixture) {
+			path := filepath.Join(f.fixture, "run-detail/11738.json")
+			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), `"event":"workflow_dispatch"`, `"event":"pull_request"`, 1)), 0600)
 		}, nil},
 		{"failed-attempt", "image job did not succeed on this attempt", func(f *promotionFixture) { f.writeRun("success", "failure") }, nil},
 		{"missing-marker", "lacks one exact TS_IMAGE_QUALIFICATION_V1 marker", func(f *promotionFixture) {

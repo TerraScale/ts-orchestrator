@@ -303,7 +303,7 @@ func (p *promotion) acquireImage() error {
 		if e = json.Unmarshal(detail, &run, json.MatchCaseInsensitiveNames(true)); e != nil {
 			return e
 		}
-		if run.RunID != builder.RunID || run.RunNumber != builder.RunNumber || run.HeadSHA != m.SourceRevision || run.Workflow != "image.yml" || run.Status != "success" {
+		if run.RunID != builder.RunID || run.RunNumber != builder.RunNumber || run.Workflow != "image.yml" || run.Status != "success" {
 			return errors.New("image.yml run did not succeed")
 		}
 		jobs := 0
@@ -333,6 +333,7 @@ func (p *promotion) acquireImage() error {
 		if matches != 1 {
 			return errors.New("image job log lacks one exact TS_IMAGE_QUALIFICATION_V1 marker")
 		}
+		provenance["workflow_run_head_sha"] = run.HeadSHA
 		provenance["release_tag"] = tag
 		provenance["job_log_marker"] = marker
 		p.step(fmt.Sprintf("image release verified tag=%s run=%d attempt=%d", tag, builder.RunID, builder.Attempt))

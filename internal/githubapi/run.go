@@ -32,6 +32,8 @@ func RunDetail(repository string, runID int64, run func(...string) ([]byte, erro
 		ID         int64  `json:"id"`
 		Number     int64  `json:"run_number"`
 		SHA        string `json:"head_sha"`
+		Branch     string `json:"head_branch"`
+		Event      string `json:"event"`
 		Path       string `json:"path"`
 		Status     string `json:"status"`
 		Conclusion string `json:"conclusion"`
@@ -48,6 +50,9 @@ func RunDetail(repository string, runID int64, run func(...string) ([]byte, erro
 	}
 	if detail.ID != runID || detail.Attempt <= 0 || !strings.EqualFold(detail.Repository.Name, repository) || !strings.EqualFold(detail.HeadRepository.Name, repository) {
 		return nil, fmt.Errorf("GitHub run identity does not match requested repository and run")
+	}
+	if detail.Branch != "main" || (detail.Event != "push" && detail.Event != "schedule" && detail.Event != "workflow_dispatch") {
+		return nil, fmt.Errorf("GitHub release proof must originate from a main branch push, schedule, or workflow dispatch")
 	}
 	workflow, ok := strings.CutPrefix(detail.Path, ".github/workflows/")
 	if !ok || workflow == "" || workflow == "." || workflow == ".." || strings.ContainsAny(workflow, "/\\@?#\r\n") {

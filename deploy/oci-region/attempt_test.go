@@ -84,7 +84,7 @@ func TestAttemptReleaseUsesSourceCommandConvention(t *testing.T) {
 			if slices.Contains(c.Args, "--paginate") {
 				return `[{"jobs":[]}]`, nil
 			}
-			return `{"id":42,"run_number":1,"run_attempt":2,"head_sha":"` + strings.Repeat("a", 40) + `","status":"completed","conclusion":"success","path":".github/workflows/ci.yml","repository":{"full_name":"TerraScale/ts-orchestrator"},"head_repository":{"full_name":"TerraScale/ts-orchestrator"}}`, nil
+			return `{"id":42,"run_number":1,"run_attempt":2,"head_branch":"main","event":"push","head_sha":"` + strings.Repeat("a", 40) + `","status":"completed","conclusion":"success","path":".github/workflows/ci.yml","repository":{"full_name":"TerraScale/ts-orchestrator"},"head_repository":{"full_name":"TerraScale/ts-orchestrator"}}`, nil
 		}
 		calls = append(calls, c.Args)
 		return "", nil
@@ -92,8 +92,8 @@ func TestAttemptReleaseUsesSourceCommandConvention(t *testing.T) {
 	a.RunBootstrap("verify-anchor")
 	a.PhaseRelease()
 	wantAPI := [][]string{
-		{"gh", "api", "repos/TerraScale/ts-orchestrator/actions/runs/42"},
-		{"gh", "api", "--paginate", "--slurp", "repos/TerraScale/ts-orchestrator/actions/runs/42/attempts/2/jobs?per_page=100"},
+		{"gh", "api", "--hostname", "github.com", "repos/TerraScale/ts-orchestrator/actions/runs/42"},
+		{"gh", "api", "--hostname", "github.com", "--paginate", "--slurp", "repos/TerraScale/ts-orchestrator/actions/runs/42/attempts/2/jobs?per_page=100"},
 	}
 	if !slices.EqualFunc(apiCalls, wantAPI, slices.Equal) {
 		t.Fatalf("GitHub commands = %v; want %v", apiCalls, wantAPI)

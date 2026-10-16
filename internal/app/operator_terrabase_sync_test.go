@@ -140,7 +140,7 @@ func (feed *cdTestFeed) run(_ context.Context, name string, args ...string) ([]b
 				if feed.badRun {
 					status, conclusion = "in_progress", ""
 				}
-				return json.Marshal(map[string]any{"id": id, "run_number": id + 1000, "head_sha": match[1],
+				return json.Marshal(map[string]any{"id": id, "run_number": id + 1000, "head_sha": match[1], "head_branch": "main", "event": "push",
 					"path": ".github/workflows/fast.yml", "status": status, "conclusion": conclusion, "run_attempt": 1,
 					"repository":      map[string]string{"full_name": terrabaseGitHubRepo},
 					"head_repository": map[string]string{"full_name": terrabaseGitHubRepo}})
