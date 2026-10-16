@@ -83,7 +83,7 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	if err := unix.Sysinfo(&info); err != nil {
 		return nil, err
 	}
-	resources := &api.Resources{NanoCPUs: int64(max(runtime.NumCPU()-1, 0)) * 1_000_000_000, MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)}
+	resources := &api.Resources{NanoCPUs: max(int64(runtime.NumCPU())*1_000_000_000-250_000_000, 0), MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)}
 	e.mu.Lock()
 	if e.functionMaterial != nil {
 		resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
