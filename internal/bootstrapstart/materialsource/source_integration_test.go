@@ -691,6 +691,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertHomeStartupPublicProof(t, replacement, projection, recoveredLink, anchor, roots, private, protocol, now)
 	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 37 || len(linkPublication.References) != 8 {
 		t.Fatalf("Link source rotated or publication duplicated: creates=%d refs=%d", protocol.creates, len(linkPublication.References))
 	}

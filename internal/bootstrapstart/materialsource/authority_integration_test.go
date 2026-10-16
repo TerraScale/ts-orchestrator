@@ -60,7 +60,9 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 		t.Fatal(err)
 	}
 	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1}
+	template.FounderResources = &bootstrap.StartupFounderResources{LaunchDeadline: now.Add(15 * time.Minute)}
 	for _, slot := range config.Slots {
+		template.FounderResources.Slots = append(template.FounderResources.Slots, bootstrap.StartupSlotResources{Slot: slot.Name, ImageCompartmentOCID: ids["control_compartment"].(string), WholeOCPUs: 1, MemoryInGB: 8, BootVolumeGB: 50, BootVolumeTier: bootstrap.FounderBootVolumeTierBalanced})
 		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: ids["control_compartment"].(string), AvailabilityDomain: "test:" + strings.ToUpper(config.Region) + "-AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: ids["subnet"].(string), NetworkSecurityGroupOCIDs: []string{ids["network_security_group"].(string)}, Shape: "VM.Standard.E5.Flex"})
 	}
 	for index, name := range bootstrap.ControllerConfigFileNames {

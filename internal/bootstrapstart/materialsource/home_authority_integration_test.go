@@ -1,3 +1,5 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
@@ -31,7 +33,7 @@ import (
 // This extends the real generation/publication fixture across a signed SFO
 // anchor and a public-only SDK endpoint. Config markers exercise proof binding;
 // house-rendered controller startup remains the app/CLI scenario's contract.
-func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
+func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, link *LinkSource, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
 	t.Helper()
 	grantWire := material.Grant().FoundationGrantWire()
 	template, err := bootstrap.VerifyStartupTemplate(grantWire, roots, home, now)
@@ -39,6 +41,14 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 		t.Fatal(err)
 	}
 	projection, err := NewStartupProjection(template, material, template.Template().SeedSlot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := link.StartupLink(t.Context(), template, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection, err = projection.WithStartupLink(t.Context(), proof, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +63,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertDerivedFounderAuthority(t, source, bound, roots, now)
 	var grant region.FoundationGrant
 	grantEnvelope, err := trust.DecodeEnvelope(grantWire)
 	if err != nil || json.Unmarshal(grantEnvelope.Payload, &grant) != nil {
