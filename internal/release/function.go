@@ -53,9 +53,11 @@ type FunctionExpectation struct {
 // delegation checks. It does not qualify the worker host or runtime isolation.
 // Its zero value grants no execution authority.
 type VerifiedFunction struct {
-	claim  FunctionClaim
-	module []byte
-	proof  receiptProof
+	claim      FunctionClaim
+	module     []byte
+	envelope   []byte
+	delegation []byte
+	proof      receiptProof
 }
 
 func (claim FunctionClaim) Validate() error {
@@ -132,7 +134,8 @@ func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots tr
 	if err != nil {
 		return VerifiedFunction{}, err
 	}
-	return VerifiedFunction{claim: claim, module: admitted, proof: proof}, nil
+	return VerifiedFunction{claim: claim, module: admitted, envelope: bytes.Clone(envelopeWire),
+		delegation: bytes.Clone(delegationWire), proof: proof}, nil
 }
 
 func (claim FunctionClaim) validateModule(module []byte) error {
@@ -161,5 +164,7 @@ func (verified VerifiedFunction) Claim() FunctionClaim {
 }
 
 func (verified VerifiedFunction) Module() []byte         { return bytes.Clone(verified.module) }
+func (verified VerifiedFunction) Envelope() []byte       { return bytes.Clone(verified.envelope) }
+func (verified VerifiedFunction) Delegation() []byte     { return bytes.Clone(verified.delegation) }
 func (verified VerifiedFunction) ExpiresAt() time.Time   { return verified.proof.expiresAt }
 func (verified VerifiedFunction) EnvelopeSHA256() string { return verified.proof.envelopeSHA256 }
