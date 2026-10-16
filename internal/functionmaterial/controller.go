@@ -41,6 +41,7 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	}
 	reader := controller.Reader
 	reader.Authority = controller.Authority
+	reader.AuthorizeRecipient = controller.AuthorizeRecipient
 	reader.Recipient = Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}
 	ref, err := secretRef(reader.VaultID, binding)
 	if err != nil {
