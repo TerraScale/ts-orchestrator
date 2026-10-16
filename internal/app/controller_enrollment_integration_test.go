@@ -223,7 +223,7 @@ func TestControllerEnrollmentIssuedCredentialsAndCurrentRecipient(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant := cellspec.HostGrant{Node: "ts-gru-c", Controller: "controller-c", PrivateIP: "10.44.0.10",
+	grant := cellspec.HostGrant{Node: "gru-1-ctl-3", Controller: "controller-c", PrivateIP: "10.44.0.10",
 		Roles: []string{"ts-auth"}, Environment: "production"}
 	signedSpec, err := cellspec.Sign(cellspec.Spec{Schema: cellspec.Schema,
 		Identity:   cellspec.Identity{DeploymentID: fixture.Accepted.DeploymentID, Cell: "gru", Environment: fixture.Accepted.Environment},
