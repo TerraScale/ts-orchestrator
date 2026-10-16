@@ -217,7 +217,7 @@ func TestFunctionGrantCannotRaceNewCurrentIntent(t *testing.T) {
 			return err
 		}
 		_, err = js.PublishMsg(ctx, controlMessage(mutationSubject("gru", MutationFunctionIntent, key),
-			string(MutationFunctionIntent), entityid.New(), wire), jetstream.WithExpectLastSequenceForSubject(sequence))
+			string(MutationFunctionIntent), entityid.New(), wire), jetstream.WithExpectLastSequenceForSubject(sequence, mutationSubject("gru", MutationFunctionIntent, key)))
 		return err
 	}
 	binding := authorityFunctionBinding()
