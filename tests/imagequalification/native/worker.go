@@ -3,7 +3,7 @@ package native
 import (
 	"bufio"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -38,7 +38,7 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 	defer w.cleanup()
 	scanner := bufio.NewScanner(input)
 	scanner.Buffer(make([]byte, 4096), maxFrame)
-	encoder := json.NewEncoder(output)
+
 	for scanner.Scan() {
 		var c command
 		var result response
@@ -51,7 +51,10 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 		if err != nil {
 			result.Error = err.Error()
 		}
-		if err := encoder.Encode(result); err != nil {
+		if err := json.MarshalWrite(output, result, json.Deterministic(true)); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(output, "\n"); err != nil {
 			return err
 		}
 	}
@@ -480,7 +483,7 @@ func observeIdentity(ctx context.Context, containerdPath, runcPath string) (Iden
 		ID    string `json:"id"`
 		Image string `json:"image"`
 	}
-	if err := json.NewDecoder(io.LimitReader(result.Body, maxFrame)).Decode(&metadata); err != nil {
+	if err := json.UnmarshalRead(io.LimitReader(result.Body, maxFrame), &metadata); err != nil {
 		return identity, err
 	}
 	if !strings.HasPrefix(metadata.ID, "ocid1.instance.") || !strings.HasPrefix(metadata.Image, "ocid1.image.") {

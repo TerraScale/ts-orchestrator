@@ -6,7 +6,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 // Identity combines locally measured component bytes with OCI instance metadata.
@@ -33,7 +35,21 @@ type Host struct {
 
 // Request is supplied only after the parent has authenticated confinement and
 // disposable host ownership. Run cannot establish that cloud authorization.
+// MaterialFixture identifies existing signed production profile/intent proof
+// bytes for one exact qualification phase. It grants no authority by itself.
+type MaterialFixture struct {
+	Scenario              string
+	SignedProfilePath     string
+	SignedProfileSHA256   string
+	ContainerIntentPath   string
+	ContainerIntentSHA256 string
+	EvidenceDirectory     string
+}
+
 type Request struct {
+	MaterialFixtures      []MaterialFixture
+	TrustedRoots          trust.Keyring
+	ProfileIdentity       cellspec.Identity
 	RunID                 string
 	Candidate             release.ProductionExpectation
 	ImageOCID             string

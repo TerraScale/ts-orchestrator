@@ -3,7 +3,7 @@ package native
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -127,7 +127,8 @@ func (r *recorder) event(host string, c command, result response, err error) {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_ = json.NewEncoder(&r.wire).Encode(event)
+	_ = json.MarshalWrite(&r.wire, event, json.Deterministic(true))
+	_ = r.wire.WriteByte('\n')
 }
 func (r *recorder) scenario(name, gate string, start time.Time, hosts []Host) Scenario {
 	r.mu.Lock()
