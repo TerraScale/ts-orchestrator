@@ -128,7 +128,7 @@ func (channel Channel) Verify(roots trust.Keyring, cell, environment string, now
 		if _, seen := verified[architecture]; seen {
 			return nil, fmt.Errorf("%w: two receipts for %s", ErrInvalid, architecture)
 		}
-		binary, err := release.VerifyBinaryUpdateCurrent(wire, channel.Delegation, roots,
+		binary, err := release.VerifyQualifiedBinaryUpdateCurrent(wire, channel.Delegation, roots,
 			release.UpdateExpectation{Environment: environment, Cell: cell, Architecture: architecture}, now)
 		if err != nil {
 			return nil, err

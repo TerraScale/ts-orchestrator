@@ -113,72 +113,106 @@ func (c command) deployWith(args []string, env deployEnv) error {
 		regionTimeout = min(regionTimeout, env.timeout)
 	}
 	progress := &deploymentWriter{Writer: c.output}
-	targets, failures := c.prepareDeploymentTargets(*directory, *evidenceDir, *namespace, *environment,
-		cells, architectures, qualification, qualificationDigest, roots, regionTimeout, env, progress)
-	if len(targets) == 0 {
-		return fmt.Errorf("fleet qualification failed: %w", errors.Join(failures...))
+	type signingCredentials struct {
+		delegation trust.Envelope
+		private    ed25519.PrivateKey
 	}
-	var delegation trust.Envelope
-	if *delegationPath != "" {
-		delegation, err = readEnvelope(*delegationPath)
-	} else {
-		var data []byte
-		if data, err = env.secret(c.ctx, *vaultID, *delegationSecret); err == nil {
-			delegation, err = trust.DecodeEnvelope(data)
+	credentials := sync.OnceValues(func() (signingCredentials, error) {
+		var delegation trust.Envelope
+		var err error
+		if *delegationPath != "" {
+			delegation, err = readEnvelope(*delegationPath)
+		} else {
+			var data []byte
+			if data, err = env.secret(c.ctx, *vaultID, *delegationSecret); err == nil {
+				delegation, err = trust.DecodeEnvelope(data)
+			}
 		}
-	}
-	if err != nil {
-		return fmt.Errorf("read the update delegation: %w", err)
-	}
-	delegationWire, err := trust.EncodeEnvelope(delegation)
-	if err != nil {
-		return err
-	}
+		if err != nil {
+			return signingCredentials{}, fmt.Errorf("read the update delegation: %w", err)
+		}
+		var private ed25519.PrivateKey
+		if *keyPath != "" {
+			private, err = readDelegatedPrivateKey(*keyPath)
+		} else {
+			var data []byte
+			if data, err = env.secret(c.ctx, *vaultID, *keySecret); err == nil {
+				private, err = parseDelegatedPrivateKey(data)
+				clear(data)
+			}
+		}
+		if err != nil {
+			return signingCredentials{}, fmt.Errorf("read the update leaf key: %w", err)
+		}
+		return signingCredentials{delegation, private}, nil
+	})
 	var private ed25519.PrivateKey
-	if *keyPath != "" {
-		private, err = readDelegatedPrivateKey(*keyPath)
-	} else {
-		var data []byte
-		if data, err = env.secret(c.ctx, *vaultID, *keySecret); err == nil {
-			private, err = parseDelegatedPrivateKey(data)
-			clear(data)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("read the update leaf key: %w", err)
-	}
-	defer clear(private)
+	defer func() { clear(private) }()
 
 	started := time.Now()
-	ctx, cancel := context.WithDeadline(c.ctx, started.Add(regionTimeout))
-	defer cancel()
-	c.ctx = ctx
-	lineage := &deploymentLineage{checker: gitLineage{ctx: ctx, checkout: *checkout, run: env.git},
+	lineage := &deploymentLineage{checker: gitLineage{ctx: c.ctx, checkout: *checkout, run: env.git},
 		results: make(map[[3]string]error)}
 	var regions errgroup.Group
 	regions.SetLimit(4)
-	regionalFailures := make([]error, len(targets))
-	for index, target := range targets {
+	var failureMu sync.Mutex
+	var failures []error
+	preflights := c.prepareDeploymentTargets(*directory, *evidenceDir, *namespace, *environment,
+		cells, architectures, qualification, qualificationDigest, roots, regionTimeout, env, progress)
+	for result := range preflights {
+		if result.err != nil {
+			failureMu.Lock()
+			failures = append(failures, result.err)
+			failureMu.Unlock()
+			continue
+		}
+		target := result.target
 		regions.Go(func() (regionErr error) {
+			ctx, cancel := context.WithTimeout(c.ctx, regionTimeout)
+			defer cancel()
+			regional := c
+			regional.ctx = ctx
+			deadline := time.Now().UTC().Add(regionTimeout)
 			cell := target.cell
 			defer func() {
 				if regionErr != nil {
-					regionalFailures[index] = fmt.Errorf("%s: %w", cell, regionErr)
+					failureMu.Lock()
+					failures = append(failures, fmt.Errorf("%s: %w", cell, regionErr))
+					failureMu.Unlock()
 					fmt.Fprintf(progress, "%s failed: %v\n", cell, regionErr)
 				}
 			}()
 			cellStarted := time.Now()
 			location, cellEnvironment, cellArchitectures, binaries := target.location, target.environment, target.architectures, target.binaries
-			if err := c.verifyProductionArtifacts(*evidenceDir, roots, cell, cellEnvironment, binaries, started.UTC().Add(regionTimeout)); err != nil {
+			if err := regional.verifyProductionArtifacts(*evidenceDir, roots, cell, cellEnvironment, binaries, deadline); err != nil {
+				return err
+			}
+			keys, err := credentials()
+			if err != nil {
+				return err
+			}
+			failureMu.Lock()
+			private = keys.private
+			failureMu.Unlock()
+			delegationWire, err := trust.EncodeEnvelope(keys.delegation)
+			if err != nil {
 				return err
 			}
 			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: cellEnvironment,
 				SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
 			for _, architecture := range cellArchitectures {
 				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
-					cellEnvironment, lineage, delegation, roots, private, started.UTC(), *validFor)
+					cellEnvironment, lineage, keys.delegation, roots, keys.private, cellStarted.UTC(), *validFor)
 				if err != nil {
 					return fmt.Errorf("sign %s: %w", architecture, err)
+				}
+				proof, err := readProductionProof(*evidenceDir, cell, architecture)
+				if err != nil {
+					return err
+				}
+				envelope, err = release.AttachProductionQualification(envelope, proof, delegationWire, roots, keys.private,
+					release.UpdateExpectation{Environment: cellEnvironment, Cell: cell, Architecture: architecture}, cellStarted.UTC())
+				if err != nil {
+					return err
 				}
 				wire, err := trust.EncodeEnvelope(envelope)
 				if err != nil {
@@ -187,19 +221,19 @@ func (c command) deployWith(args []string, env deployEnv) error {
 				channel.Receipts = append(channel.Receipts, wire)
 			}
 			// Receipts must remain valid through the shared rollout deadline.
-			if _, err := channel.Verify(roots, cell, cellEnvironment, started.UTC().Add(regionTimeout)); err != nil {
+			if _, err := channel.Verify(roots, cell, cellEnvironment, deadline); err != nil {
 				return fmt.Errorf("receipts would expire during rollout; renew the update delegation: %w", err)
 			}
 			for _, architecture := range cellArchitectures {
-				if err := c.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
+				if err := regional.uploadBinary(location, binaryPath(*directory, architecture), binaries[architecture].SHA256); err != nil {
 					return fmt.Errorf("upload the %s binary to %s: %w", architecture, channel.Cell, err)
 				}
 			}
-			if err := releasechannel.Publish(c.ctx, location, channel); err != nil {
+			if err := releasechannel.Publish(ctx, location, channel); err != nil {
 				return fmt.Errorf("publish to %s: %w", channel.Cell, err)
 			}
 			fmt.Fprintf(progress, "%s published: run %d %s\n", channel.Cell, channel.RunNumber, channel.SourceRevision)
-			if err := releasechannel.Await(c.ctx, location, channel, *poll, started.Add(regionTimeout), progress); err != nil {
+			if err := releasechannel.Await(ctx, location, channel, *poll, deadline, progress); err != nil {
 				return err
 			}
 			fmt.Fprintf(progress, "%s rolled out in %s\n", channel.Cell, time.Since(cellStarted).Round(time.Second))
@@ -208,7 +242,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	// Do not cancel a healthy cell's rollout when another cell rolls back.
 	_ = regions.Wait()
-	if err := errors.Join(append(failures, regionalFailures...)...); err != nil {
+	if err := errors.Join(failures...); err != nil {
 		return fmt.Errorf("fleet rollout failed: %w", err)
 	}
 	_, err = fmt.Fprintf(c.output, "fleet complete: run %d %s in %s after %s\n", qualification.Verification.RunNumber,
