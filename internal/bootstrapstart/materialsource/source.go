@@ -52,8 +52,15 @@ type materialSourceReference struct {
 	MaxBytes   int64  `json:"maxBytes"`
 }
 
+type materialSourceActor struct {
+	InstanceID     string `json:"instanceId"`
+	GrantDigest    string `json:"grantDigest"`
+	TemplateDigest string `json:"templateDigest"`
+}
+
 type materialSourceState struct {
 	SchemaVersion  int                           `json:"schemaVersion"`
+	Actor          materialSourceActor           `json:"actor"`
 	Kind           string                        `json:"kind,omitempty"`
 	BindingSHA256  string                        `json:"bindingSha256,omitempty"`
 	InstallationID string                        `json:"installationId"`
@@ -76,6 +83,7 @@ type materialSourceState struct {
 // host publication. Only the founder-only Vault contains the signing source.
 type ColdStartMaterial struct {
 	grant                     region.VerifiedBootstrapMaterial
+	actor                     *region.SourceFounder
 	objects                   bootstrapstart.FounderSelectionObjectWriter
 	directory, key, etag      string
 	kind, binding, secretName string
@@ -90,24 +98,28 @@ func (source *ColdStartMaterial) Record() bootstrapmaterial.Record { return clon
 
 // ResolveColdStartMaterial reserves the installation before source escrow,
 // recovers its exact Vault version, then restores the immutable local producer.
-func ResolveColdStartMaterial(ctx context.Context, grant region.VerifiedBootstrapMaterial, objects bootstrapstart.FounderSelectionObjectWriter, management bootstrapmaterial.VaultClient, bundles EscrowClient, directory string, now time.Time) (*ColdStartMaterial, error) {
+func ResolveColdStartMaterial(ctx context.Context, grant region.VerifiedBootstrapMaterial, actor *region.SourceFounder, objects bootstrapstart.FounderSelectionObjectWriter, management bootstrapmaterial.VaultClient, bundles EscrowClient, directory string, now time.Time) (*ColdStartMaterial, error) {
 	cfg := grant.Config()
-	if objects == nil || management == nil || bundles == nil || !grant.IsVerified() || now.IsZero() || cfg.Validate() != nil || !now.Before(grant.ExpiresAt()) || ctx.Err() != nil || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || grant.EscrowTarget().Validate("sa-saopaulo-1") != nil {
+	if actor == nil || objects == nil || management == nil || bundles == nil || !grant.IsVerified() || now.IsZero() || cfg.Validate() != nil || !now.Before(grant.ExpiresAt()) || ctx.Err() != nil || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory || grant.EscrowTarget().Validate("sa-saopaulo-1") != nil {
 		return nil, ErrMaterialSource
 	}
 	scope := sha256.Sum256([]byte(grant.InstallationID() + "\x00" + cfg.Cell))
-	source := &ColdStartMaterial{grant: grant, objects: objects, directory: directory, key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + hex.EncodeToString(scope[:]) + ".json", secretName: "ts-bootstrap-source-" + hex.EncodeToString(scope[:16])}
+	source := &ColdStartMaterial{grant: grant, actor: actor, objects: objects, directory: directory, key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + hex.EncodeToString(scope[:]) + ".json", secretName: "ts-bootstrap-source-" + hex.EncodeToString(scope[:16])}
 	return resolveSource(ctx, source, management, bundles, now)
 }
 
 func resolveSource(ctx context.Context, source *ColdStartMaterial, management bootstrapmaterial.VaultClient, bundles EscrowClient, now time.Time) (*ColdStartMaterial, error) {
+	if err := source.authorize(ctx); err != nil {
+		return nil, err
+	}
+	ctx = ociclient.WithAuthority(ctx, source.guard)
 	grant, cfg := source.grant, source.grant.Config()
 	state, etag, err := source.read(ctx)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := source.allowNewRegionalSource(); err != nil {
 			return nil, err
 		}
-		state = materialSourceState{SchemaVersion: 1, InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), Kind: source.kind, BindingSHA256: source.binding, SecretName: source.secretName, RetryToken: uuid.New().String(), StartedAt: now.UTC()}
+		state = materialSourceState{SchemaVersion: 1, Actor: source.currentActor(), InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), Kind: source.kind, BindingSHA256: source.binding, SecretName: source.secretName, RetryToken: uuid.New().String(), StartedAt: now.UTC()}
 		_, _ = source.write(ctx, state, "")
 		state, etag, err = source.read(ctx)
 	}
@@ -133,6 +145,9 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 		}
 		defer clear(candidate)
 		if source.etag, err = source.write(ctx, state, source.etag); err != nil {
+			return nil, err
+		}
+		if err := source.guard(ctx); err != nil {
 			return nil, err
 		}
 		encoded := base64.StdEncoding.EncodeToString(candidate)
@@ -192,6 +207,7 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
 	}
+	ctx = ociclient.WithAuthority(ctx, source.guard)
 	provision := bootstrapmaterial.ProvisionDurable
 	if source.link != nil {
 		provision = bootstrapmaterial.ProvisionLinkDurable
@@ -217,6 +233,9 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 }
 
 func (source *ColdStartMaterial) generate(ctx context.Context, now time.Time) ([]byte, error) {
+	if err := source.guard(ctx); err != nil {
+		return nil, err
+	}
 	if err := source.allowNewRegionalSource(); err != nil {
 		return nil, err
 	}
@@ -356,6 +375,9 @@ func (source *ColdStartMaterial) readEscrow(ctx context.Context, management boot
 }
 
 func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState, string, error) {
+	if err := source.guard(ctx); err != nil {
+		return materialSourceState{}, "", err
+	}
 	domain := source.grant.StorageDomain()
 	response, err := source.objects.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(source.key)})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
@@ -380,7 +402,7 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Kind != source.kind || state.BindingSHA256 != source.binding || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 || len(state.Delivery) > bootstrap.MaxManifestBytes || len(state.Delivery) > 0 && (source.kind != "spoke-link-v1" || len(state.Journal) == 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
-	if state.SecretName != source.secretName || len(state.SeedCompletion) > 256<<10 || len(state.SeedCompletion) > 0 && (state.Kind != "" || len(state.Startup) == 0) {
+	if state.Actor.InstanceID != source.actor.InstanceID() || !validDigest(state.Actor.GrantDigest) || !validDigest(state.Actor.TemplateDigest) || state.SecretName != source.secretName || len(state.SeedCompletion) > 256<<10 || len(state.SeedCompletion) > 0 && (state.Kind != "" || len(state.Startup) == 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	if _, err := uuid.Parse(state.RetryToken); err != nil {
@@ -397,6 +419,13 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 }
 
 func (source *ColdStartMaterial) write(ctx context.Context, state materialSourceState, etag string) (string, error) {
+	if err := source.authorize(ctx); err != nil {
+		return "", err
+	}
+	if state.Actor.InstanceID != source.actor.InstanceID() || source.state.Actor.InstanceID != "" && state.Actor != source.state.Actor || source.state.Actor.InstanceID == "" && state.Actor != source.currentActor() {
+		return "", ErrMaterialSource
+	}
+	ctx = ociclient.WithAuthority(ctx, source.guard)
 	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) || source.link != nil && source.link.verify(ctx) != nil {
 		return "", ErrMaterialSource
 	}
@@ -428,6 +457,9 @@ func (source *ColdStartMaterial) write(ctx context.Context, state materialSource
 }
 
 func (source *ColdStartMaterial) restore(ctx context.Context) error {
+	if err := source.guard(ctx); err != nil {
+		return err
+	}
 	parent, err := os.MkdirTemp(filepath.Dir(source.directory), ".material-restore-")
 	if err != nil {
 		return err

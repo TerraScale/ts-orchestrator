@@ -36,7 +36,7 @@ type LinkSource struct {
 // ResolveLinkSource binds Link recovery to the original regional and home roots.
 // Spokes require the recovered home Link source; the home passes nil homeLink.
 func ResolveLinkSource(ctx context.Context, regional, home *ColdStartMaterial, homeLink *LinkSource, objects bootstrapstart.FounderSelectionObjectWriter, management bootstrapmaterial.VaultClient, bundles EscrowClient, directory string, now time.Time) (*LinkSource, error) {
-	if regional == nil || home == nil || regional.kind != "" || home.kind != "" || objects == nil || management == nil || bundles == nil || now.IsZero() || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+	if regional == nil || regional.actor == nil || home == nil || regional.kind != "" || home.kind != "" || objects == nil || management == nil || bundles == nil || now.IsZero() || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return nil, ErrMaterialSource
 	}
 	inputs := &linkInputs{regional: regional, home: home, homeLink: homeLink, regionalDigest: digestWire(regional.archive.Files["material.json"]), homeDigest: digestWire(home.archive.Files["material.json"])}
@@ -64,7 +64,7 @@ func ResolveLinkSource(ctx context.Context, regional, home *ColdStartMaterial, h
 	binding := digestWire(bindingWire)
 	grant := regional.grant
 	scope := sha256.Sum256([]byte(grant.InstallationID() + "\x00" + grant.Config().Cell + "\x00link\x00" + binding))
-	source := &ColdStartMaterial{grant: grant, objects: objects, directory: directory, kind: "link", binding: binding, link: inputs, secretName: "ts-bootstrap-source-link-" + hex.EncodeToString(scope[:16]), key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/link-" + hex.EncodeToString(scope[:]) + ".json"}
+	source := &ColdStartMaterial{grant: grant, actor: regional.actor, objects: objects, directory: directory, kind: "link", binding: binding, link: inputs, secretName: "ts-bootstrap-source-link-" + hex.EncodeToString(scope[:16]), key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/link-" + hex.EncodeToString(scope[:]) + ".json"}
 	source, err = resolveSource(ctx, source, management, bundles, now)
 	if err != nil {
 		return nil, err
@@ -108,7 +108,7 @@ func (inputs *linkInputs) verify(ctx context.Context) error {
 }
 
 func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
-	if source == nil || !source.grant.IsVerified() || !time.Now().Before(source.grant.ExpiresAt()) || ctx.Err() != nil {
+	if source == nil || source.guard(ctx) != nil || !source.grant.IsVerified() || !time.Now().Before(source.grant.ExpiresAt()) || ctx.Err() != nil {
 		return ErrMaterialSource
 	}
 	if source.link != nil {
