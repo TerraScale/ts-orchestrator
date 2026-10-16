@@ -260,7 +260,7 @@ func (e *Engine) verifySeed(plan Object, inventoryPath, admissionPath string, an
 		fail("verified image candidate differs from the signed seed manifest")
 	}
 	compatible := false
-	for _, v := range rows(e.oci(str(plan["region"]), "compute", "shape", "list", "--compartment-id", str(ids["control_compartment"]), "--image-id", image, "--all")) {
+	for _, v := range rows(e.oci(str(plan["region"]), "compute", "shape", "list", "--compartment-id", str(ids["control_compartment"]), "--availability-domain", str(plan["availability_domain"]), "--image-id", image, "--all")) {
 		shape := obj(v)
 		if shape["shape"] == seed["shape"] {
 			observed, err := catalog.ShapeArchitecture(text(shape["processor-description"]))
