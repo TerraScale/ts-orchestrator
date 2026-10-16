@@ -11,14 +11,15 @@ tests and dependencies to make automatic deployment across every authorized
 region easier, faster and simpler, with fewer dependencies.** Remove superseded
 paths as the replacement lands. This is a required outcome of the refactor.
 
-Start the migration on disposable A1 Flex capacity with automatic regional
-formation, one containerd executor and a healthy rolling container deployment.
-Prove ARM/x86 placement, host replacement and database safety before production
-cutover. Qualify customer Wasm on the same capacity model.
+Start all independent workstreams together. Integrate the smallest working slices
+on disposable A1 Flex capacity: automatic regional formation, one containerd
+executor and a healthy rolling container deployment. Develop ARM/x86, Wasm,
+database safety and visibility concurrently; gate each live cutover on its own
+prerequisites and retained qualification evidence.
 
 ## Status and decisions
 
-Planning revision, 2026-10-16. Code baseline: `35fde887`; original plan: `7a65ad45`.
+Planning revision, 2026-10-16. Code baseline: `08d1102e`; original plan: `7a65ad45`.
 This document records the reviewed direction; it does not claim an implemented
 runtime, measured savings, production readiness, or deployment authorization.
 
@@ -55,7 +56,117 @@ TerraScale services off Fly or Cloudflare. Keep the existing external service
 hosting boundaries. No new paid capacity, IAM permission, credential, or secret
 installation is authorized by this planning document.
 
+## Parallel execution plan (user decision)
+
+**Every section below belongs to a parallel workstream. Document order and
+numbered acceptance checks do not impose implementation order.** Start discovery,
+contract design, implementation, test-only fixtures and baseline collection in
+every stream immediately. Block only the work item that consumes an unavailable
+contract, resource or safety proof. A blocked live exercise does not block its
+stream's remaining implementation work or another region's independent work.
+
+### Workstreams: foundations, runtime and releases
+
+Each stream has one accountable owner. Paths identify responsibilities; shared
+directories require a file-level claim before editing.
+
+| ID / owner | Owns | Start independently | Live integration prerequisite |
+| --- | --- | --- | --- |
+| **OCI — infrastructure** | Foundation/resource lifecycle, durable regional operations, SDK coverage, identity/Vault delivery; `internal/ociclient`, `internal/ociregion`, `internal/ociresource`, `internal/region`. | Map owned resources and call graph; implement restart-safe reconciliation and replace CLI subprocess boundaries. | Scoped tenancy/spend authority for mutations; qualified image from CAP for host launch. NET consumes only its GRU foundation slice. |
+| **NET — NetBird** | Dedicated GRU service, setup-key recovery, account policy, backup/restore; `internal/netbird` and its foundation integration. | Remove ts-ops/manual-PAT assumptions; implement fenced writes, upstream component lifecycle and recoverable enrollment. | OCI's GRU VM/network/Vault endpoints for bootstrap; no dependency on regional SwarmKit or its own overlay. |
+| **CORE — SwarmKit/runtime** | Regional manager/agent formation, containerd executor, service/task mapping, routing readiness and old-engine replacement. | Pin upstream contracts; implement executor and stateless lifecycle against test-only providers on ARM/x86. Inventory old scheduler/runner callers now. | CAP's qualified runtime image, REL's admitted artifact and OCI/NET's reachable admitted host for fleet execution. Local disposable qualification can proceed earlier. |
+| **CAP — capacity/images** | Shape/architecture/runtime/image/price contract, pool identities, managed host dependencies; `internal/nodescale`, `internal/image`, `internal/ocicost` and named OCI image/seed files. | Remove A1-only assumptions coherently; build architecture-specific image inputs and compare compatible shapes. | Authorized provider access/capacity for live measurements; CORE's executor compatibility for final runtime qualification. |
+| **REL — release trust/delivery** | Producer/apply separation, signer sequence, artifacts/channels, event hints and release CI; `internal/release*`, `internal/delivery`, relevant workflow/scripts. | Fix regional preflight isolation; remove source/CI dependencies from apply and design signed sequence migration. | Trusted publisher/Vault/object endpoints for publication; CORE is needed only to prove running workload rollout. |
+
+### Workstreams: federation, product surface and qualification
+
+| ID / owner | Owns | Start independently | Live integration prerequisite |
+| --- | --- | --- | --- |
+| **MESH — regional/global messaging** | Embedded NATS formation, durable membership, scoped global leaf admission, Atlas publication and topology; `internal/natscell` and named membership/global-control integration files. | Define admitted membership versus observed health; implement loop-free topology and restart/partition handling. | OCI/NET host identity and connectivity for regional/global joining. Local service readiness remains independent of a global link. |
+| **OBS — CLI/dashboard/telemetry** | Shared feature API views, CLI output/JSON, metric catalog, Datastar/templ/ECharts and one CSS file; `internal/dashboard`, `internal/observability`, named CLI handlers. | Build real API consumers, metric discovery/history and UI against versioned test fixtures; consolidate styles. | Each producing stream's specific observation/API for its live panel; do not wait for the whole cluster to finish. |
+| **WASM — functions** | Runtime comparison, invocation/artifact contract, HTTP/queue workers, isolation, cancellation and caches. | Compare Wasmtime/wazero and implement bounded workers on both architectures with test-only host capabilities. | CORE/REL/CAP qualified workers plus tenant-scoped capabilities for live execution; DATA only for a capability that actually uses TerraBase. |
+| **DATA — stateful safety** | Writer/volume fencing, catch-up, drain, backup/restore, on-disk/CPU compatibility; retained storage/database lifecycle boundaries. | Extract safety contracts and qualify restore/fencing behavior independently of scheduler cutover. | CORE executor lifecycle hooks, OCI volume ownership and qualified artifacts for live migration. Production cutover requires its own safety evidence and authorization. |
+| **QA — integration/evidence** | Dependency/removal ledger, scenario tooling, comparable cost/timing samples, shared-file integration and exact-candidate evidence. | Map cross-stream dependencies and baseline scenarios; prepare qualification drivers and review each small handoff. | Only the producers used by each scenario. Collect partial results and qualify branches independently; the final completion gate aggregates them. |
+
+### Contracts and file ownership
+
+Publish the smallest consumable contract at each boundary through existing
+feature packages/APIs. The producer owns its schema and semantics; consumers
+review only fields they use. Agree that boundary before integrating it. Other
+boundaries and streams continue while it is being settled. Reuse existing types
+and versioning; no new universal workflow engine, plugin layer or contract store.
+CORE and CAP jointly qualify an executor candidate on a bootable image candidate;
+neither waits for the other's whole-stream completion. OCI can deliver network,
+Vault and ownership records before compute launch, unblocking NET/REL work.
+
+| Boundary / producers | Minimum handoff | Consumers |
+| --- | --- | --- |
+| Foundation and identity — OCI + NET | Owned resource IDs, operation/authority generation, role/region identity, reachable endpoints and scoped Vault references; never secret payloads in the work ledger. | CORE, CAP, MESH, REL, DATA. |
+| Runtime and capacity — CORE + CAP | Stable task/service identity, runtime/architecture/CPU constraints, pinned image/index/child digests, lifecycle/readiness observations and safety-hook semantics. | REL, WASM, DATA, OBS. |
+| Membership and release — MESH + REL | Separate authorized/admitted/observed regional facts, topology generation, signed ordering/scope and per-region apply results. | OCI, CORE, OBS, QA. |
+| Stateful/invocation safety — DATA + WASM | Separate database fence/drain proofs and tenant-scoped invocation/capability contracts, including rejection and recovery semantics. | CORE, REL, OBS, QA; no shared generic execution engine. |
+| Views and evidence — every producer + OBS/QA | Stable operation IDs, typed errors, stages/timestamps, metric names/units/safe labels, stale/missing state and redacted scenario results. | CLI, dashboard, qualification reports. |
+
+1. **Claim files before editing.** Each work item records owner, exact files,
+   contract consumed/produced, acceptance evidence and remaining blocker. Split
+   work at feature/file boundaries. Use isolated branches/worktrees when several
+   implementers share the checkout; do not concurrently commit the same tree.
+2. **Keep shared edits short.** QA's integrator owns shared `go.mod`/`go.sum`,
+   entrypoints, `internal/app` wiring files, shared workflow files and this plan
+   unless ownership is explicitly handed to a stream. Streams submit focused
+   integration diffs; independent package work continues during that handoff.
+   Two streams touching one directory do not automatically share every file.
+3. **Integrate small working slices.** Each handoff includes migrated callers,
+   errors/auth checks and its removed dependents. Avoid long-lived integration
+   branches, compatibility flags and production fakes. Test-only fixtures permit
+   consumer development; live paths report unavailable dependencies honestly.
+4. **Track local readiness.** Work items move through ready, active, blocked,
+   qualified and integrated with an exact blocker/producer reference. Unblock a
+   consumer when its required contract slice lands; do not wait for an entire
+   stream or a repository-wide contract freeze. This ledger belongs in existing
+   docs/operation evidence, not a new runtime coordination service.
+5. **Publish through one main integrator.** Commit and push completed slices to
+   `main` directly, per the user decision; no PR is required. Serialize only
+   conflicting file updates and main publication, preserve CI/qualification and
+   production authorization gates, and never force-push or bypass protections.
+   Existing CI can trigger deployment on a main push; record the actual outcome.
+
+### Minimum live dependencies for the first milestone
+
+The diagram shows consumable slices needed for the smoke milestone. All source
+work above starts concurrently. Arrows constrain only live integration; paid
+resources and credential operations still require existing authorization.
+
+```mermaid
+flowchart TD
+    AUTH[Authorized tenancy and foundation ownership] --> GRU[OCI and CAP: GRU NetBird foundation]
+    AUTH --> REG[OCI and CAP: regional hosts and images]
+    GRU --> NET[NET: bootstrap and recover NetBird]
+    NET --> JOIN[CORE and MESH: admitted regional clusters]
+    REG --> JOIN
+    CORE[CORE: regional manager and agent slice] --> JOIN
+    JOIN --> GLOBAL[MESH: both ends of global leaf links]
+    JOIN --> LOCAL[CORE and REL: ready local smoke workloads]
+    EXEC[CORE: qualified executor slice] --> LOCAL
+    REL[REL: trusted signed smoke artifact] --> LOCAL
+    GLOBAL --> SMOKE[QA: three-region communication and rollout evidence]
+    LOCAL --> SMOKE
+    OBS[OBS: live smoke views and metrics] --> SMOKE
+```
+
+NET bootstrap, regional host preparation, executor development, artifact
+publication and visibility implementation overlap. After NetBird and required
+regional foundations are ready, GRU/SFO/FRA joining proceeds independently;
+global link reconciliation overlaps local workload admission/readiness. Wasm
+prototypes, DATA safety qualification, alternative-shape work and cost research
+continue throughout and do not block the A1 connectivity milestone. Full mixed
+runtime, HA, visibility and production claims retain their separate gates below.
+
 ## Required replacement and deletion scope (user decision)
+
+**Owners:** CORE leads task-engine replacement; DATA owns safety extraction;
+each stream deletes its dependents, and QA closes the cross-stream ledger.
+Inventory, replacement implementation and caller review run concurrently.
 
 **SwarmKit is the selected replacement. This refactor is incomplete while the
 old orchestration engine or a fallback path to it remains in the final tree.**
@@ -126,6 +237,9 @@ the replacement direction, not an immediate destructive production cleanup.
 
 ## Review verdict and required corrections
 
+**Parallel owners:** OCI, CAP, CORE and NET/MESH take the corresponding gaps
+below immediately. Each gap gates only the integration that relies on it.
+
 Proceed with the SwarmKit replacement and deletion plan. Preserve rollout,
 isolation and database safety while closing these implementation gaps:
 
@@ -146,6 +260,10 @@ isolation and database safety while closing these implementation gaps:
    relocation, and Wasm recompilation have different compatibility requirements.
 
 ## Required all-region deployment simplification (user decision)
+
+**Parallel owners:** OCI owns durable provisioning, REL owns artifact apply,
+CORE owns task-engine replacement, and QA tracks removals and measured outcomes.
+Each stream implements its portion alongside the others.
 
 Use the [deployment code review](docs/deployment-simplification-review.md) as the
 initial evidence and removal inventory. It traces the highest-risk deployment
@@ -217,6 +335,11 @@ live deployment results produced by this planning change.
 
 ## Simpler deployment contract (user decision)
 
+**Owner: REL.** Start producer separation, independent regional apply, signed
+sequence design and artifact inventories concurrently. QA/CAP compare storage
+costs in parallel; the comparison blocks only a backend change, not existing
+admitted-artifact deployment. Preserve the selected store's required semantics.
+
 Source hosting and CI are build inputs, not runtime deployment dependencies.
 A release must remain deployable while its source repository or CI API is
 unavailable. Do not solve missing historical repository pins by requiring those
@@ -259,6 +382,9 @@ CI status, and never relabel historical provider evidence.
 
 ### Remove KU from the operational contract
 
+**Owners:** Every stream removes its active KU requirements in its own files;
+QA inventories residual references and preserves historical evidence.
+
 KU is not a prerequisite for building, testing, qualifying, provisioning,
 joining, deploying, observing or recovering the cluster. Do not query a KU task
 or require a KU comment/status to authorize or complete an operation. Record
@@ -273,6 +399,12 @@ network exclusions, not services to deploy or resources to adopt. No KU server,
 network or unrelated workload is changed or deleted by this cleanup.
 
 ## One cluster CLI and complete dashboard visibility (user decision)
+
+**Owner: OBS; every stream owns its feature observations and commands.** Split
+metric catalog/history, CLI views, charts and CSS into disjoint files/work items.
+Start against agreed test-only fixtures, integrate each real provider as it
+lands, and qualify CLI/dashboard parity per feature. Full visibility is an
+aggregate acceptance gate, not a prerequisite to implementing another panel.
 
 `ts-orch` is the operational interface for the user and AI agents to inspect and
 manage the whole authorized cluster. Cover discovery, OCI resources/capacity,
@@ -322,6 +454,11 @@ implementation gaps. This section defines desired state, not completed features.
 
 ## First desired state: three regions that actually communicate
 
+**Owner: QA; producers: OCI, NET, CORE, CAP, REL, MESH and OBS.** Prepare regional
+inventories, probes and evidence collection concurrently. Launch each region's
+ready foundation/join workload without waiting for unrelated work in another.
+All three regions must pass before claiming the complete milestone.
+
 | Display location | OCI region | Existing product token |
 | --- | --- | --- |
 | GRU / São Paulo | `sa-saopaulo-1` | `gru` |
@@ -366,8 +503,19 @@ Acceptance requires real OCI hosts and the exact qualified source/artifacts:
 
 These are desired acceptance results, not a report that the fleet exists.
 Provisioning and destructive recovery exercises retain their authorization gates.
+Run independent read-only probes and per-region checks concurrently. Serialize
+restarts/restores that affect the same manager, quorum, volume or measured
+scenario; give destructive exercises isolated fixtures or an explicit resource
+reservation. A failed probe records its result without discarding other regions'
+evidence. Rerun affected checks after recovery on the exact integrated candidate.
 
 ## NetBird: a managed GRU foundation service
+
+**Owner: NET.** Component packaging, API lifecycle, enrollment recovery,
+account-policy fencing and backup/restore tooling can progress concurrently in
+separate files. Live bootstrap waits only for OCI's GRU foundation slice, and
+regional admission waits only for the required manager/route/policy slice.
+Serialize account-wide mutations under the existing GRU authority.
 
 Provision one dedicated `VM.Standard.A1.Flex` host in `sa-saopaulo-1` for the
 pinned ARM64 NetBird management, signal, relay/STUN, and required identity/TLS
@@ -415,6 +563,10 @@ not supply that capacity. Local regional serving must not require a live manager
 
 ## What the current code establishes
 
+**Owners:** Each stream reviews the evidence in its slice immediately; QA tracks
+cross-stream callers, stale claims and unresolved assumptions. Inventory work
+overlaps replacement implementation and never authorizes premature deletion.
+
 | Evidence | Implication |
 | --- | --- |
 | `internal/app/workload_autoscale.go` starts `workload.Reconciler`. | An established native-workload control path already exists. |
@@ -445,6 +597,12 @@ Wasm runtime was found in the reviewed Go tree. Reconcile their historical C#
 and runtime assumptions rather than treating closure as delivery evidence.
 
 ## Ownership: one scheduler and one task authority
+
+**Owner: CORE.** Split manager/agent lifecycle, containerd executor and service
+intent/routing into file-owned work items around upstream types. DATA defines
+safety hooks alongside executor development; WASM defines worker requirements
+alongside service mapping. Integrate each boundary without waiting for either
+workload's complete production migration.
 
 ```text
 CI -> immutable images/components -> regional deployment admission
@@ -509,6 +667,12 @@ installation of containerd, runc, NetBird, or a function runtime.
 
 ## OCI resources: one complete lifecycle owner
 
+**Owner: OCI; contributors: NET, CAP, REL and DATA for their resource contracts.**
+Split foundation/identity, network, compute and durable-resource work by exact
+files and owned objects. Regions and independent resource groups reconcile in
+parallel once their prerequisites exist. Only conflicting object writes and
+tenancy-wide IAM changes serialize; one lagging group cannot gate all resources.
+
 Reuse `internal/ociclient`, `internal/ociregion`, `internal/ociresource`,
 `internal/nodescale`, `internal/oci`, and the existing storage/release slices.
 `ts-orch` owns only platform resources within the authorized tenancy footprint,
@@ -549,6 +713,12 @@ automatically; vendor keys are supplied once. No per-node enrollment, copied
 secrets, per-region enable flag, or ongoing manual infrastructure recipe.
 
 ## A1-first capacity without an A1-only architecture
+
+**Owner: CAP.** Shape discovery/pricing, per-architecture image production and
+pool migration can develop concurrently against one small capacity contract.
+Qualify families/architectures independently; A1 readiness does not wait for
+all alternatives. A new candidate enters use only after its own image, runtime,
+price and safety checks pass, within the authorized cost envelope.
 
 Oracle's Compute Shapes reference checked on 2026-10-16 lists A1, A2, and A4
 Flex. It does not list `VM.Standard.A3.Flex`; do not invent that identifier or
@@ -598,6 +768,13 @@ more than A1 worker savings; publish the whole regional bill.
 
 ## Mixed workloads and safe architecture migration
 
+**Owners:** CAP owns host/image compatibility, CORE owns container execution,
+WASM owns function portability, and DATA owns stateful compatibility/fencing.
+Build and qualify each architecture/runtime combination independently. Admit
+each qualified workload through the always-on reconciliation path; no runtime
+feature flags. Mixed-runtime completion requires all requested combinations,
+without delaying earlier safe A1/stateless progress.
+
 An execution kind and a CPU architecture are different fields. Wasm is an
 artifact/runtime contract; its worker still runs native ARM or x86 code.
 
@@ -643,6 +820,10 @@ same-commit restore/replication exercise proves the migration.
 
 ## Automatic region deployment, regional joining and global joining
 
+**Owners:** OCI + NET deliver foundation/admission, CORE + MESH form clusters,
+REL supplies artifacts and OBS exposes progress. The stages below are a
+dependency graph per region/host, not a fleet-wide sequential workflow.
+
 After initial tenancy authorization, `ts-orch` continuously reconciles the
 approved regional footprint. A missing authorized region is a provisioning
 task, not an instruction for the operator to run `region create`. Start with
@@ -650,38 +831,20 @@ GRU, San Jose and FRA. No per-region enable step, copied plan, peer list, setup
 key or manual global-registration action. Discovery of an OCI region or an
 arbitrary NetBird peer does not authorize new spending or a new region.
 
-1. **Deploy the region automatically.** The fenced foundation authority derives
-   the regional plan from approved ownership and live OCI inventory, creates
-   required networking, scoped IAM/Vault material, buckets, qualified host
-   capacity and images, and verifies bootstrap endpoint access. Resume durable
-   operations after failure; adopt only verified owned resources. Bring up the
-   dedicated GRU NetBird foundation independently before overlay-dependent joins.
-2. **Join the network and infer identity.** Each host boots the binary, verifies
-   its OCI identity, infers region/pool/architecture and obtains only its role's
-   bootstrap material through instance-principal Vault access. `ts-orch` enrolls
-   NetBird automatically and generates the required groups, DNS and policies.
-   Network membership triggers admission; no operator approval is needed per
-   host once authorized identity and scope checks pass.
-3. **Form and join the regional cluster.** A durable, fenced bootstrap operation
-   selects exactly one regional founder and publishes its verified endpoint.
-   Regional controllers join embedded NATS/JetStream; scheduler managers/workers
-   join their corresponding roles through the qualified runtime adapter.
-   Workers cannot self-promote or initialize a competing cluster after an empty
-   discovery result. Persist identities and recover existing membership on
-   restart; use upstream certificate issuance/rotation where available.
-4. **Join the global fabric automatically.** Generate versioned interregion
-   topology, scoped NATS imports/exports, peer credentials and NetBird policies
-   from admitted regional membership. Reconcile both ends of required leaf links
-   and prove authenticated request/reply before reporting global connectivity.
-   Start with the existing loop-free tree rooted in GRU. The global cluster is
-   a federation of regional clusters, not one WAN-spanning scheduler or
-   JetStream quorum; healthy regions keep serving through a global-link outage.
-5. **Deploy services and publish observed readiness.** Discover admitted signed
-   artifacts, provision service credentials, place compatible workloads and
-   reconcile ingress/DNS. After health and fencing checks pass, publish actual
-   service readiness to Atlas and expose the region through CLI/dashboard.
-   Keep regional readiness and global connectivity separate. Reconcile drift,
-   replacements, release updates and rejoining continuously without manual steps.
+| Stage / owner | Required input | Work that overlaps / completion evidence |
+| --- | --- | --- |
+| Regional foundation — OCI + CAP | Authorized footprint and fenced resource ownership. | Reconcile per-region networking, scoped IAM/Vault, buckets, qualified images/hosts and bootstrap routes independently; serialize only actual resource dependencies and home IAM writes. Recover interrupted operations and adopt only verified owned resources. NET's GRU foundation can finish before other foundations. |
+| Host/network admission — NET + OCI | That host's foundation, verified OCI role/region/pool/architecture and reachable NetBird/Vault endpoints. | Enroll ready hosts while others provision; generate scoped groups/DNS/policies and deliver only role-appropriate material. No per-host operator approval after authorized identity checks pass. |
+| Regional formation — CORE + MESH | Admitted host and durable regional founder identity. | Select exactly one fenced founder, publish its verified endpoint, then join embedded NATS/JetStream and role-correct SwarmKit managers/workers. Independent regions proceed concurrently. Persist/recover identities and upstream certificate rotation; empty discovery never permits a competing founder or worker self-promotion. |
+| Global leaf admission — MESH + NET | Admitted identities and endpoints for both affected regions plus authorized global control generation. | Generate topology, imports/exports, peer credentials and matching policies at both ends. Different links can prepare concurrently; serialize conflicting global topology commits. Use the loop-free GRU tree and authenticate request/reply before reporting connectivity. Regional quorums remain local. |
+| Local workload/readiness — CORE + REL + OCI | Qualified regional executor/capacity, admitted artifact and required service credentials; DATA proofs for stateful tasks. | Deploy local services and reconcile ingress while global leaf admission proceeds. Health/fencing gates actual traffic and Atlas readiness. A service with a genuine cross-region dependency waits only for that dependency. Publish regional readiness and global connectivity separately through OBS. |
+
+Use bounded per-provider/per-region concurrency and backoff fixed in code;
+do not start one unbounded goroutine per resource. Scope retries, deadlines and
+errors to the affected operation. Cache immutable verified artifacts where safe,
+reuse partial results and schedule downstream work as soon as its inputs are
+observed ready. Reconciliation continuously repairs replacements, releases and
+rejoining; it never waits for a fleet-wide all-stages barrier.
 
 Bootstrap discovery must work before the first serving heartbeat: use trusted
 OCI/Vault foundation records, not the public serving-region roster as the sole
@@ -706,6 +869,11 @@ must not wait for release publication or function compilation. Set the p95 targe
 after measuring the baseline; do not promise a seconds-level result beforehand.
 
 ## Less custom security, with a small clear boundary
+
+**Owners:** Each stream preserves its trust boundaries; OCI/NET own bootstrap
+identity, CORE upstream mTLS, REL artifact trust, MESH federation and DATA writer
+safety. Review and qualify each replacement boundary in parallel. Delete a
+legacy check only after its specific remaining callers have equivalent coverage.
 
 Use a Vault-delivered regional shared secret over verified TLS for the trusted
 management/bootstrap API. Remove redundant custom per-message signatures,
@@ -736,6 +904,12 @@ custom authentication complexity. SwarmKit node loss or task `RUNNING` is not
 proof that an old database writer stopped or that its replacement is current.
 
 ## Customer functions: Wasmtime versus wazero
+
+**Owner: WASM.** Start runtime comparison, HTTP/queue contract prototypes,
+capability isolation and architecture/cache qualification immediately. These do
+not wait for completion of regional provisioning or TerraBase migration. Live
+worker deployment consumes CORE/CAP/REL's qualified slices; a TerraBase host
+capability separately consumes DATA's qualified API boundary.
 
 SwarmKit schedules long-lived function workers; workers dispatch short-lived
 invocations. Do not create a SwarmKit task or pull an image for every request.
@@ -778,6 +952,11 @@ retry, and idempotency semantics instead of promising exactly-once execution.
 
 ## Deployments: define success beyond task start
 
+**Owners:** REL handles signed intent, CORE service rollout, DATA member safety,
+and OBS requested/observed state. Implement and qualify their boundaries in
+parallel. Run independent regional/stateless rollouts concurrently; serialize
+updates sharing a quorum, exclusive volume or database writer as safety requires.
+
 CI retains a digest-pinned image/component and qualification record for its exact
 source commit. The region controller selects that digest, updates the SwarmKit
 service, waits for application readiness, and only then registers traffic.
@@ -795,56 +974,82 @@ outcome for each region. Mark an unavailable region as unknown, not successful.
 Retain durable failure/rollback evidence so the deployment-lag guard can separate
 missing observations from a real rollout exceeding its deadline.
 
-## Migration sequence and acceptance
+## Parallel migration and acceptance gates
 
-1. **Inventory deletions and qualify the replacement.** Inventory production
-   callers, dependencies and persisted state; record the replacement owner and
-   deletion scope for every old orchestration responsibility. Run a disposable three-manager
-   SwarmKit cluster with one containerd executor, pinned upstream versions, and
-   ARM and x86. Discover and price compatible shapes; qualify A1 first and other
-   available families. Prove the executor, network path, and mixed-architecture
-   constraints without a fork. Record pinned integration behavior, overhead and
-   blockers; SwarmKit remains the selected target.
-2. **Automatic joining and one stateless service.** Exercise simultaneous boot,
-   replacement, persistent identity, Vault outage, manager loss, and partitions.
-   Recover interrupted OCI creates and discover regions without enable flags.
-   Deploy ARM-only, x86-only, and multi-platform containers by digest; gate traffic
-   on readiness and prove rollback after an unhealthy update. Existing stateless
-   tasks survive manager unavailability. Exercise A1 exhaustion and unavailable
-   alternatives without discarding healthy hosts or exceeding authorized spend.
-3. **Replace and delete generic orchestration.** Map Machines intent to SwarmKit, assign each
-   migrated workload exactly one owner, and remove its old scheduler, native
-   supervisor, host-session execution lease, and redundant authentication path.
-   Join foundation/resource, capacity, image, credential, and upgrade ownership
-   into continuous reconciliation. Exercise mixed pools, shape replacement,
-   manager/NATS quorum preservation, and safe cleanup. Use a bounded deployment
-   migration. Delete superseded callers, state protocols, config, dependencies,
-   scripts and old-engine-only fixtures/tests with each slice; no permanent dual
-   controllers, fallback backend or flags.
-4. **Add functions.** Compare the required handler contract on Wasmtime/wazero;
-   select one engine, then qualify HTTP/queue delivery, tenant isolation, quotas,
-   cancellation, compilation caching on both CPU architectures, worker loss,
-   metadata/control-network denial, and revision rollback.
-5. **Migrate TerraBase last.** Re-establish storage ownership, catch-up, drain,
-   fencing, backups/restores, and member-by-member updates before removing its
-   previous executor. Prove cross-architecture data compatibility or keep each
-   database on its qualified architecture. Require explicit authorization for
-   destructive migration.
+**Owner: QA for integration; each producer owns its evidence.** Gates below
+control claims, production exposure and deletion. They do not order development
+or require every stream to reach the same stage at once. Qualify each gate on
+isolated disposable fixtures as soon as its inputs exist; reuse trustworthy
+results only when their source, artifacts, contracts and environment still match.
 
-Each slice needs focused contract/failure tests and CI on the exact candidate
-commit. External tests use fakes/contract fixtures; do not download or run
-TerraBase from this repository's tests. Real TerraBase integration belongs in
-the monorepo using its same-commit build. Local build/test/benchmark commands run
-with `nice -n 19`; GitHub CI runs normally on hosted runners. No local check is
-required before opening a PR. Use GitHub-hosted CI for the current build adapter and retain exact-commit
-qualification, binaries, images, logs and rollback history with signed artifacts.
-The adapter verifies its GitHub run/job/source proof before signing; deployment
-consumes the resulting admitted artifacts without contacting GitHub. Preserve
-historical evidence and never bypass admission to migrate.
-Move SDK fetching and operational tools to their GitHub equivalents, remove
-private-builder/`fj` requirements, and preserve credential and production gates.
+Record gate scope by revision, region, workload/runtime and architecture/candidate.
+Qualified A1/ARM regional operation need not wait for x86 or another shape's
+qualification. Keep unsupported combinations pending and limit claims to the
+recorded scope; COMPLETE aggregates all requested combinations. A multi-platform
+claim requires both child manifests to pass their relevant checks.
+
+| Gate / owners | Inputs required for this gate | Acceptance and parallel boundary |
+| --- | --- | --- |
+| **CONNECT — three-region smoke** / OCI, NET, CORE, CAP, REL, MESH, OBS, QA | Authorized four-VM A1 topology, qualified smoke executor/artifact, network/admission slices and observed CLI/dashboard data. | Meet every criterion in the three-region desired state: automatic formation, all six authenticated request/reply directions, 30-minute serving, digest update/failed-update recovery and NetBird/global-link failure evidence. Alternative families, full function support and TerraBase migration remain independent. This gate establishes connectivity, not HA or customer isolation. |
+| **RUNTIME — regional engine and HA** / CORE, CAP, REL, MESH, QA | Pinned upstream SwarmKit/containerd integration, architecture-matching images, admitted hosts/artifacts and bounded private routing. | Prove a disposable three-manager regional cluster, executor prepare/start/observe/wait/drain/remove, restart-safe task identity, manager/NATS quorum behavior, simultaneous boot, persistent identity, Vault outage, replacement and partitions. Deploy ARM-only, x86-only and multi-platform artifacts; prove readiness, rollback, port-conflict rejection and stateless survival of manager loss. Qualify regions/architectures independently; no wait for the CONNECT report or all alternatives before beginning. |
+| **FUNCTIONS — isolated workers** / WASM, CORE, CAP, REL, QA | Selected Wasmtime or wazero contract and qualified worker placement/artifacts for each CPU architecture being admitted. | Prove HTTP/queue semantics, repeated delivery/idempotency, tenant isolation, quotas, timeout/cancellation, compilation-cache compatibility, worker loss, revision rollback and metadata/control-network denial. Prototype and disposable qualification overlap RUNTIME work. A TerraBase capability waits for its actual API/safety dependency; other functions do not wait for DATA cutover. |
+| **STATEFUL — database cutover** / DATA, CORE, OCI, REL, QA | Qualified executor hooks, owned volume/identity records, admitted release, restore/catch-up/fence evidence and scoped migration authorization. | Prove backup/restore, writer exclusion, member-by-member drain/update, recovery after interruption and on-disk/CPU compatibility. Keep the existing database architecture when cross-CPU compatibility is unproven. Safety extraction and disposable scenarios start immediately. Cut over each database only after its own proofs; WASM and unrelated services do not gate it. Destructive migration requires explicit authorization. |
+| **COMPLETE — final refactor** / every stream, QA aggregates | All requested deployment/runtime/visibility contracts and applicable gates on the integrated candidate. | No reachable old scheduler, native task runner, duplicate task store, fallback backend or orphaned dependents. Prove automatic regional/global joining, approved capacity fallback, A1 exhaustion handling, pool/host replacement, shared CLI/dashboard full metric coverage and measured dependency/cost/timing results. Close every removal ledger entry and retain migration/recovery history. |
+
+Production exposure additionally requires the affected region's RUNTIME/HA
+qualification, the workload's applicable safety/isolation gate and existing
+release/authorization policy. A singleton smoke result never substitutes for
+these. Unavailable alternative capacity leaves demand pending without deleting
+healthy hosts or exceeding spend authority. Do not delay a safe independent
+slice merely because the final COMPLETE gate is still open.
+
+### Deletion proceeds with each qualified replacement
+
+Inventory old responsibilities and persisted state from the start of every
+stream. Port callers and useful behavioral contracts alongside implementation;
+remove old-engine-only dispatch, configuration, schemas, scripts, dependencies,
+fixtures and tests with each completed slice. Review shared infrastructure and
+self-update callers separately. Do not postpone all cleanup until the end.
+
+Each workload has exactly one task owner during migration. Quiesce/fence the old
+owner before handing that workload to SwarmKit; do not use parallel engines to
+accelerate cutover. Preserve bounded rollback/recovery material and historical
+evidence. Retire persisted state and credentials only after retained callers,
+retention rules and authorization permit it. Unrelated workload migrations may
+progress independently when they share no exclusive resource or quorum risk.
+
+### Qualification and publication per slice
+
+Each implementation slice specifies focused contract/failure tests and retains
+CI for the exact candidate commit. Test-only fixtures let consumers develop
+before a provider lands; they never satisfy live acceptance. Independent suites
+can run concurrently with bounded resources. Serialize disruptive scenarios on
+shared managers/volumes and isolate benchmarks that would interfere. Run the
+cross-stream scenarios again on the integrated candidate before claiming the
+corresponding gate; branch-level green checks alone do not establish integration.
+
+External tests use fakes/contract fixtures; do not download or run TerraBase
+from this repository's tests. Real TerraBase integration belongs in the monorepo
+using its same-commit build. Local build/test/benchmark commands, when required,
+run with `nice -n 19`; GitHub-hosted CI runs normally. No local check is required
+before publication. This planning-only edit adds and runs no implementation tests.
+
+Retain exact-commit qualification, binaries, images, logs and rollback history
+with signed artifacts. The producer verifies its source/run/job proof before
+signing; deployment consumes admitted artifacts without contacting GitHub.
+REL removes private-builder/`fj` requirements and source-host-specific apply
+calls while other streams integrate independently. Preserve credential and
+production gates. Main publication follows the single-integrator/direct-main
+policy above; no PR is required for this user-authorized work.
 
 ## Measure whether it is actually cheaper
+
+**Owner: QA; every stream supplies its timings, resource use and dependency
+inventory.** Collect existing baselines while implementation proceeds. Storage
+comparison (OCI Object Storage versus Tigris), shape pricing and runtime overhead
+research are independent work items; delay only the decision that needs their
+result. Use isolated fixtures or exclusive measurement windows when concurrent
+benchmarks would distort results. No hardware capacity is authorized here.
 
 Publish pinned inputs, raw samples, correctness checks, and reports under
 `benchmark/bench/`. Compare equivalent availability and isolation on the same
@@ -867,80 +1072,46 @@ raise upstream incompatibilities before production cutover; do not accept dual
 engines or silently revert the selected target. Report maintenance/cost findings
 without presenting unmeasured savings as established.
 
-## Project review: recommended implementation order
+## Project review: parallel backlog and acceptance
 
-Review scope: the four-VM connectivity milestone, then HA and mixed workloads.
-Read the control/bootstrap, NetBird, regional NATS, release/CI, OCI capacity/cost,
-host execution, storage fencing, API, and artifact-retention paths. This is a
-risk-based source review, not exhaustive inspection of every file or live proof.
+**Owners:** The rows assign existing findings to streams; QA tracks completion
+and integration evidence. Start every row's inventory/design/implementation now.
+The gate column is a required outcome for the affected claim, not permission to
+start work. Review connected callers and test contracts within each slice.
+This remains a risk-based source review, not exhaustive live verification.
 
-### Must fix before claiming the first milestone
+### Connectivity and release findings
 
-1. **Qualify signed artifact continuity.** The reviewed baseline had no GitHub
-   workflows. This change migrates all seven workflows to hosted Actions, SDK
-   fetching and the Go module to GitHub, and producers/consumers to native `gh`.
-   Exact run ID/number, attempt, job, source, manifest and lineage checks remain.
-   GitHub CI results still need to establish the build adapter. Deployment now
-   has a separate signed-bundle `release apply` path using existing channels,
-   independent of source repository availability. Old standalone
-   TerraBase, ts-auth and ts-libs repositories/qualified releases return 404 to
-   the current account; replace these legacy fixture/producer assumptions with
-   the signed artifact contract, without making their recreation a deploy gate. Never relabel old signatures or
-   run IDs. [Migration status](docs/github-migration.md) records remaining gates.
-2. **NetBird must bootstrap and recover independently.** The manager installer
-   and `setup-owner.sh` require ts-ops; `netbirdManagementLoop` also requires
-   explicit PAT/peer-map inputs. Replace these assumptions with the foundation
-   lifecycle above, or a fresh fleet still needs manual enrollment and setup.
-3. **Fence NetBird writes through leadership changes.** `manager/loop.go` checks
-   leadership before a cycle and between sync/prune; `sync.go` applies its
-   planned writes without checking each one. Cancel and recheck before writes,
-   and reconcile partial results. Otherwise old/new leaders can apply stale
-   plans concurrently and create ambiguous objects that stop later syncs.
-4. **Backups must survive host loss.** `manager/netbird-backup` writes consistent
-   SQLite snapshots beside the live store on the same VM. Add protected off-host
-   storage, matching key/identity recovery, and a restore exercise. Otherwise
-   losing the manager's disk can lose the account and peer state with it.
-5. **Prove the actual network graph.** `manager/desired.go` grants GRU-to-other-
-   region fabric access; `natscell/interregion.go` requires a signed leaf tree.
-   Generate compatible policies, DNS, credentials, and links automatically and
-   test all six request/reply directions. Existing group/heartbeat code alone
-   does not establish a reachable three-region deployment.
+| Finding / owner | Parallel work and retained evidence | Gate affected |
+| --- | --- | --- |
+| Signed artifact continuity — REL | GitHub-hosted workflows/module/tooling have been migrated, but exact run ID/number, attempt, job, source, manifest and lineage qualification still require evidence. Extend existing signed `release apply` across service roles and eliminate regional preflight coupling. Old standalone TerraBase/ts-auth/ts-libs qualification inputs returned 404 to the reviewed account; replace legacy fixture/producer assumptions through signed artifacts, without requiring those repositories to be recreated. Never relabel historical signatures or run IDs. See [migration status](docs/github-migration.md). | CONNECT for smoke releases; RUNTIME/COMPLETE for generalized apply and signer-owned ordering. |
+| Independent NetBird bootstrap — NET + OCI | Remove installer/`setup-owner.sh` ts-ops dependencies and `netbirdManagementLoop` explicit PAT/peer-map assumptions. In parallel, implement scoped Vault delivery and recover the setup-key crash window without manual records. | CONNECT. |
+| NetBird account-write fencing — NET | `manager/loop.go` checks leadership around sync/prune, but planned writes in `sync.go` need per-write authority checks/cancellation and partial-result recovery. Qualify leadership changes separately from component packaging. | CONNECT and recovery. |
+| Off-host NetBird recovery — NET + OCI | Existing `manager/netbird-backup` snapshots sit beside live SQLite data. Implement protected off-host copies and matching key/identity recovery while enrollment/policy work proceeds; exercise restore on an isolated replacement. | CONNECT recovery; production disaster-recovery claims. |
+| Reachable global graph — MESH + NET | Align `manager/desired.go` GRU fabric policy with the signed tree in `natscell/interregion.go`. Generate DNS, scoped credentials, policies and both ends of links; collect all six authenticated request/reply results independently. | CONNECT. |
 
-### Must complete before production or mixed-runtime claims
+### Runtime, visibility and lifecycle findings
 
-6. **Keep stateless availability separate from database fencing.** Session loss
-   in `internal/host/agent.go` stops workloads. Move stateless supervision to the
-   qualified executor while retaining `storage/failover` writer/volume proofs;
-   removing every lease uniformly risks concurrent database writers.
-7. **Migrate shape, image, pricing, and scheduling as one contract.** A1-only
-   pool/seed/cost paths and the unwired generic Machines planner cannot provide
-   mixed execution. Keep exactly one task owner and qualify wrong-architecture,
-   missing-capacity, replacement, isolation, and rollback failures end to end.
-8. **Update stale operational claims after qualification.** README still says
-   artifact cleanup and serving verification are absent, but the corresponding
-   code exists. Preserve that code and correct docs from retained evidence;
-   do not rebuild working services or call source tests production readiness.
-9. **Complete the shared CLI and visibility contract.** Reuse the existing
-   `internal/dashboard`, `internal/observability`, global view and feature APIs;
-   inventory missing commands/instrumentation and connect them to real regional
-   sources. Consolidate the two current stylesheets into one. Qualify complete
-   metric discovery, history, charts and partial-outage behavior; existing pages
-   and HTTP 200 responses alone do not establish full cluster visibility.
-10. **Replace manual region creation with continuous reconciliation.** Reuse
-    `internal/region` provisioning and durable recovery patterns, remove manual
-    plan/credential/Atlas/interregion inputs from the target path, and wire
-    automatic regional formation and both ends of global leaf admission. Prove
-    simultaneous boot, interrupted provisioning and restart without duplicate
-    foundations or competing founders before claiming automatic deployment.
-11. **Close the deletion inventory.** Remove the superseded orchestration engine
-    and all orphaned callers/dependencies from the final source and deployment.
-    Prove that CLI actions, reconciliation and task execution reach SwarmKit,
-    with no legacy scheduler, native-process task backend or duplicate task store.
+| Finding / owner | Parallel work and retained evidence | Gate affected |
+| --- | --- | --- |
+| Stateless availability and database safety — CORE + DATA | Session loss in `internal/host/agent.go` stops workloads. Move stateless supervision into the executor while DATA ports `storage/failover` writer/volume proofs. Do not remove database fencing with a blanket lease deletion. | RUNTIME for availability; STATEFUL for database migration. |
+| Shape/image/price/placement coherence — CAP + CORE | Replace A1-only pool/seed/cost assumptions together; qualify wrong architecture, missing capacity, A1 exhaustion, replacement and rollback. The unwired generic Machines planner must be removed rather than promoted into another scheduler. | RUNTIME per candidate; COMPLETE for the requested capacity/runtime coverage. |
+| Accurate operational documentation — each stream + QA | Correct stale README claims about missing artifact cleanup/serving verification from retained code/evidence. Do this alongside each slice; reuse working paths and never label source tests production readiness. | Every affected claim and COMPLETE. |
+| Shared CLI and full visibility — OBS + feature producers | Reuse dashboard/observability/global-view APIs, consolidate CSS, connect each command/metric family as its producer lands and retain partial-outage/history/chart evidence. HTTP 200 or a green overview is insufficient. | CONNECT for smoke observations; COMPLETE for full coverage. |
+| Continuous regional/global lifecycle — OCI + MESH + NET + CORE | Replace local-only creation journals and manual plan/credential/Atlas/interregion inputs with durable fenced operations. Qualify restart and concurrent boot without duplicate foundations/founders; independently expose blocked local/global stages. | CONNECT for automatic joining; RUNTIME/COMPLETE for full repair and lifecycle coverage. |
 
-Verdict: establish signed artifact continuity and the managed NetBird foundation
-first, then prove the three-region milestone before replacing production tasks.
-Not checked: live OCI/NetBird state, credentials, real traffic, runtime benchmarks,
-or every source file. No infrastructure changes are implied by this review.
+**Deletion is owned by every stream:** Remove each superseded responsibility and
+orphaned caller/dependency with its replacement, while QA verifies CLI actions,
+reconciliation and execution reach SwarmKit. COMPLETE requires the entire ledger
+closed and no legacy task scheduler/runner/store reachable in source or deployment.
+
+**Verdict:** Run the workstreams concurrently and integrate the smallest ready
+contracts. Prioritize unblocking dependencies for each gate; preserve safety
+ordering only for the resources, workloads and claims that require it.
+
+**Not checked:** Live OCI/NetBird state, credentials, traffic, runtime benchmarks
+and every source file remain unverified. This document changes the work plan;
+it performs no infrastructure mutation or runtime implementation.
 
 ## Primary references
 
