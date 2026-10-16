@@ -225,6 +225,9 @@ func SignImageReceipt(receipt ImageReceipt, environment string, delegation trust
 	if err := validateEnvironment(environment); err != nil {
 		return trust.Envelope{}, err
 	}
+	if validFor <= 0 || validFor > MaxReceiptLifetime {
+		return trust.Envelope{}, fmt.Errorf("receipt validity must be positive and at most %s", MaxReceiptLifetime)
+	}
 	productionExpiry, err := verifyImageProduction(receipt, environment, roots, now)
 	if err != nil {
 		return trust.Envelope{}, err
