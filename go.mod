@@ -40,6 +40,7 @@ require (
 	github.com/natefinch/atomic v1.0.1 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/sony/gobreaker/v2 v2.4.0 // indirect
+	github.com/tetratelabs/wazero v1.12.0
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fastrand v1.1.0 // indirect
 	github.com/valyala/histogram v1.2.0 // indirect
