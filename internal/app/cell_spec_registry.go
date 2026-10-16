@@ -3,7 +3,6 @@ package app
 import (
 	"cmp"
 	"context"
-	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
