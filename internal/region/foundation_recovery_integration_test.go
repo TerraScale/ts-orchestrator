@@ -212,38 +212,46 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 }
 
 func TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately(t *testing.T) {
-	store, _, _ := foundationProtocolStore(t)
-	now := time.Now().UTC()
-	request := foundation.CreateIdentity{Key: "ledger_bucket", Region: "sa-saopaulo-1", RequestDigest: strings.Repeat("0", 64)}
-	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: request.Region, TenancyID: "ocid1.tenancy.oc1..test",
-		ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Generation: 1,
-		IntentDigest: strings.Repeat("0", 64), OperationID: entityid.New(), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
-		Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}}
-	etag, err := store.CompareAndSwap(t.Context(), record, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancelCause(t.Context())
-	defer cancel(nil)
-	attempt := &foundationAttempt{controller: &FoundationController{Store: store, Authority: recoveryAuthority{}}, record: record,
-		etag: etag, leaseID: record.LeaseID, epoch: record.Epoch, cancel: cancel}
-	if err := attempt.prepareCreate(ctx, request, false); err != nil {
-		t.Fatal(err)
-	}
-	if err := attempt.prepareCreate(ctx, request, true); err == nil {
-		t.Fatal("untokened bucket create allowed unknown-result replay")
-	}
-	const bucketID = "ocid1.bucket.oc1.sa-saopaulo-1.ledger"
-	if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); err != nil {
-		t.Fatal(err)
-	}
-	got, _, err := store.Load(ctx, "GRU")
-	if err != nil || len(got.ResourceIDs) != 0 || got.AuxiliaryIDs["ledger_bucket"] != bucketID || len(got.PendingCreates) != 0 {
-		t.Fatalf("auxiliary identity mixed into strict plan or lost: record=%+v err=%v", got, err)
-	}
-	for key, id := range map[string]string{"unknown_key": bucketID, "head_bucket": "ocid1.bucket.oc1.eu-frankfurt-1.foreign", "controller_usage_policy": bucketID} {
-		if err := attempt.checkpointAuxiliary(ctx, key, id); err == nil {
-			t.Fatalf("invalid auxiliary identity accepted: %s=%s", key, id)
-		}
+	for _, entry := range []struct{ cell, region, ocidRegion string }{
+		{"GRU", "sa-saopaulo-1", "sa-saopaulo-1"},
+		{"PHX", "us-phoenix-1", "phx"},
+		{"IAD", "us-ashburn-1", "iad"},
+	} {
+		t.Run(entry.cell, func(t *testing.T) {
+			store, _, _ := foundationProtocolStore(t)
+			now := time.Now().UTC()
+			request := foundation.CreateIdentity{Key: "ledger_bucket", Region: entry.region, RequestDigest: strings.Repeat("0", 64)}
+			record := FoundationRecord{SchemaVersion: 1, Cell: entry.cell, OCIRegion: request.Region, TenancyID: "ocid1.tenancy.oc1..test",
+				ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Generation: 1,
+				IntentDigest: strings.Repeat("0", 64), OperationID: entityid.New(), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
+				Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}}
+			etag, err := store.CompareAndSwap(t.Context(), record, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancelCause(t.Context())
+			defer cancel(nil)
+			attempt := &foundationAttempt{controller: &FoundationController{Store: store, Authority: recoveryAuthority{}}, record: record,
+				etag: etag, leaseID: record.LeaseID, epoch: record.Epoch, cancel: cancel}
+			if err := attempt.prepareCreate(ctx, request, false); err != nil {
+				t.Fatal(err)
+			}
+			if err := attempt.prepareCreate(ctx, request, true); err == nil {
+				t.Fatal("untokened bucket create allowed unknown-result replay")
+			}
+			bucketID := "ocid1.bucket.oc1." + entry.ocidRegion + ".ledger"
+			if err := attempt.checkpointAuxiliary(ctx, "ledger_bucket", bucketID); err != nil {
+				t.Fatal(err)
+			}
+			got, _, err := store.Load(ctx, entry.cell)
+			if err != nil || len(got.ResourceIDs) != 0 || got.AuxiliaryIDs["ledger_bucket"] != bucketID || len(got.PendingCreates) != 0 {
+				t.Fatalf("auxiliary identity mixed into strict plan or lost: record=%+v err=%v", got, err)
+			}
+			for key, id := range map[string]string{"unknown_key": bucketID, "head_bucket": "ocid1.bucket.oc1.eu-frankfurt-1.foreign", "controller_usage_policy": bucketID} {
+				if err := attempt.checkpointAuxiliary(ctx, key, id); err == nil {
+					t.Fatalf("invalid auxiliary identity accepted: %s=%s", key, id)
+				}
+			}
+		})
 	}
 }

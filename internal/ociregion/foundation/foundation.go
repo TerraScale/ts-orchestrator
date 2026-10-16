@@ -776,6 +776,9 @@ func (f *Foundation) buckets(ctx context.Context, plan Object, control, key stri
 			versioning = "Enabled"
 		}
 		bucket, err := f.ensure(ctx, "bucket "+name, func(ctx context.Context) (Object, error) {
+			if control == "" {
+				return nil, nil
+			}
 			v, err := f.call(ctx, f.Region, "os", "bucket", "list", "--compartment-id", control, "--all")
 			if err != nil {
 				return nil, err

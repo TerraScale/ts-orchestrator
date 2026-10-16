@@ -169,6 +169,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancelConstructor()
+	if err := foundation.buckets(t.Context(), plan, "", ""); err != nil {
+		t.Fatalf("dry-run buckets queried an uncreated compartment: %v", err)
+	}
 	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "exact-founder-source", "--description", "test-only source IAM", "--statements", command.JSON(sourceStatements)); err != nil {
 		t.Fatal(err)
 	}

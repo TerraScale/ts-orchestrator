@@ -183,7 +183,11 @@ func validAuxiliaryID(key, id, region string) bool {
 		return false
 	}
 	parts := strings.Split(id, ".")
-	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || parts[3] != region || len(id) > 512 {
+	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || len(id) > 512 {
+		return false
+	}
+	// Phoenix and Ashburn retain the original short OCID region spelling.
+	if parts[3] != region && !(region == "us-phoenix-1" && parts[3] == "phx") && !(region == "us-ashburn-1" && parts[3] == "iad") {
 		return false
 	}
 	for _, part := range parts[4:] {
