@@ -273,6 +273,15 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	if err != nil || currentEffect.Epoch != effect.Epoch || !bytes.Equal(currentEffect.Material, material) {
 		t.Fatalf("settlement lost original epoch/material: %+v,%v", currentEffect, err)
 	}
+	history, err := current.ListRuntimeEffectHistory(ctx, scope)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("settled possible-writer history=%+v,%v", history, err)
+	}
+	for _, retained := range history {
+		if retained.Phase != RuntimeEffectSettled || retained.Epoch != effect.Epoch || !bytes.Equal(retained.Material, material) {
+			t.Fatalf("history lost settled provenance: %+v", retained)
+		}
+	}
 	expiring := effect
 	expiring.Scope = WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
 	expiring.EffectID, expiring.Epoch = entityid.New(), epoch
