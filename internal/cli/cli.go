@@ -66,6 +66,7 @@ Runtime:
   selfupdate             Stage, activate and watch binary-only A/B updates
 
 Operator tooling:
+  observe                Inspect authenticated metrics, history, snapshots, cluster and events
   usage                  Print regional node and service CPU/memory for a time window
   cost                   Print a region's OCI spend and month forecast (read-only)
   bench                  Run isolated in-region benchmark clients and save capacity reports
@@ -121,6 +122,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
+	case "observe":
+		return runObserve(ctx, args[1:], output)
 	case "usage":
 		return capacity.Run(ctx, args[1:], output)
 	case "cost":
