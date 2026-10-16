@@ -29,14 +29,14 @@ func (reader Reader) currentFunction(ctx context.Context, tenant, function strin
 		return release.VerifiedFunction{}, 0, err
 	}
 	claim := intent.Claim
-	info, err := reader.Artifacts.GetInfo(ctx, claim.Digest)
+	info, err := reader.Artifacts.GetInfo(ctx, "sha256-"+claim.Digest)
 	if err != nil {
 		return release.VerifiedFunction{}, 0, err
 	}
 	if info.Size != uint64(claim.Bytes) || info.Size == 0 || info.Size > release.MaxFunctionModuleBytes || info.Opts != nil && info.Opts.Link != nil {
 		return release.VerifiedFunction{}, 0, ErrMaterial
 	}
-	object, err := reader.Artifacts.Get(ctx, claim.Digest)
+	object, err := reader.Artifacts.Get(ctx, "sha256-"+claim.Digest)
 	if err != nil {
 		return release.VerifiedFunction{}, 0, err
 	}
