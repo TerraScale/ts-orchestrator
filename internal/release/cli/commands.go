@@ -244,7 +244,7 @@ func getExactObjectDigest(ctx context.Context, client immutableObjectClient, nam
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	response, err := client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, client, objectstorage.GetObjectRequest{
 		NamespaceName: common.String(namespace), BucketName: common.String(bucket), ObjectName: common.String(name),
 	})
 	if err != nil {
