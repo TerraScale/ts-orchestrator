@@ -200,6 +200,13 @@ func effectSessionR3(t *testing.T) jetstream.JetStream {
 	var brokers []*server.Server
 	for index := range 3 {
 		var routes []*url.URL
+		if index == 0 {
+			route, err := url.Parse("nats-route://127.0.0.1:1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			routes = append(routes, route)
+		}
 		for _, broker := range brokers {
 			route, err := url.Parse("nats-route://" + broker.ClusterAddr().String())
 			if err != nil {
