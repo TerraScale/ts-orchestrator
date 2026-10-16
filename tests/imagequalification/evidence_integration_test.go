@@ -56,6 +56,7 @@ func reportFixture(t *testing.T, f qualificationFixture) (host.Report, journal, 
 func assertRetainedUnsignedProof(t *testing.T, f qualificationFixture, verified confinement.Verified, actual journal) {
 	t.Helper()
 	r, j, hosts := reportFixture(t, f)
+	j.Object = actual.Object
 	r.ImageOCID, j.ImageID = actual.ImageID, actual.ImageID
 	j.CapabilityID, j.CapabilityVersion, j.CapabilityDeleted = actual.CapabilityID, actual.CapabilityVersion, actual.CapabilityDeleted
 	var ids []string
