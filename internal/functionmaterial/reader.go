@@ -109,7 +109,7 @@ func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDeli
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	expires, err := reader.verifyMaterial(material, binding, proof, intentSequence, account)
+	validity, err := reader.verifyMaterial(material, binding, proof, intentSequence, account)
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
@@ -128,7 +128,7 @@ func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDeli
 	if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
 		return VerifiedDelivery{}, err
 	}
-	return VerifiedDelivery{binding: binding, function: proof, minimum: proof.Claim().Sequence, expires: expires, files: files}, nil
+	return VerifiedDelivery{binding: binding, function: proof, minimum: proof.Claim().Sequence, expires: validity.delivery, credentialExpires: validity.credentials, files: files}, nil
 }
 
 func decodeMaterial(wire []byte) (storedMaterial, error) {
@@ -144,29 +144,33 @@ func decodeMaterial(wire []byte) (storedMaterial, error) {
 	return material, nil
 }
 
-func (reader Reader) verifyMaterial(material storedMaterial, binding Binding, proof release.VerifiedFunction, intentSequence uint64, account brokerauth.Claim) (time.Time, error) {
+type verifiedMaterialExpiry struct {
+	delivery, credentials time.Time
+}
+
+func (reader Reader) verifyMaterial(material storedMaterial, binding Binding, proof release.VerifiedFunction, intentSequence uint64, account brokerauth.Claim) (verifiedMaterialExpiry, error) {
 	claim := proof.Claim()
 	if material.Binding != binding || material.TenantID != claim.TenantID || material.FunctionID != claim.FunctionID || material.EnvelopeSHA256 != proof.EnvelopeSHA256() ||
 		material.IntentSequence != intentSequence || material.AccountSequence != account.Sequence || material.Generation != reader.Trust.fingerprint ||
 		!bytes.Equal(material.Files["broker-ca.pem"], reader.Trust.brokerCA) {
-		return time.Time{}, ErrMaterial
+		return verifiedMaterialExpiry{}, ErrMaterial
 	}
 	if sum(material.Files["ingress-ca.pem"]) != reader.Trust.issuerSHA256 {
-		return time.Time{}, ErrMaterial
+		return verifiedMaterialExpiry{}, ErrMaterial
 	}
 	identity, err := functions.VerifyWorkerCredentials(proof, account.Account, account.JWT, material.Files["broker.creds"])
 	if err != nil {
-		return time.Time{}, err
+		return verifiedMaterialExpiry{}, err
 	}
 	tlsExpiry, err := verifyTLS(material.Files, proof)
 	if err != nil {
-		return time.Time{}, err
+		return verifiedMaterialExpiry{}, err
 	}
 	expires := minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.expiresAt)
 	if material.ExpiresAt.After(expires) || !time.Now().Before(material.ExpiresAt) {
-		return time.Time{}, ErrMaterial
+		return verifiedMaterialExpiry{}, ErrMaterial
 	}
-	return material.ExpiresAt, nil
+	return verifiedMaterialExpiry{delivery: material.ExpiresAt, credentials: minTime(identity.ExpiresAt, tlsExpiry)}, nil
 }
 
 func minTime(values ...time.Time) time.Time {
