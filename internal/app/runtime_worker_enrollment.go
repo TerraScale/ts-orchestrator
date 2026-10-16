@@ -63,7 +63,7 @@ func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.Respon
 		http.Error(writer, "worker peer is not current", http.StatusForbidden)
 		return
 	}
-	grant, _, err := enrollment.grants.Read(ctx, enrolled.InstanceID)
+	grant, _, err := hostenroll.ReadCurrentGrant(ctx, enrollment.js, enrolled.InstanceID)
 	if err != nil || grant.Disabled || grant.TerminalOperationID != "" || grant.IdentityResetOperationID != "" ||
 		!grant.MatchesCompletedWorkerEnrollment(transport) {
 		http.Error(writer, "worker refresh requires current completed enrollment", http.StatusForbidden)

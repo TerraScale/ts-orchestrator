@@ -71,6 +71,7 @@ type managedHostEnrollment struct {
 	controller  *host.Controller
 	verifier    host.ManagedRegistrationVerifier
 	grants      *hostenroll.GrantStore
+	js          jetstream.JetStream
 	issuer      *hostenroll.Issuer
 	responseKey ed25519.PrivateKey
 	fencer      authority.Fencer
@@ -137,7 +138,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		generation: managed.region.Generation, environment: placementConfig.Environment,
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
-		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer,
+		grants: grantStore, js: runtime.JetStream(), issuer: issuer, responseKey: responseKey, fencer: fencer,
 		services: services, runtimeIdentity: runtimeIdentity,
 	}
 	// A nil pool refuses every pool node. The typed nil is kept out of the interface.
