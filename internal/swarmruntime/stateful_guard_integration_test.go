@@ -1,6 +1,7 @@
 package swarmruntime
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,7 +102,7 @@ func statefulGuardAgentFixture(path string) error {
 func writeStatefulGuardFixture(t *testing.T, guard StatefulRuntimeGuard, private ed25519.PrivateKey, revision uint64, deadline time.Time) {
 	t.Helper()
 	now := time.Now().UTC()
-	payload := executionwire.WorkerGrantPayload{Identity: guard.Identity, TaskID: strings.TrimPrefix(guard.EffectID, "unused-"), ServiceID: "statefulguard",
+	payload := executionwire.WorkerGrantPayload{Identity: guard.Identity, TaskID: guard.EffectID, ServiceID: "statefulguard",
 		TaskSHA256: guard.TaskSHA256, EffectID: guard.EffectID, Nonce: strings.Repeat("a", 32), Epoch: guard.Epoch, Revision: revision, IssuedAt: now, Deadline: deadline, Phase: "held"}
 	material, err := json.Marshal(payload)
 	if err != nil {
@@ -142,7 +144,7 @@ func TestContainerdStatefulGuardSurvivesAgentExit(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Fatal("actual protected root cache/runtime fixture requires root")
 	}
-	for _, scenario := range []string{"expiry", "renewal", "forged", "rollback", "missing"} {
+	for _, scenario := range []string{"expiry", "renewal", "forged", "rollback", "missing", "guardian-death"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(runtimeContext(t.Context()), 35*time.Second)
 			defer cancel()
@@ -216,6 +218,23 @@ func TestContainerdStatefulGuardSurvivesAgentExit(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch scenario {
+			case "guardian-death":
+				killStatefulFixtureLogger(t, guard)
+				select {
+				case <-ctx.Done():
+					t.Fatal(ctx.Err())
+				case <-time.After(time.Until(deadline) + 200*time.Millisecond):
+				}
+				status, err := task.Status(ctx)
+				if err != nil || status.Status != containerd.Running {
+					t.Fatalf("guardian death limitation changed: %s %v", status.Status, err)
+				}
+				events, err := os.ReadFile(filepath.Join("/sys/fs/cgroup/terrascale", fixture.ContainerID, "cgroup.events"))
+				if err != nil || !strings.Contains("\n"+string(events), "\npopulated 1\n") {
+					t.Fatalf("live writer lost independently observed populated cgroup: %v", err)
+				}
+				t.Log("killed guardian leaves a live writer; deadline alone cannot satisfy stopped-process settlement")
+				return
 			case "renewal":
 				deadline = deadline.Add(3 * time.Second)
 				writeStatefulGuardFixture(t, guard, private, 3, deadline)
@@ -253,4 +272,49 @@ func TestContainerdStatefulGuardSurvivesAgentExit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// This locates only this scenario's shim logger, then pins and rechecks the
+// exact command before killing it; no unrelated runtime process is signalled.
+func killStatefulFixtureLogger(t *testing.T, guard StatefulRuntimeGuard) {
+	t.Helper()
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || pid < 2 {
+			continue
+		}
+		path := filepath.Join("/proc", entry.Name(), "cmdline")
+		command, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		arguments := bytes.Split(bytes.TrimSuffix(command, []byte{0}), []byte{0})
+		if len(arguments) != 3 || string(arguments[1]) != "--runtime-logger" {
+			continue
+		}
+		var invocation runtimeLoggerInvocation
+		if json.Unmarshal(arguments[2], &invocation) != nil || invocation.Guard.State == nil || invocation.Guard.State.CachePath != guard.CachePath || invocation.Guard.Fingerprint != guard.TaskSHA256 {
+			continue
+		}
+		fd, err := unix.PidfdOpen(pid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		current, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(current, command) {
+			_ = unix.Close(fd)
+			t.Fatal("shim logger identity changed before kill")
+		}
+		err = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+		_ = unix.Close(fd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	t.Fatal("exact shim logger process was not found")
 }
