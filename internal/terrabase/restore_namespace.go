@@ -104,20 +104,17 @@ func enableRestoreLoopback() error {
 	// The parent opens its namespace before clone and passes it as FD 3.
 	// Reading /proc/<parent>/ns/net is denied inside a test user namespace.
 	link, err := os.Readlink("/proc/self/fd/3")
-	if err != nil || !strings.HasPrefix(link, "net:[") {
+	if err != nil || !strings.HasPrefix(link, "net:[") || !strings.HasSuffix(link, "]") {
 		return errors.New("restore-check helper requires an inherited network namespace descriptor")
 	}
 	hostNetwork := os.NewFile(3, "host-network-namespace")
 	defer hostNetwork.Close()
-	current, err := os.Stat("/proc/self/ns/net")
+	// Read the kernel's namespace ID without following the nsfs magic link.
+	current, err := os.Readlink("/proc/self/ns/net")
 	if err != nil {
 		return err
 	}
-	parent, err := hostNetwork.Stat()
-	if err != nil {
-		return err
-	}
-	if os.SameFile(current, parent) {
+	if current == link {
 		return errors.New("restore-check helper requires a new network namespace")
 	}
 	interfaces, err := net.Interfaces()

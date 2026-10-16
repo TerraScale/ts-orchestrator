@@ -3,7 +3,6 @@ package terrabase
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +17,14 @@ import (
 )
 
 func TestRestoreNamespaceCommandIsolatesBeforeExec(t *testing.T) {
+	const directStage = "TS_RESTORE_NAMESPACE_DIRECT_TEST"
+	if os.Getenv(directStage) == "1" {
+		if err := runIsolatedRestoreCheck(t.Context(), strings.NewReader("{}"), io.Discard); err == nil ||
+			!strings.Contains(err.Error(), "requires a new network namespace") {
+			t.Fatalf("direct helper invocation bypassed isolation: %v", err)
+		}
+		return
+	}
 	command, err := restoreNamespaceCommand(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -30,19 +37,12 @@ func TestRestoreNamespaceCommandIsolatesBeforeExec(t *testing.T) {
 	if !slices.Equal(command.Env, []string{"HOME=/", "LANG=C", "PATH=/usr/bin:/bin"}) {
 		t.Fatalf("helper inherited host credentials or networking configuration: %q", command.Env)
 	}
-	current, err := os.Stat("/proc/self/ns/net")
-	if err != nil {
-		t.Fatal(err)
-	}
-	parent, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", os.Getppid()))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if os.SameFile(current, parent) {
-		if err := runIsolatedRestoreCheck(t.Context(), strings.NewReader("{}"), io.Discard); err == nil ||
-			!strings.Contains(err.Error(), "network namespace") {
-			t.Fatalf("direct helper invocation bypassed isolation: %v", err)
-		}
+	// Pass the real host descriptor while deliberately retaining its namespace.
+	command.Args = []string{command.Path, "-test.run=^" + t.Name() + "$", "-test.count=1"}
+	command.Env = append(command.Env, directStage+"=1")
+	command.SysProcAttr.Cloneflags = 0
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("unisolated restore check: %v: %s", err, output)
 	}
 }
 
