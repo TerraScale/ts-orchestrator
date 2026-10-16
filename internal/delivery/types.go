@@ -238,6 +238,8 @@ func (i Intent) Clone() Intent {
 		bundle.Claim = slices.Clone(bundle.Claim)
 		bundle.Delegation = slices.Clone(bundle.Delegation)
 		bundle.Migration = slices.Clone(bundle.Migration)
+		bundle.Index = slices.Clone(bundle.Index)
+		bundle.Sequence = slices.Clone(bundle.Sequence)
 		i.Container = &bundle
 	}
 	return i

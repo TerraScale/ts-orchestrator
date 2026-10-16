@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -26,7 +27,7 @@ func (c command) containerApply(args []string) error {
 }
 
 // containerApplyWith consumes retained signed bundles and standard OCI layouts;
-// it never reads a source checkout, signing key or sequence allocator.
+// it reads the public immutable allocation, without a source checkout or signing key.
 func (c command) containerApplyWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("container-apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -38,6 +39,13 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 	}
 	if *directory == "" || *rootPath == "" || !validStorageToken(*namespace) || flags.NArg() != 0 {
 		return errors.New("container-apply requires --dir, --root-key and --namespace")
+	}
+	if env.targets == nil {
+		env.targets = retainedReleaseTargets(*directory)
+	}
+	admittedTargets, err := selectedReleaseTargets(c.ctx, env.targets, nil, nil, "")
+	if err != nil {
+		return err
 	}
 	root, err := readRootPublicKey(*rootPath)
 	if err != nil {
@@ -52,11 +60,14 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 		return err
 	}
 	type target struct {
-		bundle   release.ContainerBundle
-		verified release.VerifiedContainer
-		scope    release.ContainerTarget
+		bundle      release.ContainerBundle
+		verified    release.VerifiedContainer
+		scope       release.ContainerTarget
+		allocations release.SequenceLocation
 	}
-	var targets []target
+	targets := make(map[string][]target)
+	var cells []string
+	var refusals []error
 	var source, repository, tree, role, environment string
 	var sequence uint64
 	budget := rollout.ObservationBudget
@@ -94,11 +105,29 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 				return err
 			}
 			scope := release.ContainerTarget{Cell: entry.Name(), Environment: claim.Environment, Role: claim.Role, Architecture: architecture.Name()}
-			verified, err := release.VerifyContainerCurrent(c.ctx, bundle, roots, scope, now, deadline, containerEvidenceReader(filepath.Join(*directory, "production")))
+			migrationEnvelope, err := trust.DecodeEnvelope(bundle.Migration)
+			if err != nil {
+				return err
+			}
+			migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, scope.Role, scope.Environment)
+			if err != nil {
+				return err
+			}
+			client, err := env.storage(migration.Region)
+			if err != nil {
+				return err
+			}
+			allocations := release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
+			verified, err := release.VerifyContainerCurrent(c.ctx, bundle, roots, scope, now, deadline, containerEvidenceReader(filepath.Join(*directory, "production")), allocations)
 			if err != nil {
 				return err
 			}
 			claim = verified.Claim()
+			admitted, found := admittedTargets[claim.Cell]
+			if !found || admitted.Err != nil || admitted.Environment != claim.Environment || !slices.Contains(admitted.Architectures, claim.Architecture) || !deadline.Before(admitted.ExpiresAt) {
+				refusals = append(refusals, fmt.Errorf("%s %s: container exceeds the current signed regional plan: %w", claim.Cell, claim.Architecture, errors.Join(admitted.Err, trust.ErrScopeMismatch)))
+				continue
+			}
 			if role == "" {
 				source, repository, tree, role, environment, sequence = claim.SourceRevision, claim.SourceRepository, claim.SourceTreeSHA256, claim.Role, claim.Environment, claim.ReleaseSequence
 			}
@@ -116,56 +145,76 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 			if inspected.Image != claim.Image {
 				return errors.New("retained OCI layout root differs from signed child image")
 			}
-			targets = append(targets, target{bundle: bundle, verified: verified, scope: scope})
+			if inspected.IndexSHA256 != "" {
+				index, err := retainedContainerIndex(filepath.Join(*directory, "oci-layout"), inspected.IndexSHA256)
+				if err != nil {
+					return err
+				}
+				if !bytes.Equal(index, bundle.Index) {
+					return errors.New("container bundle does not carry the retained signed OCI index")
+				}
+			}
+			if siblings := targets[scope.Cell]; claim.Role == "function-worker" && len(siblings) != 0 {
+				previous := siblings[0].verified.Claim()
+				if previous.QualificationSHA256 != claim.QualificationSHA256 || previous.SequenceMigrationSHA256 != claim.SequenceMigrationSHA256 {
+					return errors.New("function-worker siblings require one signed OCI index family and migration")
+				}
+			}
+			if len(targets[scope.Cell]) == 0 {
+				cells = append(cells, scope.Cell)
+			}
+			targets[scope.Cell] = append(targets[scope.Cell], target{bundle: bundle, verified: verified, scope: scope, allocations: allocations})
 		}
 	}
 	if len(targets) == 0 {
-		return errors.New("container bundle contains no regions or architectures")
+		return errors.Join(append(refusals, errors.New("container bundle contains no admitted regions or architectures"))...)
 	}
 	progress := &deploymentWriter{Writer: c.output}
-	failures := make([]error, len(targets))
+	failures := make([]error, len(cells))
 	var group errgroup.Group
 	group.SetLimit(4)
-	for index, target := range targets {
+	for index, cell := range cells {
 		group.Go(func() error {
 			ctx, cancel := context.WithTimeout(c.ctx, budget)
 			defer cancel()
 			regional := c
 			regional.ctx = ctx
 			apply := func() error {
-				claim := target.verified.Claim()
 				deadline := time.Now().UTC().Add(budget)
-				location, err := channelLocation(env, target.scope.Cell, *namespace)
+				if !deadline.Before(admittedTargets[cell].ExpiresAt) {
+					return errors.New("signed regional plan expires before operation deadline")
+				}
+				location, err := channelLocation(env, cell, *namespace)
 				if err != nil {
 					return err
 				}
-				admitted, err := deploymentScope(ctx, location, target.scope.Cell)
-				if err != nil {
-					return err
+				alternatives := make([]release.VerifiedContainer, 0, len(targets[cell]))
+				// Qualified architectures are alternatives for one regional service.
+				// Trusted runtime placement selects one; status cannot admit a platform.
+				for _, target := range targets[cell] {
+					claim := target.verified.Claim()
+					if err := regional.uploadContainerEvidence(*directory, location, target.verified, roots, deadline); err != nil {
+						return err
+					}
+					if err := releasechannel.PublishContainer(ctx, location, target.bundle, roots, target.scope, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+						return releasechannel.ReadContainerEvidence(ctx, location, claim.Role, digest)
+					}, target.allocations); err != nil {
+						return err
+					}
+					fmt.Fprintf(progress, "%s %s %s published signed OCI %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
+					alternatives = append(alternatives, target.verified)
 				}
-				if admitted.Environment != claim.Environment || !slices.Contains(admitted.Architectures, claim.Architecture) {
-					return errors.New("container differs from admitted regional scope")
-				}
-				if err := regional.uploadContainerEvidence(*directory, location, target.verified, roots, deadline); err != nil {
-					return err
-				}
-				if err := releasechannel.PublishContainer(ctx, location, target.bundle, roots, target.scope, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
-					return releasechannel.ReadContainerEvidence(ctx, location, claim.Role, digest)
-				}); err != nil {
-					return err
-				}
-				fmt.Fprintf(progress, "%s %s %s published signed OCI %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
-				return awaitContainer(ctx, location, target.verified, deadline, progress)
+				return awaitContainer(ctx, location, alternatives, deadline, progress)
 			}
 			if err := apply(); err != nil {
-				failures[index] = fmt.Errorf("%s %s %s: %w", target.scope.Cell, target.scope.Role, target.scope.Architecture, err)
-				fmt.Fprintf(progress, "%s %s %s failed: %v\n", target.scope.Cell, target.scope.Role, target.scope.Architecture, err)
+				failures[index] = fmt.Errorf("%s %s: %w", cell, role, err)
+				fmt.Fprintf(progress, "%s %s failed: %v\n", cell, role, err)
 			}
 			return nil
 		})
 	}
 	_ = group.Wait()
-	return errors.Join(failures...)
+	return errors.Join(append(refusals, failures...)...)
 }
 
 func (c command) uploadContainerEvidence(directory string, location releasechannel.Location, verified release.VerifiedContainer, roots trust.Keyring, deadline time.Time) error {
@@ -191,12 +240,19 @@ func (c command) uploadContainerEvidence(directory string, location releasechann
 	}
 	for _, object := range objects {
 		file, size, sum, err := c.openHashedArtifact(object.path, release.MaxProductionEvidenceBytes)
+		if errors.Is(err, os.ErrNotExist) && object.digest == claim.QualificationSHA256 {
+			file, size, sum, err = c.openHashedArtifact(filepath.Join(directory, "oci-layout", "index.json"), release.MaxProductionEvidenceBytes)
+		}
 		if err != nil {
 			return err
 		}
 		if hex.EncodeToString(sum) != object.digest || object.size != 0 && size != object.size {
 			file.Close()
 			return errors.New("retained OCI qualification bytes changed")
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			file.Close()
+			return trust.ErrExpired
 		}
 		putErr := putImmutable(c.ctx, location.Client, location.Namespace, location.Bucket, releasechannel.ContainerEvidenceObject(claim.Role, object.digest), file, size, sum)
 		if err := errors.Join(putErr, file.Close()); err != nil {
@@ -206,21 +262,31 @@ func (c command) uploadContainerEvidence(directory string, location releasechann
 	return nil
 }
 
-func awaitContainer(ctx context.Context, location releasechannel.Location, verified release.VerifiedContainer, deadline time.Time, output io.Writer) error {
-	claim := verified.Claim()
+func awaitContainer(ctx context.Context, location releasechannel.Location, alternatives []release.VerifiedContainer, deadline time.Time, output io.Writer) error {
 	for {
-		status, found, err := releasechannel.ReadContainerStatus(ctx, location, claim.Role, claim.Architecture)
-		if err != nil {
-			return err
-		}
-		if found && status.Schema == releasechannel.ContainerStatusSchema && status.Cell == claim.Cell && status.Environment == claim.Environment && status.Role == claim.Role && status.Architecture == claim.Architecture && status.Image == claim.Image && status.ReleaseSequence == claim.ReleaseSequence && status.Fingerprint == verified.Fingerprint() {
+		var failures []error
+		for _, verified := range alternatives {
+			claim := verified.Claim()
+			status, found, err := releasechannel.ReadContainerStatus(ctx, location, claim.Role, claim.Architecture)
+			if err != nil {
+				return err
+			}
+			if !found || status.Schema != releasechannel.ContainerStatusSchema || status.Cell != claim.Cell || status.Environment != claim.Environment || status.Role != claim.Role || status.Architecture != claim.Architecture || status.Image != claim.Image || status.ReleaseSequence != claim.ReleaseSequence || status.Fingerprint != verified.Fingerprint() {
+				continue
+			}
 			switch status.State {
 			case releasechannel.StateComplete:
+				if !verified.Valid(time.Now().UTC()) {
+					return trust.ErrExpired
+				}
 				fmt.Fprintf(output, "%s %s %s complete: %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
 				return nil
 			case releasechannel.StateFailed:
-				return fmt.Errorf("%w: %s", releasechannel.ErrFailed, status.Reason)
+				failures = append(failures, fmt.Errorf("%s: %w: %s", claim.Architecture, releasechannel.ErrFailed, status.Reason))
 			}
+		}
+		if len(failures) == len(alternatives) {
+			return errors.Join(failures...)
 		}
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf("%w: container did not become ready before deadline", releasechannel.ErrFailed)

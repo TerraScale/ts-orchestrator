@@ -68,8 +68,8 @@ func ReadContainerEvidence(ctx context.Context, location Location, role, digest 
 // PublishContainer verifies fresh authority and compares the authenticated
 // retained floor, including expired historical releases. Renewing independent
 // qualification may reuse a sequence only for identical immutable content.
-func PublishContainer(ctx context.Context, location Location, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, now, deadline time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) error {
-	verified, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, deadline, evidence)
+func PublishContainer(ctx context.Context, location Location, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, now, deadline time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) error {
+	verified, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, now, deadline, evidence, allocations)
 	if err != nil {
 		return err
 	}
