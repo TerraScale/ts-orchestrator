@@ -134,9 +134,6 @@ func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots tr
 	if err != nil {
 		return VerifiedFunction{}, err
 	}
-	if delegationEnvelope.ExpiresAt.Before(proof.expiresAt) {
-		proof.expiresAt = delegationEnvelope.ExpiresAt
-	}
 	return VerifiedFunction{claim: claim, module: admitted, envelope: bytes.Clone(envelopeWire),
 		delegation: bytes.Clone(delegationWire), proof: proof}, nil
 }

@@ -246,6 +246,10 @@ func TestFunctionAdmissionCannotOutliveDelegatedSigningAuthority(t *testing.T) {
 	}
 	// A delegated signer can bypass the producer's lifetime clamp.
 	signed := signDirect(t, fixture.claim, FunctionScope(fixture.claim), fixture.leaf, fixture.now, fixture.now.Add(time.Hour))
+	if _, err := VerifyFunctionCurrent(encodeEnvelope(t, signed), encodeEnvelope(t, delegation), fixture.module, fixture.roots, fixture.expected(), time.Now()); !errors.Is(err, trust.ErrDelegationTime) {
+		t.Fatalf("receipt outliving its delegation was admitted: %v", err)
+	}
+	signed = signDirect(t, fixture.claim, FunctionScope(fixture.claim), fixture.leaf, fixture.now, expires)
 	proof, err := VerifyFunctionCurrent(encodeEnvelope(t, signed), encodeEnvelope(t, delegation), fixture.module, fixture.roots, fixture.expected(), time.Now())
 	if err != nil {
 		t.Fatal(err)
