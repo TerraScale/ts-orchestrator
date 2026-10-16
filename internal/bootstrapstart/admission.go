@@ -282,16 +282,20 @@ func (gate Gate) currentSlot(ctx context.Context, anchor bootstrap.VerifiedBoots
 	var ledger AdmissionLedger
 	var err error
 	if gate.derivedStartup != nil {
-		if gate.derivedStartup.AnchorDigest() != anchor.Digest() {
+		if gate.derivedStartup.AnchorDigest() != anchor.Digest() || gate.derivedStartup.VerifyCurrent(ctx, gate.clock()) != nil {
 			return bootstrap.SlotState{}, nil, ErrAdmission
 		}
+	}
+	if gate.Ledgers != nil {
+		ledger, err = gate.Ledgers.OpenCurrentLedger(ctx, anchor, gate.Roots)
+	} else if gate.derivedStartup != nil {
 		var derivedLedger *bootstrap.Ledger
 		derivedLedger, err = gate.derivedStartup.OpenLedger(ctx, gate.Roots)
 		if err == nil {
 			ledger = admissionLedger{ledger: derivedLedger}
 		}
 	} else {
-		ledger, err = gate.Ledgers.OpenCurrentLedger(ctx, anchor, gate.Roots)
+		return bootstrap.SlotState{}, nil, ErrAdmission
 	}
 	if err != nil {
 		return bootstrap.SlotState{}, nil, fmt.Errorf("open signed slot ledger: %w", err)
