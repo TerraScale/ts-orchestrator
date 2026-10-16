@@ -213,6 +213,25 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	if _, err := bootstrap.VerifyStartupLink(t.Context(), templates[1], objects, tampered, now); err == nil {
 		t.Fatal("tampered delivery references accepted")
 	}
+	for _, mutation := range []struct {
+		name   string
+		change func(*materialSourceState)
+	}{
+		{"missing original actor", func(state *materialSourceState) { state.Actor = materialSourceActor{} }},
+		{"substituted original actor", func(state *materialSourceState) { state.Actor.InstanceID = "ocid1.instance.oc1.us-sanjose-1.other" }},
+		{"substituted archive", func(state *materialSourceState) { state.Reference.SHA256 = digestWire([]byte("other archive")) }},
+		{"wrong escrow", func(state *materialSourceState) { state.Target = spokeTarget }},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			changed := states[1]
+			mutation.change(&changed)
+			publicSourceState(t, homeProtocol, "sfo", grant.InstallationID, changed)
+			defer publicSourceState(t, homeProtocol, "sfo", grant.InstallationID, states[1])
+			if _, err := bootstrap.LoadRegionalSource(t.Context(), templates[1], objects, now); err == nil {
+				t.Fatal("altered source identity admitted")
+			}
+		})
+	}
 	states[1].Inventory[0] ^= 1
 	publicSourceState(t, homeProtocol, "sfo", grant.InstallationID, states[1])
 	if err := proof.VerifyCurrent(t.Context(), now); err == nil {
