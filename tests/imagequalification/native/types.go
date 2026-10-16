@@ -10,7 +10,8 @@ import (
 )
 
 // Identity combines locally measured component bytes with OCI instance metadata.
-// ImageOCID is read from authenticated IMDSv2; the producer independently binds it
+// ImageOCID is observed through OCI IMDSv2 on the pinned SSH host; it is
+// not cryptographic instance or boot attestation. The producer independently binds it
 // to the imported QCOW2 digest in Candidate.ArtifactSHA256.
 type Identity struct {
 	Architecture     string `json:"architecture"`

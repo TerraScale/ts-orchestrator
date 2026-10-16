@@ -22,7 +22,10 @@ The scenarios use real CORE managers/agents and containerd tasks on distinct
 hosts, real HTTP, actual iptables manager-IP-only partitions that preserve the separate worker Dispatcher connection, durable node restart,
 cross-host container identity/PID checks, real readiness failure and upstream
 rollback. Evidence includes exact component and IMDS instance/boot-image identity,
-per-scenario transcripts and hashes. The parent independently maps the observed
+per-scenario transcripts and hashes. IMDSv2 is a host observation over link-local
+HTTP, not cryptographic instance/boot attestation; the SDK producer independently
+authenticates instance/image mapping. SSH host-key pin provenance must come from
+a trusted launch/console producer before live execution. The parent independently maps the observed
 image ID to its QCOW2 digest and retains CI/source qualification and policy proof.
 Join tokens and SSH private keys are excluded from reports.
 
