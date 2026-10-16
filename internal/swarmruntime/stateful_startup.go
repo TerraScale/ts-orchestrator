@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
@@ -41,7 +42,7 @@ func (e *Executor) InitializeStateful(ctx context.Context, agent *host.Agent, in
 		return execution.ErrUnsafe
 	}
 	identity, err := agent.RuntimeWorkerIdentity(instanceID, nodeID)
-	if err != nil || identity.Identity().HostNode != admitted.HostID || identity.Identity().Cell != enrolled.Worker.Cell {
+	if err != nil || entityid.Derive("host", identity.Identity().Cell, identity.Identity().HostNode) != admitted.HostID || identity.Identity().Cell != enrolled.Worker.Cell {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
 	if _, _, err := node.nodeSigningKey(); err != nil {
