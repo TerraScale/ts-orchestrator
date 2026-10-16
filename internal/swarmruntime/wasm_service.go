@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -171,7 +172,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if err := checkIntent(); err != nil {
 		return nil, err
 	}
-	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: strings.ToLower(region.Cell), Environment: intent.Environment}
 	floor, err := reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
 		return nil, err
