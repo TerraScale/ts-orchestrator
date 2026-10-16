@@ -22,7 +22,9 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
@@ -38,13 +40,19 @@ type WorkerRegistrationQuery struct {
 // WorkerRegistrationSnapshot is emitted only by the fixed service-account child
 // after current ordered registration and retirement reads.
 type WorkerRegistrationSnapshot struct {
-	Registration  host.Registration `json:"registration"`
-	Sequence      uint64            `json:"sequence"`
-	Retired       bool              `json:"retired"`
-	RequestSHA256 string            `json:"request_sha256"`
-	InstanceID    string            `json:"instance_id"`
-	Response      []byte            `json:"response,omitempty"`
+	Registration             host.Registration `json:"registration"`
+	Sequence                 uint64            `json:"sequence"`
+	Retired                  bool              `json:"retired"`
+	Disabled                 bool              `json:"disabled,omitzero"`
+	TerminalOperationID      string            `json:"terminal_operation_id,omitempty"`
+	IdentityResetOperationID string            `json:"identity_reset_operation_id,omitempty"`
+	RequestSHA256            string            `json:"request_sha256"`
+	InstanceID               string            `json:"instance_id"`
+	Response                 []byte            `json:"response,omitempty"`
 }
+
+// ErrWorkerPoolCreationLineagePending refuses pool admission until its original creation is authenticated.
+var ErrWorkerPoolCreationLineagePending = errors.New("worker pool creation lineage is pending")
 
 type workerAuthority struct {
 	identity    bootstrapstart.RuntimeIdentity
@@ -121,6 +129,9 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 	if err != nil {
 		return fail(err)
 	}
+	if err := refuseUnprovenPoolWorker(descriptor); err != nil {
+		return fail(err)
+	}
 	if !strings.EqualFold(descriptor.Region, authority.identity.Cell) {
 		return fail(errors.New("worker enrollment differs from regional manager authority"))
 	}
@@ -129,7 +140,8 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 		return fail(err)
 	}
 	registration := current.Registration
-	if current.Retired || current.RequestSHA256 != hostenroll.RequestSHA256(query.Request) || current.InstanceID != request.InstanceID ||
+	if current.Retired || current.Disabled || current.TerminalOperationID != "" || current.IdentityResetOperationID != "" ||
+		current.RequestSHA256 != hostenroll.RequestSHA256(query.Request) || current.InstanceID != request.InstanceID ||
 		registration.ID != entityid.Derive("host", descriptor.Cell, descriptor.Node) || registration.Cell != descriptor.Cell || registration.Node != descriptor.Node ||
 		registration.Environment != authority.identity.Environment || registration.PublicKey != request.IdentityPublicKey || registration.NATSUserPublicKey != request.NATSUserPublicKey ||
 		registration.Generation != response.RegistrationReceipt.Generation || current.Sequence != response.RegistrationReceipt.Revision {
@@ -165,6 +177,18 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 		return fail(err)
 	}
 	return request, response, registration, observed, role + ":" + architecture, nil
+}
+
+func refuseUnprovenPoolWorker(descriptor hostboot.Descriptor) error {
+	cell, err := naming.RegionCell(descriptor.Region).Name()
+	if err != nil {
+		return err
+	}
+	// Current pool membership cannot authenticate the protected original create operation.
+	if descriptor.IsStatic() && strings.HasPrefix(descriptor.Node, cell+"-pool-") {
+		return ErrWorkerPoolCreationLineagePending
+	}
+	return nil
 }
 
 // PrepareEnrolledWorker publishes only a recipient-bound worker token after the
