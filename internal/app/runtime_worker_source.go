@@ -60,7 +60,7 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 		return err
 	}
 	defer clear(key)
-	request, descriptor, err := hostenroll.ParseRequest(query.Request, time.Now().UTC())
+	request, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, time.Now().UTC())
 	if err != nil {
 		return err
 	}
@@ -207,8 +207,7 @@ func currentWorkerRegistration(ctx context.Context, mutations *authority.Reader,
 	if err != nil {
 		return fail(err)
 	}
-	if grant.SchemaVersion != 1 || grant.InstanceID != instanceID || grant.Disabled || grant.TerminalOperationID != "" || grant.IdentityResetOperationID != "" ||
-		!bytes.Equal(grant.Request, query.Request) && !bytes.Equal(grant.RenewalRequest, query.Request) {
+	if grant.InstanceID != instanceID || !grant.MatchesCompletedWorkerEnrollment(hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}) {
 		return fail(errors.New("worker enrollment request is not the current admitted instance grant"))
 	}
 	confirmed, err := mutations.ReadHostMutation(ctx, authority.MutationRegistration, entry.SubjectKey)

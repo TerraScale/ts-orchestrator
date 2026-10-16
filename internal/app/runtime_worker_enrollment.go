@@ -57,7 +57,7 @@ func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.Respon
 		http.Error(writer, "invalid worker refresh", http.StatusBadRequest)
 		return
 	}
-	enrolled, descriptor, err := hostenroll.ParseRequest(transport.Request, time.Now().UTC())
+	enrolled, descriptor, err := hostenroll.ParseRetainedWorkerRequest(transport.Request, time.Now().UTC())
 	peer, _, peerErr := net.SplitHostPort(request.RemoteAddr)
 	if err != nil || peerErr != nil || net.ParseIP(peer) == nil || enrollment.observeRuntimeWorkerPeer(ctx, peer, enrolled, descriptor) != nil {
 		http.Error(writer, "worker peer is not current", http.StatusForbidden)
@@ -104,7 +104,7 @@ func (enrollment *managedHostEnrollment) bindRuntimeWorker(writer http.ResponseW
 		http.Error(writer, "invalid worker binding", http.StatusBadRequest)
 		return
 	}
-	enrollmentRequest, descriptor, err := hostenroll.ParseRequest(binding.Query.Request, time.Now().UTC())
+	enrollmentRequest, descriptor, err := hostenroll.ParseRetainedWorkerRequest(binding.Query.Request, time.Now().UTC())
 	peer, _, peerErr := net.SplitHostPort(request.RemoteAddr)
 	if err != nil || peerErr != nil || net.ParseIP(peer) == nil {
 		http.Error(writer, "invalid worker peer identity", http.StatusForbidden)
