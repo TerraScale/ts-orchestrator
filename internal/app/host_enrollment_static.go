@@ -145,6 +145,10 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 		if responseWire, err = protocol.EncodeJSON(response); err != nil {
 			return nil, err
 		}
+		responseWire, err = enrollment.prepareRuntimeWorker(ctx, epoch, wire, responseWire)
+		if err != nil {
+			return nil, err
+		}
 		var again staticAdmission
 		if instance, again, err = enrollment.observeStatic(ctx, peerIP, request, descriptor); err != nil {
 			return nil, err

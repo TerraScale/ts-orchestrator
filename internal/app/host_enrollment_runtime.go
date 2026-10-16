@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
@@ -78,7 +79,8 @@ type managedHostEnrollment struct {
 	// of its host grants.
 	services *specRegistry
 	// pool admits the node pool's instances. Nil refuses every pool node.
-	pool nodePoolMembers
+	pool            nodePoolMembers
+	runtimeIdentity bootstrapstart.AcceptedIdentity
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
@@ -92,6 +94,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if managed == nil || fleet == nil || intents == nil || members == nil || controller == nil || verifier == nil ||
 		cfg.NATS.Embedded == nil || cfg.Controller.HostEnrollmentListenAddress == "" {
 		return nil, nil, nil, errors.New("managed host enrollment requires a complete private controller runtime")
+	}
+	runtimeIdentity, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	grantStore, err := hostenroll.OpenGrantStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
 	if err != nil {
@@ -132,7 +138,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		diskBytes: placementConfig.Resources.DiskBytes,
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
 		grants: grantStore, issuer: issuer, responseKey: responseKey, fencer: fencer,
-		services: services,
+		services: services, runtimeIdentity: runtimeIdentity,
 	}
 	// A nil pool refuses every pool node. The typed nil is kept out of the interface.
 	// A pool that has not bound yet refuses until it does.
@@ -147,6 +153,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 }
 
 func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/v1/runtime/worker-bind" {
+		enrollment.bindRuntimeWorker(writer, request)
+		return
+	}
 	if request.Method != http.MethodPost || request.URL.Path != "/v1/host-enrollment" || request.TLS == nil ||
 		request.Header.Get("Forwarded") != "" || request.Header.Get("X-Forwarded-For") != "" ||
 		request.Header.Get("X-Real-IP") != "" {
@@ -349,6 +359,10 @@ func (enrollment *managedHostEnrollment) enrollActive(ctx context.Context, epoch
 		return nil, err
 	}
 	responseWire, err := protocol.EncodeJSON(response)
+	if err != nil {
+		return nil, err
+	}
+	responseWire, err = enrollment.prepareRuntimeWorker(ctx, epoch, wire, responseWire)
 	if err != nil {
 		return nil, err
 	}
