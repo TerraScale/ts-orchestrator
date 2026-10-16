@@ -118,6 +118,9 @@ func newAuthenticatedNATS(t *testing.T, cell string, brokers ...string) *authent
 // config retains an existing user identity while replacing seed-only auth.
 func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.Config {
 	t.Helper()
+	if cfg.Cell != "" && cfg.Cell != a.cell {
+		t.Fatalf("fixture cell %q differs from client cell %q", a.cell, cfg.Cell)
+	}
 	cfg.Cell = a.cell
 	if cfg.Instance == "" {
 		cfg.Instance = "one"
@@ -138,6 +141,13 @@ func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.C
 		}
 		user, err = nkeys.FromSeed(seed)
 		clear(seed)
+	} else if cfg.CredentialsFile != "" {
+		credentials, readErr := os.ReadFile(cfg.CredentialsFile)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		user, err = nkeys.ParseDecoratedUserNKey(credentials)
+		clear(credentials)
 	} else {
 		user, err = nkeys.CreateUser()
 	}
