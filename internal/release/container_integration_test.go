@@ -1,21 +1,31 @@
 package release
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json/v2"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 func TestContainerAdmissionHTTPIntegration(t *testing.T) {
@@ -36,14 +46,46 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	target := ContainerTarget{Cell: "GRU", Environment: "production", Role: "ts-auth", Architecture: "arm64"}
 	evidence := []byte("actual retained runtime boundary integration evidence")
 	evidenceSHA := fmt.Sprintf("%x", sha256.Sum256(evidence))
+	allocationsDirectory := t.TempDir()
+	var allocationReads atomic.Uint64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/evidence/"+evidenceSHA {
+		if r.URL.Path == "/evidence/"+evidenceSHA {
+			_, _ = w.Write(evidence)
+			return
+		}
+		if r.Header.Get("Authorization") == "" {
+			http.Error(w, "unsigned OCI request", 401)
+			return
+		}
+		prefix := "/n/fixture/b/gru-1-head/o/"
+		if !strings.HasPrefix(r.URL.Path, prefix) {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write(evidence)
+		allocationReads.Add(1)
+		name := strings.TrimPrefix(r.URL.Path, prefix)
+		wire, err := os.ReadFile(filepath.Join(allocationsDirectory, fmt.Sprintf("%x", sha256.Sum256([]byte(name)))))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(wire)
 	}))
 	defer server.Close()
+	apiKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(apiKey)})
+	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(common.NewRawConfigurationProvider("tenancy", "user", "sa-saopaulo-1", "fingerprint", string(keyPEM), nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.Host = server.URL
+	client.HTTPClient = sequenceHTTPClient{server}
+	policy := common.NoRetryPolicy()
+	client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
+	allocations := SequenceLocation{Client: client, Namespace: "fixture", Bucket: "gru-1-head"}
 	reader := func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/evidence/"+digest, nil)
 		if err != nil {
@@ -108,12 +150,96 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return ContainerBundle{Claim: wire, Delegation: grantWire, Migration: migrationWire}
+		family, err := c.WorkerFamilyDigest()
+		if err != nil {
+			t.Fatal(err)
+		}
+		identity := SequenceIdentity{Role: c.Role, Environment: c.Environment, SourceRevision: c.SourceRevision, ManifestSHA256: family}
+		reservationPayload, err := trust.EncodePayload(sequenceReservation{Sequence: c.ReleaseSequence, Identity: identity})
+		if err != nil {
+			t.Fatal(err)
+		}
+		reservation, err := trust.Sign(reservationPayload, sequenceReservationScope(c.Role, c.Environment), now, now.Add(MaxReceiptLifetime), signer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sequence, err := json.Marshal(sequenceHead{Schema: "terrascale.release.sequence.v1", Sequence: c.ReleaseSequence, Identity: identity, Migration: migrationEnvelope, Reservation: reservation}, json.Deterministic(true))
+		if err != nil {
+			t.Fatal(err)
+		}
+		name := SequenceReservationObject(c.Role, c.Environment, c.SequenceMigrationSHA256, c.ReleaseSequence)
+		path := filepath.Join(allocationsDirectory, fmt.Sprintf("%x", sha256.Sum256([]byte(name))))
+		file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if err == nil {
+			_, writeErr := file.Write(sequence)
+			if err := errors.Join(writeErr, file.Close()); err != nil {
+				t.Fatal(err)
+			}
+		} else if !errors.Is(err, os.ErrExist) {
+			t.Fatal(err)
+		}
+		return ContainerBundle{Claim: wire, Delegation: grantWire, Migration: migrationWire, Sequence: sequence}
 	}
 	bundle := makeBundle(claim, signer)
-	verified, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader)
+	verified, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, allocations)
 	if err != nil || verified.Claim().Image != claim.Image || verified.Fingerprint() == "" {
 		t.Fatalf("qualified child image admission: %+v %v", verified, err)
+	}
+	familyWire, err := verified.WorkerFamilyEvidence()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyWorkerFamilyEvidence(familyWire, roots, verified); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyWorkerFamilyEvidence(familyWire, roots, VerifiedContainer{}); err == nil {
+		t.Fatal("unsigned family authorized an empty incoming container")
+	}
+	familyWire[0] = '!'
+	if err := VerifyWorkerFamilyEvidence(familyWire, roots, verified); err == nil {
+		t.Fatal("modified family evidence accepted")
+	}
+	unmodified, err := verified.WorkerFamilyEvidence()
+	if err != nil || VerifyWorkerFamilyEvidence(unmodified, roots, verified) != nil {
+		t.Fatal("caller mutated opaque worker family evidence")
+	}
+	expectedBundleDigest, err := ContainerBundleSHA256(bundle)
+	if err != nil || verified.BundleSHA256() != expectedBundleDigest {
+		t.Fatal("opaque bundle digest does not identify retained wire")
+	}
+	beforeScopeRead := allocationReads.Load()
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, SequenceLocation{Client: client, Namespace: "other", Bucket: allocations.Bucket}); err == nil {
+		t.Fatal("reader escaped root-authorized namespace")
+	}
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, SequenceLocation{Client: client, Namespace: allocations.Namespace, Bucket: "other"}); err == nil {
+		t.Fatal("reader escaped root-authorized bucket")
+	}
+	if allocationReads.Load() != beforeScopeRead {
+		t.Fatal("wrong allocation location was read before root verification")
+	}
+	winnerName := SequenceReservationObject(claim.Role, claim.Environment, claim.SequenceMigrationSHA256, claim.ReleaseSequence)
+	winnerPath := filepath.Join(allocationsDirectory, fmt.Sprintf("%x", sha256.Sum256([]byte(winnerName))))
+	for _, corrupt := range [][]byte{[]byte("unsigned replacement"), bytes.Repeat([]byte(" "), MaxWorkerFamilyEvidenceBytes+1)} {
+		if err := os.WriteFile(winnerPath, corrupt, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
+			t.Fatal("corrupted or oversized winning reservation accepted")
+		}
+	}
+	if err := os.Remove(winnerPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
+		t.Fatal("signed bundle accepted without actual global winning reservation")
+	}
+	if err := os.WriteFile(winnerPath, bundle.Sequence, 0600); err != nil {
+		t.Fatal(err)
+	}
+	missingReservation := bundle
+	missingReservation.Sequence = nil
+	if _, err := VerifyContainerCurrent(ctx, missingReservation, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
+		t.Fatal("container without authenticated allocation accepted")
 	}
 	if !verified.Valid(now) || !verified.ExpiresAt().Equal(now.Add(time.Minute)) || verified.Valid(now.Add(time.Minute)) || (VerifiedContainer{}).Valid(now) {
 		t.Fatal("cached container proof escaped its admitted operation deadline")
@@ -127,7 +253,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	renewedVerified, err := VerifyContainerCurrent(ctx, makeBundle(renewed, signer), roots, target, now, now.Add(time.Minute), reader)
+	renewedVerified, err := VerifyContainerCurrent(ctx, makeBundle(renewed, signer), roots, target, now, now.Add(time.Minute), reader, allocations)
 	if err != nil || renewedVerified.ReleaseIdentity() != verified.ReleaseIdentity() || renewedVerified.Fingerprint() == verified.Fingerprint() {
 		t.Fatalf("qualification renewal changed immutable release identity: %+v %v", renewedVerified, err)
 	}
@@ -156,18 +282,28 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil || history.ReleaseIdentity() != verified.ReleaseIdentity() || history.Claim().SourceRepository != claim.SourceRepository || history.Claim().SourceTreeSHA256 != claim.SourceTreeSHA256 {
 		t.Fatalf("retained expired source floor lost authenticated identity: %+v %v", history, err)
 	}
-	if _, err := VerifyContainerCurrent(ctx, expiredBundle, roots, target, now, now.Add(time.Minute), reader); err == nil {
+	if _, err := VerifyContainerCurrent(ctx, expiredBundle, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
 		t.Fatal("historical source floor authorized a new runtime operation")
 	}
 	changedSource := claim
 	changedSource.SourceTreeSHA256 = strings.Repeat("f", 64)
-	changedSourceVerified, err := VerifyContainerCurrent(ctx, makeBundle(changedSource, signer), roots, target, now, now.Add(time.Minute), reader)
+	if _, err := VerifyContainerCurrent(ctx, makeBundle(changedSource, signer), roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
+		t.Fatal("independently signed source conflict escaped global winning family")
+	}
+	changedSource.ReleaseSequence = 102
+	changedSourceVerified, err := VerifyContainerCurrent(ctx, makeBundle(changedSource, signer), roots, target, now, now.Add(time.Minute), reader, allocations)
 	if err != nil || changedSourceVerified.ReleaseIdentity() == verified.ReleaseIdentity() {
 		t.Fatalf("signed tree change did not change immutable content identity: %+v %v", changedSourceVerified, err)
 	}
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), reader, allocations); err != nil {
+		t.Fatal("higher sequence invalidated retained older family", err)
+	}
+	indexedSequence := uint64(200)
 	indexed := func(index []byte) ContainerBundle {
 		t.Helper()
 		c := claim
+		indexedSequence++
+		c.ReleaseSequence = indexedSequence
 		c.QualificationSHA256 = fmt.Sprintf("%x", sha256.Sum256(index))
 		qualification := qualifier
 		qualification.Candidate.QualificationSHA256 = c.QualificationSHA256
@@ -197,7 +333,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err := json.Unmarshal(transport, &transported); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyContainerCurrent(ctx, transported, roots, target, now, now.Add(time.Minute), reader); err != nil {
+	if _, err := VerifyContainerCurrent(ctx, transported, roots, target, now, now.Add(time.Minute), reader, allocations); err != nil {
 		t.Fatal("exact retained OCI index did not survive transport: ", err)
 	}
 	if _, err := VerifyContainerHistorical(transported, roots, target); err != nil {
@@ -213,11 +349,11 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if _, err := VerifyContainerHistorical(wrongIndex, roots, target); err == nil {
 		t.Fatal("modified index bytes accepted")
 	}
-	if _, err := VerifyContainerCurrent(ctx, indexed(wrongIndex.Index), roots, target, now, now.Add(time.Minute), reader); err == nil {
+	if _, err := VerifyContainerCurrent(ctx, indexed(wrongIndex.Index), roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
 		t.Fatal("signed index without target architecture accepted")
 	}
 	wrongChild := []byte(strings.ReplaceAll(string(index), strings.Repeat("a", 64), strings.Repeat("d", 64)))
-	if _, err := VerifyContainerCurrent(ctx, indexed(wrongChild), roots, target, now, now.Add(time.Minute), reader); err == nil {
+	if _, err := VerifyContainerCurrent(ctx, indexed(wrongChild), roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
 		t.Fatal("signed index with wrong child accepted")
 	}
 	changed := claim
@@ -257,7 +393,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	}{"wrong-image-proof", makeBundle(wrongImage, signer), target, now.Add(time.Minute)})
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := VerifyContainerCurrent(ctx, test.bundle, roots, test.target, now, test.until, reader); err == nil {
+			if _, err := VerifyContainerCurrent(ctx, test.bundle, roots, test.target, now, test.until, reader, allocations); err == nil {
 				t.Fatal("invalid container release admitted")
 			}
 		})
@@ -276,10 +412,10 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	}
 	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), func(context.Context, string) (io.ReadCloser, error) {
 		return io.NopCloser(strings.NewReader("tampered evidence")), nil
-	}); err == nil {
+	}, allocations); err == nil {
 		t.Fatal("tampered retained evidence admitted")
 	}
-	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), func(context.Context, string) (io.ReadCloser, error) { return nil, nil }); err == nil {
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), func(context.Context, string) (io.ReadCloser, error) { return nil, nil }, allocations); err == nil {
 		t.Fatal("missing evidence reader admitted")
 	}
 	otherRootPublic, otherRoot, _ := ed25519.GenerateKey(rand.Reader)
@@ -287,7 +423,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	roots[otherRootID] = otherRootPublic
 	wrongSigner := makeBundle(claim, otherRoot)
 	wrongSigner.Delegation = nil
-	if _, err := VerifyContainerCurrent(ctx, wrongSigner, roots, target, now, now.Add(time.Minute), reader); err == nil {
+	if _, err := VerifyContainerCurrent(ctx, wrongSigner, roots, target, now, now.Add(time.Minute), reader, allocations); err == nil {
 		t.Fatal("root-trusted release signer bypassed root-authorized sequence signer")
 	}
 	if _, err := VerifyContainerHistorical(wrongSigner, roots, target); err == nil {

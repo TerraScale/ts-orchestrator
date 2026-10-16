@@ -1,6 +1,7 @@
 package release
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
@@ -130,12 +131,12 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 			t.Fatal(err)
 		}
 	}
-	first, err := location.Allocate(t.Context(), identity, roots, signer)
+	first, firstEvidence, err := location.AllocateWithEvidence(t.Context(), identity, roots, signer)
 	if err != nil || first != 901 {
 		t.Fatalf("first allocation %d: %v", first, err)
 	}
-	retry, err := newLocation().Allocate(t.Context(), identity, roots, signer)
-	if err != nil || retry != first {
+	retry, retryEvidence, err := newLocation().AllocateWithEvidence(t.Context(), identity, roots, signer)
+	if err != nil || retry != first || !bytes.Equal(firstEvidence, retryEvidence) {
 		t.Fatalf("restart lost reservation %d: %v", retry, err)
 	}
 	var workers sync.WaitGroup
@@ -145,9 +146,14 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 		workers.Go(func() {
 			candidate := identity
 			candidate.ManifestSHA256 = fmt.Sprintf("%064x", index+1)
-			sequence, err := newLocation().Allocate(t.Context(), candidate, roots, signer)
+			sequence, evidence, err := newLocation().AllocateWithEvidence(t.Context(), candidate, roots, signer)
 			if err != nil {
 				failures <- err
+				return
+			}
+			head, err := verifySequenceHead(evidence, roots, identity.Role, identity.Environment)
+			if err != nil || head.Sequence != sequence || head.Identity != candidate {
+				failures <- fmt.Errorf("winning reservation differs from returned allocation %d: %v", sequence, err)
 				return
 			}
 			sequences <- sequence
@@ -169,6 +175,29 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	if len(seen) != 8 {
 		t.Fatalf("allocated %d sequences", len(seen))
 	}
+	retained, err := verifySequenceHead(firstEvidence, roots, identity.Role, identity.Environment)
+	if err != nil || retained.Sequence != first || retained.Identity != identity {
+		t.Fatalf("later allocations invalidated historical immutable family: %+v %v", retained, err)
+	}
+	// Immutable evidence must survive both SDK-client restart and head advancement.
+	recovered, err := newLocation().retainReservation(t.Context(), retained, roots)
+	if err != nil || !bytes.Equal(recovered, firstEvidence) {
+		t.Fatalf("immutable allocation changed after restart: %v", err)
+	}
+	conflicting := retained
+	conflicting.Identity.ManifestSHA256 = strings.Repeat("e", 64)
+	payload, err := trust.EncodePayload(sequenceReservation{Sequence: conflicting.Sequence, Identity: conflicting.Identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicting.Reservation, err = trust.Sign(payload, sequenceReservationScope(identity.Role, identity.Environment), now, now.Add(MaxReceiptLifetime), signer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newLocation().retainReservation(t.Context(), conflicting, roots); err == nil {
+		t.Fatal("different signed family overwrote immutable winning reservation")
+	}
+
 	if err := location.ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now); err != nil {
 		t.Fatal(err)
 	}

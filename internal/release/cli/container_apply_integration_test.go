@@ -41,6 +41,7 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	client := clientInterface.(objectstorage.ObjectStorageClient)
 	client.Host = server.URL
 	client.HTTPClient = applyHTTPDispatcher{server}
+	f.allocations = release.SequenceLocation{Client: client, Namespace: "ns", Bucket: "gru-1-head"}
 	env := deployEnv{timeout: 2 * time.Second, storage: func(string) (releasechannel.ObjectClient, error) { return client, nil }}
 	leaf, err := readDelegatedPrivateKey(base.leafPath)
 	if err != nil {
@@ -196,7 +197,10 @@ func TestSignedContainerProducerApplyHTTPRecovery(t *testing.T) {
 	}
 }
 
-type containerHTTPFixture struct{ *applyHTTPFixture }
+type containerHTTPFixture struct {
+	*applyHTTPFixture
+	allocations release.SequenceLocation
+}
 
 func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Request) {
 	parts := strings.SplitN(r.URL.Path, "/", 7)
@@ -249,13 +253,17 @@ func (f *containerHTTPFixture) serveContainer(w http.ResponseWriter, r *http.Req
 			}
 			scope := release.ContainerTarget{Cell: cell, Environment: "production", Role: "ts-auth", Architecture: "amd64"}
 			now := time.Now().UTC()
+			f.mu.Unlock()
 			verified, err := release.VerifyContainerCurrent(r.Context(), bundle, f.roots, scope, now, now.Add(time.Millisecond), func(_ context.Context, digest string) (io.ReadCloser, error) {
+				f.mu.Lock()
+				defer f.mu.Unlock()
 				content, ok := f.objects[cell][releasechannel.ContainerEvidenceObject("ts-auth", digest)]
 				if !ok {
 					return nil, os.ErrNotExist
 				}
 				return io.NopCloser(bytes.NewReader(content)), nil
-			})
+			}, f.allocations)
+			f.mu.Lock()
 			if err != nil {
 				w.WriteHeader(http.StatusBadRequest)
 				return

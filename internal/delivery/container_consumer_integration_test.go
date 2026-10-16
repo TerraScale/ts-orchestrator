@@ -194,3 +194,16 @@ func (f *containerTestFence) Guard(ctx context.Context, epoch uint64) error {
 	}
 	return f.testFence.Guard(ctx, epoch)
 }
+
+func TestContainerIntentCloneRetainsIndex(t *testing.T) {
+	intent := Intent{Container: &release.ContainerBundle{Index: []byte("retained OCI index"), Sequence: []byte("retained allocation proof")}}
+	cloned := intent.Clone()
+	cloned.Container.Sequence[0] = '!'
+	if !bytes.Equal(intent.Container.Sequence, []byte("retained allocation proof")) {
+		t.Fatal("container allocation evidence shared mutable backing storage")
+	}
+	cloned.Container.Index[0] = '!'
+	if !bytes.Equal(intent.Container.Index, []byte("retained OCI index")) {
+		t.Fatal("callback clone mutated retained OCI index")
+	}
+}
