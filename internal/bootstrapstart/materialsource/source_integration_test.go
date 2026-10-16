@@ -115,7 +115,10 @@ func materialSourceAnchor(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boot
 	return current, historical, roots, rootPrivate, anchorWire
 }
 
-type materialProtocolSecret struct{ ID, Name, Content, Token string }
+type materialProtocolSecret struct {
+	ID, Name, Content, Token string
+	Target                   bootstrapmaterial.VaultTarget
+}
 type materialProtocol struct {
 	mu                sync.Mutex
 	directory         string
@@ -153,7 +156,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/n/namespace-a/b/gru-1-head" {
-		json.MarshalWrite(w, objectstorage.Bucket{Id: new("ocid1.bucket.oc1.sa-saopaulo-1.head"), Name: new("gru-1-head"), Namespace: new("namespace-a"), KmsKeyId: new(server.target.KMSKeyOCID), CompartmentId: new(server.target.CompartmentOCID)})
+		json.MarshalWrite(w, objectstorage.Bucket{Id: new("ocid1.bucket.oc1.sa-saopaulo-1.head"), Name: new("gru-1-head"), Namespace: new("namespace-a"), KmsKeyId: new("ocid1.key.oc1.sa-saopaulo-1.head"), CompartmentId: new("ocid1.compartment.oc1..control")})
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/n/") {
@@ -192,7 +195,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			w.WriteHeader(500)
 			return
 		}
-		if r.Header.Get("if-none-match") == "*" {
+		if r.Header.Get("if-none-match") == "*" && strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") {
 			server.sourceCreates++
 		}
 		w.Header().Set("etag", digestWire(body))
@@ -231,7 +234,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		server.creates++
-		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.secret%d", server.creates), Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
+		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.%s.secret%d", strings.Split(server.target.VaultOCID, ".")[3], server.creates), Target: server.target, Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
 		wire, _ := json.Marshal(secret)
 		if server.put("secret-"+secret.ID, wire) != nil || server.put("name-"+secret.Name, wire) != nil || server.put("token-"+secret.Token, wire) != nil {
 			w.WriteHeader(500)
@@ -257,11 +260,11 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		if err == nil {
 			var secret materialProtocolSecret
 			json.Unmarshal(body, &secret)
-			items = append(items, ocivault.SecretSummary{Id: new(secret.ID), SecretName: new(secret.Name), CompartmentId: new(server.target.CompartmentOCID), VaultId: new(server.target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
+			items = append(items, ocivault.SecretSummary{Id: new(secret.ID), SecretName: new(secret.Name), CompartmentId: new(secret.Target.CompartmentOCID), VaultId: new(secret.Target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
 		}
 		response = items
 	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName"):
-		if r.URL.Query().Get("vaultId") != server.target.VaultOCID || r.URL.Query().Get("versionNumber") != "1" {
+		if r.URL.Query().Get("versionNumber") != "1" {
 			w.WriteHeader(400)
 			return
 		}
@@ -309,7 +312,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		var secret materialProtocolSecret
 		json.Unmarshal(body, &secret)
-		response = ocivault.Secret{Id: new(id), SecretName: new(secret.Name), CompartmentId: new(server.target.CompartmentOCID), VaultId: new(server.target.VaultOCID), KeyId: new(server.target.KMSKeyOCID), LifecycleState: ocivault.SecretLifecycleStateActive, CurrentVersionNumber: new(int64(1))}
+		response = ocivault.Secret{Id: new(id), SecretName: new(secret.Name), CompartmentId: new(secret.Target.CompartmentOCID), VaultId: new(secret.Target.VaultOCID), KeyId: new(secret.Target.KMSKeyOCID), LifecycleState: ocivault.SecretLifecycleStateActive, CurrentVersionNumber: new(int64(1))}
 	default:
 		w.WriteHeader(404)
 		return
@@ -660,11 +663,31 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := ResolveLinkSource(t.Context(), spokeSource, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "unproven-spoke-link"), now); err == nil {
 		t.Fatal("spoke minted Link without recovered home signer")
 	}
-	spokeLink, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-link"), now)
+	homeTemplate, err := bootstrap.VerifyRegionalStartupTemplate(verified.FoundationGrantWire(), roots, anchor, oci.RegionGRU, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	recoveredSpoke, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-spoke-link"), now)
+	spokeTemplate, err := bootstrap.VerifyRegionalStartupTemplate(spokeGrant.FoundationGrantWire(), roots, anchor, oci.RegionSFO, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeInventory, err := bootstrap.LoadRegionalSource(t.Context(), homeTemplate, &objects, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeInventory, err := bootstrap.LoadRegionalSource(t.Context(), spokeTemplate, &objects, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipient, err := bootstrap.VerifyLinkRecipient(t.Context(), spokeInventory, homeInventory, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeLink, err := IssueRegionalLink(t.Context(), replacement, recoveredLink, recipient, spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredSpoke, err := IssueRegionalLink(t.Context(), replacement, recoveredLink, recipient, spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-spoke-link"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -676,6 +699,27 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal("spoke source contains home signer")
 		}
 	}
+	// Deliver SFO leaves, then recover through public objects and regional Vault only.
+	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
+	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := recoveredSpoke.PublishRegionalLink(t.Context(), protocol.target, &management, &bundles, now); err != nil {
+		t.Fatal(err)
+	}
+	regionalMaterial, err := spokeSource.InstallMaterial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicRecovered, err := ResolveRegionalLink(t.Context(), regionalMaterial, recipient, &objects, &bundles, filepath.Join(t.TempDir(), "public-spoke-recovery"), now)
+	if err != nil || !publicRecovered.IsVerified() {
+		t.Fatalf("public spoke recovery: %v", err)
+	}
+	if !reflect.DeepEqual(publicRecovered.Record(), recoveredSpoke.Record()) {
+		t.Fatal("public recovery changed home-issued Link")
+	}
+	wantCreates := protocol.creates
+	protocol.target = target
 	grant.Generation = 2
 	grant.Regions[0].Generation = 2
 	grant.Regions[1].Generation = 2
@@ -722,7 +766,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != wantCreates {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
 	grant.Generation = 5
@@ -735,7 +779,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	actor = sourceFounderFixture(t, matchingPin, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
 	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
-	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
+	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != wantCreates {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
 }

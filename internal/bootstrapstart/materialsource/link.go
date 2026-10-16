@@ -33,25 +33,14 @@ type LinkSource struct {
 	record bootstrapmaterial.LinkRecord
 }
 
-// ResolveLinkSource binds Link recovery to the original regional and home roots.
-// Spokes require the recovered home Link source; the home passes nil homeLink.
+// ResolveLinkSource recovers the home Link signer from its original home roots.
+// Regional recipients use IssueRegionalLink with sealed public inventory.
 func ResolveLinkSource(ctx context.Context, regional, home *ColdStartMaterial, homeLink *LinkSource, objects bootstrapstart.FounderSelectionObjectWriter, management bootstrapmaterial.VaultClient, bundles EscrowClient, directory string, now time.Time) (*LinkSource, error) {
-	if regional == nil || regional.actor == nil || home == nil || regional.kind != "" || home.kind != "" || objects == nil || management == nil || bundles == nil || now.IsZero() || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
+	if regional == nil || regional.actor == nil || home == nil || regional != home || homeLink != nil || regional.grant.Config().Cell != natscell.LinkHome || regional.kind != "" || home.kind != "" || objects == nil || management == nil || bundles == nil || now.IsZero() || !filepath.IsAbs(directory) || filepath.Clean(directory) != directory {
 		return nil, ErrMaterialSource
 	}
 	inputs := &linkInputs{regional: regional, home: home, homeLink: homeLink, regionalDigest: digestWire(regional.archive.Files["material.json"]), homeDigest: digestWire(home.archive.Files["material.json"])}
-	if homeLink != nil && homeLink.source == nil {
-		return nil, ErrMaterialSource
-	}
-	if homeLink != nil {
-		inputs.homeLinkDigest = digestWire(homeLink.source.archive.Files["material.json"])
-	}
-	for _, parent := range []*ColdStartMaterial{regional, home} {
-		if overlappingSourceDirectories(directory, parent.directory) {
-			return nil, ErrMaterialSource
-		}
-	}
-	if homeLink != nil && overlappingSourceDirectories(directory, homeLink.source.directory) {
+	if overlappingSourceDirectories(directory, home.directory) {
 		return nil, ErrMaterialSource
 	}
 	if err := inputs.verify(ctx); err != nil {
@@ -94,17 +83,10 @@ func (inputs *linkInputs) verify(ctx context.Context) error {
 	if err := home.verifySource(ctx); err != nil {
 		return err
 	}
-	if cfg.Cell == natscell.LinkHome {
-		if inputs.homeLink != nil || inputs.regionalDigest != inputs.homeDigest || !reflect.DeepEqual(cfg, homeCfg) {
-			return ErrMaterialSource
-		}
-		return nil
-	}
-	link := inputs.homeLink
-	if link == nil || link.source == nil || link.source.link == nil || link.record.Config.Cell != natscell.LinkHome || link.source.grant.InstallationID() != regional.grant.InstallationID() || link.source.grant.Generation() != regional.grant.Generation() || link.record.SourceSHA256 != inputs.homeDigest || link.record.HomeSHA256 != inputs.homeDigest || inputs.homeLinkDigest != digestWire(link.source.archive.Files["material.json"]) {
+	if regional != home || cfg.Cell != natscell.LinkHome || inputs.homeLink != nil || inputs.regionalDigest != inputs.homeDigest || !reflect.DeepEqual(cfg, homeCfg) {
 		return ErrMaterialSource
 	}
-	return link.source.verifySource(ctx)
+	return nil
 }
 
 func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
