@@ -28,10 +28,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events> [flags]
+const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|regions|region|nodes|node|services|service|volumes|volume> [flags]
 
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --region REGION        Select an existing benchmark.json region (sole region is automatic)
+  --cell CELL            Resource region; defaults to the authenticated endpoint's local region
+  --node NAME            Node selector for node/service observations
+  --service ROLE         Service selector for one node service
+  --volume ID            Managed volume selector
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source
   --metric NAME          History metric; --range 1h or --start/--end RFC3339
@@ -54,11 +58,15 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	view := args[0]
-	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events"}, view) {
+	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "regions", "region", "nodes", "node", "services", "service", "volumes", "volume"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
+	cell := flags.String("cell", "", "resource region")
+	node := flags.String("node", "", "node selector")
+	service := flags.String("service", "", "service selector")
+	volume := flags.String("volume", "", "volume selector")
 	region := flags.String("region", "", "region selector")
 	format := flags.String("format", "table", "table or json")
 	origin := flags.String("url", "", "diagnostic endpoint")
@@ -95,6 +103,22 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	var wrongFlag string
 	flags.Visit(func(f *flag.Flag) {
 		switch f.Name {
+		case "cell":
+			if !isObserveResource(view) || view == "regions" {
+				wrongFlag = f.Name
+			}
+		case "node":
+			if view != "node" && view != "services" && view != "service" {
+				wrongFlag = f.Name
+			}
+		case "service":
+			if view != "service" {
+				wrongFlag = f.Name
+			}
+		case "volume":
+			if view != "volume" {
+				wrongFlag = f.Name
+			}
 		case "search":
 			if view != "metrics" {
 				wrongFlag = f.Name
@@ -141,6 +165,13 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		query.Set("limit", strconv.Itoa(*limit))
 		query.Set("after", strconv.FormatUint(*after, 10))
 	}
+	if isObserveResource(view) {
+		var err error
+		path, err = observeResourcePath(view, *cell, *node, *service, *volume)
+		if err != nil {
+			return err
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	urls, token, err := observeAccess(ctx, *region, *origin, *tokenFile)
@@ -161,7 +192,25 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	answers := make(chan answer, len(urls))
 	for _, base := range urls {
 		go func() {
-			data, err := observeFetch(ctx, client, base, path, query, token)
+			resourcePath := path
+			if isObserveResource(view) && view != "regions" && *cell == "" {
+				data, err := observeFetch(ctx, client, base, "/v1/regions", nil, token)
+				if err != nil {
+					answers <- answer{source: base, err: err}
+					return
+				}
+				local, err := observeLocalCell(data)
+				if err != nil {
+					answers <- answer{source: base, err: err}
+					return
+				}
+				resourcePath, err = observeResourcePath(view, local, *node, *service, *volume)
+				if err != nil {
+					answers <- answer{source: base, err: err}
+					return
+				}
+			}
+			data, err := observeFetch(ctx, client, base, resourcePath, query, token)
 			answers <- answer{base, data, err}
 		}()
 	}
@@ -332,9 +381,6 @@ func observeFetch(ctx context.Context, client *http.Client, base, path string, q
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
 		return nil, fmt.Errorf("%s: authentication denied (HTTP %d); verify the regional Vault credential", base, response.StatusCode)
 	}
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: API returned HTTP %d", base, response.StatusCode)
-	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, (8<<20)+1))
 	if err != nil {
 		return nil, fmt.Errorf("%s: response read failed", base)
@@ -345,6 +391,9 @@ func observeFetch(ctx context.Context, client *http.Client, base, path string, q
 	if len(data) == 0 || strings.TrimSpace(string(data)) == "null" {
 		return nil, fmt.Errorf("%s: API returned empty observation", base)
 	}
+	if response.StatusCode != http.StatusOK && !observeResourceError(path, response.StatusCode, data) {
+		return nil, fmt.Errorf("%s: API returned HTTP %d", base, response.StatusCode)
+	}
 	return data, nil
 }
 
@@ -353,6 +402,12 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 	partial := false
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	switch view {
+	case "regions", "region", "nodes", "node", "services", "service", "volumes", "volume":
+		var err error
+		value, partial, err = writeObserveResource(table, view, format, data)
+		if err != nil {
+			return false, err
+		}
 	case "metrics":
 		var result observability.CatalogResult
 		if err := json.Unmarshal(data, &result); err != nil {
@@ -395,8 +450,10 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 		value = result
 		if format == "table" {
 			fmt.Fprintf(table, "STATE\t%s\tREASON\t%s\nTRUNCATED\t%t\tPENDING\t%t\tINCOMPLETE\t%t\n", result.State, result.Reason, result.Truncated, result.Pending, result.Incomplete)
+			fmt.Fprintf(table, "RETENTION START\t%s\tINTERVAL seconds\t%g\tDROPPED SERIES\t%d\n", result.RetentionStart.Format(time.RFC3339), result.IntervalSeconds, result.DroppedSeries)
 			fmt.Fprintln(table, "METRIC\tLABELS\tTIER\tTIME\tVALUE\tMIN\tMAX")
 			for _, series := range result.Series {
+				fmt.Fprintf(table, "SERIES\t%s\tSTALE\t%t\tGAPS\t%t\tLAST OBSERVED\t%s\n", series.Metric, series.Stale, series.Gaps, series.LastObservedAt.Format(time.RFC3339))
 				labels, _ := json.Marshal(series.Labels)
 				for _, point := range series.Points {
 					fmt.Fprintf(table, "%s\t%s\t%s\t%s\t%g\t%g\t%g\n", series.Metric, labels, series.Tier, point.Time.Format(time.RFC3339), point.Value, point.Min, point.Max)
