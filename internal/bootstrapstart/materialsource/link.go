@@ -96,6 +96,11 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 	if source == nil || !source.grant.IsVerified() || !time.Now().Before(source.grant.ExpiresAt()) || ctx.Err() != nil {
 		return ErrMaterialSource
 	}
+	if source.link != nil {
+		if err := source.link.verify(ctx); err != nil {
+			return err
+		}
+	}
 	state, _, err := source.read(ctx)
 	defer clear(state.Journal)
 	if err != nil || state.Reference != source.state.Reference || state.Reference.SecretOCID == "" {
