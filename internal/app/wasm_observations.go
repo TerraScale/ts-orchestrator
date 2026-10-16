@@ -22,8 +22,8 @@ import (
 
 // observeFunctions reads current admitted intent, manager placement and OCI
 // addresses. It creates no worker material, broker grant or observation store.
-func (controller functionController) observeFunctions(ctx context.Context, hosts func(context.Context) ([]host.HostStatus, error), address func(context.Context, string) (string, error)) ([]globalview.FunctionObservation, error) {
-	if controller.config.Authority == nil || controller.config.Client == nil || controller.config.Material.Issuer == nil || hosts == nil || address == nil {
+func (controller functionController) observeFunctions(ctx context.Context, hosts func(context.Context) ([]host.HostStatus, error), membership func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error)) ([]globalview.FunctionObservation, error) {
+	if controller.config.Authority == nil || controller.config.Client == nil || controller.config.Material.Issuer == nil || hosts == nil || membership == nil {
 		return nil, errors.New("authenticated function observation sources unavailable")
 	}
 	entries, err := controller.config.Authority.ListFunctionIntents(ctx)
@@ -90,7 +90,7 @@ func (controller functionController) observeFunctions(ctx context.Context, hosts
 			if task.NodeID == "" {
 				current.State, current.ObservedAt = "unplaced", time.Now().UTC()
 			} else if task.Status.State == api.TaskStateRunning {
-				snapshot, err := controller.observeFunctionTask(ctx, proof, task, registered, hosts, address)
+				snapshot, err := controller.observeFunctionTask(ctx, proof, task, registered, hosts, membership)
 				if err == nil {
 					current.State, current.Snapshot, current.ObservedAt = "observed", &snapshot, snapshot.ObservedAt
 				}
@@ -104,7 +104,7 @@ func (controller functionController) observeFunctions(ctx context.Context, hosts
 	return observations, nil
 }
 
-func (controller functionController) observeFunctionTask(ctx context.Context, proof release.VerifiedFunction, task *api.Task, registered []host.HostStatus, hosts func(context.Context) ([]host.HostStatus, error), address func(context.Context, string) (string, error)) (functions.Snapshot, error) {
+func (controller functionController) observeFunctionTask(ctx context.Context, proof release.VerifiedFunction, task *api.Task, registered []host.HostStatus, hosts func(context.Context) ([]host.HostStatus, error), membership func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error)) (functions.Snapshot, error) {
 	node, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 	if err != nil || node == nil || node.Node == nil {
 		return functions.Snapshot{}, errors.New("function task host observation unavailable")
@@ -116,30 +116,23 @@ func (controller functionController) observeFunctionTask(ctx context.Context, pr
 		return functions.Snapshot{}, errors.New("function task host is not currently admitted")
 	}
 	registration := registered[index].Registration
-	if registration.ManagedOCI == nil {
-		return functions.Snapshot{}, errors.New("function task lacks exact regional OCI registration")
-	}
-	region := registration.ManagedOCI.Region
-	if !catalog.IsOCIRegion(region) {
-		region = catalog.OCIRegion(strings.ToUpper(region))
-	}
-	if region != catalog.OCIRegion(proof.Claim().Cell) || registration.ManagedOCI.InstanceID != node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] {
-		return functions.Snapshot{}, errors.New("function task lacks exact regional OCI registration")
+	member, err := membership(ctx, task.NodeID)
+	if err != nil || member.Validate() != nil || member.NodeID() != task.NodeID || member.RegistrationID() != registration.ID ||
+		member.OCIRegion() != catalog.OCIRegion(proof.Claim().Cell) || !strings.EqualFold(member.Cell(), proof.Claim().Cell) || member.Role() != "wasm" ||
+		member.InstanceID() != node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] ||
+		member.Info().Generation != registration.Generation || member.Info().PublicKey != registration.PublicKey || member.Info().NATSUserPublicKey != registration.NATSUserPublicKey {
+		return functions.Snapshot{}, errors.New("function task lacks current independent worker membership")
 	}
 	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 	if err != nil {
 		return functions.Snapshot{}, err
 	}
-	binding := functionmaterial.Binding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: registration.ManagedOCI.InstanceID, Region: catalog.OCIRegion(proof.Claim().Cell), HostID: registration.ID, Fingerprint: fingerprint}
+	binding := functionmaterial.Binding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: member.InstanceID(), Region: member.OCIRegion(), HostID: registration.ID, Fingerprint: fingerprint}
 	before, err := controller.recipient(ctx, registration, binding)
 	if err != nil || before.EnvelopeSHA256() != proof.EnvelopeSHA256() {
 		return functions.Snapshot{}, errors.New("function snapshot recipient is no longer current")
 	}
-	privateIP, err := address(ctx, binding.InstanceID)
-	if err != nil {
-		return functions.Snapshot{}, err
-	}
-	ip, err := netip.ParseAddr(privateIP)
+	ip, err := netip.ParseAddr(member.PrivateIP())
 	if err != nil || !ip.Is4() || !ip.IsPrivate() {
 		return functions.Snapshot{}, errors.New("function task OCI primary address is unavailable")
 	}
@@ -156,14 +149,26 @@ func (controller functionController) observeFunctionTask(ctx context.Context, pr
 	if err != nil {
 		return functions.Snapshot{}, err
 	}
+	if snapshot.Architecture != member.Architecture() {
+		return functions.Snapshot{}, errors.New("function snapshot differs from admitted worker architecture")
+	}
 	after, err := controller.recipient(ctx, registration, binding)
 	if err != nil || after.EnvelopeSHA256() != proof.EnvelopeSHA256() {
 		return functions.Snapshot{}, errors.New("function snapshot recipient changed while collecting")
 	}
+	confirmed, err := membership(ctx, task.NodeID)
+	if err != nil || confirmed.Validate() != nil || member.Validate() != nil {
+		return functions.Snapshot{}, errors.New("function snapshot worker membership unavailable after collection")
+	}
+	beforeInfo, afterInfo := member.Info(), confirmed.Info()
+	beforeInfo.ObservedAt, beforeInfo.ExpiresAt, afterInfo.ObservedAt, afterInfo.ExpiresAt = time.Time{}, time.Time{}, time.Time{}, time.Time{}
+	if beforeInfo != afterInfo {
+		return functions.Snapshot{}, errors.New("function snapshot worker membership changed while collecting")
+	}
 	latest, err := hosts(ctx)
 	if err != nil || !slices.ContainsFunc(latest, func(status host.HostStatus) bool {
 		current := status.Registration
-		return status.Verified && !status.Retired && current.ID == registration.ID && current.Generation == registration.Generation && current.PublicKey == registration.PublicKey && current.ManagedOCI != nil && *current.ManagedOCI == *registration.ManagedOCI
+		return status.Verified && !status.Retired && current.ID == registration.ID && current.Generation == registration.Generation && current.PublicKey == registration.PublicKey && current.NATSUserPublicKey == registration.NATSUserPublicKey
 	}) {
 		return functions.Snapshot{}, errors.New("function snapshot host admission changed while collecting")
 	}
