@@ -346,9 +346,10 @@ func (catalog *metricCatalog) History(ctx context.Context, query HistoryQuery) (
 	if !slices.Contains([]string{"", TierRaw, Tier1m, Tier5m, Tier1h}, query.Tier) {
 		return CatalogHistory{}, errors.New("invalid history tier")
 	}
-	if query.MaxSeries <= 0 || query.MaxSeries > 64 {
+	if query.MaxSeries <= 0 {
 		query.MaxSeries = 64
 	}
+	query.MaxSeries = min(query.MaxSeries, 512)
 	source := catalog.history.Load()
 	if source == nil {
 		return result, nil
