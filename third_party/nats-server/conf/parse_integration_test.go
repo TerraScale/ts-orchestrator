@@ -124,11 +124,7 @@ func TestConfigFileInvalidValuesAdmission(t *testing.T) {
 		},
 		{
 			"invalid keys after comments",
-			`
-          		# with comments and no spaces to create key values
-         		# is also an invalid config.
-         		aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-                        `,
+			"\n          \t\t# with comments and no spaces to create key values\n         \t\t# is also an invalid config.\n         \t\taaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n                        ",
 			"config is invalid (:5:25)",
 		},
 		{
