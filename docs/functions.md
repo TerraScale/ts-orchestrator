@@ -350,7 +350,9 @@ OCI observation; the sealed issuer and public-trust constructors were not reache
 The next frozen source `f4e3a1b7` includes deterministic OCI observation ETags and
 awaits its QA run. There is no completed genuine sealed-startup pass.
 The concrete automatic startup helper and exact task-retained material selection
-(`05e42ddf`, `8c493857`, `3184f213`) await coherent app caller checks.
+(`05e42ddf`, `8c493857`, `3184f213`) now have an actual app caller at `4f44746e`;
+the host providers, scaler demand and observations use the shared regional
+dependencies. Combined caller checks remain pending.
 Recipient authorization rechecks the live sealed source before and after
 verifying the retained task's worker authority. `8e3de807` additionally fences the
 entire material preparation and Vault waits to the initial authority epoch and
@@ -369,11 +371,15 @@ not a complete running rollback.
 The dedicated current-task material verifier `e9fd32b2` subsequently passed
 security source review. It admits an older worker only for the actual manager's
 current rollback recipe, with current independent qualification and allocation,
-an unchanged same-migration floor, and exact task/service rereads. It never
+an existing same-migration floor at or above the worker, and exact task/service
+rereads. It never
 authorizes a PreviousSpec-only task. The app caller `1f274dac` retains its sealed
 source, current recipient, root and epoch checks, including a final node
-admission reread. Caller source review and actual-manager material regressions
-remain pending; this is not evidence of a running rollback.
+admission reread. Security source review closed the caller with `bba89fb5`, which
+rechecks function and worker lifetime after the final slow reads; `d2c00761`
+also rechecks delivery expiry after the outer authority wait. Actual-manager
+material regressions at `3996c37a` and coherent app runtime checks remain pending;
+this is not evidence of a running rollback.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
