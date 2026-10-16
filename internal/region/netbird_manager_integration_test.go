@@ -139,6 +139,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	tokens := map[string]string{}
 	creates, launches, launchPosts := 0, 0, 0
 	lost := true
+	observedImage := manager.ImageOCID
 	idFor := func(kind string) string { return "ocid1." + kind + ".oc1.sa-saopaulo-1.manager" }
 	kinds := map[string]string{"vcns": "vcn", "internetGateways": "internetgateway", "routeTables": "routetable", "securityLists": "securitylist", "networkSecurityGroups": "networksecuritygroup", "subnets": "subnet"}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -229,7 +230,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 				json.MarshalWrite(w, map[string]any{"id": idFor("dhcpoptions"), "vcnId": idFor("vcn"), "compartmentId": networkCompartment, "lifecycleState": "AVAILABLE", "options": []map[string]any{{"type": "DomainNameServer", "serverType": "VcnLocalPlusInternet"}}})
 				return
 			case "instances":
-				json.MarshalWrite(w, map[string]any{"id": idFor("instance"), "compartmentId": control, "availabilityDomain": "AD-1", "faultDomain": "FAULT-DOMAIN-1", "shape": manager.Profile.Shape, "shapeConfig": map[string]any{"ocpus": 2, "memoryInGBs": 4}, "imageId": manager.ImageOCID, "sourceDetails": map[string]any{"sourceType": "image", "imageId": manager.ImageOCID}, "lifecycleState": "RUNNING"})
+				json.MarshalWrite(w, map[string]any{"id": idFor("instance"), "compartmentId": control, "availabilityDomain": "AD-1", "faultDomain": "FAULT-DOMAIN-1", "shape": manager.Profile.Shape, "shapeConfig": map[string]any{"ocpus": 2, "memoryInGBs": 4}, "imageId": observedImage, "sourceDetails": map[string]any{"sourceType": "image", "imageId": observedImage}, "lifecycleState": "RUNNING"})
 				return
 			case "vnicAttachments":
 				json.MarshalWrite(w, []map[string]any{{"instanceId": idFor("instance"), "compartmentId": control, "vnicId": idFor("vnic"), "subnetId": idFor("subnet"), "lifecycleState": "ATTACHED"}})
@@ -376,8 +377,27 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if claim.RecoveryRequired() {
 		t.Fatal("new explicitly funded store required restore")
 	}
-	if err := claim.ClaimGenesis(t.Context()); err != nil {
-		t.Fatal(err)
+	mu.Lock()
+	observedImage += "OTHER"
+	mu.Unlock()
+	if err := claim.Check(t.Context()); err == nil {
+		t.Fatal("actual instance image drift retained manager authority")
+	}
+	mu.Lock()
+	observedImage = manager.ImageOCID
+	mu.Unlock()
+	results := make(chan error, 2)
+	for range 2 {
+		go func() { results <- claim.ClaimGenesis(t.Context()) }()
+	}
+	successes := 0
+	for range 2 {
+		if err := <-results; err == nil {
+			successes++
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("concurrent genesis accepted %d consumers; want one", successes)
 	}
 	if err := claim.ClaimGenesis(t.Context()); err == nil {
 		t.Fatal("genesis authorization was consumed twice")
