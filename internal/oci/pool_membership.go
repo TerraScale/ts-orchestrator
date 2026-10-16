@@ -32,7 +32,8 @@ func (journal *KVJournal) RecordCapacityResult(ctx context.Context, operationID 
 	if err != nil || !found {
 		return errors.Join(err, errors.New("positive capacity result requires its original request"))
 	}
-	if response.Id == nil || *response.Id != request.PoolID || response.Size == nil || *response.Size < 1 || uint32(*response.Size) != request.TargetSize ||
+	if response.Id == nil || *response.Id != request.PoolID || response.Size == nil || *response.Size < 1 || *response.Size > 9 || uint32(*response.Size) != request.TargetSize ||
+		response.CompartmentId == nil || *response.CompartmentId != request.CompartmentID ||
 		response.InstanceConfigurationId == nil || response.OpcRequestId == nil || *response.OpcRequestId == "" {
 		return errors.New("positive capacity result differs from original pool and target or lacks SDK identity")
 	}

@@ -152,6 +152,13 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 	if err != nil {
 		t.Fatal(err)
 	}
+	foreign := updated
+	foreign.CompartmentId = new("ocid1.compartment.oc1..foreign")
+	oversized := updated
+	oversized.Size = new(10)
+	if journal.RecordCapacityResult(t.Context(), original.OperationID, foreign) == nil || journal.RecordCapacityResult(t.Context(), original.OperationID, oversized) == nil {
+		t.Fatal("foreign compartment or oversized SDK effect became exact capacity result")
+	}
 	if err := journal.RecordCapacityResult(t.Context(), original.OperationID, updated); err != nil {
 		t.Fatal(err)
 	}
