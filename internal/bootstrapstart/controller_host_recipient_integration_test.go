@@ -216,6 +216,8 @@ func (f *controllerRecipientFixture) serveHTTP(w http.ResponseWriter, r *http.Re
 			return
 		}
 		if r.Method == http.MethodPut {
+			// Observe each write at OCI's whole-second timestamp precision.
+			f.objects.now = time.Now().UTC().Truncate(time.Second)
 			response, err := f.objects.PutObject(r.Context(), objectstorage.PutObjectRequest{
 				NamespaceName: new("namespace-a"), BucketName: new(bucket), ObjectName: new(key),
 				OpcSseKmsKeyId: new(r.Header.Get("opc-sse-kms-key-id")), OpcContentSha256: new(r.Header.Get("opc-content-sha256")),
