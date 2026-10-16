@@ -7,22 +7,27 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/gogo/protobuf/proto"
 	"github.com/gogo/protobuf/types"
 	"github.com/moby/swarmkit/v2/api"
 )
 
 const (
-	LabelIntentID       = "terrascale.intent-id"
-	LabelRole           = "terrascale.role"
-	LabelRegion         = "terrascale.region"
-	LabelEnvironment    = "terrascale.environment"
-	LabelHostRole       = "terrascale.host-role"
-	LabelInstanceID     = "terrascale.instance-id"
-	LabelExecutionScope = "terrascale.execution-scope"
+	LabelIntentID           = "terrascale.intent-id"
+	LabelRole               = "terrascale.role"
+	LabelRegion             = "terrascale.region"
+	LabelEnvironment        = "terrascale.environment"
+	LabelHostRole           = "terrascale.host-role"
+	LabelInstanceID         = "terrascale.instance-id"
+	LabelExecutionScope     = "terrascale.execution-scope"
+	labelReleaseSequence    = "terrascale.release-sequence"
+	labelReleaseFingerprint = "terrascale.release-fingerprint"
 )
 
 var intentName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -35,10 +40,18 @@ type ServiceIntent struct {
 	Container                                   *api.ContainerSpec
 	Resources                                   *api.ResourceRequirements
 	Ports                                       []*api.PortConfig
+	releaseSequence                             uint64
+	releaseFingerprint                          string
 }
 
 func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
-	for _, value := range []string{i.ID, i.Role, i.Region, i.Environment} {
+	if !entityid.Valid(i.ID) {
+		return nil, errors.New("service intent requires a canonical entity ID")
+	}
+	if i.Replicas > autoscale.MaxReplicas {
+		return nil, errors.New("service replicas exceed the platform limit")
+	}
+	for _, value := range []string{i.Role, i.Region, i.Environment} {
 		if !intentName.MatchString(value) {
 			return nil, errors.New("invalid service intent identity or scope")
 		}
@@ -49,6 +62,7 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	if i.Role == "terrabase" {
 		return nil, errors.New("stateful services require qualified fencing and volume hooks")
 	}
+	// shortcut: one application endpoint is qualified, extend after multiport routing and collision scenarios.
 	if len(i.Ports) > 1 {
 		return nil, errors.New("container service supports one qualified application endpoint")
 	}
@@ -69,6 +83,8 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 	}
 	if task.Resources.Reservations == nil {
 		task.Resources.Reservations = task.Resources.Limits.Copy()
+	} else if !proto.Equal(task.Resources.Reservations, task.Resources.Limits) {
+		return nil, errors.New("service resource reservations must equal CPU and memory limits")
 	}
 	task.Restart = &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}
 	task.Placement = &api.Placement{
@@ -85,6 +101,10 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		Update:   &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_START_FIRST},
 		Rollback: &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
 	}
+	if i.releaseSequence != 0 {
+		spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(i.releaseSequence, 10)
+		spec.Annotations.Labels[labelReleaseFingerprint] = i.releaseFingerprint
+	}
 	if len(i.Ports) != 0 {
 		spec.Update.Order = api.UpdateConfig_STOP_FIRST
 		spec.Endpoint = &api.EndpointSpec{Mode: api.ResolutionModeDNSRoundRobin}
@@ -98,6 +118,10 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 // applyService creates or CAS-updates one stable upstream service. SwarmKit owns
 // task placement, rolling updates and lifecycle-failure rollback.
 func applyService(ctx context.Context, client api.ControlClient, intent ServiceIntent) (*api.Service, error) {
+	return applyServiceGuarded(ctx, client, intent, nil)
+}
+
+func applyServiceGuarded(ctx context.Context, client api.ControlClient, intent ServiceIntent, guard func(context.Context) error) (*api.Service, error) {
 	spec, err := intent.serviceSpec()
 	if err != nil {
 		return nil, err
@@ -107,6 +131,11 @@ func applyService(ctx context.Context, client api.ControlClient, intent ServiceI
 		return nil, err
 	}
 	if len(listed.Services) == 0 {
+		if guard != nil {
+			if err := guard(ctx); err != nil {
+				return nil, err
+			}
+		}
 		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
 		if err != nil {
 			return nil, err
@@ -117,6 +146,12 @@ func applyService(ctx context.Context, client api.ControlClient, intent ServiceI
 		return nil, errors.New("ambiguous service identity")
 	}
 	current := listed.Services[0]
+	if seq := current.Spec.Annotations.Labels[labelReleaseSequence]; seq != "" {
+		floor, err := strconv.ParseUint(seq, 10, 64)
+		if err != nil || floor > intent.releaseSequence || floor == intent.releaseSequence && current.Spec.Annotations.Labels[labelReleaseFingerprint] != intent.releaseFingerprint {
+			return nil, errors.New("service release order cannot move backward or equivocate")
+		}
+	}
 	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
 		if current.Spec.Annotations.Labels[key] != spec.Annotations.Labels[key] {
 			return nil, errors.New("service ownership or scope mismatch")
@@ -126,6 +161,11 @@ func applyService(ctx context.Context, client api.ControlClient, intent ServiceI
 		return nil, errors.New("service is deleting or has unsupported mode")
 	}
 	spec.GetReplicated().Replicas = current.Spec.GetReplicated().Replicas
+	if guard != nil {
+		if err := guard(ctx); err != nil {
+			return nil, err
+		}
+	}
 	if proto.Equal(&current.Spec, spec) {
 		return current, nil
 	}

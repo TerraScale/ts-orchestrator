@@ -165,6 +165,9 @@ func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots t
 		if err != nil {
 			return VerifiedContainer{}, fmt.Errorf("read qualification evidence: %w", err)
 		}
+		if reader == nil {
+			return VerifiedContainer{}, errors.New("qualification evidence store returned no reader")
+		}
 		hash := sha256.New()
 		n, readErr := io.Copy(hash, io.LimitReader(reader, retained.Bytes+1))
 		closeErr := reader.Close()

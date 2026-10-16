@@ -151,6 +151,9 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	}); err == nil {
 		t.Fatal("tampered retained evidence admitted")
 	}
+	if _, err := VerifyContainerCurrent(ctx, bundle, roots, target, now, now.Add(time.Minute), func(context.Context, string) (io.ReadCloser, error) { return nil, nil }); err == nil {
+		t.Fatal("missing evidence reader admitted")
+	}
 	otherRootPublic, otherRoot, _ := ed25519.GenerateKey(rand.Reader)
 	otherRootID, _ := trust.KeyID(otherRootPublic)
 	roots[otherRootID] = otherRootPublic

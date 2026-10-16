@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -117,7 +118,7 @@ func serviceCluster(t *testing.T, ctx context.Context) (api.ControlClient, NodeC
 	return client, workerCfg, worker
 }
 func serviceIntent() ServiceIntent {
-	return ServiceIntent{ID: "auth", Role: "ts-auth", Region: "gru", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
+	return ServiceIntent{ID: entityid.Derive("service", "production", "gru", "ts-auth"), Role: "ts-auth", Region: "gru", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
 }
 func serviceEventually(t *testing.T, ctx context.Context, check func() bool) {
 	t.Helper()
@@ -220,7 +221,7 @@ func TestServiceManagerIntegration(t *testing.T) {
 func TestServicePlacementIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	client, _, worker := serviceCluster(t, ctx)
+	client, workerCfg, worker := serviceCluster(t, ctx)
 	intent := serviceIntent()
 	intent.Architecture = "arm64"
 	if runtime.GOARCH == "arm64" {
@@ -249,5 +250,26 @@ func TestServicePlacementIntegration(t *testing.T) {
 			}
 		}
 		return false
+	})
+	wasmCfg := serviceConfig(t, "ts-gru-3", "wasm")
+	wasmCfg.Admission.ManagerAddress = workerCfg.Admission.ManagerAddress
+	wasmCfg.Admission.JoinToken = workerCfg.Admission.JoinToken
+	wasm := serviceStart(t, ctx, wasmCfg)
+	admitted, err := AdmitNode(ctx, client, wasm.ID(), wasmCfg.Admission)
+	if err != nil || admitted.Spec.Annotations.Labels[LabelExecutionScope] != "tenant" {
+		t.Fatalf("Wasm isolation admission: %+v %v", admitted, err)
+	}
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: worker.ID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerSpec := current.Node.Spec.Copy()
+	workerSpec.Availability = api.NodeAvailabilityDrain
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: worker.ID(), NodeVersion: &current.Node.Meta.Version, Spec: workerSpec}); err != nil {
+		t.Fatal(err)
+	}
+	serviceEventually(t, ctx, func() bool {
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+		return err == nil && len(tasks.Tasks) == 1 && tasks.Tasks[0].Status.State == api.TaskStatePending && tasks.Tasks[0].NodeID == ""
 	})
 }
