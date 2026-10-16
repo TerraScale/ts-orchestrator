@@ -114,6 +114,29 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil || verified.Claim().Image != claim.Image || verified.Fingerprint() == "" {
 		t.Fatalf("qualified child image admission: %+v %v", verified, err)
 	}
+	renewed := claim
+	qualificationEnvelope, err = trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now.Add(-time.Second), now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewed.Production.Qualification, err = trust.EncodeEnvelope(qualificationEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedVerified, err := VerifyContainerCurrent(ctx, makeBundle(renewed, signer), roots, target, now, now.Add(time.Minute), reader)
+	if err != nil || renewedVerified.ReleaseIdentity() != verified.ReleaseIdentity() || renewedVerified.Fingerprint() == verified.Fingerprint() {
+		t.Fatalf("qualification renewal changed immutable release identity: %+v %v", renewedVerified, err)
+	}
+	changed := claim
+	changed.Image = "registry.example/platform/auth@sha256:" + strings.Repeat("d", 64)
+	before, err := claim.ContentManifestDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := changed.ContentManifestDigest()
+	if err != nil || before == after {
+		t.Fatalf("OCI child identity change was lost: %s %s %v", before, after, err)
+	}
 	tests := []struct {
 		name   string
 		bundle ContainerBundle

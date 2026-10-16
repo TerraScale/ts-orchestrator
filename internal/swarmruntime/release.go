@@ -13,16 +13,93 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 )
 
 const labelReleaseBaseline = "terrascale.release-baseline"
 
-// ApplySignedService is the production service admission boundary. The caller
+// ApplySignedService admits a release and waits for actual application readiness.
+// The probe must resolve each task through independently admitted node inventory.
+func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error) (*api.Service, error) {
+	if probe == nil {
+		return nil, errors.New("signed service rollout requires an application readiness probe")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	requested, err := applySignedService(ctx, client, intent, bundle, roots, retained, evidence)
+	if err != nil {
+		return nil, err
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	var unhealthySince time.Time
+	rolledBack := false
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("service readiness remains pending: %w", err)
+		}
+		response, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: requested.ID})
+		if err != nil {
+			return nil, err
+		}
+		current := response.Service
+		matches := func(spec *api.ServiceSpec) bool {
+			return spec != nil && proto.Equal(&current.Spec.Task, &spec.Task) && current.Spec.Annotations.Labels[labelReleaseSequence] == spec.Annotations.Labels[labelReleaseSequence] && current.Spec.Annotations.Labels[labelReleaseFingerprint] == spec.Annotations.Labels[labelReleaseFingerprint]
+		}
+		if !matches(&requested.Spec) {
+			if current.UpdateStatus == nil || !matches(requested.PreviousSpec) || (current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_STARTED && current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_COMPLETED && current.UpdateStatus.State != api.UpdateStatus_ROLLBACK_PAUSED) {
+				return nil, errors.New("a different service revision superseded readiness observation")
+			}
+			rolledBack = true
+		}
+		ready, failed, err := serviceReadiness(ctx, client, current, probe)
+		if err != nil {
+			return nil, err
+		}
+		complete := current.UpdateStatus == nil && (current.PreviousSpec == nil || proto.Equal(&current.PreviousSpec.Task, &current.Spec.Task))
+		if current.UpdateStatus != nil {
+			complete = current.UpdateStatus.State == api.UpdateStatus_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED
+		}
+		if complete && ready {
+			if rolledBack {
+				return current, errors.New("signed service release rolled back; previous revision is application-ready")
+			}
+			return current, nil
+		}
+		if failed && !rolledBack {
+			if unhealthySince.IsZero() {
+				unhealthySince = time.Now()
+			}
+			if time.Since(unhealthySince) >= 30*time.Second {
+				if err := ctx.Err(); err != nil {
+					return nil, fmt.Errorf("service readiness remains pending: %w", err)
+				}
+				if current.PreviousSpec == nil {
+					return current, errors.New("initial service revision is application-unhealthy; no previous revision exists")
+				}
+				_, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: current.ID, ServiceVersion: &current.Meta.Version, Spec: &current.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS})
+				if err != nil {
+					return nil, fmt.Errorf("request application-readiness rollback: %w", err)
+				}
+				rolledBack = true
+			}
+		} else {
+			unhealthySince = time.Time{}
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("service readiness remains pending: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+// applySignedService is the production service admission mutation. The caller
 // supplies the target from admitted membership and its retained legacy floor,
 // never from untrusted release metadata. OCI child images have their own signed
 // contract; native binary/tarball artifact records cannot enter this path.
-func ApplySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error)) (*api.Service, error) {
+func applySignedService(ctx context.Context, client api.ControlClient, intent ServiceIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error)) (*api.Service, error) {
 	operation, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	deadline, _ := operation.Deadline()
@@ -39,7 +116,7 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 		return nil, errors.New("service image differs from signed OCI child manifest")
 	}
 	intent.releaseSequence = claim.ReleaseSequence
-	intent.releaseFingerprint = verified.Fingerprint()
+	intent.releaseFingerprint = verified.ReleaseIdentity()
 	spec, _ := intent.serviceSpec()
 	services, err := client.ListServices(operation, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Annotations.Name}}})
 	if err != nil {
@@ -61,7 +138,7 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 		if err != nil {
 			return err
 		}
-		if current.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.Fingerprint() {
+		if current.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 			return errors.New("a newer signed release superseded this operation")
 		}
 		return nil
@@ -72,7 +149,7 @@ func ApplySignedService(ctx context.Context, client api.ControlClient, intent Se
 		if err != nil {
 			return nil, errors.New("invalid durable release baseline")
 		}
-		if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.Fingerprint() {
+		if current.UpdateStatus != nil && (current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_STARTED || current.UpdateStatus.State == api.UpdateStatus_ROLLBACK_PAUSED) && current.Meta.Version.Index > storedBaseline && (current.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity()) {
 			return nil, errors.New("signed release already rolled back; a newer signed release is required")
 		}
 	}
@@ -103,7 +180,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 		if err != nil {
 			return nil, err
 		}
-		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: intent.Role, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseFingerprint: verified.Fingerprint(), labelReleaseBaseline: strconv.FormatUint(baseline, 10), "terrascale.legacy-run": strconv.FormatInt(retained.RunNumber, 10), "terrascale.legacy-issued": retained.IssuedAt.UTC().Format(time.RFC3339Nano), "terrascale.legacy-evidence": retained.EvidenceSHA256}
+		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: intent.Role, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseFingerprint: verified.ReleaseIdentity(), labelReleaseBaseline: strconv.FormatUint(baseline, 10), "terrascale.legacy-run": strconv.FormatInt(retained.RunNumber, 10), "terrascale.legacy-issued": retained.IssuedAt.UTC().Format(time.RFC3339Nano), "terrascale.legacy-evidence": retained.EvidenceSHA256}
 		created, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name, Labels: labels}, Data: wire}})
 		if err != nil {
 			return nil, err
@@ -137,7 +214,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	if err != nil || floor == 0 {
 		return nil, errors.New("invalid durable release sequence")
 	}
-	if claim.ReleaseSequence < floor || claim.ReleaseSequence == floor && labels[labelReleaseFingerprint] != verified.Fingerprint() {
+	if claim.ReleaseSequence < floor || claim.ReleaseSequence == floor && labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 		return nil, errors.New("stale or equivocating signed release")
 	}
 	if claim.ReleaseSequence == floor {
@@ -145,7 +222,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	}
 	spec := current.Spec.Copy()
 	spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(claim.ReleaseSequence, 10)
-	spec.Annotations.Labels[labelReleaseFingerprint] = verified.Fingerprint()
+	spec.Annotations.Labels[labelReleaseFingerprint] = verified.ReleaseIdentity()
 	spec.Annotations.Labels[labelReleaseBaseline] = strconv.FormatUint(baseline, 10)
 	updated, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: current.ID, ConfigVersion: &current.Meta.Version, Spec: spec})
 	if err != nil {
