@@ -63,10 +63,18 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	}
 	workerCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
 	worker := nodeFixtureStart(t, ctx, workerCfg)
-	admitted, err := AdmitNode(ctx, control, worker.ID(), workerCfg.Admission)
+	workerRecord, err := control.GetNode(ctx, &api.GetNodeRequest{NodeID: worker.ID()})
 	if err != nil {
 		t.Fatal(err)
 	}
+	workerSpec := workerRecord.Node.Spec.Copy()
+	workerSpec.Annotations.Name = hostID
+	workerSpec.Annotations.Labels = map[string]string{LabelRegion: "sa-saopaulo-1", LabelHostRole: "container", LabelExecutionScope: "platform", LabelInstanceID: workerCfg.Admission.InstanceID}
+	mapped, err := control.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: worker.ID(), NodeVersion: &workerRecord.Node.Meta.Version, Spec: workerSpec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted := mapped.Node
 	key, originalKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
