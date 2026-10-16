@@ -122,7 +122,7 @@ func TestPublicLBPassFollowsTheProfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := ociresource.NewMemoryStore()
+	store := testOCIResourceStore(t)
 	profiles := terraBaseSeats("gru-1-db-1=10.251.0.21:9443")
 	current := func() map[string]WorkloadProfile { return profiles }
 	seats, seatsErr := map[string]bool{}, error(nil)

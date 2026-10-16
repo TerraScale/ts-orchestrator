@@ -80,16 +80,16 @@ func desiredTestConfig(t *testing.T, wire string) OciDesiredConfig {
 	return *cfg.OciReconcile.Desired
 }
 
-func TestOciDesiredConfigIsBoundToTheSignedRegionAndDefaultsToReport(t *testing.T) {
+func TestOciDesiredConfigIsBoundToTheSignedRegionAndAlwaysEnforces(t *testing.T) {
 	region := oci.RegionConfig{Region: oci.RegionGRU, NetworkSecurityGroupIDs: []string{reconcileTestNSG}}
 	desired := desiredTestConfig(t, `{"nsg_rules":{"members":{"spec":{"nsgId":"`+reconcileTestNSG+`","rules":[`+
 		`{"direction":"INGRESS","protocol":"6","peer":"10.0.0.0/16","portMin":4222,"portMax":4222}]}}},`+
-		`"buckets":{"backups":{"policy":"enforce","spec":{"namespace":"tenancy","bucket":"backups","versioning":"Enabled"}}}}`)
+		`"buckets":{"backups":{"spec":{"namespace":"tenancy","bucket":"backups","versioning":"Enabled"}}}}`)
 	sets, delay, err := desiredSets(desired, "GRU", region)
 	if err != nil || len(sets) != 2 || delay != time.Hour {
 		t.Fatalf("sets=%+v delay=%v err=%v", sets, delay, err)
 	}
-	if sets[0].kind != nsg.Kind || sets[0].entries[0].Policy != ociresource.PolicyReport ||
+	if sets[0].kind != nsg.Kind || sets[0].entries[0].Policy != ociresource.PolicyEnforce ||
 		sets[1].kind != bucket.Kind || sets[1].entries[0].Policy != ociresource.PolicyEnforce {
 		t.Fatalf("sets=%+v", sets)
 	}
@@ -121,7 +121,7 @@ func TestOciDesiredPassPublishesFencedAndFeedsInsights(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store := ociresource.NewMemoryStore()
+	store := testOCIResourceStore(t)
 	fenced := desiredPass("GRU", store, reconcileTestFencer{fenced: true}, sets, false, delay)
 	if err := fenced.Run(t.Context(), 1); !errors.Is(err, ociresource.ErrFenced) {
 		t.Fatalf("fenced pass err=%v", err)
@@ -133,19 +133,19 @@ func TestOciDesiredPassPublishesFencedAndFeedsInsights(t *testing.T) {
 		t.Fatal(err)
 	}
 	records, _ := store.List(t.Context(), "GRU", routetable.Kind)
-	if len(records) != 1 || records[0].Policy != ociresource.PolicyReport || records[0].Generation != 1 {
+	if len(records) != 1 || records[0].Policy != ociresource.PolicyEnforce || records[0].Generation != 1 {
 		t.Fatalf("records=%+v", records)
 	}
 
 	key := records[0].Key
-	if err := store.PutStatus(t.Context(), ociresource.Status{Key: key, Policy: ociresource.PolicyReport, Found: true,
+	if err := store.PutStatus(t.Context(), ociresource.Status{Key: key, Policy: ociresource.PolicyEnforce, Found: true,
 		Drift: []ociresource.Change{{Op: "add-route", Detail: "x"}}}); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &ociReconcileRuntime{store: store, cell: "GRU"}
 	resources, err := runtime.resources().OCIResources(t.Context())
 	if err != nil || len(resources) != 1 || resources[0].Key != "GRU/route-table-rules/private" ||
-		resources[0].Drift[0] != "add-route x" || resources[0].Policy != "report" {
+		resources[0].Drift[0] != "add-route x" || resources[0].Policy != "enforce" {
 		t.Fatalf("resources=%+v err=%v", resources, err)
 	}
 	var off *ociReconcileRuntime
@@ -160,7 +160,7 @@ func TestOciDesiredPassPublishesFencedAndFeedsInsights(t *testing.T) {
 // section must pass the signed region config.
 func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 	region := oci.RegionConfig{Region: oci.RegionGRU, NetworkSecurityGroupIDs: []string{reconcileTestNSG}}
-	signed := desiredTestConfig(t, `{"prune":true,"buckets":{"backups":{"policy":"enforce","spec":`+
+	signed := desiredTestConfig(t, `{"prune":true,"buckets":{"backups":{"spec":`+
 		`{"namespace":"tenancy","bucket":"backups","versioning":"Enabled"}},"logs":{"spec":{"namespace":"tenancy","bucket":"logs"}}}}`)
 	cfg := Config{NATS: natscell.Config{Cell: "gru"},
 		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Enabled: true, Desired: &signed}}}
@@ -214,7 +214,7 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 		}
 	}
 
-	store := ociresource.NewMemoryStore()
+	store := testOCIResourceStore(t)
 	pass := currentDesiredPass("GRU", region, store, reconcileTestFencer{}, registry.ociDesired)
 	if err := pass.Run(t.Context(), 1); err != nil {
 		t.Fatal(err)
@@ -229,4 +229,13 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 	if records, _ := store.List(t.Context(), "GRU", routetable.Kind); len(records) != 1 || records[0].Key.Name != "private" {
 		t.Fatalf("spec route tables = %+v", records)
 	}
+}
+
+func testOCIResourceStore(t *testing.T) *ociresource.KVStore {
+	t.Helper()
+	store, err := ociresource.OpenKVStore(t.Context(), testRolloutJetStream(t), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
