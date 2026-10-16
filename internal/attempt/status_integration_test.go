@@ -186,7 +186,10 @@ func TestPhaseStatusThroughSignedOCISDK(t *testing.T) {
 				if !slices.Equal(got, want) {
 					t.Errorf("status instances = %q, want %q", got, want)
 				}
-			} else if serviceErr, ok := errors.AsType[common.ServiceError](err); !ok || serviceErr.GetCode() != "StatusPageFailed" ||
+			} else if serviceErr, ok := errors.AsType[interface {
+				error
+				common.ServiceError
+			}](err); !ok || serviceErr.GetCode() != "StatusPageFailed" ||
 				serviceErr.GetHTTPStatusCode() != http.StatusBadRequest || serviceErr.GetOpcRequestID() != "status-later-page" ||
 				!strings.Contains(err.Error(), "list OCI instances:") {
 				t.Errorf("later-page OCI error was not propagated: %v", err)
