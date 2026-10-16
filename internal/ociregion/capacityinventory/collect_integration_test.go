@@ -20,7 +20,7 @@ import (
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
-	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk"} {
+	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk", "stale tariff"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
 			var compartments []string
@@ -28,6 +28,9 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				switch {
 				case r.URL.Path == "/prices":
+					if scenario == "stale tariff" {
+						w.Header().Set("Date", time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat))
+					}
 					metric, price := "", 0.0
 					switch r.URL.Query().Get("partNumber") {
 					case "B93297":
