@@ -204,8 +204,11 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 // Provision checkpoints the original retry identities/timestamps before every
 // secret create. Escrow is never included in the ordinary host references.
 func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrapmaterial.VaultTarget, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, now time.Time) (bootstrapmaterial.Publication, error) {
-	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
+	if source == nil || !now.Before(source.grant.ExpiresAt()) || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
+	}
+	if err := source.verifySource(ctx); err != nil {
+		return bootstrapmaterial.Publication{}, err
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	provision := bootstrapmaterial.ProvisionDurable

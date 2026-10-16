@@ -6,6 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -90,8 +92,11 @@ func (inputs *linkInputs) verify(ctx context.Context) error {
 }
 
 func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
-	if source == nil || source.guard(ctx) != nil || !source.grant.IsVerified() || !time.Now().Before(source.grant.ExpiresAt()) || ctx.Err() != nil {
+	if source == nil || !source.grant.IsVerified() || !time.Now().Before(source.grant.ExpiresAt()) || ctx.Err() != nil {
 		return ErrMaterialSource
+	}
+	if err := source.guard(ctx); err != nil {
+		return fmt.Errorf("%w: source guard: %w", ErrMaterialSource, err)
 	}
 	if source.link != nil {
 		if err := source.link.verify(ctx); err != nil {
@@ -100,7 +105,10 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 	}
 	state, _, err := source.read(ctx)
 	defer clear(state.Journal)
-	if err != nil || state.Reference != source.state.Reference || state.Reference.SecretOCID == "" {
+	if err != nil {
+		return fmt.Errorf("%w: source read: %w", ErrMaterialSource, err)
+	}
+	if state.Reference != source.state.Reference || state.Reference.SecretOCID == "" {
 		return ErrMaterialSource
 	}
 	if _, err := source.loadRecord(source.directory); err != nil {
@@ -136,7 +144,10 @@ func (source *ColdStartMaterial) loadRecord(directory string) (bootstrapmaterial
 		return bootstrapmaterial.Record{}, err
 	}
 	record, err := bootstrapmaterial.LoadLink(directory, time.Now())
-	if err != nil || record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != regional.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
+	if err != nil {
+		return bootstrapmaterial.Record{}, errors.Join(ErrMaterialSource, err)
+	}
+	if record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != regional.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
 		return bootstrapmaterial.Record{}, ErrMaterialSource
 	}
 	if err := source.validateLedger(record.Record); err != nil {
