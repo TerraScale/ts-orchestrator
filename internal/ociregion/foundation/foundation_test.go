@@ -318,10 +318,14 @@ func loadPlan(t *testing.T) Object {
 	return plan
 }
 
+func allowWrite(context.Context, bool) (func(), error) { return func() {}, nil }
+func allowGuard(context.Context) error                 { return nil }
+
 func run(t *testing.T, f *fakeOCI, apply bool, out string) (string, error) {
 	t.Helper()
 	var log bytes.Buffer
 	foundation := &Foundation{Region: client{f, sfo}, Home: client{f, home}, Apply: apply, Out: &log,
+		BeforeWrite: allowWrite, Guard: allowGuard, Checkpoint: func(context.Context, string, string) error { return nil },
 		Pause: func(context.Context, time.Duration) error { return nil },
 		Check: (&ociregion.Engine{Context: t.Context(), Dependency: f.dependency}).CheckFoundation}
 	err := foundation.Run(t.Context(), loadPlan(t), out)
@@ -465,7 +469,7 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 	seed := func(f *fakeOCI) string {
 		var network string
 		for _, name := range []string{"sfo-1-control", "sfo-1-network", "sfo-1-workload"} {
-			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent})
+			id := f.add("compartment", "", Object{"name": name, "compartment-id": parent, "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 			if name == "sfo-1-network" {
 				network = id
 			}
@@ -477,14 +481,14 @@ func TestDifferingResourcesAreRefusedNotAdopted(t *testing.T) {
 		want  string
 	}{
 		"VCN with another CIDR": {func(f *fakeOCI) {
-			f.add("vcn", sfo, Object{"display-name": "sfo-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24"})
+			f.add("vcn", sfo, Object{"display-name": "sfo-1-vcn", "compartment-id": seed(f), "cidr-block": "10.9.0.0/24", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 		}, "VCN sfo-1-vcn exists but differs from the plan"},
 		"bucket in another compartment": {func(f *fakeOCI) {
 			seed(f)
 			f.add("bucket", sfo, Object{"name": "sfo-1-ledger", "compartment-id": "ocid1.compartment.oc1..elsewhere"})
 		}, "create bucket sfo-1-ledger: 409 BucketAlreadyExists"},
 		"dynamic group matching other instances": {func(f *fakeOCI) {
-			f.add("dynamic-group", "", Object{"name": "sfo-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}"})
+			f.add("dynamic-group", "", Object{"name": "sfo-1-controllers", "compartment-id": plan["tenancy_id"], "matching-rule": "ANY {instance.compartment.id = 'x'}", "freeform-tags": Object{"terrascale.owner": "ts-orch", "terrascale.cell": "sfo-1"}})
 		}, "dynamic group sfo-1-controllers exists but differs from the plan"},
 	} {
 		t.Run(name, func(t *testing.T) {

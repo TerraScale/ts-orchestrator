@@ -406,7 +406,10 @@ func storageStatements(plan, ids Object, prefix string) []string {
 	identity, names, buckets := obj(plan["identity"]), obj(plan["preview_compartment_names"]), obj(plan["foundation_buckets"])
 	dg, control := str(identity["controller_dynamic_group_name"]), str(names["control"])
 	prefix = canonicalPrefix(prefix)
-	r := []string{}
+	r := []string{fmt.Sprintf("Allow dynamic-group %s to read objectstorage-namespaces in tenancy", dg)}
+	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		r = append(r, fmt.Sprintf("Allow dynamic-group %s to read buckets in compartment %s where target.bucket.name='%s'", dg, control, str(buckets[role])))
+	}
 	for _, role := range []string{"ledger", "head"} {
 		permissions := "request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'"
 		if role == "head" {

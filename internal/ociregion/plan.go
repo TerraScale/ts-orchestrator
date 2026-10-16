@@ -1,6 +1,7 @@
 package ociregion
 
 import (
+	"encoding/json/v2"
 	"maps"
 	"net/netip"
 	"path/filepath"
@@ -323,10 +324,14 @@ func hostArchitecture(host Object) string {
 
 func (e *Engine) loadPlan(path string) Object {
 	p := readJSON(path, 64*1024, "manual region plan")
+	p["_source_path"] = Path(must(filepath.Abs(path)))
+	return validatePlan(p)
+}
+
+func validatePlan(p Object) Object {
 	if !eq(p["schema_version"], 2) || catalog.OCIRegion(text(p["cell"])) == "" || p["region"] != catalog.OCIRegion(text(p["cell"])) {
 		fail("unexpected manual plan schema, cell, or OCI region")
 	}
-	p["_source_path"] = Path(must(filepath.Abs(path)))
 	names := obj(p["preview_compartment_names"])
 	if !exact(names, "control", "network", "workload") {
 		fail("manual compartment names must be distinct safe names for control, network, and workload")
@@ -539,4 +544,18 @@ func keysAny[V any](m map[string]V) []string { return slices.Sorted(maps.Keys(m)
 func LoadPlan(path string) (Object, error) {
 	e := &Engine{PlanPath: path}
 	return capture(func() Object { return e.loadPlan(path) })
+}
+
+// ValidatePlan validates an in-memory regional plan before any provider write.
+// The validated result is independent of the caller's mutable maps and slices.
+func ValidatePlan(plan Object) (Object, error) {
+	return capture(func() Object {
+		wire := must(json.Marshal(plan))
+		var copied Object
+		if err := json.Unmarshal(wire, &copied); err != nil {
+			fail(err.Error())
+		}
+		delete(copied, "_source_path")
+		return validatePlan(copied)
+	})
 }
