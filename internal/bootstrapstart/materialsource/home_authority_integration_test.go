@@ -44,7 +44,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	}
 	configs := make(map[string][]byte)
 	for _, slot := range home.Anchor().ControllerSlots {
-		configs[slot], err = json.Marshal(map[string]string{"cell": "gru", "slot": slot})
+		configs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "gru", "slot": slot}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -184,7 +184,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 		t.Fatal("source-signed substituted response key bypassed exact public CAS binding")
 	}
 	domain := home.StorageDomain()
-	_, err = publicObjects.PutObject(t.Context(), objectstorage.PutObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(source.key), PutObjectBody: io.NopCloser(bytes.NewReader(forgedWire))})
+	_, err = publicObjects.PutObject(ociclient.RequestContext(t.Context()), objectstorage.PutObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(source.key), PutObjectBody: io.NopCloser(bytes.NewReader(forgedWire))})
 	if service, ok := common.IsServiceError(err); !ok || service.GetHTTPStatusCode() != http.StatusForbidden || forbiddenRequests.Load() != 1 {
 		t.Fatalf("public source write denial: %v", err)
 	}
