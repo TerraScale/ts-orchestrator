@@ -466,8 +466,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || digestWire(committedBody) != sources[0].state.Reference.SHA256 {
 		t.Fatal("source recovery changed original committed source")
 	}
+	compressedBytes := len(committedBody)
 	clear(committedBody)
-	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", compressedBytes, materialSourceSecretLimit)
+	if compressedBytes == 0 || compressedBytes > materialSourceSecretLimit || int64(compressedBytes) != sources[0].state.Reference.MaxBytes {
+		t.Fatalf("actual compressed source exceeds its pinned Vault budget: bytes=%d pinned=%d limit=%d", compressedBytes, sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	}
 	if !reflect.DeepEqual(sources[0].Record(), sources[1].Record()) || protocol.sourceCreates != 1 {
 		t.Fatal("concurrent boots selected different signing roots")
 	}
@@ -485,7 +489,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(publication.References) != 27 || protocol.creates != 28 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
+	if len(publication.References) != 30 || protocol.creates != 31 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("replacement rotated source or duplicated secrets: creates=%d refs=%d", protocol.creates, len(publication.References))
 	}
 	projection, err := replacement.InstallMaterial(t.Context())
@@ -566,7 +570,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 28 {
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 31 {
 		t.Fatal("edited local roots caused Vault effects")
 	}
 	replacement, err = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
@@ -577,7 +581,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal("stale source checkpoint was allowed")
 	}
 	for _, directory := range []string{replacement.directory, filepath.Join(replacement.directory, "link")} {
-		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 28 {
+		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 31 {
 			t.Fatal("Link restore overlapped original regional producer")
 		}
 	}
@@ -637,7 +641,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if protocol.creates != 39 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
+	if protocol.creates != 42 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
 		t.Fatalf("spoke changed home Link authority: creates=%d", protocol.creates)
 	}
 	for _, file := range spokeLink.Record().Files {
@@ -688,7 +692,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 42 {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
 	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
@@ -699,7 +703,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
-	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
+	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 42 {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}
 	// Regional ledger storage deliberately differs from the foundation source
