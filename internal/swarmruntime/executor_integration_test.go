@@ -21,7 +21,16 @@ import (
 
 var integrationSocket = flag.String("containerd-socket", "", "disposable containerd fixture socket")
 
-const integrationImage = "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+var integrationImage = func() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	case "arm64":
+		return "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f"
+	default:
+		panic("no pinned containerd integration image for " + runtime.GOARCH)
+	}
+}()
 
 func TestMain(m *testing.M) {
 	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
