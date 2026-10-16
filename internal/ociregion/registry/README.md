@@ -49,6 +49,30 @@ storing a broad token under a narrow Vault name does not provide that scope.
 The credentials owner must automate creation, delivery, rotation and resolution
 at the executor boundary; no manual credential configuration is introduced here.
 
+`NewPullSecrets` now provides the narrow existing-token boundary. An independently
+root-approved `PullSecret` fixes the OCIR host, namespace/repository, OCI username
+and regional Vault reference. `Describe` reads the actual CURRENT version and
+returns only identity/version/hash/generation metadata for the existing release
+or task admission. `Resolve` compares that claim to independently authenticated
+`PullScope` and owned binding before rereading Vault. It rejects a changed secret
+identity, version or content, missing/expired credentials and foreign registry
+hosts. Returned credentials remain in memory for the synchronous pull and redact
+JSON and formatting. There is no anonymous, environment or copied-task fallback.
+
+The caller must derive `PullScope` from REL's `VerifiedContainer` and admitted
+stable service/workload intent; it must separately verify the actual assigned
+task/node identity. `PullClaim` does not establish authentication or monotonic
+admission generation by itself. The existing signed admission and CAS owner must
+enforce that ordering and independently obtain the root-approved `PullSecret`.
+Rotating Vault CURRENT requires fresh admitted metadata; old references fail.
+
+No authorized OCI IAM auth-token issuer or repository read policy was supplied.
+This boundary consumes an existing vendor-issued token in Vault and never mints
+tokens, creates users/policies, installs secrets or invents signing authority.
+Missing credential ownership, scoped IAM policy, token or authenticated admission
+binding therefore leaves private pulls blocked. CORE owns the containerd resolver
+and REL/task admission integration; these source checks do not qualify live IAM.
+
 Retirement tombstones are intentionally retained: a retired digest cannot be
 re-admitted by a stale publisher. Journal exhaustion fails closed at one MiB.
 Create recovery replays the persisted OCI retry token; an expired-token conflict
