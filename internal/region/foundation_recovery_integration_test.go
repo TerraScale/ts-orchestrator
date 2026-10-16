@@ -33,8 +33,8 @@ import (
 type recoveryAuthority struct{}
 
 func (recoveryAuthority) Guard(context.Context, uint64) error { return nil }
-func (recoveryAuthority) HomeWrite(context.Context, uint64) (func(), error) {
-	return func() {}, nil
+func (recoveryAuthority) HomeWrite(ctx context.Context, _ uint64) (context.Context, func(), error) {
+	return ctx, func() {}, nil
 }
 
 // Accepted creates cross the real signed OCI SDK and disk-backed conditional

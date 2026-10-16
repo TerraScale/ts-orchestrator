@@ -318,8 +318,10 @@ func loadPlan(t *testing.T) Object {
 	return plan
 }
 
-func allowWrite(context.Context, bool) (func(), error) { return func() {}, nil }
-func allowGuard(context.Context) error                 { return nil }
+func allowWrite(ctx context.Context, _ bool) (context.Context, func(), error) {
+	return ctx, func() {}, nil
+}
+func allowGuard(context.Context) error { return nil }
 
 func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (string, error) {
 	t.Helper()

@@ -35,15 +35,15 @@ func (s SDKFoundations) ReconcileFoundation(ctx context.Context, plan map[string
 	provider.OperationID, provider.BeforeWrite, provider.Checkpoint = progress.OperationID, progress.BeforeWrite, progress.Checkpoint
 	provider.AuxiliaryIDs, provider.CheckpointAuxiliary, provider.PrepareCreate = progress.AuxiliaryIDs, progress.CheckpointAuxiliary, progress.PrepareCreate
 	provider.Guard = func(ctx context.Context) error {
-		release, err := progress.BeforeWrite(ctx, false)
+		guardCtx, release, err := progress.BeforeWrite(ctx, false)
 		if err != nil {
 			return err
 		}
-		if release == nil {
+		if guardCtx == nil || release == nil {
 			return errors.New("foundation authority release is absent")
 		}
 		release()
-		return nil
+		return guardCtx.Err()
 	}
 	return provider.Reconcile(ctx, plan)
 }
