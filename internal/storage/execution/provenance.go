@@ -64,3 +64,29 @@ func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundl
 	}
 	return result, nil
 }
+
+// VerifyNativeRetainedProvenance bridges the initial native writer. The current
+// signed desired pins the exact native artifact/source and existing volume. The
+// independent qualifier supplies the disk format; retained artifact bytes prove
+// its architecture through the ELF header. No native binary is executed.
+func VerifyNativeRetainedProvenance(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, expected RetainedData, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) (RetainedData, error) {
+	verified, err := VerifyStatefulDeclared(ctx, bundle, roots, target, now, until, evidence)
+	if err != nil {
+		return RetainedData{}, err
+	}
+	if !verified.nativeSource {
+		return RetainedData{}, fmt.Errorf("%w: exact native source artifact evidence missing", ErrUnsafe)
+	}
+	data := verified.Data()
+	comparison := data
+	if expected.DiskFormatSHA256 == "" {
+		comparison.DiskFormatSHA256 = ""
+	}
+	if expected.SourceArchitecture == "" {
+		comparison.SourceArchitecture = ""
+	}
+	if comparison != expected {
+		return RetainedData{}, fmt.Errorf("%w: native source or volume differs", ErrUnsafe)
+	}
+	return data, nil
+}

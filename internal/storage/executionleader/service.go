@@ -26,8 +26,8 @@ import (
 // memberServiceSpec is shared by production creation and grant verification.
 // One immutable member owns one replica, one exact accepted node and stop-first
 // update/rollback. The stateless ServiceIntent's stateful refusal stays intact.
-func memberServiceSpec(intent delivery.Intent, state placement.MemberState, nodeID string, claim release.ContainerClaim, uid, gid uint32, registration host.Registration) (*api.ServiceSpec, error) {
-	if intent.Container == nil || state.Validate() != nil || nodeID == "" || uid == 0 || gid == 0 || registration.ManagedMember == nil || registration.ManagedPlacement == nil {
+func memberServiceSpec(intent delivery.Intent, state placement.MemberState, nodeID string, claim release.ContainerClaim, uid, gid uint32, registration host.Registration, available *api.Resources) (*api.ServiceSpec, error) {
+	if intent.Container == nil || state.Validate() != nil || nodeID == "" || uid == 0 || gid == 0 || registration.ManagedMember == nil || registration.ManagedPlacement == nil || available == nil || available.NanoCPUs < 10_000_000 || available.NanoCPUs > int64(registration.Capacity.CPU)*1_000_000_000 {
 		return nil, execution.ErrUnsafe
 	}
 	wire, err := (&api.ContainerSpec{Image: claim.Image, User: strconv.FormatUint(uint64(uid), 10) + ":" + strconv.FormatUint(uint64(gid), 10)}).Marshal()
@@ -45,7 +45,7 @@ func memberServiceSpec(intent delivery.Intent, state placement.MemberState, node
 	identity := entityid.Derive("stateful-service", intent.Environment, intent.Cell, state.DatabaseID, state.PartitionID, state.MemberID)
 	labels := map[string]string{"terrascale.stateful": "true", "terrascale.role": "terrabase", "terrascale.intent-id": identity, "terrascale.operation-id": intent.OperationID, "terrascale.region": region, "terrascale.environment": intent.Environment, "terrascale.database-id": state.DatabaseID, "terrascale.partition-id": state.PartitionID, "terrascale.member-id": state.MemberID, "terrascale.placement-sha256": state.IntentPayloadDigest}
 	sum := sha256.Sum256([]byte(identity))
-	resources := &api.Resources{NanoCPUs: int64(registration.Capacity.CPU) * 1_000_000_000, MemoryBytes: int64(memory)}
+	resources := &api.Resources{NanoCPUs: available.NanoCPUs, MemoryBytes: int64(memory)}
 	return &api.ServiceSpec{Annotations: api.Annotations{Name: fmt.Sprintf("ts-db-%x", sum[:16]), Labels: labels}, Task: api.TaskSpec{Runtime: &api.TaskSpec_Generic{Generic: &api.GenericRuntimeSpec{Kind: execution.StatefulContainerKind, Payload: &types.Any{TypeUrl: execution.StatefulContainerTypeURL, Value: wire}}}, Resources: &api.ResourceRequirements{Limits: resources, Reservations: resources.Copy()}, Restart: &api.RestartPolicy{Condition: api.RestartOnAny, Delay: types.DurationProto(5 * time.Second)}, Placement: &api.Placement{Constraints: []string{"node.id==" + nodeID}, Platforms: []*api.Platform{{OS: "linux", Architecture: claim.Architecture}}}}, Mode: &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: 1}}, Update: &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST}, Rollback: &api.UpdateConfig{Parallelism: 1, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST}}, nil
 }
 
@@ -83,6 +83,10 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 	if err != nil {
 		return err
 	}
+	declared, err := execution.VerifyStatefulDeclared(ctx, *intent.Container, p.roots, target, time.Now().UTC(), time.Now().UTC().Add(15*time.Second), p.open)
+	if err != nil {
+		return err
+	}
 	placements, err := p.members.ListIntents(ctx)
 	if err != nil {
 		return err
@@ -100,6 +104,9 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 		}
 		for _, member := range members {
 			state := member.State
+			if state.DatabaseID != declared.Data().DatabaseID || state.PartitionID != declared.Data().PartitionID || state.VolumeID != declared.Data().VolumeID {
+				continue
+			}
 			if state.Region != oci.Region(claim.Cell) || state.Stage != placement.StageServing && state.Stage != placement.StageAwaitingHealthy {
 				continue
 			}
@@ -116,18 +123,29 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 				return err
 			}
 			nodeID := ""
+			var available *api.Resources
+			if nodes == nil {
+				return execution.ErrUnsafe
+			}
 			for _, node := range nodes.Nodes {
-				if node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Annotations.Name == state.HostNode && node.Spec.Annotations.Labels["terrascale.instance-id"] == state.InstanceID && node.Spec.Annotations.Labels["terrascale.host-role"] == "container" {
+				if node == nil {
+					return execution.ErrUnsafe
+				}
+				if node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Annotations.Name == registration.ID && node.Spec.Annotations.Labels["terrascale.instance-id"] == state.InstanceID && node.Spec.Annotations.Labels["terrascale.host-role"] == "container" {
 					if nodeID != "" {
 						return execution.ErrUnsafe
 					}
+					if node.Description == nil || node.Description.Resources == nil {
+						return execution.ErrUnsafe
+					}
 					nodeID = node.ID
+					available = node.Description.Resources
 				}
 			}
 			if nodeID == "" {
 				return execution.ErrUnsafe
 			}
-			spec, err := memberServiceSpec(intent, state, nodeID, claim, uid, gid, registration)
+			spec, err := memberServiceSpec(intent, state, nodeID, claim, uid, gid, registration, available)
 			if err != nil {
 				return err
 			}
@@ -136,7 +154,13 @@ func (p *Producer) Apply(ctx context.Context, requested delivery.Intent) error {
 				return err
 			}
 			var existing *api.Service
+			if services == nil {
+				return execution.ErrUnsafe
+			}
 			for _, service := range services.Services {
+				if service == nil {
+					return execution.ErrUnsafe
+				}
 				if service.Spec.Annotations.Name == spec.Annotations.Name {
 					if existing != nil {
 						return execution.ErrUnsafe

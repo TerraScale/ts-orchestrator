@@ -94,6 +94,9 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
+	if taskReply == nil || taskReply.Task == nil {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
+	}
 	task := taskReply.Task
 	requestedHash, err := executionwire.TaskSHA256(requested)
 	if err != nil {
@@ -107,17 +110,23 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
+	if nodeReply == nil || nodeReply.Node == nil || nodeReply.Node.Description == nil || nodeReply.Node.Description.Resources == nil {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
+	}
 	node := nodeReply.Node
 	region, err := oci.Region(strings.ToUpper(p.cell)).OCIRegion()
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	if node == nil || node.Spec.Membership != api.NodeMembershipAccepted || node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != r.Node || node.Spec.Annotations.Labels["terrascale.region"] != region || node.Spec.Annotations.Labels["terrascale.instance-id"] != r.ManagedOCI.InstanceID || node.Spec.Annotations.Labels["terrascale.host-role"] != "container" || node.Spec.Annotations.Labels["terrascale.execution-scope"] != "platform" {
+	if node == nil || node.Spec.Membership != api.NodeMembershipAccepted || node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != r.ID || node.Spec.Annotations.Labels["terrascale.region"] != region || node.Spec.Annotations.Labels["terrascale.instance-id"] != r.ManagedOCI.InstanceID || node.Spec.Annotations.Labels["terrascale.host-role"] != "container" || node.Spec.Annotations.Labels["terrascale.execution-scope"] != "platform" {
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
 	serviceReply, err := p.control.GetService(ctx, &api.GetServiceRequest{ServiceID: task.ServiceID})
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
+	}
+	if serviceReply == nil || serviceReply.Service == nil {
+		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
 	service := serviceReply.Service
 	if service == nil || service.Spec.GetReplicated() == nil || service.Spec.GetReplicated().Replicas != 1 || !proto.Equal(&task.Spec, &service.Spec.Task) || !proto.Equal(&task.ServiceAnnotations, &service.Spec.Annotations) {
@@ -185,7 +194,7 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
-	expectedSpec, err := memberServiceSpec(deployment, state, task.NodeID, verified.Claim(), uid, gid, r)
+	expectedSpec, err := memberServiceSpec(deployment, state, task.NodeID, verified.Claim(), uid, gid, r, node.Description.Resources)
 	if err != nil || !proto.Equal(&service.Spec, expectedSpec) {
 		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
 	}
@@ -198,9 +207,13 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, execution.ErrUnsafe
 	}
 	retained := executionwire.RetainedData{DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID, VolumeID: state.VolumeID, FileSystemUUID: manifest.FileSystemUUID, FileSystemType: manifest.FileSystemType, SourceArtifactSHA256: manifest.ArtifactDigest, SourceTreeSHA256: manifest.SourceDigest}
-	previous, retained, err := p.previousWriter(ctx, scope, retained, task.ID)
+	previous, retained, err := p.previousWriter(ctx, scope, retained, task.ID, *deployment.Container, target, caller.ExpiresAt())
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
+	}
+	declared, err := execution.VerifyStatefulDeclared(ctx, *deployment.Container, p.roots, target, time.Now().UTC(), caller.ExpiresAt(), p.open)
+	if err != nil || declared.Data() != retained {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
 	}
 	survivor := memberstatus.Survivor{}
 	for _, row := range intent.CanonicalRoster.Rows {
@@ -248,7 +261,7 @@ func (p *Producer) VerifyCurrent(ctx context.Context, task *api.Task, caller hos
 	return nil
 }
 
-func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID string) (release.ContainerBundle, executionwire.RetainedData, error) {
+func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadScope, expected executionwire.RetainedData, taskID string, candidate release.ContainerBundle, target release.ContainerTarget, until time.Time) (release.ContainerBundle, executionwire.RetainedData, error) {
 	history, err := p.authority.ListRuntimeEffectHistory(ctx, scope)
 	if err != nil {
 		return release.ContainerBundle{}, expected, err
@@ -275,7 +288,8 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 		}
 	}
 	if latest == nil {
-		return release.ContainerBundle{}, expected, fmt.Errorf("%w: native retained source provenance is required", execution.ErrUnsafe)
+		retained, err := execution.VerifyNativeRetainedProvenance(ctx, candidate, p.roots, target, expected, time.Now().UTC(), until, p.open)
+		return release.ContainerBundle{}, retained, err
 	}
 	envelope, err := trust.DecodeEnvelope(material.Container.Claim)
 	if err != nil {
@@ -290,8 +304,8 @@ func (p *Producer) previousWriter(ctx context.Context, scope authority.WorkloadS
 	// was uncertain. Never fall back to the older placement artifact.
 	_, expected.SourceArtifactSHA256, _ = strings.Cut(claim.Image, "@sha256:")
 	expected.SourceTreeSHA256 = claim.SourceTreeSHA256
-	target := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
-	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, target, expected, p.open)
+	previousTarget := release.ContainerTarget{Cell: strings.ToUpper(p.cell), Environment: p.environment, Role: "terrabase", Architecture: claim.Architecture}
+	retained, err := execution.VerifyRetainedProvenance(ctx, material.Container, p.roots, previousTarget, expected, p.open)
 	return material.Container, retained, err
 }
 

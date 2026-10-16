@@ -148,7 +148,12 @@ func (s *Source) admit(ctx context.Context, task *api.Task) (*sourceEntry, error
 	target := release.ContainerTarget{Cell: strings.ToUpper(registration.Cell), Environment: registration.Environment, Role: "terrabase", Architecture: runtime.GOARCH}
 	previousTarget := target
 	previousTarget.Architecture = material.Retained.SourceArchitecture
-	retained, err := VerifyRetainedProvenance(ctx, material.RetainedContainer, s.roots, previousTarget, material.Retained, s.openEvidence)
+	var retained RetainedData
+	if len(material.RetainedContainer.Claim) == 0 {
+		retained, err = VerifyNativeRetainedProvenance(ctx, material.Container, s.roots, target, material.Retained, time.Now().UTC(), grant.Deadline(), s.openEvidence)
+	} else {
+		retained, err = VerifyRetainedProvenance(ctx, material.RetainedContainer, s.roots, previousTarget, material.Retained, s.openEvidence)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +277,7 @@ func (s *Source) ResolveRuntime(ctx context.Context, task *api.Task) (RuntimePin
 		return RuntimePins{}, err
 	}
 	limits := task.Spec.Resources.Limits
-	base, err := containerdoci.GenerateSpec(namespaces.WithNamespace(ctx, "terrascale"), s.runtime.Client, &containers.Container{ID: "ts-" + task.ID}, containerdoci.WithDefaultSpec(), containerdoci.WithRootFSReadonly(), containerdoci.WithNoNewPrivileges, containerdoci.WithCapabilities(nil), containerdoci.WithUIDGID(uint32(uid), uint32(gid)), containerdoci.WithMemoryLimit(uint64(limits.MemoryBytes)), containerdoci.WithMemorySwap(limits.MemoryBytes), containerdoci.WithPidsLimit(256), containerdoci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000))
+	base, err := containerdoci.GenerateSpec(namespaces.WithNamespace(ctx, "terrascale"), s.runtime.Client, &containers.Container{ID: "ts-" + task.ID}, containerdoci.WithDefaultSpec(), containerdoci.WithRootFSReadonly(), containerdoci.WithHostNamespace(runtimespec.NetworkNamespace), containerdoci.WithNoNewPrivileges, containerdoci.WithCapabilities(nil), containerdoci.WithUIDGID(uint32(uid), uint32(gid)), containerdoci.WithMemoryLimit(uint64(limits.MemoryBytes)), containerdoci.WithMemorySwap(limits.MemoryBytes), containerdoci.WithPidsLimit(256), containerdoci.WithCPUCFS(limits.NanoCPUs/10_000, 100_000))
 	if err != nil {
 		return RuntimePins{}, err
 	}
@@ -286,7 +291,7 @@ func (s *Source) ResolveRuntime(ctx context.Context, task *api.Task) (RuntimePin
 		base.Process.Env = append(base.Process.Env, key+"="+plan.Workload.Env[key])
 	}
 	base.Mounts = append(base.Mounts, runtimespec.Mount{Source: plan.MountPath, Destination: plan.MountPath, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec", "noatime"}}, runtimespec.Mount{Source: plan.MaterialPath, Destination: plan.MaterialPath, Type: "bind", Options: []string{"bind", "ro", "nosuid", "nodev", "noexec"}}, runtimespec.Mount{Source: plan.ControlDirectory, Destination: plan.ControlDirectory, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec"}}, runtimespec.Mount{Source: plan.PublicationSocket, Destination: plan.PublicationSocket, Type: "bind", Options: []string{"bind", "rw", "nosuid", "nodev", "noexec"}})
-	pins := RuntimePins{Task: task.Copy(), ContainerSpecSHA256: entry.binding.TaskSHA256, Image: expected.Image, Process: *base.Process, Resources: *base.Linux.Resources, Mounts: base.Mounts, Volume: material.Mount, VolumeDestination: material.Mount.MountPath}
+	pins := RuntimePins{Task: task.Copy(), ContainerSpecSHA256: entry.binding.TaskSHA256, Image: expected.Image, Process: *base.Process, Resources: *base.Linux.Resources, Mounts: base.Mounts, Namespaces: base.Linux.Namespaces, Volume: material.Mount, VolumeDestination: material.Mount.MountPath}
 	if err := s.session.VerifyCurrent(ctx, task, entry.grant); err != nil {
 		return RuntimePins{}, err
 	}
