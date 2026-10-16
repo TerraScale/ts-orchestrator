@@ -39,6 +39,11 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if len(sourceStatements) != 5 {
 		t.Fatalf("source IAM statements=%v", sourceStatements)
 	}
+	linkName := strings.Replace(sourceName, "ts-bootstrap-source-", "ts-bootstrap-source-link-", 1)
+	linkStatements, err := ociregion.BootstrapSourceStatements(founderID, linkName, sourceTarget)
+	if err != nil || command.JSON(linkStatements) != strings.ReplaceAll(command.JSON(sourceStatements), sourceName, linkName) {
+		t.Fatalf("link source IAM changed exact scope: statements=%v err=%v", linkStatements, err)
+	}
 	for _, statement := range sourceStatements {
 		if !strings.Contains(statement, "request.principal.id='"+founderID+"'") || !strings.Contains(statement, "request.principal.type='instance'") ||
 			strings.Contains(statement, "SECRET_UPDATE") || strings.Contains(statement, "SECRET_INSPECT") || strings.Contains(statement, "dynamic-group") || strings.Contains(statement, "*") {

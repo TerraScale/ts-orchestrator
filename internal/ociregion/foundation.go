@@ -463,7 +463,7 @@ func BootstrapSourceStatements(founderInstanceID, secretName string, target vaul
 		requireOCID(target.CompartmentID, "compartment", "")
 		requireOCID(target.VaultID, "vault", "sa-saopaulo-1")
 		requireOCID(target.KeyID, "key", "sa-saopaulo-1")
-		if !safeMatch(`ts-bootstrap-source-[a-f0-9]{32}`, secretName) {
+		if !safeMatch(`ts-bootstrap-source-(?:link-)?[a-f0-9]{32}`, secretName) {
 			fail("bootstrap source IAM requires an exact stable source secret name")
 		}
 		principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", founderInstanceID)
