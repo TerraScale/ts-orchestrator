@@ -13,6 +13,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -36,6 +37,7 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	cfg := serviceConfig(t, "ts-gru-1", "manager")
+	cfg.Admission.Region = catalog.OCIRegion(catalog.GRU)
 	manager := serviceStart(t, ctx, cfg)
 	client, err := manager.ControlClient(ctx)
 	if err != nil {
@@ -70,7 +72,8 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 	}
 	intent := serviceIntent()
 	intent.Role, intent.Replicas = "api", 0
-	target := autoscale.Target{Cell: intent.Region, Environment: intent.Environment, Role: intent.Role}
+	intent.Region = catalog.OCIRegion(catalog.GRU)
+	target := autoscale.Target{Cell: "gru", Environment: intent.Environment, Role: intent.Role}
 	policy := ScalePolicy{Target: target, Bounds: autoscale.Bounds{Min: 2, Max: 6}, Policy: &autoscale.Policy{Signals: []autoscale.Signal{{Name: autoscale.SignalCPUUtilization, Target: 0.5}}}}
 	source := autoscale.NewWindowStore(0, 0)
 	newScaler := func(source autoscale.Source) *Autoscaler {
@@ -82,12 +85,20 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 		return scaler
 	}
 	scaler := newScaler(source)
+	invalid := policy
+	invalid.Target.Cell = "unknown"
+	if err := scaler.SetPolicies([]ScalePolicy{invalid}); err == nil {
+		t.Fatal("unknown cell replaced the regional autoscaling policy")
+	}
 	if err := scaler.Tick(ctx); err != nil || scaler.Last()[target].Reason != "awaiting-release" {
 		t.Fatalf("before release: %+v, %v", scaler.Last(), err)
 	}
 	created, err := applyService(ctx, client, intent)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if region := created.Spec.Annotations.Labels[LabelRegion]; region != "sa-saopaulo-1" {
+		t.Fatalf("service region label=%q, want canonical OCI region", region)
 	}
 	id := created.ID
 	service := func() *api.Service {
@@ -201,6 +212,7 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	workerCfg := serviceConfig(t, "autoscale-worker", "container")
+	workerCfg.Admission.Region = catalog.OCIRegion(catalog.GRU)
 	workerCfg.Admission.ManagerAddress, err = manager.RemoteAddress()
 	if err != nil {
 		t.Fatal(err)

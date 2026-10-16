@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 )
@@ -69,6 +71,9 @@ func (a *Autoscaler) SetPolicies(policies []ScalePolicy) error {
 	for i, policy := range policies {
 		if policy.Target.Cell == "" || policy.Target.Environment == "" || policy.Target.Role == "" || seen[policy.Target] {
 			return errors.New("autoscaling requires unique regional service identities")
+		}
+		if catalog.OCIRegion(strings.ToUpper(policy.Target.Cell)) == "" {
+			return fmt.Errorf("autoscaling requires a catalogued cell: %q", policy.Target.Cell)
 		}
 		seen[policy.Target] = true
 		if err := policy.Bounds.Validate(); err != nil {
@@ -164,7 +169,7 @@ func (a *Autoscaler) Tick(ctx context.Context) error {
 func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Time) (ScaleResult, error) {
 	result := ScaleResult{Reason: "awaiting-release"}
 	services, err := a.client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{
-		Labels: map[string]string{LabelRegion: policy.Target.Cell, LabelEnvironment: policy.Target.Environment, LabelRole: policy.Target.Role},
+		Labels: map[string]string{LabelRegion: catalog.OCIRegion(strings.ToUpper(policy.Target.Cell)), LabelEnvironment: policy.Target.Environment, LabelRole: policy.Target.Role},
 	}})
 	if err != nil {
 		return result, err
