@@ -143,13 +143,20 @@ type homeIAMLeaseKey struct{}
 // caller epochs. A grant generation is never treated as a leadership epoch.
 func (authority *HomeIAMAuthority) Guard(ctx context.Context, _ uint64) error {
 	if err := authority.guardScope(ctx); err != nil {
+		if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok && lease.authority == authority {
+			lease.cancel(err)
+		}
 		return err
 	}
 	if lease, ok := ctx.Value(homeIAMLeaseKey{}).(*homeIAMLease); ok {
 		if lease.authority != authority {
 			return ErrFoundationFenced
 		}
-		return lease.check(ctx)
+		err := lease.check(ctx)
+		if err != nil {
+			lease.cancel(err)
+		}
+		return err
 	}
 	return nil
 }
