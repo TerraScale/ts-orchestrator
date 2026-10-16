@@ -143,6 +143,8 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if err != nil {
 		return fail(err)
 	}
+	network.SetRegion(candidate.Region())
+	compute.SetRegion(candidate.Region())
 	ociclient.PinHost(&iam.BaseClient, endpoint)
 	ociclient.PinHost(&network.BaseClient, endpoint)
 	ociclient.PinHost(&compute.BaseClient, endpoint)
