@@ -5,7 +5,9 @@ package containermaterial
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"maps"
 	"slices"
@@ -24,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/ca"
 )
 
 var ErrPending = errors.New("container material authority is pending")
@@ -149,7 +152,7 @@ func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, e
 
 func verifyTaskAssignment(task *api.Task, binding host.ContainerMaterialBinding) error {
 	if task == nil || task.ID != binding.TaskID || task.ServiceID != binding.ServiceID || task.NodeID != binding.NodeID ||
-		task.DesiredState != api.TaskStateRunning || task.Status.State > api.TaskStateRunning {
+		task.DesiredState != api.TaskStateRunning || task.Status.State < api.TaskStateAssigned || task.Status.State > api.TaskStateRunning {
 		return ErrPending
 	}
 	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
@@ -165,8 +168,25 @@ func verifyTaskNode(node *api.Node, binding host.ContainerMaterialBinding, archi
 		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "platform" ||
-		node.Role != node.Certificate.Role || node.Role != node.Spec.DesiredRole || node.Description == nil || node.Description.Platform == nil ||
+		node.Role != node.Certificate.Role || node.Role != node.Spec.DesiredRole || node.Certificate.CN != node.ID || node.Certificate.Status.State != api.IssuanceStateIssued ||
+		node.Description == nil || node.Description.Platform == nil ||
 		node.Description.Platform.OS != "linux" || node.Description.Platform.Architecture != architecture {
+		return ErrPending
+	}
+	role := ca.WorkerRole
+	if node.Role == api.NodeRoleManager {
+		role = ca.ManagerRole
+	} else if node.Role != api.NodeRoleWorker {
+		return ErrPending
+	}
+	block, _ := pem.Decode(node.Certificate.Certificate)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return ErrPending
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	now := time.Now().UTC()
+	if err != nil || certificate.Subject.CommonName != node.ID || !slices.Equal(certificate.Subject.OrganizationalUnit, []string{role}) ||
+		now.Before(certificate.NotBefore) || !now.Before(certificate.NotAfter) {
 		return ErrPending
 	}
 	return nil
