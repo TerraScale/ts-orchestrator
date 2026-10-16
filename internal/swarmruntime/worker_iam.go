@@ -46,7 +46,7 @@ func (n *Node) currentWorkerVaultGrant(ctx context.Context, accepted hostenroll.
 	if json.Unmarshal(accepted.Wire(), &transport, json.RejectUnknownMembers(true)) != nil || !bytes.Equal(transport.Request, query.Request) || !bytes.Equal(transport.Response, query.Response) {
 		return errors.New("worker IAM transport differs from current enrollment")
 	}
-	_, descriptor, err := hostenroll.ParseRequest(query.Request, time.Now().UTC())
+	_, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, time.Now().UTC())
 	if err != nil {
 		return err
 	}
