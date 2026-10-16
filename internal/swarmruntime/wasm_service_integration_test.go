@@ -32,6 +32,7 @@ type functionSlotExecutor struct{ serviceExecutor }
 func (e functionSlotExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	description, err := e.serviceExecutor.Describe(ctx)
 	if err == nil {
+		description.Resources.NanoCPUs = 750_000_000
 		description.Resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
 	}
 	return description, err
