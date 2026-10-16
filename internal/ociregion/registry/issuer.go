@@ -41,7 +41,7 @@ type Issuer struct {
 	journal   jetstream.KeyValue
 	scope     region.VerifiedOCIRIssuer
 	guard     func(context.Context) error
-	homeWrite func(context.Context) (func(), error)
+	homeWrite func(context.Context) (context.Context, func(), error)
 	host      string
 }
 
@@ -50,7 +50,7 @@ type Issuer struct {
 // homeWrite is the existing tenancy-wide foundation IAM serialization lease.
 func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal jetstream.KeyValue,
 	scope region.VerifiedOCIRIssuer, guard func(context.Context) error,
-	homeWrite func(context.Context) (func(), error)) (*Issuer, error) {
+	homeWrite func(context.Context) (context.Context, func(), error)) (*Issuer, error) {
 	if factory == nil || journal == nil || guard == nil || homeWrite == nil || !scope.IsVerified() ||
 		!time.Now().Before(scope.ExpiresAt()) || factory.Region() != scope.Intent().OCIRegion {
 		return nil, ErrIssuer
@@ -256,10 +256,12 @@ func (a *issuerAttempt) call(ctx context.Context, iam bool, run func(context.Con
 	release := func() {}
 	if iam {
 		var err error
-		release, err = a.issuer.homeWrite(ctx)
-		if err != nil || release == nil {
+		var leased context.Context
+		leased, release, err = a.issuer.homeWrite(ctx)
+		if err != nil || release == nil || leased == nil {
 			return ErrIssuer
 		}
+		ctx = leased
 	}
 	defer release()
 	if err := a.check(ctx); err != nil {

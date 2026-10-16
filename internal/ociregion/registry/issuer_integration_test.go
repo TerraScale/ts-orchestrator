@@ -259,7 +259,9 @@ func issuerScope(t *testing.T, remote *issuerProtocol, factory *ociclient.Factor
 	if err != nil {
 		t.Fatal(err)
 	}
+	remote.mu.Lock()
 	remote.grant = wire
+	remote.mu.Unlock()
 	sum := sha256.Sum256(wire)
 	home := bootstrap.FoundationScope{InstallationID: installation, DeploymentID: deployment, ClusterID: cluster, TenancyID: grant.TenancyID, OCIRegion: "sa-saopaulo-1", StorageDomain: domain, GrantGeneration: 1, GrantSHA256: hex.EncodeToString(sum[:])}
 	intentWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}})
@@ -322,7 +324,7 @@ func setupIssuer(t *testing.T) (*Issuer, *issuerProtocol, *atomic.Bool) {
 		ociclient.PinHost(client, endpoint)
 		client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
 	}
-	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: controller.journal, scope: proof, guard: controller.guard, homeWrite: func(context.Context) (func(), error) { return func() {}, nil }, host: "gru.ocir.io"}
+	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: controller.journal, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: "gru.ocir.io"}
 	return i, remote, fenced
 }
 
@@ -375,8 +377,10 @@ func TestIssuerLostTokenAndVaultResponsesRecoverWithoutBlindMint(t *testing.T) {
 	for _, scenario := range []string{"token", "vault"} {
 		t.Run(scenario, func(t *testing.T) {
 			i, remote, _ := setupIssuer(t)
+			remote.mu.Lock()
 			remote.lostToken = scenario == "token"
 			remote.lostVault = scenario == "vault"
+			remote.mu.Unlock()
 			_, firstErr := i.Ensure(t.Context())
 			if scenario == "token" && firstErr == nil {
 				t.Fatal("lost once-returned token incorrectly succeeded")
