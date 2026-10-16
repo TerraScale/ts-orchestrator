@@ -16,6 +16,12 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
+type SourceInventoryActor struct {
+	InstanceID     string `json:"instanceId"`
+	GrantDigest    string `json:"grantDigest"`
+	TemplateDigest string `json:"templateDigest"`
+}
+
 // RegionalSourceInventory binds public inventory to the original source escrow.
 // It contains no private material and is available before config publication.
 type SourceInventoryActor struct {
