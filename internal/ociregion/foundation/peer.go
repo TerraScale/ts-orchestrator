@@ -119,7 +119,7 @@ func DraftPeerIntent(left, right string, ports []int) (Object, error) {
 type Peer struct {
 	// Clients serve each plan's OCI region.
 	Clients     map[string]command.Client
-	BeforeWrite func(context.Context, bool) (func(), error)
+	BeforeWrite func(context.Context, bool) (context.Context, func(), error)
 	Guard       func(context.Context) error
 	// Check runs inspect-private-peer's live network checks on the bound
 	// intent at path.

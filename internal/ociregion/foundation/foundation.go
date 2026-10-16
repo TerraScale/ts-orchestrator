@@ -53,7 +53,7 @@ type Foundation struct {
 	// BeforeWrite checks durable authority for every provider mutation. For
 	// home IAM writes it also holds the tenancy-wide serialization lease.
 	// The returned release must remain held until the provider call returns.
-	BeforeWrite func(context.Context, bool) (func(), error)
+	BeforeWrite func(context.Context, bool) (context.Context, func(), error)
 	// Guard rechecks the claim before each SDK retry as well as each command.
 	Guard func(context.Context) error
 	// Checkpoint durably records each verified OCID before dependent work.
@@ -267,11 +267,14 @@ func (f *Foundation) call(ctx context.Context, c command.Client, args ...string)
 			return nil, errors.New("foundation mutation requires durable authority and a retry guard")
 		}
 		var err error
-		release, err = f.BeforeWrite(ctx, len(args) > 0 && args[0] == "iam")
+		ctx, release, err = f.BeforeWrite(ctx, len(args) > 0 && args[0] == "iam")
 		if err != nil {
 			return nil, fmt.Errorf("foundation write authority: %w", err)
 		}
-		if release == nil {
+		if ctx == nil || release == nil {
+			if release != nil {
+				release()
+			}
 			return nil, errors.New("foundation authority returned no lease release")
 		}
 		defer release()

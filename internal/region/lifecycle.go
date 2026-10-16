@@ -52,7 +52,7 @@ type FoundationIntent struct {
 // serializes tenancy-wide IAM across all regional operations, including GRU.
 type FoundationAuthority interface {
 	Guard(context.Context, uint64) error
-	HomeWrite(context.Context, uint64) (release func(), err error)
+	HomeWrite(context.Context, uint64) (context.Context, func(), error)
 }
 
 // Foundations is the typed OCI foundation boundary; implementations observe
@@ -65,7 +65,7 @@ type Foundations interface {
 // attempt. The snapshot IDs are authenticated journal values, never discovery.
 type FoundationProgress struct {
 	OperationID         string
-	BeforeWrite         func(context.Context, bool) (func(), error)
+	BeforeWrite         func(context.Context, bool) (context.Context, func(), error)
 	Checkpoint          func(context.Context, string, string) error
 	AuxiliaryIDs        map[string]string
 	CheckpointAuxiliary func(context.Context, string, string) error
@@ -341,24 +341,31 @@ func (a *foundationAttempt) guard(ctx context.Context) error {
 	return nil
 }
 
-func (a *foundationAttempt) beforeWrite(ctx context.Context, home bool) (func(), error) {
+func (a *foundationAttempt) beforeWrite(ctx context.Context, home bool) (context.Context, func(), error) {
+	if err := a.guard(ctx); err != nil {
+		a.cancel(err)
+		return ctx, nil, err
+	}
 	release := func() {}
 	if home {
 		var err error
-		release, err = a.controller.Authority.HomeWrite(ctx, a.epoch)
+		ctx, release, err = a.controller.Authority.HomeWrite(ctx, a.epoch)
 		if err != nil {
-			return nil, err
+			return ctx, nil, err
 		}
-		if release == nil {
-			return nil, errors.New("home IAM authority did not return its release")
+		if ctx == nil || release == nil {
+			if release != nil {
+				release()
+			}
+			return ctx, nil, errors.New("home IAM authority did not return its release")
 		}
 	}
 	if err := a.guard(ctx); err != nil {
 		release()
 		a.cancel(err)
-		return nil, err
+		return ctx, nil, err
 	}
-	return release, nil
+	return ctx, release, nil
 }
 
 func (a *foundationAttempt) update(ctx context.Context) error {
