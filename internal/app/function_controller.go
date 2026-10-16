@@ -263,7 +263,7 @@ func (controller functionController) material(ctx context.Context, registration 
 	if !delivery.Valid() || delivery.Binding() != binding || delivery.Function().EnvelopeSHA256() != proof.EnvelopeSHA256() {
 		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
 	}
-	return host.FunctionMaterialFiles{Files: delivery.Files(), ExpiresAt: delivery.ExpiresAt()}, nil
+	return host.FunctionMaterialFiles{Files: delivery.Files(), ExpiresAt: delivery.ExpiresAt(), CredentialExpiresAt: delivery.CredentialExpiresAt()}, nil
 }
 
 func (controller functionController) recipient(ctx context.Context, registration host.Registration, binding functionmaterial.Binding) (release.VerifiedFunction, error) {
