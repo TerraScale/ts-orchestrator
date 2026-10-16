@@ -57,6 +57,7 @@ type VerifiedContainer struct {
 	familyEvidence    []byte
 	migration         SequenceMigration
 	migrationEnvelope trust.Envelope
+	bundleSHA256      string
 	fingerprint       string
 	identity          string
 	issuedAt          time.Time
@@ -69,6 +70,7 @@ func (c VerifiedContainer) Claim() ContainerClaim {
 	claim.Production.Delegation = slices.Clone(claim.Production.Delegation)
 	return claim
 }
+func (c VerifiedContainer) BundleSHA256() string    { return c.bundleSHA256 }
 func (c VerifiedContainer) Fingerprint() string     { return c.fingerprint }
 func (c VerifiedContainer) ReleaseIdentity() string { return c.identity }
 func (c VerifiedContainer) ExpiresAt() time.Time    { return c.expiresAt }
@@ -294,6 +296,20 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 	if err != nil {
 		return VerifiedContainer{}, err
 	}
+	bundleDigest, err := ContainerBundleSHA256(bundle)
+	if err != nil {
+		return VerifiedContainer{}, err
+	}
 	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(content+"/"+claim.SequenceMigrationSHA256)))
-	return VerifiedContainer{claim: claim, familyEvidence: slices.Clone(bundle.Sequence), migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
+	return VerifiedContainer{claim: claim, bundleSHA256: bundleDigest, familyEvidence: slices.Clone(bundle.Sequence), migration: migration, migrationEnvelope: migrationEnvelope, fingerprint: fingerprint, identity: identity}, nil
+}
+
+// ContainerBundleSHA256 identifies the complete retained bundle, including
+// delegation renewals whose signed claim fingerprint remains unchanged.
+func ContainerBundleSHA256(bundle ContainerBundle) (string, error) {
+	wire, err := protocol.EncodeJSON(bundle)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
 }
