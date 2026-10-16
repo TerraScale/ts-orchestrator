@@ -1,13 +1,11 @@
 package dashboard
 
 import (
-	"encoding/json/v2"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
 )
@@ -53,7 +51,7 @@ func nodeResourceFixture() view {
 func TestAllNodesRenderAuthenticatedResourcesWithoutClusterSnapshots(t *testing.T) {
 	t.Parallel()
 	current := nodeResourceFixture()
-	for name, body := range map[string]string{"topology": renderTopology(t, current), "hosts": renderHTML(t, membersBody(current))} {
+	for name, body := range map[string]string{"topology": renderTopology(t, current), "hosts": fixturePage(t, current, "/members")} {
 		for _, want := range []string{"physical", "worker", "4 cores", "0.0%", "25.0%", "50.0%", "(stale)", "unavailable"} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s lacks %q", name, want)
@@ -62,38 +60,46 @@ func TestAllNodesRenderAuthenticatedResourcesWithoutClusterSnapshots(t *testing.
 	}
 	current.Path = map[string]string{"r": "fra", "h": "physical"}
 	current.Page.slug = "host"
-	chart := current.hostChart(observability.HistHostCPUUtilization, "percent", "member", "missing")
-	if len(chart.Series) != 1 || chart.Series[0].Points[0][1] != 0 {
-		t.Fatalf("host chart used controller instead of host origin: %+v", chart)
-	}
-	body := renderHTML(t, hostDetailBody(current))
+	body := fixturePage(t, current, "/regions/"+current.Path["r"]+"/hosts/"+current.Path["h"])
 	for _, want := range []string{"Resources", "4 cores", "0 B / 2.0 GiB", "0.0%"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("host detail lacks %q", want)
 		}
 	}
 	current.Page.slug, current.Path = "member", map[string]string{"id": "controller"}
-	member := current.memberChart(observability.HistCPUUtilization, "percent", false, "missing")
-	if len(member.Series) != 1 || member.Series[0].Points[0][1] != .91 {
-		t.Fatalf("member chart lost its control-plane namespace: %+v", member)
+	body = fixturePage(t, current, "/members/controller")
+	found := false
+	for _, chart := range pageCharts(t, body) {
+		for _, series := range chart.Series {
+			for _, point := range series.Points {
+				if point[1] == .91 {
+					found = true
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("member page lost control-plane CPU history")
 	}
 }
 
 func TestStorageUsesPhysicalFilesystemsAndChartJSON(t *testing.T) {
 	t.Parallel()
 	current := nodeResourceFixture()
-	tree := current.filesystemTree()
-	if len(tree.Tree) != 1 || tree.Tree[0].Name != "physical" || tree.Tree[0].Value != 10<<30 || len(tree.Tree[0].Children) != 1 {
-		t.Fatalf("physical filesystem capacity = %+v", tree.Tree)
+	body := fixturePage(t, current, "/storage")
+	found := false
+	for _, chart := range pageCharts(t, body) {
+		if chart.Kind == "treemap" {
+			found = true
+			if len(chart.Tree) != 1 || chart.Tree[0].Name != "physical" || chart.Tree[0].Value != 10<<30 || len(chart.Tree[0].Children) != 1 || chart.Tree[0].Children[0].Status != "ok" {
+				t.Fatalf("physical filesystem chart lost capacity: %+v", chart.Tree)
+			}
+		}
 	}
-	var encoded chartSpec
-	if err := json.Unmarshal([]byte(tree.JSON()), &encoded); err != nil {
-		t.Fatal(err)
+	if !found {
+		t.Fatal("physical filesystem chart missing")
 	}
-	if encoded.Tree[0].Value != 10<<30 || encoded.Tree[0].Children[0].Status != "ok" {
-		t.Fatalf("resource visual JSON = %s", tree.JSON())
-	}
-	body := renderHTML(t, storageBody(current))
+
 	for _, want := range []string{"physical", "root, state", "/root", "10.0 GiB", "0.0%"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("storage lacks %q", want)
@@ -103,7 +109,7 @@ func TestStorageUsesPhysicalFilesystemsAndChartJSON(t *testing.T) {
 		t.Error("storage mixed controller snapshots into physical host reports")
 	}
 	current.Path = map[string]string{"r": "fra", "h": "missing"}
-	if body := renderHTML(t, hostDetailBody(current)); !strings.Contains(body, "unavailable") || strings.Contains(body, "4 cores") {
+	if body := fixturePage(t, current, "/regions/"+current.Path["r"]+"/hosts/"+current.Path["h"]); !strings.Contains(body, "unavailable") || strings.Contains(body, "4 cores") {
 		t.Error("missing host resources were synthesized")
 	}
 }
@@ -118,24 +124,28 @@ func TestResourcePagesExposeCollectorErrorsAndUnknownCapacity(t *testing.T) {
 	} {
 		current.Page = component
 		current.Path = map[string]string{"r": "fra", "h": "physical"}
-		if body := renderHTML(t, component.body(current)); !strings.Contains(body, "Collection failed: controller: system unavailable") {
+		if body := fixturePage(t, current, map[string]string{"hosts": "/members", "storage": "/storage", "topology": "/topology", "host": "/regions/fra/hosts/physical"}[name]); !strings.Contains(body, "Collection failed: controller: system unavailable") {
 			t.Errorf("%s hides collector failure", name)
 		}
 	}
-	filesystem := regionview.Filesystem{Role: "unknown", UsedRatio: &regionview.Reading{Value: 0, ObservedAt: current.Now}}
-	if current.readingText(filesystem.SizeBytes, "bytes") != "unavailable" || current.filesystemAvailable(filesystem) != "unavailable" {
-		t.Fatal("unknown filesystem size appeared as zero capacity")
+
+	body := fixturePage(t, current, "/regions/fra/hosts/missing")
+	if !strings.Contains(body, "unavailable") || strings.Contains(body, "0 B / 0 B") {
+		t.Fatal("unknown host capacity was rendered as zero")
 	}
+
 }
 
 func TestVolumeAttachingWithoutTimestampIsNotOverdue(t *testing.T) {
 	t.Parallel()
-	now := time.Now()
-	if status := volumeStatus(insights.Volume{State: "attaching"}, now); status != "run" {
-		t.Fatalf("unknown attachment time = %s", status)
-	}
-	if status := volumeStatus(insights.Volume{State: "attaching", StateSince: now.Add(-16 * time.Minute)}, now); status != "bad" {
-		t.Fatalf("overdue attachment = %s", status)
+	for _, test := range []struct {
+		since  time.Time
+		status string
+	}{{time.Time{}, "run"}, {testNow.Add(-16 * time.Minute), "bad"}} {
+		body := fixturePage(t, view{Journal: &Journal{Volumes: fakeVolumes{{ID: "pending-volume", State: "attaching", StateSince: test.since}}}}, "/storage")
+		if !strings.Contains(body, `class="pill s-`+test.status+`">attaching</span>`) {
+			t.Fatal("storage misreported pending attachment age")
+		}
 	}
 }
 
@@ -143,16 +153,13 @@ func TestHostsAndRolloutsExcludeTerminalPartitions(t *testing.T) {
 	t.Parallel()
 	current := view{Local: &observability.MemberSnapshot{Placement: &observability.PlacementView{Databases: []observability.DatabaseView{
 		{DatabaseID: "active", Members: []observability.MemberView{{HostNode: "host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
-		{DatabaseID: "terminal", Terminal: true, Members: []observability.MemberView{{HostNode: "host", Stage: "serving"},
-			{HostNode: "removed-host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
+		{DatabaseID: "terminal", Terminal: true, Members: []observability.MemberView{{HostNode: "removed-host", Stage: "serving"}}, Rollout: &observability.RolloutView{}},
 	}}}}
-	hosts := current.hosts()
-	if len(hosts) != 1 || hosts[0].Node != "host" || hosts[0].Seats != 1 || hosts[0].Serving != 1 {
-		t.Fatalf("terminal seats included in hosts: %+v", hosts)
-	}
-	rollouts := current.rollouts()
-	if len(rollouts) != 1 || rollouts[0].DatabaseID != "active" {
-		t.Fatalf("terminal rollout included: %+v", rollouts)
+	for _, path := range []string{"/members", "/rollouts"} {
+		body := fixturePage(t, current, path)
+		if strings.Contains(body, "removed-host") || strings.Contains(body, ">terminal<") {
+			t.Fatalf("terminal partition leaked into %s", path)
+		}
 	}
 }
 
@@ -182,7 +189,8 @@ func TestCapacityDisplaysPartialCoverage(t *testing.T) {
 	current := topologyFixture("")
 	summary := *current.LocalSummary
 	summary.Capacity = regionview.Capacity{Partial: true, MemoryBytes: 100, MemoryUsedBytes: 90, DiskBytes: 100, DiskUsedBytes: 90}
-	body := renderHTML(t, regionCard(current, summary))
+	current.LocalSummary = &summary
+	body := fixturePage(t, current, "/region")
 	if !strings.Contains(body, "Resource coverage is partial") || !strings.Contains(body, "90.0%") || !strings.Contains(body, "unavailable") {
 		t.Fatalf("partial capacity lost its coverage evidence: %s", body)
 	}
@@ -194,7 +202,7 @@ func TestStorageWarnsWhenOneFilesystemFailedCollection(t *testing.T) {
 	node := &current.LocalSummary.Nodes[0]
 	node.Resources = regionview.CollectResources(*node, current.Journal.History, current.Now)
 	node.Resources.Incomplete = true
-	body := renderHTML(t, storageBody(current))
+	body := fixturePage(t, current, "/storage")
 	if !strings.Contains(body, "10.0 GiB") || !strings.Contains(body, "Resource collection or regional metric history is incomplete.") {
 		t.Fatal("successful disk reading hid the failed filesystem collection")
 	}

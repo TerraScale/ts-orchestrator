@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -71,214 +73,6 @@ func overviewRollup(cell string, observed time.Time, peers []string) globalview.
 	return rollup
 }
 
-func TestOverviewTotalsCountOnlyFreshRegions(t *testing.T) {
-	t.Parallel()
-	fresh := overviewRollup("gru", testNow, nil)
-	fresh.Totals = globalview.Totals{Nodes: 2, Ready: 1, CPUCores: 4, CPUUsedCores: 1.5, MemoryBytes: 8, MemoryUsedBytes: 2}
-	fresh.Cost = &globalview.Cost{Currency: "USD", PerHour: 2, MonthForecast: 1000}
-	stale := overviewRollup("sfo", testNow.Add(-time.Minute), nil)
-	stale.Totals = globalview.Totals{Nodes: 10, Ready: 10, CPUCores: 100, CPUUsedCores: 50}
-	regions := []globalview.Region{
-		{Cell: "gru", Rollup: &fresh},
-		{Cell: "sfo", Rollup: &stale, Stale: true},
-		{Cell: "fra"},
-	}
-	totals := totalsOf(regions)
-	if totals.Regions != 3 || totals.Fresh != 1 || totals.Stale != 1 || totals.NoData != 1 {
-		t.Fatalf("region counts = %+v", totals)
-	}
-	if totals.Nodes != 2 || totals.Ready != 1 || totals.CPUCores != 4 || totals.CPUUsed != 1.5 {
-		t.Fatalf("stale region leaked into node or CPU totals: %+v", totals)
-	}
-	if totals.Costed != 1 || totals.PerHour != 2 || totals.MonthForecast != 1000 || totals.Currency != "USD" {
-		t.Fatalf("cost totals = %+v", totals)
-	}
-	tiles := overviewTiles(regions)
-	if tiles[0].Value != "3" || tiles[0].Sub != "1 stale · 1 no data" || tiles[0].Status != "warn" {
-		t.Fatalf("regions tile = %+v", tiles[0])
-	}
-	if tiles[6].Value != "2.00 USD" || tiles[6].Sub != "1 of 1 fresh regions report cost" {
-		t.Fatalf("cost tile = %+v", tiles[6])
-	}
-}
-
-func TestOverviewCostIsNotReportedWithoutCost(t *testing.T) {
-	t.Parallel()
-	rollup := overviewRollup("gru", testNow, nil)
-	rollup.Cost = nil
-	tiles := overviewTiles([]globalview.Region{{Cell: "gru", Rollup: &rollup}})
-	if tiles[6].Value != "not reported" || tiles[7].Value != "not reported" {
-		t.Fatalf("cost tiles without cost = %q and %q", tiles[6].Value, tiles[7].Value)
-	}
-}
-
-func TestRegionCellsMarkStaleAndMissingRegions(t *testing.T) {
-	t.Parallel()
-	rollup := overviewRollup("gru", testNow, nil)
-	rollup.Health = globalview.Health{Status: globalview.Degraded, Reasons: []string{"disk 90%", "lag"}}
-	fresh := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
-	if fresh.Health != "warn" || fresh.HealthLabel != globalview.Degraded || fresh.Reasons != "disk 90%; lag" {
-		t.Fatalf("fresh health = %+v", fresh)
-	}
-	if fresh.Nodes != "12 / 12" || fresh.Scaling != "3 / 4 at goal" || fresh.Stale != "" {
-		t.Fatalf("fresh row = %+v", fresh)
-	}
-	stale := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup, Stale: true}, testNow.Add(time.Minute))
-	if stale.Health != "idle" || stale.HealthLabel != "unknown" || stale.Stale != "stale · last seen 1m ago" {
-		t.Fatalf("stale row = %+v", stale)
-	}
-	missing := regionCellsOf(globalview.Region{Cell: "fra"}, testNow)
-	if missing.Health != "idle" || missing.HealthLabel != "no data" || missing.Nodes != "—" || missing.CPU != "—" {
-		t.Fatalf("missing row = %+v", missing)
-	}
-}
-
-func TestRegionCellsShowNodeScaling(t *testing.T) {
-	t.Parallel()
-	rollup := overviewRollup("gru", testNow, nil)
-	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 14, Action: nodescale.Up, Reason: "cpu 0.90 for 5m0s",
-		InFlight: &nodescale.InFlight{Kind: nodescale.Up}}
-	up := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
-	if up.Scaling != "12 → 14 ↑" || up.ScalingStatus != "run" || up.ScalingTitle != "cpu 0.90 for 5m0s · in flight · 3 / 4 at goal" {
-		t.Fatalf("up scaling = %+v", up)
-	}
-
-	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 12, Action: nodescale.Hold, Saturated: true, Reason: "allowance spent"}
-	saturated := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
-	if saturated.Scaling != "12 nodes" || saturated.ScalingStatus != "warn" || saturated.ScalingTitle != "allowance spent · 3 / 4 at goal" {
-		t.Fatalf("saturated scaling = %+v", saturated)
-	}
-
-	rollup.Scale = &nodescale.Status{Nodes: 12, Want: 13, Action: nodescale.Up, Saturated: true, Reason: "allowance reached"}
-	if cappedUp := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow); cappedUp.ScalingStatus != "warn" {
-		t.Fatalf("a scale-up capped by its allowance = %q, want warn", cappedUp.ScalingStatus)
-	}
-
-	rollup.Scale = nil
-	fallback := regionCellsOf(globalview.Region{Cell: "gru", Rollup: &rollup}, testNow)
-	if fallback.Scaling != "3 / 4 at goal" || fallback.ScalingStatus != "" || fallback.ScalingTitle != "" {
-		t.Fatalf("fallback scaling = %+v", fallback)
-	}
-	if headers := regionTable(view{Global: []globalview.Region{{Cell: "gru", Rollup: &rollup}}}).Headers; headers[len(headers)-1] != "Scaling" {
-		t.Fatalf("last region column = %q, want Scaling", headers[len(headers)-1])
-	}
-}
-
-func TestLinkMatrixLooksUpEachDirection(t *testing.T) {
-	t.Parallel()
-	gru := overviewRollup("gru", testNow, []string{"sfo"})
-	gru.Links = append(gru.Links, globalview.Link{Region: "fra", Reach: "error", Error: "timeout"})
-	regions := []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo"}, {Cell: "fra"}}
-	matrix := linkMatrix(regions)
-	if strings.Join(matrix.Headers, ",") != `From \ To,GRU,SFO,FRA` || len(matrix.Rows) != 3 {
-		t.Fatalf("headers = %v, rows = %d", matrix.Headers, len(matrix.Rows))
-	}
-	to := matrix.Rows[0]
-	if to[0].Text != "GRU" || to[1].Text != "—" || to[2].Text != "40" || to[2].Title != "40 ms, lag 2 s" || to[2].Status != "ok" {
-		t.Fatalf("gru to sfo = %+v", to[2])
-	}
-	if to[3].Status != "bad" || !strings.HasSuffix(to[3].Title, " · timeout") {
-		t.Fatalf("gru to fra = %+v", to[3])
-	}
-	if matrix.Rows[1][1].Text != "·" || matrix.Rows[2][1].Text != "·" {
-		t.Fatalf("regions without a rollup should show missing cells: %+v", matrix.Rows)
-	}
-}
-
-func TestDataTableRendersEmptyNoteOrRows(t *testing.T) {
-	t.Parallel()
-	var out strings.Builder
-	if err := dataTable(table{Empty: "nothing yet"}).Render(t.Context(), &out); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != `<p class="empty">nothing yet</p>` {
-		t.Fatalf("empty table = %q", out.String())
-	}
-	out.Reset()
-	rows := table{Caption: "Sizes", Headers: []string{"Name", "Value"},
-		Rows: [][]cell{{{Text: "gru", Href: "/regions/gru"}, textCell("12")}}}
-	if err := dataTable(rows).Render(t.Context(), &out); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{`<th scope="row"`, `<a href="/regions/gru">gru</a>`, `<th scope="col">Value</th>`, `<td title="">12`} {
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("table lacks %q in %s", want, out.String())
-		}
-	}
-}
-
-func TestTopDatabasesAndErrorsMergeFreshRegions(t *testing.T) {
-	t.Parallel()
-	gru := overviewRollup("gru", testNow, nil)
-	sfo := overviewRollup("sfo", testNow, nil)
-	sfo.Databases = append(sfo.Databases, globalview.Database{ID: "big", ReplicationBytesPerSecond: 1 << 40})
-	sfo.Errors = append(sfo.Errors, globalview.Error{At: testNow.Add(time.Second), Level: "WARN", Message: "newest", Count: 1})
-	stale := overviewRollup("fra", testNow.Add(-time.Minute), nil)
-	stale.Databases = append(stale.Databases, globalview.Database{ID: "stale-big", ReplicationBytesPerSecond: 1 << 50})
-	regions := []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}, {Cell: "fra", Rollup: &stale, Stale: true}}
-
-	databases := topDatabases(regions)
-	if len(databases) != overviewTop || databases[0].ID != "big" || databases[0].Region != "sfo" {
-		t.Fatalf("databases = %d, first %+v", len(databases), databases[0])
-	}
-	for index := 1; index < len(databases); index++ {
-		if databases[index].ReplicationBytesPerSecond > databases[index-1].ReplicationBytesPerSecond {
-			t.Fatalf("databases not sorted by bandwidth at %d", index)
-		}
-	}
-	errs := recentErrors(regions)
-	if len(errs) != overviewTop || errs[0].Message != "newest" || errs[0].Region != "sfo" {
-		t.Fatalf("errors = %d, first %+v", len(errs), errs[0])
-	}
-	if len(topDatabases(nil)) != 0 || len(recentErrors(nil)) != 0 {
-		t.Fatal("no regions should merge to empty lists")
-	}
-}
-
-func TestDatabaseAndErrorTablesShowFields(t *testing.T) {
-	t.Parallel()
-	const databaseID = "01HZDB4Q7MXYABCDEFGHJKMNPQ"
-	const projectID = "01HZPRJ0000000000000000000"
-	gru := overviewRollup("gru", testNow, nil)
-	gru.Databases = []globalview.Database{{ID: databaseID, Project: projectID, ReplicationBytesPerSecond: 3072, SentBytesPerSecond: 2048,
-		ReceivedBytesPerSecond: 1024, Peers: []globalview.DatabasePeer{{Region: "sfo", SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024}},
-		StorageBytes: 3 << 30, ReadsPerSecond: 12.5, WritesPerSecond: 2, LagSeconds: 1.5}}
-	gru.Errors = []globalview.Error{
-		{At: testNow, Level: "WARN", Service: "terrabase", Component: "wan", Message: "lag rising", Count: 7, Nodes: []string{"gru-n01", "gru-n02"}},
-		{At: testNow.Add(-time.Minute), Level: "ERROR", Message: "boom", Count: 1},
-	}
-	regions := []globalview.Region{{Cell: "gru", Rollup: &gru}}
-
-	databases := databaseTable(topDatabases(regions)).Rows
-	if len(databases) != 1 {
-		t.Fatalf("database rows = %d, want 1", len(databases))
-	}
-	if got := databases[0][1]; got.Text != "01HZDB4Q7MXY" || got.Title != databaseID {
-		t.Fatalf("database cell = %+v, want short ID with full ID in title", got)
-	}
-	if got := databases[0][2]; got.Text != "01HZPRJ00000" || got.Title != projectID {
-		t.Fatalf("project cell = %+v, want short ID with full ID in title", got)
-	}
-	want := []string{"2.0 KiB/s", "1.0 KiB/s", "SFO 2.0 KiB/s / 1.0 KiB/s", "3.0 GiB", "12.5 / 2", "1.5 s"}
-	for index, text := range want {
-		if got := databases[0][index+3]; got.Text != text {
-			t.Fatalf("database cell %d = %q, want %q", index+3, got.Text, text)
-		}
-	}
-
-	errs := errorTable(recentErrors(regions)).Rows
-	if len(errs) != 2 {
-		t.Fatalf("error rows = %d, want 2", len(errs))
-	}
-	warn, bad := errs[0], errs[1]
-	if warn[2].Text != "WARN" || warn[2].Status != "warn" || warn[6].Text != "7" || warn[7].Text != "gru-n01, gru-n02" {
-		t.Fatalf("warn row = %+v, want WARN pill, count 7 and both nodes", warn)
-	}
-	if bad[2].Text != "ERROR" || bad[2].Status != "bad" || bad[6].Text != "1" || bad[7].Text != "-" {
-		t.Fatalf("error row = %+v, want ERROR pill, count 1 and no nodes", bad)
-	}
-}
-
 func TestGlobalMapPlacesKnownRegionsOnly(t *testing.T) {
 	t.Parallel()
 	gru := overviewRollup("gru", testNow, []string{"sfo", "lab"})
@@ -290,7 +84,7 @@ func TestGlobalMapPlacesKnownRegionsOnly(t *testing.T) {
 	current := view{Now: testNow, Local: &observability.MemberSnapshot{Cell: "gru"}, Global: []globalview.Region{
 		{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}, {Cell: "lab", Rollup: &lab}}}
 	var spec mapSpec
-	if err := json.Unmarshal([]byte(globalMapJSON(current)), &spec); err != nil {
+	if err := json.Unmarshal([]byte(pageMapJSON(t, fixturePage(t, current, "/"))), &spec); err != nil {
 		t.Fatal(err)
 	}
 	if len(spec.Regions) != 2 || spec.Regions[0].ID != "gru" || !spec.Regions[0].Current || spec.Regions[0].Href != "/regions/gru" {
@@ -308,7 +102,7 @@ func TestGlobalMapWorseDirectionWins(t *testing.T) {
 	sfo.Links = []globalview.Link{{Region: "gru", Reach: "error", Error: "tls handshake failed"}}
 	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &sfo}}}
 	var spec mapSpec
-	if err := json.Unmarshal([]byte(globalMapJSON(current)), &spec); err != nil {
+	if err := json.Unmarshal([]byte(pageMapJSON(t, fixturePage(t, current, "/"))), &spec); err != nil {
 		t.Fatal(err)
 	}
 	if len(spec.Links) != 1 || spec.Links[0].Label != "SFO → GRU tls handshake failed" || spec.Links[0].State != "bad" {
@@ -490,20 +284,56 @@ func TestOverviewBudgetTwentyRegions(t *testing.T) {
 	}
 }
 
-func TestPeersCellShowsBusiestThreeAndTitlesAll(t *testing.T) {
+func TestOverviewHTTPPreservesRegionalEvidence(t *testing.T) {
 	t.Parallel()
-	var peers []globalview.DatabasePeer
-	for _, region := range []string{"sfo", "lhr", "gru", "nrt"} {
-		peers = append(peers, globalview.DatabasePeer{Region: region, SentBytesPerSecond: 1024})
+	gru := overviewRollup("gru", testNow, []string{"sfo"})
+	gru.Health = globalview.Health{Status: globalview.Degraded, Reasons: []string{"disk 90%", "lag"}}
+	gru.Cost = &globalview.Cost{Currency: "USD", PerHour: 2, MonthForecast: 1000}
+	gru.Totals = globalview.Totals{Nodes: 2, Ready: 1, CPUCores: 4, CPUUsedCores: 1.5}
+	gru.Scale = &nodescale.Status{Nodes: 12, Want: 14, Action: nodescale.Up, Reason: "cpu above target", InFlight: &nodescale.InFlight{Kind: nodescale.Up}}
+	stale := overviewRollup("sfo", testNow.Add(-time.Minute), nil)
+	stale.Databases = []globalview.Database{{ID: "stale-database", ReplicationBytesPerSecond: 1 << 50}}
+	stale.Errors = []globalview.Error{{At: testNow, Level: "ERROR", Message: "stale-error"}}
+	current := view{Now: testNow, Global: []globalview.Region{{Cell: "gru", Rollup: &gru}, {Cell: "sfo", Rollup: &stale, Stale: true}, {Cell: "fra"}}}
+	body := fixturePage(t, current, "/")
+	for _, want := range []string{"1 stale · 1 no data", "2.00 USD", "1 of 1 fresh regions report cost", "disk 90%; lag", "stale · last seen", "no data", "12 → 14", "cpu above target", "Scaling", "40 ms, lag 2 s"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview lacks %q", want)
+		}
 	}
-	got := peersCell(peers)
-	if got.Text != "SFO 1.0 KiB/s / 0 B/s, LHR 1.0 KiB/s / 0 B/s, GRU 1.0 KiB/s / 0 B/s" {
-		t.Fatalf("peers text = %q, want the first three", got.Text)
+	if strings.Contains(body, "stale-database") || strings.Contains(body, "stale-error") {
+		t.Fatal("stale evidence leaked into current inventories")
 	}
-	if !strings.Contains(got.Title, "NRT 1.0 KiB/s / 0 B/s") {
-		t.Fatalf("peers title = %q, want all four", got.Title)
+	gru.Cost = nil
+	current.Global = []globalview.Region{{Cell: "gru", Rollup: &gru}}
+	if body := fixturePage(t, current, "/"); !strings.Contains(body, "not reported") {
+		t.Fatal("missing cost was reported as zero")
 	}
-	if storageText(0) != "—" {
-		t.Fatalf("storage of zero = %q, want a dash", storageText(0))
+	gru.Scale = &nodescale.Status{Nodes: 12, Want: 12, Action: nodescale.Hold, Saturated: true, Reason: "allowance spent"}
+	if body := fixturePage(t, current, "/"); !strings.Contains(body, "allowance spent") || !strings.Contains(body, "12 nodes") {
+		t.Fatal("saturated scaling lost allowance evidence")
 	}
+}
+
+func TestOverviewHTTPShowsDatabaseAndErrorFields(t *testing.T) {
+	t.Parallel()
+	gru := overviewRollup("gru", testNow, nil)
+	gru.Databases = []globalview.Database{{ID: "01HZDB4Q7MXYABCDEFGHJKMNPQ", Project: "01HZPRJ0000000000000000000", ReplicationBytesPerSecond: 3072, SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024, StorageBytes: 3 << 30, ReadsPerSecond: 12.5, WritesPerSecond: 2, LagSeconds: 1.5,
+		Peers: []globalview.DatabasePeer{{Region: "sfo", SentBytesPerSecond: 2048, ReceivedBytesPerSecond: 1024}, {Region: "lhr", SentBytesPerSecond: 1024}, {Region: "gru", SentBytesPerSecond: 1024}, {Region: "nrt", SentBytesPerSecond: 1024}}}}
+	gru.Errors = []globalview.Error{{At: testNow, Level: "WARN", Service: "terrabase", Component: "wan", Message: "lag rising", Count: 7, Nodes: []string{"gru-n01", "gru-n02"}}, {At: testNow.Add(-time.Minute), Level: "ERROR", Message: "boom", Count: 1}}
+	body := fixturePage(t, view{Global: []globalview.Region{{Cell: "gru", Rollup: &gru}}}, "/")
+	for _, want := range []string{"01HZDB4Q7MXY", "01HZDB4Q7MXYABCDEFGHJKMNPQ", "01HZPRJ00000", "2.0 KiB/s", "1.0 KiB/s", "3.0 GiB", "12.5 / 2", "1.5 s", "WARN", "ERROR", "lag rising", "boom", "gru-n01, gru-n02", "NRT 1.0 KiB/s"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview fields lack %q", want)
+		}
+	}
+}
+
+func pageMapJSON(t *testing.T, body string) string {
+	t.Helper()
+	match := regexp.MustCompile(`<ts-map data-spec="([^"]*)"`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatal("overview map missing")
+	}
+	return html.UnescapeString(match[1])
 }

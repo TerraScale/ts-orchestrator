@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 	"github.com/TerraScale/ts-orchestrator/internal/insights"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
@@ -237,28 +237,6 @@ func (world *World) tickEvent(at time.Time, random *rand.Rand) {
 		Message: eventMessage(component, level, "orders-2"), Attrs: map[string]string{"region": "gru"}})
 }
 
-// Regions answers every region's summary, GRU first, as the regionview
-// provider would after asking SFO and FRA over the region links.
-func (world *World) Regions(ctx context.Context) []regionview.Summary {
-	out := []regionview.Summary{world.local.provider.Local(ctx)}
-	for _, state := range world.others {
-		summary := state.provider.Local(ctx)
-		summary.Local = false
-		out = append(out, summary)
-	}
-	return out
-}
-
-// Region answers one region's summary.
-func (world *World) Region(ctx context.Context, name string) (regionview.Summary, error) {
-	for _, summary := range world.Regions(ctx) {
-		if summary.Region == strings.ToLower(name) {
-			return summary, nil
-		}
-	}
-	return regionview.Summary{}, fmt.Errorf("region %q is not configured", name)
-}
-
 // Reachability reports SFO and FRA as linked and answering.
 func (world *World) Reachability(context.Context) []insights.RegionReach {
 	now := time.Now()
@@ -274,6 +252,12 @@ func (world *World) Options() dashboard.Options {
 			AttentionScope: "GRU"},
 		Local: world.local.provider.Local, Versions: world, Rollouts: rollouts{region: "gru"}, Volumes: world,
 		Qualification: qualifications{}, Inventory: inventory{}}
+	global := globalview.NewView("gru", func() []string { return regionNames }, time.Now)
+	for _, region := range world.regions {
+		now := time.Now().UTC()
+		global.Accept(globalview.Build(globalview.Inputs{Cell: region.name, Now: now, Cluster: region.cluster(now, world.start), ClusterOK: true}))
+	}
+	journal.Global = global
 	return dashboard.Options{Health: world.health, Events: world.events, Snapshots: world.local,
 		Cluster: world.local, Journal: &journal}
 }

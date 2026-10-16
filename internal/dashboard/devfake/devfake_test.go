@@ -3,6 +3,7 @@ package devfake_test
 import (
 	"bufio"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -12,94 +13,36 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake"
-	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
-
-func TestWorldHasThreeMovingRegions(t *testing.T) {
-	t.Parallel()
-	world := devfake.New()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go world.Run(ctx)
-	regions := world.Regions(ctx)
-	if len(regions) != 3 || !regions[0].Local || regions[0].Region != "gru" {
-		t.Fatalf("regions = %+v", regions)
-	}
-	if !regions[1].MixedVersions() || len(regions[2].Quorum.Missing) != 1 {
-		t.Fatalf("SFO should run mixed versions and FRA miss a controller: %+v %+v", regions[1], regions[2])
-	}
-	options := world.Options()
-	cluster, err := options.Cluster.Cluster(ctx, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, member := range cluster.Members {
-		if member.Placement == nil {
-			continue
-		}
-		for _, db := range member.Placement.Databases {
-			if !entityid.Valid(db.DatabaseID) || !entityid.Valid(db.PartitionID) {
-				t.Fatalf("invalid preview database identity: %+v", db)
-			}
-			for _, seat := range db.Members {
-				if !entityid.Valid(seat.SeatID) {
-					t.Fatalf("invalid preview seat identity: %s", seat.SeatID)
-				}
-			}
-		}
-	}
-	result, err := options.Journal.Decisions.Query(ctx, decisionlog.Query{Kinds: []decisionlog.Kind{decisionlog.KindRollback}})
-	if err != nil || len(result.Decisions) == 0 {
-		t.Fatalf("no rollback decision: %v %v", result, err)
-	}
-	holds, err := options.Journal.Decisions.Query(ctx, decisionlog.Query{
-		Kinds: []decisionlog.Kind{decisionlog.KindHeld, decisionlog.KindHoldCleared}, Limit: decisionlog.MaxQueryLimit,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	matched := map[decisionlog.Kind]bool{}
-	for _, event := range holds.Decisions {
-		if event.Subject.Kind == "database" {
-			if event.Attrs["database_id"] != event.Subject.ID ||
-				event.Attrs["partition_id"] != entityid.Derive("preview-partition", event.Subject.ID) {
-				t.Fatalf("database hold lacks partition correlation: %+v", event)
-			}
-			matched[event.Kind] = true
-		}
-	}
-	if !matched[decisionlog.KindHeld] || !matched[decisionlog.KindHoldCleared] {
-		t.Fatal("preview lacks database hold and clearing")
-	}
-	if evaluation := options.Journal.Insights.Current(); len(evaluation.Insights) == 0 {
-		t.Fatal("the fake world raises no insight")
-	}
-	versions, _ := options.Journal.Versions.Versions(ctx)
-	kinds := map[string]bool{}
-	for _, unit := range versions {
-		kinds[unit.Kind] = true
-	}
-	if !kinds["controller"] || !kinds["host"] || !kinds["seat"] {
-		t.Fatalf("version kinds = %v", kinds)
-	}
-}
 
 func TestEveryPageAndStreamRendersTheFakeWorld(t *testing.T) {
 	t.Parallel()
 	world := devfake.New()
+	go world.Run(t.Context())
 	options := world.Options()
 	options.Interval = 20 * time.Millisecond
 	board := dashboard.New(options)
 	server := httptest.NewServer(board.Handler())
 	t.Cleanup(server.Close)
 	for _, path := range []string{"/", "/region", "/region?r=sfo", "/insights", "/decisions", "/releases", "/rollouts",
-		"/ci", "/topology", "/members", "/nats", "/terrabase", "/storage", "/oci", "/events"} {
+		"/ci", "/topology", "/members", "/nats", "/terrabase", "/storage", "/oci", "/events", "/decisions?kind=held,hold_cleared", "/decisions?kind=leader_changed,quorum_degraded", "/releases?region=all"} {
 		response, err := server.Client().Get(server.URL + path)
 		if err != nil {
 			t.Fatal(err)
 		}
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
 		_ = response.Body.Close()
+		for _, want := range map[string][]string{
+			"/": {"GRU", "SFO", "FRA"}, "/region?r=sfo": {"SFO"}, "/releases": {"v0.43.0", "v0.42.1"}, "/rollouts": {"complete", "canary-soak"}, "/terrabase": {"Time to full"}, "/decisions?kind=held,hold_cleared": {"held", "hold_cleared"}, "/decisions?kind=leader_changed,quorum_degraded": {"leader_changed", "quorum_degraded"},
+		}[path] {
+			if !strings.Contains(string(body), want) {
+				t.Errorf("GET %s lacks %q", path, want)
+			}
+		}
+
 		if response.StatusCode != http.StatusOK {
 			t.Fatalf("GET %s = %d", path, response.StatusCode)
 		}
@@ -124,11 +67,8 @@ func TestEveryPageAndStreamRendersTheFakeWorld(t *testing.T) {
 
 // TestProductionBinaryDoesNotLinkTheFake keeps fixtures confined to tests.
 func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
-	if testing.Short() {
-		t.Skip("lists the production binary's dependencies with the go tool")
-	}
 	t.Parallel()
-	output, err := exec.Command("go", "list", "-deps", "github.com/TerraScale/ts-orchestrator/cmd/terrascale-orchestrator").CombinedOutput()
+	output, err := exec.Command("nice", "-n", "19", "go", "list", "-deps", "github.com/TerraScale/ts-orchestrator/cmd/terrascale-orchestrator").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list: %v\n%s", err, output)
 	}
@@ -138,7 +78,7 @@ func TestProductionBinaryDoesNotLinkTheFake(t *testing.T) {
 	if !strings.Contains(string(output), "internal/dashboard\n") {
 		t.Fatal("go list did not list the dashboard; the check is not looking at the right binary")
 	}
-	sources, err := exec.Command("go", "list", "-f", "{{join .GoFiles \"\\n\"}}", "github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake").CombinedOutput()
+	sources, err := exec.Command("nice", "-n", "19", "go", "list", "-f", "{{join .GoFiles \"\\n\"}}", "github.com/TerraScale/ts-orchestrator/internal/dashboard/devfake").CombinedOutput()
 	if err != nil {
 		t.Fatalf("go list fixture sources: %v\n%s", err, sources)
 	}

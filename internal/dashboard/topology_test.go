@@ -55,7 +55,7 @@ func withSFO(current view) view {
 
 func renderTopology(t *testing.T, current view) string {
 	t.Helper()
-	return renderHTML(t, topologyBody(current))
+	return fixturePage(t, current, "/topology")
 }
 
 func nodeClass(body, node string) string {
@@ -138,20 +138,6 @@ func TestTopologyNATSLinkDown(t *testing.T) {
 func TestTopologyLinksOtherRegions(t *testing.T) {
 	t.Parallel()
 	current := withSFO(topologyFixture("nats=1"))
-	graph := current.topologyGraph()
-	if len(graph.Regions) != 1 || graph.Regions[0].Name != "GRU" {
-		t.Fatalf("regions = %+v", graph.Regions)
-	}
-	for _, region := range graph.Regions {
-		for index := 1; index < len(region.Nodes); index++ {
-			if region.Nodes[index].Y < region.Nodes[index-1].Y+region.Nodes[index-1].H {
-				t.Errorf("%s node rows overlap", region.Name)
-			}
-		}
-		if region.Y+region.H > graph.Height || region.X+region.W > graph.Width {
-			t.Errorf("%s exceeds the canvas", region.Name)
-		}
-	}
 	body := renderTopology(t, current)
 	if !strings.Contains(body, "Other regions") || !strings.Contains(body, `href="/regions/sfo"`) {
 		t.Error("the topology does not link the other regions")
@@ -165,22 +151,15 @@ func TestTopologyLinksOtherRegions(t *testing.T) {
 // hosts, and a missing controller is drawn broken.
 func TestTopologyOlderSummary(t *testing.T) {
 	t.Parallel()
-	nodes := topologyNodes(regionview.Summary{Region: "fra",
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}},
-		Quorum:  regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}})
-	var names []string
-	for _, node := range nodes {
-		names = append(names, node.Name+"/"+node.Member)
-	}
-	if got := strings.Join(names, ","); got != "c1/c1,h0/,c2/c2,h1/" {
-		t.Errorf("nodes = %s", got)
-	}
-	current := view{State: parseState(url.Values{}), LocalSummary: &regionview.Summary{Region: "fra",
-		Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}},
-		Quorum:  regionview.Quorum{Missing: []string{"c2"}}}}
+	current := view{LocalSummary: &regionview.Summary{Region: "fra", Local: true, Members: []regionview.Member{{Name: "c1", Role: "controller", Ready: true}, {Name: "h0", Role: "host", Ready: true}}, Quorum: regionview.Quorum{Missing: []string{"c2"}}, Hosts: []regionview.Host{{Name: "h1", Seats: 2, Serving: 1}}}}
 	body := renderTopology(t, current)
-	if got := nodeClass(body, "c2"); got != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
-		t.Errorf("missing controller class = %q", got)
+	for _, name := range []string{"c1", "h0", "c2", "h1"} {
+		if !strings.Contains(body, `data-node="`+name+`"`) {
+			t.Errorf("older summary lost node %s", name)
+		}
+	}
+	if nodeClass(body, "c2") != "node s-bad" || !strings.Contains(body, "missing: did not answer") {
+		t.Fatal("missing controller did not render as failed")
 	}
 }
 

@@ -24,7 +24,7 @@ func TestNATSRouteRTTReachesTheRenderedChartWithoutRoundingToZero(t *testing.T) 
 			Labels: observability.L("member", pair.server, "server", pair.server, "peer", pair.peer), Value: .00001337}})
 	}
 	current := view{Now: now, State: parseState(url.Values{}), Journal: &Journal{History: history}}
-	body := renderHTML(t, natsBody(current))
+	body := fixturePage(t, current, "/nats")
 	for _, match := range regexp.MustCompile(`data-spec="([^"]*)"`).FindAllStringSubmatch(body, -1) {
 		var chart chartSpec
 		if err := json.Unmarshal([]byte(html.UnescapeString(match[1])), &chart); err != nil {
@@ -56,7 +56,7 @@ func TestNATSRouteRTTShowsUnknownPartialStaleAndTruncatedEvidence(t *testing.T) 
 	}
 	member.NATS.RouteRTTsTruncated = true
 	current := view{Local: &member, Now: testNow, State: parseState(url.Values{})}
-	body := renderHTML(t, natsBody(current))
+	body := fixturePage(t, current, "/nats")
 	for _, want := range []string{"measured-peer", "unmeasured-peer", "13.37µs", "2 / 3", "0 / 3", "unavailable", "omitted peers have unknown RTT"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("NATS route evidence lacks %q", want)
@@ -66,33 +66,34 @@ func TestNATSRouteRTTShowsUnknownPartialStaleAndTruncatedEvidence(t *testing.T) 
 		t.Error("NATS route panel still claims RTT is never collected")
 	}
 	member.ObservedAt = testNow.Add(-10 * time.Minute)
-	if body := renderHTML(t, natsBody(current)); !strings.Contains(body, "13.37µs (stale)") {
+	if body := fixturePage(t, current, "/nats"); !strings.Contains(body, "13.37µs (stale)") {
 		t.Error("old snapshot RTT was shown as current")
 	}
 	member.Errors = map[string]string{"nats": "unavailable"}
-	if body := renderHTML(t, natsBody(current)); strings.Contains(body, "13.37µs") {
+	if body := fixturePage(t, current, "/nats"); strings.Contains(body, "13.37µs") {
 		t.Error("failed NATS collection was presented as a valid route RTT")
 	}
 }
 
 func TestNATSRouteRTTHistoryDisclosesOmittedObservations(t *testing.T) {
 	t.Parallel()
+	now := time.Now().UTC()
 	for _, count := range []int{1, 65} {
 		history := observability.NewHistory(observability.HistoryConfig{})
 		for index := range count {
-			history.Append(testNow, []observability.Sample{{Metric: observability.HistNATSRouteRTT,
+			history.Append(now, []observability.Sample{{Metric: observability.HistNATSRouteRTT,
 				Labels: observability.L("server", "gru-a", "peer", fmt.Sprintf("peer-%03d", index)), Value: .00001337}})
 		}
 		var source observability.HistorySource = history
 		if count == 1 {
 			source = incompleteHostHistory{history}
 		}
-		current := view{Now: testNow, State: parseState(url.Values{}), Journal: &Journal{History: source}}
-		chart := current.natsRouteChart()
+		current := view{Now: now, State: parseState(url.Values{}), Journal: &Journal{History: source}}
+		chart := routeChartPage(t, current)
 		if len(chart.Series) != min(count, 64) {
 			t.Fatalf("%d observations returned %d series", count, len(chart.Series))
 		}
-		if body := renderHTML(t, natsBody(current)); !strings.Contains(body, "Route RTT history is partial;") {
+		if body := fixturePage(t, current, "/nats"); !strings.Contains(body, "Route RTT history is partial;") {
 			t.Fatalf("%d observations hid partial history", count)
 		}
 	}
@@ -121,7 +122,7 @@ func TestNATSRouteRTTEmptyInventoryRequiresCompleteCollection(t *testing.T) {
 				member.Errors = map[string]string{"nats": "unavailable"}
 			}
 			current := view{Local: &member, Now: testNow, State: parseState(url.Values{})}
-			body := renderHTML(t, natsBody(current))
+			body := fixturePage(t, current, "/nats")
 			if strings.Contains(body, "No route connections reported.") != test.empty {
 				t.Fatalf("unproven empty route inventory: routes=%d truncated=%v failed=%v", test.routes, test.truncated, test.failed)
 			}
@@ -161,11 +162,11 @@ func TestNATSRouteRTTHistoryKeepsCollectionGapsAfterRecovery(t *testing.T) {
 			member.ObservedAt = now
 			history.Append(now, sampler.Samples(cluster))
 			current := view{Local: &member, Now: now, State: parseState(url.Values{"range": {test.rangeID}}), Journal: &Journal{History: history}}
-			chart := current.natsRouteChart()
+			chart := routeChartPage(t, current)
 			if len(chart.Series) != 1 || (chart.Warning != "") != test.partial {
 				t.Fatalf("route history after recovery: series=%d warning=%q; partial=%v", len(chart.Series), chart.Warning, test.partial)
 			}
-			body := renderHTML(t, natsBody(current))
+			body := fixturePage(t, current, "/nats")
 			if strings.Contains(body, "Route RTT history is partial;") != test.partial || strings.Contains(body, "Route inventory is partial;") {
 				t.Fatal("historical collection gaps were hidden or current recovery was ignored")
 			}
@@ -187,7 +188,7 @@ func TestNATSRouteRTTHistoryPreservesBucketPeaks(t *testing.T) {
 	for _, rangeID := range []string{"15m", "1h", "6h", "24h", "7d"} {
 		t.Run(rangeID, func(t *testing.T) {
 			current := view{Now: now, State: parseState(url.Values{"range": {rangeID}}), Journal: &Journal{History: history}}
-			chart := current.natsRouteChart()
+			chart := routeChartPage(t, current)
 			if len(chart.Series) != 1 {
 				t.Fatalf("route series = %+v", chart.Series)
 			}
@@ -210,15 +211,11 @@ func TestNATSRouteRTTHistoryValidatesSelectedPeak(t *testing.T) {
 		{Time: testNow.Add(time.Second), Value: 2, Max: math.NaN()},
 		{Time: testNow.Add(2 * time.Second), Value: 2, Max: math.Inf(1)},
 	}}}}
-	for _, metric := range []string{observability.HistNATSRouteRTT, observability.HistNATSConnections} {
-		series := historyChartSeries(result, metric, "server,peer")
-		if metric == observability.HistNATSRouteRTT {
-			if len(series) != 1 || len(series[0].Points) != 1 || series[0].Points[0][1] != 4 {
-				t.Fatalf("RTT did not validate its selected peak: %+v", series)
-			}
-		} else if len(series) != 1 || len(series[0].Points) != 3 || series[0].Points[0][1] != 2 {
-			t.Fatalf("unrelated gauge averages changed: %+v", series)
-		}
+
+	current := view{Now: testNow, Journal: &Journal{History: peakHistory{result: result}}}
+	chart := routeChartPage(t, current)
+	if len(chart.Series) != 1 || len(chart.Series[0].Points) != 1 || chart.Series[0].Points[0][1] != 4 {
+		t.Fatalf("invalid RTT peaks reached chart: %+v", chart)
 	}
 }
 
@@ -250,7 +247,7 @@ func TestNATSRouteRTTHistoryDisclosesUnmeasuredConnections(t *testing.T) {
 				member.NATS.RouteRTTs[0] = observability.RouteRTTView{RemoteName: "ctl-2", Connections: 3, MeasuredConnections: 3, RTTSeconds: new(.00001337)}
 				history.Append(now, sampler.Samples(cluster))
 				current := view{Local: &member, Now: now, State: parseState(url.Values{"range": {rangeID}}), Journal: &Journal{History: history}}
-				if chart := current.natsRouteChart(); len(chart.Series) != 1 || (chart.Warning != "") != test.partial {
+				if chart := routeChartPage(t, current); len(chart.Series) != 1 || (chart.Warning != "") != test.partial {
 					t.Fatalf("measurement coverage after recovery: series=%d warning=%q; partial=%v", len(chart.Series), chart.Warning, test.partial)
 				}
 			})
@@ -301,7 +298,7 @@ func TestNATSRouteRTTHistoryRequiresCompleteCoverageEvidence(t *testing.T) {
 				if slices.Contains(test.omit, observability.HistNATSRouteRTT) {
 					wantSeries = 0
 				}
-				if chart := current.natsRouteChart(); len(chart.Series) != wantSeries || (chart.Warning != "") != test.partial {
+				if chart := routeChartPage(t, current); len(chart.Series) != wantSeries || (chart.Warning != "") != test.partial {
 					t.Fatalf("coverage evidence: series=%d warning=%q; partial=%v", len(chart.Series), chart.Warning, test.partial)
 				}
 			}
@@ -331,7 +328,7 @@ func TestNATSRouteRTTHistoryMatchesRestoredAndFreshCoverage(t *testing.T) {
 			member.NATS.RouteRTTs[0] = observability.RouteRTTView{RemoteName: "ctl-2", Connections: 3, MeasuredConnections: 3, RTTSeconds: new(.00001337)}
 			restored.Append(now, sampler.Samples(cluster))
 			current := view{Now: now, State: parseState(url.Values{"range": {"15m"}}), Journal: &Journal{History: restored}}
-			if chart := current.natsRouteChart(); len(chart.Series) != 1 || (chart.Warning != "") != (gapAge < 15*time.Minute) {
+			if chart := routeChartPage(t, current); len(chart.Series) != 1 || (chart.Warning != "") != (gapAge < 15*time.Minute) {
 				t.Fatalf("restored coverage: series=%d warning=%q gapAge=%v", len(chart.Series), chart.Warning, gapAge)
 			}
 		})
@@ -378,7 +375,7 @@ func TestNATSRouteRTTHistoryKeepsBoundedExportLossAfterRecovery(t *testing.T) {
 		for _, rangeID := range []string{"15m", "1h", "6h", "7d"} {
 			t.Run(fmt.Sprintf("restart-%d/%s", restart, rangeID), func(t *testing.T) {
 				current := view{Now: now, State: parseState(url.Values{"range": {rangeID}}), Journal: &Journal{History: restored}}
-				if chart := current.natsRouteChart(); len(chart.Series) != 1 || len(chart.Series[0].Points) != 1 || chart.Warning == "" {
+				if chart := routeChartPage(t, current); len(chart.Series) != 1 || len(chart.Series[0].Points) != 1 || chart.Warning == "" {
 					t.Fatalf("fresh RTT hid an earlier lost peak: %+v", chart)
 				}
 			})
@@ -393,4 +390,31 @@ func TestNATSRouteRTTHistoryKeepsBoundedExportLossAfterRecovery(t *testing.T) {
 		}
 		restored.Append(now, samples[:3])
 	}
+}
+
+func routeChartPage(t *testing.T, current view) chartSpec {
+	t.Helper()
+	body := fixturePage(t, current, "/nats")
+	for _, chart := range pageCharts(t, body) {
+		if chart.Unit == "latency" {
+			if strings.Contains(body, "Route RTT history is partial;") {
+				chart.Warning = "partial"
+			}
+			return chart
+		}
+	}
+	t.Fatal("NATS route chart missing")
+	return chartSpec{}
+}
+
+type peakHistory struct {
+	observability.HistorySource
+	result observability.HistoryResult
+}
+
+func (source peakHistory) Range(query observability.HistoryQuery) observability.HistoryResult {
+	if query.Metric == observability.HistNATSRouteRTT {
+		return source.result
+	}
+	return observability.HistoryResult{}
 }
