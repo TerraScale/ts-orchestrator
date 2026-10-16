@@ -72,7 +72,7 @@ func (check LiveCredentials) VerifyLiveCredentials(ctx context.Context, expected
 }
 
 // VerifyInitialLiveCredentials is limited to current, independently verified first formation.
-func (check LiveCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins, manifest bootstrap.VerifiedManifest) error {
+func (check LiveCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins, manifest bootstrap.StartupAuthority) error {
 	payload := manifest.Manifest()
 	if !sameMaterials(expectedMaterials(payload, payload.Slot), expected.Digests) {
 		return ErrLiveCredentials

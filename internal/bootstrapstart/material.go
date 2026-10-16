@@ -34,7 +34,7 @@ func OperatorDirectory(cell string) string {
 var ErrMaterial = errors.New("controller credential material is invalid")
 
 type SecretMaterializer interface {
-	MaterializeCurrent(context.Context, bootstrap.VerifiedManifest, bootstrap.VerifiedReceipt,
+	MaterializeCurrent(context.Context, bootstrap.StartupAuthority, bootstrap.VerifiedReceipt,
 		bootstrap.SecretReference, string, func(time.Time) error) error
 }
 
@@ -63,7 +63,7 @@ func NewMaterialStore(vault SecretMaterializer, serviceUID, serviceGID uint32) (
 	}, nil
 }
 
-func (store MaterialStore) PrepareInitial(ctx context.Context, manifest bootstrap.VerifiedManifest,
+func (store MaterialStore) PrepareInitial(ctx context.Context, manifest bootstrap.StartupAuthority,
 	receipt bootstrap.VerifiedReceipt, expected map[string]string, verifyCurrent CurrentProofVerifier,
 ) error {
 	if store.vault == nil || verifyCurrent == nil ||
