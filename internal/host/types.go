@@ -298,6 +298,7 @@ type ControllerConfig struct {
 	ManagedDesiredVerifier      ManagedDesiredVerifier
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
+	FunctionMaterialProvider    FunctionMaterialProvider
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
@@ -330,6 +331,27 @@ type VolumeInitObservation struct {
 // ManagedMaterialProvider returns only a currently admitted member's exact
 // R3-pinned host files. The host RPC encrypts each requested chunk separately.
 type ManagedMaterialProvider func(context.Context, Desired, Registration) (map[string][]byte, error)
+
+// FunctionMaterialBinding selects the actual task and recipient, never task labels.
+type FunctionMaterialBinding struct {
+	TaskID      string `json:"task_id"`
+	ServiceID   string `json:"service_id"`
+	NodeID      string `json:"node_id"`
+	InstanceID  string `json:"instance_id"`
+	Region      string `json:"region"`
+	HostID      string `json:"host_id"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type FunctionMaterialFiles struct {
+	Files     map[string][]byte
+	ExpiresAt time.Time
+}
+
+// FunctionMaterialProvider independently resolves the registered host's actual
+// Fleet/Swarm recipient and current authority grant before returning owned Vault
+// file buffers. The transport clears those buffers after encrypting its chunk.
+type FunctionMaterialProvider func(context.Context, Registration, FunctionMaterialBinding) (FunctionMaterialFiles, error)
 
 // ManagedRegistrationVerifier checks a managed registration against current
 // admitted placement, durable member state, and OCI observation.

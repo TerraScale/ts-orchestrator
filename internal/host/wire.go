@@ -209,7 +209,7 @@ func exchangeWithEnvelope(ctx context.Context, conn *nats.Conn, cell string, con
 		return err
 	}
 	timeout := 5 * time.Second
-	if r.Operation == "material" || r.Operation == "volume-init" {
+	if r.Operation == "material" || r.Operation == "function-material" || r.Operation == "volume-init" {
 		timeout = 30 * time.Second
 	}
 	deadline, cancel := context.WithTimeout(ctx, timeout)
