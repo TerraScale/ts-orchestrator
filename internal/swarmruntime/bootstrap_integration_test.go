@@ -46,7 +46,7 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	})
 	start := func(directory string, binding bootstrapstart.RuntimeIdentity) *Node {
 		t.Helper()
-		n, err := startAcceptedNodeAt(ctx, directory, binding, target, vaultClient, bundles, nodeIdleExecutor{}, refresh)
+		n, err := startAcceptedNodeAt(ctx, directory, binding, target, vaultClient, bundles, bootstrapHostExecutor{}, refresh)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -129,6 +129,18 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	if err != nil || !bytes.Equal(before, after) {
 		t.Fatal("retry after interrupted publication replaced the upstream CA", err)
 	}
+}
+
+type bootstrapHostExecutor struct{ nodeIdleExecutor }
+
+func (executor bootstrapHostExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
+	description, err := executor.nodeIdleExecutor.Describe(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// The signed slot controls placement even when the VM uses another hostname.
+	description.Hostname = "oracle-assigned-vm-hostname"
+	return description, nil
 }
 
 type bootstrapVaultFixture struct {
