@@ -129,7 +129,11 @@ func runInputs(root string, args []string, out, stderr io.Writer) (error, int) {
 	if *qualification == "" || *detail == "" {
 		return errors.New("pin-terrabase requires --qualification and --run-detail"), 2
 	}
-	pin, e := TerraBaseQualification(*qualification, *detail)
+	architecture, e := manifest.Architecture()
+	if e != nil {
+		return e, 1
+	}
+	pin, e := TerraBaseQualification(*qualification, *detail, architecture)
 	if e != nil {
 		return e, 1
 	}

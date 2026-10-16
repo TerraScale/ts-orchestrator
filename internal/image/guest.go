@@ -37,7 +37,7 @@ var NetBirdUnits = []string{"netbird.service", "terrascale-netbird-enroll.servic
 
 const SSHUnit = "ssh.socket"
 
-var Units = []string{"systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
+var Units = []string{"containerd.service", "systemd-timesyncd.service", "systemd-time-wait-sync.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service", "terrascale-orchestrator-host.service", "netbird.service", "terrascale-netbird-enroll.service", "terrascale-netbird-agent.service", SSHUnit}
 var HostUnits = []string{"terrascale-orchestrator-host-setup.service", "terrascale-orchestrator-host-setup.timer", "terrascale-orchestrator-host-volume-init.socket"}
 var HostUnitFiles = append(append([]string{}, HostUnits...), "terrascale-orchestrator-host-volume-init.service")
 

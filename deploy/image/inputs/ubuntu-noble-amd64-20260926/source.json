@@ -1,0 +1,61 @@
+{
+  "schema": "terrascale.image.base-source.v1",
+  "architecture": "amd64",
+  "ubuntu_release": "24.04 LTS (Noble Numbat)",
+  "ubuntu_serial": "20260926",
+  "image": {
+    "url": "https://cloud-images.ubuntu.com/noble/20260926/noble-server-cloudimg-amd64.img",
+    "checksum_name": "noble-server-cloudimg-amd64.img",
+    "bytes": 625612288,
+    "sha256": "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2",
+    "size_evidence": "HTTP HEAD Content-Length; image body not downloaded",
+    "last_modified": "Sat, 26 Sep 2026 13:13:58 GMT"
+  },
+  "checksum_verification": {
+    "result": "valid",
+    "signer_fingerprint": "D2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+    "trust_anchor": "deploy/image/image-inputs.json base.signer_fingerprint",
+    "signed_files": [
+      "noble-server-cloudimg-amd64.img",
+      "noble-server-cloudimg-amd64.manifest"
+    ]
+  },
+  "metadata": [
+    {
+      "file": "SHA256SUMS",
+      "url": "https://cloud-images.ubuntu.com/noble/20260926/SHA256SUMS",
+      "bytes": 7381,
+      "sha256": "b61a6497608cdea66f54968d52d3457365b0645ccb2b1371c8f092ecce806183"
+    },
+    {
+      "file": "SHA256SUMS.gpg",
+      "url": "https://cloud-images.ubuntu.com/noble/20260926/SHA256SUMS.gpg",
+      "bytes": 833,
+      "sha256": "1703eef53a392af8f6834716afacc15f74eac14f07aa8d916c1fe5dc219419d1"
+    },
+    {
+      "file": "noble-server-cloudimg-amd64.manifest",
+      "url": "https://cloud-images.ubuntu.com/noble/20260926/noble-server-cloudimg-amd64.manifest",
+      "bytes": 21262,
+      "sha256": "cfe3667617da8f136b7a1673e197d46dbb99cdc248a73f4457ad0ffcfc9796eb"
+    },
+    {
+      "file": "ubuntu-cloudimage-signing-key.asc",
+      "url": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xD2EB44626FDDC30B513D5BB71A5D6C4C7DB87C81",
+      "bytes": 3325,
+      "sha256": "927138de292fac4d861105a052cf56e9c5921987da385c844d88f34d19b39ab0"
+    }
+  ],
+  "package_manifest": {
+    "kernel_package": "linux-image-6.8.0-142-generic",
+    "kernel_package_version": "6.8.0-142.142",
+    "systemd_version": "255.4-1ubuntu8.17"
+  },
+  "remaining_admission_evidence": [
+    "Downloaded image body SHA-256 and disk format qualification",
+    "Authorized live OCI AMD64 base image identity and compatible shape evidence",
+    "Qualified AMD64 native TerraBase production material verifier or signed equivalent",
+    "Completed production image build, boot, and runtime qualification"
+  ],
+  "scope": "Source metadata only; does not admit AMD64 production images or replace image-inputs.json."
+}
