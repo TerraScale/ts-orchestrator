@@ -336,7 +336,7 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return fail()
 	}
 	node := nodeResponse.Node
-	if node == nil || node.ID != task.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
+	if node == nil || node.Description == nil || node.Description.Platform == nil || node.ID != task.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
 		node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != registration.ID ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
 		node.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "wasm" ||
@@ -344,22 +344,22 @@ func (controller functionController) recipient(ctx context.Context, registration
 		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID {
 		return fail()
 	}
-	worker, err := controller.config.Worker(ctx, proof)
+	intent := functionServiceTarget(proof, node.Description.Platform.Architecture)
+	bundle, err := intent.WorkerBundleForTask(ctx, controller.config.Client, task)
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	// Issued material is capped at function expiry, so worker qualification must cover it too.
-	target := release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture}
-	allocations, err := currentContainerAllocations(ctx, controller.config.Factory, worker.Bundle, controller.config.Material.Reader.Roots(), target)
+	target := release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: intent.Architecture}
+	allocations, err := currentContainerAllocations(ctx, controller.config.Factory, bundle, controller.config.Material.Reader.Roots(), target)
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	verifiedWorker, err := release.VerifyContainerCurrent(ctx, worker.Bundle, controller.config.Material.Reader.Roots(),
+	verifiedWorker, err := release.VerifyContainerCurrent(ctx, bundle, controller.config.Material.Reader.Roots(),
 		target, time.Now(), proof.ExpiresAt(), controller.config.Evidence, allocations)
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	intent := functionServiceTarget(proof, worker.Architecture)
 	if err := intent.VerifyTask(task, service, proof, verifiedWorker); err != nil {
 		return release.VerifiedFunction{}, err
 	}
