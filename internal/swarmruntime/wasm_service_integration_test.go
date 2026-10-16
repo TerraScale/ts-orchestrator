@@ -134,7 +134,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		proofWire, _ := trust.EncodeEnvelope(proof)
-		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/worker@sha256:" + strings.Repeat("a", 64), SourceRevision: candidate.SourceRevision, Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: runtime.GOARCH, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
+		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/worker@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://example.invalid/function-worker", SourceRevision: candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("d", 64), Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: runtime.GOARCH, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
 		payload, _ = trust.EncodePayload(claim)
 		signed, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: runtime.GOARCH}), now, now.Add(time.Hour), key)
 		if err != nil {
