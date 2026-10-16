@@ -169,6 +169,7 @@ type VerifiedFounderPeer struct {
 // FounderPeerLaunchRequest carries only the fields a pre-quorum OCI adapter
 // needs. It deliberately does not expose or serialize the underlying Intent.
 type FounderPeerLaunchRequest struct {
+	StartupAuthority  StartupAuthority
 	DeploymentID      string
 	Cell              oci.Region
 	Environment       string
@@ -1011,7 +1012,8 @@ func (verified VerifiedFounderPeer) LaunchRequest(now time.Time) (FounderPeerLau
 func (verified VerifiedFounderPeer) launchRequest() FounderPeerLaunchRequest {
 	intent := verified.launch.intent
 	return FounderPeerLaunchRequest{
-		DeploymentID: intent.DeploymentID, Cell: oci.Region(intent.Cell), Environment: intent.Environment,
+		StartupAuthority: verified.manifest,
+		DeploymentID:     intent.DeploymentID, Cell: oci.Region(intent.Cell), Environment: intent.Environment,
 		Slot: intent.Slot, Node: intent.Node, Attempt: intent.Attempt, Generation: intent.Generation,
 		IntentSHA256: verified.launch.intentRecord.SHA256, FounderPlanSHA256: verified.planDigest,
 		PeerRowSHA256: verified.rowDigest, ManifestSHA256: verified.row.ManifestSHA256,
