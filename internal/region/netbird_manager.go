@@ -249,6 +249,10 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err != nil {
 			return vaultsecret.Target{}, "", err
 		}
+		bodyDigest, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, profile.CompartmentOCID, profile.SubnetOCID, record.AuxiliaryIDs["netbird_manager_nsg"]))
+		if err != nil || bodyDigest != launch.RequestDigest {
+			return vaultsecret.Target{}, "", errors.Join(errors.New("manager immutable physical SDK request changed"), err)
+		}
 		if observed.InstanceOCID != instanceID || observed.ImageOCID != intent.intent.ImageOCID || observed.CompartmentOCID != profile.CompartmentOCID ||
 			observed.AvailabilityDomain != profile.AvailabilityDomain || observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape ||
 			observed.SubnetOCID != profile.SubnetOCID || !slices.Equal(slices.Sorted(slices.Values(observed.NSGOCIDs)), slices.Sorted(slices.Values(profile.NetworkSecurityGroupOCIDs))) ||

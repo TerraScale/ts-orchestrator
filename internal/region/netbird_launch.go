@@ -62,8 +62,13 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		readOnly.CheckpointAuxiliary = func(context.Context, string, string) error {
 			return errors.New("existing manager cannot adopt network resources")
 		}
-		if _, _, err := ReconcileNetBirdNetwork(ctx, factory, plan, intent.intent.Profile, readOnly); err != nil {
+		subnet, nsg, err := ReconcileNetBirdNetwork(ctx, factory, plan, intent.intent.Profile, readOnly)
+		if err != nil {
 			return err
+		}
+		actual, err := netBirdRequestDigest(netBirdLaunchDetails(intent.intent, compartment, subnet, nsg))
+		if err != nil || actual != existing.RequestDigest {
+			return errors.Join(errors.New("existing manager physical request changed"), err)
 		}
 		boot, err := observeNetBirdGeometry(ctx, factory, intent.intent, *existing, compartment)
 		if err != nil {
