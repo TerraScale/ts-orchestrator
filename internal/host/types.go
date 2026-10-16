@@ -302,6 +302,7 @@ type ControllerConfig struct {
 	ManagedVolumeInspector      ManagedVolumeInspector
 	RuntimeEffects              RuntimeEffectHandler
 	ContainerMaterialProvider   ContainerMaterialProvider
+	RegistryAdmissionProvider   RegistryAdmissionProvider
 	ControlLog                  jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA

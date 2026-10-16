@@ -46,6 +46,7 @@ type Controller struct {
 	volumeInspector        ManagedVolumeInspector
 	runtimeEffects         RuntimeEffectHandler
 	containerMaterial      ContainerMaterialProvider
+	registryAdmission      RegistryAdmissionProvider
 	terraBaseCA            *terrabase.CA
 	roleIdentity           RoleIdentityIssuer
 	nodeAddress            func(string) string
@@ -141,8 +142,8 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedVerifier: cfg.ManagedRegistrationVerifier, managedDesiredVerifier: cfg.ManagedDesiredVerifier,
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
-		containerMaterial: cfg.ContainerMaterialProvider,
-		terraBaseCA:       cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
+		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
@@ -739,7 +740,7 @@ func sameReportMeaning(a, b Report) bool {
 
 // hostOperations are the host request subjects a leader serves.
 var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
-	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material",
+	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
 	"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
 // hostLeaderPoll is how often Run follows authority leadership.
@@ -816,7 +817,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
 		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result") ||
 		strings.Contains(msg.Subject, ".backup-command") || strings.Contains(msg.Subject, ".backup-result") ||
-		strings.Contains(msg.Subject, ".volume-init") || strings.HasSuffix(msg.Subject, ".runtime-effect") || strings.HasSuffix(msg.Subject, ".container-material")) {
+		strings.Contains(msg.Subject, ".volume-init") || strings.HasSuffix(msg.Subject, ".runtime-effect") || strings.HasSuffix(msg.Subject, ".container-material") || strings.HasSuffix(msg.Subject, ".registry-admission")) {
 		deadline = 30 * time.Second
 	}
 	ctx, cancel := context.WithTimeout(observability.ContinueTrace(parent, msg.Header.Get("traceparent")), deadline)
@@ -843,7 +844,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material",
+	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
 		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
@@ -1187,6 +1188,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, er
 		return c.serveRuntimeEffect(ctx, req, r, s)
 	case "container-material":
 		return c.serveContainerMaterial(ctx, req, r, s)
+	case "registry-admission":
+		return c.serveRegistryAdmission(ctx, req, r, s)
 	case "drain-command":
 		return c.serveManagedDrainCommand(ctx, req, r)
 	case "drain-result":

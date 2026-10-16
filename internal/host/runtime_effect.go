@@ -98,7 +98,8 @@ func (c *Controller) serveRuntimeEffect(ctx context.Context, req request, regist
 	}
 	identity := query.Identity
 	if identity.Cell != c.cell || identity.HostNode != registration.Node || identity.HostPublicKey != registration.PublicKey ||
-		identity.NATSUserPublicKey != registration.NATSUserPublicKey || identity.HostSessionID != req.SessionID ||
+		identity.NATSUserPublicKey != registration.NATSUserPublicKey || !entityid.Valid(identity.HostSessionID) ||
+		query.Action != "close" && identity.HostSessionID != req.SessionID ||
 		identity.RegistrationGeneration != registration.Generation || identity.InstanceID != registration.ManagedOCI.InstanceID {
 		return nil, errors.New("runtime effect differs from authenticated host identity")
 	}
@@ -112,7 +113,8 @@ func (c *Controller) serveRuntimeEffect(ctx context.Context, req request, regist
 	}
 	if payload.Identity != identity || payload.TaskID != query.Task.ID || payload.ServiceID != query.Task.ServiceID ||
 		payload.EffectID != query.EffectID || payload.Nonce != query.Nonce ||
-		payload.Epoch != current.Epoch || payload.Revision == 0 || payload.Deadline.After(current.ExpiresAt) {
+		payload.Epoch == 0 || payload.Epoch > current.Epoch || payload.Revision == 0 ||
+		query.Action != "close" && (payload.Epoch != current.Epoch || payload.Deadline.After(current.ExpiresAt)) {
 		return nil, errors.New("runtime effect grant differs from authenticated request")
 	}
 	if query.Action != "close" && (payload.IssuedAt.IsZero() || payload.IssuedAt.After(time.Now().Add(2*time.Second)) ||
