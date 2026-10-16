@@ -42,6 +42,7 @@ type Controller struct {
 	managedDesiredVerifier ManagedDesiredVerifier
 	managedEffectGate      func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	materialProvider       ManagedMaterialProvider
+	functionMaterial       FunctionMaterialProvider
 	credentialFloor        func(context.Context, Registration) (uint64, error)
 	volumeInspector        ManagedVolumeInspector
 	runtimeEffects         RuntimeEffectHandler
@@ -143,7 +144,8 @@ func NewController(ctx context.Context, cfg ControllerConfig) (*Controller, erro
 		managedEffectGate: managedEffectGate, materialProvider: cfg.ManagedMaterialProvider,
 		credentialFloor: cfg.ManagedCredentialFloor, volumeInspector: cfg.ManagedVolumeInspector, runtimeEffects: cfg.RuntimeEffects,
 		containerMaterial: cfg.ContainerMaterialProvider, registryAdmission: cfg.RegistryAdmissionProvider,
-		terraBaseCA: cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
+		functionMaterial: cfg.FunctionMaterialProvider,
+		terraBaseCA:      cfg.TerraBaseCA, roleIdentity: cfg.RoleIdentity, nodeAddress: cfg.NodeAddress, restartGate: cfg.RestartGate, artifacts: cfg.Artifacts, responseKey: cfg.ResponseKey, ready: make(chan struct{}),
 		authorityEpoch: cfg.AuthorityEpoch, authorityGuard: cfg.AuthorityGuard, authorityLeader: cfg.AuthorityLeader,
 		cacheContext: cacheCtx, cacheCancel: cacheCancel}, nil
 }
@@ -739,7 +741,7 @@ func sameReportMeaning(a, b Report) bool {
 }
 
 // hostOperations are the host request subjects a leader serves.
-var hostOperations = []string{"session", "desired", "artifact", "material", "cycle", "report",
+var hostOperations = []string{"session", "desired", "artifact", "material", "function-material", "cycle", "report",
 	"drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
 	"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary"}
 
@@ -814,7 +816,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 		return
 	}
 	deadline := 4 * time.Second
-	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") ||
+	if len(msg.Data) > 0 && (strings.Contains(msg.Subject, ".material") || strings.Contains(msg.Subject, ".function-material") ||
 		strings.Contains(msg.Subject, ".drain-command") || strings.Contains(msg.Subject, ".drain-result") ||
 		strings.Contains(msg.Subject, ".backup-command") || strings.Contains(msg.Subject, ".backup-result") ||
 		strings.Contains(msg.Subject, ".volume-init") || strings.HasSuffix(msg.Subject, ".runtime-effect") || strings.HasSuffix(msg.Subject, ".container-material") || strings.HasSuffix(msg.Subject, ".registry-admission")) {
@@ -844,7 +846,7 @@ func (c *Controller) handle(parent context.Context, msg *nats.Msg) {
 	switch req.Operation {
 	case "session":
 		payload, err = c.handleSession(ctx, req)
-	case "desired", "artifact", "cycle", "report", "material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
+	case "desired", "artifact", "cycle", "report", "material", "function-material", "drain-command", "drain-result", "backup-command", "backup-result", "volume-init", "load", "terrabase-peer", "terrabase-format", "runtime-effect", "container-material", "registry-admission",
 		"role-identity", "rollout", "rollout-binary", "netbird", "netbird-binary":
 		payload, err = c.handleAuthorized(ctx, req)
 	default:
@@ -1204,6 +1206,8 @@ func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload
 		return c.serveArtifact(ctx, req, r)
 	case "material":
 		return c.serveMaterial(ctx, req, r, s)
+	case "function-material":
+		return c.serveFunctionMaterial(ctx, req, r, s)
 	case "volume-init":
 		return c.serveVolumeInit(ctx, req, r, s)
 	case "runtime-effect":
