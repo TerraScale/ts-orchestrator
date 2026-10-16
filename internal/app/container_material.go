@@ -46,14 +46,18 @@ type containerMaterialConfig struct {
 type containerMaterialController struct{ config containerMaterialConfig }
 
 type containerMaterialRecipient struct {
-	Task         *api.Task
-	Service      *api.Service
-	Intent       delivery.Intent
-	Profile      WorkloadProfile
-	Verified     release.VerifiedContainer
-	Expected     swarmruntime.ServiceIntent
-	SpecRevision uint64
-	proof        containermaterial.Profile
+	Task                *api.Task
+	Service             *api.Service
+	Intent              delivery.Intent
+	Profile             WorkloadProfile
+	Verified            release.VerifiedContainer
+	Expected            swarmruntime.ServiceIntent
+	SpecRevision        uint64
+	proof               containermaterial.Profile
+	controllerProof     *bootstrapstart.ControllerHostRecipient
+	rootHead            string
+	epoch               uint64
+	enrollmentExpiresAt time.Time
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
@@ -194,7 +198,8 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
-	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof}, nil
+	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof,
+		controllerProof: controllerProof, rootHead: rootHead, epoch: epoch, enrollmentExpiresAt: enrollment.ExpiresAt}, nil
 }
 
 func (controller *containerMaterialController) recipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
@@ -205,7 +210,29 @@ func (controller *containerMaterialController) recipient(ctx context.Context, re
 	if !proto.Equal(&selected.Service.Spec.Task, &selected.Task.Spec) || !proto.Equal(&selected.Service.Spec.Annotations, &selected.Task.ServiceAnnotations) {
 		return containerMaterialRecipient{}, containermaterial.ErrPending
 	}
+	if err := controller.currentMaterialTask(ctx, selected, registration, binding); err != nil {
+		return containerMaterialRecipient{}, err
+	}
 	return selected, nil
+}
+
+func (controller *containerMaterialController) currentMaterialTask(ctx context.Context, selected containerMaterialRecipient, registration host.Registration, binding host.ContainerMaterialBinding) error {
+	config := controller.config
+	if selected.controllerProof != nil {
+		binding.HostID = selected.controllerProof.ControllerSlot()
+	}
+	if err := containermaterial.VerifyCurrentMaterialTask(ctx, config.Client, selected.Task, selected.Expected, selected.Verified, config.Specs.roots.current(), selected.proof, registration, binding, selected.controllerProof); err != nil {
+		return err
+	}
+	config.Specs.mu.Lock()
+	revision := config.Specs.revision
+	config.Specs.mu.Unlock()
+	now := time.Now().UTC()
+	if revision != selected.SpecRevision || config.Specs.roots.reply("").Head != selected.rootHead || config.Authority.Current().Epoch != selected.epoch ||
+		!selected.Verified.Valid(now) || selected.controllerProof != nil && (!selected.controllerProof.Valid(now) || !now.Before(selected.enrollmentExpiresAt)) {
+		return containermaterial.ErrPending
+	}
+	return ctx.Err()
 }
 
 func (controller *containerMaterialController) material(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (result host.ContainerMaterialFiles, resultErr error) {
@@ -256,6 +283,9 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 		return result, containermaterial.ErrPending
 	}
 	if err := checkContainerSnapshot(ctx, controller.config.Client, snapshot); err != nil {
+		return result, err
+	}
+	if err := controller.currentMaterialTask(ctx, confirmed, registration, binding); err != nil {
 		return result, err
 	}
 	return result, nil
