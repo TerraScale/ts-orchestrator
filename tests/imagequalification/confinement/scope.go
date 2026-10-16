@@ -90,8 +90,11 @@ func RequiredStatements(s Scope) []string {
 	}
 	object := fmt.Sprintf("target.bucket.name='%s', target.object.name='%s', ", s.Bucket, s.Object)
 	return []string{
-		statement("manage instance-family", "", s.ExpiresAt, "CreateImage", "LaunchInstance"),
-		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "TerminateInstance", "DeleteImage"),
+		statement("manage instance-family", "", s.ExpiresAt, "CreateImage", "LaunchInstance", "AddImageShapeCompatibilityEntry", "RemoveImageShapeCompatibilityEntry"),
+		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "ListImageShapeCompatibilityEntries", "TerminateInstance", "DeleteImage"),
+		statement("manage compute-image-capability-schema", "", s.ExpiresAt, "CreateComputeImageCapabilitySchema"),
+		statement("manage compute-image-capability-schema", "", s.CleanupUntil, "ListComputeImageCapabilitySchemas", "GetComputeImageCapabilitySchema", "DeleteComputeImageCapabilitySchema"),
+		fmt.Sprintf("Allow group id %s to read compute-global-image-capability-schema in tenancy where all {request.utc-timestamp < '%s', request.operation='ListComputeGlobalImageCapabilitySchemas'}", s.Group, s.ExpiresAt.UTC().Format(time.RFC3339)),
 		// OCI has no supported subnet-ID policy variable; the observer requires
 		// this compartment's complete subnet inventory to be exactly one subnet.
 		statement("use virtual-network-family", "", s.ExpiresAt, "LaunchInstance"),
