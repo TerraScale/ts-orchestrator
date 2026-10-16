@@ -61,7 +61,7 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	descriptor := hostboot.Static("gru", "GRU", "membership-worker")
+	descriptor := hostboot.Static("gru", "GRU", "ts-gru-4")
 	descriptorWire, err := protocol.EncodeJSON(descriptor)
 	if err != nil {
 		t.Fatal(err)
