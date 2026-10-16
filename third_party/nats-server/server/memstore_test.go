@@ -2411,7 +2411,7 @@ func TestMemStoreIntegrationFilteredDelivery(t *testing.T) {
 				if len(expected) == 0 {
 					return
 				}
-				sub, err := js.PullSubscribe("", name, nats.Bind("MEM", name))
+				sub, err := js.PullSubscribe(filter, name, nats.Bind("MEM", name))
 				require_NoError(t, err)
 				defer sub.Unsubscribe()
 				messages, err := sub.Fetch(len(expected), nats.MaxWait(time.Second))
@@ -2451,7 +2451,7 @@ func TestMemStoreIntegrationPendingBug(t *testing.T) {
 	})
 	require_NoError(t, err)
 	require_Equal(t, info.NumPending, 9)
-	sub, err := js.PullSubscribe("", "PENDING", nats.Bind("MEM", "PENDING"))
+	sub, err := js.PullSubscribe("foo.*", "PENDING", nats.Bind("MEM", "PENDING"))
 	require_NoError(t, err)
 	messages, err := sub.Fetch(9, nats.MaxWait(time.Second))
 	require_NoError(t, err)
@@ -2511,7 +2511,7 @@ func TestMemStoreIntegrationSchedules(t *testing.T) {
 			var created JSApiStreamCreateResponse
 			require_NoError(t, json.Unmarshal(response.Data, &created))
 			require_True(t, created.Error == nil)
-			sub, err := nc.SubscribeSync("foo.target")
+			sub, err := js.SubscribeSync("foo.target", nats.BindStream("MEM"), nats.ManualAck())
 			require_NoError(t, err)
 			require_NoError(t, nc.FlushTimeout(time.Second))
 			msg := nats.NewMsg("foo.schedule")

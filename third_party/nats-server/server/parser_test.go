@@ -1187,10 +1187,17 @@ func (p *parserIngressWire) pong(t *testing.T) {
 
 func (p *parserIngressWire) roundTrip(t *testing.T, protocol string) {
 	t.Helper()
+	p.roundTripPongs(t, protocol, 1)
+}
+
+func (p *parserIngressWire) roundTripPongs(t *testing.T, protocol string, pongs int) {
+	t.Helper()
 	before := p.input.reads.Load()
 	packet := protocol + "PING\r\n"
 	p.write(t, packet)
-	p.pong(t)
+	for range pongs {
+		p.pong(t)
+	}
 	if reads := p.input.reads.Load() - before; reads < int64((len(packet)+p.input.width-1)/p.input.width) {
 		t.Fatalf("input was not fragmented: %d reads for %d bytes at width %d", reads, len(packet), p.input.width)
 	}
@@ -1242,7 +1249,7 @@ func TestParserClientProtocolIngress(t *testing.T) {
 		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
 			p := parserIngressTCP(t, s, CLIENT, width)
 			p.roundTrip(t, "CONNECT {\"verbose\":false,\"pedantic\":true,\"tls_required\":false,\"headers\":true}\r\n")
-			p.roundTrip(t, "PING  \r  \nPONG\r\nPONG  \r  \n+OK\r\n")
+			p.roundTripPongs(t, "PING  \r  \nPONG\r\nPONG  \r  \n+OK\r\n", 2)
 			// An incomplete SUB must retain its arguments until the next production Read.
 			p.write(t, "SUB > 1\r")
 			p.roundTrip(t, "\n")
@@ -1558,6 +1565,8 @@ func TestParserPreConnectAuthenticationIngress(t *testing.T) {
 			o.LeafNode.Username, o.LeafNode.Password = "peer", "pwd"
 			o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "parser-local", "127.0.0.1", -1
 			o.Gateway.Username, o.Gateway.Password = "peer", "pwd"
+			o.SystemAccount = "SYS"
+			o.Accounts = []*Account{NewAccount(o.SystemAccount)}
 			s := RunServer(o)
 			defer s.Shutdown()
 			t.Run("TCP", func(t *testing.T) {
@@ -1687,6 +1696,8 @@ func TestParserControlLineIngress(t *testing.T) {
 				o := parserIngressOptions()
 				o.MaxControlLine = 8
 				o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+				o.SystemAccount = "SYS"
+				o.Accounts = []*Account{NewAccount(o.SystemAccount)}
 				s := RunServer(o)
 				defer s.Shutdown()
 				receiver := parserIngressTCP(t, s, CLIENT, 1)
@@ -1722,6 +1733,8 @@ func TestParserPeerControlLineBoundaryIngress(t *testing.T) {
 					o := parserIngressOptions()
 					o.MaxControlLine = MAX_CONTROL_LINE_SIZE
 					o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+					o.SystemAccount = "SYS"
+					o.Accounts = []*Account{NewAccount(o.SystemAccount)}
 					s := RunServer(o)
 					defer s.Shutdown()
 					receiver := parserIngressTCP(t, s, CLIENT, 7)

@@ -4685,37 +4685,46 @@ func TestRouteCompressionImplicitRoute(t *testing.T) {
 
 	checkComp := func(s *Server, remoteID, expected string) {
 		t.Helper()
-		s.mu.RLock()
-		defer s.mu.RUnlock()
-		var err error
-		found := false
-		s.forEachRoute(func(r *client) {
-			if err != nil {
-				return
-			}
-			var cm string
-			ok := true
-			r.mu.Lock()
-			if r.route.remoteID == remoteID {
-				found = true
-				cm = r.route.compression
-				ok = cm == expected
-			}
-			r.mu.Unlock()
-			if !ok {
-				err = fmt.Errorf("Server %q - expected route to %q to use compression %q, got %q",
-					s, remoteID, expected, cm)
-			}
-		})
-		require_True(t, found)
+		routes, err := s.Routez(nil)
 		require_NoError(t, err)
+		found := false
+		for _, route := range routes.Routes {
+			if route.RemoteID == remoteID {
+				found = true
+				require_Equal(t, route.Compression, expected)
+			}
+		}
+		require_True(t, found)
 	}
 	checkComp(s1, s2.ID(), CompressionS2Fast)
 	checkComp(s1, s3.ID(), CompressionS2Best)
 	checkComp(s2, s1.ID(), CompressionS2Fast)
-	checkComp(s2, s3.ID(), CompressionS2Best)
+	// Fixed compression levels are asymmetric: B sends fast and C sends best.
+	checkComp(s2, s3.ID(), CompressionS2Fast)
 	checkComp(s3, s1.ID(), CompressionS2Best)
 	checkComp(s3, s2.ID(), CompressionS2Best)
+
+	nc2 := natsConnect(t, s2.ClientURL())
+	defer nc2.Close()
+	nc3 := natsConnect(t, s3.ClientURL())
+	defer nc3.Close()
+	for _, traffic := range []struct {
+		publisher, subscriber *nats.Conn
+		sender, receiver      *Server
+		compression           string
+	}{
+		{nc2, nc3, s2, s3, CompressionS2Fast},
+		{nc3, nc2, s3, s2, CompressionS2Best},
+	} {
+		subject := "implicit." + traffic.sender.Name() + ".to." + traffic.receiver.Name()
+		sub := natsSubSync(t, traffic.subscriber, subject)
+		natsFlush(t, traffic.subscriber)
+		checkSubInterest(t, traffic.sender, globalAccountName, subject, time.Second)
+		payload := bytes.Repeat([]byte(subject), 128)
+		natsPub(t, traffic.publisher, subject, payload)
+		require_True(t, bytes.Equal(natsNexMsg(t, sub, time.Second).Data, payload))
+		checkComp(traffic.sender, traffic.receiver.ID(), traffic.compression)
+	}
 }
 
 func TestRouteCompressionAuto(t *testing.T) {
