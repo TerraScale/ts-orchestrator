@@ -301,7 +301,7 @@ func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Reg
 	}
 	node := response.Node
 	labels := node.Spec.Annotations.Labels
-	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.Role != api.NodeRoleWorker ||
+	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.DesiredRole != api.NodeRoleWorker ||
 		node.Spec.Annotations.Name != registration.ID || labels[LabelRegion] != region || labels[LabelHostRole] != "container" ||
 		labels[LabelExecutionScope] != "platform" || labels[LabelInstanceID] != registration.ManagedOCI.InstanceID ||
 		node.Certificate.CN != nodeID || node.Certificate.Role != api.NodeRoleWorker || len(node.Certificate.Certificate) == 0 {
