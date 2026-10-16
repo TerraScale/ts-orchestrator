@@ -281,6 +281,12 @@ func (verified DerivedFounderPlan) current(ctx context.Context, roots trust.Keyr
 	return current, nil
 }
 
+// RevalidateCurrent refreshes the original proof under the caller's current
+// roots. It preserves completed-peer admission after the launch deadline.
+func (verified DerivedFounderPlan) RevalidateCurrent(ctx context.Context, roots trust.Keyring, now time.Time) (DerivedFounderPlan, error) {
+	return verified.current(ctx, roots, now)
+}
+
 func (verified DerivedFounderPlan) VerifyFounderPlanCurrent(ctx context.Context, roots trust.Keyring, now time.Time, policy trust.Policy) error {
 	current, err := verified.current(ctx, roots, now)
 	if err != nil {
