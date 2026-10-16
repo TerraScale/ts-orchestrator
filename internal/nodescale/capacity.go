@@ -2,7 +2,10 @@ package nodescale
 
 import (
 	"fmt"
+	"math"
 	"regexp"
+
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // Capacity identifies hosts with the same isolation role and native platform.
@@ -11,6 +14,24 @@ type Capacity struct {
 	Role         string
 	Architecture string
 	Shape        string
+}
+
+// ValidateResources requires OCI's complete limits for the flexible launch configuration.
+func ValidateResources(shape core.Shape, ocpus, memoryGB float32) error {
+	cpu, memory := shape.OcpuOptions, shape.MemoryOptions
+	if !deref(shape.IsFlexible) || cpu == nil || memory == nil {
+		return fmt.Errorf("shape has no qualified flexible CPU and memory limits")
+	}
+	for _, value := range []*float32{new(ocpus), new(memoryGB), cpu.Min, cpu.Max, memory.MinInGBs, memory.MaxInGBs, memory.MinPerOcpuInGBs, memory.MaxPerOcpuInGBs} {
+		if value == nil || !(*value > 0) || math.IsInf(float64(*value), 0) {
+			return fmt.Errorf("shape CPU and memory limits must be known, finite and positive")
+		}
+	}
+	if ocpus < *cpu.Min || ocpus > *cpu.Max || memoryGB < *memory.MinInGBs || memoryGB > *memory.MaxInGBs ||
+		memoryGB/ocpus < *memory.MinPerOcpuInGBs || memoryGB/ocpus > *memory.MaxPerOcpuInGBs {
+		return fmt.Errorf("requested CPU and memory exceed the shape's supported limits")
+	}
+	return nil
 }
 
 const (

@@ -134,11 +134,11 @@ func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) 
 	if err := o.validateImage(ctx, recipe); err != nil {
 		return PoolState{}, err
 	}
-	configID, err := o.ensureConfiguration(ctx, recipe)
+	pool, etag, err := o.pool(ctx)
 	if err != nil {
 		return PoolState{}, err
 	}
-	pool, etag, err := o.pool(ctx)
+	configID, err := o.ensureConfiguration(ctx, recipe)
 	if err != nil {
 		return PoolState{}, err
 	}
@@ -157,7 +157,11 @@ func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) 
 	if err := o.pruneConfigurations(ctx, keep...); err != nil {
 		return PoolState{}, err
 	}
-	return o.Observe(ctx)
+	observed, err := o.Observe(ctx)
+	if err == nil && observed.ConfigurationID != configID {
+		return PoolState{}, fmt.Errorf("pool %s is still applying configuration %s; growth is pending", PoolName(o.cell, o.capacity), configID)
+	}
+	return observed, err
 }
 
 // Grow raises the pool from size from to from+1. A replay that already reached from+1 is done.
@@ -253,7 +257,7 @@ func (o *OCIPool) pool(ctx context.Context) (*core.InstancePool, string, error) 
 	if err != nil {
 		return nil, "", fmt.Errorf("get instance pool %s: %w", id, err)
 	}
-	if deref(response.DisplayName) != PoolName(o.cell, o.capacity) || !o.owns(response.FreeformTags, roleNodePool) {
+	if deref(response.CompartmentId) != o.compartmentID || deref(response.DisplayName) != PoolName(o.cell, o.capacity) || !o.owns(response.FreeformTags, roleNodePool) {
 		return nil, "", fmt.Errorf("instance pool %s changed ownership", id)
 	}
 	return &response.InstancePool, deref(response.Etag), nil
@@ -264,7 +268,7 @@ func (o *OCIPool) poolID(ctx context.Context) (string, error) {
 	name := PoolName(o.cell, o.capacity)
 	pools, err := listAll(func(page *string) ([]core.InstancePoolSummary, *string, error) {
 		response, err := o.management.ListInstancePools(ctx, core.ListInstancePoolsRequest{
-			CompartmentId: common.String(o.compartmentID), DisplayName: common.String(name), Page: page})
+			CompartmentId: common.String(o.compartmentID), Page: page})
 		return response.Items, response.OpcNextPage, err
 	})
 	if err != nil {
@@ -272,6 +276,10 @@ func (o *OCIPool) poolID(ctx context.Context) (string, error) {
 	}
 	var ids []string
 	for _, pool := range pools {
+		if deref(pool.DisplayName) == "ts-"+o.cell+"-nodes" && pool.FreeformTags[tagCell] == o.cell &&
+			pool.FreeformTags[tagRole] == roleNodePool && !absent(string(pool.LifecycleState)) {
+			return "", fmt.Errorf("legacy pool %s (%s, size %d) requires verified migration; new capacity is pending", deref(pool.DisplayName), deref(pool.Id), deref(pool.Size))
+		}
 		if deref(pool.DisplayName) == name && o.owns(pool.FreeformTags, roleNodePool) && !absent(string(pool.LifecycleState)) {
 			ids = append(ids, deref(pool.Id))
 		}
@@ -523,8 +531,8 @@ func (o *OCIPool) validateImage(ctx context.Context, recipe Recipe) error {
 		if architecture != recipe.Capacity.Architecture {
 			return fmt.Errorf("shape %s in %s has architecture %s, recipe requires %s", recipe.Capacity.Shape, domain, architecture, recipe.Capacity.Architecture)
 		}
-		if !deref(shape.IsFlexible) {
-			return fmt.Errorf("pool shape %s in %s is not flexible", recipe.Capacity.Shape, domain)
+		if err := ValidateResources(shape, recipe.OCPUs, recipe.MemoryGB); err != nil {
+			return fmt.Errorf("pool shape %s in %s: %w", recipe.Capacity.Shape, domain, err)
 		}
 	}
 	return nil
