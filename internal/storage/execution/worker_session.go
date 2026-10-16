@@ -133,7 +133,15 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return VerifiedWorkerGrant{}, err
 	}
-	query := RuntimeEffectQuery{Action: action, EffectID: effectID, Nonce: hex.EncodeToString(nonce[:]), Task: task.Copy(), Identity: s.identity}
+	identity := s.identity
+	if action == "close" {
+		s.mu.Lock()
+		if held := s.tasks[hash]; held != nil && held.grant.EffectID() == effectID {
+			identity = held.grant.Identity()
+		}
+		s.mu.Unlock()
+	}
+	query := RuntimeEffectQuery{Action: action, EffectID: effectID, Nonce: hex.EncodeToString(nonce[:]), Task: task.Copy(), Identity: identity}
 	if len(proofs) > 0 {
 		if action != "close" || len(proofs) != 1 {
 			return VerifiedWorkerGrant{}, ErrUnsafe
@@ -173,7 +181,7 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 	if err := protocol.DecodeStrict(response.Payload, &payload, 512<<10); err != nil {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
-	if payload.Identity != s.identity || payload.TaskID != task.ID || payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.EffectID != effectID ||
+	if payload.Identity != identity || payload.TaskID != task.ID || payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.EffectID != effectID ||
 		payload.Nonce != query.Nonce || payload.Epoch == 0 || payload.Epoch > response.Epoch || action != "close" && payload.Epoch != response.Epoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
 		payload.Deadline.IsZero() || action != "close" && (!payload.Deadline.After(now.Add(workerStopReserve)) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime) {
 		return VerifiedWorkerGrant{}, ErrUnsafe
@@ -222,6 +230,17 @@ func (s *WorkerSession) Resolve(ctx context.Context, task *api.Task) (VerifiedWo
 		return grant, nil
 	}
 	s.mu.Unlock()
+	recovered, err := s.recoverRuntime(ctx, task, hash)
+	if err != nil {
+		return VerifiedWorkerGrant{}, err
+	}
+	if recovered != nil {
+		s.mu.Lock()
+		s.tasks[hash] = recovered
+		s.mu.Unlock()
+		go s.stopRecovered(task.Copy(), hash, recovered)
+		return VerifiedWorkerGrant{}, ErrUnsafe
+	}
 	effectID := entityid.Derive("runtime-effect", s.identity.HostSessionID, hash)
 	grant, err := s.request(ctx, task, "acquire", effectID)
 	if err != nil {
@@ -287,8 +306,12 @@ func (s *WorkerSession) TrackRuntime(ctx context.Context, task *api.Task, pins R
 	}
 	held.pins = &pins
 	held.observation = observed
+	grant := held.grant
 	expired := held.closing || held.stopped || !held.grant.Deadline().After(time.Now().Add(workerStopReserve))
 	s.mu.Unlock()
+	if persistErr := s.persistRuntime(grant, pins, observed); persistErr != nil {
+		expired = true
+	}
 	if expired {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()

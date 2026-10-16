@@ -65,7 +65,7 @@ func (s *WorkerSession) ObserveRuntimeStop(ctx context.Context, task *api.Task, 
 	s.mu.Lock()
 	held := s.tasks[hash]
 	if held == nil || !held.closing || held.pins == nil || grant.AdmissionSHA256() != held.grant.AdmissionSHA256() ||
-		grant.Revision() != held.grant.Revision() || !grant.Deadline().Equal(held.grant.Deadline()) || grant.Identity() != s.identity {
+		grant.Revision() != held.grant.Revision() || !grant.Deadline().Equal(held.grant.Deadline()) || grant.Identity() != held.grant.Identity() {
 		s.mu.Unlock()
 		return ObservedRuntimeStop{}, ErrUnsafe
 	}
