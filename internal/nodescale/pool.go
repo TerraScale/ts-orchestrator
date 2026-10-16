@@ -80,6 +80,7 @@ func (r Recipe) digest(shape string, bootVolumeGB int) string {
 		Metadata            map[string]string
 		NodeShape           string
 		BootVolumeGB        int
+		DisableLegacyIMDS   bool
 	}{
 		Cell:                r.Cell,
 		Role:                r.Capacity.Role,
@@ -93,6 +94,7 @@ func (r Recipe) digest(shape string, bootVolumeGB int) string {
 		Metadata:            r.Metadata,
 		NodeShape:           shape,
 		BootVolumeGB:        bootVolumeGB,
+		DisableLegacyIMDS:   true,
 	}
 	encoded, _ := json.Marshal(canonical, json.Deterministic(true)) // strings, ints and slices only: cannot fail
 	digest := sha256.Sum256(encoded)

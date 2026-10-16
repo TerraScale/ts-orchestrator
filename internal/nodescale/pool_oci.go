@@ -1,10 +1,12 @@
 package nodescale
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"fmt"
 	"maps"
 	"slices"
@@ -43,6 +45,7 @@ type computeManagementAPI interface {
 	ListInstancePoolInstances(ctx context.Context, request core.ListInstancePoolInstancesRequest) (core.ListInstancePoolInstancesResponse, error)
 	DetachInstancePoolInstance(ctx context.Context, request core.DetachInstancePoolInstanceRequest) (core.DetachInstancePoolInstanceResponse, error)
 	ListInstanceConfigurations(ctx context.Context, request core.ListInstanceConfigurationsRequest) (core.ListInstanceConfigurationsResponse, error)
+	GetInstanceConfiguration(ctx context.Context, request core.GetInstanceConfigurationRequest) (core.GetInstanceConfigurationResponse, error)
 	CreateInstanceConfiguration(ctx context.Context, request core.CreateInstanceConfigurationRequest) (core.CreateInstanceConfigurationResponse, error)
 	DeleteInstanceConfiguration(ctx context.Context, request core.DeleteInstanceConfigurationRequest) (core.DeleteInstanceConfigurationResponse, error)
 }
@@ -164,6 +167,13 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 			state.ProvisioningFunctions = append(state.ProvisioningFunctions, CapacityDemand{Architecture: capacity.Architecture, Slots: uint64(deref(pool.Size) - len(members))})
 		}
 		for _, member := range members {
+			instance, _, err := o.instance(ctx, deref(member.Id))
+			if err != nil {
+				return PoolState{}, err
+			}
+			if !absent(string(instance.LifecycleState)) && (instance.InstanceOptions == nil || !deref(instance.InstanceOptions.AreLegacyImdsEndpointsDisabled)) {
+				state.Pending = fmt.Sprintf("instance %s has not positively disabled legacy IMDS endpoints", deref(member.Id))
+			}
 			ip, err := o.privateIP(ctx, deref(member.Id))
 			if err != nil {
 				return PoolState{}, err
@@ -298,6 +308,9 @@ func (o *OCIPool) Grow(ctx context.Context, from int) error {
 	}
 	if deref(pool.InstanceConfigurationId) != o.configurationID || !placementsMatch(pool, *o.recipe) {
 		return fmt.Errorf("%w: pool launch configuration or placement changed", ErrCapacityPending)
+	}
+	if err := o.verifyConfiguration(ctx, o.configurationID, *o.recipe); err != nil {
+		return err
 	}
 	switch size := deref(pool.Size); size {
 	case from + 1:
@@ -518,6 +531,9 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 		if configs[i].FreeformTags[tagRecipeSHA256] != recipe.SHA256() || configs[i].FreeformTags[tagOperationID] != o.operationID {
 			return "", fmt.Errorf("%w: instance configuration differs from the durable launch operation or recipe", ErrCapacityPending)
 		}
+		if err := o.verifyConfiguration(ctx, deref(configs[i].Id), recipe); err != nil {
+			return "", err
+		}
 		return deref(configs[i].Id), nil
 	}
 	response, err := o.management.CreateInstanceConfiguration(o.writeContext(ctx, recipe), core.CreateInstanceConfigurationRequest{
@@ -532,7 +548,34 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 	if err != nil {
 		return "", fmt.Errorf("create instance configuration %s: %w", name, err)
 	}
+	if err := o.verifyConfiguration(ctx, deref(response.Id), recipe); err != nil {
+		return "", err
+	}
 	return deref(response.Id), nil
+}
+
+func (o *OCIPool) verifyConfiguration(ctx context.Context, id string, recipe Recipe) error {
+	response, err := o.management.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
+	if err != nil {
+		return fmt.Errorf("read exact launch configuration %s: %w", id, err)
+	}
+	config := response.InstanceConfiguration
+	if id == "" || deref(config.Id) != id || deref(config.CompartmentId) != o.compartmentID || !o.owns(config.FreeformTags, roleNodeConfig) ||
+		config.FreeformTags[tagOperationID] != o.operationID || config.FreeformTags[tagRecipeSHA256] != recipe.SHA256() {
+		return fmt.Errorf("%w: configuration readback differs from exact operation, recipe or compartment", ErrCapacityPending)
+	}
+	actual, err := json.Marshal(config.InstanceDetails, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	expected, err := json.Marshal(core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID, o.operationID)}, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(actual, expected) {
+		return fmt.Errorf("%w: actual OCI launch body differs from its exact qualified recipe", ErrCapacityPending)
+	}
+	return nil
 }
 
 // pruneConfigurations deletes only this capacity pool's configurations that are not in keep.
@@ -631,6 +674,7 @@ func launchDetails(recipe Recipe, compartmentID, operationID string) *core.Insta
 			ImageId: common.String(recipe.ImageID), BootVolumeSizeInGBs: common.Int64(BootVolumeGB)},
 		CreateVnicDetails: &core.InstanceConfigurationCreateVnicDetails{AssignPublicIp: common.Bool(false), NsgIds: recipe.NSGIDs},
 		Metadata:          recipe.Metadata,
+		InstanceOptions:   &core.InstanceConfigurationInstanceOptions{AreLegacyImdsEndpointsDisabled: new(true)},
 		FreeformTags:      launchTags(recipe, roleNode, operationID),
 	}
 }

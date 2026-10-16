@@ -90,7 +90,7 @@ func (f *capacityCloud) launch(name, poolID, ip string, state core.InstanceLifec
 	id := f.id("instance")
 	vnicID := f.id("vnic")
 	f.instances[id] = &core.Instance{Id: common.String(id), DisplayName: common.String(name),
-		LifecycleState: state, FreeformTags: tags}
+		LifecycleState: state, FreeformTags: tags, InstanceOptions: &core.InstanceOptions{AreLegacyImdsEndpointsDisabled: new(true)}}
 	f.vnics[vnicID] = core.Vnic{Id: common.String(vnicID), IsPrimary: common.Bool(true), PrivateIp: common.String(ip)}
 	f.attachments[id] = []core.VnicAttachment{{Id: common.String(f.id("attachment")), InstanceId: common.String(id),
 		VnicId: common.String(vnicID), LifecycleState: core.VnicAttachmentLifecycleStateAttached}}
@@ -264,6 +264,14 @@ func (f *capacityCloud) CreateInstanceConfiguration(_ context.Context, request c
 	return core.CreateInstanceConfigurationResponse{InstanceConfiguration: *f.configs[id]}, nil
 }
 
+func (f *capacityCloud) GetInstanceConfiguration(_ context.Context, request core.GetInstanceConfigurationRequest) (core.GetInstanceConfigurationResponse, error) {
+	config, ok := f.configs[deref(request.InstanceConfigurationId)]
+	if !ok {
+		return core.GetInstanceConfigurationResponse{}, errNotFound
+	}
+	return core.GetInstanceConfigurationResponse{InstanceConfiguration: *config}, nil
+}
+
 // DeleteInstanceConfiguration refuses a configuration a pool still references, as OCI does.
 func (f *capacityCloud) DeleteInstanceConfiguration(_ context.Context, request core.DeleteInstanceConfigurationRequest) (core.DeleteInstanceConfigurationResponse, error) {
 	id := deref(request.InstanceConfigurationId)
@@ -420,6 +428,9 @@ func (f *capacityCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		response, callErr := f.CreateInstanceConfiguration(ctx, core.CreateInstanceConfigurationRequest{CreateInstanceConfiguration: details, OpcRetryToken: new(r.Header.Get("opc-retry-token"))})
+		body, err = response.InstanceConfiguration, callErr
+	case len(parts) == 2 && parts[0] == "instanceConfigurations" && r.Method == "GET":
+		response, callErr := f.GetInstanceConfiguration(ctx, core.GetInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
 		body, err = response.InstanceConfiguration, callErr
 	case parts[0] == "instanceConfigurations" && r.Method == "DELETE":
 		_, err = f.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{InstanceConfigurationId: new(id)})
