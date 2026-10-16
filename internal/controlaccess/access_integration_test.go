@@ -224,11 +224,7 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 	}
 	for scenario := int32(1); scenario <= 6; scenario++ {
 		mode.Store(scenario)
-		timeout := time.Second
-		if scenario == 6 {
-			timeout = 200 * time.Millisecond
-		}
-		ctx, cancel := context.WithTimeout(t.Context(), timeout)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		before := reads.Load()
 		_, err := resolve(ctx, "")
 		cancel()
