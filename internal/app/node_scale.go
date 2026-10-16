@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"net"
 	"sync/atomic"
@@ -169,14 +170,14 @@ func allowance(global *globalControl, cell string, now time.Time) (int, bool) {
 }
 
 // backendsAt counts the load balancer backends at address in every backend set
-// of the release fence. Without a fence or an address, none can point there.
+// of the release fence. Missing inventory holds retirement.
 func backendsAt(ctx context.Context, fence *releaseFence, address string) (int, error) {
 	if fence == nil || address == "" {
-		return 0, nil
+		return 0, fmt.Errorf("node retirement requires a current load balancer fence and private address")
 	}
 	spec, _ := fence.spec()
 	if spec == nil {
-		return 0, nil
+		return 0, fmt.Errorf("node retirement load balancer inventory is unavailable")
 	}
 	api, err := fence.client(ctx)
 	if err != nil {

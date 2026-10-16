@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 )
 
 // ChosenPool binds OCI mutations to the recipe retained in the scaler's
@@ -48,7 +50,8 @@ func (pool *ChosenPool) selected(ctx context.Context) (*OCIPool, *Recipe, error)
 					return nil, err
 				}
 				current, _, err := pool.store.Load(ctx)
-				if err != nil || current.Recipe == nil || current.Recipe.SHA256() != recipe.SHA256() {
+				if err != nil || current.Recipe == nil || current.Recipe.SHA256() != recipe.SHA256() || current.Action == nil ||
+					current.Action.Kind != Up || current.Action.ID != chosen.operationID {
 					release()
 					return nil, fmt.Errorf("%w: durable chosen pool recipe changed", ErrCapacityPending)
 				}
@@ -56,6 +59,14 @@ func (pool *ChosenPool) selected(ctx context.Context) (*OCIPool, *Recipe, error)
 			}
 		}
 		pool.chosen = chosen
+	}
+	operationID := ""
+	if record.Action != nil && record.Action.Kind == Up {
+		operationID = record.Action.ID
+	}
+	if pool.chosen.operationID != operationID {
+		pool.chosen.recipe, pool.chosen.configurationID = nil, ""
+		pool.chosen.operationID = operationID
 	}
 	return pool.chosen, record.Recipe, nil
 }
@@ -73,7 +84,7 @@ func (pool *ChosenPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, e
 	if err != nil {
 		return PoolState{}, err
 	}
-	if current == nil || current.SHA256() != recipe.SHA256() {
+	if current == nil || current.SHA256() != recipe.SHA256() || !entityid.Valid(chosen.operationID) {
 		return PoolState{}, fmt.Errorf("%w: launch recipe has not been chosen durably", ErrCapacityPending)
 	}
 	return chosen.Ensure(ctx, recipe)
@@ -84,7 +95,7 @@ func (pool *ChosenPool) Grow(ctx context.Context, from int) error {
 	if err != nil {
 		return err
 	}
-	if current == nil {
+	if current == nil || !entityid.Valid(chosen.operationID) {
 		return fmt.Errorf("%w: launch recipe has not been chosen durably", ErrCapacityPending)
 	}
 	return chosen.Grow(ctx, from)

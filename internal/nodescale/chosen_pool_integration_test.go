@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -28,7 +29,8 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if _, err := pool.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) || len(cloud.configs) != 0 || len(cloud.pools) != 0 {
 		t.Fatalf("uncommitted choice changed OCI: %v", err)
 	}
-	revision, err := store.Save(ctx, Record{Recipe: new(chosen)}, 0)
+	action := &InFlight{ID: entityid.New(), Kind: Up}
+	revision, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +42,9 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if deref(launch.Shape) != chosen.Capacity.Shape || launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails).ImageId == nil ||
 		*launch.SourceDetails.(core.InstanceConfigurationInstanceSourceViaImageDetails).ImageId != chosen.ImageID {
 		t.Fatalf("fallback identity was replaced with observed controller shape: %+v", launch)
+	}
+	if launch.FreeformTags[tagOperationID] != action.ID || launch.FreeformTags[tagRecipeSHA256] != chosen.SHA256() {
+		t.Fatalf("launched resources cannot be bound to their exact spending commitment: %+v", launch.FreeformTags)
 	}
 	if err := pool.Grow(ctx, 0); err != nil {
 		t.Fatal(err)
@@ -64,7 +69,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	}
 	changed := chosen
 	changed.ImageID = "ocid1.image.replacement"
-	if _, err := store.Save(ctx, Record{Recipe: new(changed)}, revision); err != nil {
+	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: action}, revision); err != nil {
 		t.Fatal(err)
 	}
 	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {

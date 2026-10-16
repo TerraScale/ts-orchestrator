@@ -26,6 +26,8 @@ const (
 	tagCapacityRole = "ts-capacity-role"
 	tagArchitecture = "ts-architecture"
 	tagShape        = "ts-shape"
+	tagOperationID  = "ts-operation-id"
+	tagRecipeSHA256 = "ts-recipe-sha256"
 
 	roleNodePool   = "node-pool"
 	roleNodeConfig = "node-config"
@@ -72,6 +74,7 @@ type OCIPool struct {
 	Admit           func(context.Context, Recipe) (release func(), err error)
 	recipe          *Recipe
 	configurationID string
+	operationID     string // durable scaler action; separates otherwise identical launches
 }
 
 // NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
@@ -462,6 +465,9 @@ func (o *OCIPool) configurations(ctx context.Context) ([]core.InstanceConfigurat
 // ensureConfiguration creates the recipe's configuration unless the cell already has it, and returns its OCID.
 func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (string, error) {
 	name := ConfigurationName(recipe)
+	if o.operationID != "" {
+		name += "-" + o.operationID
+	}
 	configs, err := o.configurations(ctx)
 	if err != nil {
 		return "", err
@@ -469,6 +475,9 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 	if i := slices.IndexFunc(configs, func(config core.InstanceConfigurationSummary) bool {
 		return deref(config.DisplayName) == name
 	}); i >= 0 {
+		if configs[i].FreeformTags[tagRecipeSHA256] != recipe.SHA256() || configs[i].FreeformTags[tagOperationID] != o.operationID {
+			return "", fmt.Errorf("%w: instance configuration differs from the durable launch operation or recipe", ErrCapacityPending)
+		}
 		return deref(configs[i].Id), nil
 	}
 	release, err := o.admit(ctx, recipe)
@@ -480,8 +489,8 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
 			CompartmentId:   common.String(o.compartmentID),
 			DisplayName:     common.String(name),
-			FreeformTags:    poolTags(o.cell, o.capacity, roleNodeConfig),
-			InstanceDetails: core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID)},
+			FreeformTags:    launchTags(recipe, roleNodeConfig, o.operationID),
+			InstanceDetails: core.ComputeInstanceDetails{LaunchDetails: launchDetails(recipe, o.compartmentID, o.operationID)},
 		},
 		OpcRetryToken: retryToken(name),
 	})
@@ -592,7 +601,7 @@ func placementSubnet(placement core.InstancePoolPlacementConfiguration) string {
 }
 
 // launchDetails is what every pool node launches from. Its subnet comes from the pool's placement.
-func launchDetails(recipe Recipe, compartmentID string) *core.InstanceConfigurationLaunchInstanceDetails {
+func launchDetails(recipe Recipe, compartmentID, operationID string) *core.InstanceConfigurationLaunchInstanceDetails {
 	return &core.InstanceConfigurationLaunchInstanceDetails{
 		CompartmentId: common.String(compartmentID),
 		Shape:         new(recipe.Capacity.Shape),
@@ -602,8 +611,17 @@ func launchDetails(recipe Recipe, compartmentID string) *core.InstanceConfigurat
 			ImageId: common.String(recipe.ImageID), BootVolumeSizeInGBs: common.Int64(BootVolumeGB)},
 		CreateVnicDetails: &core.InstanceConfigurationCreateVnicDetails{AssignPublicIp: common.Bool(false), NsgIds: recipe.NSGIDs},
 		Metadata:          recipe.Metadata,
-		FreeformTags:      poolTags(recipe.Cell, recipe.Capacity, roleNode),
+		FreeformTags:      launchTags(recipe, roleNode, operationID),
 	}
+}
+
+func launchTags(recipe Recipe, role, operationID string) map[string]string {
+	tags := poolTags(recipe.Cell, recipe.Capacity, role)
+	tags[tagRecipeSHA256] = recipe.SHA256()
+	if operationID != "" {
+		tags[tagOperationID] = operationID
+	}
+	return tags
 }
 
 func poolTags(cell string, capacity Capacity, role string) map[string]string {
