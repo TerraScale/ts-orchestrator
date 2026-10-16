@@ -204,7 +204,7 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 			return nil, err
 		}
 		spec, err := swarmruntime.DecodeContainer(task)
-		if err != nil || spec.Image != verified.Claim().Image {
+		if err != nil || spec.Image != verified.Claim().Image || task.ServiceAnnotations.Labels[swarmruntime.LabelFunctionWorkerBundle] != verified.BundleSHA256() {
 			return nil, errors.New("function registry task differs from independently qualified worker image")
 		}
 		admission, err := runtimeRegistryPullAdmission(ctx, local.factory, task, expected, verified, roots)
