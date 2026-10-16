@@ -40,6 +40,7 @@ type functionControllerConfig struct {
 	Evidence          func(context.Context, string) (io.ReadCloser, error)
 	Probe             func(context.Context, *api.Task) error
 	Channel           *channelSource
+	Roots             *rootRegistry
 	Cell, Environment string
 }
 
