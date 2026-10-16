@@ -359,3 +359,19 @@ func homeGrantDigest(wire []byte) string {
 	sum := sha256.Sum256(wire)
 	return hex.EncodeToString(sum[:])
 }
+
+// GuardedFactory preserves the exact authenticated founder and checks the
+// current protected home claim before every SDK mutation attempt.
+func (authority *HomeIAMAuthority) GuardedFactory(ctx context.Context) (*ociclient.Factory, context.Context, error) {
+	if err := authority.Guard(ctx, 0); err != nil {
+		return nil, ctx, err
+	}
+	return authority.factory, ociclient.WithAuthority(ctx, func(ctx context.Context) error { return authority.Guard(ctx, 0) }), nil
+}
+
+func (authority *HomeIAMAuthority) StorageDomain() bootstrap.StorageDomain {
+	if authority == nil {
+		return bootstrap.StorageDomain{}
+	}
+	return authority.domain
+}
