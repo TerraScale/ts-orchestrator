@@ -187,7 +187,7 @@ func TestFunctionWorkerProcess(t *testing.T) {
 		}
 		if tc.status == http.StatusOK {
 			var snapshot Snapshot
-			if err := json.Unmarshal(body, &snapshot); err != nil || snapshot.Manifest.Digest != deployment.Digest || snapshot.RuntimeVersion != RuntimeVersion || snapshot.Architecture == "" || snapshot.Succeeded != 1 || snapshot.Active != 0 || bytes.Contains(body, []byte("process payload")) {
+			if err := json.Unmarshal(body, &snapshot); err != nil || snapshot.SchemaVersion != 1 || snapshot.ObservedAt.IsZero() || time.Since(snapshot.ObservedAt) < 0 || time.Since(snapshot.ObservedAt) > 5*time.Second || snapshot.Manifest.Digest != deployment.Digest || snapshot.RuntimeVersion != RuntimeVersion || snapshot.Architecture == "" || snapshot.Succeeded != 1 || snapshot.Active != 0 || bytes.Contains(body, []byte("process payload")) {
 				t.Fatalf("snapshot is missing worker identity/counters or contains invocation data: %s: %v", body, err)
 			}
 		}

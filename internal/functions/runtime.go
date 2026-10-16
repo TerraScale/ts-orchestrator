@@ -33,6 +33,8 @@ type Worker struct {
 
 // Snapshot contains worker counters and artifact identity, never invocation data.
 type Snapshot struct {
+	SchemaVersion  int       `json:"schema_version"`
+	ObservedAt     time.Time `json:"observed_at"`
 	Manifest       Manifest
 	RuntimeVersion string
 	Architecture   string
@@ -85,7 +87,7 @@ func newWorker(ctx context.Context, artifact Artifact) (*Worker, error) {
 func (w *Worker) Manifest() Manifest { return w.manifest }
 
 func (w *Worker) Snapshot() Snapshot {
-	return Snapshot{Manifest: w.Manifest(), RuntimeVersion: RuntimeVersion, Architecture: runtime.GOARCH, Active: len(w.slots), Succeeded: w.succeeded.Load(), Failed: w.failed.Load(), Rejected: w.rejected.Load()}
+	return Snapshot{SchemaVersion: 1, ObservedAt: time.Now().UTC(), Manifest: w.Manifest(), RuntimeVersion: RuntimeVersion, Architecture: runtime.GOARCH, Active: len(w.slots), Succeeded: w.succeeded.Load(), Failed: w.failed.Load(), Rejected: w.rejected.Load()}
 }
 
 func (w *Worker) Invoke(ctx context.Context, in Invocation) (result Result, err error) {
