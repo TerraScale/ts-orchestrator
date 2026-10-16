@@ -102,6 +102,7 @@ type FoundationRecord struct {
 	ResourceIDs         map[string]string                  `json:"resourceIds"`
 	AuxiliaryIDs        map[string]string                  `json:"auxiliaryIds,omitempty"`
 	PendingCreates      map[string]PendingFoundationCreate `json:"pendingCreates,omitempty"`
+	SourcePolicyIDs     map[string]SourcePolicyRecord      `json:"sourcePolicyIds,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -472,5 +473,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.ResourceIDs = maps.Clone(result.ResourceIDs)
 	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
 	result.PendingCreates = maps.Clone(result.PendingCreates)
+	result.SourcePolicyIDs = maps.Clone(result.SourcePolicyIDs)
 	return result, errors.Join(providerErr, err)
 }
