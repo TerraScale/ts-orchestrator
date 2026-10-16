@@ -24,12 +24,14 @@ restart continuity, lost-publication recovery and rejection of the rotated PAT.
 Actual TLS 1.3, gRPC status and STUN transaction observations are retained. The
 disposable Caddy fixture uses its internal CA to avoid production ACME issuance.
 
-`netbird-recovery` requires verified protected off-host copies, the parent's
+The `netbird-recovery` scenario requires verified off-host fixture copies, the parent's
 authenticated OCI `TERMINATED` observation for the original host, restoration
 onto the distinct exact-image replacement, and unchanged account/service/peer,
 public peer key, policy and access observations. A stopped process cannot satisfy
 the removal requirement. The existing qualifier consumes the returned report and
-signs the existing dedicated-role proof only after the actual run succeeds.
+signs the existing dedicated-role proof only after actual required gates exist.
+The fixture recovery scenario deliberately emits no `netbird-recovery` gate:
+local fixture files cannot establish provider retention or regional durability.
 
 Local subprocess fixtures verify protocol rejection and credential exclusion.
 They emit no native qualification gates. Actual native execution, paid capacity,
