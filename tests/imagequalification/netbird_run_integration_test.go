@@ -83,10 +83,14 @@ func netBirdFixture(t *testing.T) (qualificationFixture, netBirdPaths) {
 }
 
 func TestNetBirdSignedInputsAndConfinementPrecedeCloud(t *testing.T) {
-	for _, mode := range []string{"unsealed-confinement", "worker", "client", "server", "extra-archive"} {
+	for _, mode := range []string{"unsealed-confinement", "worker", "client", "server", "extra-archive", "insecure-key"} {
 		t.Run(mode, func(t *testing.T) {
 			f, paths := netBirdFixture(t)
-			if mode == "extra-archive" {
+			if mode == "insecure-key" {
+				if err := os.Chmod(paths.PrivateKey, 0644); err != nil {
+					t.Fatal(err)
+				}
+			} else if mode == "extra-archive" {
 				paths.Archives["unexpected"] = paths.Worker
 			} else if mode != "unsealed-confinement" {
 				path := paths.Archives[mode]

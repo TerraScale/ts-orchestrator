@@ -132,6 +132,10 @@ func netBirdInputs(p Prepared, paths netBirdPaths) ([]netbird.Artifact, string, 
 		}
 		artifacts = append(artifacts, netbird.Artifact{Artifact: protocol.Artifact{Role: approved.Role, Image: approved.Image, ArchiveSHA256: approved.ArchiveSHA256}, ArchivePath: path})
 	}
+	info, err := os.Lstat(paths.PrivateKey)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 {
+		return nil, "", errors.New("ephemeral SSH private key must be a regular owner-only file")
+	}
 	wire, err := os.ReadFile(paths.PrivateKey)
 	if err != nil {
 		return nil, "", errors.New("ephemeral SSH private key is unavailable")
