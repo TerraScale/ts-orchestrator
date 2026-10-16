@@ -42,7 +42,7 @@ func RunAutomaticBootstrap(ctx context.Context, args []string) error {
 		return fmt.Errorf("automatic controller startup NTP clock health: %w", err)
 	}
 	if err := bootstrapstart.InstallLaunchMaterial(ctx, bootstrapstart.NewIMDSClient(), time.Now().UTC()); errors.Is(err, bootstrapstart.ErrNotController) {
-		return nil
+		return setupRuntimeWorker(ctx, os.Stdout)
 	} else if err != nil {
 		return fmt.Errorf("install automatic bootstrap launch material: %w", err)
 	}

@@ -25,6 +25,11 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if os.Geteuid() != 0 {
 		return errors.New("managed-runtime-start requires root")
 	}
+	if _, err := bootstrapstart.NewMarkerStore().ReadIdentity(); errors.Is(err, os.ErrNotExist) {
+		return runRuntimeWorker(ctx, output)
+	} else if err != nil {
+		return fmt.Errorf("inspect accepted runtime role: %w", err)
+	}
 	cfg, err := LoadConfig("/etc/terrascale-orchestrator/controller.json")
 	if err != nil {
 		return fmt.Errorf("read installed controller runtime configuration: %w", err)

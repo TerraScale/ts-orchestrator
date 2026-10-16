@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -426,6 +427,16 @@ func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell
 				serviceUID, serviceGID, err := controllerServiceIdentity()
 				if err != nil {
 					return nil, err
+				}
+				local, derived, present, err := installedAutomaticStartup(openCtx)
+				if err != nil {
+					return nil, err
+				}
+				if present {
+					if !bytes.Equal(local.baked.AnchorWire, baked.AnchorWire) {
+						return nil, errors.New("replacement startup authority differs from the installed anchor")
+					}
+					return bootstrapstart.NewAdmittedDerivedFounderReplacer(openCtx, baked, *opened.initial, derived, serviceUID, serviceGID)
 				}
 				return bootstrapstart.NewAdmittedFounderReplacer(openCtx, baked, *opened.initial, serviceUID, serviceGID)
 			}}}

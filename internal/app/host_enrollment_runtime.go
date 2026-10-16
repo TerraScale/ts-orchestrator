@@ -153,6 +153,10 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 }
 
 func (enrollment *managedHostEnrollment) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/v1/runtime/worker-refresh" {
+		enrollment.refreshRuntimeWorker(writer, request)
+		return
+	}
 	if request.URL.Path == "/v1/runtime/worker-bind" {
 		enrollment.bindRuntimeWorker(writer, request)
 		return

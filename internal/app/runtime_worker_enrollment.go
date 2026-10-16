@@ -38,6 +38,49 @@ func (enrollment *managedHostEnrollment) prepareRuntimeWorker(ctx context.Contex
 	return wire, nil
 }
 
+func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost || request.TLS == nil || request.Header.Get("Forwarded") != "" ||
+		request.Header.Get("X-Forwarded-For") != "" || request.Header.Get("X-Real-IP") != "" {
+		http.Error(writer, "invalid worker refresh transport", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(request.Context(), 30*time.Second)
+	defer cancel()
+	epoch := enrollment.fencer.Current().Epoch
+	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
+		http.Error(writer, "regional authority is not writable", http.StatusServiceUnavailable)
+		return
+	}
+	wire, err := io.ReadAll(io.LimitReader(request.Body, (128<<10)+1))
+	var transport hostenroll.WorkerTransport
+	if err != nil || protocol.DecodeStrict(wire, &transport, 128<<10) != nil {
+		http.Error(writer, "invalid worker refresh", http.StatusBadRequest)
+		return
+	}
+	enrolled, descriptor, err := hostenroll.ParseRequest(transport.Request, time.Now().UTC())
+	peer, _, peerErr := net.SplitHostPort(request.RemoteAddr)
+	if err != nil || peerErr != nil || net.ParseIP(peer) == nil || enrollment.observeRuntimeWorkerPeer(ctx, peer, enrolled, descriptor) != nil {
+		http.Error(writer, "worker peer is not current", http.StatusForbidden)
+		return
+	}
+	response, err := enrollment.prepareRuntimeWorker(ctx, epoch, transport.Request, transport.Response)
+	if err != nil {
+		http.Error(writer, "worker projection is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if enrollment.fencer.Guard(ctx, epoch) != nil || enrollment.observeRuntimeWorkerPeer(ctx, peer, enrolled, descriptor) != nil {
+		http.Error(writer, "worker authority changed", http.StatusServiceUnavailable)
+		return
+	}
+	result, err := protocol.EncodeJSON(hostenroll.WorkerTransport{Request: transport.Request, Response: response})
+	if err != nil {
+		http.Error(writer, "worker refresh encoding failed", http.StatusInternalServerError)
+		return
+	}
+	writer.Header().Set("Content-Type", "application/json")
+	_, _ = writer.Write(result)
+}
+
 func (enrollment *managedHostEnrollment) bindRuntimeWorker(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodPost || request.TLS == nil || request.Header.Get("Forwarded") != "" ||
 		request.Header.Get("X-Forwarded-For") != "" || request.Header.Get("X-Real-IP") != "" {
