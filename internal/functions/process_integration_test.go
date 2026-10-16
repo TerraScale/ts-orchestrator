@@ -18,6 +18,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -47,7 +48,8 @@ func TestFunctionWorkerProcess(t *testing.T) {
 	}
 	artifact := integrationArtifact(t, "echo")
 	admitted, deployment, files := signedFunctionFixture(t, artifact)
-	ca, serverCertificate, clientCertificate, wrongCertificate := processCertificates(t, "spiffe://terrascale.tech/tenants/"+deployment.TenantID+"/functions/"+deployment.FunctionID)
+	ca, serverCertificate, clientCertificate, wrongCertificate := processCertificates(t, "spiffe://terrascale.tech/tenants/"+deployment.TenantID+"/functions/"+deployment.FunctionID,
+		deployment.FunctionID+"."+strings.ToLower(deployment.TenantID)+".functions."+strings.ToLower(deployment.Cell)+".terrascale.internal")
 	credentials, workerCredentials, operatorID, systemID, resolver := processBrokerCredentials(t, admitted)
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir(),
 		TLSConfig:   &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{serverCertificate}},
@@ -197,6 +199,17 @@ func TestFunctionWorkerProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer nc.Close()
+	address, err := netip.ParseAddrPort(ready.Address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed, err := ReadSnapshot(t.Context(), admitted, address, clientCertificate, ca)
+	if err != nil || observed.Manifest.Digest != deployment.Digest || observed.Succeeded != 1 {
+		t.Fatalf("authenticated snapshot collector lost actual worker state: %+v %v", observed, err)
+	}
+	if _, err := ReadSnapshot(t.Context(), admitted, address, wrongCertificate, ca); err == nil {
+		t.Fatal("snapshot collector accepted a different function client identity")
+	}
 	js, err := jetstream.New(nc)
 	if err != nil {
 		t.Fatal(err)
@@ -289,7 +302,7 @@ func TestFunctionWorkerProcess(t *testing.T) {
 	}
 }
 
-func processCertificates(t *testing.T, identityURI string) ([]byte, tls.Certificate, tls.Certificate, tls.Certificate) {
+func processCertificates(t *testing.T, identityURI, serverDNS string) ([]byte, tls.Certificate, tls.Certificate, tls.Certificate) {
 	t.Helper()
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -310,13 +323,14 @@ func processCertificates(t *testing.T, identityURI string) ([]byte, tls.Certific
 		if server {
 			leaf.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
 			leaf.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
-		} else {
-			parsed, err := url.Parse(uri)
-			if err != nil {
-				t.Fatal(err)
-			}
-			leaf.URIs = []*url.URL{parsed}
+			leaf.DNSNames = []string{serverDNS}
+			uri = identityURI
 		}
+		parsed, err := url.Parse(uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		leaf.URIs = []*url.URL{parsed}
 		der, err := x509.CreateCertificate(rand.Reader, leaf, ca, pub, private)
 		if err != nil {
 			t.Fatal(err)
