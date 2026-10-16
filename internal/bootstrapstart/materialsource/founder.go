@@ -14,7 +14,7 @@ func (source *ColdStartMaterial) guard(ctx context.Context) error {
 		return ErrMaterialSource
 	}
 	proof := source.actor.Founder()
-	if proof.InstallationID() != source.grant.InstallationID() || proof.Generation() != source.grant.Generation() || proof.StorageDomain() != source.grant.StorageDomain() {
+	if proof.InstallationID() != source.grant.InstallationID() || proof.Generation() != source.grant.Generation() || source.actor.SourceStorageDomain() != source.grant.StorageDomain() {
 		return ErrMaterialSource
 	}
 	if source.link == nil || source.link.recipient == nil {
