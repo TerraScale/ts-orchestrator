@@ -391,9 +391,15 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		return report, err
 	}
 	partitioned := indexOf(leader)
+	if partitioned < 0 {
+		return report, errors.New("partition leader absent from native host inventory")
+	}
 	survivor = 0
 	for survivor == partitioned {
 		survivor++
+	}
+	if _, err := call(ctx, survivor, command{Operation: "pause", NodeID: leader}); err != nil {
+		return report, err
 	}
 	var peers []string
 	for i, h := range req.Hosts {
@@ -409,6 +415,13 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 			r, err := call(ctx, survivor, command{Operation: "cluster"})
 			return r.Leader != "" && r.Leader != leader, err
 		}); err != nil {
+			return err
+		}
+		id, err := create(survivor, "after-partition", 18083)
+		if err != nil {
+			return err
+		}
+		if err := wait(ctx, func() (bool, error) { r, err := observe(survivor, id); return r.Ready == 1, err }); err != nil {
 			return err
 		}
 		if _, err := call(ctx, partitioned, command{Operation: "heal"}); err != nil {
@@ -546,5 +559,8 @@ func continuous(ctx context.Context, probe func(context.Context) error, action f
 	}()
 	err := action()
 	stop()
-	return errors.Join(err, <-done)
+	monitorErr := <-done
+	finalErr := probe(ctx)
+	record(finalErr)
+	return errors.Join(err, monitorErr, finalErr)
 }
