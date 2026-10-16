@@ -203,16 +203,8 @@ func currentWorkerRegistration(ctx context.Context, mutations *authority.Reader,
 	if !found {
 		return fail(errors.New("worker has no current registered host"))
 	}
-	grants, err := js.KeyValue(ctx, hostenroll.GrantBucket)
+	grant, _, err := hostenroll.ReadCurrentGrant(ctx, js, instanceID)
 	if err != nil {
-		return fail(err)
-	}
-	grantEntry, err := grants.Get(ctx, entityid.Derive("host-enrollment", instanceID))
-	if err != nil {
-		return fail(err)
-	}
-	var grant hostenroll.Grant
-	if err := protocol.DecodeStrict(grantEntry.Value(), &grant, 64<<10); err != nil {
 		return fail(err)
 	}
 	if grant.SchemaVersion != 1 || grant.InstanceID != instanceID || grant.Disabled || grant.TerminalOperationID != "" || grant.IdentityResetOperationID != "" ||
