@@ -599,6 +599,9 @@ func (r *Runtime) CommitTerminalIntent(ctx context.Context, epoch uint64, scope 
 	}
 	return r.commitMutationVerified(ctx, epoch, MutationTerminalIntent, subjectKey, operationID,
 		0, payload, func(check context.Context) error {
+			if err := r.requireNoRuntimeEffects(check, scope); err != nil {
+				return err
+			}
 			if err := r.requireNoActiveBackup(check, scope.DatabaseID, scope.PartitionID); err != nil {
 				return err
 			}
@@ -1209,7 +1212,7 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationTerminalIntent:
 		want = 2
-	case MutationEnrollmentEffect:
+	case MutationEnrollmentEffect, MutationRuntimeEffect:
 		want = 3
 	case MutationManagedUpdate:
 		want = 4
@@ -1249,6 +1252,9 @@ func mutationSubject(scope string, kind HostMutationKind, subjectKey string) str
 	}
 	if kind == MutationEnrollmentEffect {
 		return fmt.Sprintf("%s.%s.placement.enrollment.%s", controlSubjectRoot, scope, subjectKey)
+	}
+	if kind == MutationRuntimeEffect {
+		return fmt.Sprintf("%s.%s.placement.runtime.%s", controlSubjectRoot, scope, subjectKey)
 	}
 	if kind == MutationManagedUpdate {
 		return fmt.Sprintf("%s.%s.placement.managed-update.%s", controlSubjectRoot, scope, subjectKey)
