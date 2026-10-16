@@ -44,7 +44,7 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(runtimeContext(t.Context()), 2*time.Minute)
 	defer cancel()
-	e, err := NewExecutor(*integrationSocket, t.TempDir())
+	e, err := newIntegrationExecutor(*integrationSocket, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestContainerdImportedImageWithoutRegistryEgress(t *testing.T) {
 			t.Fatal(err)
 		}
 		task := &api.Task{ID: fmt.Sprintf("cache%d", time.Now().UnixNano()), ServiceID: "cacheintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
-		c, err := e.Controller(task)
+		c, err := integrationContainerController(e, task)
 		if err != nil {
 			t.Fatal(err)
 		}

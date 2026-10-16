@@ -16,7 +16,7 @@ func TestContainerdHostPortReservationRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	state := t.TempDir()
-	e, err := NewExecutor(*integrationSocket, state)
+	e, err := newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestContainerdHostPortReservationRecovery(t *testing.T) {
 		Spec:     api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}},
 		Endpoint: &api.Endpoint{Spec: &api.EndpointSpec{Ports: []*api.PortConfig{{Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, PublishedPort: 35001, TargetPort: 35001}}}},
 	}
-	c, err := e.Controller(first)
+	c, err := integrationContainerController(e, first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,17 +50,17 @@ func TestContainerdHostPortReservationRecovery(t *testing.T) {
 	}
 	// A separate executor and state directory must recover the existing runtime
 	// reservation rather than treating its empty supervisor memory as authority.
-	e, err = NewExecutor(*integrationSocket, t.TempDir())
+	e, err = newIntegrationExecutor(*integrationSocket, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err = e.Controller(first)
+	c, err = integrationContainerController(e, first)
 	if err != nil {
 		t.Fatal(err)
 	}
 	second := first.Copy()
 	second.ID = fmt.Sprintf("portsecond%d", time.Now().UnixNano())
-	conflicting, err := e.Controller(second)
+	conflicting, err := integrationContainerController(e, second)
 	if err != nil {
 		t.Fatal(err)
 	}
