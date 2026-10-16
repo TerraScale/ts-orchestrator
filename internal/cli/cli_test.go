@@ -37,6 +37,8 @@ func TestLocalCommandDispatchWithoutRuntimeConfig(t *testing.T) {
 		{args: []string{"netbird", "sync", "--help"}, want: "prune-peers"},
 		{args: []string{"netbird", "inventory", "unexpected"}, want: "no positional arguments", wantError: true},
 		{args: []string{"oci-region", "--help"}, want: "preview"},
+		{args: []string{"oci-region", "import-image", "--help"}, want: `unknown oci-region command "import-image"`, wantError: true},
+		{args: []string{"oci-region", "import-image", "--qcow2", "candidate.qcow2", "--sha256", strings.Repeat("a", 64)}, want: `unknown oci-region command "import-image"`, wantError: true},
 		{args: []string{"qualification", "--help"}, want: "firecracker"},
 		{args: []string{"qualification", "firecracker", "--help"}, want: "prepare-base"},
 		{args: []string{"runtime-priority", "--help"}, want: "probe-admission"},

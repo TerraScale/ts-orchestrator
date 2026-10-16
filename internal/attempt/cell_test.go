@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -404,17 +406,20 @@ func TestImageImportsTheStaticCellImageName(t *testing.T) {
 	for cell, want := range map[string][2]string{"GRU": {"gru-1-arm64", "sa-saopaulo-1"}, "SFO": {"sfo-1-arm64", "us-sanjose-1"}} {
 		a := smallAttempt(t)
 		a.Config["orchestrator"] = Object{"source_revision": terrabaseCommit}
+		a.Config["namespace"] = "ns"
+		a.Config["image"] = Object{"bucket": "images"}
 		a.writeJSON(a.Plan(), Object{"cell": cell, "resource_ids": Object{"control_compartment": "ocid1.compartment.oc1..c"}})
 		if err := a.WriteNew(a.Path("image", "terrascale-arm64.qcow2"), []byte("qcow2")); err != nil {
 			t.Fatal(err)
 		}
-		var display, region string
+		server := imageimporttest.Start(t, "ocid1.image.fixture")
+		var region string
+		a.imageImporter = func(requested string) (imageimport.Importer, error) {
+			region = requested
+			return imageimporttest.Importer(server.URL)(requested)
+		}
 		var cells []string
 		a.Runner = func(_ context.Context, c Command) (string, error) {
-			if slices.Contains(c.Args, "import-image") {
-				display, region = flagValue(c.Args, "--display-name"), flagValue(c.Args, "--region")
-				return "", os.WriteFile(flagValue(c.Args, "--out"), []byte(`{"image_id":"ocid1.image.fixture"}`), 0600)
-			}
 			for _, flag := range []string{"--image-cell", "--region"} {
 				if value := flagValue(c.Args, flag); value != "" {
 					cells = append(cells, value)
@@ -423,6 +428,7 @@ func TestImageImportsTheStaticCellImageName(t *testing.T) {
 			return "", nil
 		}
 		a.PhaseImage()
+		display := str(a.read(a.Path("image", "import.json")), "display_name")
 		if a.Err() != nil || display != want[0] || region != want[1] || len(cells) != 3 || slices.ContainsFunc(cells, func(c string) bool { return c != cell }) {
 			t.Fatal(cell, a.Err(), display, region, cells)
 		}

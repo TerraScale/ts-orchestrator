@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
@@ -43,9 +42,6 @@ func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
 		switch {
 		case len(args) > 1 && args[0] == "release":
 			err = releasecli.Run(t.Context(), args[1:], os.Stdout)
-		case len(args) > 2 && args[0] == "oci-region" && args[1] == "import-image":
-			err = imageimport.RunImporters(t.Context(), args[2:], os.Stdout,
-				imageimporttest.Importer(os.Getenv("TS_ATTEMPT_IMAGE_PROOF_OCI_ENDPOINT")))
 		default:
 			err = fmt.Errorf("unexpected project CLI invocation: %v", args)
 		}
@@ -245,6 +241,7 @@ func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
 					_, _ = io.WriteString(w, `{"code":"NotAuthorizedOrNotFound","message":"isolated admission observation"}`)
 				}))
 				defer provider.Close()
+				a.imageImporter = imageimporttest.Importer(provider.URL)
 				executable, err := os.Executable()
 				if err != nil {
 					t.Fatal(err)
@@ -254,8 +251,7 @@ func TestAttemptFinalImageQualificationPrecedesOCIMutations(t *testing.T) {
 					t.Fatal(err)
 				}
 				a.Executable = a.BootstrapTool()
-				a.Env = append(a.Env, "TS_ATTEMPT_IMAGE_PROOF_PROCESS=1", "TS_ATTEMPT_IMAGE_PROOF_EXECUTABLE="+executable,
-					"TS_ATTEMPT_IMAGE_PROOF_OCI_ENDPOINT="+provider.URL)
+				a.Env = append(a.Env, "TS_ATTEMPT_IMAGE_PROOF_PROCESS=1", "TS_ATTEMPT_IMAGE_PROOF_EXECUTABLE="+executable)
 				if phase == "members" {
 					factory, err := ociclient.New(common.NewRawConfigurationProvider("ocid1.tenancy.oc1..proof", "ocid1.user.oc1..proof", "sa-saopaulo-1",
 						"00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00", ociPEM, nil),

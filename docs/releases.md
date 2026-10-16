@@ -331,8 +331,9 @@ one `promotion-receipt.json`. It stops at the first failed gate:
    base QCOW2 and checks them against the image manifest;
 3. it builds `ts-orch` from the image's clean source revision and runs
    `release verify-binary` on the signed binary receipt;
-4. it imports the QCOW2 with `ts-orch oci-region import-image` (UEFI and
-   paravirtualized capability schema, A1-only shapes; idempotent);
+4. it verifies independent production qualification and retained evidence for
+   the exact final QCOW2, then imports it through the in-binary OCI SDK (UEFI
+   and paravirtualized capability schema, A1-only shapes; idempotent);
 5. it runs `image-candidate` for the imported OCID, then, given the
    root-signed delegation extended to that OCID (`--image-delegation`),
    `sign-image` (which again checks the `ci.yml` run and qualification marker

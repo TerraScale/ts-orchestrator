@@ -34,6 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
@@ -66,6 +67,8 @@ type Attempt struct {
 	Out, ErrOut io.Writer
 	ctx         context.Context
 	err         error
+	// imageImporter is replaced only by package tests; production uses the operator SDK.
+	imageImporter imageimport.ImporterFactory
 }
 
 func object(v any) Object {
@@ -660,6 +663,9 @@ func (a *Attempt) PhaseImage() {
 	imported := a.Path("image", "import.json")
 	if !exists(imported) {
 		plan := a.read(a.Plan())
+		if a.err != nil {
+			return
+		}
 		if len(revision) < 12 || len(digest) < 12 {
 			a.fail(fmt.Errorf("image source or digest is malformed"))
 			return
@@ -667,8 +673,24 @@ func (a *Attempt) PhaseImage() {
 		// The cell image name is static; the revision and digest are in the
 		// signed image receipt.
 		name, e := naming.RegionCell(cell.Cell).Image()
-		a.fail(e)
-		a.run(a.Executable, "oci-region", "import-image", "--region", cell.OCIRegion, "--qcow2", qcow2, "--sha256", digest, "--compartment-id", str(object(plan["resource_ids"]), "control_compartment"), "--namespace", str(a.Config, "namespace"), "--bucket", str(image, "bucket"), "--display-name", name, "--out", imported)
+		if e != nil {
+			a.fail(e)
+			return
+		}
+		importer := a.imageImporter
+		if importer == nil {
+			importer = func(region string) (imageimport.Importer, error) {
+				client, err := imageimport.NewSDKClient(region)
+				return imageimport.Importer{Client: client}, err
+			}
+		}
+		_, e = imageimport.ImportRegions(a.ctx, imageimport.Options{QCOW2: qcow2, SHA256: digest,
+			Regions: []string{cell.OCIRegion}, Compartment: str(object(plan["resource_ids"]), "control_compartment"),
+			Namespace: str(a.Config, "namespace"), Bucket: str(image, "bucket"), DisplayName: name, Out: imported}, a.Out, importer)
+		if e != nil {
+			a.fail(e)
+			return
+		}
 	}
 	imageID := str(a.read(imported), "image_id")
 	issued, expires := a.validity()

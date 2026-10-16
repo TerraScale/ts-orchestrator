@@ -98,8 +98,9 @@ build on a developer machine from the same retained release.
 
 One operator command per image: it verifies the image release (digests,
 successful image run and job attempt, log marker), the candidate binary and
-base image, and the signed binary receipt; imports the QCOW2 with
-`ts-orch oci-region import-image`; creates, signs and verifies the image
+base image, and the signed binary receipt; verifies independent production
+qualification and retained evidence for the exact final disk; imports the QCOW2
+through the in-binary OCI SDK; creates, signs and verifies the image
 receipt with `ts-orch release`; and writes `promotion-receipt.json`. `--dry-run`
 runs every read-only gate without importing or signing.
 

@@ -32,7 +32,7 @@ and systemd service commands therefore keep their existing names.
 | `python3 deploy/netbird/install-client.py ...` | `ts-orch netbird install ...` |
 | `python3 deploy/oci-region/preview.py ...` | `ts-orch oci-region preview ...` |
 | `python3 deploy/oci-region/attempt.py ...` | `ts-orch oci-region attempt ...` |
-| `python3 deploy/oci-region/import-image.py ...` | `ts-orch oci-region import-image ...` |
+| `python3 deploy/oci-region/import-image.py ...` | `ts-orch image promote ...` (requires independent final-disk qualification) |
 | `python3 deploy/oci-region/public-api.py ...` | `ts-orch oci-region public-api ...` |
 | `python3 tests/runtime_priority/qualify.py ...` | `ts-orch runtime-priority qualify ...` |
 | `python3 tests/runtime_priority/pressure.py ...` | `ts-orch runtime-priority pressure ...` |
@@ -210,7 +210,9 @@ need them; controller and host startup do not load them.
 Regional inventory, cost admission, bootstrap attempts, image import, image
 coordination, runtime-pressure tools, and Firecracker qualification drivers
 are native Go features in the same executable. CI and image shell entry points
-invoke those commands. Image operations run from the source checkout when
+invoke those commands. OCI image import is internal to proof-verified image
+promotion and bootstrap attempts; there is no standalone import command.
+Image operations run from the source checkout when
 they need its manifests, unit files, or pinned build inputs. Image building
 still uses external QEMU/libguestfs tools; live qualification still needs its
 reviewed guest artifacts and host privileges.

@@ -35,7 +35,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/teardown"
 	"github.com/TerraScale/ts-orchestrator/internal/qualification/firecracker"
@@ -212,7 +211,7 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 
 func runOCIRegion(ctx context.Context, args []string, output io.Writer) error {
 	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
-		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  foundation    Create the plan's missing compartments, network, Vault, IAM and buckets (dry run unless --apply)\n  peer          Create the private DRG/RPC peering of two cells that inspect-private-peer checks (dry run unless --apply)\n  attempt       Resume an admitted regional bootstrap attempt\n  import-image  Import a qualified ARM64 QCOW2 and enforce the A1 launch contract\n  public-api    Preview, certify and apply the cell's Cloudflare-fronted load balancer\n  dns           Set Full (strict), origin pulls and proxied A records in Cloudflare (dry run unless --apply)\n  teardown      Delete a reviewed cell teardown plan's OCI resources in dependency order\n")
+		_, err := io.WriteString(output, "Usage: ts-orch oci-region <command> [flags]\n\n  preview       Inventory, estimate, admit, and inspect regional resources\n  foundation    Create the plan's missing compartments, network, Vault, IAM and buckets (dry run unless --apply)\n  peer          Create the private DRG/RPC peering of two cells that inspect-private-peer checks (dry run unless --apply)\n  attempt       Resume an admitted regional bootstrap attempt\n  public-api    Preview, certify and apply the cell's Cloudflare-fronted load balancer\n  dns           Set Full (strict), origin pulls and proxied A records in Cloudflare (dry run unless --apply)\n  teardown      Delete a reviewed cell teardown plan's OCI resources in dependency order\n")
 		return err
 	}
 	switch args[0] {
@@ -229,8 +228,6 @@ func runOCIRegion(ctx context.Context, args []string, output io.Writer) error {
 		return foundation.Run(ctx, args[1:], output)
 	case "peer":
 		return foundation.RunPeer(ctx, args[1:], output)
-	case "import-image":
-		return imageimport.Run(ctx, args[1:], output)
 	case "public-api":
 		return publicapi.Run(ctx, args[1:], output)
 	case "dns":
