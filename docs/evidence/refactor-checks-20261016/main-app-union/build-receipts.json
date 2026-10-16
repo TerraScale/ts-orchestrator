@@ -51,5 +51,14 @@
     "result": "compile-failure-no-tests-ran",
     "error": "internal/release/cli/container_apply_integration_test.go:70:37: undefined: serviceMigrationFixture"
   },
-  "publication_boundary": "Feature branch only; current union runtime, native image, cloud and production admission remain unqualified."
+  "publication_boundary": "Feature branch only; current union runtime, native image, cloud and production admission remain unqualified.",
+  "later_fixture_compile": {
+    "revision": "4e5fcb5ca3b9e61dc9f023969aee88095996f2a6",
+    "session": 2274,
+    "exit": 0,
+    "tags": "fixturetest",
+    "binary_local_path": "/tmp/ts-main-union-4e5fcb5c-fixture.test",
+    "binary_sha256": "c729d7545c5b6bbc6193e40ca18f9ddd22e92daecebe74447ecf5a989cc95e7a",
+    "runtime_tests_run": false
+  }
 }

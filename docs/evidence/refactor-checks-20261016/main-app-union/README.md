@@ -55,3 +55,11 @@ or deployment was performed for this evidence. Connected full application
 startup/recovery, protected-writer IAM and child creation, native/final image
 qualification, live regional/stateful acceptance, integration migration
 closure and measured operational benefits remain open.
+
+## Later bounded startup fixture
+
+[Startup fixture receipts](startup-fixture/README.md) retain exact APP582a3992
+PASS, the earlier rejected marker-mode fixture, and union4e5fcb5c whole APP
+fixturetest compile PASS. READY is manually emitted and observed; production
+startup and positive material delivery remain unqualified. No passing runtime
+case was repeated on the union.

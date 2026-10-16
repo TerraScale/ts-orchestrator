@@ -1,0 +1,74 @@
+{
+  "qualified_source": "582a39920cf2e486306579c9a66ceefb17cb013d",
+  "source_tree": "/tmp/ts-refactor-app-integration",
+  "compile": {
+    "session": 21243,
+    "exit": 0,
+    "tags": "fixturetest",
+    "binary_sha256": "e86878dca3fa60cd9958d635788b03f6d5e007b22b9ed9b219a49b3b9e239ed8"
+  },
+  "runtime": {
+    "session": 55421,
+    "exit": 0,
+    "skips": 0,
+    "selected_test": "^TestManagedRuntimeReadyBeforeSingleOwnHostSession$",
+    "child_seconds": 1.55,
+    "outer_test_seconds": 1.65,
+    "argv": [
+      "timeout",
+      "180s",
+      "flock",
+      "-n",
+      "/tmp/ts-orch-refactor-gate-check.lock",
+      "env",
+      "GOMAXPROCS=2",
+      "nice",
+      "-n",
+      "19",
+      "/tmp/ts-app-coherent-582a3992-fixture.test",
+      "-test.v",
+      "-test.run=^TestManagedRuntimeReadyBeforeSingleOwnHostSession$",
+      "-test.timeout=120s"
+    ],
+    "cwd": "internal/app",
+    "namespace": "sudo -n unshare --net --fork --kill-child=SIGKILL; isolated loopback only",
+    "scope": "signed controller-c external-seed producer, local SDK/CAS, genuine Gate/current authority, signed foundation and local Vault SDK, actual manager/Raft, manual READY datagram then one signed Agent.RunSession; session cancel/join leaves manager live/paused and providers closed"
+  },
+  "prior_failure": {
+    "source": "dbc43f0d3fcd3e9a7264fc963bd1dfcdb0b17334",
+    "exit": 1,
+    "scope": "Before manager/NATS/Agent startup; fixture directory0700 rejected by real MarkerStore exact0755 check.",
+    "repair": "582a3992 changes only fixture marker directory to0755; ownership/journal checks preserved"
+  },
+  "union_fixture_compile": {
+    "revision": "4e5fcb5ca3b9e61dc9f023969aee88095996f2a6",
+    "session": 2274,
+    "exit": 0,
+    "tags": "fixturetest",
+    "binary_local_path": "/tmp/ts-main-union-4e5fcb5c-fixture.test",
+    "binary_sha256": "c729d7545c5b6bbc6193e40ca18f9ddd22e92daecebe74447ecf5a989cc95e7a",
+    "runtime_tests_run": false
+  },
+  "owned_source_blobs": {
+    "internal/app/bootstrap_credential_launcher_test.go": {
+      "qualified_source": "4e04e9b3a4dfdae470017db9c0a02922574eb00b",
+      "union": "4e04e9b3a4dfdae470017db9c0a02922574eb00b"
+    },
+    "internal/app/managed_runtime_startup_integration_test.go": {
+      "qualified_source": "7312b9ac9133e98d0728273ea45831305746abe2",
+      "union": "7312b9ac9133e98d0728273ea45831305746abe2"
+    },
+    "internal/bootstrapstart/controller_manager_startup_fixture.go": {
+      "qualified_source": "d7bffe6e89ce62a3320bfad1078bcf64c458a1b8",
+      "union": "d7bffe6e89ce62a3320bfad1078bcf64c458a1b8"
+    }
+  },
+  "excluded": [
+    "production RunManagedRuntime/readiness wrapper",
+    "production session wrapper and independent binding observer",
+    "HomeIAM/provider protected-writer permissions",
+    "positive material delivery/registry binding",
+    "native image/containerd/systemd/CLI/live OCI acceptance"
+  ],
+  "passing_case_policy": "No passing runtime case repeated on the union; original exact-source PASS retained."
+}

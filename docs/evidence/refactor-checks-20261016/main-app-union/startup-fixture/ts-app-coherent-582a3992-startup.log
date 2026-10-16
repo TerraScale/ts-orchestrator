@@ -1,0 +1,108 @@
+=== RUN   TestManagedRuntimeReadyBeforeSingleOwnHostSession
+    managed_runtime_startup_integration_test.go:62: === RUN   TestManagedRuntimeReadyBeforeSingleOwnHostSession
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #1] Server created" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #2] Server created" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] original dial target is: \"/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\"" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel created for target \"/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\"" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] parsed dial target is: resolver.Target{URL:url.URL{Scheme:\"passthrough\", Opaque:\"\", User:(*url.Userinfo)(nil), Host:\"\", Path:\"//tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\", Fragment:\"\", RawQuery:\"\", RawPath:\"\", RawFragment:\"\", ForceQuery:false, OmitHost:false}}" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel authority set to \"%2Ftmp%2FTestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564%2F004%2Fmanager%2Fnode%2Fcontrol.sock\"" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel Connectivity change to CONNECTING" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Resolver state updated: {\n  \"Addresses\": [\n    {\n      \"Addr\": \"/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\",\n      \"ServerName\": \"\",\n      \"Attributes\": null,\n      \"BalancerAttributes\": null,\n      \"Metadata\": null\n    }\n  ],\n  \"Endpoints\": [\n    {\n      \"Addresses\": [\n        {\n          \"Addr\": \"/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\",\n          \"ServerName\": \"\",\n          \"Attributes\": null,\n          \"BalancerAttributes\": null,\n          \"Metadata\": null\n        }\n      ],\n      \"Attributes\": null\n    }\n  ],\n  \"ServiceConfig\": null,\n  \"Attributes\": null\n} (resolver returned new addresses)" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel switches to new LB policy \"pick_first\"" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel created" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel exiting idle mode" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel Connectivity change to CONNECTING" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel picks a new address \"/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock\" to connect" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="Listening for connections" addr="10.44.0.10:2377" module=node node.id=orl83559wcey6ecfji2f8ma1t proto=tcp
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #1 ListenSocket #5] ListenSocket created" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="Listening for local connections" addr=/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/004/manager/node/control.sock module=node node.id=orl83559wcey6ecfji2f8ma1t proto=unix
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #2 ListenSocket #6] ListenSocket created" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel Connectivity change to READY" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel Connectivity change to READY" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 switched to configuration voters=()" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 became follower at term 0" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="newRaft 53c024027cf0f25 [peers: [], term: 0, commit: 0, applied: 0, lastindex: 0, lastterm: 0]" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 became follower at term 1" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 switched to configuration voters=(377178943361322789)" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 switched to configuration voters=(377178943361322789)" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 is starting a new election at term 1" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 became candidate at term 2" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 received MsgVoteResp from 53c024027cf0f25 at term 2" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 has received 1 MsgVoteResp votes and 0 vote rejections" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="53c024027cf0f25 became leader at term 2" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="raft.node: 53c024027cf0f25 elected leader 53c024027cf0f25 at term 2" module=raft node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="Creating default ingress network" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="dispatcher starting" module=dispatcher node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="leadership changed from not yet part of a raft cluster to orl83559wcey6ecfji2f8ma1t" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="manager selected by agent for new session: { }" module=node/agent node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="waiting 0s before registering session" module=node/agent node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="worker orl83559wcey6ecfji2f8ma1t was successfully registered" method="(*Dispatcher).register"
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=error msg="Failed to allocate network resources for node orl83559wcey6ecfji2f8ma1t" error="network support is unavailable" module=node node.id=orl83559wcey6ecfji2f8ma1t
+            managed_runtime_startup_integration_test.go:191: signed controller-c manager and create-once Vault ready before NATS/Agent startup
+        2026/10/16 20:08:56 INFO Starting nats-server component=nats
+        2026/10/16 20:08:56 INFO   Version:  2.15.0 component=nats
+        2026/10/16 20:08:56 INFO   Git:      [not set] component=nats
+        2026/10/16 20:08:56 INFO   Cluster:  gru component=nats
+        2026/10/16 20:08:56 INFO   Name:     gru-one component=nats
+        2026/10/16 20:08:56 INFO   Node:     uItAxWHI component=nats
+        2026/10/16 20:08:56 INFO   ID:       NDLTNES3PEI3FRPTQNXJVJIH2LJO2ARNFEHOLEUEG5PNXNNFY5KAMOE4 component=nats
+        2026/10/16 20:08:56 INFO Trusted Operators component=nats
+        2026/10/16 20:08:56 INFO   System  : "" component=nats
+        2026/10/16 20:08:56 INFO   Operator: "" component=nats
+        2026/10/16 20:08:56 INFO   Issued  : 2026-10-16 20:08:55 -0300 -03 component=nats
+        2026/10/16 20:08:56 INFO   Expires : Never component=nats
+        2026/10/16 20:08:56 INFO Starting JetStream component=nats
+        2026/10/16 20:08:56 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+        2026/10/16 20:08:56 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+        2026/10/16 20:08:56 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+        2026/10/16 20:08:56 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+        2026/10/16 20:08:56 INFO  component=nats
+        2026/10/16 20:08:56 INFO          https://docs.nats.io/jetstream component=nats
+        2026/10/16 20:08:56 INFO  component=nats
+        2026/10/16 20:08:56 INFO ---------------- JETSTREAM ---------------- component=nats
+        2026/10/16 20:08:56 INFO   Strict:          true component=nats
+        2026/10/16 20:08:56 INFO   Max Memory:      23.48 GB component=nats
+        2026/10/16 20:08:56 INFO   Max Storage:     8.00 GB component=nats
+        2026/10/16 20:08:56 INFO   Store Directory: "/tmp/TestManagedRuntimeReadyBeforeSingleOwnHostSession2783325564/001/one/jetstream" component=nats
+        2026/10/16 20:08:56 INFO   Domain:          gru component=nats
+        2026/10/16 20:08:56 INFO   API Level:       5 component=nats
+        2026/10/16 20:08:56 INFO ------------------------------------------- component=nats
+        2026/10/16 20:08:56 INFO Took 599.96µs to start JetStream component=nats
+        2026/10/16 20:08:56 INFO Server is ready component=nats
+        2026/10/16 20:08:56 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+        2026/10/16 20:08:56 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+        2026/10/16 20:08:56 INFO host regional NATS connection transition state=connected endpoint=127.0.0.1:35271 cause_class=none
+        2026/10/16 20:08:56 INFO host session accepted phase=acquire session_id_hash=0bced66c82c0689015b13db285b63d71 epoch=1 expires_at=2026-10-16T23:09:26.782479987Z
+            managed_runtime_startup_integration_test.go:299: one actual signed Agent session stopped; manager remains live and deferred material/registry stay closed
+        2026/10/16 20:08:56 INFO authority state transition scope=gru from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+        time="2026-10-16T20:08:56-03:00" level=info msg="Stopping manager" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="dispatcher stopping" method="(*Dispatcher).Stop" module=dispatcher node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="shutting down certificate renewal routine" module=node/tls node.id=orl83559wcey6ecfji2f8ma1t node.role=swarm-manager
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #2 ListenSocket #6] ListenSocket deleted" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="dispatcher session dropped, marking node orl83559wcey6ecfji2f8ma1t down" method="(*Dispatcher).Session" node.id=orl83559wcey6ecfji2f8ma1t node.session=ucl5qacmz5pnrjb3bsz1k946a
+        time="2026-10-16T20:08:56-03:00" level=error msg="failed to remove node" error="rpc error: code = Aborted desc = dispatcher is stopped" method="(*Dispatcher).Session" node.id=orl83559wcey6ecfji2f8ma1t node.session=ucl5qacmz5pnrjb3bsz1k946a
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Server #1 ListenSocket #5] ListenSocket deleted" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel Connectivity change to IDLE" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel Connectivity change to IDLE" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="Manager shut down" module=node node.id=orl83559wcey6ecfji2f8ma1t
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel Connectivity change to SHUTDOWN" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Closing the name resolver" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] ccBalancerWrapper: closing" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel Connectivity change to SHUTDOWN" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3 SubChannel #4] Subchannel deleted" module=grpc
+        time="2026-10-16T20:08:56-03:00" level=info msg="[core] [Channel #3] Channel deleted" module=grpc
+        2026/10/16 20:08:56 INFO host regional NATS connection transition state=disconnected endpoint=127.0.0.1:35271 cause_class=none
+        2026/10/16 20:08:56 INFO Initiating Shutdown... component=nats
+        2026/10/16 20:08:56 INFO Initiating JetStream Shutdown... component=nats
+        2026/10/16 20:08:56 INFO JetStream Shutdown component=nats
+        2026/10/16 20:08:56 INFO Server Exiting.. component=nats
+        --- PASS: TestManagedRuntimeReadyBeforeSingleOwnHostSession (1.55s)
+        PASS
+        
+--- PASS: TestManagedRuntimeReadyBeforeSingleOwnHostSession (1.65s)
+PASS
