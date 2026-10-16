@@ -5536,18 +5536,10 @@ func TestClientTCPQueueQualifierPermissionsIngress(t *testing.T) {
 			{Username: "writer", Password: "pass", Permissions: &Permissions{Publish: &SubjectPermission{Deny: []string{"admin.secret workers"}}}},
 			{Username: "reader", Password: "pass"},
 		}
-		s := RunServer(o)
-		defer s.Shutdown()
-		reader := clientTCPDial(t, s)
-		reader.flush("CONNECT {\"verbose\":false,\"user\":\"reader\",\"pass\":\"pass\"}\r\nSUB admin.> 1\r\n")
-		writer := clientTCPDial(t, s)
-		writer.flush("CONNECT {\"verbose\":false,\"user\":\"writer\",\"pass\":\"pass\"}\r\n")
-		writer.write("PUB admin.secret 6\r\nsecret\r\nPING\r\n")
-		writer.expect("-ERR 'Permissions Violation for Publish to \"admin.secret\"'\r\n")
-		writer.expect("PONG\r\n")
-		writer.flush("PUB admin.public 2\r\nok\r\n")
-		reader.message("MSG admin.public 1 2\r\n", "ok")
-		reader.flush("")
+		s, err := NewServer(o)
+		require_Error(t, err)
+		require_True(t, s == nil)
+		require_Equal(t, err.Error(), `invalid permissions for user "writer": publish deny: subject "admin.secret workers" is not a valid subject`)
 	})
 
 	t.Run("subscription qualifier exposed and enforced", func(t *testing.T) {
