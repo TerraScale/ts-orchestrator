@@ -79,7 +79,7 @@ func (c *sdkClient) ListImages(ctx context.Context, compartment, displayName str
 	var images []Image
 	var cursor *string
 	for range maxPages {
-		response, err := c.compute.ListImages(ctx, core.ListImagesRequest{CompartmentId: new(compartment),
+		response, err := c.compute.ListImages(ociclient.RequestContext(ctx), core.ListImagesRequest{CompartmentId: new(compartment),
 			DisplayName: new(displayName), Page: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI images: %w", err)
@@ -108,7 +108,7 @@ func deref(value *string) string {
 }
 
 func (c *sdkClient) GetImage(ctx context.Context, id string) (Image, error) {
-	response, err := c.compute.GetImage(ctx, core.GetImageRequest{ImageId: new(id)})
+	response, err := c.compute.GetImage(ociclient.RequestContext(ctx), core.GetImageRequest{ImageId: new(id)})
 	if err != nil {
 		return Image{}, fmt.Errorf("get OCI image: %w", err)
 	}
@@ -116,7 +116,7 @@ func (c *sdkClient) GetImage(ctx context.Context, id string) (Image, error) {
 }
 
 func (c *sdkClient) HeadObject(ctx context.Context, namespace, bucket, object string) (bool, map[string]string, error) {
-	response, err := c.objects.HeadObject(ctx, objectstorage.HeadObjectRequest{NamespaceName: new(namespace),
+	response, err := c.objects.HeadObject(ociclient.RequestContext(ctx), objectstorage.HeadObjectRequest{NamespaceName: new(namespace),
 		BucketName: new(bucket), ObjectName: new(object)})
 	if err != nil {
 		if serviceErr, ok := common.IsServiceError(err); ok && serviceErr.GetHTTPStatusCode() == http.StatusNotFound {
@@ -132,7 +132,7 @@ func (c *sdkClient) UploadObject(ctx context.Context, request UploadRequest) err
 }
 
 func (c *sdkClient) ImportImage(ctx context.Context, request ImportRequest) (Image, string, error) {
-	response, err := c.compute.CreateImage(ctx, core.CreateImageRequest{
+	response, err := c.compute.CreateImage(ociclient.RequestContext(ctx), core.CreateImageRequest{
 		CreateImageDetails: core.CreateImageDetails{
 			CompartmentId: new(request.Compartment), DisplayName: new(request.DisplayName),
 			FreeformTags: map[string]string{SHA256Tag: request.SHA256},
@@ -153,7 +153,7 @@ func (c *sdkClient) ImportImage(ctx context.Context, request ImportRequest) (Ima
 }
 
 func (c *sdkClient) GetWorkRequest(ctx context.Context, id string) (WorkRequestStatus, error) {
-	response, err := c.workRequest.GetWorkRequest(ctx, workrequests.GetWorkRequestRequest{WorkRequestId: new(id)})
+	response, err := c.workRequest.GetWorkRequest(ociclient.RequestContext(ctx), workrequests.GetWorkRequestRequest{WorkRequestId: new(id)})
 	if err != nil {
 		return "", fmt.Errorf("get OCI work request: %w", err)
 	}
@@ -164,7 +164,7 @@ func (c *sdkClient) ListCapabilitySchemas(ctx context.Context, compartment, imag
 	var ids []string
 	var cursor *string
 	for range maxPages {
-		response, err := c.compute.ListComputeImageCapabilitySchemas(ctx, core.ListComputeImageCapabilitySchemasRequest{
+		response, err := c.compute.ListComputeImageCapabilitySchemas(ociclient.RequestContext(ctx), core.ListComputeImageCapabilitySchemasRequest{
 			CompartmentId: new(compartment), ImageId: new(imageID), Page: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI image capability schemas: %w", err)
@@ -194,7 +194,7 @@ func capabilitySchema(id *string, data map[string]core.ImageCapabilitySchemaDesc
 }
 
 func (c *sdkClient) GetCapabilitySchema(ctx context.Context, id string) (CapabilitySchema, error) {
-	response, err := c.compute.GetComputeImageCapabilitySchema(ctx, core.GetComputeImageCapabilitySchemaRequest{
+	response, err := c.compute.GetComputeImageCapabilitySchema(ociclient.RequestContext(ctx), core.GetComputeImageCapabilitySchemaRequest{
 		ComputeImageCapabilitySchemaId: new(id)})
 	if err != nil {
 		return CapabilitySchema{}, fmt.Errorf("get OCI image capability schema: %w", err)
@@ -207,7 +207,7 @@ func (c *sdkClient) GlobalCapabilitySchemaVersion(ctx context.Context) (string, 
 	// first page that is empty but has more pages is followed.
 	var cursor *string
 	for range maxPages {
-		response, err := c.compute.ListComputeGlobalImageCapabilitySchemas(ctx,
+		response, err := c.compute.ListComputeGlobalImageCapabilitySchemas(ociclient.RequestContext(ctx),
 			core.ListComputeGlobalImageCapabilitySchemasRequest{Page: cursor})
 		if err != nil {
 			return "", fmt.Errorf("list OCI global image capability schemas: %w", err)
@@ -234,7 +234,7 @@ func (c *sdkClient) CreateCapabilitySchema(ctx context.Context, compartment, ima
 		descriptors[key] = core.EnumStringImageCapabilitySchemaDescriptor{Source: core.ImageCapabilitySchemaDescriptorSourceImage,
 			Values: capability.Values, DefaultValue: new(capability.Default)}
 	}
-	response, err := c.compute.CreateComputeImageCapabilitySchema(ctx, core.CreateComputeImageCapabilitySchemaRequest{
+	response, err := c.compute.CreateComputeImageCapabilitySchema(ociclient.RequestContext(ctx), core.CreateComputeImageCapabilitySchemaRequest{
 		CreateComputeImageCapabilitySchemaDetails: core.CreateComputeImageCapabilitySchemaDetails{
 			CompartmentId: new(compartment), ImageId: new(imageID), DisplayName: new(displayName),
 			ComputeGlobalImageCapabilitySchemaVersionName: new(version), SchemaData: descriptors,
@@ -251,7 +251,7 @@ func (c *sdkClient) ListShapes(ctx context.Context, imageID string) ([]ShapeEntr
 	var entries []ShapeEntry
 	var cursor *string
 	for range maxPages {
-		response, err := c.compute.ListImageShapeCompatibilityEntries(ctx, core.ListImageShapeCompatibilityEntriesRequest{
+		response, err := c.compute.ListImageShapeCompatibilityEntries(ociclient.RequestContext(ctx), core.ListImageShapeCompatibilityEntriesRequest{
 			ImageId: new(imageID), Page: cursor})
 		if err != nil {
 			return nil, fmt.Errorf("list OCI image shape compatibility: %w", err)
@@ -282,7 +282,7 @@ func (c *sdkClient) AddShape(ctx context.Context, imageID string, entry ShapeEnt
 	if entry.MemoryGB != nil {
 		details.MemoryConstraints = &core.ImageMemoryConstraints{MinInGBs: new(entry.MemoryGB.Min), MaxInGBs: new(entry.MemoryGB.Max)}
 	}
-	_, err := c.compute.AddImageShapeCompatibilityEntry(ctx, core.AddImageShapeCompatibilityEntryRequest{
+	_, err := c.compute.AddImageShapeCompatibilityEntry(ociclient.RequestContext(ctx), core.AddImageShapeCompatibilityEntryRequest{
 		ImageId: new(imageID), ShapeName: new(entry.Shape), AddImageShapeCompatibilityEntryDetails: details})
 	if err != nil {
 		return fmt.Errorf("add OCI image shape compatibility: %w", err)
@@ -291,7 +291,7 @@ func (c *sdkClient) AddShape(ctx context.Context, imageID string, entry ShapeEnt
 }
 
 func (c *sdkClient) RemoveShape(ctx context.Context, imageID, shape string) error {
-	_, err := c.compute.RemoveImageShapeCompatibilityEntry(ctx, core.RemoveImageShapeCompatibilityEntryRequest{
+	_, err := c.compute.RemoveImageShapeCompatibilityEntry(ociclient.RequestContext(ctx), core.RemoveImageShapeCompatibilityEntryRequest{
 		ImageId: new(imageID), ShapeName: new(shape)})
 	if err != nil {
 		return fmt.Errorf("remove OCI image shape compatibility: %w", err)

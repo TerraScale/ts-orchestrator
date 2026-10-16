@@ -120,8 +120,12 @@ func TestStreamingUploadReportsThePartFailure(t *testing.T) {
 }
 
 func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
-	for _, cause := range []string{"caller", "deadline", "sibling failure"} {
-		t.Run(cause, func(t *testing.T) {
+	for _, scenario := range []struct{ stage, cause string }{
+		{"part", "caller"}, {"part", "deadline"}, {"part", "sibling failure"},
+		{"single put", "caller"}, {"multipart create", "caller"}, {"multipart commit", "caller"},
+	} {
+		t.Run(scenario.stage+"/"+scenario.cause, func(t *testing.T) {
+			cause := scenario.cause
 			region := imageimporttest.Start(t, "ocid1.image.oc1..x")
 			target, err := url.Parse(region.URL)
 			if err != nil {
@@ -130,10 +134,14 @@ func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
 			proxy := httputil.NewSingleHostReverseProxy(target)
 			consumed, disconnected, release := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodPut && r.URL.Query().Get("uploadPartNum") == "1" {
+				blocked := scenario.stage == "part" && r.Method == http.MethodPut && r.URL.Query().Get("uploadPartNum") == "1" ||
+					scenario.stage == "single put" && r.Method == http.MethodPut ||
+					scenario.stage == "multipart create" && r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/u") ||
+					scenario.stage == "multipart commit" && r.Method == http.MethodPost && r.URL.Query().Get("uploadId") != ""
+				if blocked {
 					n, err := io.Copy(io.Discard, r.Body)
-					if err != nil || n != 1024 {
-						t.Errorf("part body: bytes=%d err=%v", n, err)
+					if err != nil || n == 0 || scenario.stage == "part" && n != 1024 {
+						t.Errorf("request body: bytes=%d err=%v", n, err)
 						return
 					}
 					close(consumed)
@@ -162,6 +170,10 @@ func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
 				t.Fatal(err)
 			}
 			path, _, digest := uploadFixture(t, 2048)
+			partSize := int64(1024)
+			if scenario.stage == "single put" {
+				partSize = 4096
+			}
 			ctx, cancel := context.WithCancel(t.Context())
 			if cause == "deadline" {
 				cancel()
@@ -169,11 +181,11 @@ func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
 			}
 			defer cancel()
 			done := make(chan error, 1)
-			go func() { done <- client.UploadObject(ctx, uploadRequest(path, digest, 1024)) }()
+			go func() { done <- client.UploadObject(ctx, uploadRequest(path, digest, partSize)) }()
 			select {
 			case <-consumed:
 			case <-time.After(5 * time.Second):
-				t.Fatal("server never consumed the full part body")
+				t.Fatal("server never consumed the full request body")
 			}
 			if cause == "caller" {
 				cancel()
@@ -199,7 +211,11 @@ func TestStreamingUploadCancelsWhileWaitingForPartHeaders(t *testing.T) {
 			case <-time.After(2 * time.Second):
 				t.Fatal("HTTP request was not canceled")
 			}
-			if open, aborted := region.Multipart(); open != 0 || aborted != 1 {
+			wantAborts := 1
+			if scenario.stage == "single put" || scenario.stage == "multipart create" {
+				wantAborts = 0
+			}
+			if open, aborted := region.Multipart(); open != 0 || aborted != wantAborts {
 				t.Fatalf("open=%d aborted=%d", open, aborted)
 			}
 			if region.Count("POST /n/ns/b/images/u/") != 0 {
