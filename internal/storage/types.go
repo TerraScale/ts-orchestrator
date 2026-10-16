@@ -6,7 +6,7 @@
 //
 // Subpackages:
 //
-//	lifecycle   pure volume state machine with Stuck/Held states and deadlines
+//	lifecycle   bounded retained-volume observation deadlines and diagnostics
 //	hostvolume  host-side mount hardening, filesystem format and online grow
 //	capacity    statfs collector, JetStream KV usage publisher, pressure signals
 //	backup      OCI volume backup policy, planner and fenced retention runner
