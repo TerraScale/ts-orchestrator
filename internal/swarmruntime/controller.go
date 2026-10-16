@@ -173,7 +173,11 @@ func (c *controller) Start(ctx context.Context) error {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		t, err = ctr.NewTask(ctx, cio.BinaryIO(c.executor.executable, map[string]string{"--runtime-logger": c.executor.logRoot}))
+		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": c.executor.logRoot})
+		if uriErr != nil {
+			return uriErr
+		}
+		t, err = ctr.NewTask(ctx, cio.LogURI(uri))
 	}
 	if err != nil {
 		return err
