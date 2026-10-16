@@ -17,7 +17,7 @@ import (
 // The manager retains this bundle before starting a writer, including uncertain
 // starts, and compares all independently recorded volume/source pins here.
 func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring,
-	target release.ContainerTarget, expected RetainedData, evidence func(context.Context, string) (io.ReadCloser, error),
+	target release.ContainerTarget, expected RetainedData, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation,
 ) (RetainedData, error) {
 	if ctx == nil || ctx.Err() != nil || target.Role != "terrabase" || evidence == nil {
 		return RetainedData{}, ErrUnsafe
@@ -50,7 +50,7 @@ func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundl
 	if err := protocol.DecodeStrict(wire, &proof, trust.MaxPayloadBytes); err != nil {
 		return RetainedData{}, err
 	}
-	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, proof.Data, proof.TargetCPU, envelope.IssuedAt, envelope.IssuedAt.Add(time.Nanosecond), evidence)
+	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, proof.Data, proof.TargetCPU, envelope.IssuedAt, envelope.IssuedAt.Add(time.Nanosecond), evidence, allocations)
 	if err != nil {
 		return RetainedData{}, err
 	}
@@ -69,8 +69,8 @@ func VerifyRetainedProvenance(ctx context.Context, bundle release.ContainerBundl
 // signed desired pins the exact native artifact/source and existing volume. The
 // independent qualifier supplies the disk format; retained artifact bytes prove
 // its architecture through the ELF header. No native binary is executed.
-func VerifyNativeRetainedProvenance(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, expected RetainedData, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error)) (RetainedData, error) {
-	verified, err := VerifyStatefulDeclared(ctx, bundle, roots, target, now, until, evidence)
+func VerifyNativeRetainedProvenance(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget, expected RetainedData, now, until time.Time, evidence func(context.Context, string) (io.ReadCloser, error), allocations release.SequenceLocation) (RetainedData, error) {
+	verified, err := VerifyStatefulDeclared(ctx, bundle, roots, target, now, until, evidence, allocations)
 	if err != nil {
 		return RetainedData{}, err
 	}

@@ -38,13 +38,14 @@ import (
 // Source is the production worker adapter. Only its concrete signed session,
 // OCI evidence reader and actual container observer can establish a binding.
 type Source struct {
-	session   *WorkerSession
-	runtime   RuntimeObserver
-	roots     trust.Keyring
-	evidence  releasechannel.Location
-	stateRoot string
-	mu        sync.Mutex
-	entries   map[string]*sourceEntry
+	session     *WorkerSession
+	runtime     RuntimeObserver
+	roots       trust.Keyring
+	evidence    releasechannel.Location
+	allocations ContainerAllocationResolver
+	stateRoot   string
+	mu          sync.Mutex
+	entries     map[string]*sourceEntry
 }
 
 type sourceEntry struct {
@@ -60,8 +61,8 @@ type sourceEntry struct {
 	revoked      bool
 }
 
-func NewSource(session *WorkerSession, observer RuntimeObserver, roots trust.Keyring, evidence releasechannel.Location, stateRoot string) (*Source, error) {
-	if session == nil || observer.Client == nil || observer.Client != session.client || len(roots) == 0 || evidence.Client == nil || evidence.Namespace == "" || evidence.Bucket == "" ||
+func NewSource(session *WorkerSession, observer RuntimeObserver, roots trust.Keyring, evidence releasechannel.Location, stateRoot string, allocations ContainerAllocationResolver) (*Source, error) {
+	if allocations == nil || session == nil || observer.Client == nil || observer.Client != session.client || len(roots) == 0 || evidence.Client == nil || evidence.Namespace == "" || evidence.Bucket == "" ||
 		!filepath.IsAbs(stateRoot) || filepath.Clean(stateRoot) != stateRoot || stateRoot == "/" || os.Geteuid() != 0 {
 		return nil, ErrUnsafe
 	}
@@ -72,7 +73,7 @@ func NewSource(session *WorkerSession, observer RuntimeObserver, roots trust.Key
 	for id, key := range roots {
 		rootCopy[id] = slices.Clone(key)
 	}
-	source := &Source{session: session, runtime: observer, roots: rootCopy, evidence: evidence, stateRoot: stateRoot, entries: make(map[string]*sourceEntry)}
+	source := &Source{session: session, runtime: observer, roots: rootCopy, evidence: evidence, allocations: allocations, stateRoot: stateRoot, entries: make(map[string]*sourceEntry)}
 	if err := session.bindSource(source); err != nil {
 		return nil, err
 	}
@@ -147,18 +148,26 @@ func (s *Source) admit(ctx context.Context, task *api.Task) (*sourceEntry, error
 		return nil, err
 	}
 	target := release.ContainerTarget{Cell: strings.ToUpper(registration.Cell), Environment: registration.Environment, Role: "terrabase", Architecture: runtime.GOARCH}
+	currentAllocations, err := s.allocations(ctx, material.Container, s.roots, target)
+	if err != nil {
+		return nil, err
+	}
 	previousTarget := target
 	previousTarget.Architecture = material.Retained.SourceArchitecture
 	var retained RetainedData
 	if len(material.RetainedContainer.Claim) == 0 {
-		retained, err = VerifyNativeRetainedProvenance(ctx, material.Container, s.roots, target, material.Retained, time.Now().UTC(), grant.Deadline(), s.openEvidence)
+		retained, err = VerifyNativeRetainedProvenance(ctx, material.Container, s.roots, target, material.Retained, time.Now().UTC(), grant.Deadline(), s.openEvidence, currentAllocations)
 	} else {
-		retained, err = VerifyRetainedProvenance(ctx, material.RetainedContainer, s.roots, previousTarget, material.Retained, s.openEvidence)
+		previousAllocations, resolveErr := s.allocations(ctx, material.RetainedContainer, s.roots, previousTarget)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		retained, err = VerifyRetainedProvenance(ctx, material.RetainedContainer, s.roots, previousTarget, material.Retained, s.openEvidence, previousAllocations)
 	}
 	if err != nil {
 		return nil, err
 	}
-	proof, err := VerifyStatefulCurrent(ctx, material.Container, s.roots, target, retained, cpu, time.Now().UTC(), grant.Deadline(), s.openEvidence)
+	proof, err := VerifyStatefulCurrent(ctx, material.Container, s.roots, target, retained, cpu, time.Now().UTC(), grant.Deadline(), s.openEvidence, currentAllocations)
 	if err != nil {
 		return nil, err
 	}
