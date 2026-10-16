@@ -12,6 +12,7 @@ require (
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/oracle/oci-go-sdk/v65 v65.126.0
 	github.com/starfederation/datastar-go v1.2.2
+	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/net v0.58.0
 	golang.org/x/sync v0.23.0
 	golang.org/x/sys v0.48.0
