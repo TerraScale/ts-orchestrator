@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"io"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
-	"encoding/json/jsontext"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -47,11 +47,12 @@ type FoundationGrant struct {
 // digest covers public generation inputs; secret output bytes are checkpointed
 // separately by the existing immutable source producer.
 type BootstrapMaterialIntent struct {
-	InstallationID    string                        `json:"installationId"`
-	PlanSHA256        string                        `json:"planSha256"`
-	Config            bootstrapmaterial.Config      `json:"config"`
-	SourceVaultTarget bootstrapmaterial.VaultTarget `json:"sourceVaultTarget"`
-	Startup           *BootstrapStartupIntent       `json:"startup,omitempty"`
+	InstallationID     string                               `json:"installationId"`
+	PlanSHA256         string                               `json:"planSha256"`
+	Config             bootstrapmaterial.Config             `json:"config"`
+	SourceVaultTarget  bootstrapmaterial.VaultTarget        `json:"sourceVaultTarget"`
+	Startup            *BootstrapStartupIntent              `json:"startup,omitempty"`
+	SourceRegistration *bootstrap.InitialSourceRegistration `json:"sourceRegistration,omitempty"`
 }
 
 type BootstrapStartupIntent = bootstrap.StartupTemplate
@@ -64,6 +65,13 @@ type VerifiedBootstrapMaterial struct {
 	escrow     bootstrapmaterial.VaultTarget
 	image      release.VerifiedImage
 	grantWire  []byte
+}
+
+func (v VerifiedBootstrapMaterial) SourceRegistration() (bootstrap.InitialSourceRegistration, error) {
+	if !v.IsVerified() || !time.Now().Before(v.expires) || v.intent.SourceRegistration == nil {
+		return bootstrap.InitialSourceRegistration{}, errors.New("same signed grant has no current initial source registration authority")
+	}
+	return v.intent.SourceRegistration.Clone(), nil
 }
 
 func (v VerifiedBootstrapMaterial) FoundationGrantWire() []byte { return bytes.Clone(v.grantWire) }
@@ -112,6 +120,31 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			break
 		}
 		material := *intent.BootstrapMaterial
+		if material.SourceRegistration != nil {
+			registration := material.SourceRegistration.Clone()
+			slots := make([]string, len(material.Config.Slots))
+			for i, slot := range material.Config.Slots {
+				slots[i] = slot.Name
+			}
+			slices.Sort(slots)
+			if registration.Validate() != nil || registration.InstallationID != material.InstallationID || registration.Generation != intent.Generation || registration.PlanSHA256 != material.PlanSHA256 || registration.DeploymentID != material.Config.DeploymentID || registration.Environment != material.Config.Environment || registration.ClusterID != material.Config.ClusterID || strings.ToLower(string(registration.Cell)) != material.Config.Cell || !slices.Equal(registration.ControllerSlots, slots) {
+				return VerifiedBootstrapMaterial{}, errors.New("initial source registration differs from same signed material scope")
+			}
+			if material.Startup == nil || registration.SeedSlot != material.Startup.SeedSlot {
+				return VerifiedBootstrapMaterial{}, errors.New("initial source registration lacks exact signed startup seed")
+			}
+			if registration.Cell == s.local.Cell {
+				if s.local.InitialSourceRegistration == nil || len(s.local.LedgerDelegationWire) != 0 {
+					return VerifiedBootstrapMaterial{}, errors.New("new source cannot replace existing pinned ledger authority")
+				}
+				localWire, _ := json.Marshal(s.local.InitialSourceRegistration, json.Deterministic(true))
+				registrationWire, _ := json.Marshal(registration, json.Deterministic(true))
+				if !bytes.Equal(localWire, registrationWire) {
+					return VerifiedBootstrapMaterial{}, errors.New("new source registration differs from root anchor")
+				}
+			}
+			material.SourceRegistration = &registration
+		}
 		config := material.Config
 		wire, err := json.Marshal(config, json.Deterministic(true))
 		digest := sha256.Sum256(wire)
@@ -158,6 +191,9 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config bootstrapmaterial.Config, plan map[string]any) (release.VerifiedImage, error) {
 	if err := startup.Validate(); err != nil {
 		return release.VerifiedImage{}, err
+	}
+	if config.Cell == strings.ToLower(string(s.local.Cell)) && !bytes.Equal(startup.ControllerFiles[0].Bytes, s.local.InitialRegionIntentWire) {
+		return release.VerifiedImage{}, errors.New("startup sidecar differs from exact root-anchored initial region intent")
 	}
 	slots := map[string]bool{}
 	for _, slot := range config.Slots {
