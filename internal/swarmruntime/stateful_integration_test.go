@@ -44,6 +44,9 @@ func TestContainerdStatefulMissingAdmissionDeniesAllClaims(t *testing.T) {
 	if err := executor.BindStateful(nil); !errors.Is(err, execution.ErrUnsafe) {
 		t.Fatalf("nil source: %v", err)
 	}
+	if err := executor.Configure(ctx, &api.Node{ID: task.NodeID}); err != nil {
+		t.Fatal(err)
+	}
 	if err := executor.BindStateful(new(execution.Source)); err != nil {
 		t.Fatal(err)
 	}

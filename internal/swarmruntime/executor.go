@@ -140,8 +140,9 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 		}
 		e.mu.Lock()
 		source := e.stateful
+		nodeID := e.functionNodeID
 		e.mu.Unlock()
-		if source == nil {
+		if source == nil || nodeID == "" || t.NodeID != nodeID {
 			return nil, execution.ErrUnsafe
 		}
 		fingerprint, err := execution.TaskSHA256(t)
