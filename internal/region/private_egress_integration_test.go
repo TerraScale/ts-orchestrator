@@ -222,6 +222,14 @@ func TestPrivateEgressSDKDurableRecoveryAndExactUpgrade(t *testing.T) {
 		if err != nil {
 			return err
 		}
+		// Empty journal maps are omitted on disk; production rehydrates them
+		// before resuming a foundation attempt.
+		if saved.PendingCreates == nil {
+			saved.PendingCreates = map[string]PendingFoundationCreate{}
+		}
+		if saved.AuxiliaryIDs == nil {
+			saved.AuxiliaryIDs = map[string]string{}
+		}
 		for key, id := range saved.ResourceIDs {
 			ids[key] = id
 		}
