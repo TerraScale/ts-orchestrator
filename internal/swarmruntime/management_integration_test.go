@@ -61,7 +61,7 @@ func TestManagementIntegration(t *testing.T) {
 	if id != node.ID() {
 		t.Fatalf("manager ID = %q, want %q", id, node.ID())
 	}
-	labels := map[string]string{LabelIntentID: "api", LabelRole: "api", LabelRegion: "integration", LabelEnvironment: "test"}
+	labels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "integration", LabelEnvironment: "test"}
 	created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: &api.ServiceSpec{
 		Annotations: api.Annotations{Name: "management-proof", Labels: labels},
 		Task:        api.TaskSpec{Runtime: &api.TaskSpec_Container{Container: &api.ContainerSpec{Image: "example.invalid/proof@sha256:" + strings.Repeat("0", 64)}}},

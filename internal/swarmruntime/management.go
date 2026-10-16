@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/gofrs/flock"
 	"github.com/moby/swarmkit/v2/api"
 	"golang.org/x/sys/unix"
@@ -66,7 +67,7 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		return nil, err
 	}
 	observed, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()})
-	if err != nil || observed.Node.Description == nil || observed.Node.Description.Hostname != identity.Slot {
+	if err != nil || observed.Node == nil || observed.Node.Spec.Annotations.Name != identity.Slot || observed.Node.Spec.Annotations.Labels[LabelInstanceID] != identity.InstanceID || observed.Node.Spec.Annotations.Labels[LabelRegion] != strings.ToLower(identity.Cell) || observed.Node.Spec.Annotations.Labels[LabelHostRole] != "manager" {
 		return nil, errors.New("management node differs from accepted controller")
 	}
 	refresh := func(ctx context.Context) error {
@@ -139,7 +140,7 @@ func socketPeer(conn net.Conn) (unixPeer, error) {
 	if err = errors.Join(err, readErr); err != nil {
 		return unixPeer{}, err
 	}
-	return unixPeer{CommonAuthInfo: credentials.CommonAuthInfo{SecurityLevel: credentials.PrivacyAndIntegrity}, uid: cred.Uid, pid: cred.Pid}, nil
+	return unixPeer{SecurityLevel: credentials.PrivacyAndIntegrity, uid: cred.Uid, pid: cred.Pid}, nil
 }
 func verifyPeer(identity unixPeer, uid uint32, cgroup string) error {
 	if identity.uid != uid || identity.pid <= 0 {
@@ -292,7 +293,7 @@ func dialManagementAt(ctx context.Context, path string, serverUID uint32, bindin
 	return client, ids[0], conn, nil
 }
 func (s *managementServer) scoped(a api.Annotations) bool {
-	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && intentName.MatchString(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
+	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && entityid.Valid(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
 }
 func (s *managementServer) floor(spec *api.ConfigSpec) bool {
 	if spec == nil || !s.scoped(spec.Annotations) {
