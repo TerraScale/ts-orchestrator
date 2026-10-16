@@ -2,6 +2,9 @@ package capacityinventory
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -13,7 +16,28 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 )
+
+// SHA256 identifies the original quote, including its observed prices and
+// validity interval. A later equal-cost quote has a different identity.
+func (q Quote) SHA256() string {
+	if q.scopeSHA256 == "" || q.issuedAt.IsZero() || q.expiresAt.IsZero() || len(q.prices) != 4 {
+		return ""
+	}
+	wire, err := json.Marshal(struct {
+		ScopeSHA256, Cell, CompartmentID, Shape, Currency string
+		OCPUs, MemoryGB, BootGB                           float64
+		MonthlyCents                                      uint64
+		IssuedAt, ExpiresAt                               time.Time
+		Prices                                            []ocicost.Price
+	}{q.scopeSHA256, q.cell, q.compartment, q.shape, q.currency, q.ocpus, q.memoryGB, q.bootGB, q.monthlyCents, q.issuedAt, q.expiresAt, q.prices}, json.Deterministic(true))
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(wire)
+	return hex.EncodeToString(digest[:])
+}
 
 // ReadJournal adds retained lifecycle evidence, including resources which have
 // left provider lists. A voluntary journal is not exhaustive mutation coverage.
