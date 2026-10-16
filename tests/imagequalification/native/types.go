@@ -49,11 +49,12 @@ type Request struct {
 }
 
 type HostReport struct {
-	OCID         string   `json:"ocid"`
-	Address      string   `json:"address"`
-	Observed     Identity `json:"observed"`
-	WorkerSHA256 string   `json:"worker_sha256"`
-	NodeID       string   `json:"node_id"`
+	WorkerSourceRevision string   `json:"worker_source_revision"`
+	OCID                 string   `json:"ocid"`
+	Address              string   `json:"address"`
+	Observed             Identity `json:"observed"`
+	WorkerSHA256         string   `json:"worker_sha256"`
+	NodeID               string   `json:"node_id"`
 }
 
 type Scenario struct {

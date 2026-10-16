@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"golang.org/x/crypto/ssh"
 )
@@ -216,7 +217,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 			return report, err
 		}
 		sessions[i] = session{host: h, peer: p}
-		observed, err := call(ctx, i, command{Operation: "identity", SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, Region: req.Candidate.Cell, ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
+		observed, err := call(ctx, i, command{Operation: "identity", SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, Region: catalog.OCIRegion(req.Candidate.Cell), ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
 		if err != nil {
 			return report, err
 		}
@@ -283,7 +284,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		addresses[s.node] = s.host.Address
 	}
 	create := func(index int, mode string, port uint32) (string, error) {
-		r, err := call(ctx, index, command{Operation: "create", RunID: req.RunID, Region: req.Candidate.Cell, Image: req.WorkloadImage, Mode: mode, Port: port})
+		r, err := call(ctx, index, command{Operation: "create", RunID: req.RunID, Region: catalog.OCIRegion(req.Candidate.Cell), Image: req.WorkloadImage, Mode: mode, Port: port})
 		if err == nil {
 			serviceIDs = append(serviceIDs, r.ServiceID)
 		}
