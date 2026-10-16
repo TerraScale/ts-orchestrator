@@ -277,6 +277,18 @@ func TestSignDelegationBinaryThenImageRetainsBinaryAuthority(t *testing.T) {
 		t.Fatalf("verify prior binary under expanded delegation: %v", err)
 	}
 	image := testDelegationImageReceipt(binary)
+	evidenceDir := t.TempDir()
+	candidate := release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+		QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: "canary",
+		Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}
+	record := writeProductionEvidence(t, evidenceDir, candidate)
+	writeProductionRecord(t, filepath.Join(evidenceDir, image.OCIRegion, image.Architecture, "production.json"), record,
+		rootPrivate, fixture.now, fixture.now.Add(time.Hour))
+	proof, err := readProductionProof(evidenceDir, image.OCIRegion, image.Architecture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image.Production = &proof
 	signedImage, err := release.SignImageReceipt(image, "canary", secondEnvelope, roots,
 		fixture.leafPrivate, fixture.now, 30*time.Minute)
 	if err != nil {
