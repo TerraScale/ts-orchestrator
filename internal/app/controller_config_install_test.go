@@ -41,3 +41,24 @@ func TestControllerInstallRetriesExactBytesAndRejectsChangedFiles(t *testing.T) 
 		t.Fatal("installer followed or replaced an existing symlink")
 	}
 }
+
+func TestAutomaticStartupNeverTreatsPartialProofAsLegacy(t *testing.T) {
+	for _, missing := range []string{automaticStartupGrantFilename, automaticStartupAuthorityFilename} {
+		t.Run(missing, func(t *testing.T) {
+			directory := t.TempDir()
+			if present, err := automaticStartupFilesPresent(directory); present || err != nil {
+				t.Fatalf("absent proof: present=%t err=%v", present, err)
+			}
+			for _, name := range []string{automaticStartupGrantFilename, automaticStartupAuthorityFilename} {
+				if name != missing {
+					if err := os.WriteFile(filepath.Join(directory, name), []byte("partial"), 0o444); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if present, err := automaticStartupFilesPresent(directory); !present || err == nil {
+				t.Fatalf("partial proof entered legacy install: present=%t err=%v", present, err)
+			}
+		})
+	}
+}

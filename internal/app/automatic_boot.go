@@ -417,19 +417,12 @@ func installedAutomaticStartup(ctx context.Context) (automaticFoundation, bootst
 	fail := func(err error) (automaticFoundation, bootstrap.DerivedStartupAuthority, bool, error) {
 		return automaticFoundation{}, bootstrap.DerivedStartupAuthority{}, true, err
 	}
-	missing := 0
-	for _, name := range []string{automaticStartupGrantFilename, automaticStartupAuthorityFilename} {
-		if _, err := os.Lstat(filepath.Join(controllerConfigDirectory, name)); errors.Is(err, os.ErrNotExist) {
-			missing++
-		} else if err != nil {
-			return fail(err)
-		}
+	present, err := automaticStartupFilesPresent(controllerConfigDirectory)
+	if err != nil {
+		return fail(err)
 	}
-	if missing == 2 {
+	if !present {
 		return automaticFoundation{}, bootstrap.DerivedStartupAuthority{}, false, nil
-	}
-	if missing != 0 {
-		return fail(errors.New("durable automatic startup authority is incomplete"))
 	}
 	local, err := foundationDiscovery(ctx)
 	if err != nil {
@@ -455,6 +448,24 @@ func installedAutomaticStartup(ctx context.Context) (automaticFoundation, bootst
 		return fail(errors.New("durable automatic startup authority disappeared while loading"))
 	}
 	return local, derived, true, nil
+}
+
+func automaticStartupFilesPresent(directory string) (bool, error) {
+	missing := 0
+	for _, name := range []string{automaticStartupGrantFilename, automaticStartupAuthorityFilename} {
+		if _, err := os.Lstat(filepath.Join(directory, name)); errors.Is(err, os.ErrNotExist) {
+			missing++
+		} else if err != nil {
+			return true, err
+		}
+	}
+	if missing == 2 {
+		return false, nil
+	}
+	if missing != 0 {
+		return true, errors.New("durable automatic startup authority is incomplete")
+	}
+	return true, nil
 }
 
 func loadAutomaticStartupAuthority(ctx context.Context, factory *ociclient.Factory, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring,
