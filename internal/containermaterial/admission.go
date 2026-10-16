@@ -4,11 +4,14 @@ package containermaterial
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"maps"
 	"slices"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -32,6 +35,7 @@ type Profile struct {
 	identity    cellspec.Identity
 	role        string
 	fingerprint string
+	specSHA256  string
 	hosts       []cellspec.HostGrant
 	intent      delivery.Intent
 }
@@ -77,7 +81,8 @@ func VerifyProfile(wire []byte, roots trust.Keyring, identity cellspec.Identity,
 		if err != nil {
 			return Profile{}, err
 		}
-		proof := Profile{profile: profile, identity: identity, role: intent.Role, fingerprint: fingerprint, hosts: slices.Clone(signed.HostGrants), intent: intent.Clone()}
+		specSHA256 := sha256.Sum256(wire)
+		proof := Profile{profile: profile, identity: identity, role: intent.Role, fingerprint: fingerprint, specSHA256: hex.EncodeToString(specSHA256[:]), hosts: slices.Clone(signed.HostGrants), intent: intent.Clone()}
 		proof.profile = proof.Profile()
 		return proof, nil
 	}
@@ -86,41 +91,101 @@ func VerifyProfile(wire []byte, roots trust.Keyring, identity cellspec.Identity,
 
 // VerifyTask authenticates the complete signed profile, OCI release and current
 // upstream assignment. Registration must come from the existing ownhost session.
+// Managers additionally require current requested-controller authority.
 func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
 	if client == nil || verifyExpected(proof, expected, verified) != nil || registration.Cell != proof.identity.Cell || registration.Environment != proof.identity.Environment ||
-		registration.ManagedOCI == nil || registration.ManagedOCI.InstanceID != binding.InstanceID || registration.ManagedOCI.Region != binding.Region || binding.Region != expected.Region ||
-		task == nil || task.ID != binding.TaskID || task.ServiceID != binding.ServiceID || task.NodeID != binding.NodeID ||
-		task.DesiredState != api.TaskStateRunning || task.Status.State > api.TaskStateRunning ||
-		!slices.Contains(registration.Roles, proof.role) {
+		binding.Region != expected.Region || !slices.Contains(registration.Roles, proof.role) {
 		return ErrPending
 	}
-	actualFingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
-	if err != nil || actualFingerprint != binding.Fingerprint {
-		return ErrPending
+	if err := verifyTaskAssignment(task, binding); err != nil {
+		return err
 	}
 	node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
 	if err != nil {
 		return err
 	}
-	if node == nil || node.Node == nil {
+	if node == nil || verifyTaskNode(node.Node, binding, expected.Architecture) != nil {
 		return ErrPending
 	}
-	n := node.Node
-	if n.Spec.Membership != api.NodeMembershipAccepted || n.Status.State != api.NodeStatus_READY ||
-		n.Spec.Availability != api.NodeAvailabilityActive || n.Spec.Annotations.Name != binding.HostID ||
-		n.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID ||
-		n.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
-		n.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "platform" ||
-		n.Role != n.Certificate.Role || n.Role != n.Spec.DesiredRole {
+	if err := verifyTaskRecipient(proof, registration, binding, node.Node, controller); err != nil {
+		return err
+	}
+	if controller != nil {
+		if err := controller.VerifyRegistration(ctx, registration); err != nil {
+			return err
+		}
+	}
+	if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
+		return err
+	}
+	// OCI verification can outlast an assignment or node admission change.
+	currentTask, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
+	if err != nil {
+		return err
+	}
+	if currentTask == nil || verifyTaskAssignment(currentTask.Task, binding) != nil ||
+		!proto.Equal(&currentTask.Task.Spec, &task.Spec) || !proto.Equal(&currentTask.Task.ServiceAnnotations, &task.ServiceAnnotations) {
 		return ErrPending
 	}
-	if n.Role == api.NodeRoleWorker {
-		if binding.HostID != registration.ID || !entityid.Valid(registration.ID) || n.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "container" {
+	currentNode, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
+	if err != nil {
+		return err
+	}
+	if currentNode == nil || verifyTaskNode(currentNode.Node, binding, expected.Architecture) != nil {
+		return ErrPending
+	}
+	if err := verifyTaskRecipient(proof, registration, binding, currentNode.Node, controller); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if !verified.Valid(now) || controller != nil && !controller.Valid(now) {
+		return ErrPending
+	}
+	return ctx.Err()
+}
+
+func verifyTaskAssignment(task *api.Task, binding host.ContainerMaterialBinding) error {
+	if task == nil || task.ID != binding.TaskID || task.ServiceID != binding.ServiceID || task.NodeID != binding.NodeID ||
+		task.DesiredState != api.TaskStateRunning || task.Status.State > api.TaskStateRunning {
+		return ErrPending
+	}
+	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
+	if err != nil || fingerprint != binding.Fingerprint {
+		return ErrPending
+	}
+	return nil
+}
+
+func verifyTaskNode(node *api.Node, binding host.ContainerMaterialBinding, architecture string) error {
+	if node == nil || node.ID != binding.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
+		node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != binding.HostID ||
+		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID ||
+		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
+		node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "platform" ||
+		node.Role != node.Certificate.Role || node.Role != node.Spec.DesiredRole || node.Description == nil || node.Description.Platform == nil ||
+		node.Description.Platform.OS != "linux" || node.Description.Platform.Architecture != architecture {
+		return ErrPending
+	}
+	return nil
+}
+
+func verifyTaskRecipient(proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+	node *api.Node, controller *bootstrapstart.ControllerHostRecipient,
+) error {
+	if node.Role == api.NodeRoleWorker {
+		if controller != nil || registration.ManagedOCI == nil || registration.ManagedOCI.InstanceID != binding.InstanceID || registration.ManagedOCI.Region != binding.Region ||
+			binding.HostID != registration.ID || !entityid.Valid(registration.ID) || node.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "container" {
 			return ErrPending
 		}
-	} else if n.Role == api.NodeRoleManager {
+	} else if node.Role == api.NodeRoleManager {
+		if controller == nil || registration.ManagedOCI != nil || proof.specSHA256 == "" || controller.SpecSHA256() != proof.specSHA256 ||
+			controller.ControllerSlot() != binding.HostID || controller.Node() != registration.Node || controller.Environment() != registration.Environment ||
+			controller.InstanceID() != binding.InstanceID || controller.OCIRegion() != binding.Region || node.Status.Addr != controller.PrivateIP() {
+			return ErrPending
+		}
 		matched := false
 		for _, grant := range proof.hosts {
 			if grant.Node == registration.Node && grant.Environment == registration.Environment && grant.Controller == binding.HostID &&
@@ -128,14 +193,11 @@ func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, e
 				matched = true
 			}
 		}
-		if !matched || n.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "manager" {
+		if !matched || node.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "manager" {
 			return ErrPending
 		}
 	} else {
 		return ErrPending
-	}
-	if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
-		return err
 	}
 	return nil
 }
