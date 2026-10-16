@@ -200,6 +200,29 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err != nil {
 		t.Fatal(err)
 	}
+	admission, err := AdmitFunctionRegistryTask(ctx, client, task, intent, current, worker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admission.VerifyCurrent(ctx); err != nil {
+		t.Fatal("unchanged actual manager state rejected a fresh registry receipt: ", err)
+	}
+	actualService, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := actualService.Service.Spec.Copy()
+	changed.Update.Delay += time.Second
+	updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &actualService.Service.Meta.Version, Spec: changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := admission.VerifyCurrent(ctx); err == nil {
+		t.Fatal("registry receipt survived an actual manager service change after its authority reads")
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &updated.Service.Meta.Version, Spec: service.Spec.Copy()}); err != nil {
+		t.Fatal(err)
+	}
 	forged := task.Copy()
 	forged.NodeID = platform.ID()
 	if err := VerifyFunctionRegistryTask(ctx, client, forged, intent, current, worker); err == nil {
