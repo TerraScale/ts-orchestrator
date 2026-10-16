@@ -239,21 +239,89 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	}
 	grant.InfrastructureSpend = nil
 	publish(scope, now.Add(time.Hour))
-	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+	if _, err := reader.OCIRIssuer(t.Context(), "gru.ocir.io/ns/terrabase"); err == nil {
 		t.Fatal("foundation-only scope authorized OCIR IAM and token issuance")
 	}
-	grant.OCIRIssuance = &OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}
+	grant.ReleaseAuthorities = []ContainerReleaseAuthorityIntent{{ImageRepository: "gru.ocir.io/ns/terrabase"}}
+	grant.OCIRIssuances = []OCIRIssuerIntent{{RegistryHost: "gru.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}}
 	publish(scope, now.Add(time.Hour))
-	issuer, err := reader.OCIRIssuer(t.Context())
-	if err != nil || !issuer.IsVerified() || issuer.InstallationID() != reader.home.InstallationID || issuer.GrantDigest() != reader.home.GrantSHA256 || issuer.Intent() != *grant.OCIRIssuance {
+	issuer, err := reader.OCIRIssuer(t.Context(), "gru.ocir.io/ns/terrabase")
+	if err != nil || !issuer.IsVerified() || issuer.InstallationID() != reader.home.InstallationID || issuer.GrantDigest() != reader.home.GrantSHA256 || issuer.Intent() != grant.OCIRIssuances[0] {
 		t.Fatalf("issuer=%+v err=%v", issuer, err)
 	}
-	grant.OCIRIssuance.VaultTarget.VaultID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
+	for _, repository := range []string{"ts-auth", "function-worker"} {
+		intent := grant.OCIRIssuances[0]
+		intent.RepositoryName = repository
+		intent.PrincipalName, intent.PrincipalEmail, intent.SecretName, err = OCIRServiceIdentity(grant.InstallationID, "gru.ocir.io/ns/"+repository)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant.OCIRIssuances = append(grant.OCIRIssuances, intent)
+		grant.ReleaseAuthorities = append(grant.ReleaseAuthorities, ContainerReleaseAuthorityIntent{ImageRepository: "gru.ocir.io/ns/" + repository})
+	}
 	publish(scope, now.Add(time.Hour))
-	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+	issuers, err := reader.OCIRIssuers(t.Context())
+	if err != nil || len(issuers) != 3 {
+		t.Fatalf("multi-repository issuers=%+v err=%v", issuers, err)
+	}
+	for _, expected := range issuers {
+		selected, err := reader.OCIRIssuer(t.Context(), expected.ImageRepository())
+		if err != nil || selected != expected {
+			t.Fatalf("exact selected issuer=%+v err=%v", selected, err)
+		}
+	}
+	for _, unapproved := range []string{"", "*", "gru.ocir.io/ns/unapproved", "sa-saopaulo-1.ocir.io/ns/terrabase"} {
+		if _, err := reader.OCIRIssuer(t.Context(), unapproved); err == nil {
+			t.Fatalf("unapproved repository selector accepted: %q", unapproved)
+		}
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*FoundationGrant)
+	}{
+		{"missing", func(g *FoundationGrant) { g.OCIRIssuances = g.OCIRIssuances[:2] }},
+		{"no issuers", func(g *FoundationGrant) { g.OCIRIssuances = nil }},
+		{"unbound", func(g *FoundationGrant) { g.OCIRIssuances[0].RepositoryName = "other" }},
+		{"no releases", func(g *FoundationGrant) { g.ReleaseAuthorities = nil }},
+		{"duplicate", func(g *FoundationGrant) { g.OCIRIssuances = append(g.OCIRIssuances, g.OCIRIssuances[0]) }},
+		{"principal reused", func(g *FoundationGrant) { g.OCIRIssuances[1].PrincipalName = g.OCIRIssuances[0].PrincipalName }},
+		{"email reused", func(g *FoundationGrant) {
+			g.OCIRIssuances[1].PrincipalEmail = strings.ToUpper(g.OCIRIssuances[0].PrincipalEmail)
+		}},
+		{"recipient reused", func(g *FoundationGrant) { g.OCIRIssuances[1].SecretName = g.OCIRIssuances[0].SecretName }},
+		{"host path", func(g *FoundationGrant) { g.OCIRIssuances[0].RegistryHost += "/ns" }},
+		{"host alias", func(g *FoundationGrant) { g.OCIRIssuances[0].RegistryHost = "sa-saopaulo-1.ocir.io" }},
+		{"physical alias", func(g *FoundationGrant) {
+			g.ReleaseAuthorities = append(g.ReleaseAuthorities, ContainerReleaseAuthorityIntent{ImageRepository: "sa-saopaulo-1.ocir.io/ns/terrabase"})
+		}},
+		{"wrong region", func(g *FoundationGrant) { g.OCIRIssuances[0].OCIRegion = "us-ashburn-1" }},
+		{"foreign vault", func(g *FoundationGrant) {
+			g.OCIRIssuances[0].VaultTarget.VaultID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
+		}},
+		{"wildcard", func(g *FoundationGrant) { g.OCIRIssuances[0].RepositoryName = "*" }},
+		{"issuer bound", func(g *FoundationGrant) { g.OCIRIssuances = make([]OCIRIssuerIntent, 65) }},
+		{"release bound", func(g *FoundationGrant) { g.ReleaseAuthorities = make([]ContainerReleaseAuthorityIntent, 65) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			validGrant := grant
+			grant.OCIRIssuances = slices.Clone(validGrant.OCIRIssuances)
+			grant.ReleaseAuthorities = slices.Clone(validGrant.ReleaseAuthorities)
+			test.mutate(&grant)
+			publish(scope, now.Add(time.Hour))
+			_, rejected := reader.OCIRIssuers(t.Context())
+			grant = validGrant
+			if rejected == nil {
+				t.Fatal("invalid issuance scope admitted")
+			}
+		})
+	}
+	grant.OCIRIssuances[0].VaultTarget.VaultID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
+	publish(scope, now.Add(time.Hour))
+	if _, err := reader.OCIRIssuer(t.Context(), "gru.ocir.io/ns/terrabase"); err == nil {
 		t.Fatal("foreign Vault was authorized for OCIR IAM and token issuance")
 	}
-	grant.OCIRIssuance = nil
+	grant.OCIRIssuances = nil
+	grant.ReleaseAuthorities = nil
 	grant.Regions[0].BootstrapMaterial = material
 	publish(scope, now.Add(time.Hour))
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")

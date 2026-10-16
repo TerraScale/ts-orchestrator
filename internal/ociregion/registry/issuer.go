@@ -21,7 +21,6 @@ import (
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -96,12 +95,8 @@ func NewIssuer(ctx context.Context, factory *ociclient.Factory, journal jetstrea
 	if err != nil || text(namespace.Value) != scope.Intent().RegistryNamespace {
 		return nil, ErrIssuer
 	}
-	entry, ok := catalog.CellForOCIRegion(factory.Region())
-	if !ok {
-		return nil, ErrIssuer
-	}
 	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifactsClient, journal: journal, scope: scope,
-		guard: guard, homeWrite: homeWrite, host: strings.ToLower(entry.OCIRegionKey) + ".ocir.io"}
+		guard: guard, homeWrite: homeWrite, host: scope.Intent().RegistryHost}
 	// Every attempt also fences an expired grant, including SDK retries.
 	for _, client := range []*common.BaseClient{&i.identity.BaseClient, &i.vault.BaseClient} {
 		previous := client.Interceptor

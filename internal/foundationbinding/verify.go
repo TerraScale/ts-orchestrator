@@ -111,7 +111,7 @@ type grant struct {
 	CleanupOwner        string           `json:"cleanupOwner"`
 	Regions             []jsontext.Value `json:"regions"`
 	InfrastructureSpend jsontext.Value   `json:"infrastructureSpend,omitempty"`
-	OCIRIssuance        jsontext.Value   `json:"ocirIssuance,omitempty"`
+	OCIRIssuances       jsontext.Value   `json:"ocirIssuances,omitempty"`
 }
 
 type intent struct {
