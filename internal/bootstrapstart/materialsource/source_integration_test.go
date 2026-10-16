@@ -1,3 +1,5 @@
+//go:build fixturetest
+
 package materialsource
 
 import (
@@ -32,6 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/identity"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -88,7 +91,7 @@ func materialSourceAnchor(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boot
 		DeploymentID: "0000000000F9PR1WNVDTEXS31Z", Environment: "production", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Cell: oci.RegionGRU,
 		OCIRegion: "sa-saopaulo-1", ControllerSlots: slots, LedgerDelegationWire: grantWire,
 		StorageDomain: bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "ledger-bucket",
-			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "head-bucket",
+			LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", HeadBucket: "gru-1-head",
 			HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", Prefix: "private/bootstrap"},
 		InitialRegionIntentGeneration: 4, InitialRegionIntentSHA256: hex.EncodeToString(intentDigest[:]),
 		InitialRegionIntentWire: intentWire}
@@ -122,6 +125,7 @@ type materialProtocol struct {
 	loseSourceCreate  bool
 	hiddenSourceReads int
 	sourceCreates     int
+	policies          map[string]identity.Policy
 }
 
 func (server *materialProtocol) objectPath(key string) string {
@@ -137,6 +141,14 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 	w.Header().Set("Content-Type", "application/json")
 	if r.Header.Get("Authorization") == "" {
 		w.WriteHeader(401)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/n" {
+		io.WriteString(w, `"namespace-a"`)
+		return
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/n/namespace-a/b/gru-1-head" {
+		json.MarshalWrite(w, objectstorage.Bucket{Id: new("ocid1.bucket.oc1.sa-saopaulo-1.head"), Name: new("gru-1-head"), Namespace: new("namespace-a"), KmsKeyId: new(server.target.KMSKeyOCID), CompartmentId: new(server.target.CompartmentOCID)})
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/n/") {
@@ -301,6 +313,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
@@ -387,9 +400,24 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		sourceFoundationRecords(t, protocol, grant)
+		rootWire, err := trust.EncodeEnvelope(rootEnvelope)
+		if err != nil {
+			t.Fatal(err)
+		}
+		chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
 		protocol.mu.Lock()
 		defer protocol.mu.Unlock()
-		if err := protocol.put("/n/namespace-a/b/head-bucket/o/private/bootstrap/foundation-scope-v1.json", wire); err != nil {
+		if err = protocol.put("/n/namespace-a/b/gru-1-head/o/orchestrator/foundation/v1/anchor.json", rootWire); err != nil {
+			t.Fatal(err)
+		}
+		if err = protocol.put("/n/namespace-a/b/gru-1-head/o/orchestrator/foundation/v1/root-chain.json", chainWire); err != nil {
+			t.Fatal(err)
+		}
+		if err := protocol.put("/n/namespace-a/b/gru-1-head/o/private/bootstrap/foundation-scope-v1.json", wire); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -397,7 +425,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU"); err == nil {
 		t.Fatal("foundation-only grant minted source")
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), region.VerifiedBootstrapMaterial{}, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "source"), now); err == nil {
 		t.Fatal("empty grant minted source")
 	}
 	grant.Regions[0].BootstrapMaterial = intent
@@ -407,7 +435,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
+	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
 		t.Fatal("existing pinned identity minted replacement source")
 	}
 	for index, material := range []*region.BootstrapMaterialIntent{intent, spokeIntent} {
@@ -422,8 +450,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	actor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
 	for attempt := range 2 {
-		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
+		if _, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
 		}
 	}
@@ -436,9 +465,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	for i := range 2 {
 		directory := filepath.Join(t.TempDir(), "source")
 		workers.Go(func() {
-			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
+			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, directory, now)
 			if errs[i] != nil {
-				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, directory, now)
+				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, directory, now)
 			}
 		})
 	}
@@ -474,7 +503,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if protocol.creates != 2 {
 		t.Fatalf("creates after response loss=%d", protocol.creates)
 	}
-	replacement, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
+	replacement, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "replacement"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,7 +531,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal("escrow reference leaked to normal host")
 		}
 	}
-	body, err := os.ReadFile(protocol.objectPath("/n/namespace-a/b/head-bucket/o/" + replacement.key))
+	body, err := os.ReadFile(protocol.objectPath("/n/namespace-a/b/gru-1-head/o/" + replacement.key))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +594,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 28 {
 		t.Fatal("edited local roots caused Vault effects")
 	}
-	replacement, err = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
+	replacement, err = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("trusted source repair: %v", err)
 	}
@@ -618,7 +647,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
+	spokeActor := sourceFounderFixture(t, spokeGrant, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.us-sanjose-1.founder")
+	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, spokeActor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -651,7 +681,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
+	actor = sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	restarted, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -664,6 +695,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := restarted.Provision(t.Context(), target, &management, &bundles, verified.ExpiresAt()); err == nil {
 		t.Fatal("expired grant published material")
 	}
+	grant.Generation = 3
 	intent.Config.ValidityHours = 72
 	wire, _ = json.Marshal(intent.Config, json.Deterministic(true))
 	intent.PlanSHA256 = digestWire(wire)
@@ -673,9 +705,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), changed, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
+	if _, err := ResolveColdStartMaterial(t.Context(), changed, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
 		t.Fatal("same installation changed its signing source")
 	}
+	grant.Generation = 4
 	intent.Config = cfg
 	wire, _ = json.Marshal(cfg, json.Deterministic(true))
 	intent.PlanSHA256, intent.SourceRegistration = digestWire(wire), nil
@@ -684,9 +717,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
 		t.Fatal("source escrow overrode pinned ledger key")
 	}
+	grant.Generation = 5
 	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
 	pinnedSlots = []string{"controller-a", "controller-b", "controller-c"}
 	publish()
@@ -694,7 +728,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
+	actor = sourceFounderFixture(t, matchingPin, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
 	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
 		t.Fatalf("matching pinned source recovery: %v", err)
 	}

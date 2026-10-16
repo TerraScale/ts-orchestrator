@@ -255,7 +255,7 @@ func publicLinkState(t *testing.T, protocol *materialProtocol, key string, state
 	}
 	protocol.mu.Lock()
 	defer protocol.mu.Unlock()
-	if err := protocol.put("/n/namespace-a/b/head-bucket/o/"+key, wire); err != nil {
+	if err := protocol.put("/n/namespace-a/b/gru-1-head/o/"+key, wire); err != nil {
 		t.Fatal(err)
 	}
 }
