@@ -231,7 +231,11 @@ func (p VerifiedWorkerProfile) Bind(ctx context.Context, source bootstrap.Verifi
 		NSGIDs: []string{nsg}, AvailabilityDomains: slices.Clone(p.profile.AvailabilityDomains), Shape: p.profile.Shape,
 		OCPUs: p.profile.OCPUs, MemoryGB: p.profile.MemoryGB, BootGB: p.profile.BootGB,
 		Metadata: map[string]string{hostboot.NodePoolMetadataKey: `{"schemaVersion":1}`, hostboot.EnrollmentMetadataKey: string(publicWire)}}
-	return VerifiedWorkerRecipe{profile: p, source: source, recipe: recipe}, nil
+	verified := VerifiedWorkerRecipe{profile: p, source: source, recipe: recipe}
+	if !verified.IsVerified() {
+		return VerifiedWorkerRecipe{}, errors.New("worker authority expired while deriving its launch recipe")
+	}
+	return verified, nil
 }
 
 func (v VerifiedWorkerRecipe) IsVerified() bool {
@@ -317,6 +321,9 @@ func (v VerifiedWorkerRecipe) Revalidate(ctx context.Context) error {
 	for _, profile := range profiles {
 		actual, _ := json.Marshal(profile.profile, json.Deterministic(true))
 		if profile.grantDigest == v.profile.grantDigest && profile.image.EnvelopeSHA256() == v.profile.image.EnvelopeSHA256() && bytes.Equal(actual, want) {
+			if !v.IsVerified() || !time.Now().Before(profile.ExpiresAt()) {
+				return errors.New("worker authority expired during independent source revalidation")
+			}
 			return nil
 		}
 	}
