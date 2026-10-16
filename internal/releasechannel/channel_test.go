@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -35,13 +37,15 @@ type anyLineage struct{}
 func (anyLineage) CheckLineage(string, string, string) error { return nil }
 
 type channelFixture struct {
-	now        time.Time
-	roots      trust.Keyring
-	delegation trust.Envelope
-	leaf       ed25519.PrivateKey
-	qual       release.Qualification
-	qualDigest string
-	binaries   map[string]release.BinaryReceipt
+	now         time.Time
+	roots       trust.Keyring
+	root        ed25519.PrivateKey
+	evidenceDir string
+	delegation  trust.Envelope
+	leaf        ed25519.PrivateKey
+	qual        release.Qualification
+	qualDigest  string
+	binaries    map[string]release.BinaryReceipt
 }
 
 func newChannelFixture(t *testing.T) channelFixture {
@@ -97,7 +101,7 @@ func newChannelFixture(t *testing.T) channelFixture {
 		t.Fatal(err)
 	}
 	qualSum := sha256.Sum256(wire)
-	fixture := channelFixture{now: now, roots: roots, delegation: delegation, leaf: leafPrivate, qual: qual,
+	fixture := channelFixture{now: now, roots: roots, root: rootPrivate, evidenceDir: t.TempDir(), delegation: delegation, leaf: leafPrivate, qual: qual,
 		qualDigest: hex.EncodeToString(qualSum[:]), binaries: map[string]release.BinaryReceipt{}}
 	for architecture, machine := range map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"} {
 		fixture.binaries[architecture] = release.BinaryReceipt{
@@ -116,11 +120,67 @@ func (fixture channelFixture) receipt(t *testing.T, cell, architecture string) j
 	if err != nil {
 		t.Fatal(err)
 	}
+	envelope = fixture.qualify(t, envelope, cell, architecture)
 	wire, err := trust.EncodeEnvelope(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return wire
+}
+
+func (fixture channelFixture) qualify(t *testing.T, envelope trust.Envelope, cell, architecture string) trust.Envelope {
+	t.Helper()
+	binary := fixture.binaries[architecture]
+	candidate := release.ProductionExpectation{SourceRevision: binary.SourceRevision, ArtifactSHA256: binary.SHA256,
+		QualificationSHA256: binary.QualificationSHA256, Cell: cell, Environment: "production",
+		Runtime: release.ProductionRuntime, Architecture: architecture, Role: "orchestrator"}
+	record := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		data, err := trust.EncodePayload(struct {
+			Gate      string
+			Candidate release.ProductionExpectation
+		}{gate, candidate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(data)
+		sum := hex.EncodeToString(digest[:])
+		if err := os.WriteFile(filepath.Join(fixture.evidenceDir, sum), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		record.Evidence = append(record.Evidence, release.ProductionGateEvidence{Gate: gate, SHA256: sum,
+			Bytes: int64(len(data)), CompletedAt: fixture.now.Add(-time.Minute)})
+	}
+	payload, err := trust.EncodePayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualification, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), fixture.now, fixture.now.Add(48*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(fixture.evidenceDir, cell+"-"+architecture+".json")
+	if err := os.WriteFile(path, proofWire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegation, err := trust.EncodeEnvelope(fixture.delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := release.AttachProductionQualification(envelope, release.ProductionProof{Qualification: proofWire}, delegation,
+		fixture.roots, fixture.leaf, release.UpdateExpectation{Environment: "production", Cell: cell, Architecture: architecture}, fixture.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return qualified
 }
 
 func (fixture channelFixture) channel(t *testing.T, cell string) Channel {

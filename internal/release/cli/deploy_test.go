@@ -204,14 +204,6 @@ func (fixture *deployFixture) touched(cell string) bool {
 
 func TestDeployRollsOutEveryRegion(t *testing.T) {
 	fixture := newDeployFixture(t)
-	runGit := fixture.env.git
-	fixture.env.git = func(ctx context.Context, args ...string) (string, error) {
-		deadline, ok := ctx.Deadline()
-		if !ok || time.Until(deadline) > fixture.env.timeout {
-			return "", errors.New("lineage check escaped the deployment deadline")
-		}
-		return runGit(ctx, args...)
-	}
 	var output bytes.Buffer
 	c := command{ctx: t.Context(), output: &output}
 	if err := c.deployWith(fixture.args("GRU", "SFO"), fixture.env); err != nil {
@@ -224,25 +216,6 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	slices.Sort(want)
 	if !slices.Equal(fixture.log, want) {
 		t.Fatalf("writes = %q, want %q", fixture.log, want)
-	}
-	var started time.Time
-	for _, cell := range []string{"GRU", "SFO"} {
-		var channel releasechannel.Channel
-		if err := json.Unmarshal(fixture.buckets[cell].objects[releasechannel.ChannelObject], &channel); err != nil {
-			t.Fatal(err)
-		}
-		for _, wire := range channel.Receipts {
-			receipt, err := trust.DecodeEnvelope(wire)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if started.IsZero() {
-				started = receipt.IssuedAt
-			}
-			if !receipt.IssuedAt.Equal(started) {
-				t.Fatal("regions received different observation starts")
-			}
-		}
 	}
 	text := output.String()
 	if !strings.Contains(text, "GRU complete") || !strings.Contains(text, "SFO complete") ||
@@ -284,7 +257,7 @@ func TestDeployRollsOutEveryRegion(t *testing.T) {
 	}
 }
 
-func TestDeployReceiptValidityCoversSharedDeadline(t *testing.T) {
+func TestDeployReceiptValidityCoversRegionalDeadline(t *testing.T) {
 	for _, test := range []struct {
 		name     string
 		validFor string
@@ -386,8 +359,9 @@ func TestDeployStorageFailuresAreRegionalAndAllReported(t *testing.T) {
 			var output bytes.Buffer
 			err := (command{ctx: t.Context(), output: &output}).deployWith(fixture.args("GRU", "SFO"), fixture.env)
 			if !errors.Is(err, gruError) || errors.Is(err, sfoError) != failBoth ||
-				fixture.touched("SFO") == failBoth || !strings.Contains(output.String(), "GRU failed:") ||
-				strings.Contains(output.String(), "SFO failed:") != failBoth {
+				fixture.touched("GRU") || fixture.touched("SFO") == failBoth || !strings.Contains(output.String(), "GRU qualification refused:") ||
+				strings.Contains(output.String(), "SFO qualification refused:") != failBoth ||
+				strings.Contains(output.String(), "SFO complete:") == failBoth {
 				t.Fatalf("deploy = %v, writes %q\n%s", err, fixture.log, output.String())
 			}
 		})
