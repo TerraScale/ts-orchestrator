@@ -31,7 +31,7 @@ import (
 // This extends the real generation/publication fixture across a signed SFO
 // anchor and a public-only SDK endpoint. Config markers exercise proof binding;
 // house-rendered controller startup remains the app/CLI scenario's contract.
-func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) {
+func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, material VerifiedColdStartMaterial, home bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, root ed25519.PrivateKey, server *materialProtocol, now time.Time) bootstrap.VerifiedBootstrapAnchor {
 	t.Helper()
 	grantWire := material.Grant().FoundationGrantWire()
 	template, err := bootstrap.VerifyStartupTemplate(grantWire, roots, home, now)
@@ -188,4 +188,5 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if service, ok := common.IsServiceError(err); !ok || service.GetHTTPStatusCode() != http.StatusForbidden || forbiddenRequests.Load() != 1 {
 		t.Fatalf("public source write denial: %v", err)
 	}
+	return anchor
 }
