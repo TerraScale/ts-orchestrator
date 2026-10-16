@@ -54,7 +54,7 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 		ID:   entityid.Derive("function-service", i.Environment, i.Region, i.TenantID, i.FunctionID),
 		Role: FunctionWorkerRole, Region: i.Region, Environment: i.Environment, Architecture: i.Architecture, Replicas: 1,
 		Container:       &api.ContainerSpec{Image: w.Image, User: "65532:65532", Command: []string{"/usr/local/bin/terrascale-orchestrator"}, Args: []string{FunctionWorkerRole}},
-		Resources:       &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 256 << 20}},
+		Resources:       &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 750_000_000, MemoryBytes: 256 << 20}},
 		Ports:           []*api.PortConfig{{Name: "function-https", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: 8080, PublishedPort: 8080}},
 		releaseSequence: w.ReleaseSequence, releaseFingerprint: worker.ReleaseIdentity(),
 	}
