@@ -9,6 +9,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -482,10 +483,7 @@ func (s *EffectSessions) Reconcile(ctx context.Context) error {
 		held.mu.Unlock()
 	}
 	s.mu.Lock()
-	retained := make(map[authority.WorkloadScope]*runtimeEffectScope, len(s.scopes))
-	for scope, held := range s.scopes {
-		retained[scope] = held
-	}
+	retained := maps.Clone(s.scopes)
 	s.mu.Unlock()
 	for scope, held := range retained {
 		held.mu.Lock()
