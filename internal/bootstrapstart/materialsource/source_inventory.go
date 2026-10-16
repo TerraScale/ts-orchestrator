@@ -12,7 +12,7 @@ import (
 )
 
 func (source *ColdStartMaterial) signInventory(ctx context.Context) ([]byte, error) {
-	if source == nil || source.kind != "" || ctx.Err() != nil || source.state.Reference.SecretOCID == "" {
+	if source == nil || source.kind != "" || ctx.Err() != nil || source.state.Reference.SecretOCID == "" || source.guard(ctx) != nil {
 		return nil, ErrMaterialSource
 	}
 	if _, err := source.grant.SourceRegistration(); err != nil {
