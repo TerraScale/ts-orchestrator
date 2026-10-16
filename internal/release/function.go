@@ -94,36 +94,15 @@ func SignFunctionClaim(claim FunctionClaim, module []byte, delegation trust.Enve
 func VerifyFunctionCurrent(envelopeWire, delegationWire, module []byte, roots trust.Keyring,
 	expected FunctionExpectation, now time.Time,
 ) (VerifiedFunction, error) {
-	if !ValidEnvironment(expected.Environment) || !ValidRegion(expected.Cell) || !entityid.Valid(expected.TenantID) ||
-		!serviceRolePattern.MatchString(expected.FunctionID) || !serviceRolePattern.MatchString(expected.Revision) ||
-		!digestPattern.MatchString(expected.Digest) || expected.MinimumSequence == 0 {
-		return VerifiedFunction{}, fmt.Errorf("%w: invalid function expectation or missing durable sequence floor", ErrExpectationMismatch)
+	if err := expected.validate(); err != nil {
+		return VerifiedFunction{}, err
 	}
 	if len(module) == 0 || len(module) > MaxFunctionModuleBytes {
 		return VerifiedFunction{}, fmt.Errorf("%w: function module size", ErrInvalidReceipt)
 	}
-	envelope, delegationEnvelope, err := decodeEnvelopePair(envelopeWire, delegationWire)
+	claim, envelope, err := verifyFunctionReceipt(envelopeWire, delegationWire, roots, expected, now)
 	if err != nil {
 		return VerifiedFunction{}, err
-	}
-	claim, err := decodeCanonicalPayload[FunctionClaim](envelope.Payload)
-	if err != nil {
-		return VerifiedFunction{}, err
-	}
-	if err := claim.Validate(); err != nil {
-		return VerifiedFunction{}, err
-	}
-	if claim.Environment != expected.Environment || claim.Cell != expected.Cell || claim.TenantID != expected.TenantID ||
-		claim.FunctionID != expected.FunctionID || claim.Revision != expected.Revision || claim.Digest != expected.Digest ||
-		claim.Sequence < expected.MinimumSequence {
-		return VerifiedFunction{}, ErrExpectationMismatch
-	}
-	delegation, err := trust.VerifyDelegationCurrent(delegationEnvelope, roots, now, delegationPolicy())
-	if err != nil {
-		return VerifiedFunction{}, fmt.Errorf("verify current function delegation: %w", err)
-	}
-	if _, err := trust.VerifyDelegatedCurrent(envelope, FunctionScope(claim), delegation, now, receiptPolicy()); err != nil {
-		return VerifiedFunction{}, fmt.Errorf("verify current function claim: %w", err)
 	}
 	// Retain the copy whose digest is checked, so callers cannot mutate admitted bytes.
 	admitted := bytes.Clone(module)
