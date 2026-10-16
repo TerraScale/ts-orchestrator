@@ -195,11 +195,11 @@ func verifyFunctionMaterial(destination string, files map[string][]byte) error {
 }
 
 func ownedFunctionMaterial(info os.FileInfo, directory bool) bool {
-	if info == nil || info.Mode().Perm()&0077 != 0 || info.Mode()&os.ModeSymlink != 0 {
+	if info == nil || info.Mode()&os.ModeSymlink != 0 {
 		return false
 	}
 	owner, ok := info.Sys().(*syscall.Stat_t)
-	return ok && owner.Uid == 65532 && owner.Gid == 65532 && (directory && info.IsDir() || !directory && info.Mode().IsRegular())
+	return ok && owner.Uid == 65532 && owner.Gid == 65532 && (directory && info.IsDir() && info.Mode().Perm() == 0700 || !directory && info.Mode().IsRegular() && info.Mode().Perm() == 0600)
 }
 
 func syncMaterialDirectory(path string) error {
