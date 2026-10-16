@@ -29,7 +29,7 @@ import (
 // live OCI/Vault verification and the fixed child are separate boundaries.
 func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) {
 	ctx := t.Context()
-	js := testRolloutJetStream(t)
+	js, observer := testRolloutJetStreamWithObserver(t, hostenroll.GrantBucket)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -172,7 +172,7 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 		t.Fatal(err)
 	}
 	read := func(query hostenroll.WorkerMembershipQuery) (hostenroll.WorkerMembershipSnapshot, error) {
-		finish := assertGrantReadsUseLeader(t, js)
+		finish := assertGrantReadsUseLeader(t, observer)
 		defer finish()
 		return source.Read(ctx, query)
 	}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
-	"strings"
 	"testing"
 	"time"
 
@@ -17,13 +16,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 )
 
 func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T) {
 	ctx := t.Context()
-	js := testRolloutJetStream(t)
+	js, observer := testRolloutJetStreamWithObserver(t, hostenroll.GrantBucket)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 		t.Fatal(err)
 	}
 	read := func(query swarmruntime.WorkerRegistrationQuery) (swarmruntime.WorkerRegistrationSnapshot, error) {
-		finish := assertGrantReadsUseLeader(t, js)
+		finish := assertGrantReadsUseLeader(t, observer)
 		defer finish()
 		return currentWorkerRegistration(ctx, mutations, reader, js, query, instance, registration.Node, "gru")
 	}
@@ -100,49 +100,12 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 	}
 }
 
-func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) func() {
+func assertGrantReadsUseLeader(t *testing.T, observer *nats.Conn) func() {
 	t.Helper()
-	options := js.Options()
-	prefix := strings.TrimSuffix(options.APIPrefix, ".")
-	if options.Domain != "" {
-		prefix = "$JS." + options.Domain + ".API"
-	} else if prefix == "" {
-		prefix = "$JS.API"
-	}
-	leader, err := js.Conn().SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + hostenroll.GrantBucket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	direct, err := js.Conn().SubscribeSync(prefix + ".DIRECT.GET.>")
-	if err != nil {
-		_ = leader.Unsubscribe()
-		t.Fatal(err)
-	}
-	if err := js.Conn().Flush(); err != nil {
-		t.Fatal(err)
-	}
+	finish := watchJetStreamLeaderReads(t, observer, hostenroll.GrantBucket)
 	return func() {
-		defer leader.Unsubscribe()
-		defer direct.Unsubscribe()
-		if err := js.Conn().Flush(); err != nil {
-			t.Fatal(err)
-		}
-		reads, _, err := leader.Pending()
-		if err != nil || reads == 0 {
-			t.Fatalf("no leader enrollment reads: count=%d, error=%v", reads, err)
-		}
-		count, _, err := direct.Pending()
-		if err != nil {
-			t.Fatal(err)
-		}
-		for range count {
-			message, err := direct.NextMsg(time.Second)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.HasPrefix(message.Subject, prefix+".DIRECT.GET.KV_"+hostenroll.GrantBucket) {
-				t.Fatalf("enrollment authorization used follower read: %s", message.Subject)
-			}
+		if reads := finish(); reads == 0 {
+			t.Fatal("no leader enrollment reads")
 		}
 	}
 }

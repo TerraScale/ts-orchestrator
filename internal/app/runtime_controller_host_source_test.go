@@ -1,7 +1,6 @@
 package app
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +18,7 @@ func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := testRolloutJetStream(t)
+	js, observer := testRolloutJetStreamWithObserver(t, cellSpecBucket)
 	if err := services.open(ctx, js, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -38,26 +37,7 @@ func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	if err := services.load(entry); err != nil {
 		t.Fatal(err)
 	}
-	options := js.Options()
-	prefix := strings.TrimSuffix(options.APIPrefix, ".")
-	if options.Domain != "" {
-		prefix = "$JS." + options.Domain + ".API"
-	} else if prefix == "" {
-		prefix = "$JS.API"
-	}
-	leader, err := js.Conn().SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + cellSpecBucket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer leader.Unsubscribe()
-	direct, err := js.Conn().SubscribeSync(prefix + ".DIRECT.GET.>")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer direct.Unsubscribe()
-	if err := js.Conn().Flush(); err != nil {
-		t.Fatal(err)
-	}
+	finish := watchJetStreamLeaderReads(t, observer, cellSpecBucket)
 	head := services.roots.reply("").Head
 	if err := controllerHostSpecCurrent(ctx, js, services, entry, head); err != nil {
 		t.Fatalf("current signed profile rejected: %v", err)
@@ -74,13 +54,7 @@ func TestControllerHostSpecRequiresExactLeaderRevision(t *testing.T) {
 	if err := controllerHostSpecCurrent(ctx, js, services, entry, head); err == nil {
 		t.Fatal("deleted signed profile preserved retained recipient authority")
 	}
-	if err := js.Conn().Flush(); err != nil {
-		t.Fatal(err)
-	}
-	if count, _, err := leader.Pending(); err != nil || count != 3 {
-		t.Fatalf("profile leader reads=%d, want 3: %v", count, err)
-	}
-	if count, _, err := direct.Pending(); err != nil || count != 0 {
-		t.Fatalf("profile authorization used follower reads=%d: %v", count, err)
+	if count := finish(); count != 3 {
+		t.Fatalf("profile leader reads=%d, want 3", count)
 	}
 }
