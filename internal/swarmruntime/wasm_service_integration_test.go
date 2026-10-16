@@ -228,6 +228,10 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{blocked.Service.ID}}})
 		return err == nil && len(tasks.Tasks) == 1 && tasks.Tasks[0].Status.State == api.TaskStatePending && tasks.Tasks[0].NodeID == ""
 	})
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: blocked.Service.ID}); err != nil {
+		t.Fatal(err)
+	}
+	testFunctionCapacityManagerIntegration(t, ctx, client, intent, current, workerProof, wasm.ID())
 	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
 	if err != nil {
 		t.Fatal(err)
