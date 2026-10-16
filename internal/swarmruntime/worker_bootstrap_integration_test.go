@@ -145,6 +145,11 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		return accepted
 	}
 	accepted := verify(signed)
+	missingVersion := signed
+	missingVersion.SecretVersion = 2
+	if _, err := startAcceptedWorkerAt(ctx, t.TempDir(), verify(missingVersion), bundles, nodeIdleExecutor{}); err == nil {
+		t.Fatal("recipient read fell back from the exact signed Vault version")
+	}
 	for _, scenario := range []struct {
 		name   string
 		mutate func(*hostenroll.SwarmWorker)
@@ -226,6 +231,16 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		t.Fatal("worker restart changed its actual certificate", err)
 	}
 	nodeFixtureStop(t, worker)
+	orphaned := t.TempDir()
+	if err := os.Rename(filepath.Join(directory, "node"), filepath.Join(orphaned, "node")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := startAcceptedWorkerAt(ctx, orphaned, accepted, bundles, nodeIdleExecutor{}); err == nil {
+		t.Fatal("persisted certificate without an enrollment floor was accepted")
+	}
+	if err := os.Rename(filepath.Join(orphaned, "node"), filepath.Join(directory, "node")); err != nil {
+		t.Fatal(err)
+	}
 	advanced := signed
 	advanced.Generation, advanced.Revision = 2, 3
 	if err := persistWorkerEnrollment(directory, verify(advanced)); err != nil {
