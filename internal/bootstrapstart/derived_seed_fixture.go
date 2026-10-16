@@ -160,9 +160,6 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 			t.Fatal(err)
 		}
 		cfg.Embedded.Link = &link
-		if cfg.Cell == natscell.LinkHome {
-			cfg.Embedded.CellJWTFile = path("link-cell.jwt")
-		}
 	}
 	validateKeys := func() error {
 		return validateDerivedSeedControllerKeys(CredentialChildRequest{Config: cfg, ResponseKeyFile: path(payload.Slot + "-response.key"), BrokerTicketKeyFile: path("ticket.key")})
