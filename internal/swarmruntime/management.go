@@ -80,7 +80,7 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		}
 		return nil
 	}
-	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node.ID(), region, identity.Environment, client, refresh)
+	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node, region, identity.Environment, client, refresh)
 }
 
 // DialManagement authenticates the root manager over the fixed local socket.
@@ -175,7 +175,7 @@ type managementServer struct {
 type managementListener struct{ close func() }
 
 func (s *managementListener) Close() error { s.close(); return nil }
-func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding, nodeID, region, environment string, client api.ControlClient, refresh func(context.Context) error) (io.Closer, error) {
+func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding string, node *Node, region, environment string, client api.ControlClient, refresh func(context.Context) error) (io.Closer, error) {
 	parent, err := os.Lstat(filepath.Dir(path))
 	if err != nil {
 		return nil, err
@@ -233,11 +233,11 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		if err := refresh(ctx); err != nil {
 			return nil, status.Error(codes.PermissionDenied, "current controller authority unavailable")
 		}
-		if err := grpc.SetHeader(ctx, metadata.Pairs(managementNodeID, nodeID)); err != nil {
+		if err := grpc.SetHeader(ctx, metadata.Pairs(managementNodeID, node.ID())); err != nil {
 			return nil, err
 		}
 		switch info.FullMethod {
-		case "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
+		case workerPrepareMethod, workerAdmitMethod, "/docker.swarmkit.v1.Control/GetNode", "/docker.swarmkit.v1.Control/ListNodes", "/docker.swarmkit.v1.Control/UpdateNode", "/docker.swarmkit.v1.Control/GetTask", "/docker.swarmkit.v1.Control/ListTasks", "/docker.swarmkit.v1.Control/GetService", "/docker.swarmkit.v1.Control/ListServices", "/docker.swarmkit.v1.Control/CreateService", "/docker.swarmkit.v1.Control/UpdateService", "/docker.swarmkit.v1.Control/GetConfig", "/docker.swarmkit.v1.Control/ListConfigs", "/docker.swarmkit.v1.Control/CreateConfig", "/docker.swarmkit.v1.Control/UpdateConfig":
 		default:
 			return nil, denied()
 		}
@@ -248,13 +248,14 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		return result, nil
 	}))
 	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment})
+	registerWorkerManagement(server, node)
 	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
 	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
 	ready = true
 	go func() { _ = server.Serve(listener) }()
 	return serving, nil
 }
-func dialManagementAt(ctx context.Context, path string, serverUID uint32, binding string) (api.ControlClient, string, io.Closer, error) {
+func dialManagementAt(ctx context.Context, path string, serverUID uint32, binding string) (api.ControlClient, string, *grpc.ClientConn, error) {
 	conn, err := grpc.NewClient("passthrough:///swarm-management", grpc.WithTransportCredentials(unixCredentials{serverUID: serverUID}), grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", path)
 	}), grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {

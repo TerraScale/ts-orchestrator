@@ -15,9 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/moby/swarmkit/v2/api"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // The kernel supplies peer credentials and /proc supplies the actual service
@@ -50,7 +53,7 @@ func TestManagementIntegration(t *testing.T) {
 		}
 		return nil
 	}
-	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh)
+	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,6 +65,40 @@ func TestManagementIntegration(t *testing.T) {
 	defer conn.Close()
 	if id != node.ID() {
 		t.Fatalf("manager ID = %q, want %q", id, node.ID())
+	}
+
+	for _, method := range []string{workerPrepareMethod, workerAdmitMethod} {
+		t.Run(method, func(t *testing.T) {
+			query := WorkerRegistrationQuery{}
+			var payload any = query
+			if method == workerAdmitMethod {
+				payload = workerAdmitRequest{Query: query}
+			}
+			wire, err := protocol.EncodeJSON(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The real fixture manager has no production worker authority and must redact its failure.
+			err = conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: wire}, new(wrapperspb.BytesValue))
+			if status.Code(err) != codes.Unknown || status.Convert(err).Message() != "management operation failed" {
+				t.Fatalf("missing concrete worker authority: %v", err)
+			}
+			query.Swarm = new(hostenroll.SwarmWorker)
+			payload = query
+			if method == workerAdmitMethod {
+				payload = workerAdmitRequest{Query: query}
+			}
+			wire, err = protocol.EncodeJSON(payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, invalid := range [][]byte{wire, []byte(`{"unexpected":true}`), []byte(strings.Repeat(" ", (128<<10)+1))} {
+				err := conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: invalid}, new(wrapperspb.BytesValue))
+				if status.Code(err) != codes.PermissionDenied {
+					t.Fatalf("caller-supplied projection or invalid worker request accepted: %v", err)
+				}
+			}
+		})
 	}
 	nodeResult, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: id})
 	if err != nil {
@@ -177,8 +214,14 @@ func TestManagementIntegration(t *testing.T) {
 	if _, err := client.ListNodes(ctx, &api.ListNodesRequest{}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("revoked authority admitted existing connection: %v", err)
 	}
+
+	for _, method := range []string{workerPrepareMethod, workerAdmitMethod} {
+		if err := conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: []byte(`{}`)}, new(wrapperspb.BytesValue)); status.Code(err) != codes.PermissionDenied {
+			t.Fatalf("revoked authority admitted existing worker connection: %v", err)
+		}
+	}
 	revoked.Store(false)
-	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh); err == nil {
+	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh); err == nil {
 		t.Fatal("concurrent management server replaced active socket")
 	}
 	if err := server.Close(); err != nil {
@@ -193,7 +236,7 @@ func TestManagementIntegration(t *testing.T) {
 		{"wrong service", uint32(os.Getuid()), "/another.service"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh)
+			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node, "sa-saopaulo-1", "test", upstream, refresh)
 			if err != nil {
 				t.Fatal(err)
 			}
