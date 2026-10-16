@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+
 	"github.com/containerd/containerd/api/types"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/contrib/seccomp"
@@ -34,6 +36,7 @@ type controller struct {
 	spec        *api.ContainerSpec
 	id          string
 	fingerprint string
+	stateful    *statefulController
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -59,10 +62,18 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 	if labels["terrascale.task"] != c.task.ID || labels["terrascale.service"] != c.task.ServiceID || labels["terrascale.spec"] != c.fingerprint {
 		return nil, fmt.Errorf("container identity conflicts with task")
 	}
+	if c.stateful != nil && labels["terrascale.task-binding"] != c.fingerprint {
+		return nil, execution.ErrUnsafe
+	}
 	return ctr, nil
 }
 
 func (c *controller) Prepare(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ports, unlock, err := c.reservePorts(ctx)
@@ -143,10 +154,19 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if len(materialMounts) != 0 {
 			opts = append(opts, oci.WithMounts(materialMounts))
 		}
+		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}
+		if c.stateful != nil {
+			qualified, err := c.stateful.specOption(ctx)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, qualified)
+			labels["terrascale.task-binding"] = c.fingerprint
+		}
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
-			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}),
+			containerd.WithContainerLabels(labels),
 			containerd.WithNewSpec(opts...))
 		if err != nil {
 			return err
@@ -154,6 +174,11 @@ func (c *controller) Prepare(ctx context.Context) error {
 	}
 	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
 		return err
+	}
+	if c.stateful != nil {
+		if err := c.stateful.verifySpec(ctx, ctr); err != nil {
+			return err
+		}
 	}
 	info, err := ctr.Info(ctx)
 	if err != nil {
@@ -189,6 +214,11 @@ func (c *controller) Prepare(ctx context.Context) error {
 }
 
 func (c *controller) Start(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ctx = runtimeContext(ctx)
@@ -217,6 +247,11 @@ func (c *controller) Start(ctx context.Context) error {
 	status, err := t.Status(ctx)
 	if err != nil {
 		return err
+	}
+	if c.stateful != nil && (status.Status == containerd.Created || status.Status == containerd.Running) {
+		if err := c.stateful.observe(ctx); err != nil {
+			return err
+		}
 	}
 	switch status.Status {
 	case containerd.Running:
@@ -274,6 +309,11 @@ func (c *controller) Wait(ctx context.Context) error {
 }
 
 func (c *controller) Shutdown(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
@@ -313,6 +353,11 @@ func (c *controller) Shutdown(ctx context.Context) error {
 }
 
 func (c *controller) Terminate(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
 		return nil
@@ -335,6 +380,11 @@ func (c *controller) Terminate(ctx context.Context) error {
 }
 
 func (c *controller) Remove(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ctx = runtimeContext(ctx)

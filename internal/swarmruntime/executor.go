@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -36,6 +38,7 @@ type Executor struct {
 	functionNodeID   string
 	node             *api.Node
 	registry         RegistryResolver
+	stateful         *execution.Source
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -130,6 +133,26 @@ func (e *Executor) SetRegistryResolver(resolver RegistryResolver) error {
 func (e *Executor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
 
 func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
+	if t != nil && t.Spec.GetGeneric() != nil && t.Spec.GetGeneric().Kind == execution.StatefulContainerKind {
+		spec, err := decodeStateful(t)
+		if err != nil {
+			return nil, err
+		}
+		e.mu.Lock()
+		source := e.stateful
+		e.mu.Unlock()
+		if source == nil {
+			return nil, execution.ErrUnsafe
+		}
+		fingerprint, err := execution.TaskSHA256(t)
+		if err != nil {
+			return nil, err
+		}
+		base := &controller{executor: e, task: t.Copy(), spec: spec, id: "ts-" + t.ID, fingerprint: fingerprint}
+		stateful := &statefulController{controller: base, source: source, hooks: source.Hooks()}
+		base.stateful = stateful
+		return stateful, nil
+	}
 	s, err := DecodeContainer(t)
 	if err != nil {
 		return nil, err
