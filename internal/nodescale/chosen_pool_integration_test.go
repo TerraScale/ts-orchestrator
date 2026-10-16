@@ -185,8 +185,13 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := restarted.Grow(ctx, 0); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
-		t.Fatalf("restart grew without readmission: %v", err)
+	pending, err := restarted.Observe(ctx)
+	if err != nil || pending.Pending == "" || pending.Size != 1 || pending.PoolID != state.PoolID || pending.ConfigurationID != state.ConfigurationID {
+		t.Fatalf("restart observation adopted stored create receipts: %+v err=%v", pending, err)
+	}
+	if err := restarted.Grow(ctx, 0); !errors.Is(err, ErrPoolChanged) || cloud.updates != updates || len(cloud.pools) != 1 || len(cloud.configs) != 1 ||
+		deref(cloud.pools[state.PoolID].Size) != 1 || deref(cloud.pools[state.PoolID].InstanceConfigurationId) != state.ConfigurationID {
+		t.Fatalf("restart failed to refuse growth on pending original lineage without changing OCI: %v", err)
 	}
 	if _, err := restarted.Ensure(ctx, chosen); err != nil {
 		t.Fatal(err)

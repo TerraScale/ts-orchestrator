@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -88,7 +89,19 @@ func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
 				}
 				return prepared, err
 			}
-			ctx := ociclient.WithAuthority(t.Context(), func(context.Context) error { guards.Add(1); return nil })
+			ctx := ociclient.WithAuthority(t.Context(), func(ctx context.Context) error {
+				phase := guards.Add(1)
+				if growing.Load() {
+					// Each attempt checks authority before its durable begin and again before admission.
+					attempts, err := pool.Journal.ListPoolWireAttempts(ctx, pool.operationID, oci.PoolWireGrowth)
+					open := slices.ContainsFunc(attempts, func(attempt oci.PoolWireRecord) bool { return attempt.Outcome == nil })
+					if err != nil || len(attempts) != int(phase/2) || open != (phase%2 == 0) {
+						t.Errorf("authority phase %d: attempts=%d open=%v err=%v", phase, len(attempts), open, err)
+						return ErrCapacityPending
+					}
+				}
+				return nil
+			})
 			if _, err := pool.Ensure(ctx, capacityRecipe()); err != nil {
 				t.Fatal(err)
 			}
@@ -105,8 +118,8 @@ func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			if writes.Load() != wantWrites || admissions.Load() != 2 || guards.Load() != 2 || checkpoints.Load() != 1 || holding.Load() {
-				t.Fatalf("per-attempt fences: writes=%d admissions=%d factory guards=%d checkpoints=%d held=%v", writes.Load(), admissions.Load(), guards.Load(), checkpoints.Load(), holding.Load())
+			if writes.Load() != wantWrites || admissions.Load() != 2 || guards.Load() != 4 || checkpoints.Load() != 1 || holding.Load() {
+				t.Fatalf("per-attempt fences: writes=%d admissions=%d authority phases=%d checkpoints=%d held=%v", writes.Load(), admissions.Load(), guards.Load(), checkpoints.Load(), holding.Load())
 			}
 			attempts, attemptErr := pool.Journal.ListPoolWireAttempts(t.Context(), pool.operationID, oci.PoolWireGrowth)
 			if attemptErr != nil || len(attempts) != 2 {
