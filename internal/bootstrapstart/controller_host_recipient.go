@@ -19,6 +19,7 @@ import (
 // OCI identity. The caller must separately fence adoption of its exact spec.
 type ControllerHostRecipient struct {
 	reader     *CurrentFounderAuthorityReader
+	sources    controllerRecipientSources
 	issuer     AcceptedIdentity
 	spec       []byte
 	node       string
@@ -30,13 +31,26 @@ type ControllerHostRecipient struct {
 	validUntil time.Time
 }
 
+type controllerRecipientSources struct {
+	trust    bakedStore
+	ledger   *bootstrap.Ledger
+	observer *OCIInstanceObserver
+}
+
 // ReadControllerHostRecipient derives the requested slot only from the root's
 // signed host grant. It issues neither launch permission nor worker projection.
 func ReadControllerHostRecipient(ctx context.Context, reader *CurrentFounderAuthorityReader, issuer AcceptedIdentity,
 	signedSpec []byte, node, instanceID, privateIP string,
 ) (*ControllerHostRecipient, error) {
+	return readControllerHostRecipient(ctx, reader, issuer, signedSpec, node, instanceID, privateIP,
+		controllerRecipientSources{trust: bakedStore{directory: BakedDirectory, chainFile: RootChainFile, ownerUID: 0, ownerGID: 0}})
+}
+
+func readControllerHostRecipient(ctx context.Context, reader *CurrentFounderAuthorityReader, issuer AcceptedIdentity,
+	signedSpec []byte, node, instanceID, privateIP string, sources controllerRecipientSources,
+) (*ControllerHostRecipient, error) {
 	started := time.Now()
-	proof := &ControllerHostRecipient{reader: reader, issuer: issuer.Clone(), spec: bytes.Clone(signedSpec),
+	proof := &ControllerHostRecipient{reader: reader, sources: sources, issuer: issuer.Clone(), spec: bytes.Clone(signedSpec),
 		node: node, instanceID: instanceID, privateIP: privateIP, started: started,
 		validUntil: started.Add(bootstrap.ManagedPeerObservationMaxAge)}
 	grant, authority, err := proof.current(ctx)
@@ -116,7 +130,7 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	}
 	ctx, stop := context.WithDeadline(ctx, proof.started.Add(bootstrap.ManagedPeerObservationMaxAge))
 	defer stop()
-	inputs, err := LoadTrustInputs(proof.issuer)
+	inputs, err := proof.sources.trust.loadTrustInputs(proof.issuer)
 	if err != nil {
 		return fail(err)
 	}
@@ -148,7 +162,9 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	ctx, cancel := context.WithDeadline(ctx, authority.expires)
 	defer cancel()
 	var ledger SlotReader
-	if reader.derived != nil {
+	if proof.sources.ledger != nil {
+		ledger = proof.sources.ledger
+	} else if reader.derived != nil {
 		ledger, err = reader.derived.OpenLedger(ctx, reader.baked.Roots)
 	} else {
 		config, configErr := currentLedgerConfig(authority.anchor, reader.baked.Roots)
@@ -168,9 +184,12 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 	if err := proof.checkCompletedSlot(authority, grant, state); err != nil {
 		return fail(err)
 	}
-	observer, err := reader.RuntimeInstanceObserver(ctx, proof.issuer)
-	if err != nil {
-		return fail(err)
+	observer := proof.sources.observer
+	if observer == nil {
+		observer, err = reader.RuntimeInstanceObserver(ctx, proof.issuer)
+		if err != nil {
+			return fail(err)
+		}
 	}
 	observed, err := (Gate{Instances: observer}).observe(ctx, proof.instanceID, state, authority.anchor.Anchor())
 	if err != nil {
@@ -211,7 +230,7 @@ func (proof *ControllerHostRecipient) current(ctx context.Context) (cellspec.Hos
 		current.planDigest != authority.planDigest || !time.Now().Before(authority.expires) {
 		return fail(errors.New("controller issuer authority changed during live recipient verification"))
 	}
-	freshRoots, err := LoadTrustInputs(proof.issuer)
+	freshRoots, err := proof.sources.trust.loadTrustInputs(proof.issuer)
 	if err != nil || freshRoots.Roots.Head != inputs.Roots.Head || freshRoots.Roots.Sequence != inputs.Roots.Sequence {
 		return fail(errors.New("adopted roots changed during controller recipient verification"))
 	}
