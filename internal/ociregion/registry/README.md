@@ -76,7 +76,12 @@ REL/task admission integration; these source checks do not qualify live IAM.
 `NewIssuer` adds the first-party IAM-to-Vault producer. It consumes the sealed
 `region.VerifiedOCIRIssuer` from the same root-signed foundation grant, the
 existing persistent non-expiring regional KV, a fresh authority guard and the
-existing tenancy-wide home IAM write lease. The guard must refresh current
+existing tenancy-wide home IAM write lease. `OCIRIssuances` covers every distinct
+same-grant release repository exactly once, with at most 64 entries. Each has
+an independent IAM principal, email and Vault recipient. Short and long OCIR
+hosts retain their exact approved spelling; aliases never widen authority.
+`OCIRIssuers` enumerates scopes and `OCIRIssuer(ctx, imageRepository)` selects
+one exact repository. The guard must refresh current
 trusted roots/source before comparing the exact grant digest and generation;
 an initially pinned resolver cannot detect later root rotation by itself.
 The issuer discovers the actual tenancy home and Object Storage namespace,

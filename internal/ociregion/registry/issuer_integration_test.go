@@ -253,8 +253,18 @@ func issuerScope(t *testing.T, remote *issuerProtocol, factory *ociclient.Factor
 	domain := bootstrap.StorageDomain{Namespace: "ns", HeadBucket: "heads", LedgerBucket: "ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"}
 	target := vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.owned", KeyID: domain.HeadKMSKeyOCID}
 	grant := region.FoundationGrant{InstallationID: installation, SchemaVersion: 1, Generation: 1, TenancyID: "ocid1.tenancy.oc1..t", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "fixture",
-		Regions:      []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": "ocid1.tenancy.oc1..t", "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control_compartment": target.CompartmentID, "vault": target.VaultID, "key": target.KeyID}}}},
-		OCIRIssuance: &region.OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/terrabase", RegistryNamespace: "ns", PrincipalName: "terrascale-pull", PrincipalEmail: "terrascale-pull@terrascale.tech", VaultTarget: target, SecretName: "gru-orch-ocir-pull"}}
+		Regions:            []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": "ocid1.tenancy.oc1..t", "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control_compartment": target.CompartmentID, "vault": target.VaultID, "key": target.KeyID}}}},
+		ReleaseAuthorities: []region.ContainerReleaseAuthorityIntent{{ImageRepository: "sa-saopaulo-1.ocir.io/ns/terrascale/terrabase"}},
+		OCIRIssuances:      []region.OCIRIssuerIntent{{RegistryHost: "sa-saopaulo-1.ocir.io", OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/terrabase", RegistryNamespace: "ns", PrincipalName: "terrascale-pull", PrincipalEmail: "terrascale-pull@terrascale.tech", VaultTarget: target, SecretName: "gru-orch-ocir-pull"}}}
+	for _, repository := range []string{"ts-auth", "function-worker"} {
+		image := "gru.ocir.io/ns/terrascale/" + repository
+		principal, email, secret, err := region.OCIRServiceIdentity(installation, image)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant.ReleaseAuthorities = append(grant.ReleaseAuthorities, region.ContainerReleaseAuthorityIntent{ImageRepository: image})
+		grant.OCIRIssuances = append(grant.OCIRIssuances, region.OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RegistryHost: "gru.ocir.io", RepositoryCompartmentID: target.CompartmentID, RepositoryName: "terrascale/" + repository, RegistryNamespace: "ns", PrincipalName: principal, PrincipalEmail: email, VaultTarget: target, SecretName: secret})
+	}
 	payload, err := trust.EncodePayload(grant)
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +307,11 @@ func issuerScope(t *testing.T, remote *issuerProtocol, factory *ociclient.Factor
 	if err != nil {
 		t.Fatal(err)
 	}
-	proof, err := reader.OCIRIssuer(t.Context())
+	issuers, err := reader.OCIRIssuers(t.Context())
+	if err != nil || len(issuers) != 3 {
+		t.Fatalf("multi-repository sealed scopes=%+v err=%v", issuers, err)
+	}
+	proof, err := reader.OCIRIssuer(t.Context(), "sa-saopaulo-1.ocir.io/ns/terrascale/terrabase")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +346,7 @@ func setupIssuer(t *testing.T) (*Issuer, *issuerProtocol, *atomic.Bool) {
 		ociclient.PinHost(client, endpoint)
 		client.Configuration.RetryPolicy = new(common.NoRetryPolicy())
 	}
-	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: controller.journal, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: "gru.ocir.io"}
+	i := &Issuer{identity: iam, vault: vault, secrets: secrets, artifacts: artifacts, journal: controller.journal, scope: proof, guard: controller.guard, homeWrite: func(ctx context.Context) (context.Context, func(), error) { return ctx, func() {}, nil }, host: proof.Intent().RegistryHost}
 	return i, remote, fenced
 }
 
@@ -342,7 +356,7 @@ func TestIssuerSignedScopeIAMVaultAndRotationHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if binding.RegistryHost != "gru.ocir.io" || binding.Repository != "ns/terrascale/terrabase" || binding.Ref.Name != "gru-orch-ocir-pull" {
+	if binding.RegistryHost != "sa-saopaulo-1.ocir.io" || binding.Repository != "ns/terrascale/terrabase" || binding.Ref.Name != "gru-orch-ocir-pull" {
 		t.Fatalf("wrong owned binding: %+v", binding)
 	}
 	remote.mu.Lock()
