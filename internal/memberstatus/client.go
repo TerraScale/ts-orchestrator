@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,6 +33,140 @@ type ProcessObservation struct {
 	GID         uint32
 	KernelStart string
 	Cgroup      string
+	namespace   processNamespace
+}
+
+type processNamespace struct {
+	wirePID, initPID       int
+	pidNS, mountNS, userNS uint64
+	initStart              string
+}
+
+// ProtocolPID preserves the PID reported by TerraBase inside its namespace.
+// The observation's public PID always remains the host SO_PEERCRED identity.
+func (p ProcessObservation) ProtocolPID() int {
+	if p.namespace.wirePID != 0 {
+		return p.namespace.wirePID
+	}
+	return p.PID
+}
+
+// BindPIDNamespace derives the protocol PID from kernel observations rather
+// than accepting a namespace PID asserted by a task or a caller.
+func BindPIDNamespace(observation ProcessObservation, containerInitHostPID int) (ProcessObservation, error) {
+	if observation.PID < 2 || containerInitHostPID < 2 {
+		return ProcessObservation{}, ErrStaleBinding
+	}
+	current, ids, namespaces, err := readProcessNamespace(observation.PID)
+	if err != nil || current.PID != observation.PID || current.UID != observation.UID || current.GID != observation.GID ||
+		current.KernelStart != observation.KernelStart || current.Cgroup != observation.Cgroup || len(ids) < 2 {
+		return ProcessObservation{}, ErrStaleBinding
+	}
+	init, initIDs, initNamespaces, err := readProcessNamespace(containerInitHostPID)
+	if err != nil || len(initIDs) != len(ids) || initIDs[len(initIDs)-1] != 1 || namespaces != initNamespaces {
+		return ProcessObservation{}, ErrStaleBinding
+	}
+	self, err := namespaceInodes(os.Getpid())
+	if err != nil || namespaces[0] == self[0] || namespaces[1] == self[1] || namespaces[2] != self[2] {
+		return ProcessObservation{}, ErrStaleBinding
+	}
+	observation.namespace = processNamespace{wirePID: ids[len(ids)-1], initPID: containerInitHostPID,
+		pidNS: namespaces[0], mountNS: namespaces[1], userNS: namespaces[2], initStart: init.KernelStart}
+	return observation, nil
+}
+
+func namespaceInodes(pid int) ([3]uint64, error) {
+	var result [3]uint64
+	for i, name := range []string{"pid", "mnt", "user"} {
+		var stat unix.Stat_t
+		if err := unix.Stat(fmt.Sprintf("/proc/%d/ns/%s", pid, name), &stat); err != nil {
+			return result, err
+		}
+		result[i] = stat.Ino
+	}
+	return result, nil
+}
+
+// ObserveContainerProcess reads a host process and binds its namespace PID to
+// the independently selected container init process.
+func ObserveContainerProcess(hostPID, containerInitHostPID int) (ProcessObservation, error) {
+	observation, _, _, err := readProcessNamespace(hostPID)
+	if err != nil {
+		return ProcessObservation{}, err
+	}
+	bound, err := BindPIDNamespace(observation, containerInitHostPID)
+	if err != nil {
+		return ProcessObservation{}, err
+	}
+	after, err := BindPIDNamespace(observation, containerInitHostPID)
+	if err != nil || bound != after {
+		return ProcessObservation{}, ErrStaleBinding
+	}
+	return bound, nil
+}
+
+func readProcessNamespace(pid int) (ProcessObservation, []int, [3]uint64, error) {
+	result := ProcessObservation{PID: pid}
+	var namespaces [3]uint64
+	if pid < 2 {
+		return result, nil, namespaces, ErrStaleBinding
+	}
+	root := fmt.Sprintf("/proc/%d/", pid)
+	stat, err := os.ReadFile(root + "stat")
+	if err != nil {
+		return result, nil, namespaces, err
+	}
+	_, suffix, ok := strings.CutLast(string(stat), ") ")
+	fields := strings.Fields(suffix)
+	if !ok || len(fields) < 20 || fields[0] == "Z" || fields[0] == "X" {
+		return result, nil, namespaces, ErrStaleBinding
+	}
+	result.KernelStart = fields[19]
+	status, err := os.ReadFile(root + "status")
+	if err != nil {
+		return result, nil, namespaces, err
+	}
+	var ids []int
+	uidFound, gidFound := false, false
+	for line := range strings.SplitSeq(string(status), "\n") {
+		name, values, ok := strings.Cut(line, ":")
+		if !ok || (name != "Uid" && name != "Gid" && name != "NSpid") {
+			continue
+		}
+		values = strings.TrimSpace(values)
+		for i, value := range strings.Fields(values) {
+			number, err := strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				return result, nil, namespaces, ErrStaleBinding
+			}
+			if name == "NSpid" {
+				if number == 0 {
+					return result, nil, namespaces, ErrStaleBinding
+				}
+				ids = append(ids, int(number))
+			} else if name == "Uid" {
+				if i > 0 && result.UID != uint32(number) {
+					return result, nil, namespaces, ErrStaleBinding
+				}
+				result.UID, uidFound = uint32(number), true
+			} else {
+				if i > 0 && result.GID != uint32(number) {
+					return result, nil, namespaces, ErrStaleBinding
+				}
+				result.GID, gidFound = uint32(number), true
+			}
+		}
+	}
+	if !uidFound || !gidFound || len(ids) == 0 || ids[0] != pid {
+		return result, nil, namespaces, ErrStaleBinding
+	}
+	cgroup, err := os.ReadFile(root + "cgroup")
+	if err != nil || len(cgroup) == 0 {
+		return result, nil, namespaces, ErrStaleBinding
+	}
+	result.Cgroup = string(cgroup)
+	namespaces, err = namespaceInodes(pid)
+	return result, ids, namespaces, err
 }
 
 type ObserveProcess func(context.Context) (ProcessObservation, error)
@@ -79,7 +215,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	status.Load = DecodeLoad(load)
-	if status.SchemaVersion != 2 || status.Nonce != challenge || status.Process.PID != process.PID ||
+	if status.SchemaVersion != 2 || status.Nonce != challenge || status.Process.PID != process.ProtocolPID() ||
 		!status.Process.valid() || status.Scope != c.scope || status.Authority != c.authority ||
 		!status.Capabilities.ServingProof || !status.Capabilities.DurableDrain {
 		return Status{}, ErrStaleBinding
@@ -134,7 +270,7 @@ func (c *Client) servingProof(ctx context.Context, status Status, peerMemberID, 
 		return ServingProof{}, err
 	}
 	if proof.SchemaVersion != 1 || proof.Nonce != challenge || proof.Process != status.Process ||
-		proof.Process.PID != process.PID || proof.Scope != c.scope || proof.Authority != c.authority ||
+		proof.Process.PID != process.ProtocolPID() || proof.Scope != c.scope || proof.Authority != c.authority ||
 		!proof.Serving || !proof.Listeners.Client || !proof.Listeners.Replication ||
 		!lowerHex(proof.Object.RootSHA256, 64) || !lowerHex(proof.Object.TargetSHA256, 64) ||
 		!lowerHex(proof.Object.InboxArchiveSHA256AtRecovery, 64) ||
@@ -201,6 +337,12 @@ func (c *Client) exchangeBounded(ctx context.Context, method, path string, reque
 	}
 	if before.PID < 2 || before.UID == 0 || before.GID == 0 || before.KernelStart == "" || before.Cgroup == "" {
 		return 0, nil, ProcessObservation{}, errors.New("unverified native member process")
+	}
+	if before.namespace.wirePID != 0 {
+		bound, err := BindPIDNamespace(before, before.namespace.initPID)
+		if err != nil || bound != before {
+			return 0, nil, ProcessObservation{}, ErrStaleBinding
+		}
 	}
 	pathBefore, err := inspectSocket(c.socket, before)
 	if err != nil {

@@ -118,7 +118,7 @@ func (c *Client) ReconcileDrain(ctx context.Context, store DrainStore) (DrainEnv
 	if err != nil {
 		return DrainEnvelope{}, errors.Join(ErrOutcomeUnknown, err)
 	}
-	if observed.PID != status.Process.PID {
+	if observed.ProtocolPID() != status.Process.PID {
 		return DrainEnvelope{}, ErrStaleBinding
 	}
 	switch code {
@@ -153,7 +153,7 @@ func (c *Client) drainStatus(ctx context.Context, record DrainRecord, current St
 	if err != nil {
 		return DrainEnvelope{}, 0, err
 	}
-	if process.PID != current.Process.PID {
+	if process.ProtocolPID() != current.Process.PID {
 		return DrainEnvelope{}, 0, ErrStaleBinding
 	}
 	if code == http.StatusNotFound {
@@ -216,6 +216,7 @@ func validateDrainEnvelope(body []byte, code int, challenge string, current Stat
 		!receipt.ReplicationQuiesced {
 		return DrainEnvelope{}, errors.New("member drain receipt violates signed survivor or root frontier")
 	}
+	envelope.verified = true
 	return envelope, nil
 }
 
