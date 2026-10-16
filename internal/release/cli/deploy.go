@@ -52,6 +52,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("deploy", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	directory := flags.String("dir", "", "retained CI release: qualification.json and terrascale-orchestrator-linux-<arch>")
+	evidenceDir := flags.String("production-evidence-dir", "", "retained signed runtime and workload evidence; default DIR/production")
 	sourceRevision := flags.String("source-revision", "", "expected exact Git revision")
 	delegationPath := flags.String("update-delegation", "", "root-signed binary update delegation")
 	delegationSecret := flags.String("update-delegation-secret", "", "OCI Vault secret holding the root-signed release delegation, instead of --update-delegation")
@@ -96,6 +97,27 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	if err := env.check(qualification, qualificationDigest); err != nil {
 		return err
 	}
+	root, err := readRootPublicKey(*rootPath)
+	if err != nil {
+		return err
+	}
+	roots, err := trust.ParseKeyring(root)
+	if err != nil {
+		return err
+	}
+	if *evidenceDir == "" {
+		*evidenceDir = filepath.Join(*directory, "production")
+	}
+	regionTimeout := rollout.ObservationBudget
+	if env.timeout > 0 {
+		regionTimeout = min(regionTimeout, env.timeout)
+	}
+	progress := &deploymentWriter{Writer: c.output}
+	targets, failures := c.prepareDeploymentTargets(*directory, *evidenceDir, *namespace, *environment,
+		cells, architectures, qualification, qualificationDigest, roots, regionTimeout, env, progress)
+	if len(targets) == 0 {
+		return fmt.Errorf("fleet qualification failed: %w", errors.Join(failures...))
+	}
 	var delegation trust.Envelope
 	if *delegationPath != "" {
 		delegation, err = readEnvelope(*delegationPath)
@@ -109,14 +131,6 @@ func (c command) deployWith(args []string, env deployEnv) error {
 		return fmt.Errorf("read the update delegation: %w", err)
 	}
 	delegationWire, err := trust.EncodeEnvelope(delegation)
-	if err != nil {
-		return err
-	}
-	root, err := readRootPublicKey(*rootPath)
-	if err != nil {
-		return err
-	}
-	roots, err := trust.ParseKeyring(root)
 	if err != nil {
 		return err
 	}
@@ -135,61 +149,32 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	defer clear(private)
 
-	regionTimeout := rollout.ObservationBudget
-	if env.timeout > 0 {
-		regionTimeout = min(regionTimeout, env.timeout)
-	}
 	started := time.Now()
 	ctx, cancel := context.WithDeadline(c.ctx, started.Add(regionTimeout))
 	defer cancel()
 	c.ctx = ctx
 	lineage := &deploymentLineage{checker: gitLineage{ctx: ctx, checkout: *checkout, run: env.git},
 		results: make(map[[3]string]error)}
-	progress := &deploymentWriter{Writer: c.output}
-	failures := make([]error, len(cells))
 	var regions errgroup.Group
-	for index, cell := range cells {
+	regions.SetLimit(4)
+	regionalFailures := make([]error, len(targets))
+	for index, target := range targets {
 		regions.Go(func() (regionErr error) {
+			cell := target.cell
 			defer func() {
 				if regionErr != nil {
-					failures[index] = fmt.Errorf("%s: %w", cell, regionErr)
+					regionalFailures[index] = fmt.Errorf("%s: %w", cell, regionErr)
 					fmt.Fprintf(progress, "%s failed: %v\n", cell, regionErr)
 				}
 			}()
 			cellStarted := time.Now()
-			location, err := channelLocation(env, cell, *namespace)
-			if err != nil {
+			location, cellEnvironment, cellArchitectures, binaries := target.location, target.environment, target.architectures, target.binaries
+			if err := c.verifyProductionArtifacts(*evidenceDir, roots, cell, cellEnvironment, binaries, started.UTC().Add(regionTimeout)); err != nil {
 				return err
 			}
-			cellEnvironment, cellArchitectures := *environment, []string(architectures)
-			if cellEnvironment == "" || len(cellArchitectures) == 0 {
-				scope, err := deploymentScope(c.ctx, location, cell)
-				if err != nil {
-					return err
-				}
-				if cellEnvironment == "" {
-					cellEnvironment = scope.Environment
-				}
-				if len(cellArchitectures) == 0 {
-					cellArchitectures = scope.Architectures
-				}
-			}
-			binaries := make(map[string]binaryReceipt, len(cellArchitectures))
 			channel := releasechannel.Channel{Schema: releasechannel.ChannelSchema, Cell: cell, Environment: cellEnvironment,
 				SourceRevision: *sourceRevision, RunNumber: qualification.Verification.RunNumber, Delegation: delegationWire}
 			for _, architecture := range cellArchitectures {
-				receipt, err := env.inspect(binaryPath(*directory, architecture), defaultGoVersion, *sourceRevision)
-				if err != nil {
-					return err
-				}
-				receipt.QualificationSHA256 = qualificationDigest
-				if err := qualification.MatchBinary(receipt, qualificationDigest); err != nil {
-					return err
-				}
-				if receipt.GOARCH != architecture {
-					return fmt.Errorf("%s binary is built for %s", architecture, receipt.GOARCH)
-				}
-				binaries[architecture] = receipt
 				envelope, err := release.SignBinaryUpdateReceipt(binaries[architecture], qualification, qualificationDigest, cell,
 					cellEnvironment, lineage, delegation, roots, private, started.UTC(), *validFor)
 				if err != nil {
@@ -223,7 +208,7 @@ func (c command) deployWith(args []string, env deployEnv) error {
 	}
 	// Do not cancel a healthy cell's rollout when another cell rolls back.
 	_ = regions.Wait()
-	if err := errors.Join(failures...); err != nil {
+	if err := errors.Join(append(failures, regionalFailures...)...); err != nil {
 		return fmt.Errorf("fleet rollout failed: %w", err)
 	}
 	_, err = fmt.Fprintf(c.output, "fleet complete: run %d %s in %s after %s\n", qualification.Verification.RunNumber,

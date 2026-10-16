@@ -20,43 +20,48 @@ func (c command) verifyProductionArtifacts(evidenceDir string, roots trust.Keyri
 	if len(binaries) == 0 {
 		return fmt.Errorf("%w: no candidate artifacts", release.ErrProductionQualification)
 	}
-	checked := make(map[string]int64)
 	for architecture, binary := range binaries {
+		if err := binary.Validate(); err != nil {
+			return fmt.Errorf("%w: %w", release.ErrProductionQualification, err)
+		}
 		if binary.GOARCH != architecture {
 			return fmt.Errorf("%w: artifact architecture", release.ErrProductionQualification)
-		}
-		directory := filepath.Join(evidenceDir, cell, architecture)
-		wire, err := readBoundedRegular(filepath.Join(directory, "production.json"), trust.MaxEnvelopeBytes)
-		if err != nil {
-			return fmt.Errorf("%w: %s %s record: %w", release.ErrProductionQualification, cell, architecture, err)
-		}
-		delegation, err := readBoundedRegular(filepath.Join(directory, "delegation.json"), trust.MaxEnvelopeBytes)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
 		}
 		expected := release.ProductionExpectation{SourceRevision: binary.SourceRevision, ArtifactSHA256: binary.SHA256,
 			QualificationSHA256: binary.QualificationSHA256, Cell: cell, Environment: environment,
 			Runtime: release.ProductionRuntime, Architecture: architecture, Role: "orchestrator"}
-		qualification, err := release.VerifyProductionCurrent(wire, delegation, roots, expected, now)
-		if err != nil {
-			return fmt.Errorf("%s %s: %w", cell, architecture, err)
+		if err := c.verifyProductionCandidate(evidenceDir, roots, expected, now); err != nil {
+			return err
 		}
-		for _, evidence := range qualification.Evidence {
-			if size, ok := checked[evidence.SHA256]; ok {
-				if size != evidence.Bytes {
-					return fmt.Errorf("%w: inconsistent retained evidence size", release.ErrProductionQualification)
-				}
-				continue
-			}
-			file, size, digest, err := c.openHashedArtifact(filepath.Join(evidenceDir, "objects", evidence.SHA256), release.MaxProductionEvidenceBytes)
-			if err != nil {
-				return fmt.Errorf("%s %s evidence: %w", cell, evidence.Gate, err)
-			}
-			file.Close()
-			if size != evidence.Bytes || hex.EncodeToString(digest) != evidence.SHA256 {
-				return fmt.Errorf("%w: %s %s retained evidence bytes differ", release.ErrProductionQualification, cell, evidence.Gate)
-			}
-			checked[evidence.SHA256] = size
+	}
+	return c.ctx.Err()
+}
+
+// verifyProductionCandidate consumes only signed qualification and retained bytes.
+func (c command) verifyProductionCandidate(evidenceDir string, roots trust.Keyring, expected release.ProductionExpectation, now time.Time) error {
+	directory := filepath.Join(evidenceDir, expected.Cell, expected.Architecture)
+	wire, err := readBoundedRegular(filepath.Join(directory, "production.json"), trust.MaxEnvelopeBytes)
+	if err != nil {
+		return fmt.Errorf("%w: %s %s record: %w", release.ErrProductionQualification, expected.Cell, expected.Architecture, err)
+	}
+	delegation, err := readBoundedRegular(filepath.Join(directory, "delegation.json"), trust.MaxEnvelopeBytes)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("%w: qualification delegation: %w", release.ErrProductionQualification, err)
+	}
+	qualification, err := release.VerifyProductionCurrent(wire, delegation, roots, expected, now)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", expected.Cell, expected.Architecture, err)
+	}
+	for _, evidence := range qualification.Evidence {
+		file, size, digest, err := c.openHashedArtifact(filepath.Join(evidenceDir, "objects", evidence.SHA256), release.MaxProductionEvidenceBytes)
+		if err != nil {
+			return fmt.Errorf("%w: %s %s evidence: %w", release.ErrProductionQualification, expected.Cell, evidence.Gate, err)
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		if size != evidence.Bytes || hex.EncodeToString(digest) != evidence.SHA256 {
+			return fmt.Errorf("%w: %s %s retained evidence bytes differ", release.ErrProductionQualification, expected.Cell, evidence.Gate)
 		}
 	}
 	return c.ctx.Err()
@@ -75,10 +80,10 @@ func (c command) verifyProduction(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *directory == "" || *rootPath == "" || !validEnvironment(*environment) || len(cells) == 0 || flags.NArg() != 0 {
-		return errors.New("verify-production requires --dir, --root-key and at least one --cell")
+	if *directory == "" || *rootPath == "" || !validEnvironment(*environment) || flags.NArg() != 0 {
+		return errors.New("verify-production requires --dir and --root-key")
 	}
-	cells, err := deploymentCells(c.ctx, cells, nil)
+	cells, err := deploymentCells(c.ctx, cells, discoverServingCells)
 	if err != nil {
 		return err
 	}
