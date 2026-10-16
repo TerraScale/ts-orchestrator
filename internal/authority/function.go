@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
+	"github.com/nats-io/nats.go/jetstream"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -300,4 +303,58 @@ func verifyFunctionGrant(ctx context.Context, reader functionGrantReader, proof 
 		return ErrConflict
 	}
 	return verifyFunctionIntent(ctx, reader, proof)
+}
+
+// ListFunctionIntents returns each current function head from the existing log.
+func (r *Runtime) ListFunctionIntents(ctx context.Context) ([]LogEntry, error) {
+	if r == nil {
+		return nil, ErrNotFound
+	}
+	r.readMu.Lock()
+	defer r.readMu.Unlock()
+	return listFunctionIntents(ctx, r.readStream, r.config.Scope)
+}
+
+func (r *Reader) ListFunctionIntents(ctx context.Context) ([]LogEntry, error) {
+	if r == nil || r.stream == nil {
+		return nil, ErrNotFound
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return listFunctionIntents(ctx, r.stream, r.scope)
+}
+
+func listFunctionIntents(ctx context.Context, stream jetstream.Stream, scope string) ([]LogEntry, error) {
+	prefix := fmt.Sprintf("%s.%s.function.%s.", controlSubjectRoot, scope, MutationFunctionIntent)
+	info, err := stream.Info(ctx, jetstream.WithSubjectFilter(prefix+">"))
+	if err != nil {
+		return nil, err
+	}
+	if err := verifyControlStreamConfig(info.Config, info.Config.Replicas); err != nil {
+		return nil, err
+	}
+	if len(info.State.Subjects) > 10000 {
+		return nil, ErrListTooLarge
+	}
+	keys := make([]string, 0, len(info.State.Subjects))
+	for subject := range info.State.Subjects {
+		key, ok := strings.CutPrefix(subject, prefix)
+		if !ok || validateMutationKey(MutationFunctionIntent, key) != nil {
+			return nil, errors.New("function log subject is invalid")
+		}
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	entries := make([]LogEntry, 0, len(keys))
+	for _, key := range keys {
+		entry, err := readMutation(ctx, stream, scope, MutationFunctionIntent, key)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := DecodeFunctionIntent(entry); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
 }

@@ -41,6 +41,12 @@ func TestFunctionIntentAndRecipientGrantsUseDurableCurrentFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, list := range []func(context.Context) ([]LogEntry, error){runtime.ListFunctionIntents, reader.ListFunctionIntents} {
+		entries, err := list(t.Context())
+		if err != nil || len(entries) != 1 || entries[0].Sequence != sequence || entries[0].SubjectKey != entry.SubjectKey {
+			t.Fatalf("current function enumeration: %+v: %v", entries, err)
+		}
+	}
 	intent, err := DecodeFunctionIntent(entry)
 	if err != nil || entry.Sequence != sequence || !bytes.Equal(intent.Envelope, proof.Envelope()) ||
 		!bytes.Equal(intent.Delegation, proof.Delegation()) || bytes.Contains(entry.Payload, fixture.module) {
