@@ -27,16 +27,17 @@ const foundationGrantObject = "foundation-scope-v1.json"
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
-	InstallationID      string             `json:"installationId"`
-	SchemaVersion       int                `json:"schemaVersion"`
-	Generation          uint64             `json:"generation"`
-	TenancyID           string             `json:"tenancyId"`
-	ParentCompartmentID string             `json:"parentCompartmentId"`
-	SharedCompartmentID string             `json:"sharedCompartmentId"`
-	Currency            string             `json:"currency"`
-	MonthlyLimitMinor   int64              `json:"monthlyLimitMinor"`
-	CleanupOwner        string             `json:"cleanupOwner"`
-	Regions             []FoundationIntent `json:"regions"`
+	InstallationID      string                     `json:"installationId"`
+	SchemaVersion       int                        `json:"schemaVersion"`
+	Generation          uint64                     `json:"generation"`
+	TenancyID           string                     `json:"tenancyId"`
+	ParentCompartmentID string                     `json:"parentCompartmentId"`
+	SharedCompartmentID string                     `json:"sharedCompartmentId"`
+	Currency            string                     `json:"currency"`
+	MonthlyLimitMinor   int64                      `json:"monthlyLimitMinor"`
+	CleanupOwner        string                     `json:"cleanupOwner"`
+	Regions             []FoundationIntent         `json:"regions"`
+	InfrastructureSpend *InfrastructureSpendIntent `json:"infrastructureSpend,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
