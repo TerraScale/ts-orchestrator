@@ -192,9 +192,9 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil {
 		return nil, err
 	}
-	// A replacement instance must not reuse another recipient's immutable secret.
-	recipient := sha256.Sum256([]byte(request.InstanceID))
-	name := vaultsecret.Name(strings.ToLower(authority.identity.Cell)+"-"+strings.ToLower(authority.identity.ClusterID)+"-"+strings.ToLower(registration.ID)+"-"+hex.EncodeToString(recipient[:]), "TS_ORCHESTRATOR_SWARM_WORKER")
+	// Replacement instances and rotated upstream tokens need separate immutable records.
+	digest := sha256.Sum256(wire)
+	name := vaultsecret.Name(strings.ToLower(authority.identity.Cell)+"-"+strings.ToLower(authority.identity.ClusterID)+"-"+strings.ToLower(registration.ID)+"-"+hex.EncodeToString(digest[:]), "TS_ORCHESTRATOR_SWARM_WORKER")
 	stored, err := vaultsecret.Ensure(ctx, authority.vault, authority.target, name, "Recipient-bound SwarmKit worker enrollment", func(ctx context.Context) (string, error) {
 		if err := authority.refresh(ctx); err != nil {
 			return "", err
@@ -217,7 +217,6 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	}
 	now := time.Now().UTC()
 	expires := minTime(now.Add(10*time.Minute), response.ExpiresAt)
-	digest := sha256.Sum256(wire)
 	worker := hostenroll.SwarmWorker{Version: 1, DeploymentID: material.DeploymentID, ClusterID: material.ClusterID, Environment: material.Environment, Cell: registration.Cell, Region: material.Region,
 		OCIRegion: authority.identity.OCIRegion, FounderID: material.FounderID, RegistrationID: registration.ID, Generation: registration.Generation, Revision: response.RegistrationReceipt.Revision,
 		InstanceID: request.InstanceID, PrivateIP: observed.PrimaryPrivateIP, Architecture: architecture, Role: role, ManagerAddress: material.ManagerAddress, SwarmID: material.SwarmID, CAPEM: material.CAPEM,
