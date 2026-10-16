@@ -459,6 +459,23 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	actor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.founder")
+	// Matching Actor fields cannot adopt a source created before its IAM journal.
+	sourceScope := digestWire([]byte(verified.InstallationID() + "\x00gru"))
+	sourceObject := verified.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + sourceScope + ".json"
+	sourcePath := "/n/namespace-a/b/gru-1-head/o/" + sourceObject
+	counterfeit, _ := json.Marshal(materialSourceState{SchemaVersion: 1, Actor: materialSourceActor{InstanceID: actor.InstanceID(), GrantDigest: actor.GrantDigest(), TemplateDigest: actor.TemplateDigest()}, InstallationID: verified.InstallationID(), Cell: "gru", Generation: verified.Generation(), PlanSHA256: verified.PlanDigest(), Target: target, SecretName: "ts-bootstrap-source-" + sourceScope[:32], RetryToken: "00000000-0000-4000-8000-000000000001", StartedAt: now})
+	if err := protocol.put(sourcePath, counterfeit); err != nil {
+		t.Fatal(err)
+	}
+	if err := actor.AuthorizeSourceObject(t.Context(), sourceObject); err == nil {
+		t.Fatal("source predating exact IAM protection was adopted")
+	}
+	if len(protocol.policies) != 0 || protocol.creates != 0 {
+		t.Fatal("unproven source reached IAM or Vault creation")
+	}
+	if err := os.Remove(protocol.objectPath(sourcePath)); err != nil {
+		t.Fatal(err)
+	}
 	for attempt := range 2 {
 		if _, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
@@ -484,6 +501,10 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+	differentActor := sourceFounderFixture(t, verified, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.sa-saopaulo-1.other")
+	if _, err := ResolveColdStartMaterial(t.Context(), verified, differentActor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "different-instance"), now); err == nil || protocol.creates != 1 {
+		t.Fatal("different actual instance rebound original founder source")
 	}
 	committedWire, err := os.ReadFile(protocol.objectPath("secret-" + sources[0].state.Reference.SecretOCID))
 	if err != nil {
