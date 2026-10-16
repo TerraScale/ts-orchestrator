@@ -19,12 +19,13 @@ import (
 // RegionalLinkEvidence is public, reproducible startup provenance. Spoke delivery
 // is signed by the registered home source; the home uses its exact own CAS.
 type RegionalLinkEvidence struct {
-	SourceObjectKey string            `json:"sourceObjectKey"`
-	SourceSHA256    string            `json:"sourceSha256"`
-	MaterialRecord  []byte            `json:"materialRecord"`
-	Journal         []byte            `json:"journal"`
-	References      []SecretReference `json:"references"`
-	Delivery        []byte            `json:"delivery,omitempty"`
+	Actor           SourceInventoryActor `json:"actor"`
+	SourceObjectKey string               `json:"sourceObjectKey"`
+	SourceSHA256    string               `json:"sourceSha256"`
+	MaterialRecord  []byte               `json:"materialRecord"`
+	Journal         []byte               `json:"journal"`
+	References      []SecretReference    `json:"references"`
+	Delivery        []byte               `json:"delivery,omitempty"`
 }
 
 type VerifiedStartupLink struct {
@@ -141,7 +142,7 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		Journal  []byte `json:"journal"`
 		Delivery []byte `json:"delivery"`
 	}
-	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != home.OriginalActor() || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
+	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != evidence.Actor || state.Actor.InstanceID != home.OriginalActor().InstanceID || !validDigest(state.Actor.GrantDigest) || !validDigest(state.Actor.TemplateDigest) || state.Generation == home.Template().Generation() && (state.Actor.GrantDigest != home.Template().GrantDigest() || state.Actor.TemplateDigest != home.Template().TemplateDigest()) || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
 		return deny()
 	}
 	var record struct {

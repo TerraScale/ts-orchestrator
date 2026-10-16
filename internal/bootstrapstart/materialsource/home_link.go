@@ -96,7 +96,7 @@ func (link *LinkSource) PublishRegionalLink(ctx context.Context, target bootstra
 }
 
 func (link *LinkSource) evidence(publication bootstrapmaterial.Publication) bootstrap.RegionalLinkEvidence {
-	return bootstrap.RegionalLinkEvidence{SourceObjectKey: link.source.key, SourceSHA256: link.source.state.Reference.SHA256, MaterialRecord: bytes.Clone(link.source.archive.Files["material.json"]), Journal: bytes.Clone(link.source.state.Journal), References: publication.LinkGenerationReferences(), Delivery: bytes.Clone(link.source.state.Delivery)}
+	return bootstrap.RegionalLinkEvidence{Actor: bootstrap.SourceInventoryActor{InstanceID: link.source.state.Actor.InstanceID, GrantDigest: link.source.state.Actor.GrantDigest, TemplateDigest: link.source.state.Actor.TemplateDigest}, SourceObjectKey: link.source.key, SourceSHA256: link.source.state.Reference.SHA256, MaterialRecord: bytes.Clone(link.source.archive.Files["material.json"]), Journal: bytes.Clone(link.source.state.Journal), References: publication.LinkGenerationReferences(), Delivery: bytes.Clone(link.source.state.Delivery)}
 }
 
 // StartupLink exposes the same public proof for home initial binding and reboot.

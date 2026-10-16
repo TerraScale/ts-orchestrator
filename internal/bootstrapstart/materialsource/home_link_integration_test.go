@@ -149,7 +149,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	homeKey := "private/bootstrap/bootstrap/v2/material-source/link-" + digestWire([]byte(grant.InstallationID+"\x00gru\x00link\x00"+homeBinding)) + ".json"
 	homeState := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "link", BindingSHA256: homeBinding, InstallationID: grant.InstallationID, Cell: "gru", Generation: 1, PlanSHA256: templates[0].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.home-link", SHA256: digestWire([]byte("home-link-archive")), MaxBytes: 100}, Journal: homeJournal}
 	publicLinkState(t, homeProtocol, homeKey, homeState)
-	homeEvidence := bootstrap.RegionalLinkEvidence{SourceObjectKey: homeKey, SourceSHA256: homeState.Reference.SHA256, MaterialRecord: homeMetadata, Journal: homeJournal, References: homePublication.LinkGenerationReferences()}
+	homeEvidence := bootstrap.RegionalLinkEvidence{Actor: inventories[0].OriginalActor(), SourceObjectKey: homeKey, SourceSHA256: homeState.Reference.SHA256, MaterialRecord: homeMetadata, Journal: homeJournal, References: homePublication.LinkGenerationReferences()}
 	if _, err := bootstrap.VerifyStartupLink(t.Context(), templates[0], objects, homeEvidence, now); err != nil {
 		t.Fatal("home public proof:", err)
 	}
@@ -168,7 +168,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	metadata, _ := os.ReadFile(filepath.Join(spokeLinkDir, "material.json"))
 	journal, _ := os.ReadFile(filepath.Join(spokeLinkDir, "publication.json"))
 	state := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "spoke-link-v1", BindingSHA256: recipient.BindingSHA256(), InstallationID: grant.InstallationID, Cell: "sfo", Generation: 1, PlanSHA256: templates[1].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.spoke-link", SHA256: digestWire([]byte("spoke-link-archive")), MaxBytes: 100}, Journal: journal}
-	evidence := bootstrap.RegionalLinkEvidence{SourceObjectKey: recipient.LinkObjectKey(), SourceSHA256: state.Reference.SHA256, MaterialRecord: metadata, Journal: journal, References: publication.LinkGenerationReferences()}
+	evidence := bootstrap.RegionalLinkEvidence{Actor: inventories[0].OriginalActor(), SourceObjectKey: recipient.LinkObjectKey(), SourceSHA256: state.Reference.SHA256, MaterialRecord: metadata, Journal: journal, References: publication.LinkGenerationReferences()}
 	deliveryPayload, _ := bootstrap.LinkDeliveryPayload(evidence)
 	key, _ := os.ReadFile(filepath.Join(sourceDirs[0], "founder-ledger.key"))
 	state.Delivery, err = bootstrap.SignLinkDelivery(recipient, deliveryPayload, ed25519.PrivateKey(key), now, recipient.ExpiresAt())
