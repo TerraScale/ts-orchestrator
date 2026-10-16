@@ -5140,6 +5140,12 @@ func (fs *fileStore) newMsgBlockForWrite() (*msgBlock, error) {
 			// We've now reached the end of this message block, if we want
 			// to compress blocks then now's the time to do it.
 			go func() {
+				fs.mu.RLock()
+				defer fs.mu.RUnlock()
+				// Truncate can make this block writable again before compression starts.
+				if fs.lmb == lmb {
+					return
+				}
 				lmb.mu.Lock()
 				defer lmb.mu.Unlock()
 				// Might error, but we can't handle it here anyway.
