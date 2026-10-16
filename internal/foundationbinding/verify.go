@@ -282,7 +282,11 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 		authority.Roots[key] = ed25519.PublicKey(bytes.Clone(public))
 	}
 	maps.DeleteFunc(current.ResourceIDs, func(key, _ string) bool { return !requested[key] })
-	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: envelope.ExpiresAt, ids: current.ResourceIDs}, nil
+	expires := envelope.ExpiresAt
+	if current.Stage == "foundation" && current.ExpiresAt.Before(expires) {
+		expires = current.ExpiresAt
+	}
+	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: expires, ids: current.ResourceIDs}, nil
 }
 
 func verifyCurrentGrant(ctx context.Context, factory *ociclient.Factory, authority Authority, expected []byte) error {
