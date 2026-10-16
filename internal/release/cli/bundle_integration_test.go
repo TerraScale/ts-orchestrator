@@ -158,8 +158,14 @@ func TestBundleRefusesBeforeCredentialsOrOutput(t *testing.T) {
 	if err := (command{ctx: t.Context(), output: io.Discard}).bundleWith(args, env); err == nil {
 		t.Fatal("unqualified release produced a bundle")
 	}
+	if err := os.WriteFile(binaryPath(f.releaseDir, "amd64"), []byte("tampered retained candidate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := (command{ctx: t.Context(), output: io.Discard}).bundleWith(args, env); err == nil || !strings.Contains(err.Error(), "bytes differ") {
+		t.Fatalf("tampered candidate admitted: %v", err)
+	}
 	if secretReads.Load() != 0 {
-		t.Fatal("unqualified release read signer credentials")
+		t.Fatal("unqualified or tampered release read signer credentials")
 	}
 	if _, err := os.Lstat(out); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed bundle published an output: %v", err)
