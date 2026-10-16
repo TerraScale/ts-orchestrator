@@ -10,7 +10,6 @@ import (
 	"crypto/x509"
 	"encoding/json/v2"
 	"encoding/pem"
-	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
