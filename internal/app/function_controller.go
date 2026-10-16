@@ -413,5 +413,8 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if controller.config.Roots.reply("").Head != rootHead {
 		return fail()
 	}
+	if !proof.Valid() || !verifiedWorker.Valid(time.Now().UTC()) {
+		return fail()
+	}
 	return proof, nil
 }
