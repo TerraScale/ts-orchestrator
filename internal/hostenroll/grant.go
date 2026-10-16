@@ -73,6 +73,7 @@ type Grant struct {
 
 type GrantStore struct {
 	kv jetstream.KeyValue
+	js jetstream.JetStream
 }
 
 func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (*GrantStore, error) {
@@ -90,7 +91,7 @@ func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (
 	if err != nil || status.Config().Replicas != replicas {
 		return nil, errors.New("host enrollment grant replication differs from regional quorum")
 	}
-	return &GrantStore{kv: kv}, nil
+	return &GrantStore{kv: kv, js: js}, nil
 }
 
 func grantKey(instanceID string) string {

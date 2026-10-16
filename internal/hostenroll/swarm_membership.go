@@ -57,13 +57,13 @@ func VerifySwarmMembership(record SwarmMembership, public ed25519.PublicKey) (Ve
 // RecordSwarmMembership CAS-publishes independently verified admission before
 // a manager grants placement labels; callers must verify both signatures first.
 func (store *GrantStore) RecordSwarmMembership(ctx context.Context, expected Grant, revision uint64, record SwarmMembership) (Grant, error) {
-	if store == nil || store.kv == nil || revision == 0 || expected.SchemaVersion != 1 || expected.InstanceID == "" ||
+	if store == nil || store.kv == nil || store.js == nil || revision == 0 || expected.SchemaVersion != 1 || expected.InstanceID == "" ||
 		expected.Disabled || expected.TerminalOperationID != "" || expected.IdentityResetOperationID != "" ||
 		record.Binding.NodeID == "" || !time.Now().Before(record.Binding.ExpiresAt) ||
 		!expected.MatchesCompletedWorkerEnrollment(record.Transport) {
 		return Grant{}, mutationNotApplied(errors.New("worker admission differs from current completed instance enrollment"))
 	}
-	current, currentRevision, err := store.Read(ctx, expected.InstanceID)
+	current, currentRevision, err := ReadCurrentGrant(ctx, store.js, expected.InstanceID)
 	if err != nil || currentRevision != revision || !sameGrant(current, expected) {
 		return Grant{}, mutationNotApplied(errors.New("worker enrollment changed before membership publication"))
 	}
