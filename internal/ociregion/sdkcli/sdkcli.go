@@ -6,16 +6,18 @@
 // --output json: SDK models are marshaled and their camelCase member names are
 // rewritten to the CLI's kebab-case, except inside user-keyed maps such as
 // tags and metadata. Commands it does not serve report handled=false so the
-// caller can decide whether a CLI fallback is allowed.
+// caller can report unsupported operations without invoking another process.
 package sdkcli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"os"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -26,35 +28,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
-
-// Backend selects how the region tools reach OCI.
-type Backend string
-
-const (
-	// BackendAuto serves supported commands in-binary and falls back to the
-	// Python CLI for the rest. It is the default while the migration is
-	// incomplete.
-	BackendAuto Backend = "auto"
-	// BackendSDK never runs the Python CLI; unsupported commands fail.
-	BackendSDK Backend = "sdk"
-	// BackendCLI keeps the previous Python CLI behavior for every command.
-	BackendCLI Backend = "cli"
-)
-
-// BackendEnv names the environment variable that selects the backend.
-const BackendEnv = "TS_OCI_BACKEND"
-
-// SelectedBackend reads BackendEnv, defaulting to BackendAuto.
-func SelectedBackend() (Backend, error) {
-	switch backend := Backend(strings.TrimSpace(os.Getenv(BackendEnv))); backend {
-	case "":
-		return BackendAuto, nil
-	case BackendAuto, BackendSDK, BackendCLI:
-		return backend, nil
-	default:
-		return "", fmt.Errorf("%s=%q is not auto, sdk, or cli", BackendEnv, backend)
-	}
-}
 
 // ErrUnsupported marks a command this package does not serve.
 var ErrUnsupported = errors.New("OCI command is not served in-binary")
@@ -143,13 +116,44 @@ type Client struct {
 	endpoint string
 }
 
+// NewClient shares the authenticated provider, rate limits and retry policy of factory.
+func NewClient(factory *ociclient.Factory, endpoint string) *Client {
+	return &Client{factory: factory, endpoint: endpoint}
+}
+
 // Factory is the shared rate-limited factory this client reads through.
 func (c *Client) Factory() *ociclient.Factory { return c.factory }
 
 func (c *Client) pin(client *common.BaseClient) {
+	client.HTTPClient = strictResponses{next: client.HTTPClient}
 	if c.endpoint != "" {
 		client.Host = c.endpoint
 	}
+}
+
+// Strict decoding keeps ambiguous or truncated provider documents out of inventory.
+type strictResponses struct{ next common.HTTPRequestDispatcher }
+
+func (d strictResponses) Do(request *http.Request) (*http.Response, error) {
+	response, err := d.next.Do(request)
+	if err != nil || response == nil || request.Method == http.MethodHead || response.StatusCode < 200 || response.StatusCode >= 300 {
+		return response, err
+	}
+	const limit = 32 << 20
+	wire, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	response.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read OCI response: %w", err)
+	}
+	if len(wire) > limit {
+		return nil, errors.New("OCI response exceeds 32 MiB")
+	}
+	var value any
+	if err := json.Unmarshal(wire, &value); err != nil {
+		return nil, fmt.Errorf("invalid OCI response: %w", err)
+	}
+	response.Body = io.NopCloser(bytes.NewReader(wire))
+	return response, nil
 }
 
 var (
@@ -175,7 +179,7 @@ func ForRegion(region string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{factory: factory}
+	client := NewClient(factory, "")
 	clients[region] = client
 	return client, nil
 }
