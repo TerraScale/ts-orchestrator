@@ -15,11 +15,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -27,6 +27,7 @@ import (
 	"github.com/containerd/errdefs"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nkeys"
+	"golang.org/x/sys/unix"
 )
 
 const workerGrantLifetime = 15 * time.Second
@@ -539,18 +540,52 @@ func (s *WorkerSession) stopRuntime(ctx context.Context, task *api.Task, hash st
 		pins, expected = held.pins, held.observation
 	}
 	s.mu.Unlock()
-	if pins == nil {
+	if pins == nil || expected.ContainerID != container.ID() || expected.Process.PID < 2 ||
+		expected.Process.KernelStart == "" || expected.Process.Cgroup != "0::/terrascale/"+expected.ContainerID+"\n" ||
+		expected.PIDNamespace == 0 || expected.MountNamespace == 0 || int(process.Pid()) != expected.Process.PID {
 		return ErrUnsafe
 	}
-	actual, err := (RuntimeObserver{Client: s.client}).Observe(ctx, *pins)
-	if err != nil || actual.Process != expected.Process || actual.ContainerID != expected.ContainerID || actual.PIDNamespace != expected.PIDNamespace || actual.MountNamespace != expected.MountNamespace || int(process.Pid()) != expected.Process.PID {
-		return errors.Join(ErrUnsafe, err)
+	pid := expected.Process.PID
+	fd, err := unix.PidfdOpen(pid, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	// Health drift must not prevent withdrawal; only the retained identity authorizes this signal.
+	verify := func() error {
+		actual, err := memberstatus.ObserveContainerProcess(pid, pid)
+		if err != nil || actual != expected.Process || actual.ProtocolPID() != 1 {
+			return errors.Join(ErrUnsafe, err)
+		}
+		for name, inode := range map[string]uint64{"pid": expected.PIDNamespace, "mnt": expected.MountNamespace} {
+			var stat unix.Stat_t
+			if err := unix.Stat(fmt.Sprintf("/proc/%d/ns/%s", pid, name), &stat); err != nil || stat.Ino != inode {
+				return errors.Join(ErrUnsafe, err)
+			}
+		}
+		labels, err := container.Labels(ctx)
+		if err != nil || labels["terrascale.task"] != task.ID || labels["terrascale.service"] != task.ServiceID ||
+			labels["terrascale.spec"] != hash || labels["terrascale.task-binding"] != hash {
+			return errors.Join(ErrUnsafe, err)
+		}
+		current, err := container.Task(ctx, nil)
+		if err != nil || int(current.Pid()) != pid {
+			return errors.Join(ErrUnsafe, err)
+		}
+		return ctx.Err()
+	}
+	if err := verify(); err != nil {
+		return err
 	}
 	wait, err := process.Wait(ctx)
 	if err != nil {
 		return err
 	}
-	if err := process.Kill(ctx, syscall.SIGKILL, containerd.WithKillAll); err != nil && !errdefs.IsNotFound(err) {
+	if err := verify(); err != nil {
+		return err
+	}
+	// Killing the private PID namespace's init also kills its descendants; pidfd cannot retarget a reused PID.
+	if err := unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0); err != nil {
 		return err
 	}
 	select {
