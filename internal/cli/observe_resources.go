@@ -17,11 +17,11 @@ import (
 )
 
 func isObserveResource(view string) bool {
-	return slices.Contains([]string{"regions", "region", "nodes", "node", "services", "service", "volumes", "volume"}, view)
+	return slices.Contains([]string{"regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view)
 }
 
-func observeResourcePath(view, cell, node, service, volume string) (string, error) {
-	for _, selector := range []string{cell, node, service, volume} {
+func observeResourcePath(view, cell, node, service, volume, tenant, function string) (string, error) {
+	for _, selector := range []string{cell, node, service, volume, tenant, function} {
 		if len(selector) > 256 || strings.ContainsAny(selector, "/\\") || strings.IndexFunc(selector, unicode.IsControl) >= 0 || selector == "." || selector == ".." {
 			return "", errors.New("resource selectors must be at most 256 characters without path separators or control characters")
 		}
@@ -38,8 +38,15 @@ func observeResourcePath(view, cell, node, service, volume string) (string, erro
 	if view == "volume" && volume == "" {
 		return "", errors.New("observe volume requires --volume ID")
 	}
+	if view == "function" && (tenant == "" || function == "") {
+		return "", errors.New("observe function requires --tenant ID and --function ID")
+	}
 	path := "/v1/regions/" + cell
 	switch view {
+	case "functions":
+		path += "/functions"
+	case "function":
+		path += "/functions/" + tenant + "/" + function
 	case "nodes":
 		path += "/nodes"
 	case "node":
@@ -134,6 +141,19 @@ func writeObserveResource(out io.Writer, view, format string, data []byte) (any,
 		fmt.Fprintf(out, "CELL\t%s\tSTATE\t%s\tOBSERVED\t%s\tTRUNCATED\t%t\n", result.Cell, result.State, observed, result.Truncated)
 		if string(raw.Data) != "null" {
 			switch view {
+			case "functions", "function":
+				var functions []globalview.FunctionObservation
+				if err := json.Unmarshal(raw.Data, &functions); err != nil {
+					return nil, false, err
+				}
+				fmt.Fprintln(out, "TENANT\tFUNCTION\tREVISION\tDIGEST\tTASK\tSTATE\tACTIVE\tSUCCEEDED\tFAILED\tREJECTED\tOBSERVED")
+				for _, function := range functions {
+					active, succeeded, failed, rejected := "unknown", "unknown", "unknown", "unknown"
+					if function.State == "observed" && function.Snapshot != nil {
+						active, succeeded, failed, rejected = fmt.Sprint(function.Snapshot.Active), fmt.Sprint(function.Snapshot.Succeeded), fmt.Sprint(function.Snapshot.Failed), fmt.Sprint(function.Snapshot.Rejected)
+					}
+					fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", function.TenantID, function.FunctionID, function.Revision, function.Digest, function.TaskID, function.State, active, succeeded, failed, rejected, function.ObservedAt.Format(time.RFC3339))
+				}
 			case "nodes":
 				var nodes []globalview.Node
 				if err := json.Unmarshal(raw.Data, &nodes); err != nil {

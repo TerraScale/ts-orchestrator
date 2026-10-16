@@ -23,13 +23,15 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|regions|region|nodes|node|services|service|volumes|volume> [flags]
+const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|regions|region|nodes|node|services|service|functions|function|volumes|volume> [flags]
 
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --region REGION        Select an admitted region; authenticated discovery supplies endpoints
   --cell CELL            Resource region; defaults to the authenticated endpoint's local region
   --node NAME            Node selector; omit for regional SwarmKit services
   --service ID           Managed service ID; node-local role when --node is given
+  --tenant ID            Tenant selector for one admitted function
+  --function ID          Function selector; requires --tenant
   --volume ID            Managed volume selector
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source
@@ -54,7 +56,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	view := args[0]
-	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "regions", "region", "nodes", "node", "services", "service", "volumes", "volume"}, view) {
+	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
@@ -62,6 +64,8 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	cell := flags.String("cell", "", "resource region")
 	node := flags.String("node", "", "node selector")
 	service := flags.String("service", "", "service selector")
+	tenant := flags.String("tenant", "", "function tenant selector")
+	function := flags.String("function", "", "function selector")
 	volume := flags.String("volume", "", "volume selector")
 	region := flags.String("region", "", "region selector")
 	format := flags.String("format", "table", "table or json")
@@ -115,6 +119,10 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 			if view != "volume" {
 				wrongFlag = f.Name
 			}
+		case "tenant", "function":
+			if view != "function" {
+				wrongFlag = f.Name
+			}
 		case "search":
 			if view != "metrics" {
 				wrongFlag = f.Name
@@ -163,7 +171,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if isObserveResource(view) {
 		var err error
-		path, err = observeResourcePath(view, *cell, *node, *service, *volume)
+		path, err = observeResourcePath(view, *cell, *node, *service, *volume, *tenant, *function)
 		if err != nil {
 			return err
 		}
@@ -200,7 +208,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 					answers <- answer{source: base, err: err}
 					return
 				}
-				resourcePath, err = observeResourcePath(view, local, *node, *service, *volume)
+				resourcePath, err = observeResourcePath(view, local, *node, *service, *volume, *tenant, *function)
 				if err != nil {
 					answers <- answer{source: base, err: err}
 					return
@@ -360,7 +368,7 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 	partial := false
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	switch view {
-	case "regions", "region", "nodes", "node", "services", "service", "volumes", "volume":
+	case "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume":
 		var err error
 		value, partial, err = writeObserveResource(table, view, format, data)
 		if err != nil {

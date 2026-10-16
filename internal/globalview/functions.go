@@ -19,3 +19,24 @@ type FunctionObservation struct {
 	Snapshot   *functions.Snapshot `json:"snapshot,omitempty"`
 	ObservedAt time.Time           `json:"observed_at,omitzero"`
 }
+
+func (region Region) FunctionState(observation *FunctionObservation, found bool) string {
+	if region.Rollup != nil && region.Rollup.FunctionsObservedAt.IsZero() {
+		return "unavailable"
+	}
+	state := region.ResourceState(found)
+	if state != "current" && state != "not_found" {
+		return state
+	}
+	observed := region.Rollup.FunctionsObservedAt
+	if observation != nil {
+		if observation.State != "observed" && observation.State != "unplaced" || observation.State == "observed" && observation.Snapshot == nil {
+			return "unavailable"
+		}
+		observed = observation.ObservedAt
+	}
+	if observed.IsZero() || region.Rollup.ObservedAt.Sub(observed) > StaleAfter {
+		return "stale"
+	}
+	return state
+}
