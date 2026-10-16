@@ -152,6 +152,7 @@ func newFounderRuntimeFixtureWithReservation(t *testing.T, setup func(*founderSi
 ) (*founderSignerFixture, *founderCaller, *founderLedgerObjects, *founderFakeOCI) {
 	t.Helper()
 	fixture := newFounderSignerFixture(t)
+	qualifyFounderRuntimeFixture(t, fixture)
 	if setup != nil {
 		setup(fixture)
 	}
@@ -189,6 +190,55 @@ func newFounderRuntimeFixtureWithReservation(t *testing.T, setup func(*founderSi
 		}
 	}
 	return fixture, caller, objects, fake
+}
+
+func founderRuntimeImageWires(t *testing.T, fixture *founderSignerFixture) ([]byte, []byte) {
+	t.Helper()
+	imageID := fixture.plan.Peers[0].ImageOCID
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicWire, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const revision = "0123456789abcdef0123456789abcdef01234567"
+	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
+		SubjectKeyID: keyID, SubjectPublicKey: publicWire, Capabilities: []trust.Capability{{
+			Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision), Cell: "GRU", Environment: "production",
+			Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"},
+		}}}, fixture.now.Add(-10*time.Minute), fixture.now.Add(2*time.Hour), fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageReceipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
+		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13,
+		BinarySHA256: strings.Repeat("a", 64), BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base",
+		QualificationSHA256: strings.Repeat("e", 64),
+		BaseImageRegion:     "GRU", BaseImageSHA256: strings.Repeat("b", 64),
+		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
+		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
+		OCIImageOCID: imageID, OCIRegion: "GRU"}
+	imageReceipt = qualifiedImageFixture(t, imageReceipt, "production", fixture.root, fixture.now.Add(-time.Minute))
+	imageEnvelope, err := release.SignImageReceipt(imageReceipt, "production", grant, fixture.baked.Roots,
+		private, fixture.now.Add(-time.Minute), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageWire, err := trust.EncodeEnvelope(imageEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return imageWire, grantWire
 }
 
 func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFixture) {
@@ -233,50 +283,7 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 			RouteCertificate: digest([]byte(slot + "-tls-cert.pem")), RoutePrivateKey: digest([]byte(slot + "-tls-key.pem")),
 		}
 	}
-	public, private, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	keyID, err := trust.KeyID(public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publicWire, err := trust.EncodeDelegatedPublicKey(public)
-	if err != nil {
-		t.Fatal(err)
-	}
-	const revision = "0123456789abcdef0123456789abcdef01234567"
-	imageID := fixture.plan.Peers[0].ImageOCID
-	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion,
-		SubjectKeyID: keyID, SubjectPublicKey: publicWire, Capabilities: []trust.Capability{{
-			Domain: release.ImageDomain, DeploymentID: entityid.Derive("build", revision), Cell: "GRU", Environment: "production",
-			Role: "oci-image", Slots: []string{imageID}, Actions: []string{"sign"},
-		}}}, fixture.now.Add(-10*time.Minute), fixture.now.Add(2*time.Hour), fixture.root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	imageReceipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: revision,
-		GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13,
-		BinarySHA256: strings.Repeat("a", 64), BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base",
-		QualificationSHA256: strings.Repeat("e", 64),
-		BaseImageRegion:     "GRU", BaseImageSHA256: strings.Repeat("b", 64),
-		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
-		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
-		OCIImageOCID: imageID, OCIRegion: "GRU"}
-	imageReceipt = qualifiedImageFixture(t, imageReceipt, "production", fixture.root, fixture.now.Add(-time.Minute))
-	imageEnvelope, err := release.SignImageReceipt(imageReceipt, "production", grant, fixture.baked.Roots,
-		private, fixture.now.Add(-time.Minute), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	imageWire, err := trust.EncodeEnvelope(imageEnvelope)
-	if err != nil {
-		t.Fatal(err)
-	}
-	grantWire, err := trust.EncodeEnvelope(grant)
-	if err != nil {
-		t.Fatal(err)
-	}
+	imageWire, grantWire := founderRuntimeImageWires(t, fixture)
 	manifests := make(map[string][]byte, 3)
 	for slot, wire := range fixture.manifests {
 		envelope, err := trust.DecodeEnvelope(wire)
@@ -1299,10 +1306,15 @@ func TestFounderRuntimeOCIContextEndsWithSelectedAuthority(t *testing.T) {
 	}
 	defer cancel()
 	deadline, ok := effectCtx.Deadline()
-	trustedRemaining := fixture.current.SelectionExpiresAt.Sub(snapshot.recovery.ServerDate().Add(time.Second))
+	imageEnvelope, err := trust.DecodeEnvelope(snapshot.peer.Manifest().ReleaseImageReceiptWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedRemaining := earliestFounderTime(fixture.current.SelectionExpiresAt, imageEnvelope.ExpiresAt).
+		Sub(snapshot.recovery.ServerDate().Add(time.Second))
 	if !ok || time.Until(deadline) > trustedRemaining+time.Second ||
 		time.Until(deadline) < trustedRemaining-5*time.Second {
-		t.Fatalf("OCI effect context was not bounded by selected authority: remaining=%v trusted=%v",
+		t.Fatalf("OCI effect context was not bounded by selected image authority: remaining=%v trusted=%v",
 			time.Until(deadline), trustedRemaining)
 	}
 	if fake.imageReads != 0 || fake.launches != 0 || fake.observations != 0 {
