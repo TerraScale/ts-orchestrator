@@ -25,7 +25,7 @@ than one combined current-union suite.
 | Whole application test-package compile | PASS | Frozen 99fa2945; no tests executed |
 | Static linux/amd64 command build | PASS | Frozen 99fa2945; development build |
 | Static linux/arm64 command build | PASS | Frozen 99fa2945; development build, no native execution |
-| Final-image production admission boundary | COMPILE FAILURE | Missing serviceMigrationFixture; no tests ran |
+| Final-image production admission boundary | PASS at 9b7ba79d | 14 subtests, no skips; earlier 99fa compile failure retained |
 | Capacity owned leaves | 25 individual PASS receipts | Exact original/repair sources in retained ledger |
 | Application membership current-grant read | PASS | ddc22a6e; signed observer, positive leader reads, zero DIRECT reads |
 | Registry post-Vault current-admission guard | Four leaves PASS | e8c70091; no whole-union claim |
@@ -73,3 +73,20 @@ REL `de07c2d9` and imported as `9b7ba79d`. The exact union then passed
 historical `99fa` compile failure for this one selected check. This is local
 source admission regression evidence; native/live and whole-union runtime
 qualification remain open.
+
+## Later issued-credential enrollment fixture
+
+[Enrollment evidence](enrollment-fixture/README.md) retains exact APP `92eacab2`
+PASS in 2.38s with no skips. Actual enrollment producers complete the grant, an
+Agent connects with the issued credentials, current recipient checks pass, and
+disabling the grant causes refusal. The original invalid-name fixture failure
+is retained. Test-only commits `d34fcb90` and `92eacab2` were imported as
+`71203f70` and `9012b9c3`; whole APP fixturetest compilation passed on the exact
+union `9012b9c3`. No passing runtime case was repeated. Production startup,
+installed credentials and the native/live boundaries remain unqualified.
+
+[Scoped vendor outcomes](../vendor-scoped-67ec90a3/README.md) retain separate
+exact-source passes and failures without importing that vendor source or
+claiming migration closure. The [first-party source inventory](../first-party-test-inventory-bfca6036/REPORT.md)
+records 1,036 files and 4,319 lexical Test candidates; classification and
+execution remain unknown.

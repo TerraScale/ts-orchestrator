@@ -1,0 +1,8 @@
+{
+  "kind": "NATS scoped outcomes",
+  "original_packet": "/tmp/ts-vendor-scoped-evidence-67ec90a3",
+  "original_checksum_index_sha256": "fd51bfa4397b02184d3ae361bc07a20c39198ba5a4a542cf03a57935e560fd63",
+  "artifacts": 33,
+  "main_unchanged": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "boundary": "Donor/source-specific receipts retained. No whole-union runtime, equivalence closure or production admission claim."
+}

@@ -1,0 +1,8 @@
+{
+  "kind": "APP lower enrollment",
+  "original_packet": "/tmp/ts-app-enrollment-evidence-92eacab2",
+  "original_checksum_index_sha256": "606a251567192a3903c8276b31de4f726ccec0640f1285f70c49efe3911aaea5",
+  "artifacts": 23,
+  "main_unchanged": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "boundary": "Donor/source-specific receipts retained. No whole-union runtime, equivalence closure or production admission claim."
+}
