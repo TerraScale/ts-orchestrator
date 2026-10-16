@@ -7,7 +7,6 @@ import (
 	"crypto/ed25519"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
-	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -158,7 +157,7 @@ func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time
 		admission != guard.AdmissionSHA256 || payload.Phase != "held" || payload.StopChallenge != "" || payload.IssuedAt.IsZero() || payload.Revision == 0 || payload.Revision < lastRevision || payload.Revision < guard.Revision || payload.Deadline.Before(guard.Deadline) ||
 		payload.Deadline.Before(lastDeadline) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime ||
 		payload.IssuedAt.After(time.Now().Add(2*time.Second)) || !time.Now().Before(payload.Deadline) {
-		return time.Time{}, 0, errors.Join(ErrUnsafe, err)
+		return time.Time{}, 0, ErrUnsafe
 	}
 	return payload.Deadline, payload.Revision, nil
 }
