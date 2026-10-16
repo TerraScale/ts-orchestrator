@@ -592,8 +592,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || digestWire(committedBody) != sources[0].state.Reference.SHA256 {
 		t.Fatal("source recovery changed original committed source")
 	}
+	compressedBytes := len(committedBody)
 	clear(committedBody)
-	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", compressedBytes, materialSourceSecretLimit)
+	if compressedBytes == 0 || compressedBytes > materialSourceSecretLimit || int64(compressedBytes) != sources[0].state.Reference.MaxBytes {
+		t.Fatalf("actual compressed source exceeds its pinned Vault budget: bytes=%d pinned=%d limit=%d", compressedBytes, sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
+	}
 	if !reflect.DeepEqual(sources[0].Record(), sources[1].Record()) || protocol.sourceCreates != 1 {
 		t.Fatal("concurrent boots selected different signing roots")
 	}
@@ -611,7 +615,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(publication.References) != 27 || protocol.creates != 28 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
+	if len(publication.References) != 30 || protocol.creates != 31 || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("replacement rotated source or duplicated secrets: creates=%d refs=%d", protocol.creates, len(publication.References))
 	}
 	projection, err := replacement.InstallMaterial(t.Context())
@@ -691,21 +695,21 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 28 {
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 31 {
 		t.Fatal("edited local roots caused Vault effects")
 	}
 	replacement, err = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("trusted source repair: %v", err)
 	}
-	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err != nil || protocol.creates != 28 {
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err != nil || protocol.creates != 31 {
 		t.Fatalf("trusted source publication replay: %v", err)
 	}
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
 	}
 	for _, directory := range []string{replacement.directory, filepath.Join(replacement.directory, "link")} {
-		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 28 {
+		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 31 {
 			t.Fatal("Link restore overlapped original regional producer")
 		}
 	}
@@ -736,7 +740,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertHomeStartupPublicProof(t, replacement, homeMaterial, recoveredLink, anchor, roots, private, protocol, now)
-	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 37 || len(linkPublication.References) != 8 {
+	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 40 || len(linkPublication.References) != 8 {
 		t.Fatalf("Link source rotated or publication duplicated: creates=%d refs=%d", protocol.creates, len(linkPublication.References))
 	}
 	for _, ref := range linkPublication.References {
@@ -794,7 +798,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if protocol.creates != 39 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
+	if protocol.creates != 42 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
 		t.Fatalf("spoke changed home Link authority: creates=%d", protocol.creates)
 	}
 	for _, file := range spokeLink.Record().Files {
