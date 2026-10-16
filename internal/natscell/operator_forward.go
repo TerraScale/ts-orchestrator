@@ -13,7 +13,7 @@ import (
 // operatorForwarding selects only explicitly forwarded controller URLs while
 // retaining their original IP addresses as TLS identities.
 func operatorForwarding(cfg Config) (string, map[string]string, error) {
-	if cfg.ClientRole != "operator" || cfg.Lab || cfg.Embedded != nil || len(cfg.OperatorForward) > 5 {
+	if cfg.ClientRole != "operator" || cfg.Embedded != nil || len(cfg.OperatorForward) > 5 {
 		return "", nil, errors.New("NATS forwarding requires an external production operator")
 	}
 	configured := make(map[string]struct{})
