@@ -54,7 +54,7 @@ var kinds = map[string]struct {
 	state  string
 }{
 	"compartment": {"compartment", true, "ACTIVE"}, "dynamic-group": {"dynamicgroup", true, "ACTIVE"}, "policy": {"policy", true, "ACTIVE"},
-	"vcn": {"vcn", false, "AVAILABLE"}, "service-gateway": {"servicegateway", false, "AVAILABLE"}, "route-table": {"routetable", false, "AVAILABLE"},
+	"vcn": {"vcn", false, "AVAILABLE"}, "service-gateway": {"servicegateway", false, "AVAILABLE"}, "nat-gateway": {"natgateway", false, "AVAILABLE"}, "route-table": {"routetable", false, "AVAILABLE"},
 	"security-list": {"securitylist", false, "AVAILABLE"}, "subnet": {"subnet", false, "AVAILABLE"}, "nsg": {"networksecuritygroup", false, "AVAILABLE"},
 	"vault": {"vault", false, "CREATING"}, "key": {"key", false, "CREATING"}, "bucket": {"bucket", false, ""},
 	"drg": {"drg", false, "AVAILABLE"}, "remote-peering-connection": {"remotepeeringconnection", false, "AVAILABLE"},
@@ -230,6 +230,8 @@ func (f *fakeOCI) handle(region string, args []string) (any, error) {
 			}
 		}
 		switch kind {
+		case "nat-gateway":
+			data["block-traffic"] = false
 		case "subnet":
 			data["prohibit-internet-ingress"] = data["prohibit-public-ip-on-vnic"]
 		case "vault":
@@ -342,7 +344,7 @@ func run(t *testing.T, f *fakeOCI, apply bool, out string, plans ...Object) (str
 // creates are the writes a first apply of sfo-1's plan makes, each once.
 var creates = []string{
 	"iam compartment create", "iam compartment create", "iam compartment create",
-	"network vcn create", "network service-gateway create", "network route-table create", "network security-list create",
+	"network vcn create", "network service-gateway create", "network nat-gateway create", "network route-table create", "network security-list create",
 	"network subnet create", "network nsg create", "network nsg rules add", "network nsg create", "network nsg rules add",
 	"kms management vault create", "kms management key create",
 	"iam dynamic-group create", "iam dynamic-group create", "iam policy create", "iam policy create", "iam policy create", "iam policy create",

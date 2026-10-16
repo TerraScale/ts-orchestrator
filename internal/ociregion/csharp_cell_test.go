@@ -39,7 +39,7 @@ func fakeOCID(kind, region, key string) string {
 // LiveS3Credential and the later public API stage unbound.
 func bindPhase1(raw Object) {
 	ids, region := obj(raw["resource_ids"]), text(raw["region"])
-	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn", "subnet", "network_security_group", "workload_network_security_group", "security_list", "route_table", "service_gateway", "local_peering_gateway", "controller_dynamic_group", "controller_policy", "objectstorage_key_policy", "host_dynamic_group"} {
+	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn", "subnet", "network_security_group", "workload_network_security_group", "security_list", "route_table", "service_gateway", "nat_gateway", "local_peering_gateway", "controller_dynamic_group", "controller_policy", "objectstorage_key_policy", "host_dynamic_group"} {
 		kind, r := resourceKinds[key], region
 		if kind == "compartment" || kind == "policy" || kind == "dynamicgroup" {
 			r = ""
@@ -92,6 +92,9 @@ func cellInventory(plan Object, path string, instances ...Object) Object {
 		Object{"kind": "volume", "id": existing["data_volume_id"], "compartment-id": shared, "lifecycle-state": "AVAILABLE", "size-in-gbs": 50, "vpus-per-gb": 10},
 		Object{"kind": "public-ip", "id": existing["public_ip_id"]},
 		Object{"kind": "internet-gateway", "id": existing["internet_gateway_id"], "compartment-id": shared, "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"},
+	}
+	if ids["nat_gateway"] != nil {
+		resources = append(resources, Object{"kind": "nat-gateway", "id": ids["nat_gateway"], "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"], "lifecycle-state": "AVAILABLE", "block-traffic": false})
 	}
 	if id := obj(plan["operator_gateway"])["local_peering_gateway_id"]; id != nil {
 		resources = append(resources, Object{"kind": "local-peering-gateway", "id": id, "compartment-id": shared, "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"})

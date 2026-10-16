@@ -27,9 +27,9 @@ const gru = home
 
 // pair is SFO (left) and GRU (right), each with the private network
 // `oci-region foundation` creates plus the live rules no plan carries, bound
-// plans and a draft pair intent whose resource OCIDs are null. gru-1 keeps
-// its operator gateway LPG route; sfo-1 has a NAT gateway default route and
-// HTTPS egress to Cloudflare and NetBird, added by hand (TS-640).
+// plans and a draft pair intent whose resource OCIDs are null. Both cells
+// have the fixed NAT default route; GRU also keeps its operator gateway LPG
+// route and SFO has the historical scoped HTTPS additions (TS-640).
 type pair struct {
 	f                        *fakeOCI
 	intent, left, right, out string
@@ -79,7 +79,12 @@ func newPair(t *testing.T) *pair {
 		}
 		foundation := &Foundation{Region: client{f, region}, Apply: true, Out: io.Discard, BeforeWrite: allowWrite, Guard: allowGuard}
 		bind := func(key string, r Object) error { ids[key] = r["id"]; return nil }
-		if err := foundation.network(t.Context(), plan, name, text(ids["network_compartment"]), bind, func(key string) string { return text(ids[key]) }); err != nil {
+		networkPlan := clone(plan).(Object)
+		if cell == "GRU" {
+			// The operator peering is attached after the private foundation.
+			obj(networkPlan["network_security"])["route_rules"] = arr(obj(networkPlan["network_security"])["route_rules"])[:2]
+		}
+		if err := foundation.network(t.Context(), networkPlan, name, text(ids["network_compartment"]), bind, func(key string) string { return text(ids[key]) }); err != nil {
 			t.Fatal(err)
 		}
 		for key, kind := range map[string]string{"vault": "vault", "key": "key"} {
@@ -102,8 +107,6 @@ func newPair(t *testing.T) *pair {
 			table["route-rules"] = append(arr(table["route-rules"]), Object{"destination": "10.250.10.155/32", "destination-type": "CIDR_BLOCK",
 				"network-entity-id": ids["local_peering_gateway"], "description": "operator gateway"})
 		} else {
-			table["route-rules"] = append(arr(table["route-rules"]), Object{"destination": "0.0.0.0/0", "destination-type": "CIDR_BLOCK",
-				"network-entity-id": "ocid1.natgateway.oc1." + region + ".nat"})
 			list["egress-security-rules"] = append(arr(list["egress-security-rules"]), https("173.245.48.0/20"), https("104.16.0.0/13"), https("100.64.10.10/32"))
 		}
 		plan["resource_ids"] = ids
