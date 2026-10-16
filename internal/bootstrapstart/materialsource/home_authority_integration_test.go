@@ -44,11 +44,11 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatalf("home startup projection: %v", err)
 	}
-	proof, err := link.StartupLink(t.Context(), template, now)
+	linkProof, err := link.StartupLink(t.Context(), template, now)
 	if err != nil {
 		t.Fatalf("home startup Link proof: %v", err)
 	}
-	projection, err = projection.WithStartupLink(t.Context(), proof, now)
+	projection, err = projection.WithStartupLink(t.Context(), linkProof, now)
 	if err != nil {
 		t.Fatalf("home startup Link attachment: %v", err)
 	}
