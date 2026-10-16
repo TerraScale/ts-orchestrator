@@ -80,29 +80,36 @@ func (c *controller) Prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	resolver := c.executor.registry
+	if resolver == nil {
+		resolver = publicRegistryResolver
+	}
+	var node *api.Node
+	if c.executor.node != nil {
+		node = c.executor.node.Copy()
+	}
+	resolved, err := resolver(ctx, c.task.Copy(), node)
+	if err != nil {
+		return fmt.Errorf("resolve admitted container registry: %w", err)
+	}
+	if resolved == nil {
+		return errors.New("registry admission returned no resolver")
+	}
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
-		resolver := c.executor.registry
-		if resolver == nil {
-			resolver = publicRegistryResolver
+		image, err := c.executor.client.GetImage(ctx, c.spec.Image)
+		if errdefs.IsNotFound(err) {
+			image, err = c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved))
 		}
-		var node *api.Node
-		if c.executor.node != nil {
-			node = c.executor.node.Copy()
-		}
-		resolved, err := resolver(ctx, c.task.Copy(), node)
 		if err != nil {
-			return fmt.Errorf("resolve admitted container registry: %w", err)
+			return fmt.Errorf("load admitted container image: %w", err)
 		}
-		if resolved == nil {
-			return errors.New("registry admission returned no resolver")
-		}
-		image, err := c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved), containerd.WithPullUnpack, containerd.WithPullSnapshotter("native"))
-		if err != nil {
-			return fmt.Errorf("pull container image: %w", err)
+		_, pinned, _ := strings.Cut(c.spec.Image, "@")
+		if image.Target().Digest.String() != pinned {
+			return errors.New("container image target differs from pinned digest")
 		}
 		if image.Target().MediaType != imagespec.MediaTypeImageManifest && image.Target().MediaType != "application/vnd.docker.distribution.manifest.v2+json" {
 			return fmt.Errorf("container image must pin an architecture-specific child manifest")
@@ -113,6 +120,15 @@ func (c *controller) Prepare(ctx context.Context) error {
 		}
 		if config.OS != "linux" || config.Architecture != runtime.GOARCH {
 			return fmt.Errorf("container image architecture does not match host")
+		}
+		unpacked, err := image.IsUnpacked(ctx, "native")
+		if err != nil {
+			return fmt.Errorf("check native container image: %w", err)
+		}
+		if !unpacked {
+			if err := image.Unpack(ctx, "native"); err != nil {
+				return fmt.Errorf("unpack native container image: %w", err)
+			}
 		}
 		uid, gid, _ := strings.Cut(c.spec.User, ":")
 		u, _ := strconv.ParseUint(uid, 10, 32)
