@@ -32,7 +32,7 @@ func (pool *ChosenPool) selected(ctx context.Context) (*OCIPool, *Recipe, error)
 	if record.Recipe == nil {
 		return pool.observed, nil, nil
 	}
-	if err := record.Recipe.Validate(); err != nil || record.Recipe.Cell != pool.observed.cell || record.Recipe.Capacity.Role != pool.observed.capacity.Role {
+	if err := record.Recipe.Validate(); err != nil || record.Recipe.Cell != pool.observed.cell {
 		return nil, nil, fmt.Errorf("%w: durable chosen pool recipe is invalid", ErrCapacityPending)
 	}
 	pool.mu.Lock()
@@ -80,8 +80,8 @@ func (pool *ChosenPool) Observe(ctx context.Context) (PoolState, error) {
 }
 
 func (pool *ChosenPool) TargetSize(ctx context.Context, recipe Recipe) (int, error) {
-	if recipe.Cell != pool.observed.cell || recipe.Capacity.Role != pool.observed.capacity.Role {
-		return 0, fmt.Errorf("selected capacity differs from regional isolation role")
+	if recipe.Cell != pool.observed.cell || recipe.Capacity.Validate() != nil {
+		return 0, fmt.Errorf("selected capacity differs from an admitted regional isolation role")
 	}
 	chosen, err := newOCIPool(pool.observed.management, pool.observed.compute, pool.observed.network,
 		pool.observed.cell, pool.observed.compartmentID, recipe.Capacity)

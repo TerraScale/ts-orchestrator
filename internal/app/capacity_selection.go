@@ -71,7 +71,7 @@ func (r *capacityReservations) qualify(ctx context.Context, input nodescale.Imag
 // choose uses observed SDK compatibility and current tariffs across every native
 // candidate. The running controller's shape supplies no purchasing preference.
 func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe, pool *nodescale.OCIPool,
-	factory *ociclient.Factory, store nodescale.RecordStore,
+	factory *ociclient.Factory, store nodescale.RecordStore, architecture string,
 ) (nodescale.Recipe, error) {
 	if r == nil {
 		return nodescale.Recipe{}, fmt.Errorf("%w: home capacity authority is unavailable", nodescale.ErrCapacityPending)
@@ -142,9 +142,13 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 	if deadline := time.Now().Add(2 * time.Minute); deadline.Before(expires) {
 		expires = deadline
 	}
+	architectures := []string{"arm64", "amd64"}
+	if architecture != "" {
+		architectures = []string{architecture}
+	}
 	selection, err := nodescale.DiscoverCapacity(ctx, compute, quotas, nodescale.CapacityRequest{
 		TenancyID: proof.Footprint().TenancyID, CompartmentID: pool.CompartmentID(), AvailabilityDomains: base.AvailabilityDomains,
-		Role: base.Capacity.Role, Architectures: []string{"arm64", "amd64"}, OCPUs: base.OCPUs, MemoryGB: base.MemoryGB,
+		Role: base.Capacity.Role, Architectures: architectures, OCPUs: base.OCPUs, MemoryGB: base.MemoryGB,
 		BootGB: nodescale.BootVolumeGB, Images: images, Prices: prices, MonthlyHeadroomCents: new(headroom), FactsExpireAt: expires})
 	if err != nil {
 		return nodescale.Recipe{}, err

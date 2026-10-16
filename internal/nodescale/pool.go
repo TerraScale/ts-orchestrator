@@ -120,6 +120,7 @@ const (
 type PoolInstance struct {
 	ID, Name, State, PrivateIP, AvailabilityDomain, FaultDomain string
 	Created                                                     time.Time
+	Capacity                                                    Capacity
 }
 
 // PoolState is what the pool holds now. Instances exclude terminated ones.
@@ -127,8 +128,9 @@ type PoolState struct {
 	Exists                                  bool
 	PoolID, ConfigurationID, LifecycleState string
 	Size                                    int
-	Instances                               []PoolInstance // sorted by Name then ID
-	Pending                                 string         // observations remain available while mutations are held
+	Instances                               []PoolInstance   // sorted by Name then ID
+	ProvisioningFunctions                   []CapacityDemand // actual owned pool size not yet represented by instance IDs
+	Pending                                 string           // observations remain available while mutations are held
 }
 
 var ErrCapacityPending = errors.New("node capacity admission is pending")

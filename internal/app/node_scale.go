@@ -43,8 +43,9 @@ type nodeScaling struct {
 	// scaler publishes the running scaler to the release fence's spec.
 	scaler *atomic.Pointer[nodescale.Scaler]
 	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
-	costViews    *ociCostViews
-	reservations *capacityReservations
+	costViews      *ociCostViews
+	reservations   *capacityReservations
+	functionDemand func(context.Context) ([]nodescale.CapacityDemand, error)
 }
 
 // startNodeScaler runs the region's node scaler on every regional leader and
@@ -69,13 +70,13 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 			return nodescale.Recipe{}, err
 		}
 		if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
-			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store)
+			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store, "")
 		}
 		base, err := nodeRecipe(ctx, in.factory, in.cell)
 		if err != nil {
 			return nodescale.Recipe{}, err
 		}
-		return in.reservations.choose(ctx, base, in.pool, in.factory, store)
+		return in.reservations.choose(ctx, base, in.pool, in.factory, store, "")
 	}
 	pricedRecipe := func(ctx context.Context) (nodescale.Recipe, error) {
 		record, _, err := store.Load(ctx)
@@ -90,6 +91,20 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	scaler := &nodescale.Scaler{Cell: in.cell, Pool: pool, Control: in.control, CanRetire: in.canRetire, Store: store, Leader: in.fencer,
 		Now:    time.Now,
 		Recipe: recipe,
+		FunctionDemand: func(ctx context.Context) ([]nodescale.CapacityDemand, error) {
+			if in.functionDemand == nil {
+				return nil, fmt.Errorf("%w: current signed function service capacity is unavailable", nodescale.ErrCapacityPending)
+			}
+			return in.functionDemand(ctx)
+		},
+		FunctionRecipe: func(ctx context.Context, architecture string) (nodescale.Recipe, error) {
+			base, err := nodeRecipe(ctx, in.factory, in.cell)
+			if err != nil {
+				return nodescale.Recipe{}, err
+			}
+			base.Capacity.Role = nodescale.RoleWasm
+			return in.reservations.choose(ctx, base, in.pool, in.factory, store, architecture)
+		},
 		Reserve: func(ctx context.Context, operationID string, recipe nodescale.Recipe) (budget.Reservation, error) {
 			request, err := in.reservations.prepare(ctx, operationID, recipe, in.pool.CompartmentID())
 			if err != nil {

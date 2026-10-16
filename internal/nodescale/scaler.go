@@ -41,11 +41,13 @@ const (
 
 // Scaler scales one region's pool nodes. Tick acts on the leader only.
 type Scaler struct {
-	Cell    string // e.g. "gru"; nodes are naming.RegionCell(strings.ToUpper(Cell)).Node(n)
-	Pool    Pool
-	Recipe  func(ctx context.Context) (Recipe, error)
-	Reserve func(context.Context, string, Recipe) (budget.Reservation, error)
-	Control api.ControlClient
+	Cell           string // e.g. "gru"; nodes are naming.RegionCell(strings.ToUpper(Cell)).Node(n)
+	Pool           Pool
+	Recipe         func(ctx context.Context) (Recipe, error)
+	Reserve        func(context.Context, string, Recipe) (budget.Reservation, error)
+	FunctionDemand func(context.Context) ([]CapacityDemand, error)
+	FunctionRecipe func(context.Context, string) (Recipe, error)
+	Control        api.ControlClient
 	// CanRetire verifies owned retained-volume inventory and DATA retirement safety; nil holds scale-down.
 	CanRetire func(ctx context.Context, node, instanceID string) error
 	Loads     func() []NodeLoad                                            // latest load per node
@@ -64,12 +66,13 @@ type Scaler struct {
 	Store  RecordStore
 	Now    func() time.Time
 
-	mu        sync.Mutex
-	history   History
-	status    Status
-	addresses map[string]string
-	heldKey   string // reason of the last journaled hold, without a cooldown's time left
-	costErr   string // last cost error logged, so a repeat is not logged every tick
+	mu               sync.Mutex
+	history          History
+	containerHistory History
+	status           Status
+	addresses        map[string]string
+	heldKey          string // reason of the last journaled hold, without a cooldown's time left
+	costErr          string // last cost error logged, so a repeat is not logged every tick
 }
 
 // tick is one pass of the loop: what it observed, the record it changes, and the journal entries it queues.
@@ -82,6 +85,7 @@ type tick struct {
 	loads   []NodeLoad
 	journal []decisionlog.Decision
 	blocked string
+	hosts   []*api.Node
 }
 
 // observation is the pool and the hosts at one tick: which nodes count toward the sample, and how many.
@@ -114,6 +118,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	snapshot := s.Leader.Current()
 	if !snapshot.CanMutate() {
 		s.history = History{}
+		s.containerHistory = History{}
 		s.mu.Lock()
 		s.status, s.addresses = Status{}, nil
 		s.mu.Unlock()
@@ -134,7 +139,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list SwarmKit nodes: %w", err)
 	}
-	t := &tick{epoch: snapshot.Epoch, now: s.Now(), record: record, pool: pool}
+	t := &tick{epoch: snapshot.Epoch, now: s.Now(), record: record, pool: pool, hosts: hosts.Nodes}
 	if t.pool.Pending == "" {
 		if err := s.nameUnnamed(ctx, t, hosts.Nodes); err != nil {
 			return err
@@ -146,6 +151,8 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	s.addresses = t.obs.addresses
 	s.mu.Unlock()
 	s.history.Add(Measure(t.obs.nodes, t.loads, t.now))
+	container, _ := containerSample(t)
+	s.containerHistory.Add(container)
 	if t.record.Action != nil && t.pool.Pending == "" {
 		if err := s.advance(ctx, t); err != nil {
 			return err
@@ -656,14 +663,57 @@ func (s *Scaler) gone(ctx context.Context, t *tick) error {
 // decide asks Decide what the region should do, and starts the action it asks for when none is in flight.
 func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, error) {
 	decision := Decide(state, t.now)
+	_, wasmHosts := containerSample(t)
+	if wasmHosts > 0 && !state.Busy && state.Nodes < MaxNodes {
+		containerState := state
+		containerState.Nodes -= wasmHosts
+		containerState.Allowance = max(0, state.Allowance-wasmHosts)
+		containerState.Samples = s.containerHistory.Samples()
+		container := Decide(containerState, t.now)
+		if container.Action == Up {
+			decision = container
+			decision.Nodes, decision.Want = state.Nodes, state.Nodes+1
+		} else if decision.Action == Up {
+			decision.Action, decision.Want, decision.Reason = Hold, state.Nodes, "container pressure does not require another platform host"
+		}
+	}
 	if t.pool.Pending != "" {
 		decision.Action, decision.Reason = Hold, t.pool.Pending
 		s.holdOnce(t, decision)
 		return decision, nil
 	}
+	demand, err := s.functionDemand(ctx, t)
+	if err != nil {
+		decision.Action, decision.Reason = Hold, "current function capacity demand is unavailable"
+		s.holdOnce(t, decision)
+		return decision, nil
+	}
+	if demand != nil && !state.Busy {
+		decision = Decision{Action: Hold, Nodes: state.Nodes, Want: state.Nodes + 1, Reason: "verified function workers await an isolated host slot"}
+		switch {
+		case t.obs.quorum < MinNodes:
+			decision.Reason = "function capacity waits for admitted regional manager quorum"
+		case state.Nodes >= MaxNodes:
+			decision.Saturated, decision.Want = true, MaxNodes
+			decision.Reason = "function capacity reached the regional host limit"
+		case state.Allowance <= state.Nodes:
+			decision.Reason = "function capacity waits for infrastructure candidate allowance"
+		default:
+			decision.Action = Up
+		}
+	}
 	switch decision.Action {
 	case Up:
-		recipe, err := s.Recipe(ctx)
+		var recipe Recipe
+		if demand != nil {
+			if s.FunctionRecipe == nil {
+				err = ErrCapacityPending
+			} else {
+				recipe, err = s.FunctionRecipe(ctx, demand.Architecture)
+			}
+		} else {
+			recipe, err = s.Recipe(ctx)
+		}
 		if err != nil {
 			if !errors.Is(err, ErrCapacityPending) {
 				return decision, fmt.Errorf("choose node recipe: %w", err)
@@ -674,6 +724,9 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 		}
 		if err := recipe.Validate(); err != nil {
 			return decision, fmt.Errorf("validate chosen node recipe: %w", err)
+		}
+		if demand != nil && (recipe.Capacity.Role != RoleWasm || recipe.Capacity.Architecture != demand.Architecture) {
+			return decision, fmt.Errorf("function capacity recipe differs from exact isolated architecture demand")
 		}
 		size, err := s.Pool.TargetSize(ctx, recipe)
 		if err != nil {

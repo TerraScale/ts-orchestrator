@@ -128,7 +128,7 @@ func TestChosenFallbackKeepsExistingCapacityPools(t *testing.T) {
 		t.Fatalf("different isolation role was detached: %v", err)
 	}
 	cloud.instances[old].FreeformTags[tagCapacityRole] = RoleContainer
-	if err := pool.Remove(ctx, old); err != nil || len(cloud.detaches) != 1 || cloud.detaches[0] != old || deref(cloud.pools[initial.PoolID].Size) != 0 {
+	if err := pool.Remove(ctx, old); err != nil || len(cloud.detaches) != 1 || deref(cloud.detaches[0].InstanceId) != old || deref(cloud.pools[initial.PoolID].Size) != 0 {
 		t.Fatalf("old capacity retirement did not use its positively owned pool: %v", err)
 	}
 }

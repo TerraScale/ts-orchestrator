@@ -126,7 +126,7 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 		name := deref(summary.DisplayName)
 		legacy := name == "ts-"+o.cell+"-nodes" && summary.FreeformTags[tagCell] == o.cell && summary.FreeformTags[tagRole] == roleNodePool
 		capacity := Capacity{Role: summary.FreeformTags[tagCapacityRole], Architecture: summary.FreeformTags[tagArchitecture], Shape: summary.FreeformTags[tagShape]}
-		owned := capacity.Validate() == nil && capacity.Role == o.capacity.Role && summary.FreeformTags[tagCell] == o.cell && summary.FreeformTags[tagRole] == roleNodePool &&
+		owned := capacity.Validate() == nil && summary.FreeformTags[tagCell] == o.cell && summary.FreeformTags[tagRole] == roleNodePool &&
 			name == PoolName(o.cell, capacity) && summary.FreeformTags[tagPool] == name
 		if absent(string(summary.LifecycleState)) || !legacy && !owned {
 			continue
@@ -159,6 +159,9 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 		if err != nil {
 			return PoolState{}, err
 		}
+		if capacity.Role == RoleWasm && deref(pool.Size) > len(members) {
+			state.ProvisioningFunctions = append(state.ProvisioningFunctions, CapacityDemand{Architecture: capacity.Architecture, Slots: uint64(deref(pool.Size) - len(members))})
+		}
 		for _, member := range members {
 			ip, err := o.privateIP(ctx, deref(member.Id))
 			if err != nil {
@@ -166,7 +169,7 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 			}
 			state.Instances = append(state.Instances, PoolInstance{ID: deref(member.Id), Name: deref(member.DisplayName),
 				State: deref(member.State), PrivateIP: ip, AvailabilityDomain: deref(member.AvailabilityDomain),
-				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time})
+				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time, Capacity: capacity})
 		}
 	}
 	slices.SortFunc(state.Instances, func(a, b PoolInstance) int {
@@ -194,7 +197,7 @@ func (o *OCIPool) owner(ctx context.Context, instanceID string) (*OCIPool, error
 		return nil, err
 	}
 	capacity := Capacity{Role: instance.FreeformTags[tagCapacityRole], Architecture: instance.FreeformTags[tagArchitecture], Shape: instance.FreeformTags[tagShape]}
-	if capacity.Validate() != nil || capacity.Role != o.capacity.Role || deref(instance.Id) != instanceID || deref(instance.CompartmentId) != o.compartmentID ||
+	if capacity.Validate() != nil || deref(instance.Id) != instanceID || deref(instance.CompartmentId) != o.compartmentID ||
 		instance.FreeformTags[tagCell] != o.cell || instance.FreeformTags[tagRole] != roleNode || instance.FreeformTags[tagPool] != PoolName(o.cell, capacity) {
 		return nil, fmt.Errorf("%w: instance %s lacks exact regional capacity ownership", ErrNotPoolInstance, instanceID)
 	}
