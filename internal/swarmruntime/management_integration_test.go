@@ -49,9 +49,13 @@ func TestManagementIntegration(t *testing.T) {
 	cgroup := parts[2]
 	path := filepath.Join(t.TempDir(), "management.sock")
 	var revoked atomic.Bool
+	var revokeDuring atomic.Bool
 	refresh := func(context.Context) error {
 		if revoked.Load() {
 			return errors.New("current authority revoked")
+		}
+		if revokeDuring.Swap(false) {
+			revoked.Store(true)
 		}
 		return nil
 	}
@@ -245,6 +249,11 @@ func TestManagementIntegration(t *testing.T) {
 		}
 		t.Fatalf("other accepted identity admitted: %v", err)
 	}
+	revokeDuring.Store(true)
+	if _, err := client.ListNodes(ctx, &api.ListNodesRequest{}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("authority revoked during actual Raft read returned data: %v", err)
+	}
+	revoked.Store(false)
 	revoked.Store(true)
 	if _, err := client.ListNodes(ctx, &api.ListNodesRequest{}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("revoked authority admitted existing connection: %v", err)

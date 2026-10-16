@@ -245,6 +245,9 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		if err != nil {
 			return nil, status.Error(status.Code(err), "management operation failed")
 		}
+		if err := refresh(ctx); err != nil {
+			return nil, status.Error(codes.PermissionDenied, "current controller authority changed")
+		}
 		return result, nil
 	}))
 	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment})
