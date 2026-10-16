@@ -2,7 +2,6 @@ package swarmruntime
 
 import (
 	"context"
-	"crypto"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
@@ -212,26 +211,9 @@ func (n *Node) WorkerBinding(accepted hostenroll.VerifiedSwarmWorker, hostKey ed
 	if err := n.RefreshWorkerEnrollment(accepted); err != nil {
 		return hostenroll.SwarmNodeBinding{}, err
 	}
-	wire, err := os.ReadFile(filepath.Join(n.stateDir, "certificates", "swarm-node.key"))
+	key, _, err := n.nodeSigningKey()
 	if err != nil {
 		return hostenroll.SwarmNodeBinding{}, err
-	}
-	defer clear(wire)
-	block, _ := pem.Decode(wire)
-	if block == nil {
-		return hostenroll.SwarmNodeBinding{}, errors.New("upstream worker private key unavailable")
-	}
-	var key crypto.Signer
-	if parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
-		key, _ = parsed.(crypto.Signer)
-	}
-	if key == nil {
-		if parsed, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
-			key = parsed
-		}
-	}
-	if key == nil {
-		return hostenroll.SwarmNodeBinding{}, errors.New("unsupported upstream worker private key")
 	}
 	return hostenroll.SignWorkerBinding(accepted, n.ID(), hostKey, key, time.Now().UTC())
 }
