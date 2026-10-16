@@ -248,8 +248,13 @@ func run(ctx context.Context, req Request, initial native.Report, sessions [2]ex
 	finish("netbird-foundation", "netbird-foundation")
 	backup, err := call(ctx, 0, "backup", store.Private)
 	if err != nil || backup.Observation.BackupObject == "" || !hashPattern.MatchString(backup.Observation.BackupSHA256) || backup.Observation.BackupBytes <= 0 ||
-		!slices.Equal(backup.Observation.BackupRegions, []string{"sa-saopaulo-1", "us-sanjose-1"}) {
-		return report, errors.New("NetBird protected two-region backup was not observed")
+		backup.Observation.BackupStorage != "signed-sdk-fixture" || len(backup.Observation.BackupCopies) != 2 {
+		return report, errors.New("NetBird protected backup fixture was not observed")
+	}
+	for i, copy := range backup.Observation.BackupCopies {
+		if copy.Region != []string{"sa-saopaulo-1", "us-sanjose-1"}[i] || copy.SHA256 != backup.Observation.BackupSHA256 || copy.Bytes != backup.Observation.BackupBytes {
+			return report, errors.New("NetBird backup fixture download differs from the archive")
+		}
 	}
 	defer clear(backup.Private)
 	if _, err = call(ctx, 0, "retire", nil); err != nil {
@@ -269,14 +274,15 @@ func run(ctx context.Context, req Request, initial native.Report, sessions [2]ex
 	if err := validateFoundation(restored.Observation, req); err != nil {
 		return report, err
 	}
-	finish("netbird-recovery", "netbird-recovery")
+	// The SDK fixture exercises restore; it cannot establish real provider retention or regional durability.
+	finish("netbird-recovery", "")
 	return report, nil
 }
 
 func validateFoundation(observation protocol.Observation, req Request) error {
 	a := observation.Account
 	if a.AccountID == "" || a.OwnerID == "" || a.ServiceID == "" || a.ServiceID == a.OwnerID || a.ServiceTokenID == "" || a.PeerID == "" ||
-		!hashPattern.MatchString(a.PeerKeySHA256) || a.PeerAddress == "" || a.StoreID == "" || len(a.PolicyIDs) == 0 || a.SetupHTTPStatus != 403 || a.ServiceHTTPStatus != 200 || a.PeerHTTPStatus != 200 ||
+		!hashPattern.MatchString(a.PeerKeySHA256) || !hashPattern.MatchString(a.PolicySHA256) || a.PeerAddress == "" || a.StoreID == "" || len(a.PolicyIDs) == 0 || len(a.UnrestrictedPolicyIDs) != 0 || a.SetupHTTPStatus != 403 || a.ServiceHTTPStatus != 200 || a.PeerHTTPStatus != 200 ||
 		observation.TLSProtocol != "TLSv1.3" || observation.TLSAuthority != "fixture-internal" || observation.GRPCStatus != "0" || observation.STUNTransaction == "" || len(observation.Components) != 3 {
 		return errors.New("NetBird foundation lacks actual closed setup, service, enrolled peer, policy or protocol observations")
 	}
@@ -295,7 +301,7 @@ func validateFoundation(observation protocol.Observation, req Request) error {
 }
 
 func sameIdentity(a, b protocol.Account) bool {
-	return a.AccountID == b.AccountID && a.OwnerID == b.OwnerID && a.ServiceID == b.ServiceID && a.PeerID == b.PeerID && a.PeerKeySHA256 == b.PeerKeySHA256 && a.PeerAddress == b.PeerAddress && a.StoreID == b.StoreID && slices.Equal(a.PolicyIDs, b.PolicyIDs)
+	return a.AccountID == b.AccountID && a.OwnerID == b.OwnerID && a.ServiceID == b.ServiceID && a.PeerID == b.PeerID && a.PeerKeySHA256 == b.PeerKeySHA256 && a.PeerAddress == b.PeerAddress && a.StoreID == b.StoreID && a.PolicySHA256 == b.PolicySHA256 && slices.Equal(a.PolicyIDs, b.PolicyIDs)
 }
 
 func sameAccount(a, b protocol.Account) bool {
