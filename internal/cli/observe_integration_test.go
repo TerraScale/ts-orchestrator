@@ -228,6 +228,13 @@ func TestObserveRealClusterMissingMember(t *testing.T) {
 
 func TestObservePrivateTokenAndTargetValidation(t *testing.T) {
 	f := newObserveFixture(t)
+	for _, args := range [][]string{{"--url", f.http.URL}, {"--token-file", f.tokenFile}} {
+		var out bytes.Buffer
+		err := Run(t.Context(), append([]string{"observe", "snapshot"}, args...), &out)
+		if err == nil || !strings.Contains(err.Error(), "requires --url and --token-file together") || out.Len() != 0 {
+			t.Fatalf("partial diagnostic access attempted automatic authorization: %s %v", out.String(), err)
+		}
+	}
 	if err := os.Chmod(f.tokenFile, 0644); err != nil {
 		t.Fatal(err)
 	}

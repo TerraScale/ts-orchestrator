@@ -9,29 +9,24 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/benchmark"
-	"github.com/TerraScale/ts-orchestrator/internal/capacity"
-	"github.com/TerraScale/ts-orchestrator/internal/naming"
-	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
+	"github.com/TerraScale/ts-orchestrator/internal/controlaccess"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
 const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|regions|region|nodes|node|services|service|volumes|volume> [flags]
 
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
-  --region REGION        Select an existing benchmark.json region (sole region is automatic)
+  --region REGION        Select an admitted region; authenticated discovery supplies endpoints
   --cell CELL            Resource region; defaults to the authenticated endpoint's local region
   --node NAME            Node selector for node/service observations
   --service ROLE         Service selector for one node service
@@ -44,11 +39,12 @@ Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --rate                 History counter rate per second
   --max 64               History series bound (1..512)
   --limit 200            Recent events bound (1..2048); --after SEQUENCE resumes
-  --url ORIGIN           Explicit diagnostic endpoint; otherwise existing usage URLs or NetBird peers
-  --token-file FILE      Private diagnostic token file; otherwise existing usage_token from OCI Vault
+  --url ORIGIN           Diagnostic endpoint; requires --token-file
+  --token-file FILE      Private diagnostic token file; requires --url
 
-Credentials and URLs reuse ~/.config/ts-orch/benchmark.json. No token is accepted
-as a command argument. Requests have a fixed 15-second deadline and 8 MiB limit.
+Endpoints and read credentials resolve from admitted OCI authority and Vault.
+Missing authority remains pending. No token is accepted as a command argument.
+Requests have a fixed 15-second deadline and 8 MiB limit.
 Partial or truncated results are printed and return an error.
 `
 
@@ -253,43 +249,18 @@ gather:
 func observeAccess(ctx context.Context, region, origin, tokenFile string) ([]string, string, error) {
 	var urls []string
 	var token string
-	var config benchmark.Config
-	if tokenFile == "" || origin == "" {
-		home, err := os.UserHomeDir()
+	if (origin == "") != (tokenFile == "") {
+		return nil, "", errors.New("diagnostic access requires --url and --token-file together")
+	}
+	if origin == "" {
+		access, err := controlaccess.Resolve(ctx, region)
 		if err != nil {
-			return nil, "", err
-		}
-		file, err := os.Open(filepath.Join(home, ".config", "ts-orch", "benchmark.json"))
-		if err != nil {
-			return nil, "", fmt.Errorf("automatic observe access requires existing benchmark.json Vault usage_token and regional URLs: %w", err)
-		}
-		data, readErr := io.ReadAll(io.LimitReader(file, (1<<20)+1))
-		file.Close()
-		if readErr != nil {
-			return nil, "", readErr
-		}
-		if len(data) > 1<<20 {
-			return nil, "", errors.New("existing benchmark config exceeds 1 MiB")
-		}
-		if err := json.Unmarshal(data, &config); err != nil {
-			return nil, "", errors.New("existing benchmark config is invalid JSON")
-		}
-		if region == "" && len(config.Regions) == 1 {
-			for name := range config.Regions {
-				region = name
+			if errors.Is(err, controlaccess.ErrPending) {
+				return nil, "", fmt.Errorf("observe access pending: %w", err)
 			}
+			return nil, "", fmt.Errorf("resolve admitted observe access: %w", err)
 		}
-		settings, ok := config.Regions[region]
-		if !ok {
-			return nil, "", errors.New("select an existing benchmark config region with --region")
-		}
-		urls = settings.UsageURLs
-		if tokenFile == "" {
-			token, err = capacity.ReadSecret(ctx, settings.UsageToken)
-			if err != nil {
-				return nil, "", fmt.Errorf("read observe credential from OCI Vault: %w", err)
-			}
-		}
+		urls, token = access.URLs, access.Token
 	}
 	if tokenFile != "" {
 		file, err := os.Open(tokenFile)
@@ -318,20 +289,7 @@ func observeAccess(ctx context.Context, region, origin, tokenFile string) ([]str
 		urls = []string{origin}
 	}
 	if len(urls) == 0 {
-		peers, err := sshlogin.Peers(ctx, "netbird")
-		if err != nil {
-			return nil, "", fmt.Errorf("discover observe endpoints: %w", err)
-		}
-		for name, ip := range peers {
-			if naming.IsNode(name, region) || (naming.Validate(name) == nil && strings.HasPrefix(name, region+"-1-ctl-")) {
-				urls = append(urls, "http://"+net.JoinHostPort(ip, "9463"))
-			}
-		}
-		slices.Sort(urls)
-		urls = slices.Compact(urls)
-	}
-	if len(urls) == 0 {
-		return nil, "", errors.New("no observed regional controller endpoints; NetBird membership provides addresses, not authorization")
+		return nil, "", fmt.Errorf("admitted management endpoints are unavailable: %w", controlaccess.ErrPending)
 	}
 	if len(urls) > 64 {
 		return nil, "", errors.New("observe endpoint inventory exceeds 64 controllers")
