@@ -405,5 +405,8 @@ func (catalog *metricCatalog) History(ctx context.Context, query HistoryQuery) (
 	if result.Truncated {
 		result.State, result.Reason = "truncated", "history result exceeded the response budget"
 	}
+	if result.UnsupportedReason != "" {
+		result.State, result.Reason = "unsupported", "rates require a retained counter series"
+	}
 	return result, ctx.Err()
 }

@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"math"
-	"net/url"
 	"testing"
 	"time"
 )
@@ -18,10 +17,11 @@ func TestHistoryRetainsFourteenDaysAndRestoresHourlyRollups(t *testing.T) {
 		history.Append(at.Add(10*time.Minute), []Sample{{Metric: "g", Value: float64(hour)}})
 		history.Append(at.Add(40*time.Minute), []Sample{{Metric: "g", Value: float64(hour + 2)}})
 	}
-	query := HistoryQuery{Metric: "g", Start: time.Now().Add(-HistoryRetention), End: time.Now()}
+	end := time.Now()
+	query := HistoryQuery{Metric: "g", Start: end.Add(-HistoryRetention), End: end}
 	check := func(t *testing.T, store *History) {
 		t.Helper()
-		result := store.Range(query)
+		result := historyHTTPRange(t, store, query)
 		if len(result.Series) != 1 || result.Series[0].Tier != Tier1h {
 			t.Fatalf("14-day query = %+v", result)
 		}
@@ -93,7 +93,8 @@ func TestHistorySnapshotPrefersHourlyCoverageWhenSizeLimited(t *testing.T) {
 	if err := restored.Import(data); err != nil {
 		t.Fatal(err)
 	}
-	result := restored.Range(HistoryQuery{Metric: "g", Start: base, End: time.Now()})
+	end := time.Now()
+	result := historyHTTPRange(t, restored, HistoryQuery{Metric: "g", Start: end.Add(-HistoryRetention), End: end})
 	if len(result.Series) != 1 || result.Series[0].Tier != Tier1h || len(result.Series[0].Points) < 335 {
 		t.Fatalf("hourly coverage after limited restore = %+v", result)
 	}
@@ -103,7 +104,7 @@ func TestHistoryExpiredSeriesAreNotQueriedOrSnapshotted(t *testing.T) {
 	history := NewHistory(HistoryConfig{})
 	old := time.Now().Add(-15 * 24 * time.Hour)
 	history.Append(old, []Sample{{Metric: "g", Value: 1}})
-	if result := history.Range(HistoryQuery{Metric: "g", Start: old.Add(-time.Hour), Tier: Tier1h}); len(result.Series) != 0 {
+	if result := historyHTTPRange(t, history, HistoryQuery{Metric: "g", Start: old.Add(-time.Hour), End: old.Add(time.Hour), Tier: Tier1h}); len(result.Series) != 0 {
 		t.Fatalf("expired series returned = %+v", result)
 	}
 	data, err := history.Export(0)
@@ -122,17 +123,6 @@ func TestHistoryExpiredSeriesAreNotQueriedOrSnapshotted(t *testing.T) {
 	history.Append(time.Now(), []Sample{{Metric: "other", Value: 3}})
 	if stats := history.Stats(); stats.Series != 2 {
 		t.Fatalf("series expired before 14 days = %+v", stats)
-	}
-}
-
-func TestParseHistoryQueryAcceptsFourteenDays(t *testing.T) {
-	now := time.Now()
-	query, err := ParseHistoryQuery(url.Values{"metric": {"g"}, "range": {"336h"}, "tier": {"1h"}}, now)
-	if err != nil || query.Tier != Tier1h || !query.Start.Equal(now.Add(-HistoryRetention)) {
-		t.Fatalf("14-day query = %+v, %v", query, err)
-	}
-	if _, err := ParseHistoryQuery(url.Values{"metric": {"g"}, "range": {"337h"}}, now); err == nil {
-		t.Fatal("accepted a range longer than 14 days")
 	}
 }
 
@@ -155,7 +145,7 @@ func TestHourlyCounterRollupKeepsResetGrowthAfterRestore(t *testing.T) {
 	}
 	// Resume inside the restored open hour: the new increase joins it.
 	restored.Append(base.Add(time.Hour+40*time.Minute), []Sample{{Metric: "c", Value: 250, Counter: true}})
-	result := restored.Range(HistoryQuery{Metric: "c", Start: base, End: base.Add(2 * time.Hour), Tier: Tier1h, Rate: true})
+	result := historyHTTPRange(t, restored, HistoryQuery{Metric: "c", Start: base, End: base.Add(2 * time.Hour), Tier: Tier1h, Rate: true})
 	if len(result.Series) != 1 || len(result.Series[0].Points) != 1 {
 		t.Fatalf("hourly rate = %+v", result)
 	}

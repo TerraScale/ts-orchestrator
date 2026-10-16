@@ -38,20 +38,25 @@ func ParseHistoryQuery(values url.Values, now time.Time) (HistoryQuery, error) {
 		}
 		window = parsed
 	}
-	query.Start = now.Add(-window)
+	if raw := values.Get("end"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return HistoryQuery{}, errors.New("end must be an RFC 3339 time")
+		}
+		query.End = parsed
+	}
+	query.Start = query.End.Add(-window)
 	var err error
 	if raw := values.Get("start"); raw != "" {
 		if query.Start, err = time.Parse(time.RFC3339, raw); err != nil {
 			return HistoryQuery{}, errors.New("start must be an RFC 3339 time")
 		}
 	}
-	if raw := values.Get("end"); raw != "" {
-		if query.End, err = time.Parse(time.RFC3339, raw); err != nil {
-			return HistoryQuery{}, errors.New("end must be an RFC 3339 time")
-		}
-	}
 	if !query.Start.Before(query.End) {
 		return HistoryQuery{}, errors.New("start must be before end")
+	}
+	if query.End.Sub(query.Start) > HistoryRetention {
+		return HistoryQuery{}, errors.New("time span must be at most 14 days")
 	}
 	query.Rate = values.Get("rate") == "1" || values.Get("rate") == "true"
 	if raw := values.Get("max"); raw != "" {
