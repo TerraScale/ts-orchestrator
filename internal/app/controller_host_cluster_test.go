@@ -34,20 +34,19 @@ import (
 // three controller subscribers. This test keeps the real signed operator and
 // host protocols active across the loss of the broker the host is using.
 func TestAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T) {
-	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, false, false, false)
-}
-
-// Legacy static NKeys remain an explicit TLS lab regression; production JWT
-// admission is exercised separately through the broker bridge.
-func TestLabTLSHostSessionRecoversAfterControllerLoss(t *testing.T) {
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, false, false)
 }
 
-func TestLabTLSHostSessionRecoversAfterBlackholedController(t *testing.T) {
+// Every controller-loss scenario uses signed JWT credentials and mutual TLS.
+func TestJWTMTLSHostSessionRecoversAfterControllerLoss(t *testing.T) {
+	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, false, false)
+}
+
+func TestJWTMTLSHostSessionRecoversAfterBlackholedController(t *testing.T) {
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, false)
 }
 
-func TestLabTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
+func TestJWTMTLSHostSessionFencesAndRestartsAfterControllerLoss(t *testing.T) {
 	testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t, true, true, true)
 }
 
@@ -65,25 +64,17 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	specKeys := newTestSpecTrust(t, root, cellspec.Identity{
 		DeploymentID: "0000000000EKZ0YK71TYZK31W5", Cell: "lab", Environment: "test"})
 	profile := WorkloadProfile{Resources: placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}}
-	var tlsFiles natscell.TLSFiles
-	var routePasswordFile string
-	if production {
-		tlsFiles, routePasswordFile = testR3TLSMaterial(t, root)
-	}
+	auth := newAuthenticatedNATS(t, "lab", "peer0", "peer1", "peer2")
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	hostPublic, hostPrivate := testEd25519(t, root, "host.key")
 	controllerSeeds := make([]string, 3)
-	grants := make([]natscell.NKeyGrant, 0, 5)
 	for index := range controllerSeeds {
-		public, seed := testNKey(t)
+		_, seed := testNKey(t)
 		controllerSeeds[index] = seed
-		grants = append(grants, natscell.NKeyGrant{PublicKey: public, Role: "controller", Global: true})
 	}
-	operatorNKey, operatorSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
-	grants = append(grants, natscell.NKeyGrant{PublicKey: operatorNKey, Role: "operator"},
-		natscell.NKeyGrant{PublicKey: hostNKey, Role: "host", Node: "node-a"})
 	const peers = 3
 	ports := reserveControllerPorts(t, 2*peers)
 	clientPorts, routePorts := ports[:peers], ports[peers:]
@@ -91,7 +82,7 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	urls := make([]string, 3)
 	for index := range routes {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", routePorts[index])
-		urls[index] = fmt.Sprintf("nats://127.0.0.1:%d", clientPorts[index])
+		urls[index] = fmt.Sprintf("tls://127.0.0.1:%d", clientPorts[index])
 	}
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true}
@@ -99,12 +90,11 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
 		configs[index] = testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
-			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
-				NKeySeedFile: controllerSeeds[index], TLS: tlsFiles, Embedded: &natscell.Embedded{
+			NATS: auth.config(t, natscell.Config{Cell: "lab", Instance: instance, Replicas: 3,
+				NKeySeedFile: controllerSeeds[index], Embedded: &natscell.Embedded{
 					Host: "127.0.0.1", Port: clientPorts[index], RouteHost: "127.0.0.1", RoutePort: routePorts[index],
-					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30, Users: grants,
-					TLS: tlsFiles, RouteTLS: tlsFiles, RouteUser: r3RouteUser(production), RoutePasswordFile: routePasswordFile}},
-			Controller: ControllerConfig{CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
+					Routes: natscell.PeerRoutes(routes, routes[index]), StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}}),
+			Controller: ControllerConfig{BrokerTicketKeyFile: auth.ticketPrivateFile, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "controller.key"),
 				SpecTrust:             specKeys.config(),
 				ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 				Workloads: map[string]WorkloadProfile{"terrabase": profile}},
@@ -143,15 +133,15 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	ctx, cancelScenario := context.WithTimeout(controllerCtx, 165*time.Second)
 	defer cancelScenario()
-	probe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "authority-probe", Replicas: 3,
-		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: controllerSeeds[0], TLS: tlsFiles})
+	probe, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "authority-probe", Replicas: 3,
+		URL: strings.Join(urls, ",")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer probe.Close()
 	operatorCfg := Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, Lab: true,
-			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles},
+		NATS: auth.config(t, natscell.Config{Cell: "lab", Instance: "operator", Replicas: 3, ClientRole: "operator",
+			URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
 	}
@@ -170,11 +160,11 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 		hostURLs = make([]string, len(urls))
 		for index := range urls {
 			proxies = append(proxies, newR3BlackholeProxy(t, fmt.Sprintf("127.0.0.1:%d", clientPorts[index])))
-			hostURLs[index] = "nats://" + proxies[index].listener.Addr().String()
+			hostURLs[index] = "tls://" + proxies[index].listener.Addr().String()
 		}
 	}
-	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "node-a", Replicas: 3,
-		Lab: true, URL: strings.Join(hostURLs, ","), NKeySeedFile: hostSeed, ClientRole: "host", TLS: tlsFiles})
+	hostRuntime, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "node-a", Replicas: 3,
+		URL: strings.Join(hostURLs, ","), NKeySeedFile: hostSeed, ClientRole: "host"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,8 +325,8 @@ func testAuthenticatedOperatorToHostDeliveryWithControllerLoss(t *testing.T, pro
 	}
 	after := waitR3Authority(t, ctx, probe, priorEpoch, controllerChildCandidateID(t, children[failedPeer]))
 	t.Logf("host_url=%s authority_after=%+v", hostConn.ConnectedUrl(), after)
-	operatorProbe, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3,
-		Lab: true, URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed, TLS: tlsFiles})
+	operatorProbe, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "operator-probe", Replicas: 3, ClientRole: "operator",
+		URL: strings.Join(urls, ","), NKeySeedFile: operatorSeed})
 	if err != nil {
 		t.Fatal(err)
 	}

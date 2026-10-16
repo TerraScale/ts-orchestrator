@@ -148,10 +148,8 @@ func TestOfflineRestartAdmissionRequiresLocalProofAndMarker(t *testing.T) {
 	if err != nil || admission.offline || stubs.local.Load() != 0 || stubs.full.Load() != 1 {
 		t.Fatalf("first boot used offline admission: %+v %v local=%d", admission, err, stubs.local.Load())
 	}
-	lab := productionAdmissionConfig()
-	lab.NATS.Lab = true
-	if offline, err := offlineRestartAdmission(lab); offline || err != nil {
-		t.Fatalf("lab used offline admission: %v %v", offline, err)
+	if offline, err := offlineRestartAdmission(productionAdmissionConfig()); offline || err != nil {
+		t.Fatalf("initial install used offline admission: %v %v", offline, err)
 	}
 }
 

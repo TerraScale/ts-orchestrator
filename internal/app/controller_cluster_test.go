@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
@@ -26,6 +27,33 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+// Local process scenarios keep the real JWT broker gate and replace only cloud admission.
+func stubAuthenticatedController(t *testing.T, cfg *Config) {
+	t.Helper()
+	previousRuntime, previousMarker := controllerRuntimeProduction, controllerMarkerPresent
+	previousBaked, previousAdmission := controllerBakedInputsPresent, controllerBootstrapProduction
+	previousFounder, previousClock := controllerFounderProduction, controllerBrokerClockProbe
+	previousSeed := rolloutSeedSlot
+	controllerRuntimeProduction = func(ctx context.Context, cfg Config, _ func() error) (*natscell.Runtime, error) {
+		return natscell.Start(ctx, cfg.NATS)
+	}
+	controllerMarkerPresent = func() (bool, error) { return false, nil }
+	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
+	controllerBootstrapProduction = func(context.Context, Config) error { return nil }
+	controllerFounderProduction = func(context.Context) error { return nil }
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
+	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
+	rolloutSeedSlot = func(Config) (string, error) { return cfg.NATS.Instance, nil }
+	t.Cleanup(func() {
+		controllerRuntimeProduction, controllerMarkerPresent = previousRuntime, previousMarker
+		controllerBakedInputsPresent, controllerBootstrapProduction = previousBaked, previousAdmission
+		controllerFounderProduction, controllerBrokerClockProbe = previousFounder, previousClock
+		rolloutSeedSlot = previousSeed
+	})
+	newAcceptedSpecTrust(t, cfg)
+}
 
 func TestControllerBootstrapRetriesOnlyTransientErrors(t *testing.T) {
 	for _, test := range []struct {
@@ -55,6 +83,12 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 	if configPath := os.Getenv("TS_ORCH_TEST_CONTROLLER_CHILD_CONFIG"); configPath != "" {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		cfg, err := LoadConfig(configPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stubAuthenticatedController(t, &cfg)
+		configPath = testJSONFile(t, t.TempDir(), "controller.json", cfg)
 		if err := Run(ctx, []string{"run", "--config", configPath}, os.Stdout); err != nil && ctx.Err() == nil {
 			t.Fatal(err)
 		}
@@ -75,15 +109,16 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 		routes[index] = fmt.Sprintf("nats-route://127.0.0.1:%d", port)
 	}
 	specTrust := authorityTestSpecTrust(t, root, "lab")
+	auth := newAuthenticatedNATS(t, "lab", "peer0", "peer1", "peer2")
 	configs := make([]string, 3)
 	for index := range configs {
 		instance := fmt.Sprintf("peer%d", index)
 		configs[index] = testJSONFile(t, root, instance+".json", Config{Version: ConfigVersion,
-			NATS: natscell.Config{Cell: "lab", Instance: instance, Replicas: 3, Lab: true,
+			NATS: auth.config(t, natscell.Config{Cell: "lab", Instance: instance, Replicas: 3,
 				Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: clientPorts[index],
 					RouteHost: "127.0.0.1", RoutePort: routePorts[index], Routes: natscell.PeerRoutes(routes, routes[index]),
-					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}},
-			Controller: ControllerConfig{SpecTrust: specTrust, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "response.key"),
+					StoreDir: filepath.Join(root, instance), StoreMaxBytes: 4 << 30}}),
+			Controller: ControllerConfig{BrokerTicketKeyFile: auth.ticketPrivateFile, SpecTrust: specTrust, CandidateID: entityid.Derive("test-controller", instance), ResponseKeyFile: filepath.Join(root, "response.key"),
 				ArtifactStoreMaxBytes: 64 << 20,
 				TrustedSigners: []TrustedSignerConfig{{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(public),
 					Roles: []string{"terrabase"}, Environments: []string{"test"}}},
@@ -109,8 +144,8 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 			waitControllerChildReady(t, ctx, child)
 		}
 		probeCtx, probeCancel := context.WithTimeout(ctx, 10*time.Second)
-		probe, err := natscell.Start(probeCtx, natscell.Config{Cell: "lab", Instance: "probe", Replicas: 3,
-			Lab: true, URL: fmt.Sprintf("nats://127.0.0.1:%d", clientPorts[0])})
+		probe, err := auth.start(t, probeCtx, natscell.Config{Cell: "lab", Instance: "probe", Replicas: 3,
+			URL: fmt.Sprintf("nats://127.0.0.1:%d", clientPorts[0])})
 		if err != nil {
 			probeCancel()
 			t.Fatal(err)
@@ -216,13 +251,13 @@ func TestControllerThreeProcessBootstrapAndRestart(t *testing.T) {
 				t.Fatalf("unexpected authority holder after startup: %+v", holder)
 			}
 			crashControllerChild(t, children[failedPeer])
-			waitSurvivingAuthority(t, ctx, clientPorts[(failedPeer+1)%3], holder.Epoch)
+			waitSurvivingAuthority(t, ctx, auth, clientPorts[(failedPeer+1)%3], holder.Epoch)
 		} else {
 			stopControllerChild(t, children[failedPeer])
 		}
 		// An R3 region must retain both surviving controllers and their
 		// embedded brokers when one controller is lost.
-		waitSurvivingAuthority(t, ctx, clientPorts[(failedPeer+1)%3], 0)
+		waitSurvivingAuthority(t, ctx, auth, clientPorts[(failedPeer+1)%3], 0)
 		for index, child := range children {
 			if index == failedPeer {
 				continue
@@ -457,12 +492,12 @@ func crashControllerChild(t *testing.T, child *controllerChild) {
 	}
 }
 
-func waitSurvivingAuthority(t *testing.T, ctx context.Context, port int, priorEpoch uint64) {
+func waitSurvivingAuthority(t *testing.T, ctx context.Context, auth *authenticatedNATS, port int, priorEpoch uint64) {
 	t.Helper()
 	probeCtx, cancel := context.WithTimeout(ctx, 35*time.Second)
 	defer cancel()
-	probe, err := natscell.Start(probeCtx, natscell.Config{Cell: "lab", Instance: "failover-probe", Replicas: 3,
-		Lab: true, URL: fmt.Sprintf("nats://127.0.0.1:%d", port)})
+	probe, err := auth.start(t, probeCtx, natscell.Config{Cell: "lab", Instance: "failover-probe", Replicas: 3,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port)})
 	if err != nil {
 		t.Fatal(err)
 	}

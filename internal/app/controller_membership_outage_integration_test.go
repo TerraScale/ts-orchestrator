@@ -14,13 +14,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go"
 )
 
 func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "membership-outage", Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, "gru").start(t, ctx, natscell.Config{Cell: "gru", Instance: "membership-outage", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)
@@ -32,7 +33,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer control.Close()
-	if _, err := broker.Conn().Subscribe("regional.serving", func(message *nats.Msg) {
+	if _, err := broker.Conn().Subscribe(protocol.Broker("gru", "ticket", "serving-probe"), func(message *nats.Msg) {
 		_ = message.Respond([]byte("gru"))
 	}); err != nil {
 		t.Fatal(err)
@@ -42,7 +43,7 @@ func TestMembershipProviderOutageKeepsRegionalNATSServing(t *testing.T) {
 	}
 	probe := func() {
 		t.Helper()
-		reply, err := broker.Conn().RequestWithContext(ctx, "regional.serving", nil)
+		reply, err := broker.Conn().RequestWithContext(ctx, protocol.Broker("gru", "ticket", "serving-probe"), nil)
 		if err != nil || string(reply.Data) != "gru" {
 			t.Fatalf("regional serving during membership recovery: %v, %v", reply, err)
 		}

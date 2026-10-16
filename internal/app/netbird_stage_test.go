@@ -181,12 +181,12 @@ type netbirdStageFixture struct {
 func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixture {
 	t.Helper()
 	f := netbirdStageFixture{root: t.TempDir(), body: netbirdStageELF("pinned upstream agent")}
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "stage-controller", Replicas: 1, Lab: true,
+	_, controllerSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
+	auth := newAuthenticatedNATS(t, "gru")
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "stage-controller", Replicas: 1,
 		NKeySeedFile: controllerSeed, Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1,
-			StoreDir: filepath.Join(f.root, "nats"), Users: []natscell.NKeyGrant{
-				{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"}}}})
+			StoreDir: filepath.Join(f.root, "nats")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +207,8 @@ func newNetbirdStageFixture(t *testing.T, ctx context.Context) netbirdStageFixtu
 	var grant TrustedSignerConfig
 	f.policy, grant, f.key = netbirdStagePolicy(t, f.root)
 	f.config = testJSONFile(t, f.root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "stage-operator", Replicas: 1, Lab: true,
-			URL: broker.URL(), NKeySeedFile: operatorSeed},
+		NATS: auth.config(t, natscell.Config{Cell: "gru", Instance: "stage-operator", Replicas: 1, ClientRole: "operator",
+			URL: broker.URL(), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(f.root, "operator.key")},
 	})
