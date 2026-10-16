@@ -1,3 +1,14 @@
+> **Mandatory model routing (user decision):** Record each task's estimated
+> duration in minutes before assignment. Tasks confidently estimated below
+> **10 minutes**, including tasks below 5 minutes, use **LUNA 6**
+> (`gpt-6-luna`). Everything else uses **GPT 6.1 Sol, high reasoning**
+> (`gpt-6.1-sol`, `reasoning_effort: high`), including tasks estimated at
+> 10 minutes or longer and tasks with uncertain duration. Reassign to the latter
+> if a short task's revised estimate reaches 10 minutes or becomes uncertain.
+> This replaces older model-routing
+> preferences for this refactor. Split tasks at real independent boundaries;
+> do not split an inseparable task merely to use the cheaper model.
+
 # Replace custom orchestration with SwarmKit: OCI, A1-first and mixed runtimes
 
 Replace the existing custom orchestration engine with embedded upstream
@@ -19,7 +30,7 @@ prerequisites and retained qualification evidence.
 
 ## Status and decisions
 
-Planning revision, 2026-10-16. Code baseline: `08d1102e`; original plan: `7a65ad45`.
+Planning revision, 2026-10-16. Code baseline: `0e7bbf8e`; original plan: `7a65ad45`.
 This document records the reviewed direction; it does not claim an implemented
 runtime, measured savings, production readiness, or deployment authorization.
 
@@ -39,6 +50,7 @@ runtime, measured savings, production readiness, or deployment authorization.
 | Operational dependencies | No KU service, CLI, API, credential, task state or reporting requirement. Cluster operation and release admission use orchestrator state and retained evidence. |
 | Dashboard and visibility | Extend the existing Go `templ` + Datastar + Apache ECharts dashboard, embedded in the binary, with one stylesheet and complete metric discovery, history and cluster drilldowns. |
 | Build and deployment boundary | GitHub-hosted Actions is the current build producer. Deployment consumes signed, digest-addressed artifacts through the orchestrator and object storage; it requires no particular source repository or live CI API. No Forgejo server, runner, token, CLI, or package-fetch requirement. |
+| Testing | Delete all unit tests and unit-only infrastructure. The final repository and CI use integration testing only; migrate required safety and failure coverage into real boundary-crossing scenarios before removing its old tests. |
 
 Wasmtime is the proposed first function runtime, subject to the compatibility
 prototype below. The user selected customer Wasm, not a particular WASI version
@@ -65,6 +77,27 @@ every stream immediately. Block only the work item that consumes an unavailable
 contract, resource or safety proof. A blocked live exercise does not block its
 stream's remaining implementation work or another region's independent work.
 
+### Startup checks: parallel tasks with local blockers
+
+Start these five tasks together, following the model-routing rule at the top.
+Record actual owner names, ETA/model, claimed files, outputs and evidence in the
+existing work ledger. A pending check blocks only the action named in its last
+column. It does not create a repository-wide approval or design freeze.
+
+| Task / accountable owner | Concrete check and output | What waits for this result |
+| --- | --- | --- |
+| **START-OWN — assignments and integration** / QA + every stream | Name the shared-file/main integrator and each initial implementer. Give every first task an exact file claim, independently complete output, integration scenario, ETA/model and isolated worktree. Resolve overlapping claims before editing those files. | Only edits to unclaimed/conflicting files and publication without an assigned integrator; independent claimed work starts immediately. |
+| **START-EXEC — disposable runtime prototype** / CORE + CAP | Pin SwarmKit/containerd/runc versions. On disposable authorized capacity, prove one real container can prepare/start, report readiness, stop/remove and recover its task identity after agent restart without launching a duplicate. Publish the narrow executor/image contract and observed limitations. | Production use and consumers freezing unproven executor semantics. Other streams develop against agreed boundaries, while CORE/CAP build and run the prototype together. |
+| **START-DEPLOY — current main-to-production path** / REL + QA | Inspect actual main CI triggers, deployment targets, production-environment protection, credential scopes and artifact promotion. Record how each incomplete slice is qualified on disposable targets and how only qualified runtime revisions reach production. Existing main pushes can auto-dispatch fleet deployment; workflow names alone are not protection evidence. Preserve always-on operation without kill switches, disabled checks or a legacy-engine selector. | The first runtime-affecting main publication that could reach an unqualified production target. Documentation, isolated implementation and integration-scenario preparation proceed concurrently. |
+| **START-SCOPE — cloud footprint and budget** / OCI + CAP | Record approved tenancy/compartments, GRU/SFO/FRA footprint, numerical spending envelope, four-VM sizes, storage/transfer costs and cleanup ownership. Identify existing IAM/Vault authority and any separately required permission/credential approvals. Pending authority remains explicit; do not assume capacity is free or create credentials to complete the check. | Paid provisioning and mutations outside existing authority. Source work, inventory of authorized non-secret metadata and scenario design proceed independently. |
+| **START-STORE — storage comparison** / QA + CAP | Assign an independent OCI Object Storage versus Tigris cost/reliability comparison using actual copies, placement, requests, transfer, backup and restore traffic. Report price sources, workload assumptions and unknowns. A globally reachable endpoint does not establish regional durability. | A storage-backend change or a claim that one provider is cheaper. Existing OCI adapter work and the initial milestone continue without waiting for this research. |
+
+Each stream also begins its own integration-test migration from the start. QA
+coordinates shared test infrastructure and CI changes; no single test-conversion
+task must finish before unrelated streams implement or qualify their boundaries.
+Production publication still requires START-DEPLOY and the applicable runtime,
+trust and safety gates; a short ETA never relaxes those requirements.
+
 ### Workstreams: foundations, runtime and releases
 
 Each stream has one accountable owner. Paths identify responsibilities; shared
@@ -86,7 +119,7 @@ directories require a file-level claim before editing.
 | **OBS — CLI/dashboard/telemetry** | Shared feature API views, CLI output/JSON, metric catalog, Datastar/templ/ECharts and one CSS file; `internal/dashboard`, `internal/observability`, named CLI handlers. | Build real API consumers, metric discovery/history and UI against versioned test fixtures; consolidate styles. | Each producing stream's specific observation/API for its live panel; do not wait for the whole cluster to finish. |
 | **WASM — functions** | Runtime comparison, invocation/artifact contract, HTTP/queue workers, isolation, cancellation and caches. | Compare Wasmtime/wazero and implement bounded workers on both architectures with test-only host capabilities. | CORE/REL/CAP qualified workers plus tenant-scoped capabilities for live execution; DATA only for a capability that actually uses TerraBase. |
 | **DATA — stateful safety** | Writer/volume fencing, catch-up, drain, backup/restore, on-disk/CPU compatibility; retained storage/database lifecycle boundaries. | Extract safety contracts and qualify restore/fencing behavior independently of scheduler cutover. | CORE executor lifecycle hooks, OCI volume ownership and qualified artifacts for live migration. Production cutover requires its own safety evidence and authorization. |
-| **QA — integration/evidence** | Dependency/removal ledger, scenario tooling, comparable cost/timing samples, shared-file integration and exact-candidate evidence. | Map cross-stream dependencies and baseline scenarios; prepare qualification drivers and review each small handoff. | Only the producers used by each scenario. Collect partial results and qualify branches independently; the final completion gate aggregates them. |
+| **QA — integration/evidence** | Dependency/removal and unit-test-conversion ledgers, integration scenario tooling/CI, comparable cost/timing samples, shared-file integration and exact-candidate evidence. | Map cross-stream dependencies and baseline scenarios; inventory unit suites, prepare integration drivers and review each small handoff. | Only the producers used by each scenario. Collect partial results and qualify branches independently; the final completion gate aggregates them. |
 
 ### Contracts and file ownership
 
@@ -108,9 +141,10 @@ Vault and ownership records before compute launch, unblocking NET/REL work.
 | Views and evidence — every producer + OBS/QA | Stable operation IDs, typed errors, stages/timestamps, metric names/units/safe labels, stale/missing state and redacted scenario results. | CLI, dashboard, qualification reports. |
 
 1. **Claim files before editing.** Each work item records owner, exact files,
-   contract consumed/produced, acceptance evidence and remaining blocker. Split
-   work at feature/file boundaries. Use isolated branches/worktrees when several
-   implementers share the checkout; do not concurrently commit the same tree.
+   ETA/model, contract consumed/produced, integration evidence and remaining
+   blocker. Split work at feature/file boundaries. Use isolated branches/worktrees
+   when several implementers share the checkout; do not concurrently commit the
+   same tree.
 2. **Keep shared edits short.** QA's integrator owns shared `go.mod`/`go.sum`,
    entrypoints, `internal/app` wiring files, shared workflow files and this plan
    unless ownership is explicitly handed to a stream. Streams submit focused
@@ -189,10 +223,12 @@ does not satisfy this plan.
 3. **Delete every orphaned dependent.** Follow all callers of removed code and
    remove obsolete CLI commands, API handlers, NATS subjects/consumers, task KV
    schemas, configuration, secrets/IAM grants, scripts, workflows, dependency
-   entries, mocks, fixtures and old-engine-only tests. Rewrite useful behavioral
-   contracts against the replacement. Update docs and dashboard sources to
-   SwarmKit observations. Do not leave parked packages, compatibility switches,
-   legacy backend selectors or an alternate executable retaining the old engine.
+   entries, mocks, fixtures and old-engine-only tests. Move useful behavioral
+   contracts into integration scenarios against the replacement. Delete all
+   remaining unit tests under the testing policy below. Update docs and dashboard
+   sources to SwarmKit observations. Do not leave parked packages, compatibility
+   switches, legacy backend selectors or an alternate executable retaining the
+   old engine.
 4. **Keep the platform responsibilities through narrow integrations.** `ts-orch`
    owns OCI capacity/resources, regional bootstrap, NetBird, global federation,
    Vault delivery, signed artifact admission, product APIs, CLI/dashboard and
@@ -994,7 +1030,7 @@ claim requires both child manifests to pass their relevant checks.
 | **RUNTIME — regional engine and HA** / CORE, CAP, REL, MESH, QA | Pinned upstream SwarmKit/containerd integration, architecture-matching images, admitted hosts/artifacts and bounded private routing. | Prove a disposable three-manager regional cluster, executor prepare/start/observe/wait/drain/remove, restart-safe task identity, manager/NATS quorum behavior, simultaneous boot, persistent identity, Vault outage, replacement and partitions. Deploy ARM-only, x86-only and multi-platform artifacts; prove readiness, rollback, port-conflict rejection and stateless survival of manager loss. Qualify regions/architectures independently; no wait for the CONNECT report or all alternatives before beginning. |
 | **FUNCTIONS — isolated workers** / WASM, CORE, CAP, REL, QA | Selected Wasmtime or wazero contract and qualified worker placement/artifacts for each CPU architecture being admitted. | Prove HTTP/queue semantics, repeated delivery/idempotency, tenant isolation, quotas, timeout/cancellation, compilation-cache compatibility, worker loss, revision rollback and metadata/control-network denial. Prototype and disposable qualification overlap RUNTIME work. A TerraBase capability waits for its actual API/safety dependency; other functions do not wait for DATA cutover. |
 | **STATEFUL — database cutover** / DATA, CORE, OCI, REL, QA | Qualified executor hooks, owned volume/identity records, admitted release, restore/catch-up/fence evidence and scoped migration authorization. | Prove backup/restore, writer exclusion, member-by-member drain/update, recovery after interruption and on-disk/CPU compatibility. Keep the existing database architecture when cross-CPU compatibility is unproven. Safety extraction and disposable scenarios start immediately. Cut over each database only after its own proofs; WASM and unrelated services do not gate it. Destructive migration requires explicit authorization. |
-| **COMPLETE — final refactor** / every stream, QA aggregates | All requested deployment/runtime/visibility contracts and applicable gates on the integrated candidate. | No reachable old scheduler, native task runner, duplicate task store, fallback backend or orphaned dependents. Prove automatic regional/global joining, approved capacity fallback, A1 exhaustion handling, pool/host replacement, shared CLI/dashboard full metric coverage and measured dependency/cost/timing results. Close every removal ledger entry and retain migration/recovery history. |
+| **COMPLETE — final refactor** / every stream, QA aggregates | All requested deployment/runtime/visibility contracts and applicable gates on the integrated candidate. | No reachable old scheduler, native task runner, duplicate task store, fallback backend, unit tests/unit-only CI or orphaned dependents. Prove automatic regional/global joining, approved capacity fallback, A1 exhaustion handling, pool/host replacement, shared CLI/dashboard full metric coverage and measured dependency/cost/timing results. Close every removal/test-conversion ledger entry and retain migration/recovery history. |
 
 Production exposure additionally requires the affected region's RUNTIME/HA
 qualification, the workload's applicable safety/isolation gate and existing
@@ -1018,21 +1054,70 @@ evidence. Retire persisted state and credentials only after retained callers,
 retention rules and authorization permit it. Unrelated workload migrations may
 progress independently when they share no exclusive resource or quorum risk.
 
+### Integration testing only (user decision)
+
+**Delete all unit tests. The final repository and CI retain integration tests
+only.** This requirement applies across the entire refactor, including retained
+features, not just deleted orchestration code. Every stream owns its conversion;
+QA integrates shared scenario infrastructure and CI changes. Final completion
+requires a reviewed inventory showing no unit tests or unit-only runner paths.
+This document records the deletion requirement; this edit does not delete tests.
+
+1. **Inventory and replace by feature in parallel.** Classify existing test
+   cases by behavior, dependencies and boundary exercised. Include checked-in
+   vendored unit suites in the deletion inventory. Port required security,
+   release ordering, fencing, recovery and correctness cases into integration
+   scenarios before deleting their old tests. Split mixed test files where
+   needed; remove every unit case and its unused mocks/fixtures/helpers. Record
+   vendor-copy changes and source provenance while preserving licenses and the
+   required NATS startup/JWT/race/recovery integration coverage.
+2. **Exercise a real integration boundary.** Run the actual project components
+   together through a service/API/process, network, persistent store or runtime
+   boundary, and assert the resulting observable state and failure behavior.
+   Calling an isolated function with mocks and renaming it an integration test
+   does not satisfy this policy. Data fixtures and controlled external protocol
+   simulators can support repeatable offline integration of real project
+   clients/services; they do not substitute for live OCI/NetBird acceptance.
+   Do not add isolated unit or mock-only contract suites.
+3. **Keep coverage tied to the owning boundary.** Integrate CLI/API authorization
+   and error output, signed publish/apply ordering and byte verification, real
+   regional NATS request/reply, containerd lifecycle/restart, durable operation
+   recovery and database writer/volume exclusion in their respective streams.
+   Include negative and interrupted-operation scenarios. Keep production input
+   validation, authentication and data-loss protections in the actual code;
+   removing unit tests never authorizes removing those safeguards.
+4. **Parallelize isolated scenarios.** Give each scenario unique operation and
+   resource identities, endpoints and storage, bounded deadlines, cleanup and
+   retained failure logs. Shard independent feature/region/architecture scenarios
+   concurrently within fixed resource limits. Reserve shared quorums/volumes and
+   serialize their disruptive exercises; isolate timing/cost benchmarks from
+   competing load. Recheck affected scenarios on the integrated exact candidate.
+5. **Delete unit-only infrastructure alongside its callers.** Remove obsolete
+   unit/fast-suite targets, workflow jobs, sharding rules, mock generators,
+   fixtures, dependencies and documentation when their remaining callers are
+   migrated. Rewrite CI to run the integration scenarios and report actual
+   failures; no skipped-success replacements, legacy unit fallback or testing
+   feature switches. Retain build, lint and security/policy checks as applicable;
+   these checks are distinct from unit tests.
+
+External provider simulations exercise real protocol boundaries. Do not download
+or run TerraBase from this repository's tests: actual TerraBase integration
+belongs in the monorepo using its same-commit build. Preserve that hosting
+boundary while converting the orchestrator's own tests to integration scenarios.
+
 ### Qualification and publication per slice
 
-Each implementation slice specifies focused contract/failure tests and retains
-CI for the exact candidate commit. Test-only fixtures let consumers develop
-before a provider lands; they never satisfy live acceptance. Independent suites
-can run concurrently with bounded resources. Serialize disruptive scenarios on
-shared managers/volumes and isolate benchmarks that would interfere. Run the
-cross-stream scenarios again on the integrated candidate before claiming the
-corresponding gate; branch-level green checks alone do not establish integration.
+Each implementation slice specifies focused integration and failure scenarios
+and retains CI for the exact candidate commit. Test-only fixtures let consumers
+develop before a provider lands; they never satisfy live acceptance. Run the
+cross-stream scenarios on the integrated candidate before claiming the relevant
+gate; branch-level green checks alone do not establish integration. Every
+handoff records converted integration cases, deleted unit cases and remaining
+unit-only dependencies. COMPLETE requires the integration-only inventory closed.
 
-External tests use fakes/contract fixtures; do not download or run TerraBase
-from this repository's tests. Real TerraBase integration belongs in the monorepo
-using its same-commit build. Local build/test/benchmark commands, when required,
-run with `nice -n 19`; GitHub-hosted CI runs normally. No local check is required
-before publication. This planning-only edit adds and runs no implementation tests.
+Local build/integration-test/benchmark commands, when required, run with
+`nice -n 19`; GitHub-hosted CI runs normally. No local check is required before
+publication. This planning-only edit adds and runs no implementation tests.
 
 Retain exact-commit qualification, binaries, images, logs and rollback history
 with signed artifacts. The producer verifies its source/run/job proof before
