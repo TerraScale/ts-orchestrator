@@ -18,7 +18,7 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 	f.server.HandleAuthenticated("/v1/regions/", handler)
 	rollup := globalview.Rollup{Version: globalview.Version, Cell: "gru", ObservedAt: now,
 		Health:  globalview.Health{Status: globalview.Healthy},
-		Nodes:   []globalview.Node{{Name: "host-a", Health: globalview.NodeOK, ReportedAt: now, Services: []globalview.Service{{Role: "api", State: "running", Digest: "sha256:abc"}}}},
+		Nodes:   []globalview.Node{{Name: "host-a", Health: globalview.NodeOK, ReportedAt: now, CPUCores: 8, MemoryBytes: (1 << 60) + 1, Services: []globalview.Service{{Role: "api", State: "running", Digest: "sha256:abc"}}}},
 		Volumes: []globalview.Volume{{ID: "volume-a", Node: "host-a", State: "attached"}},
 	}
 	if !view.Accept(rollup) {
@@ -59,6 +59,14 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 			}
 		})
 	}
+	output, err := f.run(t, "nodes", "--format", "json")
+	if err != nil || !strings.Contains(output, "1152921504606846977") {
+		t.Fatalf("resource JSON lost integer precision: %s %v", output, err)
+	}
+	output, err = f.run(t, "nodes")
+	if err != nil || !strings.Contains(output, "CPU CORES") || !strings.Contains(output, "1152921504606846977") {
+		t.Fatalf("node table missing source columns: %s %v", output, err)
+	}
 	// A retained known node is stale; an omitted node remains unknown with HTTP 503.
 	now = now.Add(globalview.StaleAfter + time.Second)
 	for _, node := range []string{"host-a", "absent"} {
@@ -72,7 +80,7 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 	if !view.Accept(rollup) {
 		t.Fatal("truncated observation rejected")
 	}
-	output, err := f.run(t, "node", "--node", "absent", "--format", "json")
+	output, err = f.run(t, "node", "--node", "absent", "--format", "json")
 	if err == nil || !strings.Contains(output, `"state": "truncated"`) {
 		t.Fatalf("truncated output=%s error=%v", output, err)
 	}
@@ -86,7 +94,7 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 	if err == nil || !strings.Contains(output, `"state": "unavailable"`) {
 		t.Fatalf("volume output=%s error=%v", output, err)
 	}
-	for _, args := range [][]string{{"node"}, {"service", "--node", "host-a"}, {"volume"}, {"nodes", "--cell", "../gru"}, {"events", "--cell", "gru"}} {
+	for _, args := range [][]string{{"node"}, {"service", "--node", "host-a"}, {"volume"}, {"nodes", "--cell", "../gru"}, {"nodes", "--cell", "gru\u0085"}, {"events", "--cell", "gru"}} {
 		if _, err := f.run(t, args[0], args[1:]...); err == nil {
 			t.Fatalf("invalid selection accepted: %v", args)
 		}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 )
@@ -19,7 +21,7 @@ func isObserveResource(view string) bool {
 
 func observeResourcePath(view, cell, node, service, volume string) (string, error) {
 	for _, selector := range []string{cell, node, service, volume} {
-		if len(selector) > 256 || strings.ContainsAny(selector, "/\\\x00\r\n\t") || selector == "." || selector == ".." {
+		if len(selector) > 256 || strings.ContainsAny(selector, "/\\") || strings.IndexFunc(selector, unicode.IsControl) >= 0 || selector == "." || selector == ".." {
 			return "", errors.New("resource selectors must be at most 256 characters without path separators or control characters")
 		}
 	}
@@ -111,17 +113,55 @@ func writeObserveResource(out io.Writer, view, format string, data []byte) (any,
 		return nil, false, errors.New("invalid resource observation JSON")
 	}
 	partial := result.State != "current" || result.Truncated
+	var raw struct {
+		Data jsontext.Value `json:"data"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false, err
+	}
 	if format == "table" {
 		observed := "unknown"
 		if !result.ObservedAt.IsZero() {
 			observed = result.ObservedAt.Format(time.RFC3339)
 		}
 		fmt.Fprintf(out, "CELL\t%s\tSTATE\t%s\tOBSERVED\t%s\tTRUNCATED\t%t\n", result.Cell, result.State, observed, result.Truncated)
-		data, err := json.Marshal(result.Data)
-		if err != nil {
-			return nil, false, err
+		if string(raw.Data) != "null" {
+			switch view {
+			case "nodes":
+				var nodes []globalview.Node
+				if err := json.Unmarshal(raw.Data, &nodes); err != nil {
+					return nil, false, err
+				}
+				fmt.Fprintln(out, "NODE\tHEALTH\tREPORTED\tCPU CORES\tMEMORY bytes\tSERVICES")
+				for _, node := range nodes {
+					var roles []string
+					for _, service := range node.Services {
+						roles = append(roles, service.Role)
+					}
+					fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%s\n", node.Name, node.Health, node.ReportedAt.Format(time.RFC3339), node.CPUCores, node.MemoryBytes, strings.Join(roles, ","))
+				}
+			case "services":
+				var services []globalview.Service
+				if err := json.Unmarshal(raw.Data, &services); err != nil {
+					return nil, false, err
+				}
+				fmt.Fprintln(out, "ROLE\tEXECUTION STATE\tDIGEST")
+				for _, service := range services {
+					fmt.Fprintf(out, "%s\t%s\t%s\n", service.Role, service.State, service.Digest)
+				}
+			case "volumes":
+				var volumes []globalview.Volume
+				if err := json.Unmarshal(raw.Data, &volumes); err != nil {
+					return nil, false, err
+				}
+				fmt.Fprintln(out, "VOLUME\tNODE\tSTATE\tDETAIL\tSINCE")
+				for _, volume := range volumes {
+					fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\n", volume.ID, volume.Node, volume.State, volume.Detail, volume.Since.Format(time.RFC3339))
+				}
+			default:
+				fmt.Fprintf(out, "DATA\t%s\n", raw.Data)
+			}
 		}
-		fmt.Fprintf(out, "DATA\t%s\n", data)
 	}
-	return result, partial, nil
+	return jsontext.Value(data), partial, nil
 }
