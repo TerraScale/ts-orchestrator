@@ -102,11 +102,18 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 
 func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) func() {
 	t.Helper()
-	leader, err := js.Conn().SubscribeSync("$JS.API.STREAM.MSG.GET.KV_" + hostenroll.GrantBucket)
+	options := js.Options()
+	prefix := strings.TrimSuffix(options.APIPrefix, ".")
+	if options.Domain != "" {
+		prefix = "$JS." + options.Domain + ".API"
+	} else if prefix == "" {
+		prefix = "$JS.API"
+	}
+	leader, err := js.Conn().SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + hostenroll.GrantBucket)
 	if err != nil {
 		t.Fatal(err)
 	}
-	direct, err := js.Conn().SubscribeSync("$JS.API.DIRECT.GET.>")
+	direct, err := js.Conn().SubscribeSync(prefix + ".DIRECT.GET.>")
 	if err != nil {
 		_ = leader.Unsubscribe()
 		t.Fatal(err)
@@ -133,7 +140,7 @@ func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) func() {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.HasPrefix(message.Subject, "$JS.API.DIRECT.GET.KV_"+hostenroll.GrantBucket) {
+			if strings.HasPrefix(message.Subject, prefix+".DIRECT.GET.KV_"+hostenroll.GrantBucket) {
 				t.Fatalf("enrollment authorization used follower read: %s", message.Subject)
 			}
 		}

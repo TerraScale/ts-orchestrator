@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,12 +26,19 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	js := runtime.JetStream()
-	leader, err := js.Conn().SubscribeSync("$JS.API.STREAM.MSG.GET.KV_" + stateBucketName)
+	options := js.Options()
+	prefix := strings.TrimSuffix(options.APIPrefix, ".")
+	if options.Domain != "" {
+		prefix = "$JS." + options.Domain + ".API"
+	} else if prefix == "" {
+		prefix = "$JS.API"
+	}
+	leader, err := js.Conn().SubscribeSync(prefix + ".STREAM.MSG.GET.KV_" + stateBucketName)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer leader.Unsubscribe()
-	direct, err := js.Conn().SubscribeSync("$JS.API.DIRECT.GET.>")
+	direct, err := js.Conn().SubscribeSync(prefix + ".DIRECT.GET.>")
 	if err != nil {
 		t.Fatal(err)
 	}
