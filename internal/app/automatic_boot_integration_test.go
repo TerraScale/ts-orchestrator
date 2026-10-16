@@ -28,7 +28,7 @@ func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 			{Name: "controller-c", PrivateIP: "10.251.0.12"},
 		},
 	}
-	if _, err := bootstrapmaterial.Generate(sourceDirectory, input, now); err != nil {
+	if _, err := bootstrapmaterial.Generate(sourceDirectory, input, now.Add(-2*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	record, err := bootstrapmaterial.Load(sourceDirectory)
