@@ -30,7 +30,6 @@ import (
 func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) {
 	ctx := t.Context()
 	js := testRolloutJetStream(t)
-	assertGrantReadsUseLeader(t, js)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -172,12 +171,17 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	read := func(query hostenroll.WorkerMembershipQuery) (hostenroll.WorkerMembershipSnapshot, error) {
+		finish := assertGrantReadsUseLeader(t, js)
+		defer finish()
+		return source.Read(ctx, query)
+	}
 	query := hostenroll.WorkerMembershipQuery{NodeID: nodeID, RegistrationID: registration.ID, InstanceID: request.InstanceID}
-	if _, err := source.Read(ctx, query); err == nil {
+	if _, err := read(query); err == nil {
 		t.Fatal("an enrollment grant without durable dual-key membership became current")
 	}
 	query.Admission = &record
-	published, err := source.Read(ctx, query)
+	published, err := read(query)
 	if err != nil || published.Admission == nil || published.Sequence != receipt.Revision || published.Retired || published.Disabled {
 		t.Fatalf("actual membership CAS/readback: %+v %v", published, err)
 	}
@@ -194,38 +198,38 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := source.Read(ctx, query)
+	current, err := read(query)
 	if err != nil || current.GrantRevision != published.GrantRevision || !bytes.Equal(current.Admission.Transport.Response, responseWire) {
 		t.Fatal("fresh reader lost retained signed admission", err)
 	}
 	foreign := query
 	foreign.NodeID = entityid.New()
-	if _, err := source.Read(ctx, foreign); err == nil {
+	if _, err := read(foreign); err == nil {
 		t.Fatal("another node inherited retained membership")
 	}
 	if retired, err := hosts.RetireIdle(ctx, registration.Node); err != nil || !retired {
 		t.Fatal("actual host retirement failed", err)
 	}
-	retired, err := source.Read(ctx, query)
+	retired, err := read(query)
 	if err != nil || !retired.Retired {
 		t.Fatal("ordered retirement became unavailable instead of verified revocation", err)
 	}
 	query.Admission = &record
-	if _, err := source.Read(ctx, query); err == nil {
+	if _, err := read(query); err == nil {
 		t.Fatal("retired host republished placement admission")
 	}
 	query.Admission = nil
 	if _, err := grants.Disable(ctx, request.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	disabled, err := source.Read(ctx, query)
+	disabled, err := read(query)
 	if err != nil || !disabled.Disabled {
 		t.Fatal("leader grant read lost verified disable", err)
 	}
 	if err := grants.Forget(ctx, request.InstanceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := source.Read(ctx, query); err == nil {
+	if _, err := read(query); err == nil {
 		t.Fatal("deleted enrollment grant remained current")
 	}
 }

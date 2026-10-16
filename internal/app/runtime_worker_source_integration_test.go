@@ -24,7 +24,6 @@ import (
 func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T) {
 	ctx := t.Context()
 	js := testRolloutJetStream(t)
-	assertGrantReadsUseLeader(t, js)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -82,6 +81,8 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 		t.Fatal(err)
 	}
 	read := func(query swarmruntime.WorkerRegistrationQuery) (swarmruntime.WorkerRegistrationSnapshot, error) {
+		finish := assertGrantReadsUseLeader(t, js)
+		defer finish()
 		return currentWorkerRegistration(ctx, mutations, reader, js, query, instance, registration.Node, "gru")
 	}
 	snapshot, err := read(query)
@@ -99,7 +100,7 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 	}
 }
 
-func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) {
+func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) func() {
 	t.Helper()
 	leader, err := js.Conn().SubscribeSync("$JS.API.STREAM.MSG.GET.KV_" + hostenroll.GrantBucket)
 	if err != nil {
@@ -113,7 +114,7 @@ func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) {
 	if err := js.Conn().Flush(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() {
+	return func() {
 		defer leader.Unsubscribe()
 		defer direct.Unsubscribe()
 		if err := js.Conn().Flush(); err != nil {
@@ -136,7 +137,7 @@ func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) {
 				t.Fatalf("enrollment authorization used follower read: %s", message.Subject)
 			}
 		}
-	})
+	}
 }
 
 func TestWorkerPreparationRequiresExactLiveClaim(t *testing.T) {
