@@ -78,14 +78,19 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	keyID, _ := trust.KeyID(public)
-	roots := trust.Keyring{keyID: public}
+	rootPublic, rootKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootID, _ := trust.KeyID(rootPublic)
+	roots := trust.Keyring{rootID: rootPublic}
 	now := time.Now().UTC().Truncate(time.Second)
 	intent := FunctionServiceIntent{TenantID: entityid.Derive("tenant", t.Name()), FunctionID: "echo", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH}
 	module := []byte("\x00asm\x01\x00\x00\x00")
 	functionClaim := release.FunctionClaim{Schema: release.FunctionSchema, ABI: release.FunctionABI, TenantID: intent.TenantID, FunctionID: intent.FunctionID, Revision: "first", Digest: fmt.Sprintf("%x", sha256.Sum256(module)), Bytes: int64(len(module)), Environment: intent.Environment, Cell: "GRU", Sequence: 1}
 	scope := release.FunctionScope(functionClaim)
 	encodedPublic, _ := trust.EncodeDelegatedPublicKey(public)
-	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), key)
+	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), rootKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,12 +123,13 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		floor.Cell = cell
 		migration.Regions = append(migration.Regions, floor)
 	}
-	migrationEnvelope, err := release.SignSequenceMigration(migration, now, key)
+	migrationEnvelope, err := release.SignSequenceMigration(migration, now, rootKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	migrationWire, _ := trust.EncodeEnvelope(migrationEnvelope)
 	migrationSHA, _ := trust.Fingerprint(migrationEnvelope)
+	allocations := serviceAllocationStore(t, migration.Namespace, migration.Bucket)
 	index := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":42,"platform":{"os":"linux","architecture":"arm64"}},{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":42,"platform":{"os":"linux","architecture":"amd64"}}]}`, strings.Repeat("a", 64), strings.Repeat("e", 64)))
 	indexSHA := fmt.Sprintf("%x", sha256.Sum256(index))
 	bundle := func(role string, sequence uint64, architecture string) release.ContainerBundle {
@@ -132,22 +138,33 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		if architecture == "amd64" {
 			digest = strings.Repeat("e", 64)
 		}
-		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat("c", 40), ArtifactSHA256: digest, QualificationSHA256: indexSHA, Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
+		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat(string(rune('c'+sequence-101)), 40), ArtifactSHA256: digest, QualificationSHA256: indexSHA, Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 		payload, _ := trust.EncodePayload(qualification)
-		proof, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), key)
+		proof, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), rootKey)
 		if err != nil {
 			t.Fatal(err)
 		}
 		proofWire, _ := trust.EncodeEnvelope(proof)
 		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/worker@sha256:" + digest, SourceRepository: "https://example.invalid/function-worker", SourceRevision: candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("d", 64), Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: architecture, ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
+		target := release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: architecture}
+		workerScope := release.ContainerScope(target)
+		grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic, Capabilities: []trust.Capability{{Domain: workerScope.Domain, DeploymentID: workerScope.DeploymentID, Cell: workerScope.Cell, Environment: workerScope.Environment, Role: workerScope.Role, Slots: []string{workerScope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), rootKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		grantWire, _ := trust.EncodeEnvelope(grant)
+		var sequenceWire []byte
+		if role == FunctionWorkerRole {
+			sequenceWire = serviceSequenceEvidence(t, ctx, allocations, migrationEnvelope, claim, roots, key)
+		}
 		payload, _ = trust.EncodePayload(claim)
-		signed, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: architecture}), now, now.Add(time.Hour), key)
+		signed, err := trust.Sign(payload, workerScope, now, now.Add(time.Hour), key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		wire, _ := trust.EncodeEnvelope(signed)
-		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Index: index}
+		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Index: index, Delegation: grantWire, Sequence: sequenceWire}
 	}
 	probe := func(_ context.Context, task *api.Task) error {
 		if task.NodeID != wasm.ID() || task.NodeID == platform.ID() {
@@ -156,14 +173,15 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		return nil
 	}
 	qualified := bundle(FunctionWorkerRole, 101, runtime.GOARCH)
-	created, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe)
+	created, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if created.Spec.Annotations.Labels[LabelFunctionProof] != current.proof.EnvelopeSHA256() || created.Spec.Annotations.Labels[LabelRole] != FunctionWorkerRole {
 		t.Fatal("signed function identity missing")
 	}
-	workerProof, err := release.VerifyContainerCurrent(ctx, qualified, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	verificationDeadline, _ := ctx.Deadline()
+	workerProof, err := release.VerifyContainerCurrent(ctx, qualified, roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, verificationDeadline, readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +200,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if runtime.GOARCH == "arm64" {
 		siblingIntent.Architecture = "amd64"
 	}
-	sibling, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 101, siblingIntent.Architecture), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: siblingIntent.Architecture}, now, now.Add(time.Minute), readEvidence)
+	sibling, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 101, siblingIntent.Architecture), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: siblingIntent.Architecture}, now, verificationDeadline, readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,20 +217,20 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal("altered task accepted for material grant")
 	}
 	version := created.Meta.Version.Index
-	replayed, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe)
+	replayed, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations)
 	if err != nil || replayed.ID != created.ID || replayed.Meta.Version.Index != version {
 		t.Fatalf("function replay not idempotent: %+v %v", replayed, err)
 	}
-	if _, err := ApplyFunctionService(ctx, client, intent, current, bundle("ts-auth", 101, runtime.GOARCH), roots, legacy, readEvidence, probe); err == nil {
+	if _, err := ApplyFunctionService(ctx, client, intent, current, bundle("ts-auth", 101, runtime.GOARCH), roots, legacy, readEvidence, probe, allocations); err == nil {
 		t.Fatal("platform worker qualification admitted for tenant functions")
 	}
 	current.revoked = true
-	if _, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe); err == nil {
+	if _, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations); err == nil {
 		t.Fatal("revoked current function intent admitted")
 	}
 	current.revoked = false
 	current.proof = functionProof(2)
-	updated, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe)
+	updated, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe, allocations)
 	if err != nil || updated.ID != created.ID || updated.Spec.Task.ForceUpdate == created.Spec.Task.ForceUpdate {
 		t.Fatalf("renewed function proof did not replace stable worker task: %+v %v", updated, err)
 	}
@@ -232,7 +250,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	testFunctionCapacityManagerIntegration(t, ctx, client, intent, current, workerProof, wasm.ID())
-	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, verificationDeadline, readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +268,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		t.Fatal("advancing current worker superseded sibling architecture: ", err)
 	}
 	admittedAt := time.Now().UTC()
-	expiring, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, admittedAt, admittedAt.Add(50*time.Millisecond), readEvidence)
+	expiring, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, admittedAt, admittedAt.Add(50*time.Millisecond), readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
