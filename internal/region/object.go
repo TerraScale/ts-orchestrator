@@ -162,8 +162,13 @@ func (r FoundationRecord) validate() error {
 			return err
 		}
 	}
-	if len(r.AuxiliaryIDs) > 6 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
-		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
+	if r.NetBirdManager != nil {
+		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil {
+			return errors.New("dedicated NetBird manager checkpoint is invalid")
+		}
+	}
+	if len(r.AuxiliaryIDs) > 12 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
+>>>>>>> f49fa850 (feat(oci): seal dedicated NetBird manager launch and store authority)		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
 	}
 	for key, id := range r.AuxiliaryIDs {
 		if !validAuxiliaryID(key, id, r.OCIRegion) {
@@ -187,6 +192,18 @@ func validAuxiliaryID(key, id, region string) bool {
 		region = ""
 	case "ledger_bucket", "head_bucket", "backup_bucket", "material_bucket":
 		kind = "bucket"
+	case "netbird_manager_vcn":
+		kind = "vcn"
+	case "netbird_manager_internet_gateway":
+		kind = "internetgateway"
+	case "netbird_manager_route":
+		kind = "routetable"
+	case "netbird_manager_security_list":
+		kind = "securitylist"
+	case "netbird_manager_subnet":
+		kind = "subnet"
+	case "netbird_manager_nsg":
+		kind = "networksecuritygroup"
 	default:
 		return false
 	}

@@ -46,6 +46,17 @@ type FoundationIntent struct {
 	Plan              map[string]any           `json:"plan"`
 	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
 	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
+	NetBirdManager    *NetBirdManagerIntent    `json:"netbirdManager,omitempty"`
+}
+
+// FoundationIntentDigest binds every signed authority field to its generation.
+func FoundationIntentDigest(intent FoundationIntent) (string, error) {
+	wire, err := json.Marshal(intent, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(wire)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // FoundationAuthority is the existing scoped foundation authority. HomeWrite
@@ -70,6 +81,10 @@ type FoundationProgress struct {
 	AuxiliaryIDs        map[string]string
 	CheckpointAuxiliary func(context.Context, string, string) error
 	PrepareCreate       func(context.Context, foundation.CreateIdentity, bool) error
+	NetBirdManager      *NetBirdManagerLaunch
+	ManagerAuthority    func(context.Context) (verifiedNetBirdIntent, error)
+	ManagerAllocation   func(context.Context, string) (VerifiedBootstrapAllocation, error)
+	CheckpointManager   func(context.Context, NetBirdManagerLaunch) error
 }
 
 type PendingFoundationCreate struct {
@@ -103,6 +118,7 @@ type FoundationRecord struct {
 	AuxiliaryIDs        map[string]string                  `json:"auxiliaryIds,omitempty"`
 	PendingCreates      map[string]PendingFoundationCreate `json:"pendingCreates,omitempty"`
 	SourcePolicyIDs     map[string]SourcePolicyRecord      `json:"sourcePolicyIds,omitempty"`
+	NetBirdManager      *NetBirdManagerLaunch              `json:"netbirdManager,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -213,8 +229,10 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}
 	delete(plan, "_source_path")
 	cell := plan["cell"].(string)
-	sum := sha256.Sum256(wire)
-	digest := hex.EncodeToString(sum[:])
+	digest, err := FoundationIntentDigest(intent)
+	if err != nil {
+		return FoundationRecord{}, err
+	}
 	current, etag, err := c.Store.Load(ctx, cell)
 	if err != nil && !errors.Is(err, ErrFoundationMissing) {
 		return FoundationRecord{}, err
@@ -295,6 +313,16 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}()
 	progress := FoundationProgress{OperationID: current.OperationID, BeforeWrite: attempt.beforeWrite, Checkpoint: attempt.checkpoint,
 		AuxiliaryIDs: maps.Clone(current.AuxiliaryIDs), CheckpointAuxiliary: attempt.checkpointAuxiliary, PrepareCreate: attempt.prepareCreate}
+	if intent.NetBirdManager != nil {
+		reader, ok := c.Footprint.(*SignedFootprint)
+		if !ok || cell != "GRU" {
+			close(stopped)
+			<-renewed
+			return attempt.finish(ctx, errors.New("NetBird manager requires the same signed GRU foundation grant"))
+		}
+		progress.ManagerAuthority, progress.ManagerAllocation = reader.authorizedNetBirdManager, reader.BootstrapAllocation
+		progress.NetBirdManager, progress.CheckpointManager = current.NetBirdManager, attempt.checkpointManager
+	}
 	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, progress)
 	close(stopped)
 	<-renewed
@@ -415,6 +443,26 @@ func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id str
 	}
 	a.record.AuxiliaryIDs[key] = id
 	delete(a.record.PendingCreates, key)
+	return a.update(ctx)
+}
+
+func (a *foundationAttempt) checkpointManager(ctx context.Context, next NetBirdManagerLaunch) error {
+	if err := next.validate(); err != nil {
+		return err
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if old := a.record.NetBirdManager; old != nil {
+		previous := *old
+		if previous.InstanceID != "" && previous.InstanceID != next.InstanceID || previous.BootVolumeID != "" && previous.BootVolumeID != next.BootVolumeID {
+			return errors.New("dedicated manager singleton identity cannot be replaced")
+		}
+		previous.InstanceID, previous.BootVolumeID = next.InstanceID, next.BootVolumeID
+		if previous != next {
+			return errors.New("dedicated manager immutable reservation changed")
+		}
+	}
+	a.record.NetBirdManager = &next
 	return a.update(ctx)
 }
 
