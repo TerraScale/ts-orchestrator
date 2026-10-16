@@ -483,9 +483,11 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	for attempt := range 2 {
-		if _, err := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
+		_, attemptErr := ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second))
+		if attemptErr == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
 		}
+		t.Logf("source boot attempt %d: %v", attempt, attemptErr)
 	}
 	if protocol.creates != 1 {
 		t.Fatalf("uncertain source retry duplicated escrow: creates=%d", protocol.creates)
