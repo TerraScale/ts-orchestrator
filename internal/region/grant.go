@@ -278,18 +278,26 @@ func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config b
 // create or install a grant. Its trust/storage identity comes from a currently
 // verified controller bootstrap anchor.
 type SignedFootprint struct {
-	client  FoundationObjects
-	storage bootstrap.StorageDomain
-	scope   trust.Scope
-	expires time.Time
-	roots   trust.Keyring
-	tenancy string
-	home    bootstrap.FoundationScope
-	local   bootstrap.BootstrapAnchor
+	retainedGrant []byte
+	client        FoundationObjects
+	storage       bootstrap.StorageDomain
+	scope         trust.Scope
+	expires       time.Time
+	roots         trust.Keyring
+	tenancy       string
+	home          bootstrap.FoundationScope
+	local         bootstrap.BootstrapAnchor
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
-	if client == nil || !anchor.IsVerified() || len(roots) == 0 {
+	if client == nil {
+		return nil, errors.New("foundation scope requires an authenticated object client")
+	}
+	return newSignedFootprint(client, anchor, roots, tenancy)
+}
+
+func newSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
+	if !anchor.IsVerified() || len(roots) == 0 {
 		return nil, errors.New("foundation scope requires verified bootstrap identity and roots")
 	}
 	home, err := anchor.FoundationScope()
@@ -318,8 +326,14 @@ func (s *SignedFootprint) authorizedRegions(ctx context.Context) (ApprovedFootpr
 }
 
 func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if !time.Now().Before(s.expires) {
 		return nil, errors.New("foundation bootstrap authority expired")
+	}
+	if s.retainedGrant != nil {
+		return bytes.Clone(s.retainedGrant), nil
 	}
 	domain := s.storage
 	name := strings.TrimSuffix(domain.Prefix, "/") + "/" + foundationGrantObject
