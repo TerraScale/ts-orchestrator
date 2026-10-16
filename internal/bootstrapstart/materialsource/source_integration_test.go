@@ -511,6 +511,33 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := peer.GetSecretBundle(t.Context(), ocisecrets.GetSecretBundleRequest{SecretId: new(publication.References[0].Reference.SecretOCID), VersionNumber: new(int64(1))}); err != nil {
 		t.Fatalf("normal host material unreadable: %v", err)
 	}
+	rogueDirectory := filepath.Join(t.TempDir(), "rogue-source")
+	rogueRecord, err := bootstrapmaterial.Generate(rogueDirectory, cfg, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"material.json", "READY"}
+	for _, file := range rogueRecord.Files {
+		names = append(names, file.Name)
+	}
+	for _, name := range names {
+		body, err := os.ReadFile(filepath.Join(rogueDirectory, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = os.WriteFile(filepath.Join(replacement.directory, name), body, 0o600)
+		clear(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err == nil || protocol.creates != 28 {
+		t.Fatal("edited local roots caused Vault effects")
+	}
+	replacement, err = ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
+	if err != nil || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
+		t.Fatalf("trusted source repair: %v", err)
+	}
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
 	}
