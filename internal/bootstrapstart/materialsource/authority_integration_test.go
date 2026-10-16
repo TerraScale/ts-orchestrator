@@ -14,6 +14,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
@@ -69,6 +70,16 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 		body := []byte(`{}`)
 		if index == 0 {
 			body = bytes.Clone(initialIntent)
+		}
+		if name == "oci-region.json" {
+			intent, err := oci.ParseRegionIntent(initialIntent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err = json.Marshal(oci.RegionConfig{Region: oci.Region(strings.ToUpper(config.Cell)), Generation: intent.Generation, Endpoint: "https://iaas." + config.Region + ".oraclecloud.com", CompartmentID: ids["control_compartment"].(string), ImageCompartmentID: ids["control_compartment"].(string), AvailabilityDomain: template.Profiles[0].AvailabilityDomain, FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: ids["subnet"].(string), NetworkSecurityGroupIDs: []string{ids["network_security_group"].(string)}, ImageID: receipt.OCIImageOCID, Shape: template.Profiles[0].Shape, BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Owner: "ts-orchestrator"})
+			if err != nil {
+				t.Fatal(err)
+			}
 		}
 		template.ControllerFiles = append(template.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: body, SHA256: digestWire(body)})
 	}
