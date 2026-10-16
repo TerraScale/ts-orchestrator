@@ -93,11 +93,11 @@ func readRuntimeWorkerTransport() ([]byte, error) {
 type functionMaterialSource struct{ agent *host.Agent }
 
 func (source functionMaterialSource) CurrentFunctionMaterial(ctx context.Context, binding swarmruntime.FunctionTaskBinding) (swarmruntime.FunctionMaterial, error) {
-	files, expires, err := source.agent.CurrentFunctionFiles(ctx, host.FunctionMaterialBinding{
+	material, err := source.agent.CurrentFunctionMaterial(ctx, host.FunctionMaterialBinding{
 		TaskID: binding.TaskID, ServiceID: binding.ServiceID, NodeID: binding.NodeID,
 		InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID, Fingerprint: binding.Fingerprint,
 	})
-	return swarmruntime.FunctionMaterial{Binding: binding, ExpiresAt: expires, Files: files}, err
+	return swarmruntime.FunctionMaterial{Binding: binding, ExpiresAt: material.ExpiresAt, CredentialExpiresAt: material.CredentialExpiresAt, Files: material.Files}, err
 }
 
 // runRuntimeWorker owns one signed host session and one accepted embedded node.
