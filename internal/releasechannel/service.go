@@ -118,6 +118,16 @@ func PublishServiceSequenced(ctx context.Context, location Location, role string
 	if record.Role != role || record.ReleaseSequence <= migration.SequenceFloor || record.SequenceMigrationSHA256 != fingerprint {
 		return fmt.Errorf("%w: service sequence migration", ErrInvalid)
 	}
+	if err := verifyServiceSequenceClaim(ctx, claim, migration); err != nil {
+		return err
+	}
+	expectedBucket, err := BucketName(strings.ToUpper(record.Cell))
+	if err != nil {
+		return err
+	}
+	if expectedBucket != location.Bucket || migration.Namespace != location.Namespace {
+		return fmt.Errorf("%w: service publication target scope", ErrInvalid)
+	}
 	wire, err := trust.EncodeEnvelope(envelope)
 	if err != nil {
 		return err
@@ -129,9 +139,6 @@ func PublishServiceSequenced(ctx context.Context, location Location, role string
 		if _, found, err := ReadSequenceMigration(ctx, location, fingerprint); err != nil || !found {
 			return fmt.Errorf("%w: existing sequence migration: %w", ErrInvalid, err)
 		}
-	}
-	if err := verifyServiceSequenceClaim(ctx, claim, migration); err != nil {
-		return err
 	}
 	return publishService(ctx, location, role, claim, &migration, roots)
 }

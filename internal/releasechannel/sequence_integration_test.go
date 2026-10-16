@@ -118,6 +118,13 @@ func TestSequenceChannelHTTPMigrationPreservesLegacyFloors(t *testing.T) {
 		return claim
 	}
 	claim := makeClaim(2, fixture.now, strings.Repeat("d", 64))
+	invalid := bytes.Replace(claim, []byte(`"signature":"`), []byte(`"signature":"x`), 1)
+	if err := PublishServiceSequenced(t.Context(), location, "ts-auth", invalid, envelope, fixture.roots, fixture.now); err == nil {
+		t.Fatal("invalid signed claim published")
+	}
+	if _, found, err := ReadSequenceMigration(t.Context(), location, fingerprint); err != nil || found {
+		t.Fatalf("invalid claim mutated immutable migration metadata: %v %v", found, err)
+	}
 	if err := PublishServiceSequenced(t.Context(), location, "ts-auth", claim, envelope, fixture.roots, fixture.now); err != nil {
 		t.Fatal(err)
 	}
