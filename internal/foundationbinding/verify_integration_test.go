@@ -431,3 +431,29 @@ func TestLogicalBindingsNarrowActiveFoundationToCompletedBirths(t *testing.T) {
 		t.Fatal("resolved a resource from an expired active lease")
 	}
 }
+
+func TestLogicalBindingsBootstrapPublicationIncludesUnboundTargetRoles(t *testing.T) {
+	s := newBindingScenario(t)
+	s.intent.BootstrapMaterial = jsontext.Value(`{"installationId":"` + s.authority.InstallationID + `"}`)
+	s.publish()
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"control_compartment", "vault", "key"} {
+		reference, err := Reference("SFO", key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, err := verified.Resolve(reference); err != nil || got != s.record.ResourceIDs[key] {
+			t.Fatalf("bootstrap publication role %s: %s %v", key, got, err)
+		}
+	}
+	if _, err := verified.Resolve("foundation:SFO:subnet"); err == nil {
+		t.Fatal("bootstrap publication target authorized an unrelated subnet")
+	}
+	delete(s.record.ResourceProvenance, "key")
+	if _, err := Verify(t.Context(), s.factory, s.authority, s.wire); err == nil {
+		t.Fatal("implicit bootstrap publication role resolved without birth proof")
+	}
+}
