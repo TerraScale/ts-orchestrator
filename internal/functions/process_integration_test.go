@@ -172,6 +172,26 @@ func TestFunctionWorkerProcess(t *testing.T) {
 			}
 		}
 	}
+	for _, tc := range []struct {
+		client *http.Client
+		status int
+	}{{badClient, http.StatusUnauthorized}, {goodClient, http.StatusOK}} {
+		response, err := tc.client.Get("https://" + ready.Address + "/snapshot")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil || response.StatusCode != tc.status {
+			t.Fatalf("snapshot status %d: %v", response.StatusCode, err)
+		}
+		if tc.status == http.StatusOK {
+			var snapshot Snapshot
+			if err := json.Unmarshal(body, &snapshot); err != nil || snapshot.Manifest.Digest != deployment.Digest || snapshot.RuntimeVersion != RuntimeVersion || snapshot.Architecture == "" || snapshot.Succeeded != 1 || snapshot.Active != 0 || bytes.Contains(body, []byte("process payload")) {
+				t.Fatalf("snapshot is missing worker identity/counters or contains invocation data: %s: %v", body, err)
+			}
+		}
+	}
 	nc, err := nats.Connect(deployment.BrokerURL, nats.Secure(&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: pool}), nats.UserCredentialBytes(credentials))
 	if err != nil {
 		t.Fatal(err)
@@ -377,4 +397,30 @@ func processBrokerCredentials(t *testing.T, admitted release.VerifiedFunction) (
 		t.Fatal(err)
 	}
 	return credentials, workerCredentials, operatorID, systemID, resolver
+}
+
+func TestFunctionWorkerRejectsExpiredMaterial(t *testing.T) {
+	proof, deployment, files := signedFunctionFixture(t, integrationArtifact(t, "echo"))
+	deployment.BrokerURL = "tls://127.0.0.1:4222"
+	for name, expiry := range map[string]time.Time{"missing": {}, "expired": time.Now().Add(-time.Second), "beyond release": proof.ExpiresAt().Add(time.Second)} {
+		t.Run(name, func(t *testing.T) {
+			deployment.ExpiresAt = expiry
+			wire, err := json.Marshal(deployment)
+			if err != nil {
+				t.Fatal(err)
+			}
+			directory := t.TempDir()
+			for name, value := range files {
+				if err := os.WriteFile(filepath.Join(directory, name), value, 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(directory, "deployment.json"), wire, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := runProcess(t.Context(), directory, "127.0.0.1:0", io.Discard); err == nil || !strings.Contains(err.Error(), "material authority") {
+				t.Fatalf("invalid material expiry accepted: %v", err)
+			}
+		})
+	}
 }

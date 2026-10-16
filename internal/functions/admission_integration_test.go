@@ -101,6 +101,6 @@ func signedFunctionFixture(t *testing.T, artifact Artifact) (release.VerifiedFun
 		t.Fatal(err)
 	}
 
-	deployment := ProcessDeployment{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: 1}
+	deployment := ProcessDeployment{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: 1, ExpiresAt: admitted.ExpiresAt()}
 	return admitted, deployment, map[string][]byte{"root.pub": root, "receipt.json": signedWire, "delegation.json": delegationWire, "module.wasm": artifact.Module}
 }
