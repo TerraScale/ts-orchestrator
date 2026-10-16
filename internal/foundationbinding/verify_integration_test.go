@@ -196,6 +196,7 @@ func (s *bindingScenario) publish() {
 func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 	s := newBindingScenario(t)
 	s.grant.ReleaseAuthorities = jsontext.Value(`[{"service":"terrabase"}]`)
+	s.grant.WorkerProfiles = jsontext.Value(`[{"cell":"SFO","compartmentOcid":"foundation:SFO:control_compartment"}]`)
 	s.record.SourcePolicyIDs = jsontext.Value(`{"retained":{"policyId":"ocid1.policy.oc1..retained"}}`)
 	s.record.NetBirdManager = jsontext.Value(`{"slotId":"owned-by-netbird"}`)
 	s.publish()
