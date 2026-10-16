@@ -51,7 +51,7 @@ func NewLiveCredentialChecker(cfg natscell.Config, serviceUID, serviceGID uint32
 	responseKeyFile, brokerTicketKeyFile, hostNATSIssuerSeedFile, hostTLSIssuerKeyFile, hostTLSIssuerCertFile string,
 	validateControllerKeys func() error,
 ) (LiveCredentials, error) {
-	if serviceUID == 0 || serviceGID == 0 || cfg.Lab || cfg.Embedded == nil ||
+	if serviceUID == 0 || serviceGID == 0 || cfg.Embedded == nil ||
 		responseKeyFile == "" || brokerTicketKeyFile == "" || hostNATSIssuerSeedFile == "" ||
 		hostTLSIssuerKeyFile == "" || hostTLSIssuerCertFile == "" || validateControllerKeys == nil {
 		return LiveCredentials{}, ErrLiveCredentials
@@ -82,7 +82,7 @@ func (check LiveCredentials) VerifyInitialLiveCredentials(ctx context.Context, e
 }
 
 func (check LiveCredentials) verifyLiveCredentials(ctx context.Context, expected MaterialPins, slot, seedSlot string, references []bootstrap.SecretReference) error {
-	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Lab || check.Config.Embedded == nil ||
+	if check.ServiceUID == 0 || check.ServiceGID == 0 || check.Config.Embedded == nil ||
 		check.ValidateControllerKeys == nil ||
 		len(expected.Digests) == 0 {
 		return ErrLiveCredentials
