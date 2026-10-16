@@ -7,6 +7,7 @@ import (
 	"errors"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T) {
 	ctx := t.Context()
 	js := testRolloutJetStream(t)
+	assertGrantReadsUseLeader(t, js)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
@@ -95,6 +97,46 @@ func TestWorkerSourceReadsCurrentRegistrationAndRevocationOverNATS(t *testing.T)
 	if _, err := read(query); err == nil {
 		t.Fatal("disabled enrollment remained admissible")
 	}
+}
+
+func assertGrantReadsUseLeader(t *testing.T, js jetstream.JetStream) {
+	t.Helper()
+	leader, err := js.Conn().SubscribeSync("$JS.API.STREAM.MSG.GET.KV_" + hostenroll.GrantBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	direct, err := js.Conn().SubscribeSync("$JS.API.DIRECT.GET.>")
+	if err != nil {
+		_ = leader.Unsubscribe()
+		t.Fatal(err)
+	}
+	if err := js.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		defer leader.Unsubscribe()
+		defer direct.Unsubscribe()
+		if err := js.Conn().Flush(); err != nil {
+			t.Fatal(err)
+		}
+		reads, _, err := leader.Pending()
+		if err != nil || reads == 0 {
+			t.Fatalf("no leader enrollment reads: count=%d, error=%v", reads, err)
+		}
+		count, _, err := direct.Pending()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range count {
+			message, err := direct.NextMsg(time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.HasPrefix(message.Subject, "$JS.API.DIRECT.GET.KV_"+hostenroll.GrantBucket) {
+				t.Fatalf("enrollment authorization used follower read: %s", message.Subject)
+			}
+		}
+	})
 }
 
 func TestWorkerPreparationRequiresExactLiveClaim(t *testing.T) {

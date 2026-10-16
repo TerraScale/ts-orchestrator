@@ -30,6 +30,7 @@ import (
 func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) {
 	ctx := t.Context()
 	js := testRolloutJetStream(t)
+	assertGrantReadsUseLeader(t, js)
 	control, err := authority.Start(ctx, js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
 	if err != nil {
 		t.Fatal(err)
