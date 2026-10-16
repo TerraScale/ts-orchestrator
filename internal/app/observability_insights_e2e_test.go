@@ -5,6 +5,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -27,15 +28,21 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 	t.Cleanup(func() { slog.SetDefault(original) })
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	nats, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	nats, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = nats.Close() })
 	address := freeLoopbackAddress(t)
+	token := strings.Repeat("i", 40)
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	cfg := Config{NATS: natscell.Config{Cell: "lab", Instance: "one"},
-		Observability: observability.Config{ListenAddress: address}}
+		Observability: observability.Config{ListenAddress: address, BearerTokenFile: tokenFile}}
 	telemetry, err := startRuntimeObservability(ctx, cfg, "controller", "one")
 	if err != nil {
 		t.Fatal(err)
@@ -83,6 +90,7 @@ func TestControllerRolloutsAndBudgetsReachInsightsAndTheDashboard(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
+		request.Header.Set("Authorization", "Bearer "+token)
 		response, err := http.DefaultClient.Do(request)
 		if err != nil {
 			t.Fatal(err)

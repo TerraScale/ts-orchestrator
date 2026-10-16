@@ -63,7 +63,8 @@ func TestDashboardLoopFollowsTheSpec(t *testing.T) {
 		defer mu.Unlock()
 		return netbirdAddresses{netbirdAddress}, true
 	}
-	broker, err := natscell.Start(t.Context(), natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	broker, err := auth.start(t, t.Context(), natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +192,8 @@ func TestNetBirdDashboardServesAuthenticatedResourceAPIs(t *testing.T) {
 	original := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(original) })
 	ctx := t.Context()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)

@@ -25,7 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 )
 
-// A lab controller with machines_api opens the app and tenant stores and
+// A controller with machines_api opens the app and tenant stores and
 // serves them to a platform member's ts-auth token.
 func TestControllerServesMachinesAPI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
@@ -44,15 +44,16 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 
 	root := t.TempDir()
 	port, apiPort := freeTCPPort(t), freeTCPPort(t)
-	controllerNKey, controllerSeed := testNKey(t)
+	_, controllerSeed := testNKey(t)
+	auth := newAuthenticatedNATS(t, "gru")
 	testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 128 << 20}
 	issuer, audience := "https://gru.auth.terrascale.tech/terrascale", "https://gru.orch.terrascale.tech"
-	controllerConfig := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
+	cfg := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
 			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"),
-				StoreMaxBytes: 4 << 30, Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}}}},
+				StoreMaxBytes: 4 << 30}},
 		Controller: ControllerConfig{SpecTrust: authorityTestSpecTrust(t, root, "gru"), CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			ArtifactStoreMaxBytes: 64 << 20, TrustedSigners: []TrustedSignerConfig{{Actor: "ops",
 				PublicKey: base64.StdEncoding.EncodeToString(operatorPublic), Roles: []string{"web"}, Environments: []string{"test"}}},
@@ -61,7 +62,9 @@ func TestControllerServesMachinesAPI(t *testing.T) {
 				Audience: audience, JWKSURLs: []string{jwks.URL}, Clients: []string{"00000000000000000000000001"},
 				PlatformOrganizationID: "0000000000N2TZG5XH1FX62SDF", Members: map[string][]string{"0000000000N2TZG5XH1FX62SDF": {"00000000000000000000000002"}}},
 		},
-	})
+	}
+	auth.controller(t, &cfg)
+	controllerConfig := testJSONFile(t, root, "controller.json", cfg)
 	runCtx, stop := context.WithCancel(ctx)
 	output := &readyWriter{ready: make(chan struct{})}
 	done := make(chan error, 1)
@@ -134,7 +137,8 @@ func TestMachinesAPIFollowsTheCellSpec(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	host := "127.0.0.42"
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "machines-spec", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "gru")
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: "gru", Instance: "machines-spec", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: host, Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
 	if err != nil {
 		t.Fatal(err)

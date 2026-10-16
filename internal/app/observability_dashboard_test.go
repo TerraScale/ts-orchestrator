@@ -30,7 +30,8 @@ func TestControllerDashboardRequiresSignIn(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(original) })
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	nats, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, "lab")
+	nats, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
