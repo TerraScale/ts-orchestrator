@@ -295,13 +295,24 @@ func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
 	forgedRollback := valid
 	forgedRollback.RollbackOf = 1
 	wrongSigner := newSequenceFixture(t)
-	wrongMigration := valid
-	wrongMigration.SequenceMigration, _ = trust.EncodeEnvelope(wrongSigner.migration)
-	wrongMigration.SequenceMigrationSHA256 = wrongSigner.migrationSHA
+	var signerMigration release.SequenceMigration
+	if err := protocol.DecodeStrict(wrongSigner.migration.Payload, &signerMigration, trust.MaxPayloadBytes); err != nil {
+		t.Fatal(err)
+	}
+	wrongMigration := fixture
+	var err error
+	wrongMigration.migration, err = release.SignSequenceMigration(signerMigration, fixture.now, fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongMigration.migrationSHA, err = trust.Fingerprint(wrongMigration.migration)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name, candidate := range map[string]Release{
 		"tampered sequence":      tampered,
 		"forged rollback":        forgedRollback,
-		"wrong migration signer": wrongMigration,
+		"wrong migration signer": wrongMigration.update(t, 1001, 1, toDigest, true),
 		"no independent proof":   fixture.update(t, 1001, 1, toDigest, false),
 	} {
 		if _, err := store.PublishSequencedRelease(ctx, 7, candidate, fixture.roots, "GRU", "production"); err == nil {
@@ -321,7 +332,6 @@ func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
 	}
 	migration.Namespace = "replacement"
 	replacement := fixture
-	var err error
 	replacement.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
 	if err != nil {
 		t.Fatal(err)
