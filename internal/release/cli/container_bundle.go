@@ -2,8 +2,6 @@ package cli
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
 	"flag"
@@ -187,15 +185,20 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	if err := location.ImportMigration(c.ctx, migrationEnvelope, roots, *role, *environment, now); err != nil {
 		return err
 	}
-	content := sha256.New()
-	for _, target := range targets {
-		digest, err := target.claim.ContentManifestDigest()
+	family, err := targets[0].claim.WorkerFamilyDigest()
+	if err != nil {
+		return err
+	}
+	for _, target := range targets[1:] {
+		candidate, err := target.claim.WorkerFamilyDigest()
 		if err != nil {
 			return err
 		}
-		content.Write([]byte(digest))
+		if candidate != family {
+			return errors.New("container targets do not share one source and OCI index family")
+		}
 	}
-	sequence, err := location.Allocate(c.ctx, release.SequenceIdentity{Role: *role, Environment: *environment, SourceRevision: *commit, ManifestSHA256: hex.EncodeToString(content.Sum(nil))}, roots, private)
+	sequence, reservation, err := location.AllocateWithEvidence(c.ctx, release.SequenceIdentity{Role: *role, Environment: *environment, SourceRevision: *commit, ManifestSHA256: family}, roots, private)
 	if err != nil {
 		return err
 	}
@@ -206,6 +209,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 	}
 	for index := range targets {
 		target := &targets[index]
+		target.bundle.Sequence = slices.Clone(reservation)
 		target.claim.ReleaseSequence = sequence
 		target.claim.SequenceMigrationSHA256 = migrationSHA
 		payload, err := trust.EncodePayload(target.claim)
@@ -221,7 +225,7 @@ func (c command) containerBundleWith(args []string, env deployEnv) error {
 		if err != nil {
 			return err
 		}
-		if _, err := release.VerifyContainerCurrent(c.ctx, target.bundle, roots, scope, issued, deadline, containerEvidenceReader(*evidenceDir)); err != nil {
+		if _, err := release.VerifyContainerCurrent(c.ctx, target.bundle, roots, scope, issued, deadline, containerEvidenceReader(*evidenceDir), location); err != nil {
 			return err
 		}
 	}

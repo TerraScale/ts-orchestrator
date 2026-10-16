@@ -26,7 +26,7 @@ func (c command) containerApply(args []string) error {
 }
 
 // containerApplyWith consumes retained signed bundles and standard OCI layouts;
-// it never reads a source checkout, signing key or sequence allocator.
+// it reads the public immutable allocation, without a source checkout or signing key.
 func (c command) containerApplyWith(args []string, env deployEnv) error {
 	flags := flag.NewFlagSet("container-apply", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -52,9 +52,10 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 		return err
 	}
 	type target struct {
-		bundle   release.ContainerBundle
-		verified release.VerifiedContainer
-		scope    release.ContainerTarget
+		bundle      release.ContainerBundle
+		verified    release.VerifiedContainer
+		scope       release.ContainerTarget
+		allocations release.SequenceLocation
 	}
 	targets := make(map[string][]target)
 	var cells []string
@@ -95,7 +96,20 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 				return err
 			}
 			scope := release.ContainerTarget{Cell: entry.Name(), Environment: claim.Environment, Role: claim.Role, Architecture: architecture.Name()}
-			verified, err := release.VerifyContainerCurrent(c.ctx, bundle, roots, scope, now, deadline, containerEvidenceReader(filepath.Join(*directory, "production")))
+			migrationEnvelope, err := trust.DecodeEnvelope(bundle.Migration)
+			if err != nil {
+				return err
+			}
+			migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, scope.Role, scope.Environment)
+			if err != nil {
+				return err
+			}
+			client, err := env.storage(migration.Region)
+			if err != nil {
+				return err
+			}
+			allocations := release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
+			verified, err := release.VerifyContainerCurrent(c.ctx, bundle, roots, scope, now, deadline, containerEvidenceReader(filepath.Join(*directory, "production")), allocations)
 			if err != nil {
 				return err
 			}
@@ -120,7 +134,7 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 			if len(targets[scope.Cell]) == 0 {
 				cells = append(cells, scope.Cell)
 			}
-			targets[scope.Cell] = append(targets[scope.Cell], target{bundle: bundle, verified: verified, scope: scope})
+			targets[scope.Cell] = append(targets[scope.Cell], target{bundle: bundle, verified: verified, scope: scope, allocations: allocations})
 		}
 	}
 	if len(targets) == 0 {
@@ -152,7 +166,7 @@ func (c command) containerApplyWith(args []string, env deployEnv) error {
 					}
 					if err := releasechannel.PublishContainer(ctx, location, target.bundle, roots, target.scope, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 						return releasechannel.ReadContainerEvidence(ctx, location, claim.Role, digest)
-					}); err != nil {
+					}, target.allocations); err != nil {
 						return err
 					}
 					fmt.Fprintf(progress, "%s %s %s published signed OCI %s\n", claim.Cell, claim.Role, claim.Architecture, claim.Image)
