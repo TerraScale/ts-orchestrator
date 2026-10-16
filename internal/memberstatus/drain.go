@@ -23,6 +23,36 @@ type DrainStore interface {
 	Create(DrainRecord) error
 }
 
+// Drain resumes durable intent before obtaining new evidence. A pending or
+// unknown result never authorizes stopping the member or transferring a writer.
+func (c *Client) Drain(ctx context.Context, survivor Survivor, operationID string, store DrainStore) (DrainEnvelope, error) {
+	if store == nil {
+		return DrainEnvelope{}, errors.New("member drain has no durable store")
+	}
+	record, found, err := store.Load()
+	if err != nil {
+		return DrainEnvelope{}, err
+	}
+	if found {
+		if !record.valid(c.scope, c.authority) || record.Request.OperationID != operationID || record.Survivor != survivor {
+			return DrainEnvelope{}, ErrOperationConflict
+		}
+	} else {
+		status, err := c.Status(ctx)
+		if err != nil {
+			return DrainEnvelope{}, err
+		}
+		proof, err := c.ServingProof(ctx, status, survivor)
+		if err != nil {
+			return DrainEnvelope{}, err
+		}
+		if _, err := c.PrepareDrain(status, proof, survivor, operationID, store); err != nil {
+			return DrainEnvelope{}, err
+		}
+	}
+	return c.ReconcileDrain(ctx, store)
+}
+
 // PrepareDrain saves an exact idempotent request only after a live serving
 // proof names the required survivor and its applied ACK covers the source.
 func (c *Client) PrepareDrain(status Status, proof ServingProof, survivor Survivor, operationID string, store DrainStore) (DrainRecord, error) {
