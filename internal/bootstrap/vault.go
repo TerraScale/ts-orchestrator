@@ -220,6 +220,10 @@ func authorizeSecretMaterialization(manifest StartupAuthority, receipt VerifiedR
 		if reference.Slot != receipt.receipt.Slot {
 			return fmt.Errorf("%w: controller secret is bound to a different slot", ErrReceiptInvalid)
 		}
+	case SecretInterRegion:
+		if reference.Slot != "" && reference.Slot != receipt.receipt.Slot {
+			return fmt.Errorf("%w: Link TLS secret is bound to a different slot", ErrReceiptInvalid)
+		}
 	default:
 		return fmt.Errorf("%w: unknown secret purpose", ErrManifestInvalid)
 	}

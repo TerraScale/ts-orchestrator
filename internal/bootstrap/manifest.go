@@ -503,6 +503,15 @@ func (secret SecretReference) validate(manifest Manifest) error {
 		if secret.Slot != "" || !slices.Contains(controllerIssuerFiles, secret.TargetFile) {
 			return fmt.Errorf("%w: controller issuer secret must name one exact regional issuer", ErrManifestInvalid)
 		}
+	case SecretInterRegion:
+		shared := secret.TargetFile == "interregion-ca.pem" || secret.TargetFile == LinkCredentialsFile
+		if shared && secret.Slot == "" {
+			break
+		}
+		cert, key := InterRegionTLSFiles(secret.Slot)
+		if !slices.Contains(manifest.ControllerSlots, secret.Slot) || secret.TargetFile != cert && secret.TargetFile != key {
+			return fmt.Errorf("%w: Link secret must name exact regional CA, credentials or slot TLS", ErrManifestInvalid)
+		}
 	case SecretSeedFounder:
 		if secret.Slot != manifest.SeedSlot {
 			return fmt.Errorf("%w: founder secret must be seed-slot-bound", ErrManifestInvalid)
