@@ -26,6 +26,7 @@ import (
 type Admission struct {
 	Region         string
 	HostID         string
+	InstanceID     string
 	FounderID      string
 	Role           string
 	ManagerAddress string
@@ -50,10 +51,11 @@ type Node struct {
 }
 
 type admittedIdentity struct {
-	Region    string
-	HostID    string
-	FounderID string
-	Role      string
+	Region     string
+	HostID     string
+	InstanceID string
+	FounderID  string
+	Role       string
 }
 
 // StartNode starts an admitted node and waits for upstream registration. The
@@ -63,7 +65,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		return nil, err
 	}
 	a := cfg.Admission
-	if cfg.StateDir == "" || a.Region == "" || a.HostID == "" || a.FounderID == "" || executor == nil {
+	if cfg.StateDir == "" || a.Region == "" || a.HostID == "" || a.InstanceID == "" || a.FounderID == "" || executor == nil {
 		return nil, errors.New("swarm node requires persistent state, admitted identity and executor")
 	}
 	if a.Role != "manager" && a.Role != "container" && a.Role != "wasm" {
@@ -95,7 +97,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		}
 	}()
 
-	identity := admittedIdentity{Region: a.Region, HostID: a.HostID, FounderID: a.FounderID, Role: a.Role}
+	identity := admittedIdentity{Region: a.Region, HostID: a.HostID, InstanceID: a.InstanceID, FounderID: a.FounderID, Role: a.Role}
 	admissionPath := filepath.Join(cfg.StateDir, "admission.json")
 	stored, err := os.ReadFile(admissionPath)
 	existingAdmission := err == nil

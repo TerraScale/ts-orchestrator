@@ -162,7 +162,7 @@ func nodeFixtureConfig(t *testing.T, hostID, role string) NodeConfig {
 	}
 	return NodeConfig{
 		StateDir: t.TempDir(), ListenAddress: address, AdvertiseAddress: address,
-		Admission: Admission{Region: "integration", HostID: hostID, FounderID: "founder", Role: role},
+		Admission: Admission{Region: "integration", HostID: hostID, InstanceID: "instance-" + hostID, FounderID: "founder", Role: role},
 	}
 }
 
