@@ -16,6 +16,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -23,6 +24,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go"
 )
 
 type splitTCPReadConn struct {
@@ -39,7 +42,7 @@ func (c *splitTCPReadConn) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func splitTCPClient(t *testing.T, s *Server, width int) (net.Conn, *bufio.Reader, *splitTCPReadConn) {
+func splitTCPConn(t *testing.T, width int, accept func(net.Conn) *client) (net.Conn, *bufio.Reader, *splitTCPReadConn) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require_NoError(t, err)
@@ -52,16 +55,22 @@ func splitTCPClient(t *testing.T, s *Server, width int) (net.Conn, *bufio.Reader
 	require_NoError(t, err)
 	fragmented := &splitTCPReadConn{Conn: accepted, width: width}
 	// This is the production accept action; only real socket read sizes change.
-	s.createClient(fragmented)
+	require_NotNil(t, accept(fragmented))
 	reader := bufio.NewReader(nc)
 	line, err := reader.ReadString('\n')
 	require_NoError(t, err)
 	if !strings.HasPrefix(line, "INFO ") {
 		t.Fatalf("expected initial INFO, got %q", line)
 	}
-	_, err = io.WriteString(nc, "CONNECT {\"verbose\":false,\"pedantic\":true,\"user\":\"test\",\"pass\":\"pass\"}\r\nPING\r\n")
+	return nc, reader, fragmented
+}
+
+func splitTCPClient(t *testing.T, s *Server, width int) (net.Conn, *bufio.Reader, *splitTCPReadConn) {
+	t.Helper()
+	nc, reader, fragmented := splitTCPConn(t, width, s.createClient)
+	_, err := io.WriteString(nc, "CONNECT {\"verbose\":false,\"pedantic\":true,\"user\":\"test\",\"pass\":\"pass\"}\r\nPING\r\n")
 	require_NoError(t, err)
-	line, err = reader.ReadString('\n')
+	line, err := reader.ReadString('\n')
 	require_NoError(t, err)
 	require_Equal(t, line, "PONG\r\n")
 	return nc, reader, fragmented
@@ -126,6 +135,95 @@ func TestSplitClientCommandsOverTCP(t *testing.T) {
 			write("UNSUB 1024\r\nSUB marker 2\r\nPUB foo.bar 11\r\nhello world\r\nPUB marker 2\r\nok\r\nPING\r\n")
 			message("marker", "2", "", "ok")
 			line("PONG\r\n")
+		})
+	}
+}
+
+func TestSplitPeerMessagesOverTCP(t *testing.T) {
+	for _, kind := range []string{"route", "leaf"} {
+		t.Run(kind, func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSystemAccount = true
+			opts.Cluster.PoolSize = 1
+			opts.Cluster.Compression.Mode = CompressionOff
+			opts.LeafNode.Host, opts.LeafNode.Port = "127.0.0.1", -1
+			opts.LeafNode.Compression.Mode = CompressionOff
+			s := RunServer(opts)
+			defer s.Shutdown()
+
+			for _, width := range []int{1, 7} {
+				t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+					subject := "foo.bar"
+					accept := func(conn net.Conn) *client {
+						return s.createRoute(conn, nil, Implicit, gossipDefault, _EMPTY_)
+					}
+					if kind == "leaf" {
+						subject = "foo"
+						accept = func(conn net.Conn) *client { return s.createLeafNode(conn, nil, nil, nil) }
+					}
+					nc := natsConnect(t, s.ClientURL())
+					defer nc.Close()
+					plain := natsSubSync(t, nc, subject)
+					var queue *nats.Subscription
+					if kind == "leaf" {
+						queue = natsQueueSubSync(t, nc, subject, "baz")
+					}
+					natsFlush(t, nc)
+					peer, reader, fragmented := splitTCPConn(t, width, accept)
+					fence := func(protocol string) {
+						t.Helper()
+						require_NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
+						_, err := io.WriteString(peer, protocol+"PING\r\n")
+						require_NoError(t, err)
+						for range 100 {
+							line, err := reader.ReadString('\n')
+							require_NoError(t, err)
+							if line == "PONG\r\n" {
+								return
+							}
+							if line == "PING\r\n" {
+								_, err := io.WriteString(peer, "PONG\r\n")
+								require_NoError(t, err)
+							}
+							if strings.HasPrefix(line, "-ERR") {
+								t.Fatalf("peer protocol rejected: %s", line)
+							}
+						}
+						t.Fatal("peer sent 100 control frames without PONG")
+					}
+					name := fmt.Sprintf("SPLIT_%s_%d", kind, width)
+					if kind == "route" {
+						info, err := json.Marshal(Info{ID: name, Name: name, Cluster: opts.Cluster.Name, Headers: true, RoutePoolSize: 1, Proto: RouteProtoV2})
+						require_NoError(t, err)
+						fence(fmt.Sprintf("CONNECT {\"name\":%q,\"cluster\":%q,\"headers\":true}\r\nINFO %s\r\n", name, opts.Cluster.Name, info))
+					} else {
+						fence(fmt.Sprintf("CONNECT {\"name\":%q}\r\n", name))
+					}
+
+					for _, payload := range []string{"hello world", strings.Repeat("A", 6040)} {
+						prefix, reply := "RMSG $G foo.bar INBOX.22", "INBOX.22"
+						if kind == "leaf" {
+							prefix, reply = "LMSG foo + bar baz", "bar"
+						}
+						packet := fmt.Sprintf("%s %d\r\n%s\r\n", prefix, len(payload), payload)
+						before := fragmented.reads.Load()
+						fence(packet)
+						for _, sub := range []*nats.Subscription{plain, queue} {
+							if sub == nil {
+								continue
+							}
+							msg, err := sub.NextMsg(time.Second)
+							require_NoError(t, err)
+							require_Equal(t, msg.Subject, subject)
+							require_Equal(t, msg.Reply, reply)
+							require_Equal(t, string(msg.Data), payload)
+						}
+						if reads := fragmented.reads.Load() - before; reads < int64((len(packet)+width-1)/width) {
+							t.Fatalf("peer packet was not fragmented: %d reads for %d bytes at width %d", reads, len(packet), width)
+						}
+					}
+				})
+			}
 		})
 	}
 }

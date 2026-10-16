@@ -6528,6 +6528,48 @@ func TestNRGMustNotResetVoteOnStepDownOrLeaderTransfer(t *testing.T) {
 	require_Equal(t, n.vote, nats0)
 }
 
+func TestNRGAppendEntriesSeqStopsOnRangeBreakTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "CHECKPOINT_BREAK", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("CHECKPOINT_BREAK", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	for _, delta := range []int64{1, 2, 4} {
+		leader.(*stateAdder).proposeDelta(delta)
+		rg.waitOnTotal(t, delta*2-1)
+	}
+	waitRaftRouteMembership(t, rg, 3)
+	follower := rg.nonLeader()
+	checkpoint, err := follower.node().CreateSnapshotCheckpoint(false)
+	require_NoError(t, err)
+	defer checkpoint.Abort()
+	var available int
+	for ae, err := range checkpoint.AppendEntriesSeq() {
+		require_NoError(t, err)
+		require_NotNil(t, ae)
+		available++
+	}
+	require_True(t, available > 1)
+	var calls int
+	for ae, err := range checkpoint.AppendEntriesSeq() {
+		require_NoError(t, err)
+		require_NotNil(t, ae)
+		calls++
+		break
+	}
+	require_Equal(t, calls, 1)
+	checkpoint.Abort()
+	again, err := follower.node().CreateSnapshotCheckpoint(false)
+	require_NoError(t, err)
+	again.Abort()
+	leader.(*stateAdder).proposeDelta(8)
+	rg.waitOnTotal(t, 15)
+	follower.stop()
+	follower.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 15)
+}
+
 func TestNRGAppendEntriesSeqStopsOnRangeBreak(t *testing.T) {
 	n, cleanup := initSingleMemRaftNode(t)
 	defer cleanup()

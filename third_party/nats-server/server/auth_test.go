@@ -16,10 +16,16 @@ package server
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"net"
 	"net/url"
 	"os"
@@ -224,6 +230,133 @@ func TestDNSAltNameMatching(t *testing.T) {
 	}
 }
 
+func TestAuthDNSAltNamesTLSRoutes(t *testing.T) {
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
+	require_NoError(t, err)
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(1), NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, caPub, caKey)
+	require_NoError(t, err)
+	ca, err = x509.ParseCertificate(caDER)
+	require_NoError(t, err)
+	roots := x509.NewCertPool()
+	roots.AddCert(ca)
+	serial := int64(1)
+	certificate := func(t *testing.T, names []string, usage x509.ExtKeyUsage) tls.Certificate {
+		t.Helper()
+		pub, key, err := ed25519.GenerateKey(rand.Reader)
+		require_NoError(t, err)
+		serial++
+		leaf := &x509.Certificate{
+			SerialNumber: big.NewInt(serial), NotBefore: ca.NotBefore, NotAfter: ca.NotAfter,
+			DNSNames: names, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage},
+		}
+		der, err := x509.CreateCertificate(rand.Reader, leaf, ca, pub, caKey)
+		require_NoError(t, err)
+		return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	}
+	serverCert := certificate(t, []string{"localhost"}, x509.ExtKeyUsageServerAuth)
+	for idx, tc := range []struct {
+		altName string
+		urls    []string
+		match   bool
+	}{
+		{"foo", []string{"FOO"}, true},
+		{"foo", []string{".."}, false},
+		{"foo", []string{"."}, false},
+		{"Foo", []string{"foO"}, true},
+		{"FOO", []string{"foo"}, true},
+		{"foo1", []string{"bar"}, false},
+		{"multi", []string{"m", "mu", "mul", "multi"}, true},
+		{"multi", []string{"multi", "m", "mu", "mul"}, true},
+		{"foo.bar", []string{"foo", "foo.bar.bar", "foo.baz"}, false},
+		{"foo.Bar", []string{"foo", "bar.foo", "Foo.Bar"}, true},
+		{"foo.*", []string{"foo", "bar.foo", "Foo.Bar"}, false}, // only match left most
+		{"f*.bar", []string{"foo", "bar.foo", "Foo.Bar"}, false},
+		{"*.bar", []string{"foo.bar"}, true},
+		{"*", []string{"baz.bar", "bar", "z.y"}, true},
+		{"*", []string{"bar"}, true},
+		{"*", []string{"."}, false},
+		{"*", []string{""}, true},
+		{"*", []string{"*"}, true},
+		{"bar.*", []string{"bar.*"}, true},
+		{"*.Y-X-red-mgmt.default.svc", []string{"A.Y-X-red-mgmt.default.svc"}, true},
+		{"*.Y-X-green-mgmt.default.svc", []string{"A.Y-X-green-mgmt.default.svc"}, true},
+		{"*.Y-X-blue-mgmt.default.svc", []string{"A.Y-X-blue-mgmt.default.svc"}, true},
+		{"Y-X-red-mgmt", []string{"Y-X-red-mgmt"}, true},
+		{"Y-X-red-mgmt", []string{"X-X-red-mgmt"}, false},
+		{"Y-X-red-mgmt", []string{"Y-X-green-mgmt"}, false},
+		{"Y-X-red-mgmt", []string{"Y"}, false},
+		{"Y-X-red-mgmt", []string{"Y-X"}, false},
+		{"Y-X-red-mgmt", []string{"Y-X-red"}, false},
+		{"Y-X-red-mgmt", []string{"X-red-mgmt"}, false},
+		{"Y-X-green-mgmt", []string{"Y-X-green-mgmt"}, true},
+		{"Y-X-blue-mgmt", []string{"Y-X-blue-mgmt"}, true},
+		{"connect.Y.local", []string{"connect.Y.local"}, true},
+		{"connect.Y.local", []string{".Y.local"}, false},
+		{"connect.Y.local", []string{"..local"}, false},
+		{"gcp.Y.local", []string{"gcp.Y.local"}, true},
+		{"uswest1.gcp.Y.local", []string{"uswest1.gcp.Y.local"}, true},
+	} {
+		t.Run(fmt.Sprintf("%02d_%s", idx, tc.altName), func(t *testing.T) {
+			peerCert := certificate(t, []string{tc.altName}, x509.ExtKeyUsageClientAuth)
+			o := defaultServerOptions
+			o.NoSystemAccount = true
+			o.Cluster = ClusterOpts{
+				Name: "auth-dns", Host: "127.0.0.1", Port: -1, PoolSize: -1,
+				TLSCheckKnownURLs: true, resolver: &localhostResolver{},
+				TLSConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{serverCert},
+					ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: roots, RootCAs: roots,
+				},
+			}
+			for _, host := range tc.urls {
+				// Port zero keeps configured trust names from reaching another listener.
+				u, err := url.Parse("nats://" + net.JoinHostPort(host, "0"))
+				require_NoError(t, err)
+				o.Routes = append(o.Routes, u)
+			}
+			s := RunServer(&o)
+			t.Cleanup(s.Shutdown)
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(o.Cluster.Host, fmt.Sprint(o.Cluster.Port)), 2*time.Second)
+			require_NoError(t, err)
+			t.Cleanup(func() { conn.Close() })
+			require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+			peer := tls.Client(conn, &tls.Config{
+				MinVersion: tls.VersionTLS12, ServerName: "localhost", RootCAs: roots,
+				Certificates: []tls.Certificate{peerCert},
+			})
+			require_NoError(t, peer.Handshake())
+			_, err = io.WriteString(peer, "CONNECT {\"name\":\"dns-peer\",\"cluster\":\"auth-dns\",\"tls_required\":true}\r\nINFO {\"server_id\":\"dns-peer\",\"cluster\":\"auth-dns\"}\r\nPING\r\n")
+			require_NoError(t, err)
+			br := bufio.NewReader(peer)
+			for {
+				line, err := br.ReadString('\n')
+				require_NoError(t, err)
+				switch {
+				case strings.HasPrefix(line, "INFO "), line == "+OK\r\n":
+					continue
+				case line == "PING\r\n":
+					_, err := io.WriteString(peer, "PONG\r\n")
+					require_NoError(t, err)
+					continue
+				case tc.match:
+					require_Equal(t, line, "PONG\r\n")
+					checkNumRoutes(t, s, 1)
+				default:
+					require_Equal(t, strings.TrimSpace(line), authViolation)
+					_, err := br.ReadByte()
+					require_True(t, errors.Is(err, io.EOF))
+					require_Equal(t, s.NumRoutes(), 0)
+				}
+				break
+			}
+		})
+	}
+}
+
 func TestProcessUserPermissionsTemplateMalformedOpDoesNotPanic(t *testing.T) {
 	defer require_NoPanic(t)
 
@@ -328,6 +461,154 @@ func TestAuthPermissionTemplatesTCP(t *testing.T) {
 			}
 			require_True(t, errors.Is(err, nats.ErrAuthorization))
 			checkDelivery()
+		})
+	}
+}
+
+func authSubjectDelivery(t *testing.T, nc *nats.Conn, subject string) {
+	t.Helper()
+	sub := natsSubSync(t, nc, subject)
+	defer sub.Unsubscribe()
+	require_NoError(t, nc.Publish(subject, []byte("authorized")))
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	msg := natsNexMsg(t, sub, 2*time.Second)
+	require_Equal(t, string(msg.Data), "authorized")
+}
+
+func TestAuthAllowedConnectionTypesListeners(t *testing.T) {
+	kp, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	pub, err := kp.PublicKey()
+	require_NoError(t, err)
+	o := defaultServerOptions
+	o.Users = []*User{{Username: "user", Password: "pwd"}}
+	o.Nkeys = []*NkeyUser{{Nkey: pub}}
+	o.Websocket = WebsocketOpts{Host: "127.0.0.1", Port: -1, NoTLS: true}
+	s := RunServer(&o)
+	t.Cleanup(s.Shutdown)
+	credentials := []struct {
+		name string
+		opt  nats.Option
+	}{
+		{"password", nats.UserInfo("user", "pwd")},
+		{"nkey", nats.Nkey(pub, kp.Sign)},
+	}
+	checkTCP := func(t *testing.T) {
+		t.Helper()
+		for _, cred := range credentials {
+			nc := natsConnect(t, s.ClientURL(), cred.opt, nats.Timeout(2*time.Second), nats.NoReconnect())
+			authSubjectDelivery(t, nc, "types.control")
+			nc.Close()
+		}
+	}
+	checkTCP(t)
+	for _, cred := range credentials {
+		t.Run("reject unknown "+cred.name, func(t *testing.T) {
+			next := s.getOpts().Clone()
+			unknown := testCreateAllowedConnectionTypes([]string{jwt.ConnectionTypeStandard, "someNewType"})
+			if cred.name == "password" {
+				next.Users[0].AllowedConnectionTypes = unknown
+			} else {
+				next.Nkeys[0].AllowedConnectionTypes = unknown
+			}
+			err := s.ReloadOptions(next)
+			require_Error(t, err)
+			require_Contains(t, err.Error(), "connection type")
+			checkTCP(t)
+		})
+	}
+	next := s.getOpts().Clone()
+	next.Users[0].AllowedConnectionTypes = testCreateAllowedConnectionTypes([]string{"websocket"})
+	next.Nkeys[0].AllowedConnectionTypes = testCreateAllowedConnectionTypes([]string{"websocket"})
+	require_NoError(t, s.ReloadOptions(next))
+	wsURL := fmt.Sprintf("ws://%s:%d", o.Websocket.Host, o.Websocket.Port)
+	for _, cred := range credentials {
+		t.Run("normalized websocket "+cred.name, func(t *testing.T) {
+			nc, err := nats.Connect(s.ClientURL(), cred.opt, nats.Timeout(2*time.Second), nats.NoReconnect())
+			if nc != nil {
+				nc.Close()
+			}
+			require_True(t, errors.Is(err, nats.ErrAuthorization))
+			nc = natsConnect(t, wsURL, cred.opt, nats.Timeout(2*time.Second), nats.NoReconnect())
+			defer nc.Close()
+			authSubjectDelivery(t, nc, "types.control")
+		})
+	}
+}
+
+func TestAuthUserOptionsIsolationTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		permissions *Permissions
+	}{
+		{"nil permissions", nil},
+		{"empty permissions", &Permissions{}},
+		{"restricted permissions", &Permissions{
+			Publish:   &SubjectPermission{Allow: []string{"installed"}},
+			Subscribe: &SubjectPermission{Allow: []string{"installed"}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := &User{Username: "user", Password: "original", Permissions: tc.permissions}
+			o := defaultServerOptions
+			o.Users = []*User{user}
+			s := RunServer(&o)
+			t.Cleanup(s.Shutdown)
+			baseline := natsConnect(t, s.ClientURL(), nats.UserInfo("user", "original"), nats.Timeout(2*time.Second), nats.NoReconnect())
+			authSubjectDelivery(t, baseline, "installed")
+			baseline.Close()
+
+			// Caller-owned options must not mutate the installed authentication snapshot.
+			user.Password = "changed"
+			if tc.name == "restricted permissions" {
+				user.Permissions.Publish.Allow[0] = "changed"
+				user.Permissions.Subscribe.Allow[0] = "changed"
+			} else {
+				if user.Permissions == nil {
+					user.Permissions = &Permissions{}
+				}
+				user.Permissions.Publish = &SubjectPermission{Allow: []string{"changed"}}
+				user.Permissions.Subscribe = &SubjectPermission{Allow: []string{"changed"}}
+			}
+			nc, err := nats.Connect(s.ClientURL(), nats.UserInfo("user", "changed"), nats.Timeout(2*time.Second), nats.NoReconnect())
+			if nc != nil {
+				nc.Close()
+			}
+			require_True(t, errors.Is(err, nats.ErrAuthorization))
+			errorsCh := make(chan error, 2)
+			nc = natsConnect(t, s.ClientURL(), nats.UserInfo("user", "original"), nats.Timeout(2*time.Second), nats.NoReconnect(),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+					errorsCh <- err
+				}))
+			defer nc.Close()
+			authSubjectDelivery(t, nc, "installed")
+			if tc.name == "restricted permissions" {
+				_, err := nc.SubscribeSync("changed")
+				require_NoError(t, err)
+				require_NoError(t, nc.Publish("changed", nil))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				seen := make(map[string]bool)
+				for range 2 {
+					select {
+					case err := <-errorsCh:
+						switch {
+						case strings.Contains(err.Error(), `Permissions Violation for Subscription to "changed"`):
+							seen["subscribe"] = true
+						case strings.Contains(err.Error(), `Permissions Violation for Publish to "changed"`):
+							seen["publish"] = true
+						default:
+							t.Fatalf("Unexpected authentication snapshot error: %v", err)
+						}
+					case <-time.After(2 * time.Second):
+						t.Fatal("Expected installed publish and subscribe permissions to remain enforced")
+					}
+				}
+				require_True(t, seen["subscribe"])
+				require_True(t, seen["publish"])
+			} else {
+				// Nil/empty permissions remain unrestricted despite the caller's new allow lists.
+				authSubjectDelivery(t, nc, "unrestricted")
+			}
 		})
 	}
 }
@@ -914,6 +1195,124 @@ func TestAuthProxyCheckConnClosedDuringAuth(t *testing.T) {
 	conns := s.proxiedConns[pub]
 	s.mu.RUnlock()
 	require_Len(t, len(conns), 0)
+}
+
+// authVerifyGate preserves real signature verification while controlling its completion.
+type authVerifyGate struct {
+	nkeys.KeyPair
+	entered  chan struct{}
+	release  chan struct{}
+	finished chan struct{}
+}
+
+func (g *authVerifyGate) Verify(data, sig []byte) error {
+	if err := g.KeyPair.Verify(data, sig); err != nil {
+		return err
+	}
+	close(g.entered)
+	defer close(g.finished)
+	select {
+	case <-g.release:
+		return nil
+	case <-time.After(5 * time.Second):
+		return errors.New("proxy verification gate timed out")
+	}
+}
+
+func TestAuthProxyShutdownDuringTCPAuthentication(t *testing.T) {
+	kp, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	pub, err := kp.PublicKey()
+	require_NoError(t, err)
+	o := defaultServerOptions
+	o.Proxies = &ProxiesConfig{Trusted: []*ProxyConfig{{Key: pub}}}
+	s := RunServer(&o)
+	t.Cleanup(s.Shutdown)
+	connect := func() (net.Conn, *bufio.Reader) {
+		t.Helper()
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(o.Host, fmt.Sprint(o.Port)), 2*time.Second)
+		require_NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+		require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+		br := bufio.NewReader(conn)
+		line, err := br.ReadString('\n')
+		require_NoError(t, err)
+		require_True(t, strings.HasPrefix(line, "INFO "))
+		var info Info
+		require_NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "INFO ")), &info))
+		require_NotEqual(t, info.Nonce, "")
+		sig, err := kp.Sign([]byte(info.Nonce))
+		require_NoError(t, err)
+		_, err = fmt.Fprintf(conn, "CONNECT {\"verbose\":false,\"proxy_sig\":%q}\r\nPING\r\n", base64.RawURLEncoding.EncodeToString(sig))
+		require_NoError(t, err)
+		return conn, br
+	}
+	control, br := connect()
+	line, err := br.ReadString('\n')
+	require_NoError(t, err)
+	require_Equal(t, line, "PONG\r\n")
+	s.mu.RLock()
+	registered := len(s.proxiedConns[pub])
+	s.mu.RUnlock()
+	require_Equal(t, registered, 1)
+	require_NoError(t, control.Close())
+	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+		if s.NumClients() != 0 {
+			return errors.New("control proxy connection has not closed")
+		}
+		return nil
+	})
+
+	gate := &authVerifyGate{KeyPair: kp, entered: make(chan struct{}), release: make(chan struct{}), finished: make(chan struct{})}
+	release := func() {
+		select {
+		case <-gate.release:
+		default:
+			close(gate.release)
+		}
+	}
+	t.Cleanup(release)
+	s.mu.Lock()
+	s.proxiesKeyPairs = []nkeys.KeyPair{gate}
+	s.mu.Unlock()
+	_, br = connect()
+	select {
+	case <-gate.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("TCP authentication did not reach real proxy signature verification")
+	}
+	shutdownDone := make(chan struct{})
+	go func() {
+		s.Shutdown()
+		close(shutdownDone)
+	}()
+	t.Cleanup(func() {
+		release()
+		select {
+		case <-shutdownDone:
+		case <-time.After(5 * time.Second):
+			t.Error("server shutdown did not finish during cleanup")
+		}
+	})
+	// Shutdown must close the actual socket before verification can register it.
+	_, err = io.ReadAll(br)
+	require_NoError(t, err)
+	select {
+	case <-gate.finished:
+		t.Fatal("proxy verification finished before shutdown closed the TCP connection")
+	default:
+	}
+	require_Equal(t, s.NumClients(), 0)
+	release()
+	select {
+	case <-shutdownDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("server shutdown did not finish after proxy authentication resumed")
+	}
+	s.mu.RLock()
+	registered = len(s.proxiedConns[pub])
+	s.mu.RUnlock()
+	require_Equal(t, registered, 0)
 }
 
 const (

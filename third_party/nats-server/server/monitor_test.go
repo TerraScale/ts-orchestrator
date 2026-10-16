@@ -7545,9 +7545,11 @@ func TestMonitorConnzAccountReloadRaceHTTP(t *testing.T) {
 		require_Equal(t, line, "PONG\r\n")
 	}
 	connect("a")
-	url := fmt.Sprintf("http://%s/connz?acc=", s.MonitorAddr())
+	url := fmt.Sprintf("http://%s/connz?auth=true&acc=", s.MonitorAddr())
 	page := pollConnz(t, s, 0, url+"A", nil)
 	require_Len(t, len(page.Conns), 1)
+	require_Equal(t, page.Conns[0].Account, "A")
+	require_Equal(t, page.Conns[0].AuthorizedUser, "a")
 	cid := page.Conns[0].Cid
 	stop := make(chan struct{})
 	started := make(chan struct{})
@@ -7591,6 +7593,7 @@ func TestMonitorConnzAccountReloadRaceHTTP(t *testing.T) {
 	require_Len(t, len(page.Conns), 1)
 	require_Equal(t, page.Conns[0].Cid, cid)
 	require_Equal(t, page.Conns[0].Account, "B")
+	require_Equal(t, page.Conns[0].AuthorizedUser, "b")
 	page = pollConnz(t, s, 0, url+"A", nil)
 	require_Len(t, len(page.Conns), 0)
 }

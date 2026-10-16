@@ -6202,6 +6202,119 @@ func TestWSHandshakeDeadlineClearedOverSocket(t *testing.T) {
 	require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
 }
 
+func TestWSConfiguredCookieOverSocket(t *testing.T) {
+	operator, err := nkeys.FromSeed(oSeed)
+	require_NoError(t, err)
+	operatorID, err := operator.PublicKey()
+	require_NoError(t, err)
+	account, err := nkeys.CreateAccount()
+	require_NoError(t, err)
+	accountID, err := account.PublicKey()
+	require_NoError(t, err)
+	accountJWT, err := jwt.NewAccountClaims(accountID).Encode(operator)
+	require_NoError(t, err)
+	user, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	userID, err := user.PublicKey()
+	require_NoError(t, err)
+	claims := jwt.NewUserClaims(userID)
+	claims.BearerToken = true
+	userJWT, err := claims.Encode(account)
+	require_NoError(t, err)
+	config := createConfFile(t, fmt.Appendf(nil, `listen: "127.0.0.1:-1"
+http: "127.0.0.1:-1"
+trusted_keys: [%q]
+resolver: MEM
+resolver_preload: { %q: %q }
+websocket { listen: "127.0.0.1:-1", no_tls: true, jwt_cookie: "jwtcookie" }`, operatorID, accountID, accountJWT))
+	s, o := RunServerWithConfig(config)
+	defer s.Shutdown()
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get("http://" + s.MonitorAddr().String() + "/varz")
+	require_NoError(t, err)
+	defer resp.Body.Close()
+	require_Equal(t, resp.StatusCode, http.StatusOK)
+	var observed Varz
+	require_NoError(t, json.NewDecoder(resp.Body).Decode(&observed))
+	require_Equal(t, observed.Websocket.JWTCookie, "jwtcookie")
+	for _, name := range []string{"wrongcookie", "jwtcookie"} {
+		t.Run(name, func(t *testing.T) {
+			conn, br, _ := testNewWSClient(t, testWSClientOptions{
+				host: o.Websocket.Host, port: o.Websocket.Port, noTLS: true,
+				extraHeaders: map[string][]string{"Cookie": {name + "=" + userJWT}},
+			})
+			defer conn.Close()
+			require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
+			_, err := conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte("CONNECT {\"verbose\":false}\r\nPING\r\n")))
+			require_NoError(t, err)
+			msg := testWSReadFrame(t, br)
+			if name == "wrongcookie" {
+				require_Contains(t, string(msg), "Authorization Violation")
+			} else {
+				require_Equal(t, string(msg), "PONG\r\n")
+			}
+		})
+	}
+}
+
+func TestWSConfiguredOptionsOverHTTP(t *testing.T) {
+	for _, test := range []struct {
+		name, root, content, origin, credentials string
+		check                                    func(*testing.T, WebsocketOptsVarz)
+	}{
+		{"listen port only", "", `listen: -1, host: "127.0.0.1"`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_True(t, v.Port > 0) }},
+		{"listen host and port", "", `listen: "127.0.0.1:-1"`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.Host, "127.0.0.1") }},
+		{"host and port fields", "", `host: "localhost", port: -1`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.Host, "localhost") }},
+		{"advertise", "", `listen: "127.0.0.1:-1", advertise: "host:1234"`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.Advertise, "host:1234") }},
+		{"same origin", "", `listen: "127.0.0.1:-1", same_origin: true`, "http://localhost", "", func(t *testing.T, v WebsocketOptsVarz) { require_True(t, v.SameOrigin) }},
+		{"origin string", "", `listen: "127.0.0.1:-1", allowed_origins: "http://host.com/"`, "http://host.com", "", func(t *testing.T, v WebsocketOptsVarz) {
+			require_True(t, reflect.DeepEqual(v.AllowedOrigins, []string{"http://host.com/"}))
+		}},
+		{"origin array", "", `listen: "127.0.0.1:-1", allowed_origins: ["http://host1.com/", "http://host2.com/"]`, "http://host2.com", "", func(t *testing.T, v WebsocketOptsVarz) {
+			require_True(t, reflect.DeepEqual(v.AllowedOrigins, []string{"http://host1.com/", "http://host2.com/"}))
+		}},
+		{"whole seconds", "", `listen: "127.0.0.1:-1", handshake_timeout: 3`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.HandshakeTimeout, 3*time.Second) }},
+		{"duration string", "", `listen: "127.0.0.1:-1", handshake_timeout: "4s"`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.HandshakeTimeout, 4*time.Second) }},
+		{"compression", "", `listen: "127.0.0.1:-1", compression: true`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_True(t, v.Compression) }},
+		{"noauth user", `authorization { users: [{ user: "noauthuser", password: "pwd" }] }`, `listen: "127.0.0.1:-1", no_auth_user: "noauthuser"`, "", "", func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.NoAuthUser, "noauthuser") }},
+		{"username password", "", `listen: "127.0.0.1:-1", authorization { user: "webuser", password: "pwd", timeout: 2.0 }`, "", `,"user":"webuser","pass":"pwd"`, func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.AuthTimeout, 2.0) }},
+		{"token", "", `listen: "127.0.0.1:-1", authorization { token: "token", timeout: 2 }`, "", `,"auth_token":"token"`, func(t *testing.T, v WebsocketOptsVarz) { require_Equal(t, v.AuthTimeout, 2.0) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := createConfFile(t, fmt.Appendf(nil, `listen: "127.0.0.1:-1"
+http: "127.0.0.1:-1"
+%s
+websocket { %s, no_tls: true, headers { "X-Header": "some-value", "X-Another-Header": "another-value" } }`, test.root, test.content))
+			s, o := RunServerWithConfig(config)
+			defer s.Shutdown()
+			client := &http.Client{Timeout: 2 * time.Second}
+			resp, err := client.Get("http://" + s.MonitorAddr().String() + "/varz")
+			require_NoError(t, err)
+			defer resp.Body.Close()
+			require_Equal(t, resp.StatusCode, http.StatusOK)
+			var observed Varz
+			require_NoError(t, json.NewDecoder(resp.Body).Decode(&observed))
+			test.check(t, observed.Websocket)
+			req := testWSCreateValidReq()
+			if test.origin != "" {
+				req.Header.Set("Origin", test.origin)
+			}
+			if observed.Websocket.Compression {
+				req.Header.Set("Sec-Websocket-Extensions", "permessage-deflate")
+			}
+			conn, br, upgrade := testWSUpgradeRequest(t, o, req)
+			require_Equal(t, upgrade.StatusCode, http.StatusSwitchingProtocols)
+			require_Equal(t, upgrade.Header.Get("X-Header"), "some-value")
+			require_Equal(t, upgrade.Header.Get("X-Another-Header"), "another-value")
+			require_True(t, bytes.HasPrefix(testWSReadFrame(t, br), []byte("INFO ")))
+			proto := "CONNECT {\"verbose\":false" + test.credentials + "}\r\nPING\r\n"
+			_, err = conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, observed.Websocket.Compression, []byte(proto)))
+			require_NoError(t, err)
+			require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+		})
+	}
+}
+
 func TestWSUpgradeTransportFailuresOverSocket(t *testing.T) {
 	o := testWSOptions()
 	o.Websocket.TLSConfig = nil

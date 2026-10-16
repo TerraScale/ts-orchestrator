@@ -357,6 +357,244 @@ func runJWTClaimsServer(t *testing.T, claims ...*jwt.AccountClaims) (*Server, *n
 	return s, sc
 }
 
+func runJWTDirectoryClaimsServer(t *testing.T, claims ...*jwt.AccountClaims) (*Server, nats.Option) {
+	t.Helper()
+	sysKP, sysAccount, sysClaim := NewJwtAccountClaim("sys")
+	preload := map[string]string{sysAccount: encodeClaim(t, sysClaim, sysAccount)}
+	for _, claim := range claims {
+		preload[claim.Subject] = encodeClaim(t, claim, claim.Subject)
+	}
+	preloadJSON, err := json.Marshal(preload)
+	require_NoError(t, err)
+	conf := createConfFile(t, []byte(fmt.Sprintf(`
+		listen: 127.0.0.1:-1
+		operator: %s
+		system_account: %s
+		resolver: {type: full, dir: %q}
+		resolver_preload: %s
+	`, ojwt, sysAccount, t.TempDir(), preloadJSON)))
+	s, _ := RunServerWithConfig(conf)
+	t.Cleanup(s.Shutdown)
+	return s, createUserCredsEx(t, jwt.NewUserClaims("sys"), sysKP)
+}
+
+func TestJWTImportSignerRefreshAdmissionOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	signerKP, signer := createKey(t)
+	_, extraSigner := createKey(t)
+	exportClaim.SigningKeys.Add(signer)
+	exportClaim.Exports.Add(&jwt.Export{Subject: "foo", Type: jwt.Service, TokenReq: true})
+	exportClaim.Exports.Add(&jwt.Export{Subject: "bar", Type: jwt.Stream, TokenReq: true})
+	claims := []*jwt.AccountClaims{exportClaim}
+	var credentials []nats.Option
+	for i := range 20 {
+		kp, account, claim := NewJwtAccountClaim(fmt.Sprintf("importer-%d", i))
+		for _, kind := range []jwt.ExportType{jwt.Service, jwt.Stream} {
+			subject := "foo"
+			if kind == jwt.Stream {
+				subject = "bar"
+			}
+			activation := jwt.NewActivationClaims(account)
+			activation.IssuerAccount = exporter
+			activation.ImportType, activation.ImportSubject = kind, jwt.Subject(subject)
+			token, err := activation.Encode(signerKP)
+			require_NoError(t, err)
+			claim.Imports.Add(&jwt.Import{Account: exporter, Subject: jwt.Subject(subject), Type: kind, Token: token})
+		}
+		claims = append(claims, claim)
+		credentials = append(credentials, createUserCredsEx(t, jwt.NewUserClaims("importer"), kp))
+	}
+	s, sysCreds := runJWTDirectoryClaimsServer(t, claims...)
+	sc := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+	defer sc.Close()
+	publisher := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("exporter"), exporterKP), nats.NoReconnect())
+	defer publisher.Close()
+	requests := natsSubSync(t, publisher, "foo")
+	require_NoError(t, publisher.FlushTimeout(2*time.Second))
+	for i, creds := range credentials {
+		if i%2 == 0 {
+			exportClaim.SigningKeys.Add(extraSigner)
+		} else {
+			exportClaim.SigningKeys.Remove(extraSigner)
+		}
+		exportClaim.Name = fmt.Sprintf("exporter-%d", i)
+		token := encodeClaim(t, exportClaim, exporter)
+		start := make(chan struct{})
+		updates := make(chan error, 1)
+		type admission struct {
+			client *nats.Conn
+			err    error
+		}
+		admissions := make(chan admission, 1)
+		go func() {
+			<-start
+			updates <- requestJWTAccountUpdate(sc, exporter, token)
+		}()
+		go func() {
+			<-start
+			nc, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+			admissions <- admission{nc, err}
+		}()
+		close(start)
+		var admitted admission
+		select {
+		case admitted = <-admissions:
+		case <-time.After(3 * time.Second):
+			t.Fatal("importer admission blocked during exporter signer refresh")
+		}
+		require_NoError(t, admitted.err)
+		nc := admitted.client
+		defer nc.Close()
+		select {
+		case err := <-updates:
+			require_NoError(t, err)
+		case <-time.After(3 * time.Second):
+			t.Fatal("exporter signer refresh blocked during importer admission")
+		}
+		stream := natsSubSync(t, nc, "bar")
+		responses := natsSubSync(t, nc, nats.NewInbox())
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		payload := fmt.Sprintf("importer-%d", i)
+		natsPub(t, publisher, "bar", []byte(payload))
+		require_Equal(t, string(natsNexMsg(t, stream, 2*time.Second).Data), payload)
+		natsPubReq(t, nc, "foo", responses.Subject, []byte(payload))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, "foo")
+		require_Equal(t, string(request.Data), payload)
+		natsPub(t, publisher, request.Reply, []byte("reply:"+payload))
+		require_Equal(t, string(natsNexMsg(t, responses, 2*time.Second).Data), "reply:"+payload)
+		nc.Close()
+	}
+}
+
+func TestJWTCircularPrivateServiceImportsOverTCP(t *testing.T) {
+	fooKP, foo, fooClaim := NewJwtAccountClaim("foo")
+	barKP, bar, barClaim := NewJwtAccountClaim("bar")
+	fooClaim.Exports.Add(&jwt.Export{Subject: "foo", Type: jwt.Service, TokenReq: true})
+	fooClaim.Imports.Add(&jwt.Import{Account: bar, Subject: "bar", Type: jwt.Service})
+	barClaim.Exports.Add(&jwt.Export{Subject: "bar", Type: jwt.Service, TokenReq: true})
+	barClaim.Imports.Add(&jwt.Import{Account: foo, Subject: "foo", Type: jwt.Service})
+	s, _ := runJWTClaimsServer(t, fooClaim, barClaim)
+	fc := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("foo"), fooKP), nats.NoReconnect(), nats.Timeout(2*time.Second))
+	defer fc.Close()
+	bc := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("bar"), barKP), nats.NoReconnect(), nats.Timeout(2*time.Second))
+	defer bc.Close()
+	fs, bs := natsSubSync(t, fc, "foo"), natsSubSync(t, bc, "bar")
+	require_NoError(t, fc.FlushTimeout(2*time.Second))
+	require_NoError(t, bc.FlushTimeout(2*time.Second))
+	natsPub(t, fc, "bar", []byte("forbidden-foo-to-bar"))
+	natsPub(t, bc, "foo", []byte("forbidden-bar-to-foo"))
+	require_NoError(t, fc.FlushTimeout(2*time.Second))
+	require_NoError(t, bc.FlushTimeout(2*time.Second))
+	natsPub(t, fc, "foo", []byte("local-foo"))
+	natsPub(t, bc, "bar", []byte("local-bar"))
+	require_Equal(t, string(natsNexMsg(t, fs, 2*time.Second).Data), "local-foo")
+	require_Equal(t, string(natsNexMsg(t, bs, 2*time.Second).Data), "local-bar")
+	require_NoError(t, fc.FlushTimeout(2*time.Second))
+	require_NoError(t, bc.FlushTimeout(2*time.Second))
+	for _, sub := range []*nats.Subscription{fs, bs} {
+		pending, _, err := sub.Pending()
+		require_NoError(t, err)
+		require_Equal(t, pending, 0)
+	}
+}
+
+func TestJWTConcurrentGrowingImportRefreshOverTCP(t *testing.T) {
+	for _, kind := range []jwt.ExportType{jwt.Stream, jwt.Service} {
+		t.Run(kind.String(), func(t *testing.T) {
+			var claims []*jwt.AccountClaims
+			var credentials []nats.Option
+			for i := range 10 {
+				kp, _, claim := NewJwtAccountClaim(fmt.Sprintf("account-%d", i))
+				claims = append(claims, claim)
+				credentials = append(credentials, createUserCredsEx(t, jwt.NewUserClaims("client"), kp))
+			}
+			s, sysCreds := runJWTDirectoryClaimsServer(t, claims...)
+			var clients, updaters []*nats.Conn
+			var streams []*nats.Subscription
+			for i, creds := range credentials {
+				nc := natsConnect(t, s.ClientURL(), creds, nats.NoReconnect())
+				defer nc.Close()
+				clients = append(clients, nc)
+				updater := natsConnect(t, s.ClientURL(), sysCreds, nats.NoReconnect())
+				defer updater.Close()
+				updaters = append(updaters, updater)
+				if kind == jwt.Stream {
+					streams = append(streams, natsSubSync(t, nc, "*.*"))
+				} else {
+					_, err := nc.Subscribe(claims[i].Subject+".>", func(msg *nats.Msg) {
+						_ = msg.Respond([]byte(msg.Subject + ":" + string(msg.Data)))
+					})
+					require_NoError(t, err)
+				}
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+			}
+			for round := range 30 {
+				tokens := make([]string, len(claims))
+				for i, claim := range claims {
+					claim.Exports.Add(&jwt.Export{Subject: jwt.Subject(fmt.Sprintf("%s.%d", claim.Subject, round)), Type: kind})
+					for j, other := range claims {
+						if i != j {
+							claim.Imports.Add(&jwt.Import{Account: other.Subject, Subject: jwt.Subject(fmt.Sprintf("%s.%d", other.Subject, round)), Type: kind})
+						}
+					}
+					tokens[i] = encodeClaim(t, claim, claim.Subject)
+				}
+				// Separate SYS sockets let full-resolver callbacks contend in production update paths.
+				start, done := make(chan struct{}), make(chan error, len(claims))
+				for i, claim := range claims {
+					go func() {
+						<-start
+						done <- requestJWTAccountUpdate(updaters[i], claim.Subject, tokens[i])
+					}()
+				}
+				close(start)
+				deadline := time.NewTimer(3 * time.Second)
+				for range claims {
+					select {
+					case err := <-done:
+						require_NoError(t, err)
+					case <-deadline.C:
+						t.Fatalf("%s refresh round %d blocked", kind, round)
+					}
+				}
+				deadline.Stop()
+				if kind == jwt.Stream {
+					for i, nc := range clients {
+						subject := fmt.Sprintf("%s.%d", claims[i].Subject, round)
+						natsPub(t, nc, subject, []byte(subject))
+					}
+					for _, sub := range streams {
+						seen := make(map[string]bool, len(claims))
+						for range claims {
+							msg := natsNexMsg(t, sub, 2*time.Second)
+							require_Equal(t, string(msg.Data), msg.Subject)
+							require_True(t, !seen[msg.Subject])
+							seen[msg.Subject] = true
+						}
+						for _, claim := range claims {
+							require_True(t, seen[fmt.Sprintf("%s.%d", claim.Subject, round)])
+						}
+					}
+				} else {
+					for i, nc := range clients {
+						for j, claim := range claims {
+							if i == j {
+								continue
+							}
+							subject := fmt.Sprintf("%s.%d", claim.Subject, round)
+							payload := fmt.Sprintf("request:%d:%d:%d", round, i, j)
+							msg, err := nc.Request(subject, []byte(payload), 2*time.Second)
+							require_NoError(t, err)
+							require_Equal(t, string(msg.Data), subject+":"+payload)
+						}
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestJWTSigningKeyRefreshOverTCP(t *testing.T) {
 	_, account, accountClaim := NewJwtAccountClaim("account")
 	signerKP, signer := createKey(t)
@@ -774,6 +1012,198 @@ func TestJWTConnectionLimitRefreshOverTCP(t *testing.T) {
 			require_NoError(t, sub.Unsubscribe())
 		}
 	}
+}
+
+func TestJWTOverflowLimitsAcrossRouteAndLeafOverTCP(t *testing.T) {
+	sysKP, sysAccount, sysClaim := NewJwtAccountClaim("sys")
+	kp, account, claim := NewJwtAccountClaim("account")
+	claim.Limits.Conn, claim.Limits.LeafNodeConn = math.MaxInt32+1, math.MaxInt32+1
+	claim.Limits.Subs, claim.Limits.Payload = math.MaxInt32+1, math.MaxInt32+1
+	preload, err := json.Marshal(map[string]string{
+		sysAccount: encodeClaim(t, sysClaim, sysAccount), account: encodeClaim(t, claim, account),
+	})
+	require_NoError(t, err)
+	start := func(name, routes string) *Server {
+		t.Helper()
+		conf := createConfFile(t, []byte(fmt.Sprintf(`
+			listen: 127.0.0.1:-1
+			server_name: %s
+			operator: %s
+			system_account: %s
+			resolver: MEM
+			resolver_preload: %s
+			cluster {name: overflow, listen: 127.0.0.1:-1, routes: [%s]}
+			leafnodes {listen: 127.0.0.1:-1}
+		`, name, ojwt, sysAccount, preload, routes)))
+		s, _ := RunServerWithConfig(conf)
+		t.Cleanup(s.Shutdown)
+		return s
+	}
+	s1 := start("overflow-1", "")
+	s2 := start("overflow-2", fmt.Sprintf("nats-route://127.0.0.1:%d", s1.getOpts().Cluster.Port))
+	sc := natsConnect(t, s1.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("sys"), sysKP), nats.NoReconnect())
+	defer sc.Close()
+	events := natsSubSync(t, sc, fmt.Sprintf("$SYS.ACCOUNT.%s.SERVER.CONNS", account))
+	require_NoError(t, sc.FlushTimeout(2*time.Second))
+	creds := createUserCredsEx(t, jwt.NewUserClaims("client"), kp)
+	local := natsConnect(t, s1.ClientURL(), creds, nats.NoReconnect())
+	defer local.Close()
+	remote := natsConnect(t, s2.ClientURL(), creds, nats.NoReconnect())
+	defer remote.Close()
+	leafConf := createConfFile(t, []byte(fmt.Sprintf(`
+		listen: 127.0.0.1:-1
+		leafnodes {remotes: [{url: nats-leaf://127.0.0.1:%d, credentials: %q}]}
+	`, s2.getOpts().LeafNode.Port, newUser(t, kp))))
+	leaf, _ := RunServerWithConfig(leafConf)
+	defer leaf.Shutdown()
+	lc := natsConnect(t, leaf.ClientURL(), nats.NoReconnect())
+	defer lc.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		msg, err := events.NextMsg(time.Until(deadline))
+		require_NoError(t, err)
+		var event AccountNumConns
+		require_NoError(t, json.Unmarshal(msg.Data, &event))
+		if event.Server.ID == s2.ID() && event.Account == account && event.Conns >= 1 && event.LeafNodes >= 1 {
+			break
+		}
+	}
+	for i, nc := range []*nats.Conn{local, remote, lc} {
+		subject := fmt.Sprintf("overflow.%d", i)
+		sub := natsSubSync(t, nc, subject)
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		for j, publisher := range []*nats.Conn{local, remote, lc} {
+			payload := fmt.Sprintf("%d-to-%d", j, i)
+			natsPub(t, publisher, subject, []byte(payload))
+			require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), payload)
+		}
+	}
+	for _, nc := range []*nats.Conn{local, remote, lc} {
+		require_NoError(t, nc.FlushTimeout(2*time.Second))
+		require_True(t, nc.IsConnected())
+	}
+}
+
+func TestJWTBasicImportExportSubjectsOverTCP(t *testing.T) {
+	exporterKP, exporter, exports := NewJwtAccountClaim("exporter")
+	importerKP, importer, imports := NewJwtAccountClaim("importer")
+	exports.Exports.Add(
+		&jwt.Export{Subject: "foo", Type: jwt.Stream},
+		&jwt.Export{Subject: "private", Type: jwt.Stream, TokenReq: true},
+		&jwt.Export{Subject: "req.echo", Type: jwt.Service, TokenReq: true},
+		&jwt.Export{Subject: "req.add", Type: jwt.Service, TokenReq: true},
+	)
+	imports.Imports.Add(&jwt.Import{Account: exporter, Subject: "foo", To: "import.foo", Type: jwt.Stream})
+	s, sc := runJWTClaimsServer(t, exports, imports)
+	publisher := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("exporter"), exporterKP), nats.NoReconnect())
+	defer publisher.Close()
+	client := natsConnect(t, s.ClientURL(), createUserCredsEx(t, jwt.NewUserClaims("importer"), importerKP), nats.NoReconnect())
+	defer client.Close()
+	stream := natsSubSync(t, client, "import.foo.foo")
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPub(t, publisher, "foo", []byte("public-stream"))
+	require_Equal(t, string(natsNexMsg(t, stream, 2*time.Second).Data), "public-stream")
+	for _, kind := range []jwt.ExportType{jwt.Service, jwt.Stream} {
+		subject, mapped := "req.echo", "req.echo"
+		if kind == jwt.Stream {
+			subject, mapped = "private", "import.private.private"
+		}
+		observed := natsSubSync(t, publisher, subject)
+		if kind == jwt.Stream {
+			require_NoError(t, observed.Unsubscribe())
+			observed = natsSubSync(t, client, mapped)
+		}
+		require_NoError(t, publisher.FlushTimeout(2*time.Second))
+		require_NoError(t, client.FlushTimeout(2*time.Second))
+		for _, state := range []string{"missing", "malformed", "valid"} {
+			im := &jwt.Import{Account: exporter, Subject: jwt.Subject(subject), Type: kind}
+			if kind == jwt.Stream {
+				im.To = "import.private"
+			}
+			if state == "malformed" {
+				im.Token = "not a token"
+			} else if state == "valid" {
+				activation := jwt.NewActivationClaims(importer)
+				activation.ImportSubject, activation.ImportType = jwt.Subject(subject), kind
+				var err error
+				im.Token, err = activation.Encode(exporterKP)
+				require_NoError(t, err)
+			}
+			imports.Imports = nil
+			imports.Imports.Add(im)
+			require_NoError(t, requestJWTAccountUpdate(sc, importer, encodeClaim(t, imports, importer)))
+			payload := subject + ":" + state
+			if kind == jwt.Stream {
+				natsPub(t, publisher, subject, []byte(payload))
+				require_NoError(t, publisher.FlushTimeout(2*time.Second))
+			} else {
+				natsPub(t, client, subject, []byte(payload))
+				require_NoError(t, client.FlushTimeout(2*time.Second))
+			}
+			if state == "valid" {
+				msg := natsNexMsg(t, observed, 2*time.Second)
+				require_Equal(t, msg.Subject, mapped)
+				require_Equal(t, string(msg.Data), payload)
+			}
+			marker := "marker:" + payload
+			if kind == jwt.Stream {
+				natsPub(t, client, mapped, []byte(marker))
+			} else {
+				natsPub(t, publisher, subject, []byte(marker))
+			}
+			require_Equal(t, string(natsNexMsg(t, observed, 2*time.Second).Data), marker)
+		}
+		require_NoError(t, observed.Unsubscribe())
+	}
+	activation := jwt.NewActivationClaims(importer)
+	activation.ImportSubject, activation.ImportType = "req.add", jwt.Service
+	token, err := activation.Encode(exporterKP)
+	require_NoError(t, err)
+	imports.Imports = nil
+	imports.Imports.Add(&jwt.Import{Account: exporter, Subject: "req.add", Type: jwt.Service, Token: token})
+	require_NoError(t, requestJWTAccountUpdate(sc, importer, encodeClaim(t, imports, importer)))
+	requests := natsSubSync(t, publisher, "req.add")
+	require_NoError(t, publisher.FlushTimeout(2*time.Second))
+	replies := natsSubSync(t, client, nats.NewInbox())
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPubReq(t, client, "req.add", replies.Subject, []byte("2+3"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, request.Subject, "req.add")
+	require_Equal(t, string(request.Data), "2+3")
+	natsPub(t, publisher, request.Reply, []byte("5"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "5")
+}
+
+func TestJWTDefaultResponsePermissionExpiresOverTCP(t *testing.T) {
+	kp, _, claim := NewJwtAccountClaim("account")
+	s, _ := runJWTClaimsServer(t, claim)
+	user := jwt.NewUserClaims("responder")
+	user.Permissions.Resp = &jwt.ResponsePermission{}
+	violations := make(chan error, 2)
+	responder := natsConnect(t, s.ClientURL(), createUserCredsEx(t, user, kp), nats.NoReconnect(),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { violations <- err }))
+	defer responder.Close()
+	requests := natsSubSync(t, responder, "requests")
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	client := natsConnect(t, s.ClientURL(), createUserCreds(t, s, kp), nats.NoReconnect())
+	defer client.Close()
+	replies := natsSubSync(t, client, nats.NewInbox())
+	require_NoError(t, client.FlushTimeout(2*time.Second))
+	natsPubReq(t, client, "requests", replies.Subject, []byte("expire untouched reply allowance"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	// A default response allowance must expire without consuming its single permitted reply.
+	deadline := time.NewTimer(2*time.Minute + 100*time.Millisecond)
+	defer deadline.Stop()
+	select {
+	case <-deadline.C:
+	case <-t.Context().Done():
+		t.Fatal(t.Context().Err())
+	}
+	natsPub(t, responder, request.Reply, []byte("expired response"))
+	require_NoError(t, responder.FlushTimeout(2*time.Second))
+	requireJWTViolation(t, violations, "publish", request.Reply)
+	natsPub(t, client, replies.Subject, []byte("expiry marker"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "expiry marker")
 }
 
 func TestJWTOverflowLimitsOverTCP(t *testing.T) {
@@ -1247,6 +1677,224 @@ func TestJWTStartupAdmissionOverProcess(t *testing.T) {
 			require_True(t, ok)
 			require_Equal(t, exit.ExitCode(), 1)
 			require_Contains(t, string(output), wantError)
+		})
+	}
+}
+
+func TestJWTScopedPermissionTemplatesOverTCP(t *testing.T) {
+	for _, scenario := range []string{"cartesian tags", "inline bucket", "missing deny tag", "bad tag before good tag"} {
+		t.Run(scenario, func(t *testing.T) {
+			accountKP, account, claim := NewJwtAccountClaim("accname")
+			claim.Tags.Add("acc:acc1", "acc:acc2")
+			signerKP, signer := createKey(t)
+			scope := jwt.NewUserScope()
+			scope.Key = signer
+			scope.Template.Pub.Allow.Add("{{tag(foo)}}.none.{{tag(bar)}}")
+			scope.Template.Pub.Deny.Add("{{tag(foo)}}.{{account-tag(acc)}}")
+			scope.Template.Sub.Allow.Add("{{tag(NOT_THERE)}}")
+			scope.Template.Sub.Deny.Add("foo.{{name()}}.{{subject()}}.{{account-name()}}.{{account-subject()}}.bar")
+			user := jwt.NewUserClaims("user")
+			user.SetScoped(true)
+			user.Name = "myname"
+			user.IssuerAccount = account
+			user.Tags.Add("foo:foo1", "foo:foo2", "bar:bar1", "bar:bar2", "bar:bar3")
+			allowed := []string{"foo1.none.bar1", "foo1.none.bar2", "foo1.none.bar3", "foo2.none.bar1", "foo2.none.bar2", "foo2.none.bar3"}
+			denied := []string{"foo1.acc1", "foo1.acc2", "foo2.acc1", "foo2.acc2", "unrelated"}
+			switch scenario {
+			case "inline bucket":
+				user.Tags.Add("bucket:a")
+				scope.Template.Permissions = jwt.Permissions{}
+				scope.Template.Pub.Allow.Add("$JS.API.STREAM.INFO.KV_{{tag(bucket)}}")
+				allowed = []string{"$JS.API.STREAM.INFO.KV_a"}
+				denied = []string{"$JS.API.STREAM.INFO.KV_b"}
+			case "missing deny tag":
+				scope.Template.Pub.Deny.Add("{{tag(NOT_THERE)}}")
+			case "bad tag before good tag":
+				scope.Template.Pub.Deny.Add("{{tag(NOT_THERE)}}.{{tag(foo)}}")
+			}
+			claim.SigningKeys.AddScopedSigner(scope)
+			s, _ := runJWTClaimsServer(t, claim)
+			violations := make(chan error, 16)
+			creds := createUserCredsEx(t, user, signerKP)
+			nc, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { violations <- err }))
+			if nc != nil {
+				defer nc.Close()
+			}
+			if scenario == "missing deny tag" || scenario == "bad tag before good tag" {
+				require_True(t, errors.Is(err, nats.ErrAuthorization))
+				return
+			}
+			require_NoError(t, err)
+			control := natsConnect(t, s.ClientURL(), createUserCreds(t, s, accountKP), nats.NoReconnect())
+			defer control.Close()
+			observed := natsSubSync(t, control, ">")
+			require_NoError(t, control.FlushTimeout(2*time.Second))
+			for _, subject := range allowed {
+				natsPub(t, nc, subject, []byte(subject))
+				msg := natsNexMsg(t, observed, 2*time.Second)
+				require_Equal(t, msg.Subject, subject)
+				require_Equal(t, string(msg.Data), subject)
+			}
+			for _, subject := range denied {
+				natsPub(t, nc, subject, []byte("unauthorized"))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				requireJWTViolation(t, violations, "publish", subject)
+				natsPub(t, control, "marker", []byte(subject))
+				msg := natsNexMsg(t, observed, 2*time.Second)
+				require_Equal(t, msg.Subject, "marker")
+				require_Equal(t, string(msg.Data), subject)
+			}
+			if scenario == "cartesian tags" {
+				resolved := fmt.Sprintf("foo.myname.%s.accname.%s.bar", user.Subject, account)
+				for _, subject := range []string{resolved, "unrelated"} {
+					sub := natsSubSync(t, nc, subject)
+					require_NoError(t, nc.FlushTimeout(2*time.Second))
+					requireJWTViolation(t, violations, "subscription", subject)
+					natsPub(t, control, subject, []byte("not subscribed"))
+					require_Equal(t, string(natsNexMsg(t, observed, 2*time.Second).Data), "not subscribed")
+					require_NoError(t, nc.FlushTimeout(2*time.Second))
+					pending, _, err := sub.Pending()
+					require_NoError(t, err)
+					require_Equal(t, pending, 0)
+				}
+			}
+		})
+	}
+}
+
+func TestJWTServiceResponseTypesOverTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		kind     jwt.ResponseType
+		private  bool
+		multiple bool
+	}{
+		{name: "stream", kind: jwt.ResponseTypeStream, multiple: true},
+		{name: "chunk", kind: jwt.ResponseTypeChunked, multiple: true},
+		{name: "single", kind: jwt.ResponseTypeSingleton, private: true},
+		{name: "def", private: true},
+		{name: "old"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+			importerKP, importer, importClaim := NewJwtAccountClaim("importer")
+			subject := "test." + tc.name
+			exportClaim.Exports.Add(&jwt.Export{Subject: jwt.Subject(subject), Type: jwt.Service, ResponseType: tc.kind, TokenReq: tc.private})
+			im := &jwt.Import{Account: exporter, Subject: jwt.Subject(subject), Type: jwt.Service}
+			importClaim.Imports.Add(im)
+			s, sc := runJWTClaimsServer(t, exportClaim, importClaim)
+			ec := natsConnect(t, s.ClientURL(), createUserCreds(t, s, exporterKP), nats.NoReconnect())
+			defer ec.Close()
+			requests := natsSubSync(t, ec, subject)
+			require_NoError(t, ec.FlushTimeout(2*time.Second))
+			nc := natsConnect(t, s.ClientURL(), createUserCreds(t, s, importerKP), nats.NoReconnect())
+			defer nc.Close()
+			reply := nats.NewInbox()
+			responses := natsSubSync(t, nc, reply)
+			require_NoError(t, nc.FlushTimeout(2*time.Second))
+			if tc.private {
+				natsPub(t, nc, subject, []byte("unauthorized request"))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				natsPub(t, ec, subject, []byte("local marker"))
+				require_Equal(t, string(natsNexMsg(t, requests, 2*time.Second).Data), "local marker")
+				activation := jwt.NewActivationClaims(importer)
+				activation.ImportType = jwt.Service
+				activation.ImportSubject = jwt.Subject(subject)
+				token, err := activation.Encode(exporterKP)
+				require_NoError(t, err)
+				im.Token = token
+				require_NoError(t, requestJWTAccountUpdate(sc, importer, encodeClaim(t, importClaim, importer)))
+			}
+			natsPubReq(t, nc, subject, reply, []byte(tc.name))
+			request := natsNexMsg(t, requests, 2*time.Second)
+			require_Equal(t, request.Subject, subject)
+			require_Equal(t, string(request.Data), tc.name)
+			require_NotEqual(t, request.Reply, "")
+			natsPub(t, ec, request.Reply, []byte("first"))
+			natsPub(t, ec, request.Reply, []byte("second"))
+			require_NoError(t, ec.FlushTimeout(2*time.Second))
+			require_Equal(t, string(natsNexMsg(t, responses, 2*time.Second).Data), "first")
+			if tc.multiple {
+				require_Equal(t, string(natsNexMsg(t, responses, 2*time.Second).Data), "second")
+				natsPub(t, ec, request.Reply, nil)
+				require_Equal(t, len(natsNexMsg(t, responses, 2*time.Second).Data), 0)
+				natsPub(t, ec, request.Reply, []byte("after completion"))
+				require_NoError(t, ec.FlushTimeout(2*time.Second))
+			}
+			natsPub(t, nc, reply, []byte("response marker"))
+			require_Equal(t, string(natsNexMsg(t, responses, 2*time.Second).Data), "response marker")
+		})
+	}
+}
+
+func TestJWTTimeWindowsOverTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		hour       int
+		ranges     []jwt.TimeRange
+		allowed    bool
+		endHour    int
+		endNextDay bool
+	}{
+		{name: "inside window", hour: 14, ranges: []jwt.TimeRange{{Start: "09:00:00", End: "17:00:00"}}, allowed: true, endHour: 17},
+		{name: "before window", hour: 7, ranges: []jwt.TimeRange{{Start: "09:00:00", End: "17:00:00"}}},
+		{name: "after window", hour: 18, ranges: []jwt.TimeRange{{Start: "09:00:00", End: "17:00:00"}}},
+		{name: "cross midnight before midnight", hour: 23, ranges: []jwt.TimeRange{{Start: "22:00:00", End: "06:00:00"}}, allowed: true, endHour: 6, endNextDay: true},
+		{name: "cross midnight after midnight", hour: 4, ranges: []jwt.TimeRange{{Start: "22:00:00", End: "06:00:00"}}, allowed: true, endHour: 6},
+		{name: "cross midnight before window", hour: 20, ranges: []jwt.TimeRange{{Start: "22:00:00", End: "06:00:00"}}},
+		{name: "cross midnight after window", hour: 7, ranges: []jwt.TimeRange{{Start: "22:00:00", End: "06:00:00"}}},
+		{name: "overlap after midnight", hour: 1, ranges: []jwt.TimeRange{{Start: "22:00:00", End: "06:00:00"}, {Start: "00:00:00", End: "08:00:00"}}, allowed: true, endHour: 8},
+		{name: "overlap after midnight reversed order", hour: 1, ranges: []jwt.TimeRange{{Start: "00:00:00", End: "08:00:00"}, {Start: "22:00:00", End: "06:00:00"}}, allowed: true, endHour: 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Select a real timezone with the needed local hour; production still reads the real clock.
+			now := time.Now()
+			var loc *time.Location
+			for offset := -12; offset <= 14; offset++ {
+				candidate, err := time.LoadLocation(fmt.Sprintf("Etc/GMT%+d", -offset))
+				if err == nil && now.In(candidate).Hour() == tc.hour {
+					loc = candidate
+					break
+				}
+			}
+			require_NotNil(t, loc)
+			local := now.In(loc)
+			wantExpiry := time.Date(local.Year(), local.Month(), local.Day(), tc.endHour, 0, 0, 0, loc)
+			if tc.endNextDay {
+				wantExpiry = wantExpiry.AddDate(0, 0, 1)
+			}
+			kp, account, claim := NewJwtAccountClaim("account")
+			s, _ := runJWTClaimsServer(t, claim)
+			user := jwt.NewUserClaims("timed user")
+			user.Locale = loc.String()
+			user.Times = tc.ranges
+			creds := createUserCredsEx(t, user, kp)
+			nc, err := nats.Connect(s.ClientURL(), creds, nats.NoReconnect(), nats.Timeout(2*time.Second))
+			if nc != nil {
+				defer nc.Close()
+			}
+			if !tc.allowed {
+				require_True(t, errors.Is(err, nats.ErrAuthorization))
+				return
+			}
+			require_NoError(t, err)
+			msg, err := nc.Request(userDirectInfoSubj, nil, 2*time.Second)
+			require_NoError(t, err)
+			response := ServerAPIResponse{Data: &UserInfo{}}
+			require_NoError(t, json.Unmarshal(msg.Data, &response))
+			if response.Error != nil {
+				t.Fatalf("user info rejected: %+v", response.Error)
+			}
+			info := response.Data.(*UserInfo)
+			require_Equal(t, info.Account, account)
+			require_Equal(t, info.UserID, user.Subject)
+			remaining := time.Until(wantExpiry)
+			require_True(t, info.Expires >= remaining-2*time.Second && info.Expires <= remaining+2*time.Second)
+			sub := natsSubSync(t, nc, "window")
+			require_NoError(t, nc.FlushTimeout(2*time.Second))
+			natsPub(t, nc, "window", []byte(tc.name))
+			require_Equal(t, string(natsNexMsg(t, sub, 2*time.Second).Data), tc.name)
 		})
 	}
 }
