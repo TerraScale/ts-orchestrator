@@ -125,34 +125,56 @@ func SignPeerReceipt(manifest VerifiedManifest, facts InstanceFacts, issuedAt, e
 }
 
 // VerifySeedReceipt verifies root authorization and exact seed instance facts.
-func VerifySeedReceipt(envelope trust.Envelope, manifest VerifiedManifest, roots trust.Keyring, facts InstanceFacts, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
-	return verifyReceipt(envelope, manifest, roots, facts, seedReceiptDomain, now, policy)
+func VerifySeedReceipt(envelope trust.Envelope, manifest StartupAuthority, roots trust.Keyring, facts InstanceFacts, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
+	if derived, ok := manifest.(DerivedStartupAuthority); ok {
+		return verifyDerivedReceipt(envelope, derived, facts, true, now, policy)
+	}
+	legacy, ok := manifest.(VerifiedManifest)
+	if !ok {
+		return VerifiedReceipt{}, ErrReceiptInvalid
+	}
+	return verifyReceipt(envelope, legacy, roots, facts, seedReceiptDomain, now, policy)
 }
 
 // VerifyPeerReceipt verifies the root-delegated founder key and exact peer
 // instance facts. A peer receipt cannot authorize the seed slot.
-func VerifyPeerReceipt(envelope trust.Envelope, manifest VerifiedManifest, facts InstanceFacts, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
-	if !manifest.hasDelegation {
+func VerifyPeerReceipt(envelope trust.Envelope, manifest StartupAuthority, facts InstanceFacts, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
+	if derived, ok := manifest.(DerivedStartupAuthority); ok {
+		return verifyDerivedReceipt(envelope, derived, facts, false, now, policy)
+	}
+	legacy, ok := manifest.(VerifiedManifest)
+	if !ok || !legacy.hasDelegation {
 		return VerifiedReceipt{}, fmt.Errorf("%w: manifest has no peer receipt delegation", ErrReceiptInvalid)
 	}
-	return verifyReceipt(envelope, manifest, nil, facts, peerReceiptDomain, now, policy)
+	return verifyReceipt(envelope, legacy, nil, facts, peerReceiptDomain, now, policy)
 }
 
 // VerifyHistoricalSeedReceipt proves root authorization and exact seed
 // instance facts for the receipt's signed interval. It grants no current
 // bootstrap or restart authorization.
-func VerifyHistoricalSeedReceipt(envelope trust.Envelope, manifest HistoricalManifest, roots trust.Keyring, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
-	return verifyHistoricalReceipt(envelope, manifest, roots, facts, seedReceiptDomain, policy)
+func VerifyHistoricalSeedReceipt(envelope trust.Envelope, manifest HistoricalStartupAuthority, roots trust.Keyring, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
+	if derived, ok := manifest.(HistoricalDerivedStartupAuthority); ok {
+		return verifyHistoricalDerivedReceipt(envelope, derived, facts, true, policy)
+	}
+	legacy, ok := manifest.(HistoricalManifest)
+	if !ok {
+		return HistoricalReceipt{}, ErrReceiptInvalid
+	}
+	return verifyHistoricalReceipt(envelope, legacy, roots, facts, seedReceiptDomain, policy)
 }
 
 // VerifyHistoricalPeerReceipt proves delegated founder authorization and exact
 // peer instance facts for the receipt's signed interval. It grants no current
 // bootstrap or restart authorization.
-func VerifyHistoricalPeerReceipt(envelope trust.Envelope, manifest HistoricalManifest, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
-	if !manifest.hasDelegation {
+func VerifyHistoricalPeerReceipt(envelope trust.Envelope, manifest HistoricalStartupAuthority, facts InstanceFacts, policy trust.Policy) (HistoricalReceipt, error) {
+	if derived, ok := manifest.(HistoricalDerivedStartupAuthority); ok {
+		return verifyHistoricalDerivedReceipt(envelope, derived, facts, false, policy)
+	}
+	legacy, ok := manifest.(HistoricalManifest)
+	if !ok || !legacy.hasDelegation {
 		return HistoricalReceipt{}, fmt.Errorf("%w: historical manifest has no peer receipt delegation", ErrReceiptInvalid)
 	}
-	return verifyHistoricalReceipt(envelope, manifest, nil, facts, peerReceiptDomain, policy)
+	return verifyHistoricalReceipt(envelope, legacy, nil, facts, peerReceiptDomain, policy)
 }
 
 // ReceiptPayload strictly decodes a receipt for tools that already verified

@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -79,6 +80,7 @@ type LedgerConfig struct {
 	AnchorExpiresAt time.Time
 	TrustRoots      trust.Keyring
 	Delegations     []trust.VerifiedDelegation
+	DerivedStartup  *DerivedStartupAuthority
 	TrustPolicy     trust.Policy
 	VerificationNow func() time.Time
 }
@@ -149,6 +151,9 @@ func newLedger(client ObjectStorageClient, config LedgerConfig, historical bool)
 	}
 	config.TrustRoots = roots
 	config.Delegations = slices.Clone(config.Delegations)
+	if config.DerivedStartup != nil {
+		config.DerivedStartup = new(*config.DerivedStartup)
+	}
 	config.ControllerSlots = slices.Clone(config.ControllerSlots)
 	if config.VerificationNow == nil {
 		config.VerificationNow = time.Now
@@ -157,6 +162,19 @@ func newLedger(client ObjectStorageClient, config LedgerConfig, historical bool)
 }
 
 func validateLedgerDelegations(config LedgerConfig) error {
+	if config.DerivedStartup != nil {
+		authority := *config.DerivedStartup
+		manifest := authority.Manifest()
+		if authority.verifyStartupAuthority() != nil || manifest.DeploymentID != config.DeploymentID || manifest.Environment != config.Environment || manifest.ClusterID != config.ClusterID || manifest.Cell != config.Cell || manifest.StorageDomain != config.storageDomain() || !slices.Equal(manifest.ControllerSlots, config.ControllerSlots) || manifest.IntentGeneration != config.InitialRegionIntentGeneration || manifest.IntentSHA256 != config.InitialRegionIntentSHA256 {
+			return ErrRecordAuthorization
+		}
+		if authority.template.startupIdentity().InitialSourceRegistration != nil {
+			if len(config.Delegations) != 0 {
+				return ErrRecordAuthorization
+			}
+			return nil
+		}
+	}
 	if len(config.Delegations) != 1 {
 		return errors.New("bootstrap ledger requires exactly one anchor-verified ledger delegation")
 	}
@@ -239,7 +257,7 @@ func (ledger *Ledger) createOrReadNamed(ctx context.Context, scope BootstrapScop
 	ifNoneMatch := "*"
 	digestHeader := base64.StdEncoding.EncodeToString(sourceDigest[:])
 	length := int64(len(body))
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return StoredRecord{}, err
 	}
 	envelope, err := trust.DecodeEnvelope(body)
@@ -290,7 +308,7 @@ func (ledger *Ledger) putObjectAfterTimestampBoundary(
 	if err := waitForLedgerRecordStorageBoundary(ctx, envelope, ledger.now); err != nil {
 		return objectstorage.PutObjectResponse{}, err, false
 	}
-	if err := ledger.validateCurrentAuthority(); err != nil {
+	if err := ledger.validateCurrentAuthority(ctx); err != nil {
 		return objectstorage.PutObjectResponse{}, err, false
 	}
 	if err := ctx.Err(); err != nil {
@@ -299,7 +317,7 @@ func (ledger *Ledger) putObjectAfterTimestampBoundary(
 	if err := validateLedgerRecordStorageBucket(envelope, ledger.now()); err != nil {
 		return objectstorage.PutObjectResponse{}, err, false
 	}
-	response, err := ledger.client.PutObject(ctx, request)
+	response, err := ledger.client.PutObject(ociclient.RequestContext(ctx), request)
 	return response, err, true
 }
 
@@ -409,12 +427,17 @@ func (ledger *Ledger) readContentExact(ctx context.Context, scope BootstrapScope
 // verified anchor cannot grant effects beyond either its own expiry or the
 // delegated ledger grant; anchor verification guarantees its expiry is at or
 // before the grant expiry.
-func (ledger *Ledger) validateCurrentAuthority() error {
+func (ledger *Ledger) validateCurrentAuthority(ctx context.Context) error {
 	if ledger.readOnly {
 		return fmt.Errorf("%w: historical bootstrap ledger is read-only", ErrRecordAuthorization)
 	}
 	if !ledger.config.AnchorExpiresAt.IsZero() && !ledger.now().Before(ledger.config.AnchorExpiresAt) {
 		return fmt.Errorf("%w: current bootstrap anchor has expired", ErrRecordAuthorization)
+	}
+	if ledger.config.DerivedStartup != nil {
+		if err := ledger.config.DerivedStartup.VerifyCurrent(ctx, ledger.now()); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -454,7 +477,17 @@ func (ledger *Ledger) readObject(ctx context.Context, bucket, objectName string)
 }
 
 func (ledger *Ledger) readObjectLimit(ctx context.Context, bucket, objectName string, maximum int) (StoredRecord, error) {
-	response, err := ledger.client.GetObject(ctx, objectstorage.GetObjectRequest{
+	if ledger.config.DerivedStartup != nil {
+		authority := *ledger.config.DerivedStartup
+		if ledger.now().Before(authority.ExpiresAt()) {
+			if err := authority.VerifyCurrent(ctx, ledger.now()); err != nil {
+				return StoredRecord{}, err
+			}
+		} else if _, err := authority.historical(ctx, authority.Wire()); err != nil {
+			return StoredRecord{}, err
+		}
+	}
+	response, err := ledger.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{
 		NamespaceName: new(ledger.config.Namespace),
 		BucketName:    new(bucket),
 		ObjectName:    new(objectName),

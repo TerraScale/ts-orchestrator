@@ -285,3 +285,109 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	}
 	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil
 }
+
+func derivedReceiptDomain(seed bool) string {
+	if seed {
+		return "terrascale.bootstrap.derived-seed-receipt"
+	}
+	return "terrascale.bootstrap.derived-peer-receipt"
+}
+
+// SignDerivedReceipt uses the registered source signer. It cannot mint a
+// legacy root seed receipt or a fabricated root delegation.
+func SignDerivedReceipt(authority DerivedStartupAuthority, facts InstanceFacts, issuedAt, expiresAt time.Time, key ed25519.PrivateKey) (trust.Envelope, error) {
+	receipt, err := NewReceipt(authority, facts)
+	if err != nil || len(key) != ed25519.PrivateKeySize || issuedAt.Before(authority.IssuedAt()) || expiresAt.After(authority.ExpiresAt()) {
+		return trust.Envelope{}, ErrReceiptInvalid
+	}
+	seed := facts.Slot == authority.binding.Manifest.SeedSlot
+	wantKey := authority.peerKey
+	if seed {
+		wantKey = authority.ledgerKey
+	}
+	if !bytes.Equal(key.Public().(ed25519.PublicKey), wantKey) {
+		return trust.Envelope{}, ErrReceiptInvalid
+	}
+	return signReceipt(receipt, derivedReceiptDomain(seed), issuedAt, expiresAt, key)
+}
+
+func verifyDerivedReceipt(envelope trust.Envelope, authority DerivedStartupAuthority, facts InstanceFacts, seed bool, now time.Time, policy trust.Policy) (VerifiedReceipt, error) {
+	if authority.verifyStartupAuthority() != nil || seed != (facts.Slot == authority.binding.Manifest.SeedSlot) || validateFactsAgainstManifest(authority.binding.Manifest, facts) != nil || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+		return VerifiedReceipt{}, ErrReceiptInvalid
+	}
+	key := authority.peerKey
+	if seed {
+		key = authority.ledgerKey
+	}
+	keyID, _ := trust.KeyID(key)
+	manifest := authority.binding.Manifest
+	expected := trust.Scope{Domain: derivedReceiptDomain(seed), DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Environment: manifest.Environment, Role: manifest.ControllerRole, Slot: facts.Slot}
+	payload, err := trust.VerifyCurrent(envelope, expected, trust.Keyring{keyID: key}, now, policy)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	want, err := NewReceipt(authority, facts)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	receipt, err := matchReceiptPayload(payload, want)
+	if err != nil {
+		return VerifiedReceipt{}, err
+	}
+	return VerifiedReceipt{receipt: receipt, manifestDigest: authority.Digest(), issuedAt: envelope.IssuedAt, expiresAt: envelope.ExpiresAt, verified: true}, nil
+}
+
+// LedgerConfig retains the original buckets, floors, scope and exact domains.
+// New source registration substitutes its sealed capability for a fixed root
+// delegation; existing pinned delegations remain required and unchanged.
+func (authority DerivedStartupAuthority) LedgerConfig(roots trust.Keyring) (LedgerConfig, error) {
+	if authority.verifyStartupAuthority() != nil || len(roots) == 0 {
+		return LedgerConfig{}, ErrRecordAuthorization
+	}
+	anchor := authority.template.startupIdentity()
+	domain := anchor.StorageDomain
+	config := LedgerConfig{DeploymentID: anchor.DeploymentID, Cell: anchor.Cell, ClusterID: anchor.ClusterID, InitialRegionIntentGeneration: anchor.InitialRegionIntentGeneration, InitialRegionIntentSHA256: anchor.InitialRegionIntentSHA256, Namespace: domain.Namespace, Bucket: domain.LedgerBucket, KMSKeyID: domain.LedgerKMSKeyOCID, Prefix: domain.Prefix, HeadBucket: domain.HeadBucket, HeadKMSKeyID: domain.HeadKMSKeyOCID, Environment: anchor.Environment, ControllerSlots: slices.Clone(anchor.ControllerSlots), AnchorExpiresAt: authority.ExpiresAt(), TrustRoots: roots, TrustPolicy: ManifestTrustPolicy(), DerivedStartup: new(authority)}
+	if len(anchor.LedgerDelegationWire) != 0 {
+		grant, err := authority.template.anchor.LedgerDelegation()
+		if err != nil {
+			return LedgerConfig{}, err
+		}
+		config.Delegations = []trust.VerifiedDelegation{grant}
+	}
+	return config, nil
+}
+
+func (authority DerivedStartupAuthority) AnchorDigest() string {
+	return authority.template.anchor.Digest()
+}
+
+func (authority DerivedStartupAuthority) OpenLedger(ctx context.Context, roots trust.Keyring) (*Ledger, error) {
+	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	config, err := authority.LedgerConfig(roots)
+	if err != nil {
+		return nil, err
+	}
+	return NewLedger(authority.client, config)
+}
+
+func (authority DerivedStartupAuthority) VerifyLedgerKey(key ed25519.PublicKey) error {
+	if authority.verifyStartupAuthority() != nil || !bytes.Equal(key, authority.ledgerKey) {
+		return ErrRecordAuthorization
+	}
+	return nil
+}
+
+func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Envelope, scope trust.Scope, now time.Time) error {
+	manifest := authority.binding.Manifest
+	if authority.verifyStartupAuthority() != nil || !slices.Contains(BootstrapLedgerCapabilityDomains(), scope.Domain) || scope.DeploymentID != manifest.DeploymentID || scope.Cell != string(manifest.Cell) || scope.Environment != manifest.Environment || scope.Role != manifest.ControllerRole || !slices.Contains(manifest.ControllerSlots, scope.Slot) || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
+		return ErrRecordAuthorization
+	}
+	keyID, _ := trust.KeyID(authority.ledgerKey)
+	_, err := trust.VerifyCurrent(envelope, scope, trust.Keyring{keyID: authority.ledgerKey}, now, ManifestTrustPolicy())
+	return err
+}
+func (authority DerivedStartupAuthority) TemplateDigest() string {
+	return authority.template.TemplateDigest()
+}

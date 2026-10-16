@@ -23,6 +23,19 @@ type HistoricalManifest struct {
 	verified      bool
 }
 
+// HistoricalStartupAuthority carries evidence only. It deliberately omits the
+// current startup seal required by materializers and admission effects.
+type HistoricalStartupAuthority interface {
+	Manifest() Manifest
+	Digest() string
+	Profile(string) (LaunchProfile, bool)
+	verifyHistoricalStartupAuthority() error
+}
+
+func (verified HistoricalManifest) verifyHistoricalStartupAuthority() error {
+	return validateHistoricalManifest(verified)
+}
+
 // Manifest returns a defensive copy of the historically verified manifest.
 func (verified HistoricalManifest) Manifest() Manifest { return cloneManifest(verified.manifest) }
 
