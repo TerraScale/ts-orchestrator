@@ -102,22 +102,6 @@ func foundationDiscovery(ctx context.Context) (automaticFoundation, error) {
 		baked: baked, imds: imds, instanceID: instanceID, cell: entry.Cell, observed: observed}, nil
 }
 
-// automaticSeedSlot authenticates the founding role before any source reservation.
-func automaticSeedSlot(ctx context.Context, local *automaticFoundation, grant region.VerifiedBootstrapMaterial) (string, error) {
-	slot, err := automaticControllerSlot(ctx, local, grant)
-	if err != nil {
-		return "", err
-	}
-	startup, err := grant.Startup()
-	if err != nil {
-		return "", err
-	}
-	if slot != startup.SeedSlot {
-		return "", errors.New("only the signed controller seed may create regional bootstrap material")
-	}
-	return slot, nil
-}
-
 func automaticControllerSlot(ctx context.Context, local *automaticFoundation, grant region.VerifiedBootstrapMaterial) (string, error) {
 	if local == nil || local.factory == nil || local.imds == nil || !local.anchor.IsVerified() {
 		return "", bootstrapstart.ErrInstanceObservation
@@ -250,12 +234,13 @@ func automaticVaultTarget(ctx context.Context, local automaticFoundation, grant 
 type VerifiedAutomaticInstall struct {
 	template bootstrap.VerifiedStartupTemplate
 	material materialsource.VerifiedColdStartMaterial
+	founder  bootstrapstart.VerifiedSourceFounder
 	manifest bootstrap.Manifest
 	configs  map[string][]byte
 }
 
 func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation, template bootstrap.VerifiedStartupTemplate, material materialsource.VerifiedColdStartMaterial) (VerifiedAutomaticInstall, error) {
-	if !template.IsVerified() || !material.IsVerified() ||
+	if local == nil || local.factory == nil || !template.IsVerified() || !material.IsVerified() ||
 		!bytes.Equal(template.GrantWire(), material.Grant().FoundationGrantWire()) ||
 		template.InstallationID() != material.Grant().InstallationID() || template.Generation() != material.Grant().Generation() ||
 		template.PlanDigest() != material.Grant().PlanDigest() {
@@ -264,7 +249,15 @@ func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation
 	if err := material.VerifyCurrent(ctx); err != nil {
 		return VerifiedAutomaticInstall{}, err
 	}
-	slot, err := automaticSeedSlot(ctx, local, material.Grant())
+	founder, err := bootstrapstart.VerifySourceFounder(ctx, local.factory, template)
+	if err != nil {
+		return VerifiedAutomaticInstall{}, err
+	}
+	if founder.InstanceID() != local.instanceID {
+		return VerifiedAutomaticInstall{}, errors.New("automatic installation founder differs from the local instance")
+	}
+	slot := founder.SeedSlot()
+	address, err := template.SlotPrivateIP(slot)
 	if err != nil {
 		return VerifiedAutomaticInstall{}, err
 	}
@@ -294,7 +287,7 @@ func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation
 		}
 		configs[controllerSlot] = bytes.Clone(manifest.ControllerConfig)
 		if controllerSlot == slot {
-			if _, err := ValidateSignedControllerConfig(manifest, local.observed.PrimaryPrivateIP); err != nil {
+			if _, err := ValidateSignedControllerConfig(manifest, address); err != nil {
 				return VerifiedAutomaticInstall{}, err
 			}
 			localManifest = manifest
@@ -303,19 +296,24 @@ func newVerifiedAutomaticInstall(ctx context.Context, local *automaticFoundation
 	if localManifest.Slot != slot {
 		return VerifiedAutomaticInstall{}, errors.New("automatic installation seed is outside the signed controller slots")
 	}
-	return VerifiedAutomaticInstall{template: template, material: material, manifest: localManifest, configs: configs}, nil
+	return VerifiedAutomaticInstall{template: template, material: material, founder: founder, manifest: localManifest, configs: configs}, nil
 }
 
 func (install VerifiedAutomaticInstall) bindAuthority(ctx context.Context) (bootstrap.DerivedStartupAuthority, error) {
-	if !install.template.IsVerified() || !install.material.IsVerified() ||
+	if !install.template.IsVerified() || !install.material.IsVerified() || !install.founder.IsVerified() ||
+		install.founder.GrantDigest() != install.template.GrantDigest() || install.founder.TemplateDigest() != install.template.TemplateDigest() ||
 		!bytes.Equal(install.configs[install.manifest.Slot], install.manifest.ControllerConfig) {
 		return bootstrap.DerivedStartupAuthority{}, errors.New("automatic installation has no verified local rendering")
+	}
+	_, guarded, err := install.founder.GuardedFactory(ctx)
+	if err != nil {
+		return bootstrap.DerivedStartupAuthority{}, err
 	}
 	projection, err := materialsource.NewStartupProjection(install.template, install.material, install.manifest.Slot)
 	if err != nil {
 		return bootstrap.DerivedStartupAuthority{}, err
 	}
-	authority, err := projection.BindConfigs(ctx, install.configs)
+	authority, err := projection.BindConfigs(guarded, install.configs)
 	if err != nil {
 		return bootstrap.DerivedStartupAuthority{}, err
 	}
