@@ -45,7 +45,7 @@ func IssueRegionalLink(ctx context.Context, home *ColdStartMaterial, homeLink *L
 		return nil, err
 	}
 	scope := sha256.Sum256([]byte(recipient.InstallationID() + "\x00" + grant.Config().Cell + "\x00spoke-link-v1\x00" + recipient.BindingSHA256()))
-	source := &ColdStartMaterial{grant: grant, objects: objects, directory: directory, kind: "spoke-link-v1", binding: recipient.BindingSHA256(), link: inputs, secretName: "ts-bootstrap-source-link-" + hex.EncodeToString(scope[:16]), key: recipient.LinkObjectKey()}
+	source := &ColdStartMaterial{actor: home.actor, grant: grant, objects: objects, directory: directory, kind: "spoke-link-v1", binding: recipient.BindingSHA256(), link: inputs, secretName: "ts-bootstrap-source-link-" + hex.EncodeToString(scope[:16]), key: recipient.LinkObjectKey()}
 	source, err := resolveSource(ctx, source, management, bundles, now)
 	if err != nil {
 		return nil, err
