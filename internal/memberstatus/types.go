@@ -167,6 +167,7 @@ type DrainEnvelope struct {
 	State         string        `json:"state"`
 	ReceiptSHA256 *string       `json:"receipt_sha256"`
 	Receipt       *DrainReceipt `json:"receipt"`
+	verified      bool
 }
 
 // Survivor is the named peer that must have acknowledged the source event
@@ -186,7 +187,7 @@ func (a Authority) valid() bool {
 		lowerHex(a.CertificateSHA256, 64) && lowerHex(a.TLSLeafSHA256, 64)
 }
 
-func (p Process) valid() bool { return p.PID >= 2 && lowerHex(p.StartNonce, 32) }
+func (p Process) valid() bool { return p.PID >= 1 && lowerHex(p.StartNonce, 32) }
 
 func (s Survivor) valid() bool {
 	return canonicalID(s.MemberID) && lowerHexIdentity(s.Incarnation)

@@ -21,12 +21,35 @@ import (
 
 var integrationSocket = flag.String("containerd-socket", "", "disposable containerd fixture socket")
 
-const integrationImage = "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+var integrationImage = func() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "docker.io/library/alpine@sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	case "arm64":
+		return "docker.io/library/alpine@sha256:2e1a7aa4cbc4e9e5222bb4c24a839aa1a6170ea5492d644777ce7b178824e44f"
+	default:
+		panic("no pinned containerd integration image for " + runtime.GOARCH)
+	}
+}()
 
 func TestMain(m *testing.M) {
 	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
 		RunRuntimeLogger(os.Args[2])
 		return
+	}
+	if len(os.Args) == 3 && os.Args[1] == "stateful-guard-agent-fixture" {
+		if err := statefulGuardAgentFixture(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) == 6 && os.Args[1] == "runtime-expiring-agent-fixture" {
+		if err := integrationExpiringAgent(os.Args[2], os.Args[3], os.Args[4], os.Args[5]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 	if len(os.Args) == 5 && os.Args[1] == "runtime-agent-fixture" {
 		if err := integrationAgent(os.Args[2], os.Args[3], os.Args[4]); err != nil {
@@ -47,12 +70,12 @@ func integrationAgent(socket, state, taskPath string) error {
 	if err := task.Unmarshal(data); err != nil {
 		return err
 	}
-	e, err := NewExecutor(socket, state)
+	e, err := newIntegrationExecutor(socket, state)
 	if err != nil {
 		return err
 	}
 	defer e.Close()
-	c, err := e.Controller(task)
+	c, err := integrationContainerController(e, task)
 	if err != nil {
 		return err
 	}
@@ -79,7 +102,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	state := t.TempDir()
-	e, err := NewExecutor(*integrationSocket, state)
+	e, err := newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +123,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := &api.Task{ID: fmt.Sprintf("executor%d", time.Now().UnixNano()), ServiceID: "executorintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
-	c, err := e.Controller(task)
+	c, err := integrationContainerController(e, task)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +190,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	if err := c.Update(ctx, mutated); !errors.Is(err, swarmexec.ErrTaskUpdateRejected) {
 		t.Fatalf("immutable task update: %v", err)
 	}
-	conflict, err := e.Controller(mutated)
+	conflict, err := integrationContainerController(e, mutated)
 	if err != nil {
 		t.Fatal(err)
 	}

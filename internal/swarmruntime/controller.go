@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+
 	"github.com/containerd/containerd/api/types"
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/contrib/seccomp"
@@ -29,11 +31,13 @@ import (
 )
 
 type controller struct {
-	executor    *Executor
-	task        *api.Task
-	spec        *api.ContainerSpec
-	id          string
-	fingerprint string
+	executor            *Executor
+	task                *api.Task
+	spec                *api.ContainerSpec
+	id                  string
+	fingerprint         string
+	credentialExpiresAt time.Time
+	stateful            *statefulController
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -59,10 +63,18 @@ func (c *controller) container(ctx context.Context) (containerd.Container, error
 	if labels["terrascale.task"] != c.task.ID || labels["terrascale.service"] != c.task.ServiceID || labels["terrascale.spec"] != c.fingerprint {
 		return nil, fmt.Errorf("container identity conflicts with task")
 	}
+	if c.stateful != nil && labels["terrascale.task-binding"] != c.fingerprint {
+		return nil, execution.ErrUnsafe
+	}
 	return ctr, nil
 }
 
 func (c *controller) Prepare(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ports, unlock, err := c.reservePorts(ctx)
@@ -80,29 +92,40 @@ func (c *controller) Prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	containerMounts, containerEnv, err := c.containerMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
+	resolver := c.executor.registry
+	if resolver == nil {
+		resolver = publicRegistryResolver
+	}
+	var node *api.Node
+	if c.executor.node != nil {
+		node = c.executor.node.Copy()
+	}
+	resolved, err := resolver(ctx, c.task.Copy(), node)
+	if err != nil {
+		return fmt.Errorf("resolve admitted container registry: %w", err)
+	}
+	if resolved == nil {
+		return errors.New("registry admission returned no resolver")
+	}
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
-		resolver := c.executor.registry
-		if resolver == nil {
-			resolver = publicRegistryResolver
+		image, err := c.executor.client.GetImage(ctx, c.spec.Image)
+		if errdefs.IsNotFound(err) {
+			image, err = c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved))
 		}
-		var node *api.Node
-		if c.executor.node != nil {
-			node = c.executor.node.Copy()
-		}
-		resolved, err := resolver(ctx, c.task.Copy(), node)
 		if err != nil {
-			return fmt.Errorf("resolve admitted container registry: %w", err)
+			return fmt.Errorf("load admitted container image: %w", err)
 		}
-		if resolved == nil {
-			return errors.New("registry admission returned no resolver")
-		}
-		image, err := c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved), containerd.WithPullUnpack, containerd.WithPullSnapshotter("native"))
-		if err != nil {
-			return fmt.Errorf("pull container image: %w", err)
+		_, pinned, _ := strings.Cut(c.spec.Image, "@")
+		if image.Target().Digest.String() != pinned {
+			return errors.New("container image target differs from pinned digest")
 		}
 		if image.Target().MediaType != imagespec.MediaTypeImageManifest && image.Target().MediaType != "application/vnd.docker.distribution.manifest.v2+json" {
 			return fmt.Errorf("container image must pin an architecture-specific child manifest")
@@ -113,6 +136,15 @@ func (c *controller) Prepare(ctx context.Context) error {
 		}
 		if config.OS != "linux" || config.Architecture != runtime.GOARCH {
 			return fmt.Errorf("container image architecture does not match host")
+		}
+		unpacked, err := image.IsUnpacked(ctx, "native")
+		if err != nil {
+			return fmt.Errorf("check native container image: %w", err)
+		}
+		if !unpacked {
+			if err := image.Unpack(ctx, "native"); err != nil {
+				return fmt.Errorf("unpack native container image: %w", err)
+			}
 		}
 		uid, gid, _ := strings.Cut(c.spec.User, ":")
 		u, _ := strconv.ParseUint(uid, 10, 32)
@@ -143,16 +175,36 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if len(materialMounts) != 0 {
 			opts = append(opts, oci.WithMounts(materialMounts))
 		}
+		if len(containerMounts) != 0 {
+			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
+		}
+		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
+		if c.stateful != nil {
+			qualified, err := c.stateful.specOption(ctx)
+			if err != nil {
+				return err
+			}
+			opts = append(opts, qualified)
+			labels["terrascale.task-binding"] = c.fingerprint
+		}
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
-			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}),
+			containerd.WithContainerLabels(labels),
 			containerd.WithNewSpec(opts...))
 		if err != nil {
 			return err
 		}
 	}
 	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
+		return err
+	}
+	if c.stateful != nil {
+		if err := c.stateful.verifySpec(ctx, ctr); err != nil {
+			return err
+		}
+	}
+	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
 		return err
 	}
 	info, err := ctr.Info(ctx)
@@ -189,10 +241,19 @@ func (c *controller) Prepare(ctx context.Context) error {
 }
 
 func (c *controller) Start(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ctx = runtimeContext(ctx)
 	materialMounts, err := c.functionMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
+	containerMounts, containerEnv, err := c.containerMaterialMount(ctx)
 	if err != nil {
 		return err
 	}
@@ -203,9 +264,16 @@ func (c *controller) Start(ctx context.Context) error {
 	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
 		return err
 	}
+	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
+		return err
+	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": c.executor.logRoot})
+		loggerArgument, err := c.runtimeLoggerArgument(ctx)
+		if err != nil {
+			return err
+		}
+		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": loggerArgument})
 		if uriErr != nil {
 			return uriErr
 		}
@@ -218,11 +286,28 @@ func (c *controller) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if c.stateful != nil && (status.Status == containerd.Created || status.Status == containerd.Running) {
+		if err := c.stateful.observe(ctx); err != nil {
+			return err
+		}
+	}
 	switch status.Status {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
-		return t.Start(ctx)
+		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
+			return err
+		}
+		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
+			return ErrContainerMaterialPending
+		}
+		if err := t.Start(ctx); err != nil {
+			return err
+		}
+		if c.stateful != nil {
+			return c.stateful.observe(ctx)
+		}
+		return nil
 	case containerd.Stopped:
 		return fmt.Errorf("durable task already exited with status %d", status.ExitStatus)
 	default:
@@ -274,6 +359,11 @@ func (c *controller) Wait(ctx context.Context) error {
 }
 
 func (c *controller) Shutdown(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	ctx = runtimeContext(ctx)
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
@@ -313,6 +403,11 @@ func (c *controller) Shutdown(ctx context.Context) error {
 }
 
 func (c *controller) Terminate(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	t, err := c.runtimeTask(ctx)
 	if errdefs.IsNotFound(err) {
 		return nil
@@ -335,12 +430,17 @@ func (c *controller) Terminate(ctx context.Context) error {
 }
 
 func (c *controller) Remove(ctx context.Context) error {
+	if c.stateful != nil {
+		if _, ok := ctx.Value(statefulPinsKey{}).(execution.RuntimePins); !ok {
+			return execution.ErrUnsafe
+		}
+	}
 	c.executor.mu.Lock()
 	defer c.executor.mu.Unlock()
 	ctx = runtimeContext(ctx)
 	ctr, err := c.container(ctx)
 	if errdefs.IsNotFound(err) {
-		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
+		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 	}
 	if err != nil {
 		return err
@@ -376,7 +476,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
+	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 }
 
 func (c *controller) Close() error { return nil }

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/TerraScale/ts-orchestrator/internal/storage/execution"
+
 	containerd "github.com/containerd/containerd/v2/client"
 	"github.com/containerd/containerd/v2/core/runtime/v2/logging"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
@@ -26,16 +28,19 @@ const logSegmentBytes = 1 << 20
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
-	client           *containerd.Client
-	socket           string
-	logRoot          string
-	executable       string
-	mu               sync.Mutex
-	functionMaterial FunctionMaterialProvider
-	functionIdentity FunctionTaskBinding
-	functionNodeID   string
-	node             *api.Node
-	registry         RegistryResolver
+	client            *containerd.Client
+	socket            string
+	logRoot           string
+	executable        string
+	mu                sync.Mutex
+	functionMaterial  FunctionMaterialProvider
+	containerMaterial ContainerMaterialProvider
+	containerIdentity ContainerTaskBinding
+	functionIdentity  FunctionTaskBinding
+	functionNodeID    string
+	node              *api.Node
+	registry          RegistryResolver
+	stateful          *execution.Source
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -130,6 +135,27 @@ func (e *Executor) SetRegistryResolver(resolver RegistryResolver) error {
 func (e *Executor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
 
 func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
+	if t != nil && t.Spec.GetGeneric() != nil && t.Spec.GetGeneric().Kind == execution.StatefulContainerKind {
+		spec, err := decodeStateful(t)
+		if err != nil {
+			return nil, err
+		}
+		e.mu.Lock()
+		source := e.stateful
+		nodeID := e.functionNodeID
+		e.mu.Unlock()
+		if source == nil || nodeID == "" || t.NodeID != nodeID {
+			return nil, execution.ErrUnsafe
+		}
+		fingerprint, err := execution.TaskSHA256(t)
+		if err != nil {
+			return nil, err
+		}
+		base := &controller{executor: e, task: t.Copy(), spec: spec, id: "ts-" + t.ID, fingerprint: fingerprint}
+		stateful := &statefulController{controller: base, source: source, hooks: source.Hooks()}
+		base.stateful = stateful
+		return stateful, nil
+	}
 	s, err := DecodeContainer(t)
 	if err != nil {
 		return nil, err
@@ -141,8 +167,15 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 func (e *Executor) Close() error { return e.client.Close() }
 
 // RunRuntimeLogger is the containerd shim callback dispatched by the same binary.
-func RunRuntimeLogger(root string) {
+func RunRuntimeLogger(argument string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
+		root, guard, err := parseRuntimeLoggerInvocation(argument)
+		if err != nil {
+			return err
+		}
+		if guard != nil && (cfg.Namespace != runtimeNamespace || cfg.ID != guard.TaskID) {
+			return errors.New("runtime credential guard recipient differs from logger")
+		}
 		platformTask := cfg.Namespace == runtimeNamespace && strings.HasPrefix(cfg.ID, "ts-")
 		foundation := cfg.Namespace == "terrascale-netbird" && slices.Contains([]string{"netbird-server", "netbird-dashboard", "netbird-ingress"}, cfg.ID)
 		if !filepath.IsAbs(root) || (!platformTask && !foundation) || strings.ContainsAny(cfg.ID, "/\\") {
@@ -165,15 +198,31 @@ func RunRuntimeLogger(root string) {
 		if err := ready(); err != nil {
 			return err
 		}
+		guardCtx, cancelGuard := context.WithCancel(ctx)
+		defer cancelGuard()
+		var guarded chan error
+		if guard != nil {
+			guarded = make(chan error, 1)
+			guardResult := guarded
+			go func() { guardResult <- guardRuntimeCredential(guardCtx, *guard) }()
+		}
 		result := make(chan error, 2)
 		go func() { result <- copyBoundedLog(out, cfg.Stdout) }()
 		go func() { result <- copyBoundedLog(stderr, cfg.Stderr) }()
 		var errs []error
-		for range 2 {
+		for remaining := 2; remaining != 0 || guarded != nil; {
 			select {
 			case err := <-result:
+				remaining--
+				errs = append(errs, err)
+			case err := <-guarded:
+				guarded = nil
 				errs = append(errs, err)
 			case <-ctx.Done():
+				cancelGuard()
+				if guarded != nil {
+					<-guarded
+				}
 				return ctx.Err()
 			}
 		}
