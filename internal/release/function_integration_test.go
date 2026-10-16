@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -171,13 +172,14 @@ func TestFunctionAdmissionRequiresExactDelegationAndSupportedContract(t *testing
 }
 
 type functionFixture struct {
-	claim      FunctionClaim
-	module     []byte
-	root       ed25519.PublicKey
-	leaf       ed25519.PrivateKey
-	roots      trust.Keyring
-	delegation trust.Envelope
-	now        time.Time
+	claim       FunctionClaim
+	module      []byte
+	root        ed25519.PublicKey
+	rootPrivate ed25519.PrivateKey
+	leaf        ed25519.PrivateKey
+	roots       trust.Keyring
+	delegation  trust.Envelope
+	now         time.Time
 }
 
 func newFunctionFixture(t *testing.T) functionFixture {
@@ -222,11 +224,37 @@ func newFunctionFixture(t *testing.T) functionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return functionFixture{claim: claim, module: module, root: root, leaf: leaf, roots: roots, delegation: delegation, now: now}
+	return functionFixture{claim: claim, module: module, root: root, rootPrivate: rootPrivate, leaf: leaf, roots: roots, delegation: delegation, now: now}
 }
 
 func (fixture functionFixture) expected() FunctionExpectation {
 	claim := fixture.claim
 	return FunctionExpectation{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID,
 		FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: claim.Sequence}
+}
+
+func TestFunctionAdmissionCannotOutliveDelegatedSigningAuthority(t *testing.T) {
+	fixture := newFunctionFixture(t)
+	var capability trust.Delegation
+	if err := json.Unmarshal(fixture.delegation.Payload, &capability); err != nil {
+		t.Fatal(err)
+	}
+	expires := time.Now().UTC().Truncate(time.Second).Add(3 * time.Second)
+	delegation, err := trust.SignDelegation(capability, fixture.now.Add(-time.Minute), expires, fixture.rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A delegated signer can bypass the producer's lifetime clamp.
+	signed := signDirect(t, fixture.claim, FunctionScope(fixture.claim), fixture.leaf, fixture.now, fixture.now.Add(time.Hour))
+	proof, err := VerifyFunctionCurrent(encodeEnvelope(t, signed), encodeEnvelope(t, delegation), fixture.module, fixture.roots, fixture.expected(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proof.Valid() || !proof.ExpiresAt().Equal(expires) {
+		t.Fatalf("proof exceeds delegation expiry: %v", proof.ExpiresAt())
+	}
+	time.Sleep(time.Until(expires) + 10*time.Millisecond)
+	if proof.Valid() {
+		t.Fatal("retained proof remains authorized after delegation expires")
+	}
 }
