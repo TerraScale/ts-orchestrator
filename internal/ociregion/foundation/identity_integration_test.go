@@ -61,7 +61,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	var state sync.Mutex
 	var createToken string
 	hideList := false
-	writes, posts, guards, releases := 0, 0, 0, 0
+	writes, posts, guards, releases, inspections := 0, 0, 0, 0, 0
 	setLive := func(value Object) { state.Lock(); live = value; state.Unlock() }
 	numWrites := func() int { state.Lock(); defer state.Unlock(); return writes }
 	numPosts := func() int { state.Lock(); defer state.Unlock(); return posts }
@@ -123,6 +123,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			io.WriteString(w, `{"code":"InternalError","message":"response lost"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/20160918/compartments/"+resourceID:
+			inspections++
 			data, _ := json.Marshal(live)
 			w.Write(data)
 		default:
@@ -157,10 +158,12 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foundation, err := New(t.Context(), factory, text(plan["tenancy_id"]))
+	constructorContext, cancelConstructor := context.WithCancel(t.Context())
+	foundation, err := New(constructorContext, factory, text(plan["tenancy_id"]))
 	if err != nil {
 		t.Fatal(err)
 	}
+	cancelConstructor()
 	if _, err := foundation.Home.Call(t.Context(), "iam", "policy", "create", "--compartment-id", resourceID, "--name", "exact-founder-source", "--description", "test-only source IAM", "--statements", command.JSON(sourceStatements)); err != nil {
 		t.Fatal(err)
 	}
@@ -225,5 +228,28 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	plan["region"] = "eu-frankfurt-1"
 	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || numWrites() != 1 {
 		t.Fatalf("invalid intent wrote provider resources: %v", err)
+	}
+	// A reusable foundation must inspect under the current reconciliation,
+	// even after the context used for its initial home lookup has ended.
+	inspectionIDs := Object{}
+	for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment", "vault", "key", "vcn", "subnet", "network_security_group", "security_list", "controller_dynamic_group", "controller_policy", "objectstorage_key_policy", "host_dynamic_group"} {
+		inspectionIDs[key] = resourceID
+	}
+	inspectionPlan := Object{"resource_ids": inspectionIDs, "bootstrap_object_prefix": ""}
+	if err := foundation.inspect(t.Context(), inspectionPlan); err == nil || !strings.Contains(err.Error(), "identity differs") {
+		t.Fatalf("fresh inspection inherited constructor cancellation: %v", err)
+	}
+	state.Lock()
+	before := inspections
+	state.Unlock()
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := foundation.inspect(canceled, inspectionPlan); err == nil {
+		t.Fatal("canceled inspection succeeded")
+	}
+	state.Lock()
+	defer state.Unlock()
+	if inspections != before || before != 1 {
+		t.Fatalf("inspection cancellation reached provider: before=%d after=%d", before, inspections)
 	}
 }

@@ -62,6 +62,7 @@ type Foundation struct {
 	expected   map[string]string
 	tenancy    string
 	region     string
+	inspect    func(context.Context, Object) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -89,33 +90,37 @@ func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foun
 	if err != nil {
 		return nil, err
 	}
-	engine := &ociregion.Engine{Context: ctx, Dependency: func(name string, args []any, kwargs Object) (any, error) {
-		if name != "oci" {
-			return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
-		}
-		selected := home
-		if region := text(kwargs["region"]); region != "" {
-			var err error
-			selected, err = factory.ForRegion(region)
+	inspect := func(ctx context.Context, plan Object) error {
+		engine := &ociregion.Engine{Context: ctx, Dependency: func(name string, args []any, kwargs Object) (any, error) {
+			if name != "oci" {
+				return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
+			}
+			selected := home
+			if region := text(kwargs["region"]); region != "" {
+				var err error
+				selected, err = factory.ForRegion(region)
+				if err != nil {
+					return nil, err
+				}
+			}
+			words := make([]string, len(args))
+			for i, arg := range args {
+				words[i] = fmt.Sprint(arg)
+			}
+			data, _, err := sdkcli.NewClient(selected, "").Call(ctx, words)
 			if err != nil {
 				return nil, err
 			}
-		}
-		words := make([]string, len(args))
-		for i, arg := range args {
-			words[i] = fmt.Sprint(arg)
-		}
-		data, _, err := sdkcli.NewClient(selected, "").Call(ctx, words)
-		if err != nil {
-			return nil, err
-		}
-		var value any
-		if err := json.Unmarshal(data, &value); err != nil {
-			return nil, err
-		}
-		return value, nil
-	}}
-	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard, Check: engine.CheckFoundation, tenancy: tenancy, region: factory.Region()}, nil
+			var value any
+			if err := json.Unmarshal(data, &value); err != nil {
+				return nil, err
+			}
+			return value, nil
+		}}
+		return engine.CheckFoundation(plan)
+	}
+	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard,
+		Check: func(plan Object) error { return inspect(ctx, plan) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
 }
 
 // Run is `ts-orch oci-region foundation`.
@@ -200,6 +205,9 @@ func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error)
 		return nil, errors.New("foundation plan differs from authenticated tenancy or regional client")
 	}
 	ctx = ociclient.WithAuthority(ociresource.WithOperation(ctx, f.OperationID), f.Guard)
+	if working.inspect != nil {
+		working.Check = func(plan Object) error { return working.inspect(ctx, plan) }
+	}
 	ids, err := working.bind(ctx, bound)
 	if err != nil {
 		return nil, err
