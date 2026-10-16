@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 
@@ -86,12 +87,8 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 
 func (e *Executor) Configure(context.Context, *api.Node) error { return nil }
 
-func (e *Executor) SetNetworkBootstrapKeys(keys []*api.EncryptionKey) error {
-	if len(keys) != 0 {
-		return fmt.Errorf("containerd executor does not implement overlay networking")
-	}
-	return nil
-}
+// SwarmKit broadcasts overlay keys to every agent; host-only tasks never use them.
+func (e *Executor) SetNetworkBootstrapKeys([]*api.EncryptionKey) error { return nil }
 
 func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 	s, err := DecodeContainer(t)
@@ -107,7 +104,9 @@ func (e *Executor) Close() error { return e.client.Close() }
 // RunRuntimeLogger is the containerd shim callback dispatched by the same binary.
 func RunRuntimeLogger(root string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
-		if !filepath.IsAbs(root) || cfg.Namespace != runtimeNamespace || !strings.HasPrefix(cfg.ID, "ts-") || strings.ContainsAny(cfg.ID, "/\\") {
+		platformTask := cfg.Namespace == runtimeNamespace && strings.HasPrefix(cfg.ID, "ts-")
+		foundation := cfg.Namespace == "terrascale-netbird" && slices.Contains([]string{"netbird-server", "netbird-dashboard", "netbird-ingress"}, cfg.ID)
+		if !filepath.IsAbs(root) || (!platformTask && !foundation) || strings.ContainsAny(cfg.ID, "/\\") {
 			return fmt.Errorf("invalid runtime log identity")
 		}
 		dir := filepath.Join(root, cfg.ID)
