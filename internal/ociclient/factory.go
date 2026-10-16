@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/VictoriaMetrics/metrics"
+	"github.com/oracle/oci-go-sdk/v65/artifacts"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/common/auth"
 	"github.com/oracle/oci-go-sdk/v65/core"
@@ -59,6 +60,7 @@ const (
 	ServiceLimits            Service = "limits"
 	ServiceVault             Service = "vault"
 	ServiceUsage             Service = "usageapi"
+	ServiceArtifacts         Service = "artifacts"
 )
 
 // Limit is one token bucket: a sustained rate and a burst.
@@ -83,6 +85,7 @@ var DefaultLimits = map[Service]Limit{
 	ServiceLimits:            {PerSecond: 4, Burst: 8},
 	ServiceVault:             {PerSecond: 4, Burst: 8},
 	ServiceUsage:             {PerSecond: 1, Burst: 2},
+	ServiceArtifacts:         {PerSecond: 4, Burst: 8},
 }
 
 var defaultLimit = Limit{PerSecond: 4, Burst: 8}
@@ -105,6 +108,8 @@ type Factory struct {
 
 	mu       sync.Mutex
 	limiters map[Service]*rate.Limiter
+	origin   *Factory
+	regions  map[string]*Factory
 }
 
 // New builds a factory over an existing configuration provider. Region must be
@@ -194,6 +199,32 @@ func OperatorConfig(region string) (*Factory, error) {
 // Region is the OCI region identifier this factory serves.
 func (f *Factory) Region() string { return f.region }
 
+// ForRegion preserves this factory's authentication and retry policy while
+// selecting another catalog region, including the tenancy's home region.
+func (f *Factory) ForRegion(region string) (*Factory, error) {
+	if !catalog.IsOCIRegion(region) {
+		return nil, fmt.Errorf("OCI region %q is not in the region catalog", region)
+	}
+	if f.origin != nil {
+		return f.origin.ForRegion(region)
+	}
+	if region == f.region {
+		return f, nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if sibling := f.regions[region]; sibling != nil {
+		return sibling, nil
+	}
+	if f.regions == nil {
+		f.regions = map[string]*Factory{}
+	}
+	sibling := &Factory{provider: f.provider, region: region, limits: f.limits,
+		policy: f.policy, limiters: map[Service]*rate.Limiter{}, origin: f}
+	f.regions[region] = sibling
+	return sibling, nil
+}
+
 // Provider exposes the shared configuration provider for SDK helpers that need
 // it directly (for example the Object Storage upload manager).
 func (f *Factory) Provider() common.ConfigurationProvider { return f.provider }
@@ -227,6 +258,13 @@ func (f *Factory) Configure(client *common.BaseClient, service Service) {
 		}
 		if err := limiter.Wait(ctx); err != nil {
 			return fmt.Errorf("OCI %s rate limiter: %w", service, err)
+		}
+		if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
+			if guard, ok := ctx.Value(authorityKey{}).(func(context.Context) error); ok {
+				if err := guard(ctx); err != nil {
+					return fmt.Errorf("OCI %s write authority: %w", service, err)
+				}
+			}
 		}
 		if previous != nil {
 			return previous(request)
@@ -369,6 +407,18 @@ func (f *Factory) Usage() (usageapi.UsageapiClient, error) {
 	}
 	client.SetRegion(f.region)
 	f.Configure(&client.BaseClient, ServiceUsage)
+	return client, nil
+}
+
+// Artifacts returns the regional OCIR repository and container image client.
+func (f *Factory) Artifacts() (artifacts.ArtifactsClient, error) {
+	client, err := artifacts.NewArtifactsClientWithConfigurationProvider(f.provider)
+	if err != nil {
+		return client, fmt.Errorf("create OCI artifacts client: %w", err)
+	}
+	client.SetRegion(f.region)
+	f.Configure(&client.BaseClient, ServiceArtifacts)
+	client.HTTPClient = Instrument(client.HTTPClient, string(ServiceArtifacts))
 	return client, nil
 }
 
