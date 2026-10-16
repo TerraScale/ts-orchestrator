@@ -30,6 +30,7 @@ type RuntimePins struct {
 	Process             runtimespec.Process
 	Resources           runtimespec.LinuxResources
 	Mounts              []runtimespec.Mount
+	Namespaces          []runtimespec.LinuxNamespace
 	Volume              hostvolume.MountPins
 	VolumeDestination   string
 }
@@ -118,6 +119,9 @@ func (o RuntimeObserver) Observe(ctx context.Context, pins RuntimePins) (Runtime
 	if before.UID != pins.Process.User.UID || before.GID != pins.Process.User.GID || before.ProtocolPID() != 1 {
 		return RuntimeObservation{}, errors.New("actual container member user or init identity differs")
 	}
+	if err := verifyHostNetworkNamespace(pid); err != nil {
+		return RuntimeObservation{}, err
+	}
 	if err := verifyRuntimeLimits(before.Cgroup, id, pins.Resources); err != nil {
 		return RuntimeObservation{}, err
 	}
@@ -160,13 +164,17 @@ func (o RuntimeObserver) Observe(ctx context.Context, pins RuntimePins) (Runtime
 	if err := mount.VerifyContainerMount(pid, pins.VolumeDestination); err != nil {
 		return RuntimeObservation{}, err
 	}
+	if err := verifyHostNetworkNamespace(pid); err != nil {
+		return RuntimeObservation{}, err
+	}
 	return RuntimeObservation{Process: before, ContainerID: id, PIDNamespace: pidNS.Ino, MountNamespace: mountNS.Ino, State: status.Status}, nil
 }
 
 func verifyRuntimeSpec(actual *runtimespec.Spec, pins RuntimePins, id string) error {
 	if actual == nil || actual.Process == nil || actual.Linux == nil || actual.Root == nil || !actual.Root.Readonly ||
 		!reflect.DeepEqual(*actual.Process, pins.Process) || !reflect.DeepEqual(actual.Linux.Resources, &pins.Resources) ||
-		!reflect.DeepEqual(actual.Mounts, pins.Mounts) || actual.Linux.CgroupsPath != "/terrascale/"+id {
+		!reflect.DeepEqual(actual.Mounts, pins.Mounts) || !reflect.DeepEqual(actual.Linux.Namespaces, pins.Namespaces) ||
+		actual.Linux.CgroupsPath != "/terrascale/"+id {
 		return errors.New("actual OCI process, resources, mounts, or cgroup differs from admission")
 	}
 	pidNS, mountNS, boundVolume := 0, 0, 0
@@ -184,6 +192,8 @@ func verifyRuntimeSpec(actual *runtimespec.Spec, pins RuntimePins, id string) er
 			}
 		case runtimespec.UserNamespace:
 			return errors.New("member user namespace mapping is not admitted")
+		case runtimespec.NetworkNamespace:
+			return errors.New("member must use the host network namespace")
 		}
 	}
 	for _, mount := range actual.Mounts {
@@ -198,6 +208,20 @@ func verifyRuntimeSpec(actual *runtimespec.Spec, pins RuntimePins, id string) er
 		pins.Process.Capabilities == nil || len(pins.Process.Capabilities.Bounding)+len(pins.Process.Capabilities.Effective)+
 		len(pins.Process.Capabilities.Permitted)+len(pins.Process.Capabilities.Inheritable)+len(pins.Process.Capabilities.Ambient) != 0 {
 		return errors.New("OCI member isolation or retained bind is incomplete")
+	}
+	return nil
+}
+
+func verifyHostNetworkNamespace(pid int) error {
+	var actual, host unix.Stat_t
+	if err := unix.Stat(fmt.Sprintf("/proc/%d/ns/net", pid), &actual); err != nil {
+		return err
+	}
+	if err := unix.Stat("/proc/self/ns/net", &host); err != nil {
+		return err
+	}
+	if actual.Dev != host.Dev || actual.Ino != host.Ino {
+		return errors.New("actual member network namespace differs from the host")
 	}
 	return nil
 }
