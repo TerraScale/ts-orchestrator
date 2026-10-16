@@ -473,6 +473,16 @@ func changeReservations(ctx context.Context, reader *globalcontrol.Reader, write
 		if errors.Is(err, globalcontrol.ErrConflict) {
 			continue
 		}
+		if err == nil {
+			// An identical document retry can return before PutDocument's admission callback.
+			latest, hasBudget, readErr := ReadBudget(ctx, reader)
+			if readErr != nil {
+				return readErr
+			}
+			if hasBudget != found || hasBudget && latest != monthly {
+				continue
+			}
+		}
 		return err
 	}
 	return globalcontrol.ErrConflict
