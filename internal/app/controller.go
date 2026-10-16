@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/globalview"
 
 	"crypto/ed25519"
 	"github.com/TerraScale/ts-orchestrator/internal/atlas"
@@ -536,6 +537,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		}
 		roleIdentity = roleIdentityIssuer(issuer, runtime, cfg.NATS.Replicas)
 	}
+	var automaticFunctions atomic.Pointer[functionController]
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
 			return host.NewController(attempt, host.ControllerConfig{
@@ -548,10 +550,24 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 				ManagedMaterialProvider:     materialProvider,
 				ManagedCredentialFloor:      credentialFloor,
 				ManagedVolumeInspector:      volumeInspector,
-				TerraBaseCA:                 terraBaseCA,
-				RoleIdentity:                roleIdentity,
-				NodeAddress:                 services.nodeAddress,
-				RestartGate:                 restartGate,
+				FunctionMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
+					controller := automaticFunctions.Load()
+					if controller == nil {
+						return host.FunctionMaterialFiles{}, errors.New("automatic function authority is unavailable")
+					}
+					return controller.material(ctx, registration, binding)
+				},
+				RegistryAdmissionProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
+					controller := automaticFunctions.Load()
+					if controller == nil {
+						return host.RegistryAdmissionDocument{}, errors.New("automatic function registry authority is unavailable")
+					}
+					return controller.registryAdmission(ctx, registration, binding)
+				},
+				TerraBaseCA:  terraBaseCA,
+				RoleIdentity: roleIdentity,
+				NodeAddress:  services.nodeAddress,
+				RestartGate:  restartGate,
 			})
 		}, nil)
 	if err != nil {
@@ -743,6 +759,28 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return fmt.Errorf("discover capacity foundation: %w", err)
 	}
+	acceptedRuntime, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+	if err != nil {
+		return err
+	}
+	functionClient, _, functionConnection, err := swarmruntime.DialManagement(runCtx, acceptedRuntime)
+	if err != nil {
+		return fmt.Errorf("connect function runtime manager: %w", err)
+	}
+	defer functionConnection.Close()
+	functionMembership := func(ctx context.Context, nodeID string) (swarmruntime.VerifiedWorkerMembership, error) {
+		return swarmruntime.ReadWorkerMembership(ctx, acceptedRuntime, nodeID)
+	}
+	functions, stopFunctions, err := startAutomaticFunctions(runCtx, cfg, runtime, control, functionClient, services.roots,
+		capacityFoundation.factory, service.Artifacts(), gate.store, hostController.ListHosts, functionMembership)
+	if err != nil {
+		return fmt.Errorf("start automatic regional functions: %w", err)
+	}
+	automaticFunctions.Store(&functions)
+	defer func() {
+		automaticFunctions.Store(nil)
+		stopFunctions()
+	}()
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)
 		if err != nil || !present {
@@ -817,7 +855,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					return control.Guard(ctx, control.Current().Epoch)
 				}, load: hostLoad, global: global, fencer: control, fences: fences,
 				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews,
-				reservations: reservations, journal: managedJournal})
+				reservations: reservations, journal: managedJournal, functionDemand: functionDemandSource(functions.config)})
 			if err != nil {
 				_ = connection.Close()
 				return boundNodePool{}, err
@@ -997,6 +1035,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		scale:       scaleStatus,
 		services: func(ctx context.Context) ([]swarmruntime.ServiceObservation, error) {
 			return managedServiceObservations(ctx, region, services.identity.Environment)
+		},
+		functions: func(ctx context.Context) ([]globalview.FunctionObservation, error) {
+			return functions.observeFunctions(ctx, hostController.ListHosts, functionMembership)
 		},
 		capacity: capacitySource},
 		[]observability.FilesystemRole{{Role: "boot", Path: "/"}, {Role: "nats", Path: cfg.NATS.Embedded.StoreDir}}); err != nil {
