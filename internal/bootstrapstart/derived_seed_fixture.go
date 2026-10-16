@@ -94,7 +94,7 @@ func exerciseDerivedInstallation(t *testing.T, seed bootstrap.DerivedStartupAuth
 	storeDirectory := directory("nats", serviceUID, serviceGID, 0o700)
 	write := func(name string, wire []byte) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(bakedDirectory, name), wire, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(bakedDirectory, name), wire, 0o444); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -116,7 +116,7 @@ func exerciseDerivedInstallation(t *testing.T, seed bootstrap.DerivedStartupAuth
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(rootsDirectory, fmt.Sprintf("%03d.pem", index)), pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(rootsDirectory, fmt.Sprintf("%03d.pem", index)), pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0o444); err != nil {
 			t.Fatal(err)
 		}
 		index++
