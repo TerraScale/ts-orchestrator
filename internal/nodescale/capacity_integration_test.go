@@ -483,6 +483,9 @@ func protocolPool(t *testing.T, cloud *capacityCloud, capacity Capacity) *OCIPoo
 		t.Fatal(err)
 	}
 	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
+	pool.CheckpointGrowth = func(_ context.Context, _ Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
+		return request, nil
+	}
 	return pool
 }
 

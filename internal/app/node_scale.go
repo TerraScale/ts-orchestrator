@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
@@ -45,6 +46,7 @@ type nodeScaling struct {
 	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
 	costViews      *ociCostViews
 	reservations   *capacityReservations
+	journal        *oci.KVJournal
 	functionDemand func(context.Context) ([]nodescale.CapacityDemand, error)
 }
 
@@ -59,6 +61,7 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 		return nil, err
 	}
 	in.pool.Admit = in.reservations.admit(in.pool, store, in.fencer)
+	in.pool.CheckpointGrowth = checkpointCapacityGrowth(in.pool.CompartmentID(), store, in.journal)
 	pool, err := nodescale.NewChosenPool(in.pool, store)
 	if err != nil {
 		return nil, err

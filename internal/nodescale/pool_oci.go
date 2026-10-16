@@ -71,10 +71,11 @@ type OCIPool struct {
 	// Admit rechecks current signed image/runtime qualification, price and
 	// spending authority for this exact recipe; release fences them through a write.
 	// A missing producer leaves observations available and mutations pending.
-	Admit           func(context.Context, Recipe) (release func(), err error)
-	recipe          *Recipe
-	configurationID string
-	operationID     string // durable scaler action; separates otherwise identical launches
+	Admit            func(context.Context, Recipe) (release func(), err error)
+	CheckpointGrowth func(context.Context, Recipe, core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error)
+	recipe           *Recipe
+	configurationID  string
+	operationID      string // durable scaler action; separates otherwise identical launches
 }
 
 // NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
@@ -305,9 +306,18 @@ func (o *OCIPool) Grow(ctx context.Context, from int) error {
 	default:
 		return fmt.Errorf("%w: pool of cell %s is %d, expected %d", ErrPoolChanged, o.cell, size, from)
 	}
-	_, err = o.management.UpdateInstancePool(o.writeContext(ctx, *o.recipe), core.UpdateInstancePoolRequest{
+	request := core.UpdateInstancePoolRequest{
 		InstancePoolId: pool.Id, IfMatch: common.String(etag),
-		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(from + 1)}})
+		OpcRetryToken:             retryToken(fmt.Sprintf("%s:%s:%s:%d", o.operationID, o.recipe.SHA256(), deref(pool.Id), from+1)),
+		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(from + 1)}}
+	if o.CheckpointGrowth == nil {
+		return fmt.Errorf("%w: durable exact OCI growth request checkpoint is unavailable", ErrCapacityPending)
+	}
+	request, err = o.CheckpointGrowth(ctx, *o.recipe, request)
+	if err != nil {
+		return fmt.Errorf("%w: checkpoint exact OCI growth request: %v", ErrCapacityPending, err)
+	}
+	_, err = o.management.UpdateInstancePool(o.writeContext(ctx, *o.recipe), request)
 	if err != nil {
 		return fmt.Errorf("grow instance pool %s to %d: %w", deref(pool.DisplayName), from+1, err)
 	}

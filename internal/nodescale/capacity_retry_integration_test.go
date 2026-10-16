@@ -24,10 +24,14 @@ func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			cloud := newCapacityCloud()
-			var writes, admissions, guards atomic.Int32
+			var writes, admissions, guards, checkpoints atomic.Int32
+			var originalToken atomic.Value
 			var holding, growing, denied atomic.Bool
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 				if request.Method == http.MethodPut && strings.Contains(request.URL.Path, "/instancePools/") && growing.Load() {
+					if token, ok := originalToken.Load().(string); !ok || token == "" || request.Header.Get("opc-retry-token") != token {
+						t.Error("wire attempt lost its original checkpointed retry token")
+					}
 					if !holding.Load() {
 						t.Error("wire mutation escaped its authority fence")
 					}
@@ -67,6 +71,11 @@ func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
 				}
 				return func() { holding.Store(false) }, nil
 			}
+			pool.CheckpointGrowth = func(_ context.Context, _ Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
+				checkpoints.Add(1)
+				originalToken.Store(deref(request.OpcRetryToken))
+				return request, nil
+			}
 			ctx := ociclient.WithAuthority(t.Context(), func(context.Context) error { guards.Add(1); return nil })
 			if _, err := pool.Ensure(ctx, capacityRecipe()); err != nil {
 				t.Fatal(err)
@@ -84,8 +93,8 @@ func TestCapacityAdmissionRechecksEveryHTTPRetry(t *testing.T) {
 			} else if err != nil {
 				t.Fatal(err)
 			}
-			if writes.Load() != wantWrites || admissions.Load() != 2 || guards.Load() != 2 || holding.Load() {
-				t.Fatalf("per-attempt fences: writes=%d admissions=%d factory guards=%d held=%v", writes.Load(), admissions.Load(), guards.Load(), holding.Load())
+			if writes.Load() != wantWrites || admissions.Load() != 2 || guards.Load() != 2 || checkpoints.Load() != 1 || holding.Load() {
+				t.Fatalf("per-attempt fences: writes=%d admissions=%d factory guards=%d checkpoints=%d held=%v", writes.Load(), admissions.Load(), guards.Load(), checkpoints.Load(), holding.Load())
 			}
 			for _, observed := range cloud.pools {
 				wantSize := 1

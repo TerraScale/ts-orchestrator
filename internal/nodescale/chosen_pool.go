@@ -43,6 +43,7 @@ func (pool *ChosenPool) selected(ctx context.Context) (*OCIPool, *Recipe, error)
 		if err != nil {
 			return nil, nil, err
 		}
+		chosen.CheckpointGrowth = pool.observed.CheckpointGrowth
 		if pool.observed.Admit != nil {
 			chosen.Admit = func(ctx context.Context, recipe Recipe) (func(), error) {
 				release, err := pool.observed.admit(ctx, recipe)
