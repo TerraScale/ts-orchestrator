@@ -31,6 +31,10 @@ automation should call those commands. Operational tools and qualification
 drivers live in Go feature packages; shell wrappers select the environment
 and invoke the CLI. See [contributing](CONTRIBUTING.md) and [CLI boundaries](docs/cli.md).
 
+The [cluster visibility contract](docs/cluster-visibility.md) specifies the
+complete human/AI CLI and dashboard target: shared cluster APIs, metric discovery
+and history, Go templ + Datastar + ECharts, and one dashboard stylesheet.
+
 The required production path admits private NetBird members automatically,
 discovers every region and infers local identity from execution location.
 **Current gap (TS-796):** first-controller/regional foundation still depends on

@@ -1,5 +1,10 @@
 # Unified orchestrator CLI
 
+The [cluster CLI and dashboard contract](cluster-visibility.md) defines the
+desired complete human/AI interface, structured output, shared APIs and metric
+coverage. The inventory below describes existing commands; it does not claim
+that every desired operation is implemented.
+
 The [zero-configuration contract](zero-configuration.md) governs production.
 This is current command inventory, not a per-region setup or tuning recipe.
 Runtime input removal and automatic Vault delivery remain TS-796; read-only

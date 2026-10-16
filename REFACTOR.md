@@ -22,6 +22,8 @@ runtime, measured savings, production readiness, or deployment authorization.
 | Security and joining | Substantially simplify custom protocols; automatic discovery and worker admission using OCI identity and Vault-delivered bootstrap material. |
 | First regional milestone | A small, working GRU / San Francisco Bay Area / FRA deployment, communicating through orchestrator-managed NetBird. |
 | NetBird control plane | One dedicated A1 Flex VM in GRU, owned and recovered by `ts-orch`. |
+| Human and AI interface | `ts-orch` is the complete cluster CLI for operators and AI agents; CLI and dashboard share authenticated cluster APIs and operation semantics. |
+| Dashboard and visibility | Extend the existing Go `templ` + Datastar + Apache ECharts dashboard, embedded in the binary, with one stylesheet and complete metric discovery, history and cluster drilldowns. |
 | Build and deployment boundary | GitHub-hosted Actions is the current build producer. Deployment consumes signed, digest-addressed artifacts through the orchestrator and object storage; it requires no particular source repository or live CI API. No Forgejo server, runner, token, CLI, or package-fetch requirement. |
 
 Wasmtime is the proposed first function runtime, subject to the compatibility
@@ -103,6 +105,54 @@ and E2E inputs; they are not prerequisites of applying already admitted releases
 Never replace signature verification with a webhook shared secret or a successful
 CI status, and never relabel historical provider evidence.
 
+## One cluster CLI and complete dashboard visibility (user decision)
+
+`ts-orch` is the operational interface for the user and AI agents to inspect and
+manage the whole authorized cluster. Cover discovery, OCI resources/capacity,
+NetBird, workloads, releases, credentials, backups/recovery, health, metrics,
+logs, events and costs. Ordinary cluster operations must be available through
+the binary rather than requiring scripts, provider dashboards or direct SSH.
+Provider clients and supervised host tools remain implementation dependencies;
+initial tenancy authorization retains its prerequisite and approval boundaries.
+
+1. **Share one control contract.** CLI and dashboard call the same authorized
+   feature services/APIs. Provide readable CLI output plus stable, versioned JSON
+   for AI/automation, meaningful exit codes and resumable operation IDs. Mutations
+   retain plan/diff, identity, fencing, audit and destructive-action safeguards.
+   Read-only visibility never implicitly grants write access.
+2. **Reuse the implemented UI stack.** Here "tmpl" means the existing Go `templ`
+   components in `internal/dashboard`, with Datastar streaming updates and
+   vendored Apache ECharts. Embed assets in the single Go binary. Consolidate
+   styles into `internal/dashboard/assets/dashboard.css`; remove the separate
+   Pico stylesheet while preserving required base styles and license notices.
+   No additional CSS files, CSS imports, per-page styles or second frontend stack.
+3. **Make every metric discoverable.** Maintain a searchable metric catalog with
+   descriptions, units, types, safe labels, source, collection time and available
+   history. Every collected/exported metric family must be reachable through
+   both dashboard and CLI. Add missing instrumentation across the managed
+   lifecycle; show unsupported, missing, stale and truncated observations
+   explicitly. A green overview with missing regions is not full visibility.
+4. **Make charts explain the cluster.** Provide a global overview and regional,
+   host, workload and resource drilldowns, correlated metrics/logs/events and
+   operation timelines. Use consistent colors, readable axes/units, synchronized
+   time windows, tooltips, zoom and useful legends. Show topology and link
+   latency/loss, utilization, capacity, costs, deployment history and recovery
+   status. Support keyboard access, reduced motion and table/text alternatives.
+5. **Prove coverage on the three-region milestone.** Inspect the same observed
+   resources, metrics and operation IDs through CLI and dashboard across GRU,
+   San Jose and FRA. Demonstrate live updates and historical drilldowns, then
+   interrupt one region and a telemetry stream: healthy regions remain visible,
+   gaps stay visible, and reconnect restores a consistent view. Add ARM/x86/Wasm
+   runtime coverage as each runtime is qualified. Retain evidence before claiming
+   complete visibility.
+
+Use bounded collection, label cardinality, history tiers and streaming queues so
+observability remains viable on small A1 hosts. Retention and dropped samples
+must be visible; complete metric coverage does not imply infinite raw history.
+Keep secrets and customer payloads out of telemetry, CLI output and chart labels.
+See [the CLI and dashboard contract](docs/cluster-visibility.md) for coverage and
+implementation gaps. This section defines desired state, not completed features.
+
 ## First desired state: three regions that actually communicate
 
 | Display location | OCI region | Existing product token |
@@ -142,7 +192,9 @@ Acceptance requires real OCI hosts and the exact qualified source/artifacts:
    locally while unavailable cross-region operations are reported honestly.
 5. **Publish evidence.** Retain redacted inventories/OCIDs, peer and link health,
    six-direction results, boot/join/rollout/recovery timings, resource use, and
-   the actual regional bill under `benchmark/bench/`. Add separate ARM/x86/Wasm
+   the actual regional bill under `benchmark/bench/`. Include CLI/dashboard
+   parity, metric coverage and missing-region/stream-recovery evidence from the
+   visibility contract above. Add separate ARM/x86/Wasm
    workload hosts before claiming the mixed-runtime milestone is complete.
 
 These are desired acceptance results, not a report that the fleet exists.
@@ -663,6 +715,12 @@ risk-based source review, not exhaustive inspection of every file or live proof.
    artifact cleanup and serving verification are absent, but the corresponding
    code exists. Preserve that code and correct docs from retained evidence;
    do not rebuild working services or call source tests production readiness.
+9. **Complete the shared CLI and visibility contract.** Reuse the existing
+   `internal/dashboard`, `internal/observability`, global view and feature APIs;
+   inventory missing commands/instrumentation and connect them to real regional
+   sources. Consolidate the two current stylesheets into one. Qualify complete
+   metric discovery, history, charts and partial-outage behavior; existing pages
+   and HTTP 200 responses alone do not establish full cluster visibility.
 
 Verdict: establish signed artifact continuity and the managed NetBird foundation
 first, then prove the three-region milestone before replacing production tasks.
