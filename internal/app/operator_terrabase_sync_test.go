@@ -272,7 +272,7 @@ func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing
 			case "origin", "legacy origin", "git error":
 				run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
 					if name == "git" && args[2] == "remote" && failure == "legacy origin" {
-						return []byte("https://github.com/TerraScale/TerraBase.git"), nil
+						return []byte("https://github.com/TerraScale/TerraBase-legacy.git"), nil
 					}
 					if name == "git" && args[2] == "remote" && failure == "origin" {
 						return []byte("https://example.com/unreviewed.git"), nil

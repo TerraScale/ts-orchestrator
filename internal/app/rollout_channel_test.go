@@ -34,6 +34,7 @@ import (
 // delegation for GRU and SFO in production, and the online leaf.
 type releaseSigner struct {
 	roots      trust.Keyring
+	root       ed25519.PrivateKey
 	delegation trust.Envelope
 	leaf       ed25519.PrivateKey
 	now        time.Time
@@ -75,7 +76,7 @@ func newReleaseSigner(t *testing.T) releaseSigner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return releaseSigner{roots: roots, delegation: delegation, leaf: leafPrivate, now: now}
+	return releaseSigner{roots: roots, root: rootPrivate, delegation: delegation, leaf: leafPrivate, now: now}
 }
 
 // services is a controller's view of the signer's root.
@@ -130,6 +131,15 @@ func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []by
 			ELFMachine: machine, Static: true, Bytes: int64(len(binaries[architecture])),
 			SHA256: digestOf(binaries[architecture]), QualificationSHA256: qualificationDigest}, qualification,
 			qualificationDigest, cell, "production", anyLineage{}, s.delegation, s.roots, s.leaf, s.now, 24*time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof := testProductionProof(t, release.ProductionExpectation{SourceRevision: revision,
+			ArtifactSHA256: digestOf(binaries[architecture]), QualificationSHA256: qualificationDigest,
+			Cell: cell, Environment: "production", Runtime: release.ProductionRuntime,
+			Architecture: architecture, Role: "orchestrator"}, s.root, s.now, s.now.Add(24*time.Hour))
+		receipt, err = release.AttachProductionQualification(receipt, *proof, delegationWire, s.roots, s.leaf,
+			release.UpdateExpectation{Cell: cell, Environment: "production", Architecture: architecture}, s.now)
 		if err != nil {
 			t.Fatal(err)
 		}

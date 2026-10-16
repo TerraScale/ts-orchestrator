@@ -171,6 +171,11 @@ func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedMan
 		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2",
 		ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: managedImageTestOCID, OCIRegion: "GRU",
 	}
+	receipt.Production = testProductionProof(t, release.ProductionExpectation{
+		SourceRevision: receipt.SourceRevision, ArtifactSHA256: receipt.ImageSHA256,
+		QualificationSHA256: receipt.QualificationSHA256, Cell: receipt.OCIRegion, Environment: "production",
+		Runtime: release.ProductionRuntime, Architecture: receipt.Architecture, Role: "orchestrator",
+	}, rootPrivate, now, now.Add(time.Hour))
 	signed, err := release.SignImageReceipt(receipt, "production", delegation, roots,
 		delegatePrivate, now, time.Hour)
 	if err != nil {

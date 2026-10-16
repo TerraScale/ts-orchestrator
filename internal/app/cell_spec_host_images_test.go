@@ -50,13 +50,19 @@ func testHostImage(t *testing.T, keys testSpecTrust, imageID string, issuedAt ti
 		t.Fatal(err)
 	}
 	digest := strings.Repeat("cd", 32)
-	receipt, err := release.SignImageReceipt(release.ImageReceipt{
+	image := release.ImageReceipt{
 		Schema: release.ImageSchema, SourceRevision: revision, GoVersion: release.DefaultGoVersion,
 		Architecture: "arm64", BinaryBytes: 100, BinarySHA256: digest, QualificationSHA256: digest,
 		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: digest,
 		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: digest, OCIImageOCID: imageID, OCIRegion: "GRU",
-	}, keys.identity.Environment, delegation, keys.roots, leafPrivate, issuedAt, lifetime)
+	}
+	image.Production = testProductionProof(t, release.ProductionExpectation{
+		SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+		QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: keys.identity.Environment,
+		Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator",
+	}, keys.root, issuedAt, issuedAt.Add(lifetime))
+	receipt, err := release.SignImageReceipt(image, keys.identity.Environment, delegation, keys.roots, leafPrivate, issuedAt, lifetime)
 	if err != nil {
 		t.Fatal(err)
 	}
