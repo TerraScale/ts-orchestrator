@@ -80,9 +80,10 @@ func TestNodeCostPricesThePoolAndForecasts(t *testing.T) {
 	}
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	reads := 0
+	shape := "VM.Standard.A1.Flex"
 	recipe := func(context.Context) (nodescale.Recipe, error) {
 		reads++
-		return nodescale.Recipe{OCPUs: 4, MemoryGB: 24}, nil
+		return nodescale.Recipe{Capacity: nodescale.Capacity{Role: nodescale.RoleContainer, Architecture: "arm64", Shape: shape}, OCPUs: 4, MemoryGB: 24}, nil
 	}
 	views := &ociCostViews{store: store}
 	cost := views.nodeCost(recipe, func() time.Time { return now })
@@ -129,8 +130,17 @@ func TestNodeCostPricesThePoolAndForecasts(t *testing.T) {
 	if nodes := views.nodes(); len(nodes) != 2 || nodes[1] != hosts[1] {
 		t.Fatalf("nodes = %+v, want %+v", nodes, hosts)
 	}
-	if _, err := cost(ctx, pool); err != nil || reads != 1 {
-		t.Fatalf("second cost err = %v, recipe reads = %d, want 1", err, reads)
+	if _, err := cost(ctx, pool); err != nil || reads != 5 {
+		t.Fatalf("second cost err = %v, recipe reads = %d, want 5", err, reads)
+	}
+	pool.Pending = "legacy pool migration requires admitted replacement capacity"
+	if _, err := cost(ctx, pool); err == nil || reads != 5 {
+		t.Fatalf("mixed legacy capacity was priced: err = %v, recipe reads = %d", err, reads)
+	}
+	pool.Pending = ""
+	shape = "VM.Standard.A2.Flex"
+	if _, err := cost(ctx, pool); err == nil || reads != 6 {
+		t.Fatalf("changed shape reused the old price: err = %v, recipe reads = %d", err, reads)
 	}
 }
 

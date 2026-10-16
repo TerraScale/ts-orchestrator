@@ -64,18 +64,17 @@ func (views *ociCostViews) nodes() []ocicost.Host {
 // nodeCost is the node scaler's Cost: this region's forecast with the pool's
 // nodes pending at one node's price, the price the home allocator grants
 // growth against. The same pending nodes feed the cost view, so /cost and the
-// allocator show the same projection. The recipe is read once; a node's shape
-// is the leader's own and never changes.
+// allocator show the same projection. Read the current recipe for every price
+// so replacement capacity cannot retain the previous shape's cost.
 func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Recipe, error), now func() time.Time,
 ) func(context.Context, nodescale.PoolState) (nodescale.Cost, error) {
-	var shape *nodescale.Recipe
 	return func(ctx context.Context, state nodescale.PoolState) (nodescale.Cost, error) {
-		if shape == nil {
-			read, err := recipe(ctx)
-			if err != nil {
-				return nodescale.Cost{}, err
-			}
-			shape = &read
+		if state.Pending != "" {
+			return nodescale.Cost{}, fmt.Errorf("node capacity price is pending: %s", state.Pending)
+		}
+		shape, err := recipe(ctx)
+		if err != nil {
+			return nodescale.Cost{}, err
 		}
 		report, err := views.store.Report(ctx)
 		if err != nil {
@@ -85,7 +84,7 @@ func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Reci
 		if at.Sub(report.ObservedAt) > ocicost.MaxReportAge {
 			return nodescale.Cost{}, fmt.Errorf("OCI cost report is %s old", at.Sub(report.ObservedAt))
 		}
-		price, known := ocicost.NodeMonthlyCents(report.Prices, float64(shape.OCPUs), float64(shape.MemoryGB),
+		price, known := ocicost.NodeMonthlyCents(report.Prices, shape.Capacity.Shape, float64(shape.OCPUs), float64(shape.MemoryGB),
 			nodescale.BootVolumeGB)
 		if !known {
 			return nodescale.Cost{}, errors.New("the cost report has no unit price yet for a node's SKUs")
