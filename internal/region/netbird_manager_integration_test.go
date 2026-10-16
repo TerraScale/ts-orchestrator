@@ -334,6 +334,14 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Empty journal maps are omitted on disk. Rehydrate them as the
+		// production foundation controller does when resuming an attempt.
+		if saved.PendingCreates == nil {
+			saved.PendingCreates = map[string]PendingFoundationCreate{}
+		}
+		if saved.AuxiliaryIDs == nil {
+			saved.AuxiliaryIDs = map[string]string{}
+		}
 		_, cancel := context.WithCancelCause(t.Context())
 		t.Cleanup(func() { cancel(nil) })
 		attempt := &foundationAttempt{controller: &FoundationController{Store: store, Authority: recoveryAuthority{}}, record: saved, etag: etag, leaseID: saved.LeaseID, epoch: saved.Epoch, cancel: cancel}
