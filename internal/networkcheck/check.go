@@ -48,7 +48,6 @@ part routes4; ip -j -4 route show table all
 part routes6; ip -j -6 route show table all
 part netbird-wt0; sudo -n netbird-wt0 status --json 2>/dev/null || printf 'null\n'
 part netbird; netbird status --json 2>/dev/null || printf 'null\n'
-part netbird-ops; sudo -n podman exec -i ts-netbird-ops netbird status --json 2>/dev/null || printf 'null\n'
 part tailscale; tailscale status --json 2>/dev/null || printf 'null\n'
 part dns; LC_ALL=C resolvectl status 2>/dev/null || true
 part resolvconf; cat /etc/resolv.conf
