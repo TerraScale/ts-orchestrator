@@ -38,6 +38,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 		return errors.New("usage: terrascale-orchestrator <bootstrap-controller|run|host|check|operator|identity-new|netbird-enroll|netbird-agent> --config FILE")
 	}
 	command := args[0]
+	if command == "runtime-worker-admission-source" {
+		return runRuntimeWorkerAdmissionSource(ctx, args[1:], os.Stdin, output)
+	}
 	if command == "netbird-agent" {
 		return runNetBirdAgent(ctx, args[1:])
 	}

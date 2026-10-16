@@ -48,6 +48,9 @@ type artifactStoreKeeper struct {
 	storeDir      string
 	netbird       *netbirdRollout
 	nativeHistory *nativeHistory
+	functions     interface {
+		ListFunctionIntents(context.Context) ([]authority.LogEntry, error)
+	}
 }
 
 func (k artifactStoreKeeper) Run(ctx context.Context) error {
@@ -80,6 +83,19 @@ func (k artifactStoreKeeper) pass(ctx context.Context) {
 			var native []delivery.ArtifactUse
 			native, err = k.nativeHistory.artifactsInUse(ctx)
 			uses = append(uses, native...)
+		}
+		if err == nil && k.functions != nil {
+			entries, readErr := k.functions.ListFunctionIntents(ctx)
+			if readErr != nil {
+				return nil, readErr
+			}
+			for _, entry := range entries {
+				intent, decodeErr := authority.DecodeFunctionIntent(entry)
+				if decodeErr != nil {
+					return nil, decodeErr
+				}
+				uses = append(uses, delivery.ArtifactUse{Digest: intent.Claim.Digest, Role: "function-worker", Environment: intent.Claim.Environment})
+			}
 		}
 		if err != nil || k.netbird == nil {
 			return uses, err

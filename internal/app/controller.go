@@ -974,7 +974,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() {
 		workerErrors <- artifactStoreKeeper{control: control, service: service, hosts: hostController,
 			quota: services.artifactStoreMaxBytes, storeDir: cfg.NATS.Embedded.StoreDir, netbird: networkControl,
-			nativeHistory: nativeReleases}.Run(runCtx)
+			nativeHistory: nativeReleases, functions: control}.Run(runCtx)
 	})
 	if global.writer == nil {
 		workers.Go(func() {
