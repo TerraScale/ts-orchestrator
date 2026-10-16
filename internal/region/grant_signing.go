@@ -50,6 +50,9 @@ func SignFoundationDiscovery(ctx context.Context, grant FoundationGrant, anchor 
 	if err := ValidateContainerReleaseAuthorities(grant, lineage.Current, home.StorageDomain, issued); err != nil {
 		return RetainedFoundation{}, err
 	}
+	if err := ValidateWorkerProfiles(grant, grant.WorkerProfiles, lineage.Current, issued); err != nil {
+		return RetainedFoundation{}, err
+	}
 	boundExpiry := func(deadline time.Time) {
 		if deadline.Before(expires) {
 			expires = deadline
