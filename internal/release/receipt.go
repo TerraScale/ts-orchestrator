@@ -65,23 +65,26 @@ type BinaryReceipt struct {
 // orchestrator binary. OCIRegion and BaseImageRegion use logical region names
 // (GRU, SFO, or FRA), not Oracle region slugs.
 type ImageReceipt struct {
-	Schema              string `json:"schema"`
-	SourceRevision      string `json:"source_revision"`
-	GoVersion           string `json:"go_version"`
-	Architecture        string `json:"architecture"`
-	BinaryBytes         int64  `json:"binary_bytes"`
-	BinarySHA256        string `json:"binary_sha256"`
-	QualificationSHA256 string `json:"qualification_sha256"`
-	BaseImageOCID       string `json:"base_image_ocid"`
-	BaseImageRegion     string `json:"base_image_region"`
-	BaseImageSHA256     string `json:"base_image_sha256"`
-	KernelRelease       string `json:"kernel_release"`
-	KernelSHA256        string `json:"kernel_sha256"`
-	ImageFormat         string `json:"image_format"`
-	ImageBytes          int64  `json:"image_bytes"`
-	ImageSHA256         string `json:"image_sha256"`
-	OCIImageOCID        string `json:"oci_image_ocid"`
-	OCIRegion           string `json:"oci_region"`
+	Schema              string           `json:"schema"`
+	SourceRevision      string           `json:"source_revision"`
+	GoVersion           string           `json:"go_version"`
+	Architecture        string           `json:"architecture"`
+	BinaryBytes         int64            `json:"binary_bytes"`
+	BinarySHA256        string           `json:"binary_sha256"`
+	QualificationSHA256 string           `json:"qualification_sha256"`
+	BaseImageOCID       string           `json:"base_image_ocid"`
+	BaseImageRegion     string           `json:"base_image_region"`
+	BaseImageSHA256     string           `json:"base_image_sha256"`
+	KernelRelease       string           `json:"kernel_release"`
+	KernelSHA256        string           `json:"kernel_sha256"`
+	ImageFormat         string           `json:"image_format"`
+	ImageBytes          int64            `json:"image_bytes"`
+	ImageSHA256         string           `json:"image_sha256"`
+	OCIImageOCID        string           `json:"oci_image_ocid"`
+	OCIRegion           string           `json:"oci_region"`
+	Production          *ProductionProof `json:"production,omitempty"`
+	// HostProduction carries independent isolation proofs; each selected host role verifies its own proof.
+	HostProduction map[string]ProductionProof `json:"host_production,omitempty"`
 }
 
 // BinaryExpectation limits verification to a release environment. The binary
@@ -224,6 +227,16 @@ func SignImageReceipt(receipt ImageReceipt, environment string, delegation trust
 	if err := validateEnvironment(environment); err != nil {
 		return trust.Envelope{}, err
 	}
+	if validFor <= 0 || validFor > MaxReceiptLifetime {
+		return trust.Envelope{}, fmt.Errorf("receipt validity must be positive and at most %s", MaxReceiptLifetime)
+	}
+	productionExpiry, err := verifyImageProduction(receipt, environment, roots, now)
+	if err != nil {
+		return trust.Envelope{}, err
+	}
+	if validFor > 0 && productionExpiry.Before(now.Add(validFor)) {
+		validFor = productionExpiry.Sub(now)
+	}
 	return signReceipt(receipt, ImageScope(receipt, environment), delegation, roots, privateKey, now, validFor)
 }
 
@@ -325,9 +338,16 @@ func VerifyImageCurrent(envelopeWire, delegationWire []byte, roots trust.Keyring
 	if _, err := trust.VerifyDelegatedCurrent(envelope, scope, delegation, now, receiptPolicy()); err != nil {
 		return VerifiedImage{}, fmt.Errorf("verify current signed image receipt: %w", err)
 	}
+	productionExpiry, err := verifyImageProduction(receipt, expected.Environment, roots, now)
+	if err != nil {
+		return VerifiedImage{}, err
+	}
 	proof, err := proofFor(envelope)
 	if err != nil {
 		return VerifiedImage{}, err
+	}
+	if productionExpiry.Before(proof.expiresAt) {
+		proof.expiresAt = productionExpiry
 	}
 	return VerifiedImage{receipt: receipt, proof: proof}, nil
 }
@@ -384,14 +404,16 @@ func (historical HistoricalBinary) IssuedAt() time.Time    { return historical.p
 func (historical HistoricalBinary) ExpiresAt() time.Time   { return historical.proof.expiresAt }
 
 func (verified VerifiedImage) IsVerified() bool       { return verified.proof.verified }
-func (verified VerifiedImage) Receipt() ImageReceipt  { return verified.receipt }
+func (verified VerifiedImage) Receipt() ImageReceipt  { return cloneImageReceipt(verified.receipt) }
 func (verified VerifiedImage) EnvelopeSHA256() string { return verified.proof.envelopeSHA256 }
 func (verified VerifiedImage) KeyID() string          { return verified.proof.keyID }
 func (verified VerifiedImage) IssuedAt() time.Time    { return verified.proof.issuedAt }
 func (verified VerifiedImage) ExpiresAt() time.Time   { return verified.proof.expiresAt }
 
-func (historical HistoricalImage) IsVerified() bool       { return historical.proof.verified }
-func (historical HistoricalImage) Receipt() ImageReceipt  { return historical.receipt }
+func (historical HistoricalImage) IsVerified() bool { return historical.proof.verified }
+func (historical HistoricalImage) Receipt() ImageReceipt {
+	return cloneImageReceipt(historical.receipt)
+}
 func (historical HistoricalImage) EnvelopeSHA256() string { return historical.proof.envelopeSHA256 }
 func (historical HistoricalImage) KeyID() string          { return historical.proof.keyID }
 func (historical HistoricalImage) IssuedAt() time.Time    { return historical.proof.issuedAt }
