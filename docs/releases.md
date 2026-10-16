@@ -25,9 +25,19 @@ file names are their exact SHA-256 digests. Existing region consumers verify
 the delegated scope, signed receipts and binary digests locally, and enforce
 channel ordering and rollback rules.
 
-Application discovers every serving region and requires its fresh deployment
-scope plus a matching channel in the bundle. This updates existing regions;
-initial infrastructure, identity and regional bootstrap remain separate work.
+Application takes regional targets from the signed bundle directories; applying
+an existing release needs no live Atlas or CI discovery. It verifies local trust
+and shared binary metadata before any remote write, inspecting each digest once.
+Regional scope preflight, transfer, channel admission and observation then run
+independently with at most four regions active. An unreachable or invalid region
+reports its own error while healthy regions finish. Each active region receives
+its own bounded rollout deadline. Reapplying the same bundle reuses immutable
+bytes and preserves channel ordering.
+
+Each target still requires its fresh regional deployment scope. This updates
+existing regions; initial infrastructure, identity and regional bootstrap remain
+separate work. Local signatures, mixed release identities or tampered bytes fail
+the shared bundle check before any region is changed.
 
 A webhook may notify consumers that new data is available. The notification
 carries no release authority: consumers must fetch and verify the signed
