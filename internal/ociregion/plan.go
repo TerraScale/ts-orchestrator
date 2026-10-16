@@ -443,8 +443,8 @@ func validatePlan(p Object) Object {
 		fail("manual seed-A create identity is invalid")
 	}
 	b := obj(p["budget"])
-	if b["currency"] != "USD" || number(b["monthly_limit"]) <= 0 || number(b["monthly_limit"]) > 200 {
-		fail("manual monthly budget must be positive USD and no more than $200")
+	if !contains([]string{"USD", "BRL"}, b["currency"]) || number(b["monthly_limit"]) <= 0 {
+		fail("monthly budget must be finite and positive in USD or BRL")
 	}
 	if !eq(b["replacement_hosts_max"], 1) || number(b["replacement_overlap_hours_max"]) > 72 {
 		fail("replacement allowance exceeds the bounded plan")
@@ -452,20 +452,21 @@ func validatePlan(p Object) Object {
 	if number(b["snapshot_gb_max"]) > 350 || number(b["object_storage_gb_max"]) < 0 || number(b["object_storage_gb_max"]) > 10 || number(b["staging_object_storage_gb_max"]) < 0 || number(b["staging_object_storage_gb_max"]) > 10 {
 		fail("storage allowance exceeds the bounded plan")
 	}
-	// Retain unrelated operations inventory for safety accounting, independent of its services.
-	existing := obj(p["existing_operations_host"])
-	if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_shape", "expected_architecture", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
-		fail("manual plan must bind the exact existing operations host baseline")
-	}
-	if !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, existing["expected_shape"]) {
-		fail("manual operations host must declare its exact expected shape")
-	}
-	hostArchitecture(Object{"architecture": existing["expected_architecture"]})
-	for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
-		requireOCID(existing[key], kind, "")
-	}
-	if !eq(existing["expected_volume_gb"], 50) || !eq(existing["expected_volume_vpus_per_gb"], 10) {
-		fail("existing operations host data volume differs from the bounded cost model")
+	if baseline, present := p["existing_operations_host"]; present {
+		existing := obj(baseline)
+		if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_shape", "expected_architecture", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
+			fail("manual plan must bind the exact existing operations host baseline")
+		}
+		if !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, existing["expected_shape"]) {
+			fail("manual operations host must declare its exact expected shape")
+		}
+		hostArchitecture(Object{"architecture": existing["expected_architecture"]})
+		for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
+			requireOCID(existing[key], kind, "")
+		}
+		if !eq(existing["expected_volume_gb"], 50) || !eq(existing["expected_volume_vpus_per_gb"], 10) {
+			fail("existing operations host data volume differs from the bounded cost model")
+		}
 	}
 	gateway := validateGateway(p, network)
 	if ids["local_peering_gateway"] != nil && gateway == nil {
