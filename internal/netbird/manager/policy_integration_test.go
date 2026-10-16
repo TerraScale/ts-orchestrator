@@ -172,7 +172,7 @@ func TestImageInputCLIWritesAllRegionsWithoutPeerMaps(t *testing.T) {
 				t.Fatal(err)
 			}
 			cfg, err := client.ValidateConfig(out)
-			if err != nil || cfg.Region != region.oci || cfg.SetupKeySecretID != secret || len(cfg.PeerNames) != 0 {
+			if err != nil || cfg.Region != region.oci || cfg.SetupKeySecretID != secret {
 				t.Fatalf("invalid automatic image input: %+v %v", cfg, err)
 			}
 		})

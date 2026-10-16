@@ -1,10 +1,5 @@
 {
   "management_url": "https://netbird.terrascale.tech",
   "region": "us-sanjose-1",
-  "setup_key_secret_id": "ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqaz3wpfocetc4vvjgza7z2mwoeiwe4ux6nh2qgxfw4w2nq",
-  "peer_names": {
-    "10.252.0.11": "ts-sfo-1",
-    "10.252.0.12": "ts-sfo-2",
-    "10.252.0.13": "ts-sfo-3"
-  }
+  "setup_key_secret_id": "ocid1.vaultsecret.oc1.us-sanjose-1.amaaaaaappuhpdqaz3wpfocetc4vvjgza7z2mwoeiwe4ux6nh2qgxfw4w2nq"
 }

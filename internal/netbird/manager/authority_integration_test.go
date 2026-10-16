@@ -111,6 +111,10 @@ func TestManagementAuthorityFencesEveryPeerRenameWriteAndRecovers(t *testing.T) 
 		t.Fatalf("stale authority finished multi-write rename: %v %+v", f.mutations, f.peer(id))
 	}
 	leader.Store(true)
+	// DNS refuses the intermediate name while peer hygiene repairs it.
+	if err := loop.cycle(t.Context(), map[string]bool{}); err == nil || !strings.Contains(err.Error(), "canonical identity") {
+		t.Fatalf("intermediate identity was published: %v", err)
+	}
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}

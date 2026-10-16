@@ -5,7 +5,6 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
-	"net/netip"
 	"os"
 	"strconv"
 	"time"
@@ -64,7 +63,6 @@ type enroller struct {
 	run         commandRunner
 	readKey     keyReader
 	hostname    func() (string, error)
-	primaryIP   func(context.Context) (netip.Addr, error)
 	hostsPath   string
 	runtimePath string
 	// socketPath is the daemon control socket; empty skips the socket probe.
@@ -80,7 +78,7 @@ func Enroll(ctx context.Context, cfg Config) error {
 		return errors.New("netbird-enroll must run as root")
 	}
 	e := enroller{
-		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname, primaryIP: readPrimaryPrivateIP,
+		run: runCommand, readKey: readOCISetupKey, hostname: os.Hostname,
 		hostsPath: "/etc/hosts", runtimePath: "/run/terrascale-netbird", socketPath: netbirdSocket,
 		poll: 100 * time.Millisecond, pending: pendingLimit,
 	}
@@ -104,7 +102,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	if err := removeSetupKey(e.runtimePath); err != nil {
 		return err
 	}
-	if err := updateHosts(e.hostsPath, cfg.ManagementIP); err != nil {
+	if err := removeManagerHosts(e.hostsPath); err != nil {
 		return err
 	}
 	current, err := e.awaitDaemon(ctx)
@@ -135,7 +133,7 @@ func (e enroller) enroll(ctx context.Context, cfg Config) (result error) {
 	}
 	// NetBird names a peer only when it first registers; later logins with the
 	// saved identity keep the manager's name. Resolve it before any down.
-	name, err := e.peerName(ctx, cfg)
+	name, err := e.peerName()
 	if err != nil {
 		return err
 	}

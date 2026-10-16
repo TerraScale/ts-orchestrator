@@ -50,7 +50,7 @@ func TestSyncWarnsAboutSetupKeyWithoutChangingIt(t *testing.T) {
 	f.setupKeys[0]["auto_groups"] = []string{}
 	f.setupKeys[0]["state"] = "revoked"
 	report, err := Sync(t.Context(), f.api(t), GRU(), false)
-	if err != nil || len(report.Warnings) != 2 {
+	if err != nil || len(report.Warnings) != 5 {
 		t.Fatalf("warnings %v error %v", report.Warnings, err)
 	}
 }
@@ -61,7 +61,7 @@ func TestSyncIgnoresRevokedSetupKeysWithTheServerKeyName(t *testing.T) {
 	f.setupKeys = append(f.setupKeys, map[string]any{"id": "sk0", "name": "gru-servers",
 		"type": "reusable", "state": "revoked", "valid": false, "revoked": true, "auto_groups": f.setupKeys[0]["auto_groups"]})
 	report, err := Sync(t.Context(), f.api(t), GRU(), false)
-	if err != nil || len(report.Warnings) != 0 {
+	if err != nil || len(report.Warnings) != 3 {
 		t.Fatalf("warnings %v error %v", report.Warnings, err)
 	}
 }
@@ -433,7 +433,10 @@ func TestSyncWarnsAboutUnmanagedPoliciesAndBroadSetupKeysWithoutChangingThem(t *
 	if err != nil || len(report.Changes) != 0 {
 		t.Fatalf("second sync: %v %v", report.Changes, err)
 	}
-	want := []string{"policy Default is not in the desired state of cell gru-1",
+	want := []string{"policy operators-to-gru-cell is not in the desired state of cell gru-1",
+		"policy operators-to-forgejo is not in the desired state of cell gru-1",
+		"policy operators-ping-to-forgejo is not in the desired state of cell gru-1",
+		"policy Default is not in the desired state of cell gru-1",
 		"setup key gru-servers must auto-assign only group gru-servers"}
 	if !slices.Equal(report.Warnings, want) {
 		t.Fatalf("warnings %q", report.Warnings)

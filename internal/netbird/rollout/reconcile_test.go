@@ -45,8 +45,7 @@ type rolloutFixture struct {
 
 func rolloutTarget(version string) Target {
 	target := Target{Pin: client.Pin{Version: version}, Enrollment: netbird.Config{ManagementURL: netbird.DefaultManagementURL,
-		Region: netbird.DefaultRegion, SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaa.testsecret",
-		PeerNames: map[string]string{"10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2", "10.251.0.13": "gru-1-ctl-3"}}}
+		Region: netbird.DefaultRegion, SetupKeySecretID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaa.testsecret"}}
 	archive := func(arch string) client.Archive {
 		return client.Archive{URL: fmt.Sprintf("https://github.com/netbirdio/netbird/releases/download/v%s/netbird_%s_linux_%s.tar.gz", version, version, arch),
 			Bytes: 100, SHA256: strings.Repeat("a", 64), BinarySHA256: strings.Repeat("b", 64)}
@@ -289,7 +288,6 @@ func TestRolloutIntegrationEquivalentTargetSurvivesPersistedRoundTrip(t *testing
 		f.statuses[node] = status
 	}
 	equivalent := rolloutTarget("0.80.0")
-	equivalent.Enrollment.PeerNames = map[string]string{"10.251.0.13": "gru-1-ctl-3", "10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2"}
 	before := len(f.effects)
 	if err := f.tick(equivalent); err != nil || f.record().ID != first.ID || len(f.effects) != before {
 		t.Fatalf("equivalent target repeated rollout: %v", err)

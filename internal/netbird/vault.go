@@ -64,15 +64,6 @@ func validAdminPAT(token []byte) bool {
 // client and the OCI Vault reader share this predicate.
 func ValidAdminPAT(token []byte) bool { return validAdminPAT(token) }
 
-// ReadAdminPAT reads the current NetBird admin PAT version from OCI Vault with
-// the instance principal. The caller must clear the returned bytes.
-func ReadAdminPAT(ctx context.Context, cfg Config) ([]byte, error) {
-	if cfg.AdminPATSecretID == "" {
-		return nil, errors.New("NetBird admin_pat_secret_id is not configured")
-	}
-	return readOCISecret(ctx, cfg.Region, cfg.AdminPATSecretID, "admin PAT", maxAdminPATBytes, validAdminPAT)
-}
-
 func readOCISecret(ctx context.Context, region, secretID, label string, maxBytes int, valid func([]byte) bool) ([]byte, error) {
 	for _, name := range ociclient.SecretUnsafeEnv {
 		if _, overridden := os.LookupEnv(name); overridden {

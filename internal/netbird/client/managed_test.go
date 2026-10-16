@@ -87,7 +87,7 @@ func newManagedFixture(t *testing.T) *managedFixture {
 				return err
 			}
 			if bytes.Equal(wire, f.next) {
-				version = "0.80.0"
+				version = f.pin.Version
 			} else {
 				version = "0.79.0"
 			}
@@ -115,16 +115,26 @@ func managedBackup(t *testing.T, f *managedFixture) string {
 	return f.m.previousBinary(transaction)
 }
 
-func TestValidateManagedVersion(t *testing.T) {
-	for _, version := range []string{"0.80.0", "0.80.12"} {
-		if err := ValidateManagedVersion(version); err != nil {
-			t.Errorf("managed version %q rejected: %v", version, err)
-		}
-	}
-	for _, version := range []string{"", "0.79.0", "0.81.0", "0.80.", "0.80.0-rc1", "v0.80.0", "0.80.1\n"} {
-		if err := ValidateManagedVersion(version); err == nil {
-			t.Errorf("invalid managed version %q accepted", version)
-		}
+func TestManagedInstallAdmitsOnlySupportedVersionsBeforeReplacingBinary(t *testing.T) {
+	for _, version := range []string{"0.80.0", "0.80.12", "", "0.79.0", "0.81.0", "0.80.", "0.80.0-rc1", "v0.80.0", "0.80.1\n"} {
+		t.Run(version, func(t *testing.T) {
+			f := newManagedFixture(t)
+			f.pin.Version = version
+			f.pin.Archives.AMD64.URL = strings.ReplaceAll(f.pin.Archives.AMD64.URL, "0.80.0", version)
+			f.pin.Archives.Arm64.URL = strings.ReplaceAll(f.pin.Archives.Arm64.URL, "0.80.0", version)
+			_, err := f.m.install(t.Context(), f.pin, f.cfg, f.options)
+			if version == "0.80.0" || version == "0.80.12" {
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertManagedFile(t, f.m.path(managedBinary), f.next)
+			} else {
+				if err == nil || len(f.calls) != 0 {
+					t.Fatalf("invalid managed version reached service mutation: %v", err)
+				}
+				assertManagedFile(t, f.m.path(managedBinary), f.old)
+			}
+		})
 	}
 }
 

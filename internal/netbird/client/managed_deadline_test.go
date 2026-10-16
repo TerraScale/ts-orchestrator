@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -13,9 +14,24 @@ import (
 
 func TestManagedRollbackCalendarNeverPrecedesFractionalDeadline(t *testing.T) {
 	f := newManagedFixture(t)
+	if _, err := f.m.install(t.Context(), f.pin, f.cfg, f.options); err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := f.m.readTransaction()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, nanoseconds := range []int64{0, 1, 999999999} {
 		deadline := time.Unix(1800000000, nanoseconds)
-		unit := f.m.rollbackFiles(managedTransaction{ManagedResult: ManagedResult{RollbackDeadline: deadline}})[".timer"]
+		transaction.RollbackDeadline = deadline
+		if err := f.m.armRollback(t.Context(), transaction); err != nil {
+			t.Fatal(err)
+		}
+		wire, err := os.ReadFile(f.m.path("/etc/systemd/system/" + rollbackUnit + ".timer"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		unit := string(wire)
 		_, calendar, ok := strings.Cut(unit, "OnCalendar=")
 		if !ok {
 			t.Fatal("rollback timer has no calendar trigger")
