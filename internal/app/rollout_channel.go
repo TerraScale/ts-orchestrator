@@ -234,7 +234,7 @@ func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Stor
 	} else if err := json.Unmarshal(wire, &channel); err != nil {
 		status.State, status.Reason = releasechannel.StateFailed, "the channel does not decode: "+err.Error()
 	} else {
-		status.RunNumber = channel.RunNumber
+		status.RunNumber, status.ReleaseSequence = channel.RunNumber, channel.ReleaseSequence
 		if release.ValidSourceRevision(channel.SourceRevision) {
 			status.SourceRevision = channel.SourceRevision
 		}
@@ -293,7 +293,7 @@ func (c *rolloutControl) report(ctx context.Context, kv jetstream.KeyValue, stat
 }
 
 func sameReport(a, b releasechannel.Status) bool {
-	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.SourceRevision == b.SourceRevision &&
+	return a.Cell == b.Cell && a.RunNumber == b.RunNumber && a.ReleaseSequence == b.ReleaseSequence && a.SourceRevision == b.SourceRevision &&
 		a.State == b.State && a.Reason == b.Reason && a.Pins.Equal(b.Pins) &&
 		a.Environment == b.Environment && slices.Equal(a.Architectures, b.Architectures)
 }
