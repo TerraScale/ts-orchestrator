@@ -45,6 +45,7 @@ type FoundationIntent struct {
 	Generation        uint64                   `json:"generation"`
 	Plan              map[string]any           `json:"plan"`
 	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
+	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
 }
 
 // FoundationAuthority is the existing scoped foundation authority. HomeWrite
