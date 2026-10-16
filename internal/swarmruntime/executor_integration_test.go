@@ -28,6 +28,20 @@ func TestMain(m *testing.M) {
 		RunRuntimeLogger(os.Args[2])
 		return
 	}
+	if len(os.Args) == 3 && os.Args[1] == "stateful-guard-agent-fixture" {
+		if err := statefulGuardAgentFixture(os.Args[2]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+	if len(os.Args) == 6 && os.Args[1] == "runtime-expiring-agent-fixture" {
+		if err := integrationExpiringAgent(os.Args[2], os.Args[3], os.Args[4], os.Args[5]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 	if len(os.Args) == 5 && os.Args[1] == "runtime-agent-fixture" {
 		if err := integrationAgent(os.Args[2], os.Args[3], os.Args[4]); err != nil {
 			fmt.Fprintln(os.Stderr, err)
