@@ -28,16 +28,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oracle/oci-go-sdk/v65/common"
-	"google.golang.org/grpc"
 )
 
 func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
@@ -126,18 +123,7 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 		t.Fatalf("reconciliation inventory: %d, %v", len(entries), err)
 	}
 	t.Run("worker qualification covers full material lifetime", func(t *testing.T) {
-		registration := host.Registration{ID: entityid.New(), Cell: "gru", Environment: "canary"}
-		binding := functionmaterial.Binding{HostID: registration.ID, TaskID: strings.Repeat("a", 25), ServiceID: strings.Repeat("b", 25),
-			NodeID: strings.Repeat("c", 25), InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.function", Region: "sa-saopaulo-1"}
-		controller.config.Client = functionRecipientManager{
-			task: &api.Task{ID: binding.TaskID, ServiceID: binding.ServiceID, NodeID: binding.NodeID, DesiredState: api.TaskStateRunning},
-			service: &api.Service{ID: binding.ServiceID, Spec: api.ServiceSpec{Annotations: api.Annotations{Labels: map[string]string{
-				swarmruntime.LabelFunctionTenant: signer.claim.TenantID, swarmruntime.LabelFunctionID: signer.claim.FunctionID}}}},
-			node: &api.Node{ID: binding.NodeID, Spec: api.NodeSpec{Membership: api.NodeMembershipAccepted, Availability: api.NodeAvailabilityActive,
-				Annotations: api.Annotations{Name: registration.ID, Labels: map[string]string{swarmruntime.LabelRegion: binding.Region,
-					swarmruntime.LabelHostRole: "wasm", swarmruntime.LabelExecutionScope: "tenant", swarmruntime.LabelInstanceID: binding.InstanceID}}},
-				Status: api.NodeStatus{State: api.NodeStatus_READY}},
-		}
+		controller.config.Client = newFunctionControlClient(t)
 		target := release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "arm64"}
 		bundle, evidence := signer.worker(t, target)
 		controller.config.Factory = signer.factory
@@ -155,29 +141,10 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 		if _, err := release.VerifyContainerCurrent(ctx, bundle, signer.roots, target, time.Now(), deadline, evidence, allocations); err != nil {
 			t.Fatalf("independent worker qualification through request deadline: %v", err)
 		}
-		if _, err := controller.recipient(ctx, registration, binding); !errors.Is(err, trust.ErrExpired) {
+		if demand, err := functionDemandSource(controller.config)(ctx); !errors.Is(err, trust.ErrExpired) || demand != nil {
 			t.Fatalf("worker expiring before potential grant must fail its signed lifetime: %v", err)
 		}
 	})
-}
-
-type functionRecipientManager struct {
-	api.ControlClient
-	task    *api.Task
-	service *api.Service
-	node    *api.Node
-}
-
-func (manager functionRecipientManager) GetTask(context.Context, *api.GetTaskRequest, ...grpc.CallOption) (*api.GetTaskResponse, error) {
-	return &api.GetTaskResponse{Task: manager.task}, nil
-}
-
-func (manager functionRecipientManager) GetService(context.Context, *api.GetServiceRequest, ...grpc.CallOption) (*api.GetServiceResponse, error) {
-	return &api.GetServiceResponse{Service: manager.service}, nil
-}
-
-func (manager functionRecipientManager) GetNode(context.Context, *api.GetNodeRequest, ...grpc.CallOption) (*api.GetNodeResponse, error) {
-	return &api.GetNodeResponse{Node: manager.node}, nil
 }
 
 type functionPublicationSigner struct {
