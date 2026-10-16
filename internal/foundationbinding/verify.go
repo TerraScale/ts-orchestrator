@@ -83,6 +83,7 @@ func (v VerifiedBindings) Revalidate(ctx context.Context) error {
 }
 
 type grant struct {
+	ReleaseAuthorities  jsontext.Value   `json:"releaseAuthorities,omitempty"`
 	InstallationID      string           `json:"installationId"`
 	SchemaVersion       int              `json:"schemaVersion"`
 	Generation          uint64           `json:"generation"`
@@ -129,6 +130,8 @@ type provenance struct {
 // These private wire views avoid importing the region/bootstrap packages:
 // their consumers must be able to call this verifier without an import cycle.
 type record struct {
+	SourcePolicyIDs     jsontext.Value           `json:"sourcePolicyIds,omitempty"`
+	NetBirdManager      jsontext.Value           `json:"netbirdManager,omitempty"`
 	SchemaVersion       int                      `json:"schemaVersion"`
 	Cell                string                   `json:"cell"`
 	OCIRegion           string                   `json:"ociRegion"`
@@ -232,6 +235,14 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	}
 	if err := collectReferences(signed, authority.Cell, requested); err != nil {
 		return VerifiedBindings{}, err
+	}
+	if len(approved.InfrastructureSpend) != 0 && string(approved.InfrastructureSpend) != "null" {
+		pins := selected.Plan["resource_ids"].(map[string]any)
+		for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment"} {
+			if pins[key] == nil || pins[key] == "" {
+				requested[key] = true
+			}
+		}
 	}
 	if len(requested) == 0 {
 		return VerifiedBindings{}, errors.New("signed grant contains no logical references for this cell")
