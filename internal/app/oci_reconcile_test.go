@@ -101,7 +101,6 @@ func TestOciDesiredConfigIsBoundToTheSignedRegionAndAlwaysEnforces(t *testing.T)
 		t.Fatal("accepted an NSG outside the signed region configuration")
 	}
 	for name, wire := range map[string]string{
-		"policy":      `{"buckets":{"b":{"policy":"adopt","spec":{"namespace":"tenancy","bucket":"b"}}}}`,
 		"spec":        `{"buckets":{"b":{"spec":{"namespace":"tenancy","bucket":"b","versioning":"Disabled"}}}}`,
 		"name":        `{"buckets":{"Bad_Name":{"spec":{"namespace":"tenancy","bucket":"b"}}}}`,
 		"prune delay": `{"prune":true,"prune_delay_seconds":-1}`,

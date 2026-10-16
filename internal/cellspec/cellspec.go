@@ -446,11 +446,9 @@ type TrustedSigner struct {
 	Repositories       []string `json:"repositories,omitempty"`
 }
 
-// OCIDesiredEntry is one desired OCI resource. Policy is "report" (the
-// default: drift is only recorded) or "enforce".
+// OCIDesiredEntry is one desired OCI resource, reconciled under regional authority.
 type OCIDesiredEntry[S any] struct {
-	Policy string `json:"policy,omitempty"`
-	Spec   S      `json:"spec"`
+	Spec S `json:"spec"`
 }
 
 // OCIDesired lists the cell's desired OCI specs by logical name per kind;
@@ -1214,7 +1212,7 @@ func (p Plan) Empty() bool {
 		p.Dashboard == "" && p.NetBird == ""
 }
 
-// Validate checks each entry's policy and spec and the prune delay. The
+// Validate checks each entry's spec and the prune delay. The
 // controller also checks the entries against the signed region config.
 func (d OCIDesired) Validate() error {
 	if d.PruneDelaySeconds < 0 || d.PruneDelaySeconds > 7*24*60*60 {
@@ -1226,9 +1224,6 @@ func (d OCIDesired) Validate() error {
 
 func validDesired[S interface{ Validate() error }](entries map[string]OCIDesiredEntry[S]) error {
 	for name, entry := range entries {
-		if entry.Policy != "" && entry.Policy != "report" && entry.Policy != "enforce" {
-			return fmt.Errorf("%q has unsupported policy %q", name, entry.Policy)
-		}
 		if err := entry.Spec.Validate(); err != nil {
 			return fmt.Errorf("%q: %w", name, err)
 		}
@@ -1237,7 +1232,7 @@ func validDesired[S interface{ Validate() error }](entries map[string]OCIDesired
 }
 
 // ociDesiredChanges lists what after widens relative to before: a new or
-// changed enforce entry, turning on prune, a shorter prune delay while
+// changed resource entry, turning on prune, a shorter prune delay while
 // prune is on, and an entry dropped while prune is on, since prune then
 // releases its resource. Nil means no desired resources.
 func ociDesiredChanges(before, after *OCIDesired) []string {
@@ -1271,7 +1266,7 @@ func desiredChanges[S any](kind string, before, after map[string]OCIDesiredEntry
 	var changes []string
 	for _, name := range slices.Sorted(maps.Keys(after)) {
 		entry := after[name]
-		if previous, ok := before[name]; entry.Policy == "enforce" && (!ok || !reflect.DeepEqual(previous, entry)) {
+		if previous, ok := before[name]; !ok || !reflect.DeepEqual(previous, entry) {
 			changes = append(changes, "oci_desired "+kind+" "+name)
 		}
 	}
