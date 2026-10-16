@@ -159,7 +159,7 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		config := material.Config
 		wire, err := json.Marshal(config, json.Deterministic(true))
 		digest := sha256.Sum256(wire)
-		if err != nil || !entityid.Valid(material.InstallationID) || material.PlanSHA256 != hex.EncodeToString(digest[:]) ||
+		if err != nil || !entityid.Valid(material.InstallationID) || material.InstallationID != s.home.InstallationID || material.PlanSHA256 != hex.EncodeToString(digest[:]) ||
 			config.Validate() != nil || config.Cell != strings.ToLower(cell) || config.Region != intent.Plan["region"] ||
 			config.Environment != s.scope.Environment ||
 			(config.Cell == strings.ToLower(string(s.local.Cell)) && (config.DeploymentID != s.local.DeploymentID || config.ClusterID != s.local.ClusterID)) {

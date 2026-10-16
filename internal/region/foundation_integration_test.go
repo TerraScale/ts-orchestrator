@@ -165,7 +165,7 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	digest := sha256.Sum256(configWire)
 	reader.local = bootstrap.BootstrapAnchor{Cell: oci.RegionGRU, DeploymentID: config.DeploymentID, ClusterID: config.ClusterID}
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.test", KMSKeyOCID: reader.storage.HeadKMSKeyOCID}
-	material := &BootstrapMaterialIntent{InstallationID: entityid.New(), PlanSHA256: hex.EncodeToString(digest[:]), Config: config, SourceVaultTarget: target}
+	material := &BootstrapMaterialIntent{InstallationID: reader.home.InstallationID, PlanSHA256: hex.EncodeToString(digest[:]), Config: config, SourceVaultTarget: target}
 	grant := FoundationGrant{InstallationID: reader.home.InstallationID, SchemaVersion: 1, Generation: 1, TenancyID: reader.tenancy, ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "scenario",
 		Regions: []FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": reader.tenancy, "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID}}}}}
 	publish := func(signedScope trust.Scope, expiry time.Time) {
