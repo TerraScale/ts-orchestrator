@@ -85,6 +85,20 @@ func TestContainerdEmergencyStopRetainsExactIdentity(t *testing.T) {
 		}
 	}
 	start()
+	for {
+		pids, err := process.Pids(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(pids) > 1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("writer did not create its actual descendant")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 	observed, err := memberstatus.ObserveContainerProcess(int(process.Pid()), int(process.Pid()))
 	if err != nil {
 		t.Fatal(err)
@@ -153,12 +167,19 @@ func TestContainerdEmergencyStopRetainsExactIdentity(t *testing.T) {
 	if err := originalProcessStopped(observed.PID, observed.KernelStart); err != nil {
 		t.Fatalf("retained writer still live: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(cgroup, "cgroup.events"))
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		t.Fatal(err)
-	}
-	if err == nil && !bytes.Contains(data, []byte("populated 0\n")) {
-		t.Fatalf("private PID namespace descendants survived stop: %s", data)
+	for {
+		data, err := os.ReadFile(filepath.Join(cgroup, "cgroup.events"))
+		if errors.Is(err, os.ErrNotExist) || err == nil && bytes.Contains(data, []byte("populated 0\n")) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("private PID namespace descendants survived stop: %s", data)
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 	if _, err := process.Delete(ctx); err != nil {
 		t.Fatal(err)
