@@ -47,6 +47,12 @@ func (c command) runAt(args []string, now time.Time) error {
 		return c.signLedgerDelegationAt(args[1:], now)
 	case "sign-anchor":
 		return c.signBootstrapAnchorAt(args[1:], now)
+	case "sign-foundation":
+		return c.signFoundationAt(args[1:], now)
+	case "prepare-foundation":
+		return c.prepareFoundation(args[1:])
+	case "publish-foundation":
+		return c.publishFoundation(args[1:])
 	case "sign-manifest":
 		return c.signManifestAt(args[1:], now)
 	case "sign-material-generation":

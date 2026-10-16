@@ -148,7 +148,53 @@ func PublishFoundationDiscovery(ctx context.Context, factory *ociclient.Factory,
 	return publishFoundationDiscovery(ctx, client, tenancy, roots, anchorWire, grantWire)
 }
 
+// PublishFoundationBundle preserves the explicit canonical root lineage from
+// the offline ceremony. It never substitutes an empty chain after a rotation.
+func PublishFoundationBundle(ctx context.Context, factory *ociclient.Factory, genesis trust.Keyring, bundle RetainedFoundation) error {
+	client, tenancy, err := foundationHomeClient(factory)
+	if err != nil {
+		return err
+	}
+	if bundle.TenancyID != tenancy {
+		return errors.New("foundation publication differs from authenticated tenancy")
+	}
+	return publishFoundationBundle(ctx, client, tenancy, genesis, bundle)
+}
+
+func publishFoundationBundle(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, bundle RetainedFoundation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	envelope, err := trust.DecodeEnvelope(bundle.AnchorWire)
+	if err != nil {
+		return err
+	}
+	chain, err := trust.DecodeRootChain(bundle.RootChainWire)
+	if err != nil {
+		return err
+	}
+	verified, err := trust.VerifyRootChain(genesis, foundationChainIdentity(envelope.Scope.DeploymentID), chain)
+	if err != nil {
+		return err
+	}
+	if bundle.TenancyID != tenancy {
+		return errors.New("foundation bundle differs from authenticated tenancy")
+	}
+	if _, err := verifyDiscoveryAnchor(bundle.AnchorWire, verified.Current, tenancy, bundle.Namespace); err != nil {
+		return err
+	}
+	return publishFoundationDiscoveryChain(ctx, client, tenancy, verified.Current, bundle.AnchorWire, bundle.GrantWire, bundle.RootChainWire)
+}
+
 func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire []byte) error {
+	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+	if err != nil {
+		return err
+	}
+	return publishFoundationDiscoveryChain(ctx, client, tenancy, roots, anchorWire, grantWire, chainWire)
+}
+
+func publishFoundationDiscoveryChain(ctx context.Context, client foundationDiscoveryObjects, tenancy string, roots trust.Keyring, anchorWire, grantWire, chainWire []byte) error {
 	if len(roots) == 0 {
 		return errors.New("initial publication requires independent trusted roots")
 	}
@@ -165,10 +211,6 @@ func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryO
 		return err
 	}
 	if _, _, err := reader.verifyGrant(grantWire); err != nil {
-		return err
-	}
-	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
-	if err != nil {
 		return err
 	}
 	grantName := strings.TrimSuffix(reader.storage.Prefix, "/") + "/" + foundationGrantObject

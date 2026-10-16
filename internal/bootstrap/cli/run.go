@@ -16,6 +16,9 @@ Commands:
   verify-manifest
   sign-ledger-delegation
   sign-anchor
+  sign-foundation
+  prepare-foundation
+  publish-foundation
   sign-manifest
   sign-material-generation
   sign-accepted-identity-checkpoint
