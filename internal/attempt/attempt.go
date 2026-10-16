@@ -1428,9 +1428,10 @@ func (a *Attempt) PhaseStatus() {
 	}
 	// Cell server names are static (internal/naming), so this lists every
 	// server of the cell, not only this deployment's.
-	cell, _ := naming.RegionCell(a.Cell().Cell).Name()
+	region := a.Cell().Cell
+	cell, _ := naming.RegionCell(region).Name()
 	for _, instance := range instances {
-		if instance.LifecycleState != "TERMINATED" && strings.HasPrefix(instance.DisplayName, cell+"-") {
+		if instance.LifecycleState != "TERMINATED" && (naming.IsNode(instance.DisplayName, region) || strings.HasPrefix(instance.DisplayName, cell+"-")) {
 			fmt.Fprintf(a.Out, "instance %v %v %v\n", instance.DisplayName, instance.LifecycleState, instance.ID)
 		}
 	}
