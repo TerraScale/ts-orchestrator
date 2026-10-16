@@ -5,13 +5,14 @@ import (
 	"errors"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/moby/swarmkit/v2/api"
 )
 
 // AdmitNode is called by a manager with verified membership mapped to a node
 // certificate identity. Agent description labels never grant placement roles.
 func AdmitNode(ctx context.Context, client api.ControlClient, nodeID string, admitted Admission) (*api.Node, error) {
-	if nodeID == "" || !intentName.MatchString(admitted.Region) ||
+	if nodeID == "" || !catalog.IsOCIRegion(admitted.Region) ||
 		!intentName.MatchString(admitted.HostID) && !entityid.Valid(admitted.HostID) || admitted.InstanceID == "" {
 		return nil, errors.New("node requires verified membership identity and region")
 	}

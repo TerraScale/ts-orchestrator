@@ -119,6 +119,11 @@ func TestSignedReleaseRaftIntegration(t *testing.T) {
 	}
 	legacy := release.SequenceFloor{Cell: "GRU", RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)}
 	first := bundle(101, strings.Repeat("c", 40))
+	wrongRegion := intent
+	wrongRegion.Region = "gru"
+	if _, err := ApplySignedService(ctx, client, wrongRegion, first, roots, legacy, readEvidence, probe); err == nil {
+		t.Fatal("logical cell alias admitted as canonical OCI region")
+	}
 	tooNew := legacy
 	tooNew.RunNumber = 101
 	if _, err := ApplySignedService(ctx, client, intent, first, roots, tooNew, readEvidence, probe); err == nil {
