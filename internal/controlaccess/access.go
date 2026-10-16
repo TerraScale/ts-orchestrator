@@ -11,7 +11,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
@@ -33,15 +32,11 @@ func Resolve(ctx context.Context, selector string) (Access, error) {
 	if err := ctx.Err(); err != nil {
 		return Access{}, err
 	}
-	roots, err := trust.DiscoveryGenesis()
-	if err != nil || len(roots) == 0 {
-		return Access{}, fmt.Errorf("%w: independent public roots are unavailable", ErrPending)
-	}
 	factory, err := ociclient.OperatorConfig(catalog.OCIRegion(catalog.Bootstrap))
 	if err != nil {
 		return Access{}, fmt.Errorf("%w: authenticated OCI operator credentials are unavailable", ErrPending)
 	}
-	resolver, err := region.DiscoverFoundation(ctx, factory, roots)
+	resolver, err := region.DiscoverCurrentFoundation(ctx, factory)
 	if err != nil {
 		if ctx.Err() != nil {
 			return Access{}, ctx.Err()
