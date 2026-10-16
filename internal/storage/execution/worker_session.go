@@ -84,6 +84,7 @@ type WorkerSession struct {
 	guardRoot  string
 	mu         sync.Mutex
 	acquire    sync.Mutex
+	recovery   sync.Once
 	source     *Source
 	tasks      map[string]*workerTaskSession
 }
@@ -113,11 +114,13 @@ func (s *WorkerSession) bindSource(source *Source) error {
 		return ErrUnsafe
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.source != nil {
+		s.mu.Unlock()
 		return ErrUnsafe
 	}
 	s.source = source
+	s.mu.Unlock()
+	s.startRecovery()
 	return nil
 }
 

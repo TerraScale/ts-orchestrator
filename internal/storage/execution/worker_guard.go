@@ -64,11 +64,13 @@ func (s *WorkerSession) BindGuardRoot(root string) error {
 		return err
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.guardRoot != "" || len(s.tasks) != 0 {
+		s.mu.Unlock()
 		return ErrUnsafe
 	}
 	s.guardRoot = root
+	s.mu.Unlock()
+	s.startRecovery()
 	return nil
 }
 
