@@ -27,9 +27,10 @@ type FunctionTaskBinding struct {
 // FunctionMaterial is returned only by the trusted current-intent/Vault verifier.
 // Files must remain immutable for the binding's lifetime; renewal replaces a task.
 type FunctionMaterial struct {
-	Binding   FunctionTaskBinding
-	ExpiresAt time.Time
-	Files     map[string][]byte
+	Binding             FunctionTaskBinding
+	ExpiresAt           time.Time // Delivery admission only.
+	CredentialExpiresAt time.Time // Actual verified broker JWT/certificate deadline.
+	Files               map[string][]byte
 }
 
 // FunctionMaterialProvider independently verifies current function intent, the
@@ -77,13 +78,14 @@ func (c *controller) functionMaterialMount(ctx context.Context) ([]runtimespec.M
 	if err != nil {
 		return nil, fmt.Errorf("resolve current function material: %w", err)
 	}
-	if material.Binding != binding || !material.ExpiresAt.After(time.Now()) {
+	if material.Binding != binding || !material.ExpiresAt.After(time.Now()) || !material.CredentialExpiresAt.After(time.Now()) {
 		return nil, errors.New("function material does not bind this current task and host")
 	}
+	c.credentialExpiresAt = material.CredentialExpiresAt
 	if err := c.stageFunctionMaterial(material.Files); err != nil {
 		return nil, err
 	}
-	if !material.ExpiresAt.After(time.Now()) {
+	if !material.ExpiresAt.After(time.Now()) || !material.CredentialExpiresAt.After(time.Now()) {
 		return nil, errors.New("function material expired during preparation")
 	}
 	return []runtimespec.Mount{{Destination: FunctionMaterialDirectory, Type: "bind", Source: c.functionMaterialPath(), Options: []string{"bind", "ro", "nosuid", "nodev", "noexec"}}}, nil

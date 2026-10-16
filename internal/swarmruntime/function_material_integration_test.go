@@ -85,7 +85,7 @@ while :; do sleep 1; done
 		t.Fatal(err)
 	}
 	binding := FunctionTaskBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: admission.InstanceID, Region: admission.Region, HostID: admission.HostID, Fingerprint: fingerprint}
-	material := FunctionMaterial{Binding: binding, ExpiresAt: time.Now().Add(time.Hour), Files: files}
+	material := FunctionMaterial{Binding: binding, ExpiresAt: time.Now().Add(time.Hour), CredentialExpiresAt: time.Now().Add(time.Hour), Files: files}
 	provider := functionMaterialFixture(func(_ context.Context, requested FunctionTaskBinding) (FunctionMaterial, error) {
 		if requested != binding {
 			return FunctionMaterial{}, errors.New("fixture rejected unassigned recipient")
@@ -122,6 +122,14 @@ while :; do sleep 1; done
 		t.Fatal("expired material was accepted")
 	}
 	material.ExpiresAt = time.Now().Add(time.Hour)
+	credentialExpiry := material.CredentialExpiresAt
+	for _, invalid := range []time.Time{{}, time.Now().Add(-time.Second)} {
+		material.CredentialExpiresAt = invalid
+		if err := c.Prepare(ctx); err == nil {
+			t.Fatal("function material accepted absent or expired actual credentials")
+		}
+	}
+	material.CredentialExpiresAt = credentialExpiry
 	files["../outside"] = []byte("unsafe")
 	if err := c.Prepare(ctx); err == nil {
 		t.Fatal("caller-selected material path was accepted")
@@ -186,6 +194,11 @@ while :; do sleep 1; done
 	}
 	bind(e)
 	c = controllerFor(e, task)
+	material.CredentialExpiresAt = credentialExpiry.Add(time.Minute)
+	if err := c.Prepare(ctx); err == nil {
+		t.Fatal("recovery replaced the immutable actual credential deadline")
+	}
+	material.CredentialExpiresAt = credentialExpiry
 	if err := c.Prepare(ctx); err != nil {
 		t.Fatal(err)
 	}
