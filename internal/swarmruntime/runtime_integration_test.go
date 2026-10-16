@@ -3,6 +3,7 @@ package swarmruntime
 import (
 	"context"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"io"
 	"net"
 	"net/http"
@@ -55,7 +56,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	}
 	command := fmt.Sprintf("exec nc -lk -p %d -e /bin/sh -c \"printf 'HTTP/1.1 200 OK\\r\\nContent-Length: 5\\r\\nConnection: close\\r\\n\\r\\nready'\"", port)
 	service, err := applyService(ctx, client, ServiceIntent{
-		ID: "runtime-restart", Role: "smoke", Region: "gru", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
+		ID: entityid.Derive("integration", "runtime-restart"), Role: "smoke", Region: "gru", Environment: "integration", Architecture: runtime.GOARCH, Replicas: 1,
 		Container: &api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", command}},
 		Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}},
 		Ports:     []*api.PortConfig{{Name: "ready", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: port, PublishedPort: port}},
