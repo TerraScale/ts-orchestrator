@@ -146,6 +146,9 @@ func startDrainPeer(t *testing.T, binding peerBinding) (*memberstatus.Client, st
 	if err := os.Mkdir(control, 0o730); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(control, 0o730); err != nil {
+		t.Fatal(err)
+	}
 	var ownershipError error
 	if os.Getuid() == 0 {
 		ownershipError = os.Chown(control, 0, gid)
