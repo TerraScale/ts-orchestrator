@@ -67,8 +67,10 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	if err != nil {
 		return err
 	}
-	if err := refuseUnprovenPoolDescriptor(descriptor); err != nil {
-		return err
+	// Static grants do not retain independent admission provenance, including
+	// legacy pool names: a saved credential cannot establish creation authority.
+	if descriptor.IsStatic() {
+		return oci.ErrPoolCreationLineagePending
 	}
 	response, err := hostenroll.VerifyResponse(query.Response, key.Public().(ed25519.PublicKey), request, query.Request, descriptor)
 	if err != nil {
