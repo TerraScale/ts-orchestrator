@@ -162,10 +162,10 @@ func (h *Hooks) check(ctx context.Context, task *api.Task) error {
 	if ctx == nil || task == nil {
 		return ErrUnsafe
 	}
-	if !Stateful(task) {
+	held, ok := ctx.Value(heldKey{}).(*heldEffect)
+	if !Stateful(task) && !ok {
 		return nil
 	}
-	held, ok := ctx.Value(heldKey{}).(*heldEffect)
 	if !ok || held.hooks != h || !held.active.Load() {
 		return ErrUnsafe
 	}
