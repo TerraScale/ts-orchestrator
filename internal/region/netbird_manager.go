@@ -223,7 +223,15 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 			return vaultsecret.Target{}, "", err
 		}
 		launch := record.NetBirdManager
-		if launch == nil || launch.InstanceID != instanceID || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
+		slotID := BootstrapSlotID(intent.installationID, "GRU", NetBirdManagerRole, NetBirdManagerRole)
+		allocation, err := resolver.BootstrapAllocation(ctx, slotID)
+		if err != nil {
+			return vaultsecret.Target{}, "", err
+		}
+		if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
+			return vaultsecret.Target{}, "", err
+		}
+		if launch == nil || launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.InstanceID != instanceID || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
 			return vaultsecret.Target{}, "", errors.New("dedicated manager instance has no exact immutable foundation checkpoint")
 		}
 		observed, err := observer.ObserveInstance(ctx, instanceID)

@@ -40,6 +40,30 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 	if err != nil {
 		return err
 	}
+	if err := validateNetBirdAllocation(allocation, intent, compartment); err != nil {
+		return err
+	}
+	if existing := progress.NetBirdManager; existing != nil && existing.InstanceID != "" {
+		if existing.SlotID != slotID || existing.OperationID != allocation.OperationID() || existing.ProfileSHA256 != intent.profileDigest || existing.RecipeSHA256 != intent.recipeDigest {
+			return errors.New("dedicated manager singleton differs from current signed allocation")
+		}
+		// A known instance is observed indefinitely; an expired create token must
+		// neither disable it nor authorize repair or replacement spending.
+		readOnly := progress
+		readOnly.BeforeWrite = func(ctx context.Context, _ bool) (context.Context, func(), error) {
+			return ctx, nil, errors.New("existing manager network cannot be recreated")
+		}
+		if _, _, err := ReconcileNetBirdNetwork(ctx, factory, plan, intent.intent.Profile, readOnly); err != nil {
+			return err
+		}
+		boot, err := observeNetBirdGeometry(ctx, factory, intent.intent, *existing, compartment)
+		if err != nil {
+			return err
+		}
+		completed := *existing
+		completed.BootVolumeID = boot
+		return progress.CheckpointManager(ctx, completed)
+	}
 	prices, err := capacityinventory.New(factory)
 	if err != nil {
 		return err
@@ -165,6 +189,16 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	launch.BootVolumeID = boot
 	return progress.CheckpointManager(ctx, launch)
+}
+
+func validateNetBirdAllocation(allocation VerifiedBootstrapAllocation, intent verifiedNetBirdIntent, compartment string) error {
+	p, s := intent.intent.Profile, allocation.Slot()
+	if !allocation.IsVerified() || !time.Now().Before(allocation.ExpiresAt()) || allocation.InstallationID() != intent.installationID || allocation.Generation() != intent.generation ||
+		s.Cell != "GRU" || s.Role != NetBirdManagerRole || s.Slot != NetBirdManagerRole || s.CompartmentID != compartment || s.ProfileSHA256 != intent.profileDigest || s.RecipeSHA256 != intent.recipeDigest ||
+		s.Shape != p.Shape || s.OCPUs != float64(p.OCPUs) || s.MemoryGB != float64(p.MemoryGB) || s.BootGB != float64(p.BootVolumeGB) {
+		return errors.New("dedicated manager differs from its current same-grant finite slot")
+	}
+	return nil
 }
 
 func netBirdLaunchDetails(intent NetBirdManagerIntent, compartment, subnet, nsg string) core.LaunchInstanceDetails {
