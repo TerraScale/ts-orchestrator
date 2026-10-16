@@ -167,18 +167,6 @@ func PlanWorkload(request WorkloadRequest) ([]Assignment, error) {
 	return append(result, withdrawn...), nil
 }
 
-// PlanReplicas is the positional form used by delivery callbacks.
-func PlanReplicas(cell, role string, replicas int, request Resources, hosts []WorkloadHost, previous []Assignment) ([]Assignment, error) {
-	return PlanWorkload(WorkloadRequest{
-		Cell:     cell,
-		Role:     role,
-		Replicas: replicas,
-		Request:  request,
-		Hosts:    hosts,
-		Previous: previous,
-	})
-}
-
 // domainFull reports whether the candidate's failure domain already holds the
 // request's per-domain cap. A host without a domain counts as the "" domain,
 // as the workload reconciler's own cap check does.
