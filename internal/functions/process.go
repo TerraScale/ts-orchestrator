@@ -28,14 +28,15 @@ const processMaterialDirectory = "/run/ts-orch/function"
 // ProcessDeployment is delivered by admitted task/Vault reconciliation. It is
 // trusted placement metadata, never a user-supplied worker configuration.
 type ProcessDeployment struct {
-	Environment     string `json:"environment"`
-	Cell            string `json:"cell"`
-	TenantID        string `json:"tenant_id"`
-	FunctionID      string `json:"function_id"`
-	Revision        string `json:"revision"`
-	Digest          string `json:"digest"`
-	MinimumSequence uint64 `json:"minimum_sequence"`
-	BrokerURL       string `json:"broker_url"`
+	Environment     string    `json:"environment"`
+	Cell            string    `json:"cell"`
+	TenantID        string    `json:"tenant_id"`
+	FunctionID      string    `json:"function_id"`
+	Revision        string    `json:"revision"`
+	Digest          string    `json:"digest"`
+	MinimumSequence uint64    `json:"minimum_sequence"`
+	BrokerURL       string    `json:"broker_url"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 // Run serves a single admitted tenant revision in its own long-lived process.
@@ -111,7 +112,10 @@ func runProcess(ctx context.Context, directory, address string, output io.Writer
 	if err != nil {
 		return fmt.Errorf("admit function worker: %w", err)
 	}
-	ctx, cancel := context.WithDeadline(ctx, proof.ExpiresAt())
+	if !deployment.ExpiresAt.After(time.Now()) || deployment.ExpiresAt.After(proof.ExpiresAt()) {
+		return errors.New("function material authority expired or exceeds signed release")
+	}
+	ctx, cancel := context.WithDeadline(ctx, deployment.ExpiresAt)
 	defer cancel()
 	worker, err := NewWorker(ctx, proof)
 	if err != nil {
@@ -196,6 +200,23 @@ func runProcess(ctx context.Context, directory, address string, output io.Writer
 	defer listener.Close()
 	mux := http.NewServeMux()
 	mux.Handle("POST /", handler)
+	mux.HandleFunc("GET /snapshot", func(w http.ResponseWriter, r *http.Request) {
+		if _, err := authorize(r); err != nil {
+			http.Error(w, "authentication required", http.StatusUnauthorized)
+			return
+		}
+		if !nc.IsConnected() || worker.ctx.Err() != nil {
+			http.Error(w, "function worker unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		body, err := json.Marshal(worker.Snapshot())
+		if err != nil {
+			http.Error(w, "function snapshot unavailable", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := authorize(r); err != nil {
 			http.Error(w, "authentication required", http.StatusUnauthorized)
