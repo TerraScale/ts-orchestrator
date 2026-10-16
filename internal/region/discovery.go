@@ -21,6 +21,7 @@ import (
 const foundationHomeRegion = "sa-saopaulo-1"
 const foundationDiscoveryBucket = "gru-1-head"
 const foundationDiscoveryObject = "orchestrator/foundation/v1/anchor.json"
+const foundationRootChainObject = "orchestrator/foundation/v1/root-chain.json"
 
 var ErrFoundationDiscoveryPending = errors.New("authenticated foundation discovery is pending")
 
@@ -61,7 +62,7 @@ func discoveryNamespace(ctx context.Context, client foundationDiscoveryObjects, 
 	defer cancel()
 	response, err := client.GetNamespace(ociclient.RequestContext(ctx), objectstorage.GetNamespaceRequest{CompartmentId: new(tenancy)})
 	if err != nil || response.Value == nil || *response.Value == "" || strings.ContainsAny(*response.Value, "/\\\r\n") {
-		return "", fmt.Errorf("%w: caller's home storage namespace is unavailable", ErrFoundationDiscoveryPending)
+		return "", errors.Join(fmt.Errorf("%w: caller's home storage namespace is unavailable", ErrFoundationDiscoveryPending), err, ctx.Err())
 	}
 	return *response.Value, nil
 }
@@ -76,7 +77,7 @@ func discoverFoundation(ctx context.Context, client foundationDiscoveryObjects, 
 	}
 	wire, err := readDiscoveryObject(ctx, client, namespace, foundationDiscoveryObject, bootstrap.MaxBootstrapAnchorBytes)
 	if err != nil {
-		return FoundationResolver{}, fmt.Errorf("%w: current signed home anchor is unavailable", ErrFoundationDiscoveryPending)
+		return FoundationResolver{}, errors.Join(fmt.Errorf("%w: current signed home anchor is unavailable", ErrFoundationDiscoveryPending), err, ctx.Err())
 	}
 	anchor, err := verifyDiscoveryAnchor(wire, roots, tenancy, namespace)
 	if err != nil {
@@ -166,11 +167,15 @@ func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryO
 	if _, _, err := reader.verifyGrant(grantWire); err != nil {
 		return err
 	}
+	chainWire, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
+	if err != nil {
+		return err
+	}
 	grantName := strings.TrimSuffix(reader.storage.Prefix, "/") + "/" + foundationGrantObject
 	for _, object := range []struct {
 		name string
 		wire []byte
-	}{{grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
+	}{{foundationRootChainObject, chainWire}, {grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
 		policy := common.NoRetryPolicy()
 		request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(object.name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(object.wire))), PutObjectBody: io.NopCloser(bytes.NewReader(object.wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
 		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
