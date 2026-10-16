@@ -72,7 +72,7 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 	labels[LabelFunctionTenant], labels[LabelFunctionID] = f.TenantID, f.FunctionID
 	labels[LabelFunctionRevision], labels[LabelFunctionDigest] = f.Revision, f.Digest
 	labels[LabelFunctionProof], labels[LabelFunctionSequence] = function.EnvelopeSHA256(), strconv.FormatUint(f.Sequence, 10)
-	labels[labelFunctionWorkerBundle] = worker.BundleSHA256()
+	labels[LabelFunctionWorkerBundle] = worker.BundleSHA256()
 	// Renewed proof material requires a new task even when module bytes match.
 	fingerprint := sha256.Sum256([]byte(function.EnvelopeSHA256() + "/" + worker.BundleSHA256()))
 	spec.Task.ForceUpdate = binary.BigEndian.Uint64(fingerprint[:8])
