@@ -506,8 +506,10 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim.Pub.Allow = natscell.ControllerPublishes(cfg.Cell)
 		// Fresh material has no link topology: the standalone cell is its own home.
 		claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		claim.Pub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Sub.Allow = jwt.StringList{inbox(cfg.Cell, userID), protocol.Broker(cfg.Cell, "ticket", ">"), protocol.Broker(cfg.Cell, "fence", slot.Name)}
 		claim.Sub.Allow = append(claim.Sub.Allow, natscell.ControllerSubscriptions(cfg.Cell)...)
+		claim.Sub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Sub.Allow.Add(protocol.ObservabilityGrant(cfg.Cell))
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 		files[slot.Name+".creds"], err = credentials(claim, cell, user)
