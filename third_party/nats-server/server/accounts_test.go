@@ -804,12 +804,36 @@ func TestAccountServiceLatencyOverTCP(t *testing.T) {
 	defer client.Close()
 	replies := natsSubSync(t, client, "resp")
 	require_NoError(t, client.FlushTimeout(2*time.Second))
+	responderID, err := responder.GetClientID()
+	require_NoError(t, err)
+	snapshotRequest, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		fmt.Sprintf("http://%s/connz?cid=%d", s.MonitorAddr(), responderID), nil)
+	require_NoError(t, err)
+	httpClient := &http.Client{Timeout: 2 * time.Second}
+	snapshotResponse, err := httpClient.Do(snapshotRequest)
+	require_NoError(t, err)
+	defer snapshotResponse.Body.Close()
+	require_Equal(t, snapshotResponse.StatusCode, http.StatusOK)
+	var snapshot Connz
+	require_NoError(t, json.NewDecoder(snapshotResponse.Body).Decode(&snapshot))
+	require_Equal(t, len(snapshot.Conns), 1)
+	require_NotNil(t, snapshot.Conns[0])
+	require_Equal(t, snapshot.Conns[0].Cid, responderID)
+	observedRTT, err := time.ParseDuration(snapshot.Conns[0].RTT)
+	require_NoError(t, err)
+	require_True(t, observedRTT > 0)
+	rttBound := observedRTT
+	if observedRTT >= time.Microsecond && observedRTT < time.Millisecond {
+		// Connz truncates RTTs between 1us and 1ms to whole microseconds.
+		rttBound += time.Microsecond
+	}
 	start := time.Now()
 	natsPubReq(t, client, "req", "resp", []byte("help"))
 	request := natsNexMsg(t, requests, 2*time.Second)
 	require_Equal(t, request.Subject, "track.service")
 	require_Equal(t, string(request.Data), "help")
-	time.Sleep(25 * time.Millisecond)
+	// The service metric subtracts the responder's server-side RTT estimate.
+	time.Sleep(25*time.Millisecond + rttBound)
 	natsPub(t, responder, request.Reply, []byte("22"))
 	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "22")
 	metric := natsNexMsg(t, metrics, 2*time.Second)
@@ -817,6 +841,9 @@ func TestAccountServiceLatencyOverTCP(t *testing.T) {
 	require_NoError(t, json.Unmarshal(metric.Data, &latency))
 	require_Equal(t, latency.Type, ServiceLatencyType)
 	require_Equal(t, latency.Status, 200)
+	require_NotNil(t, latency.Responder)
+	require_Equal(t, latency.Responder.ID, responderID)
+	require_True(t, latency.Responder.RTT <= rttBound)
 	require_True(t, latency.RequestStart.Sub(start) <= 5*time.Millisecond)
 	require_True(t, latency.ServiceLatency >= 25*time.Millisecond)
 	require_True(t, latency.TotalLatency >= latency.ServiceLatency)
