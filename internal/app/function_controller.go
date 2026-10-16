@@ -174,7 +174,8 @@ func (controller functionController) ingestRelease(ctx context.Context, epoch ui
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return err
 	}
-	stored, err := controller.config.Material.Reader.Artifacts.Put(ctx, jetstream.ObjectMeta{Name: proof.Claim().Digest}, bytes.NewReader(proof.Module()))
+	// Publishing metadata before the intent invalidates stale garbage collection snapshots.
+	stored, err := controller.config.Material.Reader.Artifacts.Put(ctx, jetstream.ObjectMeta{Name: "sha256-" + proof.Claim().Digest}, bytes.NewReader(proof.Module()))
 	if err != nil {
 		return err
 	}
