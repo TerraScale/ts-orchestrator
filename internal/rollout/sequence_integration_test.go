@@ -335,7 +335,7 @@ func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
 	}
 }
 
-func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
+func TestSequencePublicationSeedsAllLegacyHistory(t *testing.T) {
 	fixture := newSequenceFixture(t)
 	store, _ := testStore(t)
 	ctx := t.Context()
@@ -395,5 +395,35 @@ func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
 	desired, _, err := store.Desired(ctx)
 	if err != nil || desired.SchemaVersion != DesiredSchemaVersion || desired.LegacyFloor.Generation != 1 || desired.LegacyFloor.RunNumber != 2000 || desired.LegacyIssuanceFloor.Generation != 100 || !desired.LegacyIssuanceFloor.CreatedAt.Equal(current.CreatedAt) || desired.OrderingFloor.ReleaseSequence != 2001 {
 		t.Fatalf("legacy schema migration lost evidence: %+v %v", desired, err)
+	}
+}
+
+func TestSequencePublicationConcurrentConsumersKeepHighestFloor(t *testing.T) {
+	fixture := newSequenceFixture(t)
+	store, _ := testStore(t)
+	other := &Store{kv: store.kv, fencer: store.fencer, cell: store.cell}
+	first := fixture.update(t, 1001, 1, fromDigest, true)
+	second := fixture.update(t, 1002, 2, toDigest, true)
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, publication := range []struct {
+		store *Store
+		next  Release
+	}{{store, first}, {other, second}} {
+		go func() {
+			<-start
+			_, err := publication.store.PublishSequencedRelease(t.Context(), 7, publication.next, fixture.roots, "GRU", "production")
+			results <- err
+		}()
+	}
+	close(start)
+	for range 2 {
+		if err := <-results; err != nil && !errors.Is(err, ErrInvalid) {
+			t.Fatal(err)
+		}
+	}
+	desired, _, err := store.Desired(t.Context())
+	if err != nil || desired.Release.ReleaseSequence != 1002 || desired.OrderingFloor.ReleaseSequence != 1002 {
+		t.Fatalf("CAS publication regressed across independent consumers: %+v %v", desired, err)
 	}
 }
