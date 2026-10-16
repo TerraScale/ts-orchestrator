@@ -17,7 +17,6 @@ StandardError=journal+console
 TimeoutStartSec=300s
 UMask=0077
 StateDirectory=terrascale-orchestrator-bootstrap
-StateDirectory=terrascale-orchestrator/netbird-managed
 StateDirectoryMode=0755
 RuntimeDirectory=terrascale-orchestrator-bootstrap
 RuntimeDirectory=terrascale-orchestrator-host-credentials

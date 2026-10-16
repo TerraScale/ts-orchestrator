@@ -158,7 +158,7 @@ func GuestBuild(ctx context.Context, repo string, o GuestBuildOptions, out io.Wr
 	for _, dir := range []struct {
 		p       string
 		u, g, m int
-	}{{"/var/lib/terrascale-orchestrator", 0, 0, 0755}, {"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
+	}{{"/var/lib/terrascale-orchestrator", 0, 0, 0755}, {"/var/lib/terrascale-orchestrator/netbird-managed", 0, 0, 0700}, {"/var/lib/terrascale-orchestrator-secrets", uid, gid, 0700}, {"/var/lib/terrascale-orchestrator-controller", uid, gid, 0700}, {"/srv/ts-managed", 0, 2000, 0750}, {VolumeState, 0, 0, 0700}, {"/var/lib/netbird", 0, 0, 0700}} {
 		if e = g.Directory(dir.p, dir.u, dir.g, dir.m); e != nil {
 			return e
 		}

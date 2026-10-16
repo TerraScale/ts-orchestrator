@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -117,6 +118,11 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 	cfg, err := LoadConfig(runtimeWorkerConfigPath)
 	if err != nil {
 		return err
+	}
+	if cfg.NATS.Embedded != nil || cfg.NATS.Cell != accepted.Worker().Cell ||
+		entityid.Derive("host", cfg.NATS.Cell, cfg.Host.Node) != accepted.Worker().RegistrationID ||
+		cfg.Host.Environment != accepted.Worker().Environment {
+		return errors.New("worker host configuration differs from its signed recipient")
 	}
 	key, err := readPrivateKey(cfg.Host.IdentityKeyFile)
 	if err != nil {
