@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -62,6 +63,16 @@ func Resolve(ctx context.Context, selector string) (Access, error) {
 func resolveCurrent(ctx context.Context, resolver region.FoundationResolver, selector string,
 	bundles func(string) (vaultsecret.BundleClient, error),
 ) (Access, error) {
+	if selector != "" {
+		entry, ok := catalog.CellForOCIRegion(selector)
+		if !ok {
+			entry, ok = catalog.Lookup(strings.ToUpper(selector))
+		}
+		if !ok {
+			return Access{}, errors.New("read access region is outside the catalog")
+		}
+		selector = entry.Cell
+	}
 	access, err := resolver.ReadAccess(ctx, selector)
 	if err != nil {
 		if ctx.Err() != nil {

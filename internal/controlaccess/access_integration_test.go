@@ -201,21 +201,26 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	ociclient.PinHost(&secrets.BaseClient, server.URL)
-	resolve := func(ctx context.Context) (Access, error) {
-		return resolveCurrent(ctx, region.FoundationResolver{Footprint: footprint, Store: store}, "", func(selected string) (vaultsecret.BundleClient, error) {
+	resolve := func(ctx context.Context, selector string) (Access, error) {
+		return resolveCurrent(ctx, region.FoundationResolver{Footprint: footprint, Store: store}, selector, func(selected string) (vaultsecret.BundleClient, error) {
 			if selected != "sa-saopaulo-1" {
 				t.Error("Vault client region differed from signed access")
 			}
 			return secrets, nil
 		})
 	}
-	access, err := resolve(t.Context())
+	access, err := resolve(t.Context(), "")
 	if err != nil || access.Token != token || len(access.URLs) != 1 || access.URLs[0] != intent.ReadAccess.URLs[0] || reads.Load() != 1 {
 		t.Fatalf("current signed access failed: %v", err)
 	}
 	wire, err := json.Marshal(access)
 	if err != nil || strings.Contains(string(wire)+fmt.Sprintf("%v %#v %+v", access, access, access), token) {
 		t.Fatal("access formatting exposed bearer")
+	}
+	for _, selector := range []string{"gru", "GRU", "sa-saopaulo-1"} {
+		if _, err := resolve(t.Context(), selector); err != nil {
+			t.Fatalf("catalog selector %s failed: %v", selector, err)
+		}
 	}
 	for scenario := int32(1); scenario <= 6; scenario++ {
 		mode.Store(scenario)
@@ -225,7 +230,7 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 		}
 		ctx, cancel := context.WithTimeout(t.Context(), timeout)
 		before := reads.Load()
-		_, err := resolve(ctx)
+		_, err := resolve(ctx, "")
 		cancel()
 		if err == nil || scenario == 1 && !errors.Is(err, ErrPending) || scenario == 6 && (!errors.Is(err, context.DeadlineExceeded) || reads.Load() != before+1) {
 			t.Fatalf("scenario %d accepted invalid/missing/canceled Vault delivery: %v", scenario, err)
@@ -235,7 +240,7 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 	if err := os.Rename(filepath.Join(dir, "grant"), filepath.Join(dir, "missing-grant")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := resolve(t.Context()); !errors.Is(err, ErrPending) || reads.Load() != before {
+	if _, err := resolve(t.Context(), ""); !errors.Is(err, ErrPending) || reads.Load() != before {
 		t.Fatalf("absent signed source must stay pending without reading Vault: %v", err)
 	}
 	if writes.Load() != 0 {
