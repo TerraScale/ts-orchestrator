@@ -2671,10 +2671,20 @@ func TestMemStoreIntegrationPending(t *testing.T) {
 	t.Cleanup(nc.Close)
 	js, err := nc.JetStream(nats.MaxWait(2 * time.Second))
 	require_NoError(t, err)
-	// Isolate system traffic; all API requests below have at least five tokens.
-	_, err = js.AddStream(&nats.StreamConfig{Name: "MEM", Subjects: []string{"*.*.*.*"}, Storage: nats.MemoryStorage, AllowDirect: true, NoAck: true})
-	require_NoError(t, err)
 	tokens := []string{"foo", "bar", "baz"}
+	// API audits stay active on $JS.EVENT.ADVISORY.API; admit only the full fixture corpus.
+	subjects := make([]string, 0, 81)
+	for _, a := range tokens {
+		for _, b := range tokens {
+			for _, c := range tokens {
+				for _, d := range tokens {
+					subjects = append(subjects, fmt.Sprintf("%s.%s.%s.%s", a, b, c, d))
+				}
+			}
+		}
+	}
+	_, err = js.AddStream(&nats.StreamConfig{Name: "MEM", Subjects: subjects, Storage: nats.MemoryStorage, AllowDirect: true, NoAck: true})
+	require_NoError(t, err)
 	rng := rand.New(rand.NewPCG(5, 6))
 	fixture := make([][4]string, 50000)
 	for i := range fixture {
