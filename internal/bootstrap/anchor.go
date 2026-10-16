@@ -343,12 +343,14 @@ func SignBootstrapAnchor(anchor BootstrapAnchor, issuedAt, expiresAt time.Time, 
 	if err := anchor.Validate(); err != nil {
 		return trust.Envelope{}, err
 	}
-	grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
-	if err != nil {
-		return trust.Envelope{}, fmt.Errorf("decode bootstrap ledger delegation: %w", err)
-	}
-	if err := validateBootstrapAnchorGrantInterval(issuedAt, expiresAt, grantEnvelope); err != nil {
-		return trust.Envelope{}, err
+	if len(anchor.LedgerDelegationWire) > 0 {
+		grantEnvelope, err := trust.DecodeEnvelope(anchor.LedgerDelegationWire)
+		if err != nil {
+			return trust.Envelope{}, fmt.Errorf("decode bootstrap ledger delegation: %w", err)
+		}
+		if err := validateBootstrapAnchorGrantInterval(issuedAt, expiresAt, grantEnvelope); err != nil {
+			return trust.Envelope{}, err
+		}
 	}
 	payload, err := trust.EncodePayload(anchor)
 	if err != nil {
