@@ -29,11 +29,12 @@ import (
 )
 
 type controller struct {
-	executor    *Executor
-	task        *api.Task
-	spec        *api.ContainerSpec
-	id          string
-	fingerprint string
+	executor            *Executor
+	task                *api.Task
+	spec                *api.ContainerSpec
+	id                  string
+	fingerprint         string
+	credentialExpiresAt time.Time
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -169,7 +170,7 @@ func (c *controller) Prepare(ctx context.Context) error {
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
-			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}),
+			containerd.WithContainerLabels(map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}),
 			containerd.WithNewSpec(opts...))
 		if err != nil {
 			return err
@@ -238,7 +239,11 @@ func (c *controller) Start(ctx context.Context) error {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": c.executor.logRoot})
+		loggerArgument, err := c.runtimeLoggerArgument(ctx)
+		if err != nil {
+			return err
+		}
+		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": loggerArgument})
 		if uriErr != nil {
 			return uriErr
 		}
@@ -255,6 +260,12 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
+			return err
+		}
+		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
+			return ErrContainerMaterialPending
+		}
 		return t.Start(ctx)
 	case containerd.Stopped:
 		return fmt.Errorf("durable task already exited with status %d", status.ExitStatus)

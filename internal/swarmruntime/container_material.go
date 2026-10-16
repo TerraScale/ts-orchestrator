@@ -26,13 +26,15 @@ type ContainerTaskBinding struct {
 
 // ContainerMaterial comes from the current signed profile and recipient verifier.
 // FileEnvironment maps exact signed *_FILE keys to their lowercase basenames.
+// ExpiresAt bounds delivery admission; CredentialExpiresAt is actual secret expiry.
 // Renewal replaces a task; files never change within the same task identity.
 type ContainerMaterial struct {
-	Binding         ContainerTaskBinding
-	ExpiresAt       time.Time
-	User            string
-	Files           map[string][]byte
-	FileEnvironment map[string]string
+	Binding             ContainerTaskBinding
+	ExpiresAt           time.Time
+	CredentialExpiresAt time.Time
+	User                string
+	Files               map[string][]byte
+	FileEnvironment     map[string]string
 }
 
 // ContainerMaterialProvider verifies the current upstream task, signed intent,
@@ -43,7 +45,7 @@ type ContainerMaterialProvider interface {
 }
 
 func (e *Executor) BindContainerMaterial(admitted Admission, provider ContainerMaterialProvider) error {
-	if admitted.Role == "wasm" || !intentName.MatchString(admitted.Role) || admitted.InstanceID == "" || !intentName.MatchString(admitted.Region) || admitted.HostID == "" || provider == nil {
+	if admitted.Role != "manager" && admitted.Role != "container" || admitted.InstanceID == "" || !intentName.MatchString(admitted.Region) || admitted.HostID == "" || provider == nil {
 		return errors.New("container material requires a verified host and current signed profile verifier")
 	}
 	e.mu.Lock()
@@ -77,6 +79,10 @@ func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.
 	if material.Binding != binding || !material.ExpiresAt.After(time.Now()) || material.User != c.spec.User {
 		return nil, nil, fmt.Errorf("%w: material does not bind this current task, user and host", ErrContainerMaterialPending)
 	}
+	if !material.CredentialExpiresAt.IsZero() && (!material.CredentialExpiresAt.After(time.Now()) || len(material.Files) == 0) {
+		return nil, nil, fmt.Errorf("%w: credential expiry is invalid", ErrContainerMaterialPending)
+	}
+	c.credentialExpiresAt = material.CredentialExpiresAt
 	if len(material.Files) != len(material.FileEnvironment) || len(material.Files) > 64 {
 		return nil, nil, errors.New("container material file mapping is incomplete")
 	}
@@ -126,6 +132,13 @@ func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.
 func (c *controller) verifyContainerMaterial(ctx context.Context, ctr containerd.Container, mounts []runtimespec.Mount, environment []string) error {
 	if err := verifyTaskMaterialMount(ctx, ctr, ContainerMaterialDirectory, mounts); err != nil {
 		return err
+	}
+	labels, err := ctr.Labels(ctx)
+	if err != nil {
+		return err
+	}
+	if labels[credentialExpiryLabel] != c.credentialExpiryLabel() {
+		return errors.New("credential expiry changed for existing task; replace the task")
 	}
 	if len(environment) == 0 {
 		return nil
