@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
@@ -116,7 +117,7 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 		if state.Reference.SecretOCID != "" || now.Before(state.StartedAt) || now.Sub(state.StartedAt) >= 23*time.Hour {
 			return nil, ErrMaterialSource
 		}
-		candidate, err = source.generate(now)
+		candidate, err = source.generate(ctx, now)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +126,7 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 			return nil, err
 		}
 		encoded := base64.StdEncoding.EncodeToString(candidate)
-		response, createErr := management.CreateSecret(ctx, ocivault.CreateSecretRequest{CreateSecretDetails: ocivault.CreateSecretDetails{CompartmentId: new(state.Target.CompartmentOCID), VaultId: new(state.Target.VaultOCID), KeyId: new(state.Target.KMSKeyOCID), SecretName: new(state.SecretName), Description: new("Founder-only immutable regional bootstrap source; never deliver to ordinary hosts."), SecretContent: ocivault.Base64SecretContentDetails{Content: new(encoded), Stage: ocivault.SecretContentDetailsStageCurrent}}, OpcRetryToken: new(state.RetryToken)})
+		response, createErr := management.CreateSecret(ociclient.RequestContext(ctx), ocivault.CreateSecretRequest{CreateSecretDetails: ocivault.CreateSecretDetails{CompartmentId: new(state.Target.CompartmentOCID), VaultId: new(state.Target.VaultOCID), KeyId: new(state.Target.KMSKeyOCID), SecretName: new(state.SecretName), Description: new("Founder-only immutable regional bootstrap source; never deliver to ordinary hosts."), SecretContent: ocivault.Base64SecretContentDetails{Content: new(encoded), Stage: ocivault.SecretContentDetailsStageCurrent}}, OpcRetryToken: new(state.RetryToken)})
 		encoded = ""
 		if createErr == nil && response.Id != nil {
 			id = *response.Id
@@ -164,7 +165,7 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 // Provision checkpoints the original retry identities/timestamps before every
 // secret create. Escrow is never included in the ordinary host references.
 func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrapmaterial.VaultTarget, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, now time.Time) (bootstrapmaterial.Publication, error) {
-	if source == nil || !now.Before(source.grant.ExpiresAt()) {
+	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
 	}
 	provision := bootstrapmaterial.ProvisionDurable
@@ -191,7 +192,7 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 	return clonePublication(publication), nil
 }
 
-func (source *ColdStartMaterial) generate(now time.Time) ([]byte, error) {
+func (source *ColdStartMaterial) generate(ctx context.Context, now time.Time) ([]byte, error) {
 	parent, err := os.MkdirTemp(filepath.Dir(source.directory), ".material-candidate-")
 	if err != nil {
 		return nil, err
@@ -202,6 +203,9 @@ func (source *ColdStartMaterial) generate(now time.Time) ([]byte, error) {
 	if source.link == nil {
 		record, err = bootstrapmaterial.Generate(path, source.grant.Config(), now)
 	} else {
+		if err := source.link.verify(ctx); err != nil {
+			return nil, err
+		}
 		homeLinkPath := path
 		if source.link.homeLink != nil {
 			homeLinkPath = source.link.homeLink.source.directory
@@ -278,7 +282,7 @@ type EscrowClient interface {
 }
 
 func (source *ColdStartMaterial) lookupEscrow(ctx context.Context, bundles EscrowClient) (string, error) {
-	response, err := bundles.GetSecretBundleByName(ctx, ocisecrets.GetSecretBundleByNameRequest{SecretName: new(source.state.SecretName), VaultId: new(source.state.Target.VaultOCID), VersionNumber: new(int64(1))})
+	response, err := bundles.GetSecretBundleByName(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleByNameRequest{SecretName: new(source.state.SecretName), VaultId: new(source.state.Target.VaultOCID), VersionNumber: new(int64(1))})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
 		return "", nil
 	}
@@ -293,11 +297,11 @@ func (source *ColdStartMaterial) lookupEscrow(ctx context.Context, bundles Escro
 
 func (source *ColdStartMaterial) readEscrow(ctx context.Context, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, id string) ([]byte, error) {
 	target := source.state.Target
-	secret, err := management.GetSecret(ctx, ocivault.GetSecretRequest{SecretId: new(id)})
+	secret, err := management.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(id)})
 	if err != nil || secret.Id == nil || *secret.Id != id || secret.CompartmentId == nil || *secret.CompartmentId != target.CompartmentOCID || secret.VaultId == nil || *secret.VaultId != target.VaultOCID || secret.KeyId == nil || *secret.KeyId != target.KMSKeyOCID || secret.SecretName == nil || *secret.SecretName != source.state.SecretName || secret.CurrentVersionNumber == nil || *secret.CurrentVersionNumber != 1 || secret.LifecycleState != ocivault.SecretLifecycleStateActive {
 		return nil, ErrMaterialSource
 	}
-	response, err := bundles.GetSecretBundle(ctx, ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: new(int64(1))})
+	response, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: new(int64(1))})
 	if err != nil || response.SecretId == nil || *response.SecretId != id || response.VersionNumber == nil || *response.VersionNumber != 1 {
 		return nil, ErrMaterialSource
 	}
@@ -316,7 +320,7 @@ func (source *ColdStartMaterial) readEscrow(ctx context.Context, management boot
 
 func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState, string, error) {
 	domain := source.grant.StorageDomain()
-	response, err := source.objects.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(source.key)})
+	response, err := source.objects.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(source.key)})
 	if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
 		return materialSourceState{}, "", os.ErrNotExist
 	}
@@ -369,7 +373,7 @@ func (source *ColdStartMaterial) write(ctx context.Context, state materialSource
 	} else {
 		request.IfMatch = new(etag)
 	}
-	_, putErr := source.objects.PutObject(ctx, request)
+	_, putErr := source.objects.PutObject(ociclient.RequestContext(ctx), request)
 	current, currentETag, readErr := source.read(ctx)
 	defer clear(current.Journal)
 	if readErr != nil {
