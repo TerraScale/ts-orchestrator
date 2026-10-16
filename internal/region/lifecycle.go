@@ -529,6 +529,9 @@ func (a *foundationAttempt) completeCreate(key, id string) error {
 	}
 	if pending, exists := a.record.PendingCreates[key]; exists {
 		if validFoundationDigest(a.record.GrantSHA256) {
+			if a.record.ResourceProvenance == nil {
+				a.record.ResourceProvenance = map[string]FoundationResourceProvenance{}
+			}
 			a.record.ResourceProvenance[key] = FoundationResourceProvenance{Create: pending, ResourceID: id, Generation: a.record.Generation, GrantSHA256: a.record.GrantSHA256}
 		}
 		delete(a.record.PendingCreates, key)
