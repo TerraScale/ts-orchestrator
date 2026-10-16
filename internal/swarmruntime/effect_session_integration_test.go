@@ -454,8 +454,8 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 			t.Fatal(ctx.Err())
 		case <-timer.C:
 		}
-		if err := sessions.Reconcile(ctx); err == nil || held.release == nil {
-			t.Fatal("OCI STOPPED instance released the execution hold")
+		if err := sessions.Reconcile(ctx); !errors.Is(err, oci.ErrWriterStopUnverified) || held.release == nil {
+			t.Fatalf("OCI STOPPED instance did not retain the hold with verified live-state rejection: %v", err)
 		}
 		state.Store(1)
 		if err := sessions.Reconcile(ctx); err != nil || held.release != nil {
@@ -504,22 +504,48 @@ func effectSessionOCIObserver(t *testing.T, js jetstream.JetStream, registration
 	}
 	hostNode := "host-" + hex.EncodeToString(hasher.Sum(nil))[:24]
 	state := new(atomic.Int32)
+	bootID, vnicID := "ocid1.bootvolume.oc1.sa-saopaulo-1.owned", "ocid1.vnic.oc1.sa-saopaulo-1.private"
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/20160918/instances/"+registration.ManagedOCI.InstanceID || r.Header.Get("Authorization") == "" {
+		if r.Method != http.MethodGet || !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") || r.Header.Get("Date") == "" || r.Host != "iaas.sa-saopaulo-1.oraclecloud.com" {
 			t.Errorf("unexpected unsigned OCI operation: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		lifecycle := "STOPPED"
-		if state.Load() == 1 {
-			lifecycle = "TERMINATED"
+		var value any
+		wantQuery := url.Values{}
+		switch r.URL.Path {
+		case "/20160918/instances/" + registration.ManagedOCI.InstanceID:
+			lifecycle := "STOPPED"
+			if state.Load() == 1 {
+				lifecycle = "TERMINATED"
+			}
+			value = map[string]any{"id": registration.ManagedOCI.InstanceID, "compartmentId": config.CompartmentID, "imageId": config.ImageID,
+				"availabilityDomain": config.AvailabilityDomain, "lifecycleState": lifecycle, "freeformTags": map[string]string{
+					"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": config.Owner, "terrascale-region": "GRU", "terrascale-generation": "1",
+					"terrascale-resource": "member-host", "terrascale-create-key": registration.ManagedOCI.CreateKey, "terrascale-host-node": hostNode}}
+		case "/20160918/bootVolumeAttachments":
+			wantQuery = url.Values{"compartmentId": {config.CompartmentID}, "availabilityDomain": {config.AvailabilityDomain}, "instanceId": {registration.ManagedOCI.InstanceID}}
+			value = []map[string]any{{"instanceId": registration.ManagedOCI.InstanceID, "bootVolumeId": bootID, "lifecycleState": "ATTACHED"}}
+		case "/20160918/bootVolumes/" + bootID:
+			value = map[string]any{"id": bootID, "compartmentId": config.CompartmentID, "imageId": config.ImageID, "sizeInGBs": 50, "vpusPerGB": 10}
+		case "/20160918/vnicAttachments":
+			wantQuery = url.Values{"compartmentId": {config.CompartmentID}, "instanceId": {registration.ManagedOCI.InstanceID}}
+			value = []map[string]any{{"instanceId": registration.ManagedOCI.InstanceID, "vnicId": vnicID, "lifecycleState": "ATTACHED"}}
+		case "/20160918/vnics/" + vnicID:
+			value = map[string]any{"id": vnicID, "subnetId": config.SubnetID, "privateIp": "10.251.0.21", "lifecycleState": "AVAILABLE", "nsgIds": config.NetworkSecurityGroupIDs}
+		default:
+			t.Errorf("unexpected OCI read: %s", r.URL.Path)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if r.URL.Query().Encode() != wantQuery.Encode() {
+			t.Errorf("OCI read widened exact instance pins: %s", r.URL.Path)
+			w.WriteHeader(http.StatusForbidden)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("etag", "owned-instance-v1")
-		wire, err := json.Marshal(map[string]any{"id": registration.ManagedOCI.InstanceID, "compartmentId": config.CompartmentID,
-			"availabilityDomain": config.AvailabilityDomain, "lifecycleState": lifecycle, "freeformTags": map[string]string{
-				"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": config.Owner, "terrascale-region": "GRU", "terrascale-generation": "1",
-				"terrascale-resource": "member-host", "terrascale-create-key": registration.ManagedOCI.CreateKey, "terrascale-host-node": hostNode}})
+		wire, err := json.Marshal(value)
 		if err != nil {
 			t.Error(err)
 		}
