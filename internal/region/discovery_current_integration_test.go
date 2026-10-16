@@ -227,7 +227,12 @@ func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
 	t.Run("rotation persisted before resolver and survives restart", func(t *testing.T) {
 		f := newCurrentDiscoveryScenario(t)
 		initialRoot := f.root
+		f.now = f.now.Add(-48 * time.Hour)
 		f.rotate()
+		if err := trust.RotationCurrent(f.chain.Rotations[0], time.Now()); !errors.Is(err, trust.ErrExpired) {
+			t.Fatalf("fixture rotation must be historical: %v", err)
+		}
+		f.now = f.now.Add(48 * time.Hour)
 		f.publish()
 		resolver, err := f.discover(t.Context())
 		if err != nil {

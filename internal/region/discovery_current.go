@@ -126,11 +126,8 @@ func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryOb
 			return FoundationResolver{}, errors.New("current foundation root chain forks or rolls back adopted deployment")
 		}
 	}
-	for _, rotation := range chain.Rotations[len(adopted.Rotations):] {
-		if err := trust.RotationCurrent(rotation, time.Now()); err != nil {
-			return FoundationResolver{}, fmt.Errorf("new foundation root rotation is not current: %w", err)
-		}
-	}
+	// Historical transitions remain valid for an offline or fresh client;
+	// current authority must be signed by the terminal roots below.
 	anchor, err := verifyDiscoveryAnchor(anchorWire, verified.Current, tenancy, namespace)
 	if err != nil {
 		return FoundationResolver{}, err
