@@ -6,7 +6,17 @@ const WorkerBootstrapDerivationV1 = "terrascale.worker.bootstrap.v1"
 
 // WorkerProfile is explicit worker authority in the existing root-signed grant.
 // Resource references remain logical until independently proven OCI readback.
+type WorkerImageSource struct {
+	OCIRegion           string `json:"ociRegion"`
+	Namespace           string `json:"namespace"`
+	Bucket              string `json:"bucket"`
+	CurrentObject       string `json:"currentObject"`
+	ImageDomain         string `json:"imageDomain"`
+	QualificationDomain string `json:"qualificationDomain"`
+}
+
 type WorkerProfile struct {
+	ImageSource         WorkerImageSource       `json:"imageSource"`
 	Cell                string                  `json:"cell"`
 	Environment         string                  `json:"environment"`
 	Role                string                  `json:"role"`
@@ -19,10 +29,10 @@ type WorkerProfile struct {
 	CompartmentRef      string                  `json:"compartmentRef"`
 	SubnetRef           string                  `json:"subnetRef"`
 	NSGRef              string                  `json:"nsgRef"`
-	ImageReceipt        []byte                  `json:"imageReceipt"`
-	ImageDelegation     []byte                  `json:"imageDelegation"`
+	ImageReceipt        []byte                  `json:"imageReceipt,omitempty"`
+	ImageDelegation     []byte                  `json:"imageDelegation,omitempty"`
 	Runtime             string                  `json:"runtime"`
-	RuntimeSHA256       string                  `json:"runtimeSha256"`
+	RuntimeSHA256       string                  `json:"runtimeSha256,omitempty"`
 	Bootstrap           WorkerBootstrapTemplate `json:"bootstrap"`
 }
 
