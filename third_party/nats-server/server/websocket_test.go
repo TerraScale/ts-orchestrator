@@ -6783,7 +6783,7 @@ func TestWSMQTTEndpointOverSocket(t *testing.T) {
 			}
 			require_Equal(t, resp.StatusCode, http.StatusSwitchingProtocols)
 			require_Equal(t, resp.Header.Get(wsSecProto), wsMQTTSecProtoVal)
-			proto := mqttCreateConnectProto(&mqttConnInfo{clientID: "ws-integration", cleanSess: true})
+			proto := []byte("\x10\x1a\x00\x04MQTT\x04\x02\x00\x00\x00\x0ews-integration")
 			_, err := conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, false, proto))
 			require_NoError(t, err)
 			require_True(t, bytes.Equal(testWSReadFrame(t, br), []byte{mqttPacketConnectAck, 2, 0, 0}))

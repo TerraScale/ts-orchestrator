@@ -174,10 +174,12 @@ func TestAccountStreamMappingLifecycleOverTCP(t *testing.T) {
 			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
 			defer publisher.Close()
 			nc, reader := connectAccountProtocol(t, s, "bar")
+			fooBaseline := accountInfoOverHTTP(t, s, "foo").Account.SubCnt
+			barBaseline := accountInfoOverHTTP(t, s, "bar").Account.SubCnt
 			sendAccountProtocol(t, nc, "SUB import.foo 1\r\nSUB import.foo bar 2\r\nPING\r\n")
 			require_Equal(t, readAccountProtocol(t, nc, reader), "PONG\r\n")
-			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(2))
-			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(2))
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, fooBaseline+2)
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, barBaseline+2)
 			natsPub(t, publisher, "foo", []byte("hello"))
 			seen := make(map[string]bool)
 			for range 2 {
@@ -200,11 +202,11 @@ func TestAccountStreamMappingLifecycleOverTCP(t *testing.T) {
 				require_NoError(t, nc.Close())
 			}
 			checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
-				if got := accountInfoOverHTTP(t, s, "foo").Account.SubCnt; got != 0 {
-					return fmt.Errorf("exporter retains %d shadow subscriptions", got)
+				if got := accountInfoOverHTTP(t, s, "foo").Account.SubCnt; got != fooBaseline {
+					return fmt.Errorf("exporter subscriptions: got %d, baseline %d", got, fooBaseline)
 				}
-				if got := accountInfoOverHTTP(t, s, "bar").Account.SubCnt; got != 0 {
-					return fmt.Errorf("importer retains %d subscriptions", got)
+				if got := accountInfoOverHTTP(t, s, "bar").Account.SubCnt; got != barBaseline {
+					return fmt.Errorf("importer subscriptions: got %d, baseline %d", got, barBaseline)
 				}
 				return nil
 			})
@@ -235,6 +237,8 @@ func TestAccountStreamMappingMatrixOverTCP(t *testing.T) {
 			defer client.Close()
 			other := natsConnect(t, s.ClientURL(), nats.UserInfo("other", "other"), nats.NoReconnect())
 			defer other.Close()
+			fooBaseline := accountInfoOverHTTP(t, s, "foo").Account.SubCnt
+			barBaseline := accountInfoOverHTTP(t, s, "bar").Account.SubCnt
 			isolated := natsSubSync(t, other, ">")
 			sub := natsSubSync(t, client, tc.subscription)
 			require_NoError(t, other.FlushTimeout(2*time.Second))
@@ -245,12 +249,12 @@ func TestAccountStreamMappingMatrixOverTCP(t *testing.T) {
 				require_Equal(t, msg.Subject, tc.mapped[i])
 				require_Equal(t, string(msg.Data), tc.payloads[i])
 			}
-			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(len(tc.subjects)))
-			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(1))
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, fooBaseline+uint32(len(tc.subjects)))
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, barBaseline+1)
 			require_NoError(t, sub.Unsubscribe())
 			require_NoError(t, client.FlushTimeout(2*time.Second))
-			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, uint32(0))
-			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, uint32(0))
+			require_Equal(t, accountInfoOverHTTP(t, s, "foo").Account.SubCnt, fooBaseline)
+			require_Equal(t, accountInfoOverHTTP(t, s, "bar").Account.SubCnt, barBaseline)
 			require_NoError(t, other.FlushTimeout(2*time.Second))
 			pending, _, err := isolated.Pending()
 			require_NoError(t, err)
@@ -332,28 +336,28 @@ func TestAccountStartupContractsOverProcess(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, config, diagnostic string }{
 		{"duplicate array account", `accounts: [foo, foo]`, "Duplicate Account Entry"},
-		{"latency wildcard results", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results.*",sampling: 100}}]}}`, ""},
-		{"latency results loops to service", `accounts {foo {exports: [{service: "track.service",latency: {subject: "track.service",sampling: 100}}]}}`, ""},
-		{"latency sampling negative", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: -1}}]}}`, ""},
-		{"latency sampling exceeds100", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: 101}}]}}`, ""},
-		{"mapping weight exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 150}]}}}`, ""},
-		{"mapping duplicate destination", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: bar,weight: 50}]}}}`, ""},
-		{"mapping weight total exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: baz,weight: 60}]}}}`, ""},
+		{"latency wildcard results", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results.*",sampling: 100}}]}}`, ErrBadPublishSubject.Error()},
+		{"latency results loops to service", `accounts {foo {exports: [{service: "track.service",latency: {subject: "track.service",sampling: 100}}]}}`, ErrBadPublishSubject.Error()},
+		{"latency sampling negative", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: -1}}]}}`, ErrBadSampling.Error()},
+		{"latency sampling exceeds100", `accounts {foo {exports: [{service: "track.service",latency: {subject: "results",sampling: 101}}]}}`, ErrBadSampling.Error()},
+		{"mapping weight exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 150}]}}}`, "Invalid weight 150 for mapping destination"},
+		{"mapping duplicate destination", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: bar,weight: 50}]}}}`, `duplicate entry for "bar"`},
+		{"mapping weight total exceeds100", `accounts {weighted {mappings: {foo: [{dest: bar,weight: 50},{dest: baz,weight: 60}]}}}`, "total weight needs to be <= 100"},
 		{"reserved global account", `accounts {$G {}}`, "Reserved Account"},
-		{"duplicate users across accounts", `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]} nats.io {users: [{user: alice, password: bar}]}}`, "Duplicate user"},
+		{"duplicate users across accounts", `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]}, nats.io {users: [{user: alice, password: bar}]}}`, "Duplicate user"},
 		{"unknown exporter account", `accounts {nats.io {imports: [{stream: {account: synadia, subject: foo}}]}}`, "account not defined"},
-		{"missing service account original", `accounts {nats.io {imports = [{service: subject:"foo.*"}]}}`, ""},
-		{"malformed wildcard original", `accounts {nats.io {imports = [{service: {account: "nats.io", subject:"foo.*"}]}}`, ""},
-		{"unknown export keyword", `accounts {nats.io {exports: [{service: "foo.*", wat: true}]}}`, ""},
-		{"unknown import keyword", `accounts {nats.io {imports: [{stream: {account: nats.io, subject: "foo.*"}, wat: true}]}}`, ""},
-		{"export account object", `accounts {nats.io {exports: [{service: {account: nats.io, subject: "foo.*"}}]}}`, ""},
-		{"wildcard stream prefix", `accounts {foo {exports: [{stream: "client.>"}]} bar {imports: [{stream: {account: foo, subject: "client.>"}, prefix: "events.>"}]}}`, "prefix can not contain wildcard"},
-		{"duplicate stream import", `accounts {foo {exports: [{stream: test}]} bar {imports: [{stream: {account: foo, subject: test}}, {stream: {account: foo, subject: test}}]}}`, "stream import already exists"},
-		{"unauthorized stream import", `accounts {foo {} bar {imports: [{stream: {account: foo, subject: foo}, prefix: import}]}}`, "authorization"},
+		{"missing service account original", `accounts {nats.io {imports = [{service: subject:"foo.*"}]}}`, "Service entry should be an account map"},
+		{"malformed wildcard original", `accounts {nats.io {imports = [{service: {account: "nats.io", subject:"foo.*"}]}}`, "Parse error"},
+		{"unknown export keyword", `accounts {nats.io {exports: [{service: "foo.*", wat: true}]}}`, `unknown field "wat"`},
+		{"unknown import keyword", `accounts {nats.io {imports: [{stream: {account: nats.io, subject: "foo.*"}, wat: true}]}}`, `unknown field "wat"`},
+		{"export account object", `accounts {nats.io {exports: [{service: {account: nats.io, subject: "foo.*"}}]}}`, "Expected service name to be string"},
+		{"wildcard stream prefix", `accounts {foo {exports: [{stream: "client.>"}]}, bar {imports: [{stream: {account: foo, subject: "client.>"}, prefix: "events.>"}]}}`, "prefix can not contain wildcard"},
+		{"duplicate stream import", `accounts {foo {exports: [{stream: test}]}, bar {imports: [{stream: {account: foo, subject: test}}, {stream: {account: foo, subject: test}}]}}`, "stream import already exists"},
+		{"unauthorized stream import", `accounts {foo {}, bar {imports: [{stream: {account: foo, subject: foo}, prefix: import}]}}`, ErrStreamImportAuthorization.Error()},
 		{"missing service exporter", `accounts {bar {imports: [{service: {account: missing, subject: "test.request"}, to: foo}]}}`, "account not defined"},
-		{"invalid service destination", `accounts {foo {exports: [{service: "test.request"}]} bar {imports: [{service: {account: foo, subject: "test..request."}, to: foo}]}}`, ""},
-		{"wildcard service with mapping", `accounts {foo {exports: [{service: "test.*"}]} bar {imports: [{service: {account: foo, subject: foo}, to: "test.*"}]}}`, ""},
-		{"service import broader than export", `accounts {foo {exports: [{service: "test.*"}]} bar {imports: [{service: {account: foo, subject: "test.>"}}]}}`, "authorization"},
+		{"invalid service destination", `accounts {foo {exports: [{service: "test.request"}]}, bar {imports: [{service: {account: foo, subject: "test..request."}, to: foo}]}}`, ErrInvalidSubject.Error()},
+		{"wildcard service with mapping", `accounts {foo {exports: [{service: "test.*"}]}, bar {imports: [{service: {account: foo, subject: foo}, to: "test.*"}]}}`, ErrServiceImportAuthorization.Error()},
+		{"service import broader than export", `accounts {foo {exports: [{service: "test.*"}]}, bar {imports: [{service: {account: foo, subject: "test.>"}}]}}`, ErrServiceImportAuthorization.Error()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requireAccountStartupRejected(t, tc.config, tc.diagnostic)
@@ -370,7 +374,10 @@ func TestAccountOptionsAndGlobalOverTCP(t *testing.T) {
 		opts.Users = []*User{{Username: "foo", Password: "foo", Account: foo}, {Username: "bar", Password: "bar", Account: bar}}
 		s := RunServer(opts)
 		defer s.Shutdown()
-		accounts := accountInfoOverHTTP(t, s, "").Accounts
+		state := accountInfoOverHTTP(t, s, "")
+		require_True(t, state.SystemAccount != "")
+		require_True(t, slices.Contains(state.Accounts, state.SystemAccount))
+		accounts := slices.DeleteFunc(state.Accounts, func(name string) bool { return name == state.SystemAccount })
 		require_Equal(t, len(accounts), 3)
 		for _, name := range []string{"$G", "foo", "bar"} {
 			require_True(t, slices.Contains(accounts, name))
@@ -386,7 +393,10 @@ func TestAccountOptionsAndGlobalOverTCP(t *testing.T) {
 	})
 	t.Run("config array", func(t *testing.T) {
 		s := runAccountProtocolServer(t, `accounts: [foo,bar]`)
-		accounts := accountInfoOverHTTP(t, s, "").Accounts
+		state := accountInfoOverHTTP(t, s, "")
+		require_True(t, state.SystemAccount != "")
+		require_True(t, slices.Contains(state.Accounts, state.SystemAccount))
+		accounts := slices.DeleteFunc(state.Accounts, func(name string) bool { return name == state.SystemAccount })
 		require_Equal(t, len(accounts), 3)
 		for _, name := range []string{"$G", "foo", "bar"} {
 			require_True(t, slices.Contains(accounts, name))
@@ -414,10 +424,10 @@ func TestAccountUserBindingsOverTCP(t *testing.T) {
 			var config string
 			var users []identity
 			if !nkeyUsers {
-				config = `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]} nats.io {users: [{user: derek, password: foo}, {user: ivan, password: bar}], msg_trace: {dest: my.trace.dest, sampling: 50%}}}`
+				config = `accounts {synadia {users: [{user: alice, password: foo}, {user: bob, password: bar}]}, nats.io {users: [{user: derek, password: foo}, {user: ivan, password: bar}], msg_trace: {dest: my.trace.dest, sampling: 50%}}}`
 				users = []identity{{"alice", "synadia", nats.UserInfo("alice", "foo")}, {"bob", "synadia", nats.UserInfo("bob", "bar")}, {"derek", "nats.io", nats.UserInfo("derek", "foo")}, {"ivan", "nats.io", nats.UserInfo("ivan", "bar")}}
 			} else {
-				config = `accounts {synadia {users: [{user: derek, password: foo}, {nkey: UCNGL4W5QX66CFX6A6DCBVDH5VOHMI7B2UZZU7TXAUQQSI2JPHULCKBR}]} nats {users: [{user: ivan, password: bar}, {nkey: UDPGQVFIWZ7Q5UH4I5E6DBCZULQS6VTVBG6CYBD7JV3G3N2GMQOMNAUH}]}}`
+				config = `accounts {synadia {users: [{user: derek, password: foo}, {nkey: UCNGL4W5QX66CFX6A6DCBVDH5VOHMI7B2UZZU7TXAUQQSI2JPHULCKBR}]}, nats {users: [{user: ivan, password: bar}, {nkey: UDPGQVFIWZ7Q5UH4I5E6DBCZULQS6VTVBG6CYBD7JV3G3N2GMQOMNAUH}]}}`
 				users = []identity{{"derek", "synadia", nats.UserInfo("derek", "foo")}, {"ivan", "nats", nats.UserInfo("ivan", "bar")}}
 				for i, seed := range []string{"SUAPM67TC4RHQLKBX55NIQXSMATZDOZK6FNEOSS36CAYA7F7TY66LP4BOM", "SUAIS5JPX4X4GJ7EIIJEQ56DH2GWPYJRPWN5XJEDENJOZHCBLI7SEPUQDE"} {
 					kp, err := nkeys.FromSeed([]byte(seed))
@@ -943,7 +953,9 @@ func TestAccountImportAuthorizationMatrixOverTCP(t *testing.T) {
 				return
 			}
 			s := runAccountProtocolServer(t, config)
-			require_Equal(t, len(accountInfoOverHTTP(t, s, tc.account).Account.Imports), 1)
+			state := accountInfoOverHTTP(t, s, tc.account)
+			imports := slices.DeleteFunc(state.Account.Imports, func(im ExtImport) bool { return im.Account == state.SystemAccount })
+			require_Equal(t, len(imports), 1)
 			publisher := natsConnect(t, s.ClientURL(), nats.UserInfo("foo", "foo"), nats.NoReconnect())
 			defer publisher.Close()
 			client := natsConnect(t, s.ClientURL(), nats.UserInfo("importer", "importer"), nats.NoReconnect())
@@ -1083,7 +1095,9 @@ func TestAccountServiceImportMultiplicityOverTCP(t *testing.T) {
 	for i, active := range [][]string{{"foo", "baz", "bat"}, {"foo", "baz", "bat"}, {"foo", "bat"}, {"foo"}, {"foo"}, {}} {
 		require_NoError(t, os.WriteFile(config, []byte(configFor(active)), 0600))
 		require_NoError(t, s.Reload())
-		require_Equal(t, len(accountInfoOverHTTP(t, s, "bar").Account.Imports), len(active))
+		state := accountInfoOverHTTP(t, s, "bar")
+		imports := slices.DeleteFunc(state.Account.Imports, func(im ExtImport) bool { return im.Account == state.SystemAccount })
+		require_Equal(t, len(imports), len(active))
 		payload := fmt.Sprintf("request%d", i)
 		natsPubReq(t, client, "foo", "reply", []byte(payload))
 		require_NoError(t, client.FlushTimeout(2*time.Second))
@@ -1712,9 +1726,13 @@ func TestAccountConfiguredImportsExportsOverTCP(t *testing.T) {
 		streams, service int
 		exports          int
 	}{{"synadia", 0, 1, 4}, {"nats.io", 2, 1, 4}, {"cncf", 0, 0, 0}} {
-		info := accountInfoOverHTTP(t, s, tc.account).Account
+		state := accountInfoOverHTTP(t, s, tc.account)
+		info := state.Account
 		streams, service := 0, 0
 		for _, im := range info.Imports {
+			if im.Account == state.SystemAccount {
+				continue
+			}
 			if im.Type == jwt.Stream {
 				streams++
 			} else if im.Type == jwt.Service {

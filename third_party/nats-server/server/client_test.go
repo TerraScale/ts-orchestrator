@@ -5116,6 +5116,29 @@ func (w *clientTCPWire) closed() {
 	}
 }
 
+func (w *clientTCPWire) checkSubscriptions(s *Server, expected int) {
+	w.t.Helper()
+	checkFor(w.t, 4*time.Second, 10*time.Millisecond, func() error {
+		sz, err := s.Subsz(&SubszOptions{Account: DEFAULT_GLOBAL_ACCOUNT, Subscriptions: true})
+		if err != nil {
+			return err
+		}
+		if len(sz.Subs) != sz.Total {
+			return fmt.Errorf("Incomplete subscription view: got %d of %d", len(sz.Subs), sz.Total)
+		}
+		var count int
+		for _, sub := range sz.Subs {
+			if sub.Cid == w.info.CID {
+				count++
+			}
+		}
+		if count != expected {
+			return fmt.Errorf("Expected %d subscriptions for client %d, got %d", expected, w.info.CID, count)
+		}
+		return nil
+	})
+}
+
 func TestClientTCPInfoAndConnectIngress(t *testing.T) {
 	o := DefaultOptions()
 	o.MaxPayload = 1024
@@ -5258,7 +5281,7 @@ func TestClientTCPSubscriptionLifecycleIngress(t *testing.T) {
 			require_Equal(t, int(cz.Conns[0].NumSubs), tc.remaining)
 			require_NoError(t, w.nc.Close())
 			checkClientsCount(t, s, 0)
-			checkExpectedSubs(t, 0, s)
+			w.checkSubscriptions(s, 0)
 		})
 	}
 }
@@ -5304,14 +5327,14 @@ func TestClientTCPDisconnectCleanupIngress(t *testing.T) {
 		w := clientTCPDial(t, s)
 		if i%2 == 0 {
 			w.flush("CONNECT {\"verbose\":false}\r\nSUB foo 1\r\nSUB bar 2\r\n")
-			checkExpectedSubs(t, 2, s)
+			w.checkSubscriptions(s, 2)
 		} else {
 			// Closing while SUB is in flight must never leave orphaned interest.
 			w.write("CONNECT {\"verbose\":false}\r\nSUB foo 1\r\nSUB bar 2\r\n")
 		}
 		require_NoError(t, w.nc.Close())
 		checkClientsCount(t, s, 0)
-		checkExpectedSubs(t, 0, s)
+		w.checkSubscriptions(s, 0)
 	}
 	w := clientTCPDial(t, s)
 	w.flush("CONNECT {\"verbose\":false}\r\n")
