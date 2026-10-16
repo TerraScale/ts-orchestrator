@@ -142,3 +142,7 @@ func (recipient LinkRecipient) deliveryScope() trust.Scope {
 func (recipient LinkRecipient) RegionalSourceTemplate() VerifiedStartupTemplate {
 	return recipient.regional.Template()
 }
+
+func (recipient LinkRecipient) OriginalActor() SourceInventoryActor {
+	return recipient.regional.OriginalActor()
+}
