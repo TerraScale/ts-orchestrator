@@ -217,6 +217,16 @@ func (r *capacityReservations) apply(ctx context.Context, source, action string,
 		return budget.Reservation{}, err
 	}
 	if action == "observe" {
+		capacity, _, err := budget.ReadCapacity(ctx, r.global.reader)
+		if err != nil {
+			return budget.Reservation{}, err
+		}
+		if !slices.ContainsFunc(capacity.Reservations, func(receipt budget.Reservation) bool {
+			return receipt.OperationID == request.Request.OperationID && receipt.Cell == request.Request.Cell &&
+				receipt.CompartmentID == request.Request.CompartmentID && receipt.RecipeSHA256 == request.Recipe.SHA256()
+		}) {
+			return budget.Reservation{}, errors.New("capacity observation differs from the source's exact durable commitment")
+		}
 		return budget.Observe(ctx, r.global.reader, r.global.writer, epoch, request.Request.OperationID, request.ResourceIDs, proof, snapshot, time.Now())
 	}
 	quote, err := r.verifyCandidate(ctx, reader, proof, snapshot, request)
@@ -238,6 +248,35 @@ func (r *capacityReservations) apply(ctx context.Context, source, action string,
 	default:
 		return budget.Reservation{}, errors.New("unknown capacity reservation action")
 	}
+}
+
+// Reconcile all outstanding operations, including launches finished before a
+// restart. Absence never retires a commitment; Observe requires every node and boot ID.
+func (r *capacityReservations) reconcile(ctx context.Context, epoch uint64, proof region.VerifiedInfrastructureSpend, snapshot capacityinventory.Snapshot) error {
+	capacity, _, err := budget.ReadCapacity(ctx, r.global.reader)
+	if err != nil {
+		return err
+	}
+	var pending []error
+	for _, receipt := range capacity.Reservations {
+		if !receipt.RetiredAt.IsZero() {
+			continue
+		}
+		ids := []string{}
+		for _, resource := range snapshot.Resources {
+			if resource.OperationID == receipt.OperationID && resource.RecipeSHA256 == receipt.RecipeSHA256 &&
+				resource.Cell == receipt.Cell && resource.CompartmentID == receipt.CompartmentID {
+				ids = append(ids, resource.ID)
+			}
+		}
+		if err := r.global.authority.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		if _, err := budget.Observe(ctx, r.global.reader, r.global.writer, epoch, receipt.OperationID, ids, proof, snapshot, time.Now()); err != nil {
+			pending = append(pending, fmt.Errorf("operation %s: %w", receipt.OperationID, err))
+		}
+	}
+	return errors.Join(pending...)
 }
 
 func (r *capacityReservations) verifyCandidate(ctx context.Context, reader *capacityinventory.Reader, proof region.VerifiedInfrastructureSpend,

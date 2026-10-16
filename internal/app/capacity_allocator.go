@@ -25,17 +25,14 @@ const capacityInterval = time.Minute
 // capacityAllocator is the home's allocator. On the global leader it writes the
 // capacity document every minute and keeps the last one for the budget insight.
 type capacityAllocator struct {
-	global  *globalControl
-	regions func() []globalview.Region
-	alert   budgetAlert
+	global       *globalControl
+	regions      func() []globalview.Region
+	alert        budgetAlert
+	reservations *capacityReservations
 
 	mu       sync.Mutex
 	capacity budget.Capacity
 	found    bool
-	// primedEpoch is the leader epoch the stored capacity was read for, once
-	// primed is set. Only tick reads or writes them.
-	primedEpoch uint64
-	primed      bool
 	// journaledState and journaledReason are the last decision journaled. Only
 	// tick reads or writes them.
 	journaledState  budget.State
@@ -47,8 +44,9 @@ type capacityAllocator struct {
 // capacity document instead.
 func startCapacityAllocator(ctx context.Context, global *globalControl,
 	regions func() []globalview.Region, js jetstream.JetStream, replicas int, atlasConfig func() *atlas.Config,
+	reservations *capacityReservations,
 ) *capacityAllocator {
-	allocator := &capacityAllocator{global: global, regions: regions, alert: newBudgetAlert(js, replicas, atlasConfig)}
+	allocator := &capacityAllocator{global: global, regions: regions, reservations: reservations, alert: newBudgetAlert(js, replicas, atlasConfig)}
 	if global == nil || global.writer == nil || global.authority == nil {
 		return allocator
 	}
@@ -83,23 +81,20 @@ func (a *capacityAllocator) tick(ctx context.Context, now time.Time) error {
 		// The region view attaches after the controller starts; there is nothing to allocate yet.
 		return nil
 	}
-	monthly, found, err := budget.ReadBudget(ctx, a.global.reader)
-	if err != nil {
-		return fmt.Errorf("read monthly budget: %w", err)
-	}
-	var ceiling *budget.Budget
-	if found {
-		ceiling = &monthly
-	}
 	regions := capacityRegions(rollups)
 	if roster, _, err := a.global.reader.Roster(ctx); err == nil {
 		regions = addRosterCells(regions, roster)
 	}
-	prior, err := a.priorFor(ctx, snapshot.Epoch)
-	if err != nil {
-		return err
+	_, proof, inventory, factsErr := a.reservations.facts(ctx)
+	if factsErr == nil {
+		if err := a.reservations.reconcile(ctx, snapshot.Epoch, proof, inventory); err != nil {
+			slog.Warn("capacity commitments await positive resource observations", observability.ComponentKey, "budget", "error", err)
+		}
 	}
-	capacity := budget.Allocate(ceiling, regions, prior, now)
+	capacity, allocationErr := budget.AllocateInfrastructure(ctx, a.global.reader, proof, inventory, regions, nil, now)
+	if factsErr != nil {
+		capacity.Reason = "infrastructure candidate planning is held: " + factsErr.Error()
+	}
 	if err := a.global.authority.Guard(ctx, snapshot.Epoch); err != nil {
 		return err
 	}
@@ -111,33 +106,7 @@ func (a *capacityAllocator) tick(ctx context.Context, now time.Time) error {
 	a.mu.Unlock()
 	a.journal(ctx, now, snapshot.Epoch, capacity)
 	a.alertBudget(ctx, now, snapshot.Epoch, capacity)
-	return nil
-}
-
-// priorFor returns the capacity the last allocation wrote. A leader reads the stored document once per epoch, so
-// its first grant honors any reservation the previous leader made. Only tick calls it.
-func (a *capacityAllocator) priorFor(ctx context.Context, epoch uint64) (*budget.Capacity, error) {
-	if !a.primed || a.primedEpoch != epoch {
-		stored, found, err := budget.ReadCapacity(ctx, a.global.reader)
-		// An unreadable document holds no reservation this leader can honor;
-		// the next write replaces it.
-		if errors.Is(err, budget.ErrInvalidCapacity) {
-			slog.Warn("stored capacity document is invalid; allocating without it", observability.ComponentKey, "budget", "error", err)
-			stored, found, err = budget.Capacity{}, false, nil
-		}
-		if err != nil {
-			return nil, fmt.Errorf("read capacity: %w", err)
-		}
-		a.mu.Lock()
-		a.capacity, a.found = stored, found
-		a.mu.Unlock()
-		a.primed, a.primedEpoch = true, epoch
-	}
-	if !a.found {
-		return nil, nil
-	}
-	prior := a.capacity
-	return &prior, nil
+	return errors.Join(factsErr, allocationErr)
 }
 
 // Capacity returns the last capacity document this allocator wrote, and false before its first write.
@@ -163,18 +132,15 @@ func (a *capacityAllocator) journal(ctx context.Context, now time.Time, epoch ui
 		Subject: decisionlog.Subject{Kind: "budget", ID: "monthly"}, Summary: summary, Reason: capacity.Reason})
 }
 
-// capacityRegions maps each region's latest rollup to the allocator's input.
-// A region without a rollup or a scaling status has unknown spend; the age of
-// its cost decides whether a known spend is still fresh.
+// capacityRegions supplies demand timestamps. Forecasts and reported prices
+// cannot authorize the provisional plan or an exact spending commitment.
 func capacityRegions(rollups []globalview.Region) []budget.Region {
 	regions := make([]budget.Region, 0, len(rollups))
 	for _, rollup := range rollups {
 		region := budget.Region{Cell: rollup.Cell}
 		if rollup.Rollup != nil && rollup.Rollup.Scale != nil {
 			scale := rollup.Rollup.Scale
-			region = budget.Region{Cell: rollup.Cell, Nodes: scale.Nodes, Want: scale.Want, Pressure: scale.Pressure,
-				NodeMonthlyCents: scale.NodeMonthlyCents, ProjectedCents: scale.ProjectedCents,
-				Currency: scale.Currency, At: scale.CostAt}
+			region = budget.Region{Cell: rollup.Cell, Nodes: scale.Nodes, Want: scale.Want, Pressure: scale.Pressure, At: scale.At}
 		}
 		regions = append(regions, region)
 	}

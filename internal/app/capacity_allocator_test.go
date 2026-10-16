@@ -32,7 +32,7 @@ func TestCapacityRegionsMapRollupStatuses(t *testing.T) {
 		{Cell: "fra"},
 	})
 	want := []budget.Region{
-		{Cell: "gru", Nodes: 4, Want: 5, Pressure: 0.82, NodeMonthlyCents: 4100, ProjectedCents: 21000, Currency: "BRL", At: at},
+		{Cell: "gru", Nodes: 4, Want: 5, Pressure: 0.82, At: at},
 		{Cell: "sfo"},
 		{Cell: "fra"},
 	}
@@ -130,36 +130,32 @@ func TestCapacityAllocatorWritesAndJournalsOnChange(t *testing.T) {
 	restore := decisionlog.SetDefault(journal)
 	t.Cleanup(restore)
 
-	// Without a status the spend is unknown: growth is held, and the hold is journaled once.
-	rollups = []globalview.Region{{Cell: "gru", Rollup: &globalview.Rollup{Cell: "gru"}}}
-	for range 2 {
-		if err := allocator.tick(ctx, now); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if capacity, found := allocator.Capacity(); !found || capacity.State != budget.StateUnknown {
-		t.Fatalf("capacity without status = %+v, %v; want unknown", capacity, found)
-	}
-
-	// A fresh status priced in BRL lets gru grow by one node, which is journaled as the hold clearing.
+	// Cheap fresh status never substitutes for signed complete infrastructure facts.
 	rollups = []globalview.Region{{Cell: "gru", Rollup: &globalview.Rollup{Cell: "gru", Scale: &nodescale.Status{
-		Schema: nodescale.StatusSchema, Cell: "gru", At: now, Nodes: 3, Want: 4, Pressure: 0.9,
-		NodeMonthlyCents: 4100, ProjectedCents: 20000, Currency: "BRL", CostAt: now}}}}
-	if err := allocator.tick(ctx, now); err != nil {
+		Schema: nodescale.StatusSchema, Cell: "gru", At: now, Nodes: 3, Want: 4, Pressure: .9,
+		NodeMonthlyCents: 1, ProjectedCents: 1, Currency: "BRL", CostAt: now}}}}
+	prior := budget.Capacity{Schema: budget.Schema, At: now, State: budget.StateOK, Reason: "previous provisional plan", CapCents: 50000, Currency: "BRL",
+		Regions: []budget.RegionAllowance{{Cell: "gru", Nodes: 3, Want: 4, Allowance: 4, Pressure: .9, GrantedAt: now}}}
+	if err := budget.WriteCapacity(ctx, global.writer, epoch, prior); err != nil {
 		t.Fatal(err)
 	}
+	for range 2 {
+		if err := allocator.tick(ctx, now); err == nil {
+			t.Fatal("missing signed complete facts were accepted")
+		}
+	}
 	capacity, found := allocator.Capacity()
-	if !found || capacity.State != budget.StateOK || capacity.Regions[0].Allowance != 4 {
-		t.Fatalf("capacity with status = %+v, %v; want ok with gru at 4", capacity, found)
+	if !found || capacity.State != budget.StateNone || len(capacity.Regions) != 1 || capacity.Regions[0].Allowance != 3 {
+		t.Fatalf("missing infrastructure authority retained growth: %+v found=%v", capacity, found)
 	}
 	stored, found, err := budget.ReadCapacity(ctx, global.reader)
-	if err != nil || !found || stored.State != budget.StateOK || stored.Regions[0].Allowance != 4 {
-		t.Fatalf("stored capacity = %+v, %v, %v; want the same allocation", stored, found, err)
+	if err != nil || !found || stored.State != budget.StateNone || stored.Regions[0].Allowance != 3 {
+		t.Fatalf("held plan not durable: %+v found=%v err=%v", stored, found, err)
 	}
-	if len(journal.decisions) != 2 || journal.decisions[0].Kind != decisionlog.KindHeld ||
-		journal.decisions[1].Kind != decisionlog.KindHoldCleared {
-		t.Fatalf("journaled %d decisions, want held then hold_cleared", len(journal.decisions))
+	if len(journal.decisions) != 1 || journal.decisions[0].Kind != decisionlog.KindHeld {
+		t.Fatalf("repeated hold journaled %d decisions", len(journal.decisions))
 	}
+
 	for _, decision := range journal.decisions {
 		if decision.Actor.Slice != "budget" || decision.Region != "global" || decision.Subject.ID != "monthly" {
 			t.Fatalf("decision = %+v, want the budget slice in the global region", decision)
