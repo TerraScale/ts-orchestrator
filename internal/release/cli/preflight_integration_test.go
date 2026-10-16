@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
@@ -33,5 +34,30 @@ func TestProductionDeployRefusesBeforeSigningCredentials(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if len(fixture.channelWrites) != 0 || len(fixture.binaryCreates) != 0 {
 		t.Fatal("unqualified candidate mutated storage")
+	}
+}
+
+func TestProductionPreflightStreamsHealthyRegionsDuringHTTPStall(t *testing.T) {
+	fixture := newApplyHTTPFixture(t)
+	fixture.reset("unreachable")
+	qualification, digest, err := readQualification(filepath.Join(fixture.releaseDir, "qualification.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := (command{ctx: t.Context(), output: io.Discard}).prepareDeploymentTargets(fixture.releaseDir,
+		filepath.Join(fixture.releaseDir, "production"), "ns", "", []string{"SFO", "GRU", "FRA"}, nil,
+		qualification, digest, fixture.roots, 2*time.Second, fixture.env, io.Discard)
+	healthy := 0
+	for result := range results {
+		if result.err == nil {
+			healthy++
+			continue
+		}
+		if result.target.cell != "SFO" || healthy != 2 {
+			t.Fatalf("stalled preflight prevented healthy admission: healthy=%d result=%+v", healthy, result)
+		}
+	}
+	if healthy != 2 {
+		t.Fatalf("healthy regions admitted=%d", healthy)
 	}
 }

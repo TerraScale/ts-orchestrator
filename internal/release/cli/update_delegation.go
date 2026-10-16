@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -226,6 +227,7 @@ func (c command) signBinaryUpdateWith(args []string, check func(release.Qualific
 	inspect func(string, string, string) (binaryReceipt, error), git func(context.Context, ...string) (string, error),
 ) error {
 	flags := flag.NewFlagSet("sign-binary-update", flag.ContinueOnError)
+	evidenceDir := flags.String("production-evidence-dir", "", "retained signed runtime and workload evidence; default qualification directory/production")
 	flags.SetOutput(io.Discard)
 	candidate := flags.String("candidate", "", "unsigned canonical binary receipt")
 	binaryPath := flags.String("binary", "", "retained CI binary matching the candidate")
@@ -279,6 +281,16 @@ func (c command) signBinaryUpdateWith(args []string, check func(release.Qualific
 	if err != nil {
 		return err
 	}
+	if *evidenceDir == "" {
+		*evidenceDir = filepath.Join(filepath.Dir(*qualificationPath), "production")
+	}
+	if err := c.verifyProductionArtifacts(*evidenceDir, roots, *cell, *environment, map[string]binaryReceipt{payload.GOARCH: payload}, time.Now().UTC()); err != nil {
+		return err
+	}
+	proof, err := readProductionProof(*evidenceDir, *cell, payload.GOARCH)
+	if err != nil {
+		return err
+	}
 	private, err := readDelegatedPrivateKey(*privatePath)
 	if err != nil {
 		return err
@@ -286,6 +298,15 @@ func (c command) signBinaryUpdateWith(args []string, check func(release.Qualific
 	defer clear(private)
 	envelope, err := release.SignBinaryUpdateReceipt(payload, qualification, qualificationDigest, *cell, *environment,
 		gitLineage{ctx: c.ctx, checkout: *checkout, run: git}, delegation, roots, private, time.Now().UTC(), *validFor)
+	if err != nil {
+		return err
+	}
+	delegationWire, err := trust.EncodeEnvelope(delegation)
+	if err != nil {
+		return err
+	}
+	envelope, err = release.AttachProductionQualification(envelope, proof, delegationWire, roots, private,
+		release.UpdateExpectation{Environment: *environment, Cell: *cell, Architecture: payload.GOARCH}, time.Now().UTC())
 	if err != nil {
 		return err
 	}
