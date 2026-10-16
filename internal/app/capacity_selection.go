@@ -22,11 +22,31 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-func (r *capacityReservations) imageInputs(role string) []nodescale.ImageQualification {
+func (r *capacityReservations) imageInputs(ctx context.Context, role string) ([]nodescale.ImageQualification, error) {
 	if r == nil || r.specs == nil {
-		return nil
+		return nil, fmt.Errorf("%w: current image trust is unavailable", nodescale.ErrCapacityPending)
 	}
-	images := r.specs.hostImageSnapshot().images
+	snapshot := r.specs.hostImageSnapshot()
+	ociRegion, err := oci.Region(strings.ToUpper(r.cell)).OCIRegion()
+	if err != nil {
+		return nil, err
+	}
+	location, err := instancePrincipalChannel(ociRegion, strings.ToUpper(r.cell)).get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var images []cellspec.HostImage
+	for _, architecture := range []string{"arm64", "amd64"} {
+		current, found, err := releasechannel.ReadCurrentImage(ctx, location, snapshot.roots,
+			releasechannel.CurrentImageExpectation{Cell: strings.ToUpper(r.cell), Environment: r.environment, Architecture: architecture, Role: role}, time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("%w: current %s %s image discovery: %v", nodescale.ErrCapacityPending, role, architecture, err)
+		}
+		if found {
+			images = append(images, cellspec.HostImage{Receipt: current.ReceiptWire, Delegation: current.DelegationWire})
+		}
+	}
+	images = append(images, snapshot.images...)
 	if accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity(); err == nil {
 		if receipt, delegation, err := bootstrapstart.LoadAcceptedManagedImageMaterial(accepted); err == nil {
 			images = append(images, cellspec.HostImage{Receipt: receipt, Delegation: delegation})
@@ -50,7 +70,7 @@ func (r *capacityReservations) imageInputs(role string) []nodescale.ImageQualifi
 		}
 		inputs = append(inputs, input)
 	}
-	return inputs
+	return inputs, nil
 }
 
 func (r *capacityReservations) qualify(ctx context.Context, input nodescale.ImageQualification) (nodescale.QualifiedImage, time.Time, error) {
@@ -101,7 +121,11 @@ func (r *capacityReservations) choose(ctx context.Context, base nodescale.Recipe
 	expires := snapshot.ExpiresAt
 	var images []nodescale.QualifiedImage
 	var shapes, pending []string
-	for _, input := range r.imageInputs(base.Capacity.Role) {
+	inputs, err := r.imageInputs(ctx, base.Capacity.Role)
+	if err != nil {
+		return nodescale.Recipe{}, err
+	}
+	for _, input := range inputs {
 		image, deadline, err := r.qualify(ctx, input)
 		if err != nil {
 			pending = append(pending, err.Error())
@@ -180,7 +204,11 @@ func (r *capacityReservations) prepare(ctx context.Context, operationID string, 
 	if err != nil {
 		return request, err
 	}
-	for _, input := range r.imageInputs(recipe.Capacity.Role) {
+	inputs, err := r.imageInputs(ctx, recipe.Capacity.Role)
+	if err != nil {
+		return request, err
+	}
+	for _, input := range inputs {
 		if input.Expected.OCIImageOCID != recipe.ImageID || input.Expected.Architecture != recipe.Capacity.Architecture {
 			continue
 		}
