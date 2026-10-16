@@ -42,10 +42,11 @@ type ContainerMaterialBinding struct {
 // ContainerMaterialFiles is one immutable, bounded task inventory. The provider
 // authorizes every reference against current signed profile and container intent.
 type ContainerMaterialFiles struct {
-	Files           map[string][]byte `json:"files"`
-	FileEnvironment map[string]string `json:"file_environment"`
-	User            string            `json:"user"`
-	ExpiresAt       time.Time         `json:"expires_at"`
+	Files               map[string][]byte `json:"files"`
+	FileEnvironment     map[string]string `json:"file_environment"`
+	User                string            `json:"user"`
+	ExpiresAt           time.Time         `json:"expires_at"`
+	CredentialExpiresAt time.Time         `json:"credential_expires_at,omitzero"`
 }
 
 type ContainerMaterialProvider func(context.Context, Registration, ContainerMaterialBinding) (ContainerMaterialFiles, error)
@@ -62,7 +63,7 @@ func validateContainerMaterialBinding(binding ContainerMaterialBinding) error {
 	if !containerMaterialID.MatchString(binding.TaskID) || !containerMaterialID.MatchString(binding.ServiceID) ||
 		!containerMaterialID.MatchString(binding.NodeID) || !catalog.IsOCIRegion(binding.Region) ||
 		(!entityid.Valid(binding.HostID) && !containerMaterialSlot.MatchString(binding.HostID)) ||
-		!strings.HasPrefix(binding.InstanceID, "ocid1.instance.") || len(binding.InstanceID) > 255 ||
+		!strings.HasPrefix(binding.InstanceID, "ocid1.instance.") || len(binding.InstanceID) <= len("ocid1.instance.") || len(binding.InstanceID) > 255 ||
 		strings.ContainsAny(binding.InstanceID, " \r\n\t") || !lowerHex(binding.Fingerprint, 64) {
 		return errors.New("container material task or recipient identity is invalid")
 	}
@@ -74,17 +75,20 @@ func validateContainerMaterial(files ContainerMaterialFiles) error {
 	u, ue := strconv.ParseUint(uid, 10, 32)
 	g, ge := strconv.ParseUint(gid, 10, 32)
 	if !split || ue != nil || ge != nil || u == 0 || g == 0 || !time.Now().Before(files.ExpiresAt) ||
+		(!files.CredentialExpiresAt.IsZero() && (!files.CredentialExpiresAt.After(time.Now()) || files.ExpiresAt.After(files.CredentialExpiresAt))) ||
 		len(files.Files) > vaultsecret.MaxRefs || len(files.Files) != len(files.FileEnvironment) {
 		return errors.New("container material inventory, user or expiry is invalid")
 	}
 	total := 0
+	seen := make(map[string]bool, len(files.Files))
 	for key, name := range files.FileEnvironment {
 		value, found := files.Files[name]
 		if !containerMaterialKey.MatchString(key) || name != strings.ToLower(key) || path.Base(name) != name ||
-			!found || len(value) == 0 || len(value) > 64<<10 {
+			!found || seen[name] || len(value) == 0 || len(value) > 64<<10 {
 			return errors.New("container material requires distinct signed file environment bindings")
 		}
 		total += len(value)
+		seen[name] = true
 	}
 	if total > 96<<10 {
 		return errors.New("container material exceeds the bounded secret inventory")
