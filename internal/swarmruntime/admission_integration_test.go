@@ -16,7 +16,7 @@ func TestNodeAdmissionIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if node.Node.Spec.Annotations.Name != cfg.Admission.HostID || node.Node.Spec.Annotations.Labels[LabelHostRole] != "container" || node.Node.Spec.Annotations.Labels[LabelInstanceID] != cfg.Admission.InstanceID || node.Node.Spec.Annotations.Labels[LabelRegion] != "gru" {
+	if node.Node.Spec.Annotations.Name != cfg.Admission.HostID || node.Node.Spec.Annotations.Labels[LabelHostRole] != "container" || node.Node.Spec.Annotations.Labels[LabelInstanceID] != cfg.Admission.InstanceID || node.Node.Spec.Annotations.Labels[LabelRegion] != "gru" || node.Node.Spec.Annotations.Labels[LabelExecutionScope] != "platform" {
 		t.Fatalf("missing manager-owned placement admission: %+v", node.Node.Spec)
 	}
 	if _, err := worker.ControlClient(ctx); err == nil {
