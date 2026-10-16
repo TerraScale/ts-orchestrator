@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"slices"
@@ -28,6 +29,12 @@ type attempt struct {
 	store    *store
 	journal  *journal
 	client   identity.IdentityClient
+}
+
+type createIntent struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Body   string `json:"body"`
 }
 
 func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir string, cleanup bool) (*attempt, error) {
@@ -124,6 +131,25 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 			if intent == nil || j.Cleaned || intent.Deleted || intent.DeleteIntent || !p.now().Before(intent.FirstAttempt.Add(23*time.Hour)) || p.now().Before(intent.FirstAttempt) {
 				return errors.New("IAM write lacks current durable exact retry intent")
 			}
+			var exact createIntent
+			if err := json.Unmarshal(intent.Request, &exact); err != nil {
+				return err
+			}
+			if request.GetBody == nil {
+				return errors.New("IAM write has no repeatable exact body")
+			}
+			body, err := request.GetBody()
+			if err != nil {
+				return err
+			}
+			wire, err := io.ReadAll(body)
+			body.Close()
+			if err != nil {
+				return err
+			}
+			if exact.Method != request.Method || exact.Path != strings.TrimPrefix(request.URL.EscapedPath(), "/20160918") || exact.Body != string(wire) {
+				return errors.New("IAM SDK dispatch differs from durable exact request")
+			}
 		}
 		if request.Method == http.MethodDelete {
 			found := false
@@ -178,7 +204,7 @@ func (a *attempt) authenticate(ctx context.Context) error {
 
 func (a *attempt) description() string { return "Disposable image qualification " + a.verified.digest }
 
-func (a *attempt) create(ctx context.Context, name string, details any, call func(string) (string, error)) (string, error) {
+func (a *attempt) create(ctx context.Context, name string, request common.OCIRequest, path string, call func(string) (string, error)) (string, error) {
 	if err := a.producer.check(ctx, a.verified, false); err != nil {
 		return "", err
 	}
@@ -188,7 +214,19 @@ func (a *attempt) create(ctx context.Context, name string, details any, call fun
 	if err := a.authenticate(ctx); err != nil {
 		return "", err
 	}
-	op, err := a.store.intent(a.verified, a.journal, name, details, a.producer.now())
+	// Use the SDK's own marshaler: it removes optional nil fields in addition
+	// to JSON encoding. The journal binds exactly what the SDK will send.
+	raw, err := request.HTTPRequest(http.MethodPost, path, nil, nil)
+	if err != nil {
+		return "", err
+	}
+	body, err := io.ReadAll(raw.Body)
+	raw.Body.Close()
+	if err != nil {
+		return "", err
+	}
+	exact := createIntent{Method: raw.Method, Path: raw.URL.EscapedPath(), Body: string(body)}
+	op, err := a.store.intent(a.verified, a.journal, name, exact, a.producer.now())
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +297,7 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 	}
 	if should("user") {
 		details := identity.CreateUserDetails{CompartmentId: new(p.Tenancy), Name: new(p.PrincipalName), Description: new(a.description())}
-		_, err := a.create(ctx, "user", details, func(token string) (string, error) {
+		_, err := a.create(ctx, "user", identity.CreateUserRequest{CreateUserDetails: details}, "/users", func(token string) (string, error) {
 			r, err := a.client.CreateUser(ociclient.RequestContext(ctx), identity.CreateUserRequest{CreateUserDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			return value(r.Id), err
 		})
@@ -269,7 +307,7 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 	}
 	if should("group") {
 		details := identity.CreateGroupDetails{CompartmentId: new(p.Tenancy), Name: new(p.GroupName), Description: new(a.description())}
-		_, err := a.create(ctx, "group", details, func(token string) (string, error) {
+		_, err := a.create(ctx, "group", identity.CreateGroupRequest{CreateGroupDetails: details}, "/groups", func(token string) (string, error) {
 			r, err := a.client.CreateGroup(ociclient.RequestContext(ctx), identity.CreateGroupRequest{CreateGroupDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			return value(r.Id), err
 		})
@@ -283,7 +321,7 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 			return errors.New("policy lacks actual created group identity")
 		}
 		details := identity.CreatePolicyDetails{CompartmentId: new(p.Tenancy), Name: new(p.PolicyName), Description: new(a.description()), Statements: confinement.RequiredStatements(p.scope(group))}
-		_, err := a.create(ctx, "policy", details, func(token string) (string, error) {
+		_, err := a.create(ctx, "policy", identity.CreatePolicyRequest{CreatePolicyDetails: details}, "/policies", func(token string) (string, error) {
 			r, err := a.client.CreatePolicy(ociclient.RequestContext(ctx), identity.CreatePolicyRequest{CreatePolicyDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			return value(r.Id), err
 		})
@@ -297,11 +335,8 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 			return errors.New("API key lacks actual created user identity")
 		}
 		details := identity.CreateApiKeyDetails{Key: new(p.PublicKeyPEM)}
-		request := struct {
-			User    string                       `json:"user"`
-			Details identity.CreateApiKeyDetails `json:"details"`
-		}{user, details}
-		_, err := a.create(ctx, "key", request, func(token string) (string, error) {
+		request := identity.UploadApiKeyRequest{UserId: new(user), CreateApiKeyDetails: details}
+		_, err := a.create(ctx, "key", request, "/users/{userId}/apiKeys", func(token string) (string, error) {
 			r, err := a.client.UploadApiKey(ociclient.RequestContext(ctx), identity.UploadApiKeyRequest{UserId: new(user), CreateApiKeyDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			if err == nil && (value(r.UserId) != user || value(r.KeyValue) != p.PublicKeyPEM) {
 				return "", errors.New("uploaded key response differs from exact signed key and user")
@@ -321,7 +356,7 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 		if value(details.UserId) == "" || value(details.GroupId) == "" {
 			return errors.New("membership lacks observed user and group")
 		}
-		_, err := a.create(ctx, "membership", details, func(token string) (string, error) {
+		_, err := a.create(ctx, "membership", identity.AddUserToGroupRequest{AddUserToGroupDetails: details}, "/userGroupMemberships", func(token string) (string, error) {
 			r, err := a.client.AddUserToGroup(ociclient.RequestContext(ctx), identity.AddUserToGroupRequest{AddUserToGroupDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			if err == nil && (value(r.UserId) != value(details.UserId) || value(r.GroupId) != value(details.GroupId) || value(r.CompartmentId) != p.Tenancy) {
 				return "", errors.New("membership response differs from exact prepared identities")

@@ -273,31 +273,18 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 			failure(400, "InvalidParameter")
 			return
 		}
-		var received, recorded any
-		if err := json.Unmarshal(body, &received); err != nil {
+		var exact createIntent
+		if err := json.Unmarshal(op.Request, &exact); err != nil {
 			f.t.Error(err)
 			failure(400, "InvalidParameter")
 			return
 		}
-		if err := json.Unmarshal(op.Request, &recorded); err != nil {
-			f.t.Error(err)
+		if exact.Method != r.Method || exact.Path != strings.TrimPrefix(r.URL.EscapedPath(), "/20160918") || exact.Body != string(body) {
+			f.t.Error("wire request differs from fsynced SDK intent")
 			failure(400, "InvalidParameter")
 			return
 		}
-		if name == "key" {
-			wrapped := recorded.(map[string]any)
-			if wrapped["user"] != "ocid1.user.oc1..created" {
-				f.t.Error("API upload target not journaled")
-			}
-			recorded = wrapped["details"]
-		}
-		receivedWire, _ := json.Marshal(received, json.Deterministic(true))
-		recordedWire, _ := json.Marshal(recorded, json.Deterministic(true))
-		if string(receivedWire) != string(recordedWire) {
-			f.t.Error("wire request differs from fsynced request")
-			failure(400, "InvalidParameter")
-			return
-		}
+
 		if existing, ok := f.tokens[token]; ok {
 			write(200, f.resources[existing])
 			return
@@ -412,6 +399,17 @@ func TestSDKPrepareRestartAndCleanup(t *testing.T) {
 	if result.Receipt().Principal != "ocid1.user.oc1..created" || result.Receipt().Group != "ocid1.group.oc1..created" || result.Receipt().PolicyID != "ocid1.policy.oc1..created" || result.CandidateFactory() == nil {
 		t.Fatalf("missing actual prepared identities: %+v", result)
 	}
+	if err := result.ValidatePreparation(f.verified, f.now()); err != nil {
+		t.Fatal(err)
+	}
+	other := f.prep
+	other.MaxSpendMicros++
+	if err := result.ValidatePreparation(f.verify(other), f.now()); err == nil {
+		t.Fatal("sealed result accepted a different signed finite preparation")
+	}
+	if err := (Result{}).ValidatePreparation(f.verified, f.now()); err == nil {
+		t.Fatal("empty result manufactured prepared authority")
+	}
 	if user, _ := result.CandidateFactory().Provider().UserOCID(); user != result.Receipt().Principal {
 		t.Fatal("candidate factory did not use newly created principal")
 	}
@@ -447,6 +445,9 @@ func TestSDKPrepareRestartAndCleanup(t *testing.T) {
 	f.mu.Unlock()
 	// Cleanup still uses current signatures after creation has expired.
 	f.advance(49 * time.Hour)
+	if err := result.ValidatePreparation(f.verified, f.now()); err == nil {
+		t.Fatal("sealed result renewed expired creation authority")
+	}
 	cleaned, err := reopened.Cleanup(t.Context(), f.verified, f.dir)
 	if err != nil {
 		t.Fatal(err)
@@ -770,6 +771,9 @@ func TestSDKFixedRoleMaterialAndProductionGroupBindings(t *testing.T) {
 			result, err := f.producer.Prepare(t.Context(), v, f.dir)
 			if err != nil || !result.Prepared() {
 				t.Fatalf("actual NetBird principal preparation: %v", err)
+			}
+			if err := result.ValidatePreparation(v, f.now()); err != nil {
+				t.Fatal(err)
 			}
 			receipt := result.Receipt()
 			receipt.Principal = "unrelated"

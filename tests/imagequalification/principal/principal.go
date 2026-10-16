@@ -374,6 +374,39 @@ func (r Result) CandidateFactory() *ociclient.Factory {
 	return r.factory
 }
 
+// ValidatePreparation checks the sealed observed result against its original
+// current finite authorization. Effective policy still requires confinement.
+func (r Result) ValidatePreparation(v VerifiedPreparation, now time.Time) error {
+	if !r.Prepared() || v.digest == "" {
+		return errors.New("sealed SDK principal result and verified preparation required")
+	}
+	if _, err := VerifyPreparation(v.wire, v.delegation, v.roots, v.preparation.RunID, now); err != nil {
+		return err
+	}
+	p := v.preparation
+	receipt := r.receipt
+	if !now.Before(p.ExpiresAt) || receipt.Cleaned || receipt.PreparationSHA256 != v.digest || receipt.PublicKeyFingerprint != p.PublicKeyFingerprint || !validID("user", receipt.Principal) || !validID("group", receipt.Group) || !validID("policy", receipt.PolicyID) || !validID("membership", receipt.MembershipID) || !slices.Equal(receipt.PolicyStatements, confinement.RequiredStatements(p.scope(receipt.Group))) {
+		return errors.New("SDK principal result does not refine this exact finite preparation")
+	}
+	provider := r.factory.Provider()
+	tenancy, err := provider.TenancyOCID()
+	if err != nil {
+		return err
+	}
+	user, err := provider.UserOCID()
+	if err != nil {
+		return err
+	}
+	fingerprint, err := provider.KeyFingerprint()
+	if err != nil {
+		return err
+	}
+	if tenancy != p.Tenancy || user != receipt.Principal || fingerprint != p.PublicKeyFingerprint || r.factory.Region() != p.OCIRegion {
+		return errors.New("sealed candidate factory differs from observed result")
+	}
+	return nil
+}
+
 type Producer struct {
 	issuer   *ociclient.Factory
 	now      func() time.Time

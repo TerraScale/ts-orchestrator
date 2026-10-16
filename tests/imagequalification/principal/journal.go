@@ -206,8 +206,7 @@ func knownOperation(name string) bool {
 }
 
 func (s *store) intent(v VerifiedPreparation, j *journal, name string, request any, now time.Time) (*operation, error) {
-	// OCI's SDK uses null for nil maps/slices in these generated request structs.
-	wire, err := json.Marshal(request, json.Deterministic(true), json.FormatNilMapAsNull(true), json.FormatNilSliceAsNull(true))
+	wire, err := json.Marshal(request, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
