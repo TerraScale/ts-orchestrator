@@ -144,6 +144,13 @@ func (c *SDKClient) Call(ctx context.Context, args ...string) (map[string]any, e
 		if err != nil {
 			return nil, fmt.Errorf("OCI %s failed: %w", parsed.Path, err)
 		}
+		if result, ok := value.(map[string]any); ok {
+			if id, ok := result["work-request-id"].(*string); ok && id != nil && *id != "" {
+				if err := ociresource.RecordWorkRequest(ctx, *id); err != nil {
+					return nil, fmt.Errorf("checkpoint OCI work request: %w", err)
+				}
+			}
+		}
 		return c.wrap(value)
 	}
 	data, _, err := c.reader.Call(ctx, args)
