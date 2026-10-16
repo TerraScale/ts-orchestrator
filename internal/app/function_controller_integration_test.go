@@ -61,7 +61,7 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 	if err != nil || intent.EnvelopeSHA256 != first.EnvelopeSHA256() || bytes.Contains(entry.Payload, signer.module) {
 		t.Fatalf("durable signed metadata: %+v, %v", intent, err)
 	}
-	object, err := artifacts.Get(t.Context(), signer.claim.Digest)
+	object, err := artifacts.Get(t.Context(), "sha256-"+signer.claim.Digest)
 	if err != nil {
 		t.Fatal(err)
 	}
