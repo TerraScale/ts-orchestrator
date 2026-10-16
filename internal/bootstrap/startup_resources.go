@@ -28,11 +28,15 @@ func (resources StartupFounderResources) Clone() StartupFounderResources {
 }
 
 func (resources StartupFounderResources) Validate(slots []string) error {
+	return resources.validateFoundation(slots, "")
+}
+
+func (resources StartupFounderResources) validateFoundation(slots []string, cell string) error {
 	if len(slots) != 3 || len(resources.Slots) != len(slots) || resources.LaunchDeadline.IsZero() || resources.LaunchDeadline.Location() != time.UTC {
 		return ErrFounderPlanInvalid
 	}
 	for index, resource := range resources.Slots {
-		if resource.Slot != slots[index] || !controllerSlotRE.MatchString(resource.Slot) || index > 0 && resource.Slot <= resources.Slots[index-1].Slot || !isOCID(resource.ImageCompartmentOCID, "compartment") || resource.WholeOCPUs == 0 || resource.MemoryInGB == 0 || resource.BootVolumeGB < founderMinBootVolumeGB || resource.BootVolumeGB > founderMaxBootVolumeGB || resource.BootVolumeTier != FounderBootVolumeTierBalanced {
+		if resource.Slot != slots[index] || !controllerSlotRE.MatchString(resource.Slot) || index > 0 && resource.Slot <= resources.Slots[index-1].Slot || !foundationResource(resource.ImageCompartmentOCID, "compartment", cell, "control_compartment") || resource.WholeOCPUs == 0 || resource.MemoryInGB == 0 || resource.BootVolumeGB < founderMinBootVolumeGB || resource.BootVolumeGB > founderMaxBootVolumeGB || resource.BootVolumeTier != FounderBootVolumeTierBalanced {
 			return ErrFounderPlanInvalid
 		}
 	}

@@ -124,11 +124,15 @@ type ManagedMaterialDomain struct {
 }
 
 func (domain ManagedMaterialDomain) Validate() error {
+	return domain.validateFoundation("")
+}
+
+func (domain ManagedMaterialDomain) validateFoundation(cell string) error {
 	prefix, err := netip.ParsePrefix(domain.MemberSubnetCIDR)
 	signer, signerErr := base64.StdEncoding.Strict().DecodeString(domain.RecipientSignerPublicKey)
 	if !ledgerIDPattern.MatchString(domain.Namespace) || !ledgerNamePattern.MatchString(domain.Bucket) ||
-		!isOCID(domain.KMSKeyOCID, "key") || !isOCID(domain.MemberCompartmentOCID, "compartment") ||
-		!isOCID(domain.MemberSubnetOCID, "subnet") || err != nil || !prefix.Addr().Is4() ||
+		!foundationResource(domain.KMSKeyOCID, "key", cell, "key") || !foundationResource(domain.MemberCompartmentOCID, "compartment", cell, "workload_compartment") ||
+		!foundationResource(domain.MemberSubnetOCID, "subnet", cell, "subnet") || err != nil || !prefix.Addr().Is4() ||
 		!prefix.Addr().IsPrivate() || prefix.Masked() != prefix || prefix.Bits() < 16 || prefix.Bits() > 29 ||
 		signerErr != nil || len(signer) != ed25519.PublicKeySize || !sha256RE.MatchString(domain.NativeVerifierSHA256) {
 		return fmt.Errorf("%w: invalid signed managed material domain", ErrManifestInvalid)
@@ -452,9 +456,13 @@ func validateReleaseProofWires(manifest Manifest) error {
 }
 
 func (profile LaunchProfile) validate() error {
-	if !controllerSlotRE.MatchString(profile.Slot) || !isOCID(profile.CompartmentOCID, "compartment") ||
+	return profile.validateFoundation("")
+}
+
+func (profile LaunchProfile) validateFoundation(cell string) error {
+	if !controllerSlotRE.MatchString(profile.Slot) || !foundationResource(profile.CompartmentOCID, "compartment", cell, "control_compartment") ||
 		strings.TrimSpace(profile.AvailabilityDomain) == "" || strings.ContainsAny(profile.AvailabilityDomain, " \t\r\n") || len(profile.AvailabilityDomain) > 128 ||
-		!faultDomainRE.MatchString(profile.FaultDomain) || !isOCID(profile.SubnetOCID, "subnet") ||
+		!faultDomainRE.MatchString(profile.FaultDomain) || !foundationResource(profile.SubnetOCID, "subnet", cell, "subnet") ||
 		!shapeRE.MatchString(profile.Shape) || len(profile.NetworkSecurityGroupOCIDs) > 16 {
 		return fmt.Errorf("%w: invalid launch profile", ErrManifestInvalid)
 	}
@@ -462,7 +470,7 @@ func (profile LaunchProfile) validate() error {
 		return fmt.Errorf("%w: duplicate network security group", ErrManifestInvalid)
 	}
 	for _, nsg := range profile.NetworkSecurityGroupOCIDs {
-		if !isOCID(nsg, "networksecuritygroup") {
+		if !foundationResource(nsg, "networksecuritygroup", cell, "network_security_group") {
 			return fmt.Errorf("%w: invalid network security group OCID", ErrManifestInvalid)
 		}
 	}
