@@ -1,48 +1,59 @@
 # Release trust and delivery inventory
 
-REL source inspection, 2026-10-16. This records implementation boundaries and
-remaining work; it does not establish live rollout qualification.
+REL source inspection, 2026-10-16. Implementation and retained integration
+checks below do not establish live runtime or workload qualification.
 
 ## Producer and apply boundaries
 
-| Responsibility | Current owner/callers | Required follow-up |
+| Responsibility | Implementation | Remaining boundary |
 | --- | --- | --- |
-| Exact CI/source/job/log verification | `internal/release/cli/admission.go`, `internal/githubapi`, `scripts/ci/publish-qualification.sh` | Keep source/run ID/run number/attempt/job/manifest proof at publication. Missing historical source/fixtures remain producer failures. |
-| Source ancestry and leaf signing | `internal/release/cli/update_delegation.go`, `internal/release/cli/deploy.go`, `internal/release/update_delegation.go` | Producer-only Git/GitHub dependencies. Do not rewrite historical signed lineage. |
-| Signed orchestrator application | `internal/release/cli/apply.go`, `internal/releasechannel/channel.go` | Bundle targets no longer require Atlas. Local signatures/bytes are validated before remote writes; scope/transfer/channel/observation run independently with four active regions. |
-| Generic service signing/publication | `internal/release/cli/service_deploy.go`, `internal/delivery/codec.go`, `internal/releasechannel/service.go` | Still combined producer/apply; add signed service-bundle consumption through the existing claim admission boundary. No source-independent service apply is claimed. |
-| Production admission | `internal/release/production.go`, `internal/release/cli/production.go` | Separate root/scoped qualification authority and retained proof hashes; integrate before signing/mutation. A qualification producer and actual RUNTIME/HA/workload evidence are still required. |
+| Exact CI/source/job/log verification | `internal/release/cli/admission.go`, `internal/githubapi`, `scripts/ci/publish-qualification.sh` | Producer retains source/run/attempt/job/manifest proof. Missing historical artifacts remain failures. |
+| Orchestrator producer and apply | `internal/release/cli/bundle.go`, `apply.go`, `internal/releasechannel/channel.go` | Signed bundle creation checks exact retained bytes and qualification before leaf-key access. Apply consumes local signed artifacts without Git, CI, a signing key or allocator; bounded regions progress independently. |
+| Native service producer and apply | `internal/release/cli/service_bundle.go`, `service_apply.go`, `internal/releasechannel/service.go` | `service-bundle` and `service-apply` replace direct `service-deploy`. This format is a native artifact contract, not an OCI container manifest. Runtime native-service enforcement is owned by CORE. |
+| Production admission | `internal/release/production.go`, `production_receipt.go`, `internal/release/cli/production.go` | Independent qualification authority binds exact candidate/scope and retained evidence. Current channel/selfupdate admission requires the embedded proof. Actual RUNTIME/HA/workload evidence and a production qualification producer remain required. |
+| OCI container admission | `internal/release/container.go` | Typed canonical child-manifest digest, signer sequence/migration and independent qualification are verified at current time and operation deadline. The actual authenticated container producer and app delivery wiring remain integration work. |
+| Portable function admission | `internal/release/function.go` | Exact module bytes, ABI, tenant/function/revision, capability restriction and admitted sequence floor are checked. Durable intent/producer wiring is owned by WASM; this does not qualify the runtime host or isolation. |
 
-## Ordering migration remains open
+The narrow QA startup gate additionally makes `ImageReceipt.Production`
+mandatory for current image admission, bound to the **final QCOW2 digest**, not
+just its embedded binary. `verify-image-production` verifies retained evidence
+before import/signing; image promotion, attempt callers and privileged startup
+ordering are being integrated separately on the QA branch.
 
-Orchestrator receipts sign `SourceLineage.QualificationRunNum`, copied from the
-producer CI run number. `Channel.Verify` binds that value to `Channel.RunNumber`.
-`Channel.Publish` preserves the regional floor by compare-and-swap, rejects a
-lower number and rejects another source under the same number. These fields
-remain historical build provenance, not a durable cross-producer allocator.
+## Signer-owned ordering
 
-Service publication currently orders claims by their signed envelope `IssuedAt`.
-It does not share the orchestrator channel's numeric order. A global producer
-change cannot safely substitute a new repository's CI counter or wall clock.
+`internal/release/sequence.go` and `sequence_store.go` implement root-signed
+migration and durable signed CAS reservations, scoped by role and environment.
+The initial grant binds the online signer, canonical GRU Object Storage
+location, all three retained regional floors and their evidence hashes. A
+consumer authenticates that grant before accepting the new sequence floor.
+Historical CI run numbers/timestamps remain immutable provenance.
 
-The replacement must add an explicitly signed signer-owned sequence, allocate
-it durably under fenced authority, and initialize its migration floor above all
-retained regional floors. Consumers must verify a signed migration binding old
-ordering to the new floor without resetting anti-rollback state. Preserve
-historical run IDs/numbers/signatures unchanged. No allocator or migration proof
-is implemented by this slice.
+Concurrent producers importing the same grant reconcile a lost create CAS by
+authenticated reread. Repeating the latest identical content identity reuses its
+reservation; failed reservations leave safe gaps. Qualification renewal for the
+same content preserves its ordering identity. Channel/service publication
+verifies authority before writes and preserves regional anti-rollback floors.
 
-## Integration and deletion ledger
+Signer replacement or allocator relocation requires a linked successor migration;
+that transition is not implemented. Replaying the exact established initial grant
+continues to work after its initial import validity interval.
 
-| Boundary evidence | State |
+## Retained boundary checks
+
+| Evidence | Recorded result and limit |
 | --- | --- |
-| `TestSignedApplyRegionalHTTPRecovery` | Actual Go executables, Git lineage, signatures, filesystem and OCI SDK/loopback HTTP. Scope outage/missing/stale/wrong environment/architecture, denied writes, retry reuse and local tampering exercised. Not live OCI or workload rollout. |
-| `TestProductionAdmissionRetainedArtifactBoundary` | Actual retained binary inspection, CLI, signed root/delegation records and hashed filesystem evidence. Exact candidate/scope, gate absence, expiry, signer/capability, proof timestamp and tampering rejections exercised. Test-only evidence never certifies production. |
-| Existing `deploy_test.go` fixture | Retains real signed qualification files so old deployment safety checks are not silently bypassed during integration. Mock-centric tests still require boundary migration before deletion. |
-| Unit-only inventory | `internal/release`, `internal/release/cli`, `internal/releasechannel`, `internal/delivery` still contain unit tests and shared unit helpers. None are claimed integration-only or removed prematurely. |
-| Service roles, signer sequence, durable operation IDs | Remain open work. This slice preserves current CAS/digest retry behavior; it does not add a durable fleet operation store or claim restart-safe fleet orchestration. |
+| `TestSignedApplyRegionalHTTPRecovery` | Real Go executables, Git lineage, signatures, filesystem and OCI SDK/HTTP; regional refusal/retry and local tampering. Not live OCI or runtime rollout. |
+| `TestSignedServiceApplyHTTPRecovery` | PASS 6.859s on isolated final service branch. Both native roles across FRA/GRU/SFO; pre-key qualification, signer allocation, regional failures/retries, source/key-free apply and consumer evidence tampering. Recovery reruns in one process; no process-kill claim. |
+| `TestSequence*` | PASS across release/channel/CLI on final sequence branch. Real signed filesystem/HTTP CAS allocation, concurrent initialization/reservation, migration/floor identity and renewal cases. Not live OCI. |
+| Qualified channel/selfupdate SDK gate | Race PASS on narrow QA-base commit `987f7ed8`: actual unreachable HTTP cancellation and blocking interface clients. Separate OCI mutation-cancellation helper race PASS on `2b0211b9`. |
+| Bundle producer and final image followups | Source committed; exact final focused checks are tracked by QA. No unexecuted producer scenario is claimed passing. |
+
+Unit infrastructure remains until its behavior is replaced at integration
+boundaries. Durable fleet process restart recovery, actual container producer
+integration, live capacity qualification and live rollout remain outside the
+recorded passing checks.
 
 Production credential permissions and GitHub environment protection are recorded
-separately in [the startup inspection](refactor-start-deploy.md). No paid
-capacity, IAM mutation, credential installation or production publication ran in
-this stream.
+in [the startup inspection](refactor-start-deploy.md). This stream performed no
+paid-capacity/IAM mutation, credential installation or live rollout.

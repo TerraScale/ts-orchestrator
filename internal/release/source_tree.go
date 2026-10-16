@@ -15,7 +15,7 @@ import (
 // SourceTreeDigest is the SHA-256 of `git archive` of commit in checkout:
 // the source claim of a native service release (TerraBase, ts-auth), whose
 // releases publish none. The operator's release commands and CI's
-// service-deploy compute it the same way, whatever the local Git settings.
+// service bundle producers compute it the same way, whatever the local Git settings.
 func SourceTreeDigest(ctx context.Context, checkout, commit string) (string, error) {
 	if !ValidSourceRevision(commit) {
 		return "", errors.New("--commit must be a full lowercase commit SHA")
