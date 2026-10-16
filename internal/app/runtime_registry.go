@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
@@ -100,10 +101,15 @@ func runRuntimeRegistrySource(ctx context.Context, args []string, input io.Reade
 	if err != nil {
 		return err
 	}
-	profile, ok := services.profiles()[intent.Role]
-	if !ok {
-		return errors.New("container operation has no independently adopted service profile")
+	adopted, err := services.kv.Get(ctx, cellSpecKey)
+	if err != nil || adopted.Revision() != services.revision {
+		return errors.New("registry service profile is not the current adopted revision")
 	}
+	profileProof, err := containermaterial.VerifyProfile(adopted.Value(), services.roots.current(), services.identity, intent)
+	if err != nil {
+		return err
+	}
+	profile := profileProof.Profile()
 	entry, ok := catalog.CellForOCIRegion(catalog.OCIRegion(strings.ToUpper(accepted.Cell)))
 	if !ok {
 		return errors.New("registry source requires an admitted canonical OCI region")
@@ -181,11 +187,10 @@ func runtimeRegistryPolicy(ctx context.Context, cfg Config, js jetstream.JetStre
 		return nil, signerPolicy{}, errors.New("registry source current root chain is unavailable")
 	}
 	entry, err := services.kv.Get(ctx, cellSpecKey)
-	if err == nil {
-		if err := services.load(entry); err != nil {
-			return nil, signerPolicy{}, err
-		}
-	} else if !errors.Is(err, jetstream.ErrKeyNotFound) {
+	if err != nil {
+		return nil, signerPolicy{}, errors.New("registry requires an adopted root-signed service profile")
+	}
+	if err := services.load(entry); err != nil {
 		return nil, signerPolicy{}, err
 	}
 	channelKV, err := js.KeyValue(ctx, releasechannel.Bucket)
@@ -249,6 +254,13 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 	if err != nil {
 		return nil, err
 	}
+	services, err := newSpecRegistry(cfg, "")
+	if err != nil {
+		return nil, err
+	}
+	rootState := services.roots
+	// The fixed controller child owns persistence of the manager's root chain.
+	rootState.path = ""
 	return swarmruntime.NewOCIRegistryResolver(factory, func(ctx context.Context, task *api.Task) (*swarmruntime.RegistryAdmission, error) {
 		if task == nil || !entityid.Valid(task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID]) {
 			return nil, errors.New("registry task has no authenticated operation locator")
@@ -267,7 +279,8 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err != nil || assigned.Node == nil || assigned.Node.Description == nil || assigned.Node.Description.Platform == nil {
 			return nil, errors.New("registry task node admission is unavailable")
 		}
-		snapshot, err := readRuntimeRegistrySource(ctx, runtimeRegistryQuery{OperationID: task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID], Architecture: assigned.Node.Description.Platform.Architecture})
+		query := runtimeRegistryQuery{OperationID: task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID], Architecture: assigned.Node.Description.Platform.Architecture}
+		snapshot, err := readRuntimeRegistrySource(ctx, query)
 		if err != nil {
 			return nil, err
 		}
@@ -278,11 +291,18 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			expected.OperationID != intent.OperationID || expected.Role != intent.Role || expected.Region != identity.OCIRegion || expected.Environment != identity.Environment {
 			return nil, errors.New("registry source differs from admitted service identity")
 		}
-		services, err := newSpecRegistry(cfg, "")
+		baked, err := bootstrapstart.LoadBakedInputs()
 		if err != nil {
 			return nil, err
 		}
-		roots := services.roots.current()
+		if err := rootState.adopt(baked.Chain); err != nil {
+			return nil, err
+		}
+		if err := rootState.adopt(snapshot.Chain); err != nil {
+			return nil, err
+		}
+		rootHead := rootState.reply("").Head
+		roots := rootState.current()
 		location, err := instancePrincipalChannel(identity.OCIRegion, identity.Cell).get(ctx)
 		if err != nil {
 			return nil, err
@@ -299,13 +319,23 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
 			return nil, err
 		}
-		admission, err := runtimeRegistryPullAdmission(ctx, factory, task, expected, verified, services.roots)
+		admission, err := runtimeRegistryPullAdmission(ctx, factory, task, expected, verified, rootState)
 		if err != nil {
 			return nil, err
 		}
 		confirmed, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
 		if err != nil || confirmed.Identity() != identity {
 			return nil, errors.New("registry runtime authority changed during credential admission")
+		}
+		confirmedSnapshot, err := readRuntimeRegistrySource(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		before, beforeErr := intent.Fingerprint()
+		after, afterErr := confirmedSnapshot.Intent.Fingerprint()
+		confirmedRoots, rootsErr := trust.VerifyRootChain(baked.Genesis, baked.Identity.ChainIdentity(), confirmedSnapshot.Chain)
+		if beforeErr != nil || afterErr != nil || before != after || confirmedSnapshot.SpecRevision != snapshot.SpecRevision || rootsErr != nil || confirmedRoots.Head != rootHead || rootState.reply("").Head != rootHead {
+			return nil, errors.New("registry manager authority changed during credential admission")
 		}
 		if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
 			return nil, err
