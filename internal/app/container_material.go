@@ -13,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -22,6 +23,7 @@ import (
 )
 
 type containerMaterialConfig struct {
+	Factory   *ociclient.Factory
 	Hosts     seatrollout.Hosts
 	Authority authority.Fencer
 	Client    api.ControlClient
@@ -44,7 +46,7 @@ type containerMaterialRecipient struct {
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil {
+	if config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
 	controller := &containerMaterialController{config: config}
@@ -104,10 +106,15 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}
+	allocations, err := currentContainerAllocations(ctx, config.Factory, *intent.Container, roots, target)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
 	validUntil := time.Now().UTC().Add(30 * time.Second)
-	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, target, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 		return config.Evidence(ctx, intent.Role, digest)
-	})
+	}, allocations)
 	if err != nil {
 		return containerMaterialRecipient{}, err
 	}
