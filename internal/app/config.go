@@ -7,7 +7,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
-	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -76,11 +75,9 @@ type ControllerConfig struct {
 	// both set, qualify the managed-host image from its own root-delegated
 	// image receipt instead of the controller's accepted boot image, so
 	// hosts can move to a newer qualified image independently.
-	ManagedHostImageReceiptFile    string `json:"managed_host_image_receipt_file,omitempty"`
-	ManagedHostImageDelegationFile string `json:"managed_host_image_delegation_file,omitempty"`
-	// Membership enables controller slot supervision; nil keeps it off.
-	Membership *membership.Config `json:"membership,omitempty"`
-	Autoscale  *AutoscaleConfig   `json:"autoscale,omitempty"`
+	ManagedHostImageReceiptFile    string           `json:"managed_host_image_receipt_file,omitempty"`
+	ManagedHostImageDelegationFile string           `json:"managed_host_image_delegation_file,omitempty"`
+	Autoscale                      *AutoscaleConfig `json:"autoscale,omitempty"`
 	// Global optionally pins the home derived from the signed interregion
 	// topology; global control always starts.
 	Global    *GlobalControlConfig `json:"global,omitempty"`
