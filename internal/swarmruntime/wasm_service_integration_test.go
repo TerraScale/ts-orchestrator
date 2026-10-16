@@ -210,7 +210,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: "gru", Environment: intent.Environment}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
 	if _, err := reserveReleaseFloor(ctx, client, workerIntent, newWorker, roots, legacy, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -219,5 +219,18 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	}
 	if err := intent.VerifyWorkerFloor(ctx, client, newWorker); err != nil {
 		t.Fatal(err)
+	}
+	admittedAt := time.Now().UTC()
+	expiring, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, admittedAt, admittedAt.Add(50*time.Millisecond), readEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	case <-time.After(time.Until(expiring.ExpiresAt())):
+	}
+	if err := intent.VerifyWorkerFloor(ctx, client, expiring); err == nil {
+		t.Fatal("expired worker authorization admitted for task credentials")
 	}
 }
