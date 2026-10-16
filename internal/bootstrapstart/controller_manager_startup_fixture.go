@@ -55,6 +55,8 @@ type ControllerManagerStartupFixture struct {
 	Instance InstanceObservation
 	Anchor   bootstrap.VerifiedBootstrapAnchor
 	Storage  *objectstorage.ObjectStorageClient
+
+	recipientSources controllerRecipientSources
 }
 
 const ControllerManagerStartupDeployment = "0000000000F9PR1WNVDTEXS31Z"
@@ -402,7 +404,17 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 	if _, err := fixture.Reader.ReadRuntimeAuthority(t.Context(), fixture.Accepted, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
+	fixture.recipientSources = controllerRecipientSources{trust: trustStore, ledger: ledger, observer: observer}
 	return fixture
+}
+
+// ReadControllerHostRecipient repeats the private-source recipient checks using
+// the same signed ledger and SDK observer that admitted this fixture's seed.
+func (fixture *ControllerManagerStartupFixture) ReadControllerHostRecipient(ctx context.Context, signedSpec []byte,
+	node, instanceID, privateIP string,
+) (*ControllerHostRecipient, error) {
+	return readControllerHostRecipient(ctx, fixture.Reader, fixture.Accepted, signedSpec,
+		node, instanceID, privateIP, fixture.recipientSources)
 }
 
 type managerStartupDescriptor struct{ instance string }
