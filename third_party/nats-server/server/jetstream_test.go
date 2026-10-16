@@ -94,7 +94,7 @@ func TestJetStreamIntegrationCanonicalNames(t *testing.T) {
 	require_Equal(t, string(m.Data), "retained")
 	var namesResp JSApiStreamNamesResponse
 	jetStreamIntegrationRequest(t, nc, JSApiStreams, struct{}{}, &namesResp)
-	require_Nil(t, namesResp.Error)
+	require_True(t, namesResp.Error == nil)
 	require_True(t, reflect.DeepEqual(namesResp.Streams, []string{"SAFE"}))
 }
 
@@ -252,7 +252,7 @@ func TestJetStreamIntegrationRequestShapes(t *testing.T) {
 				require_NotNil(t, resp.Error)
 				require_Equal(t, resp.Error.ErrCode, uint16(JSInvalidJSONErr))
 			} else {
-				require_Nil(t, resp.Error)
+				require_True(t, resp.Error == nil)
 				require_True(t, reflect.DeepEqual(resp.Streams, []string{"SHAPES"}))
 			}
 		})
@@ -521,7 +521,7 @@ func TestJetStreamIntegrationInvalidDomainStartup(t *testing.T) {
 			}
 			require_Error(t, err)
 			require_Contains(t, err.Error(), "invalid domain name")
-			require_Nil(t, s)
+			require_True(t, s == nil)
 		})
 	}
 }
@@ -693,7 +693,7 @@ func TestJetStreamIntegrationAsyncPersistRecovery(t *testing.T) {
 	nc, js = jsClientConnect(t, s)
 	var resp JSApiStreamInfoResponse
 	jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamInfoT, "ASYNC"), struct{}{}, &resp)
-	require_Nil(t, resp.Error)
+	require_True(t, resp.Error == nil)
 	require_NotNil(t, resp.StreamInfo)
 	require_Equal(t, resp.Config.PersistMode, AsyncPersistMode)
 	require_Equal(t, resp.State.Msgs, uint64(1))
@@ -831,7 +831,7 @@ func TestJetStreamIntegrationSourceCursorRecovery(t *testing.T) {
 					t.Helper()
 					var resp JSApiStreamInfoResponse
 					jetStreamIntegrationRequest(t, nc, fmt.Sprintf(JSApiStreamInfoT, "SOURCE"), struct{}{}, &resp)
-					require_Nil(t, resp.Error)
+					require_True(t, resp.Error == nil)
 					require_NotNil(t, resp.StreamInfo)
 					return resp.StreamInfo
 				}
@@ -984,7 +984,7 @@ func TestJetStreamIntegrationNumericDefaults(t *testing.T) {
 					require_Contains(t, resp.Error.Description, field+" must be set to -1")
 					return
 				}
-				require_Nil(t, resp.Error)
+				require_True(t, resp.Error == nil)
 				var value int64
 				require_NoError(t, json.Unmarshal(resp.Config[field], &value))
 				require_Equal(t, value, int64(-1))
@@ -1029,7 +1029,7 @@ func TestJetStreamIntegrationNumericDefaults(t *testing.T) {
 					require_Contains(t, resp.Error.Description, fragment)
 					return
 				}
-				require_Nil(t, resp.Error)
+				require_True(t, resp.Error == nil)
 				var value int64
 				if data := resp.Config[field.name]; len(data) != 0 {
 					require_NoError(t, json.Unmarshal(data, &value))
