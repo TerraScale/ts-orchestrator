@@ -59,7 +59,7 @@ func newBoardFixture(t *testing.T) *boardFixture {
 	r := &restarts{}
 	f := &boardFixture{kv: kv, key: key, restarts: r, spool: filepath.Join(t.TempDir(), "spool"), from: from,
 		to: digestOf(string(target)), target: target, now: now,
-		verifier: selfupdate.ReceiptPolicy{Roots: roots, Environment: "canary", Architecture: runtime.GOARCH}}
+		verifier: selfupdate.ReceiptPolicy{Roots: roots, Environment: "canary", Cell: "GRU", Architecture: runtime.GOARCH}}
 	clock := func() time.Time { return now }
 	f.driver = KVDriver{KV: kv, Cell: "gru", Key: key, Releases: fixedReceipt{receipt, delegation}, Now: clock}
 	f.relay = &Relay{KV: kv, Cell: "gru", Unit: "ctl-b", SystemdUnit: agentUnit, Leaders: keys, Dir: f.spool, Layout: layout, Now: clock,
@@ -148,8 +148,11 @@ func (r fixedReceipt) Receipt(context.Context, string) ([]byte, []byte, error) {
 	return r.receipt, r.delegation, nil
 }
 
-// signTestRelease returns a per-source receipt of data, its delegation and
-// the root that verifies them.
+type spoolTestLineage struct{}
+
+func (spoolTestLineage) CheckLineage(string, string, string) error { return nil }
+
+// signTestRelease returns a regional receipt with independent root qualification.
 func signTestRelease(t *testing.T, data []byte, now time.Time) ([]byte, []byte, trust.Keyring) {
 	t.Helper()
 	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
@@ -173,27 +176,71 @@ func signTestRelease(t *testing.T, data []byte, now time.Time) ([]byte, []byte, 
 		t.Fatal(err)
 	}
 	source := strings.Repeat("e", 40)
-	delegation, err := trust.SignDelegation(trust.Delegation{
-		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: entityid.Derive("build", source), Cell: "BUILD",
-			Environment: "canary", Role: "artifact", Slots: []string{"linux-" + runtime.GOARCH}, Actions: []string{"sign"}}},
+	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
+		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encoded,
+		Environment: "canary", Architectures: []string{runtime.GOARCH},
+		Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
+		Ref: release.LineageRef, LineageBase: strings.Repeat("9", 40),
 	}, now.Add(-time.Minute), now.Add(time.Hour), rootPrivate)
 	if err != nil {
 		t.Fatal(err)
 	}
 	machine := map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}[runtime.GOARCH]
-	receipt, err := release.SignBinaryReceipt(release.BinaryReceipt{Schema: release.BinarySchema, SourceRevision: source,
-		GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: runtime.GOARCH, ELFMachine: machine, Static: true,
-		Bytes: int64(len(data)), SHA256: digestOf(string(data)), QualificationSHA256: digestOf("q")},
-		"canary", delegation, roots, leafPrivate, now, 30*time.Minute)
+	digest := digestOf(string(data))
+	qualification := release.Qualification{
+		Schema: release.QualificationSchema, Repository: release.QualificationRepository,
+		SourceRevision: source, SourceTree: source, GoVersion: release.DefaultGoVersion,
+		GoModSHA256: digest, GoSumSHA256: digest,
+		Verification: release.QualificationCheck{Workflow: release.QualificationWorkflow, Job: release.QualificationJob,
+			RunID: 10, RunNumber: 5, Conclusion: "success"},
+		Artifacts: []release.QualifiedArtifact{
+			{Architecture: "amd64", Name: "terrascale-orchestrator-linux-amd64", Bytes: int64(len(data)), SHA256: digest},
+			{Architecture: "arm64", Name: "terrascale-orchestrator-linux-arm64", Bytes: int64(len(data)), SHA256: digest},
+		},
+	}
+	qualificationWire, err := trust.EncodePayload(qualification)
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiptWire, err := trust.EncodeEnvelope(receipt)
+	qualificationDigest := digestOf(string(qualificationWire))
+	receipt, err := release.SignBinaryUpdateReceipt(release.BinaryReceipt{Schema: release.BinarySchema, SourceRevision: source,
+		GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: runtime.GOARCH, ELFMachine: machine, Static: true,
+		Bytes: int64(len(data)), SHA256: digest, QualificationSHA256: qualificationDigest},
+		qualification, qualificationDigest, "GRU", "canary", spoolTestLineage{}, delegation, roots, leafPrivate, now, 30*time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	delegationWire, err := trust.EncodeEnvelope(delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: source, ArtifactSHA256: digest,
+			QualificationSHA256: qualificationDigest, Cell: "GRU", Environment: "canary",
+			Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := "test-only " + gate + " evidence"
+		qualified.Evidence = append(qualified.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digestOf(evidence), Bytes: int64(len(evidence)), CompletedAt: now.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualified.Candidate), now, now.Add(30*time.Minute), rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err = release.AttachProductionQualification(receipt, release.ProductionProof{Qualification: proofWire},
+		delegationWire, roots, leafPrivate, release.UpdateExpectation{Environment: "canary", Cell: "GRU", Architecture: runtime.GOARCH}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptWire, err := trust.EncodeEnvelope(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}

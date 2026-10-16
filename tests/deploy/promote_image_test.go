@@ -2,6 +2,10 @@ package deploy_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -9,8 +13,12 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/image"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	releasecli "github.com/TerraScale/ts-orchestrator/internal/release/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport/imageimporttest"
 	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
@@ -48,7 +56,22 @@ func TestPromotionCommand(t *testing.T) {
 	case "gh":
 		appendLog("gh-calls.log", strings.Join(args, " "))
 		switch {
-		case len(args) == 10 && args[9] == "--clobber" && slices.Equal(args[:2], []string{"release", "download"}):
+		case len(args) == 7 && slices.Equal(args[:2], []string{"release", "view"}) && args[3] == "--repo" && slices.Equal(args[5:], []string{"--json", "assets"}):
+			dir := filepath.Join(fixture, "releases", strings.ReplaceAll(args[4], "/", "_"), args[2])
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				fail(err.Error())
+			}
+			var assets []map[string]any
+			for _, entry := range entries {
+				info, err := entry.Info()
+				if err != nil {
+					fail(err.Error())
+				}
+				assets = append(assets, map[string]any{"name": entry.Name(), "size": info.Size()})
+			}
+			fmt.Println(string(jsonBytes(t, map[string]any{"assets": assets})))
+		case (len(args) == 9 || len(args) == 10 && args[9] == "--clobber") && slices.Equal(args[:2], []string{"release", "download"}):
 			source := filepath.Join(fixture, "releases", strings.ReplaceAll(args[4], "/", "_"), args[2], args[6])
 			b, err := os.ReadFile(source)
 			if err != nil {
@@ -87,6 +110,12 @@ func TestPromotionCommand(t *testing.T) {
 		if os.Getenv("PROMOTE_FAIL_RELEASE") == args[0] {
 			fail("fake " + args[0] + " rejected its inputs")
 		}
+		if args[0] == "verify-image-production" {
+			if err := releasecli.Run(t.Context(), args, os.Stdout); err != nil {
+				fail(err.Error())
+			}
+			os.Exit(0)
+		}
 		if j := slices.Index(args, "--out"); j >= 0 {
 			// Like the real release tool, never overwrite an output.
 			file, err := os.OpenFile(args[j+1], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
@@ -124,7 +153,7 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'
 func newPromotion(t *testing.T) *promotionFixture {
 	t.Helper()
 	dir := t.TempDir()
-	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), gh: filepath.Join(dir, "bin", "gh"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("final qcow2 bytes"), kernel: []byte("arm64 kernel")}
+	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), gh: filepath.Join(dir, "bin", "gh"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("QFI\xfbfinal qcow2 bytes"), kernel: []byte("arm64 kernel")}
 	exe := fakeToolBinary(t)
 	for path, kind := range map[string]string{f.gh: "gh", f.tool: "release"} {
 		write(t, path, []byte("#!/bin/sh\nexec "+shellQuote(exe)+" -test.run=^TestPromotionCommand$ -- "+kind+" \"$@\"\n"), 0755)
@@ -133,13 +162,57 @@ func newPromotion(t *testing.T) *promotionFixture {
 	write(t, filepath.Join(f.bin, "oci"), []byte("#!/bin/sh\necho \"$@\" >> "+shellQuote(filepath.Join(f.fixture, "oci-cli-calls.log"))+"\nexit 1\n"), 0755)
 	f.oci = imageimporttest.Start(t, importedOCID)
 	write(t, filepath.Join(f.bin, "virt-cat"), []byte("#!/bin/sh\necho 'virt-cat 1.52.3'\n"), 0755)
-	for _, name := range []string{"delegation.json", "image-delegation.json", "root.pub", "leaf.pem"} {
+	for _, name := range []string{"delegation.json", "image-delegation.json", "leaf.pem"} {
 		write(t, filepath.Join(f.trust, name), []byte("fake "+name+"\n"), 0600)
 	}
-	base, binary, qualification := []byte("base qcow2 bytes"), []byte("orchestrator arm64 binary"), []byte(`{"schema": "terrascale.release.qualification.v1"}`)
+	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootDER, err := x509.MarshalPKIXPublicKey(rootPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(f.trust, "root.pub"), pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rootDER}), 0600)
+	base, binary := []byte("base qcow2 bytes"), []byte("orchestrator arm64 binary")
+	qualification := jsonBytes(t, release.Qualification{
+		Schema: release.QualificationSchema, Repository: release.QualificationRepository,
+		SourceRevision: promoteSource, SourceTree: strings.Repeat("0", 40), GoVersion: release.DefaultGoVersion,
+		GoModSHA256: digest(binary), GoSumSHA256: digest(binary),
+		Verification: release.QualificationCheck{Workflow: release.QualificationWorkflow, Job: release.QualificationJob,
+			RunID: 11737, RunNumber: 712, Conclusion: "success"},
+		Artifacts: []release.QualifiedArtifact{
+			{Architecture: "amd64", Name: "terrascale-orchestrator-linux-amd64", Bytes: int64(len(binary)), SHA256: digest(binary)},
+			{Architecture: "arm64", Name: "terrascale-orchestrator-linux-arm64", Bytes: int64(len(binary)), SHA256: digest(binary)},
+		},
+	})
 	f.manifest = map[string]any{"schema": "terrascale.image.qualification.v2", "source_revision": promoteSource, "source_tree": strings.Repeat("0", 40), "builder": map[string]any{"kind": "ci", "workflow": "image.yml", "job": "build/qualified-gru-arm64-image", "run_id": 11738, "run_number": 713, "job_id": 25300, "run_attempt": 1, "required_final_status": "success"}, "inputs": map[string]any{"path": "deploy/image/image-inputs.json", "sha256": strings.Repeat("1", 64), "manifest": map[string]any{"region": "GRU", "base": map[string]any{"release_tag": baseTag, "oci_image_ocid": "ocid1.image.oc1.sa-saopaulo-1.base", "assets": map[string]any{"base-image.qcow2": map[string]any{"bytes": len(base), "sha256": digest(base)}}}}}, "go_candidate": map[string]any{"release_tag": goTag, "run_id": 11737, "run_number": 712, "qualification_sha256": digest(qualification), "binary_sha256": digest(binary), "binary_bytes": len(binary)}, "kernel": map[string]any{"name": "guest-kernel", "release": "6.8.0-142-generic", "sha256": digest(f.kernel)}, "image": map[string]any{"name": "terrascale-gru-arm64.qcow2", "sha256": digest(f.image), "bytes": len(f.image)}}
 	f.writeImage()
 	f.writeRelease(goTag, map[string][]byte{"qualification.json": qualification, "terrascale-orchestrator-linux-arm64": binary, "canary-linux-arm64.receipt.json": []byte(`{"signed":"binary"}`)})
+	now := time.Now().UTC().Truncate(time.Second)
+	qualified := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: promoteSource, ArtifactSHA256: digest(f.image),
+			QualificationSHA256: digest(qualification), Cell: "GRU", Environment: "canary",
+			Runtime: release.ProductionRuntime, Architecture: "arm64", Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only final image " + gate + " evidence")
+		qualified.Evidence = append(qualified.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digest(evidence), Bytes: int64(len(evidence)), CompletedAt: now.Add(-time.Minute)})
+		f.writeRelease(goTag, map[string][]byte{"image-production-evidence-" + digest(evidence): evidence})
+	}
+	payload, err := trust.EncodePayload(qualified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualified.Candidate), now.Add(-time.Second), now.Add(time.Hour), rootPrivate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.writeRelease(goTag, map[string][]byte{"image-production-" + digest(f.image) + "-GRU-arm64.json": proofWire})
 	f.writeRelease(baseTag, map[string][]byte{"base-image.qcow2": base})
 	f.writeRun("success", "success")
 	return f
@@ -268,16 +341,16 @@ func (f *promotionFixture) reset() {
 func TestPromotionCIImageImportedSignedVerifiedAndReceipted(t *testing.T) {
 	f := newPromotion(t)
 	successful(t, f.promote(nil, nil, f.realArgs()...))
-	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "sign-image", "verify-image"})
+	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate", "sign-image", "verify-image"})
 	calls := f.calls()
-	equal(t, flagValue(t, calls[1], "--image-ocid"), importedOCID)
-	equal(t, flagValue(t, calls[1], "--base-image-ocid"), "ocid1.image.oc1.sa-saopaulo-1.base")
-	equal(t, flagValue(t, calls[1], "--kernel-release"), "6.8.0-142-generic")
-	equal(t, flagValue(t, calls[2], "--signing-key"), filepath.Join(f.trust, "leaf.pem"))
-	for _, call := range calls[2:] {
+	equal(t, flagValue(t, calls[2], "--image-ocid"), importedOCID)
+	equal(t, flagValue(t, calls[2], "--base-image-ocid"), "ocid1.image.oc1.sa-saopaulo-1.base")
+	equal(t, flagValue(t, calls[2], "--kernel-release"), "6.8.0-142-generic")
+	equal(t, flagValue(t, calls[3], "--signing-key"), filepath.Join(f.trust, "leaf.pem"))
+	for _, call := range calls[3:] {
 		equal(t, flagValue(t, call, "--delegation"), filepath.Join(f.trust, "image-delegation.json"))
 	}
-	for _, call := range calls[:2] {
+	for _, call := range [][]string{calls[0], calls[2]} {
 		equal(t, flagValue(t, call, "--delegation"), filepath.Join(f.trust, "delegation.json"))
 	}
 	f.imported(1)
@@ -298,7 +371,7 @@ func TestPromotionFirstRunWaitsForImageDelegation(t *testing.T) {
 	f := newPromotion(t)
 	r := f.promote(nil, nil, f.importArgs()...)
 	successful(t, r)
-	equal(t, f.commands(), []string{"verify-binary", "image-candidate"})
+	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate"})
 	contains(t, r.Stdout, "--image-ocid "+importedOCID)
 	receipt := f.receipt()
 	equal(t, receipt["image_receipt"], map[string]any{"awaiting": "root-signed image delegation", "image_ocid": importedOCID})
@@ -306,7 +379,7 @@ func TestPromotionFirstRunWaitsForImageDelegation(t *testing.T) {
 	f.imported(1)
 	f.reset()
 	successful(t, f.promote(nil, nil, f.realArgs()...))
-	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "sign-image", "verify-image"})
+	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate", "sign-image", "verify-image"})
 	equal(t, f.receipt()["outcome"], "promotion complete")
 	// The rerun found the live image by display name rather than importing twice.
 	f.imported(1)
@@ -317,8 +390,8 @@ func TestPromotionDryRunReadOnlyGates(t *testing.T) {
 	successful(t, f.promote(nil, nil, "--dry-run"))
 	equal(t, len(f.oci.Requests()), 0)
 	f.noCLI()
-	equal(t, f.commands(), []string{"verify-binary", "image-candidate"})
-	if !strings.HasPrefix(flagValue(t, f.calls()[1], "--image-ocid"), "ocid1.image.oc1.sa-saopaulo-1.dryrun") {
+	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate"})
+	if !strings.HasPrefix(flagValue(t, f.calls()[2], "--image-ocid"), "ocid1.image.oc1.sa-saopaulo-1.dryrun") {
 		t.Fatal("candidate did not use dry-run image OCID")
 	}
 	receipt := f.receipt()
@@ -355,6 +428,27 @@ func TestPromotionRejectsInvalidEvidenceBeforeEffects(t *testing.T) {
 			f.writeRelease(goTag, map[string][]byte{"terrascale-orchestrator-linux-arm64": []byte("other")})
 		}, nil},
 		{"rejected-receipt", "ts-orch release verify-binary failed", func(*promotionFixture) {}, map[string]string{"PROMOTE_FAIL_RELEASE": "verify-binary"}},
+		{"missing-production-proof", "retained image evidence unavailable", func(f *promotionFixture) {
+			path := filepath.Join(f.fixture, "releases/TerraScale_ts-orchestrator", goTag, "image-production-"+digest(f.image)+"-GRU-arm64.json")
+			if err := os.Remove(path); err != nil {
+				f.t.Fatal(err)
+			}
+		}, nil},
+		{"tampered-production-evidence", "retained image evidence bytes differ", func(f *promotionFixture) {
+			evidence := []byte("test-only final image runtime-ha evidence")
+			f.writeRelease(goTag, map[string][]byte{"image-production-evidence-" + digest(evidence): []byte(strings.Repeat("x", len(evidence)))})
+		}, nil},
+		{"untrusted-production-proof", "final image production qualification", func(f *promotionFixture) {
+			public, _, err := ed25519.GenerateKey(rand.Reader)
+			if err != nil {
+				f.t.Fatal(err)
+			}
+			der, err := x509.MarshalPKIXPublicKey(public)
+			if err != nil {
+				f.t.Fatal(err)
+			}
+			write(f.t, filepath.Join(f.trust, "root.pub"), pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}), 0600)
+		}, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newPromotion(t)
@@ -376,7 +470,7 @@ func TestPromotionUnsignedCandidateRequiresSignBinary(t *testing.T) {
 	f.reset()
 	successful(t, f.promote(nil, nil, append(f.realArgs(), "--sign-binary")...))
 	equal(t, flagValue(t, f.calls()[1], "--delegation"), filepath.Join(f.trust, "delegation.json"))
-	equal(t, f.commands(), []string{"binary-candidate", "sign-binary", "verify-binary", "image-candidate", "sign-image", "verify-image"})
+	equal(t, f.commands(), []string{"binary-candidate", "sign-binary", "verify-binary", "verify-image-production", "image-candidate", "sign-image", "verify-image"})
 }
 func TestPromotionLocalImageWithoutCIEvidence(t *testing.T) {
 	f := newPromotion(t)
@@ -555,7 +649,7 @@ func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
 	equal(t, len(f.oci.Requests()), requests)
 	contains(t, r.Stdout, "reusing completed OCI import")
 	contains(t, r.Stdout, "reusing verified terrascale-gru-arm64.qcow2")
-	equal(t, f.commands(), []string{"verify-binary", "image-candidate", "verify-binary", "image-candidate", "sign-image", "verify-image"})
+	equal(t, f.commands(), []string{"verify-binary", "verify-image-production", "image-candidate", "verify-binary", "verify-image-production", "image-candidate", "sign-image", "verify-image"})
 	receipt := f.receipt()
 	equal(t, receipt["resumed"], true)
 	equal(t, receipt["outcome"], "promotion complete")
