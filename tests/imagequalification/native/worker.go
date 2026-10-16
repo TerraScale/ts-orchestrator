@@ -42,7 +42,7 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer) error {
 	for scanner.Scan() {
 		var c command
 		var result response
-		if err := json.Unmarshal(scanner.Bytes(), &c); err != nil {
+		if err := json.Unmarshal(scanner.Bytes(), &c, json.RejectUnknownMembers(true)); err != nil {
 			return err
 		}
 		operation, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -105,7 +105,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if source != c.SourceRevision {
 			return response{}, errors.New("native worker source revision differs from candidate")
 		}
-		identity, err := observeIdentity(ctx, c.ContainerdPath, c.RuncPath)
+		identity, err := MeasureIdentity(ctx, c.ContainerdPath, c.RuncPath)
 		if err != nil {
 			return response{}, err
 		}
@@ -442,7 +442,9 @@ func (w *worker) inventory(ctx context.Context, service string) (response, error
 	return result, nil
 }
 
-func observeIdentity(ctx context.Context, containerdPath, runcPath string) (Identity, error) {
+// MeasureIdentity observes fixed local component files and OCI IMDSv2 metadata.
+// The parent must independently authenticate the instance/image relationship.
+func MeasureIdentity(ctx context.Context, containerdPath, runcPath string) (Identity, error) {
 	identity := Identity{Architecture: runtime.GOARCH}
 	wire, err := os.ReadFile("/proc/sys/kernel/osrelease")
 	if err != nil {

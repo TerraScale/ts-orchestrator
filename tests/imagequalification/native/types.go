@@ -4,6 +4,7 @@ package native
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
@@ -44,6 +45,22 @@ type MaterialFixture struct {
 	ContainerIntentPath   string
 	ContainerIntentSHA256 string
 	EvidenceDirectory     string
+}
+
+// RequiredMaterialScenarios is the exact ordered authority set bound by the
+// parent approval. Rollback reuses the original ready authority.
+func RequiredMaterialScenarios() [5]string {
+	return [5]string{"ready", "after-loss", "after-partition", "unready", "failed-update"}
+}
+
+// ValidateProfileIdentity binds existing root authority to the image candidate;
+// it neither verifies signed bytes nor creates a deployment identity.
+func ValidateProfileIdentity(candidate release.ProductionExpectation, identity cellspec.Identity) error {
+	if identity.Validate() != nil || !release.ValidRegion(candidate.Cell) || !release.ValidEnvironment(candidate.Environment) ||
+		identity.Cell != candidate.Cell || identity.Environment != candidate.Environment {
+		return errors.New("native profile identity must name the approved deployment and candidate cell/environment")
+	}
+	return nil
 }
 
 type Request struct {

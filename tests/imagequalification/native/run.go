@@ -74,6 +74,19 @@ func validate(req Request) error {
 	if c.Architecture != "arm64" && c.Architecture != "amd64" {
 		return errors.New("native candidate architecture unsupported")
 	}
+	if err := ValidateProfileIdentity(c, req.ProfileIdentity); err != nil {
+		return err
+	}
+	materialScenarios := RequiredMaterialScenarios()
+	if len(req.MaterialFixtures) != len(materialScenarios) {
+		return errors.New("native qualification requires the exact signed material scenario set")
+	}
+	for i, fixture := range req.MaterialFixtures {
+		if fixture.Scenario != materialScenarios[i] || !shaPattern.MatchString(fixture.SignedProfileSHA256) ||
+			!shaPattern.MatchString(fixture.ContainerIntentSHA256) || fixture.SignedProfilePath == "" || fixture.ContainerIntentPath == "" || fixture.EvidenceDirectory == "" {
+			return errors.New("native signed material fixtures must match the approved ordered scenarios and digests")
+		}
+	}
 	if !strings.HasPrefix(req.ImageOCID, "ocid1.image.") || req.SSHUser != "root" || !shaPattern.MatchString(req.WorkerSHA256) {
 		return errors.New("native image, root SSH user and worker digest required")
 	}

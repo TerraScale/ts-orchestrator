@@ -5,6 +5,21 @@ host-key pins, and an owner-only ephemeral SSH key. The parent must authenticate
 actual OCI confinement and host ownership before calling it. A `/run` marker is
 an additional accident guard, not cloud authorization.
 
+`OpenSession(SessionConfig)` exposes this same transport to other qualification
+workers without creating Swarm topology. It always uses root SSH on port 22,
+checks the local/remote worker digest and starts only `worker serve`.
+`Session.UploadFile` requires an explicit basename and SHA256, checks both ends,
+and rejects overwrites. `Session.Exchange` uses strict JSON with a 1 MiB frame
+limit; cancellation closes SSH. Credentials remain on the driver.
+
+The material request requires the exact ordered `RequiredMaterialScenarios()`:
+`ready`, `after-loss`, `after-partition`, `unready`, `failed-update`.
+`ValidateProfileIdentity` binds the existing deployment identity and candidate
+cell/environment. Root-signed no-secret profile and authenticated delivery proof
+consumption are still being integrated; the runner has not qualified execution
+with CORE's mandatory material provider and must not be advertised as native
+acceptance until that integration and real-host checks pass.
+
 Build `./tests/imagequalification/native/cmd/native-worker` from the exact source
 candidate for the target architecture. The parent supplies its SHA256, the image
 component hashes, the immutable architecture-specific smoke image child manifest,
