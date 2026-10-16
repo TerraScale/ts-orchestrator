@@ -24,6 +24,20 @@ import (
 const swarmStateDirectory = "/var/lib/terrascale-orchestrator-host/swarm"
 const swarmManagerPort = "2377"
 
+// ReadAcceptedManagerAdmission allows deferred material providers to be bound
+// before startup. Material still requires its own current recipient authority.
+func ReadAcceptedManagerAdmission(ctx context.Context, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity) (Admission, error) {
+	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+	if err != nil {
+		return Admission{}, err
+	}
+	return managerAdmission(authority.Identity()), nil
+}
+
+func managerAdmission(identity bootstrapstart.RuntimeIdentity) Admission {
+	return Admission{Region: identity.OCIRegion, HostID: identity.Slot, InstanceID: identity.InstanceID, FounderID: identity.SeedSlot, Role: "manager"}
+}
+
 type bootstrapScope struct {
 	DeploymentID, ClusterID, Environment, Cell, OCIRegion, SeedSlot string
 }
@@ -148,8 +162,7 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 	} else if !vaultsecret.Absent(readErr) {
 		return nil, readErr
 	}
-	admission := Admission{Region: identity.OCIRegion, HostID: identity.Slot,
-		InstanceID: identity.InstanceID, FounderID: identity.SeedSlot, Role: "manager"}
+	admission := managerAdmission(identity)
 	nodeDir := filepath.Join(stateDir, "node")
 	if identity.Slot == identity.SeedSlot {
 		if readErr == nil {

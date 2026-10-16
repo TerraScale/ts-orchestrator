@@ -74,6 +74,10 @@ type workerAuthority struct {
 }
 
 func readCurrentWorkerRegistration(ctx context.Context, query WorkerRegistrationQuery) (WorkerRegistrationSnapshot, error) {
+	return readCurrentHostRegistration(ctx, query, "runtime-worker-admission-source")
+}
+
+func readCurrentHostRegistration(ctx context.Context, query WorkerRegistrationQuery, sourceCommand string) (WorkerRegistrationSnapshot, error) {
 	account, err := user.Lookup("terrascale-orchestrator")
 	if err != nil {
 		return WorkerRegistrationSnapshot{}, err
@@ -92,7 +96,7 @@ func readCurrentWorkerRegistration(ctx context.Context, query WorkerRegistration
 	}
 	childCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	command := exec.CommandContext(childCtx, "/proc/self/exe", "runtime-worker-admission-source")
+	command := exec.CommandContext(childCtx, "/proc/self/exe", sourceCommand)
 	command.Env = []string{"PATH=/usr/bin:/bin"}
 	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), Groups: []uint32{}}}
 	command.Stdin = bytes.NewReader(wire)
