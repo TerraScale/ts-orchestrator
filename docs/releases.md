@@ -553,3 +553,48 @@ is `dist/SHA256SUMS`.
 These local outputs are not published or signed release assets. The distinct
 amd64 binary used in the guest qualification is recorded in [local
 development](local-development.md#prior-local-qualification-2026-09-24).
+
+## Production qualification is separate from build provenance
+
+`release deploy` requires retained production qualification for each inspected
+regional candidate before retrieving the online release signer or publishing
+objects. `qualification.json` remains build provenance; a green CI run alone
+does not establish SwarmKit RUNTIME/HA or workload safety.
+
+The retained release contains:
+
+```text
+production/
+  GRU/amd64/production.json
+  GRU/amd64/delegation.json  # only for a delegated qualification signer
+  objects/<sha256>          # exact retained gate evidence bytes
+```
+
+Each `production.json` is a canonical `trust.Envelope` in the
+`terrascale.release.production-qualification` domain. Its scope binds the build
+identity, region, environment, workload role and `swarmkit-containerd/linux-ARCH`
+slot. Its `terrascale.release.production-qualification.v1` payload binds the
+exact source, binary digest and qualification-manifest digest, with ordered
+`runtime-ha` and `workload-safety` evidence references. Every reference includes
+its SHA-256, byte count and completion time. Admission verifies the referenced
+bytes, requires both passing-gate attestations and refuses proofs completed
+after signing. Signature/delegation validity must cover the rollout deadline;
+accepted lifetimes remain bounded to 31 days.
+
+The trusted root may sign qualification directly. A delegated signer needs an
+explicit `sign` capability for this distinct domain and exact scope. The
+ordinary release leaf's binary-signing authority does not grant qualification
+authority. This repository supplies the consumer; it does not manufacture live
+qualification evidence or install a signing credential.
+
+Inspect retained admission independently:
+
+```sh
+ts-orch release verify-production --dir RELEASE --root-key TRUSTED_ROOT \
+  --cell GRU --arch amd64
+```
+
+The default evidence directory is `RELEASE/production`. Versioned JSON reports
+qualified/refused results for each requested region; another region's refusal
+does not erase successful checks. This read-only command also inspects actual
+candidate binary metadata and matches the retained build manifest.
