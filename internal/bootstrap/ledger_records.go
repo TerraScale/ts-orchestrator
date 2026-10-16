@@ -228,6 +228,17 @@ func (ledger *Ledger) signedPayload(body []byte, scope BootstrapScope, domain st
 	}
 	now := ledger.now()
 	verify := func() ([]byte, error) {
+		if authority := ledger.config.DerivedStartup; authority != nil && slices.Contains(BootstrapLedgerCapabilityDomains(), domain) && slices.Contains(ledger.config.ControllerSlots, scope.Slot) {
+			keyID, _ := trust.KeyID(authority.ledgerKey)
+			keys := trust.Keyring{keyID: authority.ledgerKey}
+			if current {
+				if payload, err := trust.VerifyCurrent(envelope, expected, keys, now, ledger.config.TrustPolicy); err == nil && !envelope.IssuedAt.Before(authority.IssuedAt()) && !envelope.ExpiresAt.After(authority.ExpiresAt()) {
+					return payload, nil
+				}
+			} else if payload, err := trust.VerifyHistorical(envelope, expected, keys, ledger.config.TrustPolicy); err == nil && !envelope.IssuedAt.Before(authority.IssuedAt()) && !envelope.ExpiresAt.After(authority.ExpiresAt()) {
+				return payload, nil
+			}
+		}
 		if current {
 			if payload, err := trust.VerifyCurrent(envelope, expected, ledger.config.TrustRoots, now, ledger.config.TrustPolicy); err == nil {
 				return payload, nil

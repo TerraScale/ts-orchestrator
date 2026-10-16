@@ -691,7 +691,7 @@ func TestMaterialStoreStopsBeforeSecondSecretWhenCurrentProofExpires(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, receipt, _, err := fixture.gate.initialProofs(state, anchor, observed, now)
+	manifest, receipt, _, err := fixture.gate.initialProofs(t.Context(), state, anchor, observed, now)
 	if err != nil {
 		t.Fatal(err)
 	}

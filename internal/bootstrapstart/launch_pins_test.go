@@ -200,7 +200,7 @@ func TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, _, _, err := fixture.gate.initialProofs(state, anchor, observed, *fixture.now)
+	manifest, _, _, err := fixture.gate.initialProofs(t.Context(), state, anchor, observed, *fixture.now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +308,7 @@ func TestSignedARMHostLaunchIsIndependentOfAMD64Controller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, _, controllerImage, err := fixture.gate.initialProofs(state, anchor, observed, *fixture.now)
+	manifest, _, controllerImage, err := fixture.gate.initialProofs(t.Context(), state, anchor, observed, *fixture.now)
 	if err != nil {
 		t.Fatal(err)
 	}
