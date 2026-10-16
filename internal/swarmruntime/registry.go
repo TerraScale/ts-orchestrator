@@ -28,7 +28,7 @@ type RegistryAdmission struct {
 }
 
 // NewOCIRegistryResolver reads admitted private credentials automatically for
-// each pull. lookup verifies signed release admission and credential ownership;
+// each pull. lookup verifies current signed release admission and root ownership;
 // nil admission permits only an anonymous pull, which cannot read Vault.
 func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Context, *api.Task) (*RegistryAdmission, error)) (RegistryResolver, error) {
 	if lookup == nil {
@@ -53,6 +53,8 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 			}
 			return publicRegistryResolver(ctx, task, node)
 		}
+		approved := *admitted
+		admitted = &approved
 		if node == nil || node.ID == "" || task.NodeID != node.ID || admitted.ServiceID != task.ServiceID ||
 			admitted.Environment == "" || admitted.Region == "" ||
 			node.Spec.Annotations.Labels[LabelRegion] != admitted.Region ||
