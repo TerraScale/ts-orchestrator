@@ -167,6 +167,7 @@ func TestManagedImageObservedArchitectureIntegration(t *testing.T) {
 		{"expired receipt", func(v *managedImageVerifier, _ *managedImageProtocol, now time.Time) {
 			v.now = func() time.Time { return now.Add(2 * time.Hour) }
 		}},
+		{"wrong environment", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.environment = "canary" }},
 		{"retired root", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) { v.roots = trust.Keyring{} }},
 		{"tampered receipt", func(v *managedImageVerifier, _ *managedImageProtocol, _ time.Time) {
 			v.receiptWire[len(v.receiptWire)-3] ^= 1
@@ -323,5 +324,21 @@ func TestManagedImageReleaseScopeIntegration(t *testing.T) {
 	status := fixture.consume(t)
 	if !slices.Equal(status.Architectures, []string{"amd64", "arm64"}) || len(fixture.generations(t)) != 1 {
 		t.Fatalf("provider recovery did not publish the observed release scope: %+v", status)
+	}
+	_, revision := fixture.report(t)
+	fixture.setChannel(t, fixture.signer.channel(t, "GRU", 621, []byte("next binary")))
+	entry, err = fixture.kv.Get(ctx, releasechannel.ChannelKey("GRU"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.mu.Lock()
+	observed.shapeOutage = true
+	observed.mu.Unlock()
+	if err := fixture.control.consumeChannel(ctx, fixture.store, fixture.kv, 7, entry.Value(), time.Now().UTC()); err == nil {
+		t.Fatal("a later provider outage authorized a new release")
+	}
+	retained, retainedRevision := fixture.report(t)
+	if retainedRevision != revision || retained.RunNumber != status.RunNumber || len(fixture.generations(t)) != 1 {
+		t.Fatalf("provider outage changed the accepted generation or status: %+v", retained)
 	}
 }
