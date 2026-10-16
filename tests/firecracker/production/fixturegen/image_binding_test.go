@@ -61,6 +61,7 @@ func TestPacketImageReceiptBindsExecutableAndImage(t *testing.T) {
 		OCIImageOCID: imageOCID, OCIRegion: "GRU"}
 	sign := func(receipt release.ImageReceipt) []byte {
 		t.Helper()
+		receipt = qualifyHistoryImageFixture(t, receipt, "production", rootKey, manifest.FixtureNow, time.Hour)
 		envelope, err := release.SignImageReceipt(receipt, "production", delegation, roots,
 			delegatePrivate, manifest.FixtureNow, time.Hour)
 		if err != nil {
