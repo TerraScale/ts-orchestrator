@@ -90,6 +90,25 @@ type DerivedFounderPlan struct {
 	seed          DerivedStartupAuthority
 }
 
+// LoadSeedStartupAuthority lets any admitted slot recover the seed's genuine
+// proof using only its retained signed recipe and original source reader.
+func LoadSeedStartupAuthority(ctx context.Context, authority DerivedStartupAuthority, now time.Time) (DerivedStartupAuthority, error) {
+	if !validFounderNow(now) || !authority.IsVerified() {
+		return DerivedStartupAuthority{}, ErrFounderPlanAuthorization
+	}
+	if err := authority.VerifyCurrent(ctx, now); err != nil {
+		return DerivedStartupAuthority{}, err
+	}
+	seed, err := LoadDerivedStartupAuthority(ctx, authority.template, authority.client, authority.template.template.SeedSlot, now)
+	if err != nil {
+		return DerivedStartupAuthority{}, err
+	}
+	if seed.SourceSHA256() != authority.SourceSHA256() || seed.MaterialSHA256() != authority.MaterialSHA256() {
+		return DerivedStartupAuthority{}, ErrFounderPlanAuthorization
+	}
+	return seed, nil
+}
+
 // NewDerivedFounderPlan loads every slot from the seed's original source CAS.
 // A passed launch deadline still permits completed-peer continuation; every
 // effect-authorizing method independently enforces that deadline.
