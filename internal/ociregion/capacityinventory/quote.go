@@ -36,6 +36,8 @@ func (q Quote) Validate(scope Scope, cell, compartment, shape string, ocpus, mem
 }
 
 func (r *Reader) Quote(ctx context.Context, scope Scope, cell, compartment, shape string, ocpus, memoryGB, bootGB float64) (Quote, error) {
+	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
 	now := time.Now()
 	if err := scope.validate(now); err != nil {
 		return Quote{}, err

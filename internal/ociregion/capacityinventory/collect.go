@@ -195,6 +195,9 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			if response.Id == nil || *response.Id != *item.Identifier || response.CompartmentId == nil || *response.CompartmentId != *item.CompartmentId {
 				return 0, errors.New("boot volume identity changed")
 			}
+			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
+				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
+			}
 			resource.LifecycleState = string(response.LifecycleState)
 			resource.OperationID = response.FreeformTags["ts-operation-id"]
 			resource.RecipeSHA256 = response.FreeformTags["ts-recipe-sha256"]
@@ -206,6 +209,9 @@ func observedCost(ctx context.Context, compute core.ComputeClient, block core.Bl
 			}
 			if response.Id == nil || *response.Id != *item.Identifier || response.CompartmentId == nil || *response.CompartmentId != *item.CompartmentId {
 				return 0, errors.New("volume identity changed")
+			}
+			if response.IsAutoTuneEnabled != nil && *response.IsAutoTuneEnabled || len(response.AutotunePolicies) > 0 {
+				return 0, errors.New("autotuned disk requires a bounded performance charge ledger")
 			}
 			resource.LifecycleState = string(response.LifecycleState)
 			resource.OperationID = response.FreeformTags["ts-operation-id"]

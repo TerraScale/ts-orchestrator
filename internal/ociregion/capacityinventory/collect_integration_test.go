@@ -20,7 +20,7 @@ import (
 )
 
 func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
-	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable"} {
+	for _, scenario := range []string{"observed", "missing currency", "unknown shape", "region unavailable", "autotuned disk"} {
 		t.Run(scenario, func(t *testing.T) {
 			var mu sync.Mutex
 			var compartments []string
@@ -86,7 +86,7 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/volumes/"):
 					id := strings.TrimPrefix(r.URL.Path, "/20160918/volumes/")
 					compartment := strings.TrimPrefix(id, "volume-")
-					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10}`, id, compartment)
+					fmt.Fprintf(w, `{"id":%q,"compartmentId":%q,"lifecycleState":"AVAILABLE","sizeInGBs":50,"vpusPerGB":10,"isAutoTuneEnabled":%t}`, id, compartment, scenario == "autotuned disk")
 				default:
 					t.Errorf("unexpected request %s %s", r.Method, r.URL)
 					http.NotFound(w, r)
@@ -137,6 +137,12 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				}) {
 					t.Fatal("provider operation evidence lost")
 				}
+			}
+			if scenario != "observed" && len(result.Pending) <= 2 {
+				t.Fatalf("source failure lost: %+v", result)
+			}
+			if scenario == "region unavailable" && len(result.CoveredCompartments) != 1 {
+				t.Fatalf("failed region incorrectly covered: %+v", result)
 			}
 			if len(result.Pending) < 2 || result.Validate(scope, time.Now()) == nil {
 				t.Fatalf("incomplete accounting became spending authority: %+v", result)
