@@ -291,7 +291,7 @@ func run(ctx context.Context, req Request, initialReport native.Report, sessions
 func validateFoundation(observation protocol.Observation, req Request) error {
 	a := observation.Account
 	if a.AccountID == "" || a.OwnerID == "" || a.ServiceID == "" || a.ServiceID == a.OwnerID || a.ServiceTokenID == "" || a.PeerID == "" ||
-		!hashPattern.MatchString(a.PeerKeySHA256) || !hashPattern.MatchString(a.PolicySHA256) || a.PeerAddress == "" || a.StoreID == "" || len(a.PolicyIDs) == 0 || len(a.UnrestrictedPolicyIDs) != 0 || a.SetupHTTPStatus != 403 || a.ServiceHTTPStatus != 200 || a.PeerHTTPStatus != 200 ||
+		!hashPattern.MatchString(a.PeerKeySHA256) || !hashPattern.MatchString(a.PolicySHA256) || a.PeerAddress == "" || a.StoreID == "" || len(a.PolicyIDs) == 0 || len(a.UnrestrictedPolicyIDs) != 0 || a.SetupHTTPStatus != 412 || a.ServiceHTTPStatus != 200 || a.PeerHTTPStatus != 200 ||
 		observation.TLSProtocol != "TLSv1.3" || observation.TLSAuthority != "fixture-internal" || observation.GRPCStatus != "0" || observation.STUNTransaction == "" || len(observation.Components) != 3 {
 		return errors.New("NetBird foundation lacks actual closed setup, service, enrolled peer, policy or protocol observations")
 	}
@@ -323,5 +323,5 @@ func serverPID(observation protocol.Observation) uint32 {
 }
 
 func sameAccount(a, b protocol.Account) bool {
-	return sameIdentity(a, b) && a.ServiceTokenID == b.ServiceTokenID && b.ServiceHTTPStatus == 200 && b.PeerHTTPStatus == 200 && b.SetupHTTPStatus == 403
+	return sameIdentity(a, b) && a.ServiceTokenID == b.ServiceTokenID && b.ServiceHTTPStatus == 200 && b.PeerHTTPStatus == 200 && b.SetupHTTPStatus == 412
 }
