@@ -57,9 +57,10 @@ type VerifiedBindings struct {
 	ids       map[string]string
 }
 
-func (v VerifiedBindings) GrantSHA256() string { return v.authority.GrantSHA256 }
-func (v VerifiedBindings) Generation() uint64  { return v.authority.Generation }
-func (v VerifiedBindings) Cell() string        { return v.authority.Cell }
+func (v VerifiedBindings) GrantSHA256() string  { return v.authority.GrantSHA256 }
+func (v VerifiedBindings) Generation() uint64   { return v.authority.Generation }
+func (v VerifiedBindings) Cell() string         { return v.authority.Cell }
+func (v VerifiedBindings) ExpiresAt() time.Time { return v.expires }
 
 // ForCell independently verifies another approved cell under the same exact
 // root grant. Query narrowing belongs to the selected cell, not the root scope.
