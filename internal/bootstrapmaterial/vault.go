@@ -17,6 +17,7 @@ import (
 	"uuid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
@@ -317,7 +318,7 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 			return err
 		}
 	}
-	response, err := management.CreateSecret(ctx, ocivault.CreateSecretRequest{
+	response, err := management.CreateSecret(ociclient.RequestContext(ctx), ocivault.CreateSecretRequest{
 		CreateSecretDetails: ocivault.CreateSecretDetails{
 			CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID),
 			SecretName: new(entry.Name), Description: new("Initial TerraScale regional controller credential material."),
@@ -339,7 +340,7 @@ func lookup(ctx context.Context, target VaultTarget, region, name string, client
 	var page *string
 	var found string
 	for range 32 {
-		response, err := client.ListSecrets(ctx, ocivault.ListSecretsRequest{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), Name: new(name), Page: page})
+		response, err := client.ListSecrets(ociclient.RequestContext(ctx), ocivault.ListSecretsRequest{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), Name: new(name), Page: page})
 		if err != nil {
 			return "", false, err
 		}
@@ -365,7 +366,7 @@ func lookup(ctx context.Context, target VaultTarget, region, name string, client
 func verifyBundle(ctx context.Context, target VaultTarget, id, name string, file File, management VaultClient, bundles BundleClient) error {
 	deadline := time.Now().Add(time.Minute)
 	for {
-		response, err := management.GetSecret(ctx, ocivault.GetSecretRequest{SecretId: new(id)})
+		response, err := management.GetSecret(ociclient.RequestContext(ctx), ocivault.GetSecretRequest{SecretId: new(id)})
 		if err == nil && response.Id != nil && *response.Id == id && response.CompartmentId != nil &&
 			*response.CompartmentId == target.CompartmentOCID && response.VaultId != nil && *response.VaultId == target.VaultOCID &&
 			response.KeyId != nil && *response.KeyId == target.KMSKeyOCID &&
@@ -386,7 +387,7 @@ func verifyBundle(ctx context.Context, target VaultTarget, id, name string, file
 		}
 	}
 	version := int64(1)
-	response, err := bundles.GetSecretBundle(ctx, ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: &version})
+	response, err := bundles.GetSecretBundle(ociclient.RequestContext(ctx), ocisecrets.GetSecretBundleRequest{SecretId: new(id), VersionNumber: &version})
 	if err != nil || response.SecretId == nil || *response.SecretId != id || response.VersionNumber == nil || *response.VersionNumber != 1 {
 		return ErrProvision
 	}
