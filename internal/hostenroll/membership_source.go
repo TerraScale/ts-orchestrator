@@ -80,7 +80,7 @@ func (source *WorkerMembershipSource) Read(ctx context.Context, query WorkerMemb
 		return fail(err)
 	}
 	worker := verified.Worker()
-	request, descriptor, err := ParseRequest(record.Transport.Request, record.Binding.IssuedAt)
+	request, descriptor, err := ParseRetainedWorkerRequest(record.Transport.Request, record.Binding.IssuedAt)
 	if err != nil || record.Binding.NodeID != query.NodeID || worker.RegistrationID != query.RegistrationID || worker.InstanceID != query.InstanceID ||
 		worker.Cell != source.cell || descriptor.Cell != source.cell || entityid.Derive("host", descriptor.Cell, descriptor.Node) != query.RegistrationID {
 		return fail(errors.New("worker membership locators differ from authenticated admission"))
@@ -104,8 +104,7 @@ func (source *WorkerMembershipSource) Read(ctx context.Context, query WorkerMemb
 			registration.NATSUserPublicKey != request.NATSUserPublicKey || len(registration.Roles) == 0 || role != worker.Role {
 			return fail(errors.New("worker admission differs from current registered recipient"))
 		}
-		if !(bytes.Equal(record.Transport.Request, grant.Request) && bytes.Equal(record.Transport.Response, grant.Response) && len(grant.Response) != 0 ||
-			bytes.Equal(record.Transport.Request, grant.RenewalRequest) && bytes.Equal(record.Transport.Response, grant.RenewalResponse) && len(grant.RenewalResponse) != 0) {
+		if !grant.MatchesCompletedWorkerEnrollment(record.Transport) {
 			return fail(errors.New("worker admission differs from the current completed enrollment"))
 		}
 		if !sameSwarmMembership(grant.SwarmMembership, record) {

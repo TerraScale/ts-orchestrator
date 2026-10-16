@@ -116,6 +116,17 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The durable enrollment response precedes the separately signed worker
+	// projection and therefore contains no Swarm join material.
+	baseResponse := response
+	baseResponse.Swarm = nil
+	if err := baseResponse.Sign(responseKey); err != nil {
+		t.Fatal(err)
+	}
+	baseResponseWire, err := protocol.EncodeJSON(baseResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
 	transport := hostenroll.WorkerTransport{Request: requestWire, Response: responseWire}
 	wire, err := protocol.EncodeJSON(transport)
 	if err != nil {
@@ -138,14 +149,14 @@ func TestWorkerMembershipSourceReadsOrderedAdmissionAndRevocation(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := grants.Finish(ctx, grant, revision, responseWire); err != nil {
+	if _, err := grants.Finish(ctx, grant, revision, baseResponseWire); err != nil {
 		t.Fatal(err)
 	}
 	grant, revision, err = grants.ClaimRenew(ctx, request.InstanceID, requestWire, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := grants.FinishRenew(ctx, grant, revision, responseWire, now); err != nil {
+	if err := grants.FinishRenew(ctx, grant, revision, baseResponseWire, now); err != nil {
 		t.Fatal(err)
 	}
 	mutations, err := authority.OpenReader(ctx, js, "gru")
