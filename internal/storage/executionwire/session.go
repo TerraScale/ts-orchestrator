@@ -37,6 +37,7 @@ type WorkerGrantPayload struct {
 	TaskSHA256    string              `json:"task_sha256"`
 	EffectID      string              `json:"effect_id"`
 	Nonce         string              `json:"nonce"`
+	LeaderEpoch   uint64              `json:"leader_epoch"`
 	Epoch         uint64              `json:"epoch"`
 	Revision      uint64              `json:"revision"`
 	IssuedAt      time.Time           `json:"issued_at"`
