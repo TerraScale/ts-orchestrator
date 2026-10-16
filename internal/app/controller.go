@@ -16,8 +16,10 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
+	"crypto/ed25519"
 	"github.com/TerraScale/ts-orchestrator/internal/atlas"
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
@@ -346,6 +348,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var credentialFloor func(context.Context, host.Registration) (uint64, error)
 	var placementStore placement.Store
 	var fleet oci.Fleet
+	var managedJournal *oci.KVJournal
 	var volumeInspector host.ManagedVolumeInspector
 	var terminalExecutor oci.TerminalExecutor
 	var materialService *managedmaterial.PreparationService
@@ -385,6 +388,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		if err != nil {
 			return err
 		}
+		managedJournal = journal
 		acceptedLaunch, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 		if err != nil {
 			return err
@@ -735,6 +739,41 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// One node pool serves enrollment and the scaler. It binds in the
 	// background, since IMDS or OCI may not answer yet. Without a managed
 	// runtime there is no pool: pool nodes are refused.
+	capacityFoundation, err := foundationDiscovery(runCtx)
+	if err != nil {
+		return fmt.Errorf("discover capacity foundation: %w", err)
+	}
+	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
+		local, derived, present, err := installedAutomaticStartup(ctx)
+		if err != nil || !present {
+			return nil, errors.Join(errors.New("capacity requires authenticated automatic startup"), err)
+		}
+		template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, local.factory, derived.GrantWire(), local.baked.Roots, local.anchor, oci.RegionGRU, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		home, err := local.anchor.FoundationScope()
+		if err != nil {
+			return nil, err
+		}
+		factory, err := local.factory.ForRegion(home.OCIRegion)
+		if err != nil {
+			return nil, err
+		}
+		objects, err := factory.ObjectStorage()
+		if err != nil {
+			return nil, err
+		}
+		authority, err := bootstrap.LoadDerivedStartupAuthority(ctx, template, &objects, template.Template().SeedSlot, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		return authority.ControllerResponsePublicKey()
+	}
+	reservations, err := startCapacityReservations(runCtx, cfg, runtime.Conn(), global, capacityFoundation.foundations, services, responseKey, homeKey)
+	if err != nil {
+		return fmt.Errorf("start capacity reservations: %w", err)
+	}
 	var pool *nodePoolBinding
 	if managed != nil {
 		pool = &nodePoolBinding{}
@@ -755,10 +794,36 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		defer listener.Close()
 		enrollmentErrors = serveErrors
 		go bindNodePool(runCtx, pool, nodePoolRetry, func(ctx context.Context) (boundNodePool, error) {
-			return bindNodeScaler(ctx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
+			accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
+			if err != nil {
+				return boundNodePool{}, err
+			}
+			client, _, connection, err := swarmruntime.DialManagement(ctx, accepted)
+			if err != nil {
+				return boundNodePool{}, err
+			}
+			bound, err := bindNodeScaler(ctx, nodeScaling{cell: cfg.NATS.Cell, js: runtime.JetStream(),
 				replicas: cfg.NATS.Replicas, ready: fullClusterReady,
-				hosts: hostController, load: hostLoad, global: global, fencer: control, fences: fences,
-				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews})
+				control: client, canRetire: func(ctx context.Context, nodeID, instanceID string) error {
+					effects, err := control.ListAllUnresolvedRuntimeEffects(ctx)
+					if err != nil {
+						return err
+					}
+					for _, effect := range effects {
+						if effect.NodeID == nodeID || effect.InstanceID == instanceID {
+							return errors.New("worker retains an unresolved runtime effect")
+						}
+					}
+					return control.Guard(ctx, control.Current().Epoch)
+				}, load: hostLoad, global: global, fencer: control, fences: fences,
+				enrollment: managedEnrollment, scaler: &poolScaler, costViews: costViews,
+				reservations: reservations, journal: managedJournal})
+			if err != nil {
+				_ = connection.Close()
+				return boundNodePool{}, err
+			}
+			context.AfterFunc(ctx, func() { _ = connection.Close() })
+			return bound, nil
 		})
 	}
 	var scaleStatus func() *nodescale.Status
@@ -899,7 +964,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// The home allocates node growth under the monthly budget. Every region
 	// feeds the budget insight from the capacity document it reads.
 	allocator := startCapacityAllocator(runCtx, global, telemetry.regionRollups, runtime.JetStream(),
-		cfg.NATS.Replicas, services.atlasConfig)
+		cfg.NATS.Replicas, services.atlasConfig, reservations)
 	if err := startBudgetSet(runCtx, runtime.Conn(), global); err != nil {
 		return fmt.Errorf("serve budget requests: %w", err)
 	}
