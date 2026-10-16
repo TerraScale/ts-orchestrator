@@ -15,11 +15,12 @@ import (
 
 // This exercises the evidence consumer using constructed reports. It does not
 // establish that native scenarios ran or that any production image qualifies.
-func reportFixture(f qualificationFixture) (host.Report, journal, []hostObservation) {
+func reportFixture(t *testing.T, f qualificationFixture) (host.Report, journal, []hostObservation) {
 	a := f.prepared.Approval()
 	start := f.now.Add(time.Minute)
 	r := host.Report{RunID: a.RunID, Candidate: a.Candidate, ImageOCID: "ocid1.image.oc1..fixture", WorkloadImage: a.WorkloadImage, WorkloadArchiveSHA256: a.WorkloadArchiveSHA256, StartedAt: start, CompletedAt: start.Add(time.Minute)}
 	j := journal{RunID: a.RunID, ApprovalSHA256: f.prepared.approvalSHA256, ImageID: r.ImageOCID, Hosts: map[string]string{}, Terminated: map[string]bool{}, ImageDeleted: true, ObjectDeleted: true, Intents: map[string]time.Time{"image": start}}
+	j.ConsoleHistories, j.ConsoleDeleted, j.HostKeys, j.ConsoleDigests, j.HostConsoleHistory = map[string]string{}, map[string]bool{}, map[string]string{}, map[string]string{}, map[string]string{}
 	var cloud []hostObservation
 	var ids []string
 	for index, spec := range a.Hosts {
@@ -29,7 +30,15 @@ func reportFixture(f qualificationFixture) (host.Report, journal, []hostObservat
 			role = "container"
 		}
 		r.Hosts = append(r.Hosts, host.HostReport{Role: role, WorkerSourceRevision: a.Candidate.SourceRevision, OCID: id, Address: address, WorkerSHA256: a.RunnerSHA256, NodeID: fmt.Sprintf("native-node-%d", index), Observed: host.Identity{Architecture: a.Candidate.Architecture, KernelRelease: "6.12.fixture", KernelSHA256: a.KernelSHA256, BinarySHA256: a.BinarySHA256, ContainerdSHA256: a.ContainerdSHA256, RuncSHA256: a.RuncSHA256, InstanceID: id, ImageOCID: r.ImageOCID}})
-		cloud = append(cloud, hostObservation{Name: spec.Name, InstanceID: id, ImageID: r.ImageOCID, PrivateIP: address, HostKeySHA256: hashBytes([]byte(id + "-key")), ConsoleSHA256: hashBytes([]byte(id + "-console"))})
+		key := publicSSHKey(t)
+		_, markerDigest, err := parseConsoleKey(a.RunID, "TSQUAL_HOSTKEY "+a.RunID+" "+key+"\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		history, operation := fmt.Sprintf("ocid1.consolehistory.oc1..fixture%d", index), "console/"+spec.Name+"/0"
+		j.HostKeys[spec.Name], j.ConsoleDigests[spec.Name], j.HostConsoleHistory[spec.Name] = key, markerDigest, history
+		j.ConsoleHistories[operation], j.ConsoleDeleted[operation], j.Intents[operation] = history, true, start
+		cloud = append(cloud, hostObservation{Name: spec.Name, InstanceID: id, ImageID: r.ImageOCID, PrivateIP: address, HostKeySHA256: hashBytes([]byte(key)), ConsoleSHA256: markerDigest, ConsoleHistoryID: history})
 		j.Hosts[spec.Name], j.Terminated[spec.Name], j.Intents[spec.Name] = id, true, start
 		ids = append(ids, id)
 	}
@@ -42,10 +51,16 @@ func reportFixture(f qualificationFixture) (host.Report, journal, []hostObservat
 
 func TestRetainedUnsignedProofBindsObjectsAndExistingQualifier(t *testing.T) {
 	f := fixture(t)
-	r, j, hosts := reportFixture(f)
+	wireWithWhitespace := append([]byte(" \n"), f.wire...)
+	var err error
+	f.prepared, err = Prepare(wireWithWhitespace, nil, f.roots, f.prepared.approval.Candidate, f.prepared.approval.RunID, f.disk, f.qualification, f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, j, hosts := reportFixture(t, f)
 	directory := t.TempDir()
 	now := r.CompletedAt.Add(time.Second)
-	proof, err := retainProof(f.prepared, r, j, hosts, []byte(`{"observations":"controlled SDK fixture"}`), directory, now)
+	proof, err := retainProof(f.prepared, r, j, hosts, []byte("{ \n \"observations\": \"controlled SDK fixture\" }"), directory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +118,7 @@ func TestReportRejectsChangedIdentityMissingScenariosAndIncompleteCleanup(t *tes
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, j, h := reportFixture(f)
+			r, j, h := reportFixture(t, f)
 			tc.change(&r, &j, h)
 			if err := validateReport(f.prepared, r, j, h, r.CompletedAt); err == nil {
 				t.Fatal("changed native report accepted")

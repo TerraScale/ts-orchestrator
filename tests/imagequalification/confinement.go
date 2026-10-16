@@ -66,6 +66,22 @@ func newConfinedCloud(ctx context.Context, p Prepared, verified confinement.Veri
 	if err != nil {
 		return nil, err
 	}
+	inspector, err := newCloud(p, verified.Factory(), "")
+	if err != nil {
+		return nil, err
+	}
+	for _, base := range []*common.BaseClient{&inspector.compute.BaseClient, &inspector.block.BaseClient} {
+		previous := base.Interceptor
+		base.Interceptor = func(request *http.Request) error {
+			if previous != nil {
+				if err := previous(request); err != nil {
+					return err
+				}
+			}
+			return c.check(request.Context(), true)
+		}
+		ociclient.ConfigureRequestCancellation(base)
+	}
 	guard := func(base *common.BaseClient) {
 		previous := base.Interceptor
 		base.Interceptor = func(request *http.Request) error {
@@ -82,13 +98,20 @@ func newConfinedCloud(ctx context.Context, p Prepared, verified confinement.Veri
 			if err != nil {
 				return err
 			}
-			return verified.Revalidate(request.Context(), p.confinementScope(j))
+			if err := verified.Revalidate(request.Context(), p.confinementScope(j)); err != nil {
+				return err
+			}
+			if err := inspector.validateHostBounds(request.Context(), j); err != nil {
+				return err
+			}
+			return c.check(request.Context(), cleanup)
 		}
 		ociclient.ConfigureRequestCancellation(base)
 	}
 	guard(&c.compute.BaseClient)
 	guard(&c.objects.BaseClient)
 	guard(&c.network.BaseClient)
+	guard(&c.block.BaseClient)
 	work, err := verified.Factory().WorkRequests()
 	if err != nil {
 		return nil, err

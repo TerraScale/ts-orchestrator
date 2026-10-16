@@ -18,21 +18,22 @@ import (
 // HostObservation comes from authenticated Compute/VNIC observations before SSH.
 // Guest IMDS observations are checked against it, not treated as attestation.
 type hostObservation struct {
-	Name          string `json:"name"`
-	InstanceID    string `json:"instance_id"`
-	ImageID       string `json:"image_id"`
-	PrivateIP     string `json:"private_ip"`
-	HostKeySHA256 string `json:"host_key_sha256"`
-	ConsoleSHA256 string `json:"console_sha256"`
+	Name             string `json:"name"`
+	InstanceID       string `json:"instance_id"`
+	ImageID          string `json:"image_id"`
+	PrivateIP        string `json:"private_ip"`
+	HostKeySHA256    string `json:"host_key_sha256"`
+	ConsoleHistoryID string `json:"console_history_id"`
+	ConsoleSHA256    string `json:"console_sha256"`
 }
 
 type gateRecord struct {
 	Schema             string            `json:"schema"`
-	ApprovalEnvelope   jsontext.Value    `json:"approval_envelope"`
-	ApprovalDelegation jsontext.Value    `json:"approval_delegation,omitempty"`
+	ApprovalEnvelope   []byte            `json:"approval_envelope"`
+	ApprovalDelegation []byte            `json:"approval_delegation,omitempty"`
 	ApprovalSHA256     string            `json:"approval_sha256"`
 	ConfinementSHA256  string            `json:"confinement_sha256"`
-	Confinement        jsontext.Value    `json:"confinement"`
+	Confinement        []byte            `json:"confinement"`
 	Approval           Approval          `json:"approval"`
 	ImageID            string            `json:"image_id"`
 	Hosts              []host.HostReport `json:"hosts"`
@@ -60,7 +61,7 @@ func retainProof(p Prepared, report host.Report, resources journal, hosts []host
 		return result, err
 	}
 	for _, gate := range []string{"runtime-ha", "workload-safety"} {
-		record := gateRecord{Schema: "terrascale.test.image-qualification.evidence.v1", ApprovalEnvelope: jsontext.Value(p.approvalWire), ApprovalDelegation: jsontext.Value(p.delegationWire), ApprovalSHA256: p.approvalSHA256, ConfinementSHA256: hashBytes(confinement), Confinement: jsontext.Value(confinement), Approval: p.Approval(), ImageID: report.ImageOCID, Hosts: report.Hosts, CloudHosts: hosts, Resources: resources, CompletedAt: now}
+		record := gateRecord{Schema: "terrascale.test.image-qualification.evidence.v1", ApprovalEnvelope: p.approvalWire, ApprovalDelegation: p.delegationWire, ApprovalSHA256: p.approvalSHA256, ConfinementSHA256: hashBytes(confinement), Confinement: confinement, Approval: p.Approval(), ImageID: report.ImageOCID, Hosts: report.Hosts, CloudHosts: hosts, Resources: resources, CompletedAt: now}
 		for _, scenario := range report.Scenarios {
 			if scenario.Gate == gate {
 				record.Scenarios = append(record.Scenarios, scenario)
@@ -119,7 +120,7 @@ func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObser
 		return errors.New("native qualification requires complete exact-resource cleanup")
 	}
 	peer, _ := netip.ParsePrefix(a.PeerCIDR)
-	ids, addresses := map[string]bool{}, map[string]bool{}
+	ids, addresses, keys, nodes := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for index, spec := range a.Hosts {
 		h, c := r.Hosts[index], cloudHosts[index]
 		role := spec.Role
@@ -127,14 +128,14 @@ func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObser
 			role = "container"
 		}
 		ip, err := netip.ParseAddr(h.Address)
-		if err != nil || !peer.Contains(ip) || ids[h.OCID] || addresses[h.Address] || h.Role != role || h.OCID != j.Hosts[spec.Name] || !j.Terminated[spec.Name] || c.Name != spec.Name || c.InstanceID != h.OCID || c.ImageID != r.ImageOCID || c.PrivateIP != h.Address || !validHash(c.HostKeySHA256) || !validHash(c.ConsoleSHA256) {
+		if err != nil || !peer.Contains(ip) || ids[h.OCID] || addresses[h.Address] || h.Role != role || h.OCID != j.Hosts[spec.Name] || !j.Terminated[spec.Name] || c.Name != spec.Name || c.InstanceID != h.OCID || c.ImageID != r.ImageOCID || c.PrivateIP != h.Address || !validHash(c.HostKeySHA256) || !validHash(c.ConsoleSHA256) || keys[c.HostKeySHA256] || c.HostKeySHA256 != hashBytes([]byte(j.HostKeys[spec.Name])) || c.ConsoleSHA256 != j.ConsoleDigests[spec.Name] || c.ConsoleHistoryID == "" || c.ConsoleHistoryID != j.HostConsoleHistory[spec.Name] {
 			return errors.New("native host differs from authenticated exact-image host observations")
 		}
 		i := h.Observed
-		if i.InstanceID != h.OCID || i.ImageOCID != r.ImageOCID || i.Architecture != a.Candidate.Architecture || i.KernelRelease != a.KernelRelease || i.KernelSHA256 != a.KernelSHA256 || i.BinarySHA256 != a.BinarySHA256 || i.ContainerdSHA256 != a.ContainerdSHA256 || i.RuncSHA256 != a.RuncSHA256 || h.WorkerSHA256 != a.RunnerSHA256 || h.WorkerSourceRevision != a.Candidate.SourceRevision || h.NodeID == "" {
+		if i.InstanceID != h.OCID || i.ImageOCID != r.ImageOCID || i.Architecture != a.Candidate.Architecture || i.KernelRelease != a.KernelRelease || i.KernelSHA256 != a.KernelSHA256 || i.BinarySHA256 != a.BinarySHA256 || i.ContainerdSHA256 != a.ContainerdSHA256 || i.RuncSHA256 != a.RuncSHA256 || h.WorkerSHA256 != a.RunnerSHA256 || h.WorkerSourceRevision != a.Candidate.SourceRevision || h.NodeID == "" || nodes[h.NodeID] {
 			return errors.New("observed native runtime or worker source differs")
 		}
-		ids[h.OCID], addresses[h.Address] = true, true
+		ids[h.OCID], addresses[h.Address], keys[c.HostKeySHA256], nodes[h.NodeID] = true, true, true, true
 	}
 	required := map[string]string{"native-three-manager-formation": "runtime-ha", "manager-loss": "runtime-ha", "manager-partition": "runtime-ha", "agent-restart": "runtime-ha", "unavailable-agent-replacement": "runtime-ha", "cleanup": "runtime-ha", "container-isolation": "workload-safety", "readiness-rejection": "workload-safety", "rollback": "workload-safety"}
 	if len(r.Scenarios) != len(required) {
@@ -151,6 +152,11 @@ func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObser
 			}
 		}
 		seen[scenario.Name] = true
+	}
+	for operation := range j.ConsoleHistories {
+		if !j.ConsoleDeleted[operation] {
+			return errors.New("console-history cleanup is incomplete")
+		}
 	}
 	for operation := range j.Intents {
 		if !j.resolved(operation) {

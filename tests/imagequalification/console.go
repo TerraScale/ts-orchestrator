@@ -122,8 +122,9 @@ func (c *cloud) consoleKey(ctx context.Context, path string, spec HostSpec) (hos
 	}
 	if key := j.HostKeys[spec.Name]; key != "" {
 		host.HostKeySHA256, host.ConsoleSHA256 = hashBytes([]byte(key)), j.ConsoleDigests[spec.Name]
+		host.ConsoleHistoryID = j.HostConsoleHistory[spec.Name]
 		parsed, digest, parseErr := parseConsoleKey(c.prepared.approval.RunID, "TSQUAL_HOSTKEY "+c.prepared.approval.RunID+" "+key+"\n")
-		if parseErr != nil || parsed != key || digest != host.ConsoleSHA256 || !validHash(host.ConsoleSHA256) {
+		if parseErr != nil || parsed != key || digest != host.ConsoleSHA256 || !validHash(host.ConsoleSHA256) || host.ConsoleHistoryID == "" {
 			return host, "", errors.New("retained console key lacks evidence digest")
 		}
 		return host, key, nil
@@ -185,6 +186,8 @@ func (c *cloud) consoleKey(ctx context.Context, path string, spec HostSpec) (hos
 				}
 			}
 			j.HostKeys[spec.Name], j.ConsoleDigests[spec.Name] = key, digest
+			j.HostConsoleHistory[spec.Name] = j.ConsoleHistories[operation]
+			host.ConsoleHistoryID = j.ConsoleHistories[operation]
 			if err := checkpoint(path, j); err != nil {
 				return host, "", err
 			}

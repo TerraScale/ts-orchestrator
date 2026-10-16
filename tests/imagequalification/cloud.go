@@ -34,24 +34,26 @@ type cloud struct {
 	compute  core.ComputeClient
 	objects  objectstorage.ObjectStorageClient
 	network  core.VirtualNetworkClient
+	block    core.BlockstorageClient
 	uploader imageimport.ObjectUploader
 	now      func() time.Time
 }
 
 type journal struct {
-	RunID            string               `json:"run_id"`
-	ApprovalSHA256   string               `json:"approval_sha256"`
-	Object           string               `json:"object"`
-	ImageID          string               `json:"image_id"`
-	Hosts            map[string]string    `json:"hosts"`
-	Terminated       map[string]bool      `json:"terminated"`
-	ImageDeleted     bool                 `json:"image_deleted"`
-	ObjectDeleted    bool                 `json:"object_deleted"`
-	ConsoleHistories map[string]string    `json:"console_histories"`
-	ConsoleDeleted   map[string]bool      `json:"console_deleted"`
-	HostKeys         map[string]string    `json:"host_keys"`
-	ConsoleDigests   map[string]string    `json:"console_digests"`
-	Intents          map[string]time.Time `json:"intents"`
+	RunID              string               `json:"run_id"`
+	ApprovalSHA256     string               `json:"approval_sha256"`
+	Object             string               `json:"object"`
+	ImageID            string               `json:"image_id"`
+	Hosts              map[string]string    `json:"hosts"`
+	Terminated         map[string]bool      `json:"terminated"`
+	ImageDeleted       bool                 `json:"image_deleted"`
+	ObjectDeleted      bool                 `json:"object_deleted"`
+	ConsoleHistories   map[string]string    `json:"console_histories"`
+	ConsoleDeleted     map[string]bool      `json:"console_deleted"`
+	HostKeys           map[string]string    `json:"host_keys"`
+	HostConsoleHistory map[string]string    `json:"host_console_history"`
+	ConsoleDigests     map[string]string    `json:"console_digests"`
+	Intents            map[string]time.Time `json:"intents"`
 }
 
 func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*cloud, error) {
@@ -85,6 +87,12 @@ func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*
 	if err != nil {
 		return nil, err
 	}
+	block, err := factory.Blockstorage()
+	if err != nil {
+		return nil, err
+	}
+	ociclient.PinHost(&block.BaseClient, endpoint)
+	ociclient.ConfigureRequestCancellation(&block.BaseClient)
 	work, err := factory.WorkRequests()
 	if err != nil {
 		return nil, err
@@ -97,7 +105,7 @@ func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*
 	ociclient.ConfigureRequestCancellation(&compute.BaseClient)
 	ociclient.ConfigureRequestCancellation(&objects.BaseClient)
 	ociclient.ConfigureRequestCancellation(&network.BaseClient)
-	return &cloud{prepared: prepared, compute: compute, objects: objects, network: network, uploader: imageimport.NewClientFromSDK(compute, objects, work), now: time.Now}, nil
+	return &cloud{prepared: prepared, compute: compute, objects: objects, network: network, block: block, uploader: imageimport.NewClientFromSDK(compute, objects, work), now: time.Now}, nil
 }
 
 func (c *cloud) check(ctx context.Context, cleanup bool) error {
@@ -135,8 +143,8 @@ func (c *cloud) name(host string) string {
 func (c *cloud) load(path string) (journal, error) {
 	a := c.prepared.approval
 	j := journal{RunID: a.RunID, ApprovalSHA256: c.prepared.approvalSHA256,
-		Object:           "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2",
-		ConsoleHistories: map[string]string{}, ConsoleDeleted: map[string]bool{}, HostKeys: map[string]string{}, ConsoleDigests: map[string]string{},
+		Object:             "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2",
+		HostConsoleHistory: map[string]string{}, ConsoleHistories: map[string]string{}, ConsoleDeleted: map[string]bool{}, HostKeys: map[string]string{}, ConsoleDigests: map[string]string{},
 		Hosts: map[string]string{}, Terminated: map[string]bool{}, Intents: map[string]time.Time{}}
 	wire, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -162,6 +170,9 @@ func (c *cloud) load(path string) (journal, error) {
 		if !found {
 			return j, errors.New("cleanup journal contains an unapproved host")
 		}
+	}
+	if restored.HostConsoleHistory == nil {
+		restored.HostConsoleHistory = map[string]string{}
 	}
 	if restored.ConsoleHistories == nil {
 		restored.ConsoleHistories = map[string]string{}
