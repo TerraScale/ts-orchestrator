@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"maps"
 	"testing"
 	"time"
@@ -38,6 +39,10 @@ func assertDerivedFounderAuthority(t *testing.T, source *ColdStartMaterial, seed
 		authority, ok := plan.Authority(slot)
 		if !ok || !bytes.Equal(authority.Wire(), source.state.Startup[slot]) || authority.VerifyCurrent(t.Context(), now) != nil {
 			t.Fatalf("founder slot %s lost exact source proof", slot)
+		}
+		recoveredSeed, err := bootstrap.LoadSeedStartupAuthority(t.Context(), authority, now)
+		if err != nil || recoveredSeed.Digest() != seed.Digest() {
+			t.Fatalf("founder seed recovery from %s: %v", slot, err)
 		}
 		if slot == value.SeedSlot {
 			if _, err := plan.InitialManagedPeerIntent(slot, now); err == nil {
@@ -74,6 +79,10 @@ func assertDerivedFounderAuthority(t *testing.T, source *ColdStartMaterial, seed
 	public, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
+	}
+	peerPublic, err := base64.StdEncoding.Strict().DecodeString(source.Record().Public.PeerSignerPublicKey)
+	if err != nil || seed.VerifyPeerKey(ed25519.PublicKey(peerPublic)) != nil || seed.VerifyPeerKey(public) == nil {
+		t.Fatal("founder peer signing key lost source inventory binding")
 	}
 	wrongRoots, err := trust.ParseKeyring(public)
 	if err != nil {
