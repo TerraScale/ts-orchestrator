@@ -26,6 +26,7 @@ type Scope struct {
 
 type Resource struct {
 	ID, Cell, CompartmentID, LifecycleState string
+	OperationID, RecipeSHA256               string
 	MonthlyCents                            uint64
 }
 
