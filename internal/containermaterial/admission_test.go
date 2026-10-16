@@ -1,9 +1,16 @@
 package containermaterial
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
@@ -11,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/ca"
 )
 
 // These checks isolate recipient selection; they do not manufacture a trusted
@@ -75,12 +83,14 @@ func TestTaskAssignmentRejectsChangesDuringVerification(t *testing.T) {
 	if err := verifyTaskAssignment(task, binding); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"reassigned", "shutdown", "failed", "resource drift", "removed"} {
+	for _, name := range []string{"reassigned", "unassigned", "shutdown", "failed", "resource drift", "removed"} {
 		t.Run(name, func(t *testing.T) {
 			current := task.Copy()
 			switch name {
 			case "reassigned":
 				current.NodeID = "replacement"
+			case "unassigned":
+				current.Status.State = api.TaskStatePending
 			case "shutdown":
 				current.DesiredState = api.TaskStateShutdown
 			case "failed":
@@ -99,7 +109,22 @@ func TestTaskAssignmentRejectsChangesDuringVerification(t *testing.T) {
 
 func TestTaskNodeRejectsChangesDuringVerification(t *testing.T) {
 	binding := host.ContainerMaterialBinding{NodeID: "node1", HostID: "controller-b", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.manager", Region: "sa-saopaulo-1"}
-	node := &api.Node{ID: binding.NodeID, Role: api.NodeRoleManager, Certificate: api.Certificate{Role: api.NodeRoleManager},
+	now := time.Now().UTC()
+	issue := func(nodeID, role string, notBefore, notAfter time.Time) []byte {
+		t.Helper()
+		public, private, err := ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: nodeID, OrganizationalUnit: []string{role}}, NotBefore: notBefore, NotAfter: notAfter}
+		wire, err := x509.CreateCertificate(rand.Reader, template, template, public, private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: wire})
+	}
+	node := &api.Node{ID: binding.NodeID, Role: api.NodeRoleManager, Certificate: api.Certificate{Role: api.NodeRoleManager, CN: binding.NodeID,
+		Status: api.IssuanceStatus{State: api.IssuanceStateIssued}, Certificate: issue(binding.NodeID, ca.ManagerRole, now.Add(-time.Minute), now.Add(time.Minute))},
 		Spec: api.NodeSpec{Membership: api.NodeMembershipAccepted, Availability: api.NodeAvailabilityActive, DesiredRole: api.NodeRoleManager,
 			Annotations: api.Annotations{Name: binding.HostID, Labels: map[string]string{swarmruntime.LabelInstanceID: binding.InstanceID,
 				swarmruntime.LabelRegion: binding.Region, swarmruntime.LabelExecutionScope: "platform"}}},
@@ -107,7 +132,18 @@ func TestTaskNodeRejectsChangesDuringVerification(t *testing.T) {
 	if err := verifyTaskNode(node, binding, "arm64"); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"drained", "down", "revoked", "certificate role changed", "platform changed"} {
+	renewed := node.Copy()
+	renewed.Certificate.Certificate = issue(binding.NodeID, ca.ManagerRole, now.Add(-time.Minute), now.Add(2*time.Minute))
+	if err := verifyTaskNode(renewed, binding, "arm64"); err != nil {
+		t.Fatalf("current same-identity certificate renewal rejected: %v", err)
+	}
+	worker := node.Copy()
+	worker.Role, worker.Spec.DesiredRole, worker.Certificate.Role = api.NodeRoleWorker, api.NodeRoleWorker, api.NodeRoleWorker
+	worker.Certificate.Certificate = issue(binding.NodeID, ca.WorkerRole, now.Add(-time.Minute), now.Add(time.Minute))
+	if err := verifyTaskNode(worker, binding, "arm64"); err != nil {
+		t.Fatalf("current worker certificate rejected: %v", err)
+	}
+	for _, name := range []string{"drained", "down", "revoked", "certificate role changed", "platform changed", "certificate pending", "certificate CN changed", "certificate subject changed", "certificate OU changed", "certificate expired", "certificate not yet valid", "certificate missing"} {
 		t.Run(name, func(t *testing.T) {
 			current := node.Copy()
 			switch name {
@@ -121,6 +157,20 @@ func TestTaskNodeRejectsChangesDuringVerification(t *testing.T) {
 				current.Certificate.Role = api.NodeRoleWorker
 			case "platform changed":
 				current.Description.Platform.Architecture = "amd64"
+			case "certificate pending":
+				current.Certificate.Status.State = api.IssuanceStatePending
+			case "certificate CN changed":
+				current.Certificate.CN = "replacement"
+			case "certificate subject changed":
+				current.Certificate.Certificate = issue("replacement", ca.ManagerRole, now.Add(-time.Minute), now.Add(time.Minute))
+			case "certificate OU changed":
+				current.Certificate.Certificate = issue(binding.NodeID, ca.WorkerRole, now.Add(-time.Minute), now.Add(time.Minute))
+			case "certificate expired":
+				current.Certificate.Certificate = issue(binding.NodeID, ca.ManagerRole, now.Add(-time.Hour), now.Add(-time.Minute))
+			case "certificate not yet valid":
+				current.Certificate.Certificate = issue(binding.NodeID, ca.ManagerRole, now.Add(time.Minute), now.Add(time.Hour))
+			case "certificate missing":
+				current.Certificate.Certificate = nil
 			}
 			if err := verifyTaskNode(current, binding, "arm64"); !errors.Is(err, ErrPending) {
 				t.Fatalf("changed node admission accepted: %v", err)
