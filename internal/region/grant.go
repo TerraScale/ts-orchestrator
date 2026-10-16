@@ -274,7 +274,11 @@ func (s *SignedFootprint) bootstrapIntent(ctx context.Context, cell string) (Ver
 			if hasFoundationReference(startup) && header.SchemaVersion != 2 {
 				return VerifiedBootstrapIntent{}, nil, errors.New("logical startup requires schema-2 foundation authority")
 			}
-			image, err = s.verifyStartupIntent(startup, config)
+			if hasFoundationReference(startup) {
+				image, err = s.verifyStartupIntent(startup, config)
+			} else {
+				image, err = s.verifyStartup(startup, config, intent.Plan)
+			}
 			if err != nil {
 				return VerifiedBootstrapIntent{}, nil, err
 			}
