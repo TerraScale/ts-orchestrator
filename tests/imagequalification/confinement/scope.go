@@ -119,7 +119,7 @@ func RequiredStatements(s Scope) []string {
 		// GetConsoleHistoryContent as ShowConsoleHistoryData, so permit both names.
 		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "ListBootVolumeAttachments", "ListImageShapeCompatibilityEntries", "GetWorkRequest", "GetConsoleHistory", "GetConsoleHistoryContent", "ShowConsoleHistoryData", "DeleteConsoleHistory", "TerminateInstance", "DeleteImage"),
 		statement("inspect volume-attachments", "", s.CleanupUntil, "ListBootVolumeAttachments"),
-		statement("inspect volumes", "", s.CleanupUntil, "GetBootVolume"),
+		statement("inspect volumes", "", s.CleanupUntil, "GetBootVolume", "ListBootVolumeAttachments"),
 		statement("manage compute-image-capability-schema", "", s.ExpiresAt, "CreateComputeImageCapabilitySchema"),
 		statement("manage compute-image-capability-schema", "", s.CleanupUntil, "ListComputeImageCapabilitySchemas", "GetComputeImageCapabilitySchema", "DeleteComputeImageCapabilitySchema"),
 		fmt.Sprintf("Allow group id %s to read compute-global-image-capability-schema in tenancy where all {request.utc-timestamp < '%s', request.operation='ListComputeGlobalImageCapabilitySchemas'}", s.Group, s.ExpiresAt.UTC().Format(time.RFC3339)),
