@@ -193,6 +193,113 @@ func (s *bindingScenario) publish() {
 	}
 }
 
+func newNATBindingScenario(t *testing.T) *bindingScenario {
+	t.Helper()
+	s := newBindingScenario(t)
+	const id = "ocid1.natgateway.oc1.us-sanjose-1.private"
+	s.intent.Plan["resource_ids"].(map[string]any)["nat_gateway"] = nil
+	s.intent.Plan["network_security"] = map[string]any{"route_rules": []any{
+		map[string]any{"destination": "all-sjc-services-in-oracle-services-network", "destination_type": "SERVICE_CIDR_BLOCK", "network_entity_id": "{service_gateway_id}"},
+		map[string]any{"destination": "0.0.0.0/0", "destination_type": "CIDR_BLOCK", "network_entity_id": "{nat_gateway_id}"},
+	}}
+	s.record.ResourceIDs["nat_gateway"] = id
+	proof := s.record.ResourceProvenance["subnet"]
+	proof.ResourceID, proof.Create.Request.Key = id, "nat_gateway"
+	s.record.ResourceProvenance["nat_gateway"] = proof
+	s.live["/20160918/natGateways/"+id] = map[string]any{"id": id, "compartmentId": s.record.ResourceIDs["network_compartment"], "vcnId": s.record.ResourceIDs["vcn"], "lifecycleState": "AVAILABLE", "blockTraffic": false}
+	s.publish()
+	return s
+}
+
+func TestLogicalNATBindingRequiresSignedRecipeBirthAndFreshSDK(t *testing.T) {
+	s := newNATBindingScenario(t)
+	reference, err := Reference("SFO", "nat_gateway")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.authority.Keys = []string{"nat_gateway"}
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id, err := verified.Resolve(reference); err != nil || id != s.record.ResourceIDs["nat_gateway"] {
+		t.Fatalf("signed NAT binding lost its original identity: %s %v", id, err)
+	}
+	if s.reads["/20160918/natGateways/"+s.record.ResourceIDs["nat_gateway"]] != 1 || s.reads["/20160918/vcns/"+s.record.ResourceIDs["vcn"]] != 1 || s.reads["/20160918/compartments/"+s.record.ResourceIDs["network_compartment"]] != 1 {
+		t.Fatalf("NAT binding did not observe its exact network dependencies: %v", s.reads)
+	}
+	s.live["/20160918/natGateways/"+s.record.ResourceIDs["nat_gateway"]]["blockTraffic"] = true
+	if verified.Revalidate(t.Context()) == nil {
+		t.Fatal("blocked live NAT retained a signed egress binding")
+	}
+	for _, scenario := range []string{"no signed slot", "wrong default route", "missing birth", "missing VCN birth", "pending create", "wrong kind", "wrong live id", "wrong compartment", "wrong VCN", "unavailable", "missing blockTraffic", "blocked", "ingress route table"} {
+		t.Run(scenario, func(t *testing.T) {
+			s := newNATBindingScenario(t)
+			s.authority.Keys = []string{"nat_gateway"}
+			row := s.live["/20160918/natGateways/"+s.record.ResourceIDs["nat_gateway"]]
+			switch scenario {
+			case "no signed slot":
+				delete(s.intent.Plan["resource_ids"].(map[string]any), "nat_gateway")
+				s.publish()
+			case "wrong default route":
+				s.intent.Plan["network_security"].(map[string]any)["route_rules"].([]any)[1].(map[string]any)["destination"] = "10.42.0.0/16"
+				s.publish()
+			case "missing birth":
+				delete(s.record.ResourceProvenance, "nat_gateway")
+			case "missing VCN birth":
+				delete(s.record.ResourceProvenance, "vcn")
+			case "pending create":
+				s.record.PendingCreates = map[string]pendingCreate{"nat_gateway": s.record.ResourceProvenance["nat_gateway"].Create}
+			case "wrong kind":
+				s.record.ResourceIDs["nat_gateway"] = s.record.ResourceIDs["subnet"]
+				proof := s.record.ResourceProvenance["nat_gateway"]
+				proof.ResourceID = s.record.ResourceIDs["nat_gateway"]
+				s.record.ResourceProvenance["nat_gateway"] = proof
+			case "wrong live id":
+				row["id"] = "ocid1.natgateway.oc1.us-sanjose-1.foreign"
+			case "wrong compartment":
+				row["compartmentId"] = s.record.ResourceIDs["control_compartment"]
+			case "wrong VCN":
+				row["vcnId"] = "ocid1.vcn.oc1.us-sanjose-1.foreign"
+			case "unavailable":
+				row["lifecycleState"] = "PROVISIONING"
+			case "missing blockTraffic":
+				delete(row, "blockTraffic")
+			case "blocked":
+				row["blockTraffic"] = true
+			case "ingress route table":
+				row["routeTableId"] = "ocid1.routetable.oc1.us-sanjose-1.ingress"
+			}
+			if _, err := Verify(t.Context(), s.factory, s.authority, s.wire); err == nil {
+				t.Fatal("NAT authorization accepted a changed recipe, missing birth or foreign SDK state")
+			}
+		})
+	}
+}
+
+func TestLogicalNATBindingRetainsPinnedDependencyAndEarlyControlScope(t *testing.T) {
+	s := newNATBindingScenario(t)
+	s.intent.Plan["resource_ids"].(map[string]any)["nat_gateway"] = s.record.ResourceIDs["nat_gateway"]
+	delete(s.record.ResourceProvenance, "nat_gateway")
+	s.publish()
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verified.Resolve("foundation:SFO:nat_gateway"); err == nil {
+		t.Fatal("exact pinned NAT dependency became a logical authorization without birth evidence")
+	}
+	if s.reads["/20160918/natGateways/"+s.record.ResourceIDs["nat_gateway"]] != 1 {
+		t.Fatal("pinned NAT dependency escaped fresh SDK observation")
+	}
+	s.authority.Keys = []string{"control_compartment"}
+	delete(s.live, "/20160918/natGateways/"+s.record.ResourceIDs["nat_gateway"])
+	delete(s.live, "/20160918/vcns/"+s.record.ResourceIDs["vcn"])
+	if _, err := Verify(t.Context(), s.factory, s.authority, s.wire); err != nil {
+		t.Fatalf("early control-only allocation waited for unrelated network creation: %v", err)
+	}
+}
+
 func TestLogicalBindingsReadSignedGrantPersistedBirthAndFreshOCI(t *testing.T) {
 	s := newBindingScenario(t)
 	s.grant.ReleaseAuthorities = jsontext.Value(`[{"service":"terrabase"}]`)

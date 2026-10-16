@@ -33,7 +33,7 @@ func Parse(reference string) (cell, key string, err error) {
 
 func referenceKey(key string) bool {
 	switch key {
-	case "control_compartment", "network_compartment", "workload_compartment", "subnet", "network_security_group", "workload_network_security_group", "vault", "key":
+	case "control_compartment", "network_compartment", "workload_compartment", "subnet", "nat_gateway", "network_security_group", "workload_network_security_group", "vault", "key":
 		return true
 	}
 	return false

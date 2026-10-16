@@ -255,6 +255,18 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if err := collectReferences(signed, authority.Cell, requested); err != nil {
 		return VerifiedBindings{}, err
 	}
+	pins := selected.Plan["resource_ids"].(map[string]any)
+	if nat, declared := pins["nat_gateway"]; declared {
+		if !fixedNATRoute(selected.Plan) {
+			return VerifiedBindings{}, errors.New("signed NAT role lacks its fixed private default route")
+		}
+		if nat == nil || nat == "" {
+			requested["nat_gateway"] = true
+		}
+	}
+	if requested["nat_gateway"] && !fixedNATRoute(selected.Plan) {
+		return VerifiedBindings{}, errors.New("signed NAT reference lacks its fixed private default route")
+	}
 	if len(approved.InfrastructureSpend) != 0 && string(approved.InfrastructureSpend) != "null" {
 		pins := selected.Plan["resource_ids"].(map[string]any)
 		for _, key := range []string{"control_compartment", "network_compartment", "workload_compartment"} {
@@ -291,7 +303,7 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	if err := validateRecord(current, approved, authority, selectedDigest, selected.Plan, requested); err != nil {
 		return VerifiedBindings{}, err
 	}
-	needed := dependencyClosure(requested)
+	needed := dependencyClosure(requested, selected.Plan)
 	current.ResourceIDs = maps.Clone(current.ResourceIDs)
 	maps.DeleteFunc(current.ResourceIDs, func(key, _ string) bool { return !needed[key] })
 	if err := observe(ctx, factory, selected.Plan, current); err != nil {
@@ -392,7 +404,7 @@ func validateRecord(current record, approved grant, authority Authority, intentD
 	default:
 		return errors.New("foundation record is neither active nor reconciled")
 	}
-	needed := dependencyClosure(requested)
+	needed := dependencyClosure(requested, plan)
 	pins := plan["resource_ids"].(map[string]any)
 	for key := range needed {
 		if _, pending := current.PendingCreates[key]; pending {
@@ -442,6 +454,8 @@ func observe(ctx context.Context, factory *ociclient.Factory, plan map[string]an
 			kind, region = "compartment", ""
 		case "network_security_group", "workload_network_security_group":
 			kind = "networksecuritygroup"
+		case "nat_gateway":
+			kind = "natgateway"
 		}
 		if !resourceID(id, kind, region) || pins[key] != nil && pins[key] != "" && pins[key] != id {
 			return fmt.Errorf("foundation %s differs from its signed resource role", key)
@@ -486,6 +500,16 @@ func observe(ctx context.Context, factory *ociclient.Factory, plan map[string]an
 		}
 		if value(vcn.Id) != ids["vcn"] || value(vcn.CompartmentId) != ids["network_compartment"] || value(vcn.CidrBlock) != networkCIDR || vcn.LifecycleState != core.VcnLifecycleStateAvailable {
 			return errors.New("foundation VCN differs from signed network role")
+		}
+	}
+	if ids["nat_gateway"] != "" {
+		nat, err := network.GetNatGateway(ociclient.RequestContext(ctx), core.GetNatGatewayRequest{NatGatewayId: new(ids["nat_gateway"])})
+		if err != nil {
+			return fmt.Errorf("read foundation NAT gateway: %w", err)
+		}
+		if value(nat.Id) != ids["nat_gateway"] || value(nat.CompartmentId) != ids["network_compartment"] || value(nat.VcnId) != ids["vcn"] ||
+			nat.LifecycleState != core.NatGatewayLifecycleStateAvailable || nat.BlockTraffic == nil || *nat.BlockTraffic || nat.RouteTableId != nil {
+			return errors.New("foundation NAT gateway differs from signed private network role")
 		}
 	}
 	if ids["subnet"] != "" {
@@ -591,12 +615,15 @@ func sameID(ids map[string]string, left, right string) bool {
 	return ids[left] != "" && ids[left] == ids[right]
 }
 
-func dependencyClosure(requested map[string]bool) map[string]bool {
+func dependencyClosure(requested map[string]bool, plan map[string]any) map[string]bool {
 	needed := maps.Clone(requested)
 	for key := range requested {
 		switch key {
-		case "subnet", "network_security_group", "workload_network_security_group":
+		case "subnet", "nat_gateway", "network_security_group", "workload_network_security_group":
 			needed["network_compartment"], needed["vcn"] = true, true
+			if fixedNATRoute(plan) {
+				needed["nat_gateway"] = true
+			}
 		case "vault":
 			needed["control_compartment"] = true
 		case "key":
@@ -604,6 +631,20 @@ func dependencyClosure(requested map[string]bool) map[string]bool {
 		}
 	}
 	return needed
+}
+
+func fixedNATRoute(plan map[string]any) bool {
+	ids, _ := plan["resource_ids"].(map[string]any)
+	if _, declared := ids["nat_gateway"]; !declared {
+		return false
+	}
+	security, _ := plan["network_security"].(map[string]any)
+	routes, _ := security["route_rules"].([]any)
+	if len(routes) < 2 {
+		return false
+	}
+	route, _ := routes[1].(map[string]any)
+	return len(route) == 3 && route["destination"] == "0.0.0.0/0" && route["destination_type"] == "CIDR_BLOCK" && route["network_entity_id"] == "{nat_gateway_id}"
 }
 
 func collectReferences(value any, cell string, requested map[string]bool) error {
