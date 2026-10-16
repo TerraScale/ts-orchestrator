@@ -10,6 +10,8 @@ import (
 	"encoding/json/v2"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"slices"
 	"strings"
@@ -34,6 +36,7 @@ import (
 type releaseSigner struct {
 	roots      trust.Keyring
 	delegation trust.Envelope
+	root       ed25519.PrivateKey
 	leaf       ed25519.PrivateKey
 	now        time.Time
 }
@@ -74,7 +77,7 @@ func newReleaseSigner(t *testing.T) releaseSigner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return releaseSigner{roots: roots, delegation: delegation, leaf: leafPrivate, now: now}
+	return releaseSigner{roots: roots, delegation: delegation, root: rootPrivate, leaf: leafPrivate, now: now}
 }
 
 // services is a controller's view of the signer's root.
@@ -91,6 +94,21 @@ func (s releaseSigner) services(t *testing.T) *specRegistry {
 // channel signs binary as CI run run for cell, as ts-orch release deploy
 // does: binary is this machine's architecture, the other one differs.
 func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []byte) releasechannel.Channel {
+	t.Helper()
+	return s.channelWithSequence(t, cell, run, binary, 0, "")
+}
+
+func (s releaseSigner) channelSequenced(t *testing.T, cell string, run int64, binary []byte, sequence uint64, migration []byte) releasechannel.Channel {
+	t.Helper()
+	if sequence == 0 {
+		t.Fatal("sequenced channel requires a positive release sequence")
+	}
+	channel := s.channelWithSequence(t, cell, run, binary, sequence, digestOf(migration))
+	channel.ReleaseSequence, channel.SequenceMigration = sequence, bytes.Clone(migration)
+	return channel
+}
+
+func (s releaseSigner) channelWithSequence(t *testing.T, cell string, run int64, binary []byte, sequence uint64, migrationSHA256 string) releasechannel.Channel {
 	t.Helper()
 	revision := fmt.Sprintf("%040x", run)
 	binaries := map[string][]byte{}
@@ -124,14 +142,23 @@ func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []by
 	machines := map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}
 	for _, architecture := range []string{"amd64", "arm64"} {
 		machine := machines[architecture]
-		receipt, err := release.SignBinaryUpdateReceipt(release.BinaryReceipt{Schema: release.BinarySchema,
+		binaryReceipt := release.BinaryReceipt{Schema: release.BinarySchema,
 			SourceRevision: revision, GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: architecture,
 			ELFMachine: machine, Static: true, Bytes: int64(len(binaries[architecture])),
-			SHA256: digestOf(binaries[architecture]), QualificationSHA256: qualificationDigest}, qualification,
-			qualificationDigest, cell, "production", anyLineage{}, s.delegation, s.roots, s.leaf, s.now, 24*time.Hour)
+			SHA256: digestOf(binaries[architecture]), QualificationSHA256: qualificationDigest}
+		var receipt trust.Envelope
+		if sequence == 0 {
+			receipt, err = release.SignBinaryUpdateReceipt(binaryReceipt, qualification,
+				qualificationDigest, cell, "production", anyLineage{}, s.delegation, s.roots, s.leaf, s.now, 24*time.Hour)
+		} else {
+			receipt, err = release.SignBinaryUpdateReceiptSequenced(binaryReceipt, qualification,
+				qualificationDigest, cell, "production", anyLineage{}, s.delegation, s.roots, s.leaf, s.now, 24*time.Hour,
+				sequence, migrationSHA256)
+		}
 		if err != nil {
 			t.Fatal(err)
 		}
+		receipt = s.qualify(t, receipt, cell, architecture)
 		receiptWire, err := trust.EncodeEnvelope(receipt)
 		if err != nil {
 			t.Fatal(err)
@@ -139,6 +166,70 @@ func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []by
 		channel.Receipts = append(channel.Receipts, receiptWire)
 	}
 	return channel
+}
+
+// qualify binds a separate root signature to retained evidence for this binary.
+func (s releaseSigner) qualify(t *testing.T, receipt trust.Envelope, cell, architecture string) trust.Envelope {
+	t.Helper()
+	var update release.BinaryUpdateReceipt
+	if err := json.Unmarshal(receipt.Payload, &update); err != nil {
+		t.Fatal(err)
+	}
+	candidate := release.ProductionExpectation{SourceRevision: update.Binary.SourceRevision,
+		ArtifactSHA256: update.Binary.SHA256, QualificationSHA256: update.Binary.QualificationSHA256,
+		Cell: cell, Environment: "production", Runtime: release.ProductionRuntime, Architecture: architecture, Role: "orchestrator"}
+	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate}
+	directory := t.TempDir()
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		data, err := json.Marshal(struct {
+			Gate      string
+			Candidate release.ProductionExpectation
+		}{gate, candidate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		digest := digestOf(data)
+		path := filepath.Join(directory, digest)
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		retained, err := os.ReadFile(path)
+		if err != nil || len(retained) != len(data) || digestOf(retained) != digest {
+			t.Fatalf("retained %s evidence differs from candidate bytes: %v", gate, err)
+		}
+		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{
+			Gate: gate, SHA256: digest, Bytes: int64(len(retained)), CompletedAt: s.now.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), s.now, s.now.Add(24*time.Hour), s.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire, err := trust.EncodeEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofPath := filepath.Join(directory, "qualification.json")
+	if err := os.WriteFile(proofPath, wire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	retained, err := os.ReadFile(proofPath)
+	if err != nil || !bytes.Equal(retained, wire) {
+		t.Fatalf("retained qualification differs from signed proof: %v", err)
+	}
+	delegation, err := trust.EncodeEnvelope(s.delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qualified, err := release.AttachProductionQualification(receipt, release.ProductionProof{Qualification: retained}, delegation,
+		s.roots, s.leaf, release.UpdateExpectation{Cell: cell, Environment: "production", Architecture: architecture}, s.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return qualified
 }
 
 // channelBucket is an in-memory head bucket with ETag preconditions.
