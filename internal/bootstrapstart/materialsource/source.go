@@ -221,7 +221,7 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 		etag, err := source.write(ctx, next, source.etag)
 		if err != nil {
 			clear(next.Journal)
-			return err
+			return fmt.Errorf("checkpoint publication journal: %w", err)
 		}
 		clear(source.state.Journal)
 		source.state.Journal = next.Journal
@@ -423,10 +423,10 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 
 func (source *ColdStartMaterial) write(ctx context.Context, state materialSourceState, etag string) (string, error) {
 	if err := source.authorize(ctx); err != nil {
-		return "", err
+		return "", fmt.Errorf("authorize source write: %w", err)
 	}
 	if state.Actor.InstanceID != source.actor.InstanceID() || source.state.Actor.InstanceID != "" && state.Actor != source.state.Actor || source.state.Actor.InstanceID == "" && state.Actor != source.currentActor() {
-		return "", ErrMaterialSource
+		return "", fmt.Errorf("%w: source write actor differs", ErrMaterialSource)
 	}
 	ctx = ociclient.WithAuthority(ctx, source.guard)
 	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) || source.link != nil && source.link.verify(ctx) != nil {
@@ -454,7 +454,7 @@ func (source *ColdStartMaterial) write(ctx context.Context, state materialSource
 	actual, err := json.Marshal(current, json.Deterministic(true))
 	defer clear(actual)
 	if err != nil || !bytes.Equal(actual, wire) {
-		return "", ErrMaterialSource
+		return "", fmt.Errorf("%w: source write readback differs", ErrMaterialSource)
 	}
 	return currentETag, nil
 }

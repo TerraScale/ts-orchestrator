@@ -109,7 +109,7 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 		return fmt.Errorf("%w: source read: %w", ErrMaterialSource, err)
 	}
 	if state.Reference != source.state.Reference || state.Reference.SecretOCID == "" {
-		return ErrMaterialSource
+		return fmt.Errorf("%w: source escrow reference changed", ErrMaterialSource)
 	}
 	if _, err := source.loadRecord(source.directory); err != nil {
 		return err
@@ -119,7 +119,7 @@ func (source *ColdStartMaterial) verifySource(ctx context.Context) error {
 		same := err == nil && bytes.Equal(actual, expected)
 		clear(actual)
 		if !same {
-			return ErrMaterialSource
+			return fmt.Errorf("%w: restored source file %s differs", ErrMaterialSource, name)
 		}
 	}
 	return nil
@@ -148,7 +148,7 @@ func (source *ColdStartMaterial) loadRecord(directory string) (bootstrapmaterial
 		return bootstrapmaterial.Record{}, errors.Join(ErrMaterialSource, err)
 	}
 	if record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != regional.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
-		return bootstrapmaterial.Record{}, ErrMaterialSource
+		return bootstrapmaterial.Record{}, fmt.Errorf("%w: Link record differs from source binding", ErrMaterialSource)
 	}
 	if err := source.validateLedger(record.Record); err != nil {
 		return bootstrapmaterial.Record{}, err
