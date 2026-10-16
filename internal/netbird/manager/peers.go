@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
 )
 
 // DefaultOfflineFor is how long an unattributed server peer may stay
@@ -259,4 +261,77 @@ func boolOrder(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+// admittedPeerRecords uses only the managed admission group, never a matching
+// hostname in an operator group. Offline membership survives health outages.
+func admittedPeerRecords(d Desired, peers []apiPeer, groups []apiGroup) ([]Record, error) {
+	var spec GroupSpec
+	for _, candidate := range d.Groups {
+		if candidate.Name == d.ServersGroup {
+			spec = candidate
+			break
+		}
+	}
+	group, err := matchName(groups, func(g apiGroup) string { return g.Name }, spec.Name, spec.RenamedFrom, "group")
+	if err != nil {
+		return nil, err
+	}
+	if group == nil {
+		return nil, nil
+	}
+	if group.ID == "" || group.Issued != "api" {
+		return nil, errors.New("NetBird DNS requires an API-owned server admission group")
+	}
+	region, _, _ := strings.Cut(d.Cell, "-")
+	mesh := netip.MustParsePrefix(d.NetworkRange)
+	selected := map[string]apiPeer{}
+	for _, peer := range peers {
+		if !hasGroup(peer.Groups, group.ID) {
+			continue
+		}
+		if err := naming.Validate(peer.Name); err != nil || strings.HasSuffix(peer.Name, "-data") ||
+			(!naming.IsNode(peer.Name, region) && !strings.HasPrefix(peer.Name, d.Cell+"-")) {
+			return nil, fmt.Errorf("admitted NetBird peer %q has no canonical identity in %s", peer.Name, d.Cell)
+		}
+		ip, err := netip.ParseAddr(peer.IP)
+		if err != nil || !ip.Is4() || ip.String() != peer.IP || !mesh.Contains(ip) {
+			return nil, fmt.Errorf("admitted NetBird peer %s has no address in %s", peer.Name, d.NetworkRange)
+		}
+		old, exists := selected[peer.Name]
+		if exists && old.Connected && peer.Connected {
+			return nil, fmt.Errorf("several connected admitted peers are named %s", peer.Name)
+		}
+		if !exists || peer.Connected || !old.Connected && peer.LastSeen.After(old.LastSeen) {
+			selected[peer.Name] = peer
+		}
+	}
+	var records []Record
+	addresses := map[string]string{}
+	for _, peer := range selected {
+		if other := addresses[peer.IP]; other != "" {
+			return nil, fmt.Errorf("admitted NetBird peers %s and %s share %s", other, peer.Name, peer.IP)
+		}
+		addresses[peer.IP] = peer.Name
+		label, role := peer.Name, ""
+		for _, slot := range d.Slots {
+			if d.PeerName(slot) == peer.Name {
+				label, role = slot.Name, slot.Role
+				break
+			}
+		}
+		records = append(records, Record{label + "." + d.Zone.Domain, peer.IP})
+		for alias, target := range d.RoleAliases {
+			if role == target {
+				records = append(records, Record{alias + "." + d.Zone.Domain, peer.IP})
+			}
+		}
+	}
+	slices.SortFunc(records, func(a, b Record) int {
+		if n := strings.Compare(a.Name, b.Name); n != 0 {
+			return n
+		}
+		return strings.Compare(a.Content, b.Content)
+	})
+	return records, nil
 }

@@ -29,7 +29,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := Run(t.Context(), []string{"sync", "--apply", "--management-url", f.server.URL}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+7 {
+	if len(f.policies) != len(GRU().Policies)+8 {
 		t.Fatalf("SFO access policies: %d", len(f.policies))
 	}
 	// A new empty region is seen on the next controller cycle, before its
@@ -41,7 +41,7 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 	if err := loop.cycle(t.Context(), map[string]bool{}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.policies) != len(GRU().Policies)+14 {
+	if len(f.policies) != len(GRU().Policies)+16 {
 		t.Fatalf("new region access policies: %d", len(f.policies))
 	}
 	for group, groupID := range map[string]string{"sfo-servers": sfo, "fra-servers": fra} {
@@ -51,8 +51,9 @@ func TestSyncDiscoversRegionalGroupsWithoutNATSOrPeerHealth(t *testing.T) {
 		}{
 			{"operators-to-" + group + "-ssh", "netbird-ssh", nil, []string{ids.operators}, []string{groupID}},
 			{"ops-automation-to-" + group + "-ssh", "netbird-ssh", nil, []string{f.groupByName("ops-automation").ID}, []string{groupID}},
-			{"gru-servers-to-" + group + "-fabric", "tcp", []string{"7422", "9443"}, []string{ids.servers}, []string{groupID}},
-			{group + "-to-gru-servers-fabric", "tcp", []string{"7422", "9443"}, []string{groupID}, []string{ids.servers}},
+			{"gru-servers-to-" + group + "-terrabase", "tcp", []string{"9443"}, []string{ids.servers}, []string{groupID}},
+			{group + "-to-gru-servers-terrabase", "tcp", []string{"9443"}, []string{groupID}, []string{ids.servers}},
+			{group + "-to-gru-servers-fabric", "tcp", []string{"7422"}, []string{groupID}, []string{ids.servers}},
 			{"operators-to-" + group + "-dashboard", "tcp", []string{"9463"}, []string{ids.operators, f.groupByName("ops-automation").ID}, []string{groupID}},
 			{group + "-to-" + group + "-ping", "icmp", nil, []string{groupID}, []string{groupID}},
 			{group + "-to-" + group + "-service-health", "tcp", []string{"4222", "8080", "9465"}, []string{groupID}, []string{groupID}},
