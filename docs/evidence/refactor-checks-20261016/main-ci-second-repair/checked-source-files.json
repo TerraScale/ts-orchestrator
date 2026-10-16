@@ -1,0 +1,30 @@
+{
+  "baseline": "7296e88948ac4cc98d7fcc0065ac5ac011ab1ba3",
+  "integrated_code": "e0960e386aec6b5101f99d5581794e69dccde705",
+  "files": {
+    "internal/app/rollout_channel_e2e_test.go": {
+      "checked_commit": "891fc3132d998a49197eca83561bd649557ad992",
+      "sha256": "8e3daa9ac8f0d90ef027df29ccd1aed787630d99d7b5de29ec179e5f3ac15675",
+      "bytes": 7005,
+      "matches": true
+    },
+    "internal/app/rollout_e2e_test.go": {
+      "checked_commit": "891fc3132d998a49197eca83561bd649557ad992",
+      "sha256": "84337b83225caada5c3b74236de6c87a789984cd907246b0101aa5e858e56859",
+      "bytes": 20572,
+      "matches": true
+    },
+    "internal/terrabase/restore_namespace_test.go": {
+      "checked_commit": "3231f2946e30425c1d19efe397bbb68d92becdc6",
+      "sha256": "4b20896011c1be75df3a64e2be99e01f4a607e2b5ec2ea04ab4b17c9985a2797",
+      "bytes": 5222,
+      "matches": true
+    },
+    "internal/release/cli/apply_integration_test.go": {
+      "checked_commit": "e84414d0febaf2b8cd17532e5c8e9dfad57e75f3",
+      "sha256": "ec4a14308cc516ac97be81ce9884f7266d5b248eb817d4e7f34304745472d3a1",
+      "bytes": 15738,
+      "matches": true
+    }
+  }
+}

@@ -1,0 +1,1175 @@
+=== RUN   TestReleaseChannelRollsCIReleasesOutRegionByRegion
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  gru component=nats
+2026/10/16 19:04:24 INFO   Name:     gru-gru-ctl-a component=nats
+2026/10/16 19:04:24 INFO   Node:     xcmgq1S4 component=nats
+2026/10/16 19:04:24 INFO   ID:       NAQD6ZJKABTDBCKOQIYJYZQKCI5HM6RWOQIBWBIT3ZOACCLYVVUJQCYB component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/gru-ctl-a/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 11.948444ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:39241 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is gru component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:37929 component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38841: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38841: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  gru component=nats
+2026/10/16 19:04:24 INFO   Name:     gru-gru-ctl-b component=nats
+2026/10/16 19:04:24 INFO   Node:     5z9sQR5C component=nats
+2026/10/16 19:04:24 INFO   ID:       NC5FCKF25EWBQGHQO44MOCOKDAKAOPLWZAUZ5V6LN7QUUF2XZUHMQ5ZT component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/gru-ctl-b/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 7.475295ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:40681 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is gru component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:38841 component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:8 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37308 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37306 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37320 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37336 - rid:12 - Route connection created component=nats
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  gru component=nats
+2026/10/16 19:04:24 INFO   Name:     gru-gru-ctl-c component=nats
+2026/10/16 19:04:24 INFO   Node:     JATa61UO component=nats
+2026/10/16 19:04:24 INFO   ID:       NB35PDACYKS5KGMIMNURXC2RIGUTNB6NEGR3TGBPB7WZF76IAC4AEBME component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/gru-ctl-c/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 10.51529ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:42143 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is gru component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:32911 component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:8 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37364 - rid:13 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:38841 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:38841 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33472 - rid:13 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33464 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37348 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:12 - Route connection created component=nats
+2026/10/16 19:04:24 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:24 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37370 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:38841 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37382 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33474 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:37929 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:38841 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33484 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:24 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:24 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:24 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:24 INFO JetStream cluster new metadata leader: gru-gru-ctl-a/gru component=nats
+2026/10/16 19:04:24 INFO JetStream cluster new metadata leader: gru-gru-ctl-a/gru component=nats
+2026/10/16 19:04:24 INFO Self is new JetStream cluster metadata leader component=nats
+2026/10/16 19:04:24 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+2026/10/16 19:04:24 INFO JetStream cluster new stream leader for '$G > KV_TS_ROLLOUTS' component=nats
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:04:24 INFO JetStream cluster new stream leader for '$G > KV_TS_RELEASE_CHANNEL' component=nats
+2026/10/16 19:04:24 INFO release channel status component=rollout run=0 state=rolling reason="the cell has no release channel"
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:24 INFO authority state transition scope=gru from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  sfo component=nats
+2026/10/16 19:04:24 INFO   Name:     sfo-sfo-ctl-a component=nats
+2026/10/16 19:04:24 INFO   Node:     8RNZafII component=nats
+2026/10/16 19:04:24 INFO   ID:       NBKEM2WZWHZB42PSFU4MDEK6MOFNJBUDH6JJB5XFNLWMADMWDOJXPMZH component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/sfo-ctl-a/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 8.287381ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:39269 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is sfo component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:33855 component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44053: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44053: connect: connection refused component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  sfo component=nats
+2026/10/16 19:04:24 INFO   Name:     sfo-sfo-ctl-b component=nats
+2026/10/16 19:04:24 INFO   Node:     kowtj7k9 component=nats
+2026/10/16 19:04:24 INFO   ID:       NBMEUBMA74Z2WWEXEEG4ZTUUXJWYWV5VVDJWCF5WVHUTEPBT3NWMIISD component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/sfo-ctl-b/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 7.597609ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:33849 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is sfo component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:44053 component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:8 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41562 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41568 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41580 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41594 - rid:12 - Route connection created component=nats
+2026/10/16 19:04:24 INFO Starting nats-server component=nats
+2026/10/16 19:04:24 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:04:24 INFO   Git:      [not set] component=nats
+2026/10/16 19:04:24 INFO   Cluster:  sfo component=nats
+2026/10/16 19:04:24 INFO   Name:     sfo-sfo-ctl-c component=nats
+2026/10/16 19:04:24 INFO   Node:     1yg8ut9a component=nats
+2026/10/16 19:04:24 INFO   ID:       NBZPIKL7TILHUN6MBPGIFGLJSALENO54P2KAYJ36LPMDPSEDGFPR23UL component=nats
+2026/10/16 19:04:24 INFO Starting JetStream component=nats
+2026/10/16 19:04:24 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:04:24 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:04:24 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:04:24 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:04:24 INFO  component=nats
+2026/10/16 19:04:24 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:04:24 INFO   Strict:          true component=nats
+2026/10/16 19:04:24 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:04:24 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:04:24 INFO   Store Directory: "/tmp/TestReleaseChannelRollsCIReleasesOutRegionByRegion3052563649/001/sfo-ctl-c/jetstream" component=nats
+2026/10/16 19:04:24 INFO   API Level:       5 component=nats
+2026/10/16 19:04:24 INFO ------------------------------------------- component=nats
+2026/10/16 19:04:24 INFO Starting JetStream cluster component=nats
+2026/10/16 19:04:24 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:04:24 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:04:24 INFO Took 9.711748ms to start JetStream component=nats
+2026/10/16 19:04:24 INFO Listening for client connections on 127.0.0.1:45151 component=nats
+2026/10/16 19:04:24 INFO Server is ready component=nats
+2026/10/16 19:04:24 INFO Cluster name is sfo component=nats
+2026/10/16 19:04:24 INFO Listening for route connections on 127.0.0.1:44099 component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:8 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:44053 - rid:9 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41618 - rid:13 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:10 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:44053 - rid:11 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41608 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:45410 - rid:13 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:45414 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:12 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41632 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:33855 - rid:14 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:41642 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:44053 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:45430 - rid:15 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:45446 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 INFO 127.0.0.1:44053 - rid:16 - Route connection created component=nats
+2026/10/16 19:04:24 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:24 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:25 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:25 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:25 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:04:25 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:38841 - rid:41 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:42 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:38841 - rid:43 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55416 - rid:33 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:33496 - rid:37 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:33506 - rid:38 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:44 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55432 - rid:34 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:44 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:38841 - rid:41 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:42 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55432 - rid:34 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:38841 - rid:43 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55416 - rid:33 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:33506 - rid:38 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:33496 - rid:37 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:39 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:40 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55434 - rid:35 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55436 - rid:36 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:39 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:32911 - rid:40 - Router connection closed: Duplicate Route - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55434 - rid:35 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:55436 - rid:36 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO JetStream cluster new metadata leader: sfo-sfo-ctl-b/sfo component=nats
+2026/10/16 19:04:25 INFO JetStream cluster new metadata leader: sfo-sfo-ctl-b/sfo component=nats
+2026/10/16 19:04:25 INFO Self is new JetStream cluster metadata leader component=nats
+2026/10/16 19:04:25 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+2026/10/16 19:04:25 INFO JetStream cluster new stream leader for '$G > KV_TS_ROLLOUTS' component=nats
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:04:25 INFO JetStream cluster new stream leader for '$G > KV_TS_RELEASE_CHANNEL' component=nats
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:04:25 INFO authority state transition scope=sfo from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:29 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45762 - rid:33 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:29 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45762 - rid:33 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO release channel status component=rollout run=0 state=rolling reason="the cell has no release channel"
+2026/10/16 19:04:25 INFO 127.0.0.1:44053 - rid:30 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45462 - rid:37 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:31 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44053 - rid:32 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45772 - rid:34 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45458 - rid:38 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:31 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44053 - rid:32 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45772 - rid:34 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44053 - rid:30 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45462 - rid:37 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45458 - rid:38 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45804 - rid:35 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:39 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:40 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:40 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45788 - rid:36 - Route connection created component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45804 - rid:35 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:44099 - rid:39 - Router connection closed: Duplicate Route - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:04:25 INFO 127.0.0.1:45788 - rid:36 - Router connection closed: Client Closed component=nats
+2026/10/16 19:04:26 INFO release channel published a generation component=rollout generation=1 run=1 digest=b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d
+2026/10/16 19:04:26 INFO release channel status component=rollout run=1 state=rolling reason="waiting for the rollout to start"
+2026/10/16 19:04:27 INFO Admitted controller rollout 0000000000KZRSSMVT080S4EF4 of 3 units in 3 waves component=decision event=true decision_id=01M53BXEGCQVPXAT737PZ3ZC32 kind=release_admitted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=pending region=gru reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:04:27 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 pending"
+2026/10/16 19:04:27 INFO Started canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXEKJ4JQHVV25AC94JVCG kind=upgrade_started actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=gru parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:27 INFO Held the canary step of gru-ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXEMQJBH9YJ40MRTJJKVH kind=held actor=rollout subject=member/gru-ctl-b status=pending region=gru reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:27 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=gru-ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:27 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 canary"
+2026/10/16 19:04:28 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXFG3FSC0GCH619427B39 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:28 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXFN2S9VVTDF5CM79V75K kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BXFG3FSC0GCH619427B39
+2026/10/16 19:04:28 INFO Released the canary step of gru-ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXGA5V6ET2GQ0508VC0NT kind=hold_cleared actor=rollout subject=member/gru-ctl-b status=succeeded region=gru reason="Its gate and group peers are healthy again." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:28 INFO Moved gru-ctl-b to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXGA68XSX85WWTAA1FYEQ kind=stage_changed actor=rollout subject=member/gru-ctl-b status=in_progress region=gru reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:28 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 canary-soak"
+2026/10/16 19:04:30 INFO Promoted the canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXHFQNTD30MMTMW7GP3J0 kind=canary_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=gru parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:30 INFO Held the batch step of gru-ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXHH2PGSDG6TGTMKFY8GC kind=held actor=rollout subject=member/gru-ctl-c status=pending region=gru reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:30 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=gru-ctl-c reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:30 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch"
+2026/10/16 19:04:31 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXJFG9NCJGVFVWPWHSX8C kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:31 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXJNA0ADF6FHCMFDZVWBZ kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BXJFG9NCJGVFVWPWHSX8C
+2026/10/16 19:04:31 INFO Released the batch step of gru-ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXKA476TRNCJNWKW1RZH9 kind=hold_cleared actor=rollout subject=member/gru-ctl-c status=succeeded region=gru reason="Its gate and group peers are healthy again." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:31 INFO Moved gru-ctl-c to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXKA476TRNCJNWM1TTRQD kind=stage_changed actor=rollout subject=member/gru-ctl-c status=in_progress region=gru reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:32 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch-soak"
+2026/10/16 19:04:33 INFO Promoted wave 2 of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXMFA6ZGN25KJ5V790ZQA kind=batch_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=gru parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:33 INFO Held the batch step of gru-ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXMGZCPVXMMYF54SQCA2Q kind=held actor=rollout subject=member/gru-ctl-a status=pending region=gru reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:33 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=gru-ctl-a reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:33 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch"
+2026/10/16 19:04:33 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXN8APN4NCTDZ1CQBRZ3S kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:34 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXNDV9JTMJMQHGREX3ZM4 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BXN8APN4NCTDZ1CQBRZ3S
+2026/10/16 19:04:34 INFO Released the batch step of gru-ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXP3MHH510P9Y9VHBN692 kind=hold_cleared actor=rollout subject=member/gru-ctl-a status=succeeded region=gru reason="Its gate and group peers are healthy again." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:34 INFO Moved gru-ctl-a to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXP3N1KX12FMRHGX6SQ6K kind=stage_changed actor=rollout subject=member/gru-ctl-a status=in_progress region=gru reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:35 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch-soak"
+2026/10/16 19:04:36 INFO Completed rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXR77RWJMAQK31EYARGSG kind=rollout_completed actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=succeeded region=gru parent_id=01M53BXEGCQVPXAT737PZ3ZC32
+2026/10/16 19:04:37 INFO release channel status component=rollout run=1 state=complete reason=""
+    rollout_channel_e2e_test.go:96: run 1 gru:
+        GRU waiting for the region to report
+        GRU rolling 0000000000KZRSSMVT080S4EF4 canary
+        GRU rolling 0000000000KZRSSMVT080S4EF4 canary-soak
+        GRU rolling 0000000000KZRSSMVT080S4EF4 batch
+        GRU rolling 0000000000KZRSSMVT080S4EF4 batch-soak
+        GRU rolling 0000000000KZRSSMVT080S4EF4 batch
+        GRU rolling 0000000000KZRSSMVT080S4EF4 batch-soak
+        GRU complete: run 1 0000000000000000000000000000000000000001
+2026/10/16 19:04:38 INFO release channel published a generation component=rollout generation=1 run=1 digest=b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d
+2026/10/16 19:04:39 INFO release channel status component=rollout run=1 state=rolling reason="waiting for the rollout to start"
+2026/10/16 19:04:39 INFO Admitted controller rollout 0000000000KZRSSMVT080S4EF4 of 3 units in 3 waves component=decision event=true decision_id=01M53BXTBQ31NVNBJZQYKS4A6S kind=release_admitted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=pending region=sfo reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:04:39 INFO Started canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXTDG68H15A17K90QR142 kind=upgrade_started actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=sfo parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:39 INFO Held the canary step of sfo-ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXTFMAK9FCF0HEXF7SHDA kind=held actor=rollout subject=member/sfo-ctl-b status=pending region=sfo reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:39 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=sfo-ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:39 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 canary"
+2026/10/16 19:04:39 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXV51D3Z6HFVFAYW4MXT0 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:40 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXV9XEYRMSXZZACH10KVQ kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BXV51D3Z6HFVFAYW4MXT0
+2026/10/16 19:04:40 INFO Released the canary step of sfo-ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXVYPARQ6KEG0M8J0WRFB kind=hold_cleared actor=rollout subject=member/sfo-ctl-b status=succeeded region=sfo reason="Its gate and group peers are healthy again." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:40 INFO Moved sfo-ctl-b to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXVYQFCJ43QKKZNKRNXV9 kind=stage_changed actor=rollout subject=member/sfo-ctl-b status=in_progress region=sfo reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:41 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 canary-soak"
+2026/10/16 19:04:43 INFO Promoted the canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXY6DN8KY0B9GB2KCT4N3 kind=canary_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=sfo parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:43 INFO Held the batch step of sfo-ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BXY955PGE2R24B396C5E2 kind=held actor=rollout subject=member/sfo-ctl-c status=pending region=sfo reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:43 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=sfo-ctl-c reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:43 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch"
+2026/10/16 19:04:44 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXZ8S29331XF7RKB5CM1J kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:44 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BXZD0J9A1S60KQJY3PWB0 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BXZ8S29331XF7RKB5CM1J
+2026/10/16 19:04:45 INFO Released the batch step of sfo-ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY05EZ9K5S5H9CW3Z6K51 kind=hold_cleared actor=rollout subject=member/sfo-ctl-c status=succeeded region=sfo reason="Its gate and group peers are healthy again." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:45 INFO Moved sfo-ctl-c to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY05EZ9K5S5H9CXCV0Q35 kind=stage_changed actor=rollout subject=member/sfo-ctl-c status=in_progress region=sfo reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:45 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch-soak"
+2026/10/16 19:04:47 INFO Promoted wave 2 of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY280G8R0BZ32F274MJPX kind=batch_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=sfo parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:47 INFO Held the batch step of sfo-ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY29Z2Q7EGENB95RZVT9N kind=held actor=rollout subject=member/sfo-ctl-a status=pending region=sfo reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:47 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=sfo-ctl-a reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:47 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch"
+2026/10/16 19:04:47 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BY2W97B69YNZ93PWZC918 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:48 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BY31M8VF89ETK6T3P3Z3V kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BY2W97B69YNZ93PWZC918
+2026/10/16 19:04:48 INFO Released the batch step of sfo-ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY3MW04KB37WTE13X5H1X kind=hold_cleared actor=rollout subject=member/sfo-ctl-a status=succeeded region=sfo reason="Its gate and group peers are healthy again." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:48 INFO Moved sfo-ctl-a to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY3MW04KB37WTE4H7HBQC kind=stage_changed actor=rollout subject=member/sfo-ctl-a status=in_progress region=sfo reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:48 INFO release channel status component=rollout run=1 state=rolling reason="0000000000KZRSSMVT080S4EF4 batch-soak"
+2026/10/16 19:04:50 INFO Completed rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BY5WK4PNHGRP98XXY0SZF kind=rollout_completed actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=succeeded region=sfo parent_id=01M53BXTBQ31NVNBJZQYKS4A6S
+2026/10/16 19:04:51 INFO release channel status component=rollout run=1 state=complete reason=""
+    rollout_channel_e2e_test.go:96: run 1 sfo:
+        SFO waiting for the region to report
+        SFO rolling 0000000000KZRSSMVT080S4EF4 canary
+        SFO rolling 0000000000KZRSSMVT080S4EF4 canary-soak
+        SFO rolling 0000000000KZRSSMVT080S4EF4 batch
+        SFO rolling 0000000000KZRSSMVT080S4EF4 batch-soak
+        SFO rolling 0000000000KZRSSMVT080S4EF4 batch
+        SFO rolling 0000000000KZRSSMVT080S4EF4 batch-soak
+        SFO complete: run 1 0000000000000000000000000000000000000001
+2026/10/16 19:04:52 INFO release channel published a generation component=rollout generation=2 run=2 digest=6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c
+2026/10/16 19:04:53 INFO release channel status component=rollout run=2 state=rolling reason="waiting for the rollout to start"
+2026/10/16 19:04:53 INFO Admitted controller rollout 0000000000289MPGVZDE3122WZ of 3 units in 3 waves component=decision event=true decision_id=01M53BY813XDPHYYW2S6J5BH6J kind=release_admitted actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=pending region=gru reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:04:53 INFO Started canary of rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BY84WYQB4X9BPCEW1BS93 kind=upgrade_started actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=in_progress region=gru parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:04:53 INFO release channel status component=rollout run=2 state=rolling reason="0000000000289MPGVZDE3122WZ pending"
+2026/10/16 19:04:53 INFO Held the canary step of gru-ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BY87RZ8QX4W0Y694242JQ kind=held actor=rollout subject=member/gru-ctl-b status=pending region=gru reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:04:53 INFO rollout step held component=rollout rollout=0000000000289MPGVZDE3122WZ unit=gru-ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:04:53 INFO release channel status component=rollout run=2 state=rolling reason="0000000000289MPGVZDE3122WZ canary"
+2026/10/16 19:04:54 INFO Activated release 6d1a6ec36acc for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BY8ZDQDVRZQRP2XCXE97W kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:54 INFO Released the canary step of gru-ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BY9RS1SG0T6KJZEY2BMN6 kind=hold_cleared actor=rollout subject=member/gru-ctl-b status=succeeded region=gru reason="Its gate and group peers are healthy again." parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:04:54 INFO Moved gru-ctl-b to the target release in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BY9RS1SG0T6KJZFTW9R6C kind=stage_changed actor=rollout subject=member/gru-ctl-b status=in_progress region=gru reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:04:54 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:55 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:55 INFO release channel status component=rollout run=2 state=rolling reason="0000000000289MPGVZDE3122WZ canary-soak"
+2026/10/16 19:04:55 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:55 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:55 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:56 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:57 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:57 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:57 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:57 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:57 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:58 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:58 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:58 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:58 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:58 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:59 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:59 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:59 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:59 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:04:59 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:00 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:00 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:00 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:00 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:00 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:01 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:01 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:01 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:01 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:01 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:02 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:02 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:02 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:02 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:03 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:03 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:03 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:03 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:03 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:04 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:05 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:05 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:05 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:05 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:05 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:06 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:06 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:06 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:06 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:06 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:07 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:07 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:07 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:07 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:07 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:08 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:08 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:08 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:08 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:08 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:09 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:09 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:09 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:09 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:10 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:10 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:10 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:10 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:10 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:11 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:12 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:12 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:12 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:12 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:12 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:13 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:13 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:13 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:13 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:13 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:14 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:14 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:14 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:14 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:14 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:15 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:15 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:15 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:15 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:15 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:16 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:16 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:16 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:16 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:16 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:17 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:17 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:17 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:17 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:17 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:18 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:18 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:18 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:18 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:18 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:19 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:19 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:19 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:19 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:19 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:20 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:20 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:20 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:20 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:20 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:21 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:21 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:21 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:21 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:21 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:22 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:22 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:22 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:22 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:22 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:23 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:23 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:23 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:23 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:23 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:24 WARN self-update version proof rejected activation=01M53BY8Z9HW23P4J60XSKKJ0H error="trust document scope does not match"
+2026/10/16 19:05:24 INFO Rolled terrascale-orchestrator-controller.service back to release b15f62d13fd2 component=decision event=true decision_id=01M53BZ6BG7TJ51WTN4ECKBC0P kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M53BY8ZDQDVRZQRP2XCXE97W
+2026/10/16 19:05:24 INFO self-update pruned settled releases releases=[6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c]
+2026/10/16 19:05:26 INFO Rolling back rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZ8RHY39D0B7MJ00Z2YF9 kind=rollback actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=in_progress region=gru reason="unit gru-ctl-b: unit gru-ctl-b restarted serving b15f62d13fd2 instead of the target" parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:05:26 INFO release channel status component=rollout run=2 state=rolling reason="0000000000289MPGVZDE3122WZ rolling-back"
+2026/10/16 19:05:27 INFO Held the rolling-back step of gru-ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZ937TF8A3B06JC2AAT8V kind=held actor=rollout subject=member/gru-ctl-b status=pending region=gru reason="the unit asked to retry its rollback: waiting for the unit's step agent" parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:05:27 INFO rollout step held component=rollout rollout=0000000000289MPGVZDE3122WZ unit=gru-ctl-b reason="the unit asked to retry its rollback: waiting for the unit's step agent"
+2026/10/16 19:05:28 INFO Released the rolling-back step of gru-ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZAZBJY5K56SHRP3WEX18 kind=hold_cleared actor=rollout subject=member/gru-ctl-b status=succeeded region=gru reason="Its gate and group peers are healthy again." parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:05:28 INFO Returned gru-ctl-b to the previous release in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZAZBJY5K56SHRR70NRG0 kind=rollback actor=rollout subject=member/gru-ctl-b status=in_progress region=gru reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:05:29 INFO Rolled back rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZBAE9BZADWNQK8WMV6VR kind=rollback actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=rolled_back region=gru reason="unit gru-ctl-b: unit gru-ctl-b restarted serving b15f62d13fd2 instead of the target" parent_id=01M53BY813XDPHYYW2S6J5BH6J
+2026/10/16 19:05:29 WARN rollout program stopped component=rollout rollout=0000000000289MPGVZDE3122WZ reason="rollout ended rolled-back"
+2026/10/16 19:05:29 INFO release channel status component=rollout run=2 state=failed reason="0000000000289MPGVZDE3122WZ rolled-back: unit gru-ctl-b: unit gru-ctl-b restarted serving b15f62d13fd2 instead of the target"
+    rollout_channel_e2e_test.go:96: run 2 gru:
+        GRU waiting for the region to report
+        GRU rolling 0000000000289MPGVZDE3122WZ canary
+        GRU rolling 0000000000289MPGVZDE3122WZ canary-soak
+        GRU rolling 0000000000289MPGVZDE3122WZ rolling-back
+2026/10/16 19:05:29 INFO authority state transition scope=sfo from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+2026/10/16 19:05:29 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:29 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:29 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:05:29 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 1, compacted: 74.63 KB) component=nats
+2026/10/16 19:05:29 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:29 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:33855 - rid:12 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:33855 - rid:14 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:41642 - rid:16 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:44053 - rid:11 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:41632 - rid:15 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:33855 - rid:10 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:45410 - rid:13 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:44053 - rid:9 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:44053 - rid:15 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:44053 - rid:16 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:33855 - rid:8 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:41608 - rid:14 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO Server Exiting.. component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:45430 - rid:15 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:45414 - rid:14 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:45446 - rid:16 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:29 INFO 127.0.0.1:41618 - rid:13 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-c component=nats
+2026/10/16 19:05:30 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:05:30 INFO JetStream cluster new stream leader for '$G > KV_TS_RELEASE_CHANNEL' component=nats
+2026/10/16 19:05:30 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:30 INFO JetStream cluster no metadata leader component=nats
+2026/10/16 19:05:30 INFO JetStream cluster new metadata leader: sfo-sfo-ctl-a/sfo component=nats
+2026/10/16 19:05:30 INFO Self is new JetStream cluster metadata leader component=nats
+2026/10/16 19:05:30 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:44099: connect: connection refused component=nats
+2026/10/16 19:05:31 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:31 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:05:31 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 1, compacted: 74.83 KB) component=nats
+2026/10/16 19:05:31 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:31 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:33855 - rid:9 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:33855 - rid:10 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:33855 - rid:11 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:33855 - rid:8 - Router connection closed: Server Shutdown - Remote: sfo-sfo-ctl-a component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:41580 - rid:11 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:31 INFO Server Exiting.. component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:41594 - rid:12 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:41568 - rid:10 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:31 INFO 127.0.0.1:41562 - rid:9 - Router connection closed: Client Closed - Remote: sfo-sfo-ctl-b component=nats
+2026/10/16 19:05:31 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:31 INFO JetStream cluster no metadata leader component=nats
+2026/10/16 19:05:32 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:32 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:32 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:32 INFO Server Exiting.. component=nats
+2026/10/16 19:05:32 INFO authority state transition scope=gru from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+2026/10/16 19:05:32 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:05:32 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:32 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:32 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:05:32 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 0, compacted: 84.68 KB) component=nats
+2026/10/16 19:05:32 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:32 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:12 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:15 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:38841 - rid:10 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:38841 - rid:14 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37370 - rid:15 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:38841 - rid:16 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:8 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:38841 - rid:11 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:9 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:33472 - rid:13 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:33474 - rid:15 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO Server Exiting.. component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37364 - rid:13 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:33484 - rid:16 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37382 - rid:16 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37348 - rid:14 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:33464 - rid:14 - Router connection closed: Client Closed - Remote: gru-gru-ctl-c component=nats
+2026/10/16 19:05:32 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:05:32 INFO JetStream cluster new stream leader for '$G > KV_TS_RELEASE_CHANNEL' component=nats
+2026/10/16 19:05:32 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:32 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:32 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:05:32 INFO Metalayer blocking snapshot took 0.004s (streams: 3, consumers: 0, compacted: 84.68 KB) component=nats
+2026/10/16 19:05:32 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:32 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:10 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:11 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:9 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37929 - rid:8 - Router connection closed: Server Shutdown - Remote: gru-gru-ctl-a component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37320 - rid:11 - Router connection closed: Client Closed - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37336 - rid:12 - Router connection closed: Client Closed - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37306 - rid:10 - Router connection closed: Client Closed - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO Server Exiting.. component=nats
+2026/10/16 19:05:32 INFO 127.0.0.1:37308 - rid:9 - Router connection closed: Client Closed - Remote: gru-gru-ctl-b component=nats
+2026/10/16 19:05:32 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:05:32 INFO JetStream cluster no metadata leader component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:32911: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38841: connect: connection refused component=nats
+2026/10/16 19:05:33 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38841: connect: connection refused component=nats
+2026/10/16 19:05:33 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:05:33 INFO Metalayer blocking snapshot took 0.004s (streams: 3, consumers: 0, compacted: 84.68 KB) component=nats
+2026/10/16 19:05:33 INFO JetStream Shutdown component=nats
+2026/10/16 19:05:33 INFO Initiating Shutdown... component=nats
+2026/10/16 19:05:33 INFO Server Exiting.. component=nats
+--- PASS: TestReleaseChannelRollsCIReleasesOutRegionByRegion (69.43s)
+=== RUN   TestRolloutExecutorUpdatesARunningCell
+2026/10/16 19:05:33 INFO Starting nats-server component=nats
+2026/10/16 19:05:33 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:05:33 INFO   Git:      [not set] component=nats
+2026/10/16 19:05:33 INFO   Cluster:  lab component=nats
+2026/10/16 19:05:33 INFO   Name:     lab-ctl-a component=nats
+2026/10/16 19:05:33 INFO   Node:     EQPAPckv component=nats
+2026/10/16 19:05:33 INFO   ID:       NDN275ROVOWC35HK7LMC3KEXIHN2NISEQDHF7R5KGL5UZCQ44T2YTREU component=nats
+2026/10/16 19:05:33 INFO Starting JetStream component=nats
+2026/10/16 19:05:33 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:05:33 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:05:33 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:05:33 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:05:33 INFO   Strict:          true component=nats
+2026/10/16 19:05:33 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:05:33 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:05:33 INFO   Store Directory: "/tmp/TestRolloutExecutorUpdatesARunningCell1885079102/001/ctl-a/jetstream" component=nats
+2026/10/16 19:05:33 INFO   API Level:       5 component=nats
+2026/10/16 19:05:33 INFO ------------------------------------------- component=nats
+2026/10/16 19:05:33 INFO Starting JetStream cluster component=nats
+2026/10/16 19:05:33 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:05:33 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:05:33 INFO Took 11.289937ms to start JetStream component=nats
+2026/10/16 19:05:33 INFO Listening for client connections on 127.0.0.1:35323 component=nats
+2026/10/16 19:05:33 INFO Server is ready component=nats
+2026/10/16 19:05:33 INFO Cluster name is lab component=nats
+2026/10/16 19:05:33 INFO Listening for route connections on 127.0.0.1:42127 component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:34215: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:34215: connect: connection refused component=nats
+2026/10/16 19:05:33 INFO Starting nats-server component=nats
+2026/10/16 19:05:33 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:05:33 INFO   Git:      [not set] component=nats
+2026/10/16 19:05:33 INFO   Cluster:  lab component=nats
+2026/10/16 19:05:33 INFO   Name:     lab-ctl-b component=nats
+2026/10/16 19:05:33 INFO   Node:     WnlKNn6S component=nats
+2026/10/16 19:05:33 INFO   ID:       NCLXTIYDJCFMROHE3OIWS5WRVRDIDQZJYHNZQWHIXNEFMNSZLHAQH4ZS component=nats
+2026/10/16 19:05:33 INFO Starting JetStream component=nats
+2026/10/16 19:05:33 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:05:33 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:05:33 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:05:33 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:05:33 INFO   Strict:          true component=nats
+2026/10/16 19:05:33 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:05:33 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:05:33 INFO   Store Directory: "/tmp/TestRolloutExecutorUpdatesARunningCell1885079102/001/ctl-b/jetstream" component=nats
+2026/10/16 19:05:33 INFO   API Level:       5 component=nats
+2026/10/16 19:05:33 INFO ------------------------------------------- component=nats
+2026/10/16 19:05:33 INFO Starting JetStream cluster component=nats
+2026/10/16 19:05:33 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:05:33 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:05:33 INFO Took 9.682599ms to start JetStream component=nats
+2026/10/16 19:05:33 INFO Listening for client connections on 127.0.0.1:33899 component=nats
+2026/10/16 19:05:33 INFO Server is ready component=nats
+2026/10/16 19:05:33 INFO Cluster name is lab component=nats
+2026/10/16 19:05:33 INFO Listening for route connections on 127.0.0.1:34215 component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:05:33 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:8 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:9 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41624 - rid:9 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41636 - rid:10 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:10 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41650 - rid:11 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41654 - rid:12 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:11 - Route connection created component=nats
+2026/10/16 19:05:33 INFO Starting nats-server component=nats
+2026/10/16 19:05:33 INFO   Version:  2.15.0 component=nats
+2026/10/16 19:05:33 INFO   Git:      [not set] component=nats
+2026/10/16 19:05:33 INFO   Cluster:  lab component=nats
+2026/10/16 19:05:33 INFO   Name:     lab-ctl-c component=nats
+2026/10/16 19:05:33 INFO   Node:     iVQrRxFv component=nats
+2026/10/16 19:05:33 INFO   ID:       NAF4D6I5FJBR5NIR5X2UUBMZGIOCD3HWPY52XF5ROTUWNBEHRY27PNUZ component=nats
+2026/10/16 19:05:33 INFO Starting JetStream component=nats
+2026/10/16 19:05:33 INFO     _ ___ _____ ___ _____ ___ ___   _   __  __ component=nats
+2026/10/16 19:05:33 INFO  _ | | __|_   _/ __|_   _| _ \ __| /_\ |  \/  | component=nats
+2026/10/16 19:05:33 INFO | || | _|  | | \__ \ | | |   / _| / _ \| |\/| | component=nats
+2026/10/16 19:05:33 INFO  \__/|___| |_| |___/ |_| |_|_\___/_/ \_\_|  |_| component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO          https://docs.nats.io/jetstream component=nats
+2026/10/16 19:05:33 INFO  component=nats
+2026/10/16 19:05:33 INFO ---------------- JETSTREAM ---------------- component=nats
+2026/10/16 19:05:33 INFO   Strict:          true component=nats
+2026/10/16 19:05:33 INFO   Max Memory:      23.48 GB component=nats
+2026/10/16 19:05:33 INFO   Max Storage:     8.00 GB component=nats
+2026/10/16 19:05:33 INFO   Store Directory: "/tmp/TestRolloutExecutorUpdatesARunningCell1885079102/001/ctl-c/jetstream" component=nats
+2026/10/16 19:05:33 INFO   API Level:       5 component=nats
+2026/10/16 19:05:33 INFO ------------------------------------------- component=nats
+2026/10/16 19:05:33 INFO Starting JetStream cluster component=nats
+2026/10/16 19:05:33 INFO Creating JetStream metadata controller component=nats
+2026/10/16 19:05:33 INFO JetStream cluster bootstrapping component=nats
+2026/10/16 19:05:33 INFO Took 9.742012ms to start JetStream component=nats
+2026/10/16 19:05:33 INFO Listening for client connections on 127.0.0.1:38763 component=nats
+2026/10/16 19:05:33 INFO Server is ready component=nats
+2026/10/16 19:05:33 INFO Cluster name is lab component=nats
+2026/10/16 19:05:33 INFO Listening for route connections on 127.0.0.1:38049 component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:8 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41658 - rid:13 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:34215 - rid:9 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41668 - rid:14 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:10 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:34215 - rid:11 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:33172 - rid:13 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:33174 - rid:14 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:12 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:34215 - rid:13 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41670 - rid:15 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:33180 - rid:15 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:33182 - rid:16 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:34215 - rid:14 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:42127 - rid:16 - Route connection created component=nats
+2026/10/16 19:05:33 INFO 127.0.0.1:41680 - rid:16 - Route connection created component=nats
+2026/10/16 19:05:33 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:05:33 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:05:33 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:05:33 WARN JetStream has not established contact with a meta leader component=nats
+2026/10/16 19:05:33 INFO JetStream cluster new metadata leader: lab-ctl-a/lab component=nats
+2026/10/16 19:05:33 INFO Self is new JetStream cluster metadata leader component=nats
+2026/10/16 19:05:33 WARN Waiting for routing to be established... component=nats
+2026/10/16 19:05:33 INFO JetStream cluster new metadata leader: lab-ctl-a/lab component=nats
+2026/10/16 19:05:33 INFO JetStream cluster new stream leader for '$G > TS_CONTROL_LOG' component=nats
+2026/10/16 19:05:33 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:05:33 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=true epoch=1 reason=leader
+2026/10/16 19:05:33 INFO JetStream cluster new stream leader for '$G > KV_TS_ROLLOUTS' component=nats
+2026/10/16 19:05:34 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:05:34 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:05:34 INFO JetStream cluster new stream leader for '$G > KV_TS_RELEASE_CHANNEL' component=nats
+2026/10/16 19:05:34 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason="" ready=false leader=false epoch=0 reason=not-observed
+2026/10/16 19:05:34 INFO authority state transition scope=lab from_ready=false from_leader=false from_epoch=0 from_reason=not-observed ready=true leader=false epoch=1 reason=follower
+2026/10/16 19:05:34 INFO release channel status component=rollout run=0 state=rolling reason="the cell has no release channel"
+2026/10/16 19:05:34 INFO rollout request component=rollout actor=ops kind=rollout.publish status=published
+2026/10/16 19:05:34 INFO Admitted controller rollout 0000000000KZRSSMVT080S4EF4 of 3 units in 3 waves component=decision event=true decision_id=01M53BZG90A217FBJ1S7SKJFZT kind=release_admitted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=pending region=lab reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:05:34 INFO Started canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZGAB3JWXJ055G7JP75HB kind=upgrade_started actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:34 INFO Held the canary step of ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZGBHHSB42RR5TVPGY3XR kind=held actor=rollout subject=member/ctl-b status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:34 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:37 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:34215 - rid:39 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:38 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:33192 - rid:39 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52678 - rid:47 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:34215 - rid:40 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52686 - rid:48 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:33194 - rid:40 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:38 - Router connection closed: Duplicate Route - Remote: lab-ctl-c component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:37 - Router connection closed: Duplicate Route - Remote: lab-ctl-c component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52686 - rid:48 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52678 - rid:47 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:34215 - rid:39 - Router connection closed: Duplicate Route - Remote: lab-ctl-b component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:34215 - rid:40 - Router connection closed: Duplicate Route - Remote: lab-ctl-b component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:33194 - rid:40 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:33192 - rid:39 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:41 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52688 - rid:49 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:42 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52690 - rid:50 - Route connection created component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:42 - Router connection closed: Duplicate Route - Remote: lab-ctl-c component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52688 - rid:49 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:38049 - rid:41 - Router connection closed: Duplicate Route - Remote: lab-ctl-c component=nats
+2026/10/16 19:05:34 INFO 127.0.0.1:52690 - rid:50 - Router connection closed: Client Closed component=nats
+2026/10/16 19:05:35 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZH1MRE4YCW3Z4TH6336H kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:05:35 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZH7XFCR3SKSD7CAPZXFG kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BZH1MRE4YCW3Z4TH6336H
+2026/10/16 19:05:36 INFO Released the canary step of ctl-b in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZJ21QZTSF6ZTFT4E6WRX kind=hold_cleared actor=rollout subject=member/ctl-b status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:36 INFO Moved ctl-b to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZJ22YKKJYWT61EJPGV22 kind=stage_changed actor=rollout subject=member/ctl-b status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:39 INFO Promoted the canary of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZN092MRGQM357C2614H3 kind=canary_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:39 INFO Held the batch step of ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZN175WQ9RDDD40R0G1TZ kind=held actor=rollout subject=member/ctl-c status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:39 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=ctl-c reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:05:40 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZP10M82S3KC9YSZGXDGA kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:05:40 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZP7A1N26E1Z5BE7EJ1V9 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BZP10M82S3KC9YSZGXDGA
+2026/10/16 19:05:41 INFO Released the batch step of ctl-c in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZPZ6KA925C7GVWWSD6WS kind=hold_cleared actor=rollout subject=member/ctl-c status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:41 INFO Moved ctl-c to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZPZ6KA925C7GVYC7D3QP kind=stage_changed actor=rollout subject=member/ctl-c status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:43 INFO Promoted wave 2 of rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZRZXF0YBHSHAHJS8GAN3 kind=batch_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:43 INFO Held the batch step of ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZS100Y3JQTGMSR4DHXE6 kind=held actor=rollout subject=member/ctl-a status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:43 INFO rollout step held component=rollout rollout=0000000000KZRSSMVT080S4EF4 unit=ctl-a reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:05:44 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZSRS01RD2C54JR8E1N9M kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:05:44 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZSYPCMB7NNZ8BMKQT09A kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53BZSRS01RD2C54JR8E1N9M
+2026/10/16 19:05:45 INFO Released the batch step of ctl-a in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZTPJMGMYZKXV2NJQV9WP kind=hold_cleared actor=rollout subject=member/ctl-a status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:45 INFO Moved ctl-a to the target release in rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZTPJMGMYZKXV2SAGYXTK kind=stage_changed actor=rollout subject=member/ctl-a status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:47 INFO Completed rollout 0000000000KZRSSMVT080S4EF4 component=decision event=true decision_id=01M53BZWQRYZHCP6CBTK6NTGSB kind=rollout_completed actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=succeeded region=lab parent_id=01M53BZG90A217FBJ1S7SKJFZT
+2026/10/16 19:05:47 INFO rollout request component=rollout actor=ops kind=rollout.publish status=published
+2026/10/16 19:05:47 INFO Admitted controller rollout 0000000000289MPGVZDE3122WZ of 3 units in 3 waves component=decision event=true decision_id=01M53BZWXEJ5W3VXZ4X1P5B8H4 kind=release_admitted actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=pending region=lab reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:05:47 INFO Started canary of rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZWZMQ0Q4A4192CS83Z4B kind=upgrade_started actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=in_progress region=lab parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:05:47 INFO Held the canary step of ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZX1N40F14CSHX2R8BB91 kind=held actor=rollout subject=member/ctl-b status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:05:47 INFO rollout step held component=rollout rollout=0000000000289MPGVZDE3122WZ unit=ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:05:48 INFO Activated release 6d1a6ec36acc for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53BZXQTKK90920QMQDCRYFW kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:05:48 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:48 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:48 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:48 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:48 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:49 INFO Released the canary step of ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZYPT2A53G0CXST0ZGEMW kind=hold_cleared actor=rollout subject=member/ctl-b status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:05:49 INFO Moved ctl-b to the target release in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53BZYPT2A53G0CXSXKZD36G kind=stage_changed actor=rollout subject=member/ctl-b status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:05:49 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:49 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:49 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:49 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:49 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:50 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:50 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:50 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:50 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:50 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:51 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:51 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:51 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:51 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:51 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:52 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:52 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:52 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:52 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:52 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:53 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:53 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:53 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:53 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:53 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:54 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:54 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:54 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:54 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:54 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:55 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:55 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:55 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:55 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:55 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:56 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:56 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:56 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:56 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:56 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:57 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:57 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:57 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:57 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:57 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:58 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:58 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:58 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:58 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:58 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:59 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:59 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:59 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:59 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:05:59 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:00 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:00 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:00 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:00 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:00 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:01 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:01 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:01 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:01 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:01 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:02 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:02 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:02 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:02 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:02 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:03 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:03 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:03 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:03 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:03 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:04 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:04 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:04 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:04 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:04 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:05 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:05 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:05 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:05 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:05 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:06 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:06 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:06 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:06 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:06 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:07 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:07 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:07 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:07 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:07 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:08 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:08 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:08 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:08 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:08 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:09 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:09 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:09 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:09 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:09 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:10 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:10 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:10 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:10 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:10 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:11 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:11 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:11 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:11 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:11 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:12 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:12 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:12 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:12 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:12 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:13 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:13 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:13 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:13 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:13 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:14 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:14 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:14 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:14 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:14 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:15 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:15 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:15 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:15 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:15 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:16 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:16 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:16 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:16 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:16 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:17 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:17 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:17 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:17 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:17 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:18 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:18 WARN self-update version proof rejected activation=01M53BZXQQ2D3YGTEGW7X283W2 error="trust document scope does not match"
+2026/10/16 19:06:18 INFO Rolled terrascale-orchestrator-controller.service back to release b15f62d13fd2 component=decision event=true decision_id=01M53C0V7M7S78VDAEQDSH8DC6 kind=rollback actor=selfupdate subject=member/mariogk-dev status=rolled_back reason="No valid version proof arrived before the deadline, or the target no longer verified; the target is now known bad on this node." parent_id=01M53BZXQTKK90920QMQDCRYFW
+2026/10/16 19:06:18 INFO self-update pruned settled releases releases=[6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c]
+2026/10/16 19:06:18 INFO Rolling back rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53C0V90B6WCD73GFVHA0D5X kind=rollback actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=in_progress region=lab reason="unit ctl-b: unit ctl-b restarted serving b15f62d13fd2 instead of the target" parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:06:18 INFO Held the rolling-back step of ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53C0VB9TBEZ8EWYXZ121CA3 kind=held actor=rollout subject=member/ctl-b status=pending region=lab reason="the unit asked to retry its rollback: waiting for the unit's step agent" parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:06:18 INFO rollout step held component=rollout rollout=0000000000289MPGVZDE3122WZ unit=ctl-b reason="the unit asked to retry its rollback: waiting for the unit's step agent"
+2026/10/16 19:06:20 INFO Released the rolling-back step of ctl-b in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53C0WZE2YMD2PKXKMSFCNNN kind=hold_cleared actor=rollout subject=member/ctl-b status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:06:20 INFO Returned ctl-b to the previous release in rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53C0WZE2YMD2PKXKP2JXD0J kind=rollback actor=rollout subject=member/ctl-b status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:06:20 INFO Rolled back rollout 0000000000289MPGVZDE3122WZ component=decision event=true decision_id=01M53C0X7BM3925H0VH20NNNJN kind=rollback actor=rollout subject=release/6d1a6ec36acc08871d257462a6369d0f3136bab8c09a8798d7e70aa3db91233c status=rolled_back region=lab reason="unit ctl-b: unit ctl-b restarted serving b15f62d13fd2 instead of the target" parent_id=01M53BZWXEJ5W3VXZ4X1P5B8H4
+2026/10/16 19:06:20 WARN rollout program stopped component=rollout rollout=0000000000289MPGVZDE3122WZ reason="rollout ended rolled-back"
+2026/10/16 19:06:20 INFO rollout request component=rollout actor=ops kind=rollout.pause status=paused
+2026/10/16 19:06:20 INFO rollout request component=rollout actor=ops kind=rollout.publish status=published
+2026/10/16 19:06:22 INFO rollout request component=rollout actor=ops kind=rollout.resume status=resumed
+2026/10/16 19:06:22 INFO Admitted controller rollout 00000000000X77BQCTRY7Q925Q of 3 units in 3 waves component=decision event=true decision_id=01M53C0ZECG26W3N4TBRWG287D kind=release_admitted actor=rollout subject=release/845d9cf4a915be30cd6c190656a694663cdb476976f802c020db1f8df4047692 status=pending region=lab reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:06:22 INFO Started canary of rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C0ZFTG9A93HCDDRNS8QR2 kind=upgrade_started actor=rollout subject=release/845d9cf4a915be30cd6c190656a694663cdb476976f802c020db1f8df4047692 status=in_progress region=lab parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:22 INFO Held the canary step of ctl-b in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C0ZH8BQFRKQY9A5D32DTH kind=held actor=rollout subject=member/ctl-b status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:22 INFO rollout step held component=rollout rollout=00000000000X77BQCTRY7Q925Q unit=ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:23 INFO Activated release 845d9cf4a915 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C0ZXJPQ9A24V6TEJAV1PR kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:23 WARN self-update version proof rejected activation=01M53C0ZXDKRQBDJV152640X56 error="trust document scope does not match"
+2026/10/16 19:06:23 INFO Confirmed release 845d9cf4a915 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C10452QVY3XGRPJBKKARB kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C0ZXJPQ9A24V6TEJAV1PR
+2026/10/16 19:06:24 INFO Released the canary step of ctl-b in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C10WCTJ8KQCKN8J2VP11H kind=hold_cleared actor=rollout subject=member/ctl-b status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:24 INFO Moved ctl-b to the target release in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C10WDVQ1S0BWYSXDDS5PA kind=stage_changed actor=rollout subject=member/ctl-b status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:26 INFO Promoted the canary of rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C12WV8JAP2P4J80Q7Q9XJ kind=canary_promoted actor=rollout subject=release/845d9cf4a915be30cd6c190656a694663cdb476976f802c020db1f8df4047692 status=in_progress region=lab parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:26 INFO Held the batch step of ctl-c in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C12XZVMPGTPCA0J8EETYR kind=held actor=rollout subject=member/ctl-c status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:26 INFO rollout step held component=rollout rollout=00000000000X77BQCTRY7Q925Q unit=ctl-c reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:27 INFO Activated release 845d9cf4a915 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C13XR1T101BRBZZ2Y2QDR kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:27 WARN self-update version proof rejected activation=01M53C13XKNZV8HTZR1B4CB9BM error="trust document scope does not match"
+2026/10/16 19:06:27 INFO Confirmed release 845d9cf4a915 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C14429X3H3N52R9CA5ENV kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C13XR1T101BRBZZ2Y2QDR
+2026/10/16 19:06:28 INFO Released the batch step of ctl-c in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C14W89JEX02DDTXFF9DP4 kind=hold_cleared actor=rollout subject=member/ctl-c status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:28 INFO Moved ctl-c to the target release in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C14W89JEX02DDV1DZJSHT kind=stage_changed actor=rollout subject=member/ctl-c status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:30 INFO Promoted wave 2 of rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C16WP8T524CA5QRQTE44Q kind=batch_promoted actor=rollout subject=release/845d9cf4a915be30cd6c190656a694663cdb476976f802c020db1f8df4047692 status=in_progress region=lab parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:30 INFO Held the batch step of ctl-a in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C16XHXVCXGXSYFKH11EBW kind=held actor=rollout subject=member/ctl-a status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:30 INFO rollout step held component=rollout rollout=00000000000X77BQCTRY7Q925Q unit=ctl-a reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:31 INFO Activated release 845d9cf4a915 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C17MHDWVYZ4VJRJ78J5AN kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:31 WARN self-update version proof rejected activation=01M53C17MDMS00X6PQ9EGHZFWM error="trust document scope does not match"
+2026/10/16 19:06:31 INFO Confirmed release 845d9cf4a915 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C17V7T1T355W1PD0NR42M kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C17MHDWVYZ4VJRJ78J5AN
+2026/10/16 19:06:32 INFO Released the batch step of ctl-a in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C18K86TMK10ERKXZVYRN2 kind=hold_cleared actor=rollout subject=member/ctl-a status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:32 INFO Moved ctl-a to the target release in rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C18K9DYC026FNN96ZHWMW kind=stage_changed actor=rollout subject=member/ctl-a status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:34 INFO Completed rollout 00000000000X77BQCTRY7Q925Q component=decision event=true decision_id=01M53C1B6C9Z33X0WS3JM7G67J kind=rollout_completed actor=rollout subject=release/845d9cf4a915be30cd6c190656a694663cdb476976f802c020db1f8df4047692 status=succeeded region=lab parent_id=01M53C0ZECG26W3N4TBRWG287D
+2026/10/16 19:06:34 INFO rollout request component=rollout actor=ops kind=rollout.rollback status=rolled-back
+2026/10/16 19:06:34 INFO Admitted controller rollout 00000000004SA6KXNY0PHK9YBX of 3 units in 3 waves component=decision event=true decision_id=01M53C1BDA2MWFT7BGD20W6B26 kind=release_admitted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=pending region=lab reason="The target digest is not known bad and has attempts left."
+2026/10/16 19:06:34 INFO Started canary of rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1BEJXQTB73KXXDBE312F kind=upgrade_started actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:35 INFO Held the canary step of ctl-b in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1BFWDMP8QRYTHE7TC5JK kind=held actor=rollout subject=member/ctl-b status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:35 INFO rollout step held component=rollout rollout=00000000004SA6KXNY0PHK9YBX unit=ctl-b reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:35 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1BMJHXRXQ37YFPTRGAYF kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:35 WARN self-update version proof rejected activation=01M53C1BMERW6MJMBJ849AD4ZG error="trust document scope does not match"
+2026/10/16 19:06:35 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1BV24GR3Q2NARNZD8T3B kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C1BMJHXRXQ37YFPTRGAYF
+2026/10/16 19:06:36 INFO Released the canary step of ctl-b in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1CN6VD6JKF30V6MVW0BA kind=hold_cleared actor=rollout subject=member/ctl-b status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:36 INFO Moved ctl-b to the target release in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1CN6VD6JKF30V8BWXWR2 kind=stage_changed actor=rollout subject=member/ctl-b status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:39 INFO Promoted the canary of rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1FJY3C86XDWJGZ00KDBE kind=canary_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:39 INFO Held the batch step of ctl-c in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1FM12X1RM7W2MP4EK5KH kind=held actor=rollout subject=member/ctl-c status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:39 INFO rollout step held component=rollout rollout=00000000004SA6KXNY0PHK9YBX unit=ctl-c reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:40 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1GMDD48JYGVN63Z4PB96 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:40 WARN self-update version proof rejected activation=01M53C1GKZFCB7JM37HE39RANW error="trust document scope does not match"
+2026/10/16 19:06:40 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1GTAC1YNKQKE2KNBPEY3 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C1GMDD48JYGVN63Z4PB96
+2026/10/16 19:06:41 INFO Released the batch step of ctl-c in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1HM0BCHBW2WTDMTFR3WT kind=hold_cleared actor=rollout subject=member/ctl-c status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:41 INFO Moved ctl-c to the target release in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1HM0BCHBW2WTDRC8R57K kind=stage_changed actor=rollout subject=member/ctl-c status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:43 INFO Promoted wave 2 of rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1KK3WHMHJ9A5TZBYSFFN kind=batch_promoted actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=in_progress region=lab parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:43 INFO Held the batch step of ctl-a in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1KM1X59ZQ4GY0AD75ZH9 kind=held actor=rollout subject=member/ctl-a status=pending region=lab reason="the unit asked to retry: waiting for the unit's step agent" parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:43 INFO rollout step held component=rollout rollout=00000000004SA6KXNY0PHK9YBX unit=ctl-a reason="the unit asked to retry: waiting for the unit's step agent"
+2026/10/16 19:06:44 INFO Activated release b15f62d13fd2 for terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1MFMKM88B7FFEW2X10HE kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=in_progress reason="The staged release verified; it must prove its version before the deadline or it is rolled back."
+2026/10/16 19:06:44 WARN self-update version proof rejected activation=01M53C1MFG8E10YPR5D1EWR45P error="trust document scope does not match"
+2026/10/16 19:06:44 INFO Confirmed release b15f62d13fd2 on terrascale-orchestrator-controller.service component=decision event=true decision_id=01M53C1MH8NWR6009ZNZ6T5C08 kind=upgrade_started actor=selfupdate subject=member/mariogk-dev status=succeeded reason="The restarted unit signed a fresh version proof before its deadline." parent_id=01M53C1MFMKM88B7FFEW2X10HE
+2026/10/16 19:06:45 INFO Released the batch step of ctl-a in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1N9EPBRXDQCEFK53731J kind=hold_cleared actor=rollout subject=member/ctl-a status=succeeded region=lab reason="Its gate and group peers are healthy again." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:45 INFO Moved ctl-a to the target release in rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1N9EPBRXDQCEFKH4KS46 kind=stage_changed actor=rollout subject=member/ctl-a status=in_progress region=lab reason="The unit's group peers were serving and the cluster gate passed." parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:47 INFO Completed rollout 00000000004SA6KXNY0PHK9YBX component=decision event=true decision_id=01M53C1QF4711MTE5N2BTJBFMW kind=rollout_completed actor=rollout subject=release/b15f62d13fd2d163a1414a78dad8198a6411fde86a627b04e1f1e3b39398de0d status=succeeded region=lab parent_id=01M53C1BDA2MWFT7BGD20W6B26
+2026/10/16 19:06:47 INFO authority state transition scope=lab from_ready=true from_leader=true from_epoch=1 from_reason=leader ready=false leader=false epoch=1 reason=released
+2026/10/16 19:06:47 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:06:47 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:06:47 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:06:47 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 0, compacted: 301.08 KB) component=nats
+2026/10/16 19:06:47 INFO JetStream Shutdown component=nats
+2026/10/16 19:06:47 INFO Initiating Shutdown... component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:16 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:34215 - rid:11 - Router connection closed: Server Shutdown - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41680 - rid:16 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:34215 - rid:13 - Router connection closed: Server Shutdown - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:33172 - rid:13 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:34215 - rid:14 - Router connection closed: Server Shutdown - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:34215 - rid:9 - Router connection closed: Server Shutdown - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:8 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:10 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:12 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:33180 - rid:15 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO Server Exiting.. component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:33182 - rid:16 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41658 - rid:13 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:33174 - rid:14 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41670 - rid:15 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41668 - rid:14 - Router connection closed: Client Closed - Remote: lab-ctl-c component=nats
+2026/10/16 19:06:47 INFO JetStream cluster new stream leader for '$G > KV_TS_ROLLOUTS' component=nats
+2026/10/16 19:06:47 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:06:47 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:06:47 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:06:47 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 0, compacted: 301.08 KB) component=nats
+2026/10/16 19:06:47 INFO JetStream Shutdown component=nats
+2026/10/16 19:06:47 INFO Initiating Shutdown... component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:9 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:10 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:11 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:42127 - rid:8 - Router connection closed: Server Shutdown - Remote: lab-ctl-a component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41654 - rid:12 - Router connection closed: Client Closed - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO Server Exiting.. component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41650 - rid:11 - Router connection closed: Client Closed - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41636 - rid:10 - Router connection closed: Client Closed - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO 127.0.0.1:41624 - rid:9 - Router connection closed: Client Closed - Remote: lab-ctl-b component=nats
+2026/10/16 19:06:47 INFO Entering lame duck mode, stop accepting new clients component=nats
+2026/10/16 19:06:47 INFO JetStream cluster no metadata leader component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:38049: connect: connection refused component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:34215: connect: connection refused component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:34215: connect: connection refused component=nats
+2026/10/16 19:06:48 INFO Initiating JetStream Shutdown... component=nats
+2026/10/16 19:06:48 INFO Metalayer blocking snapshot starting component=nats
+2026/10/16 19:06:48 ERROR Error trying to connect to route (attempt 1): dial tcp 127.0.0.1:34215: connect: connection refused component=nats
+2026/10/16 19:06:48 INFO Metalayer blocking snapshot took 0.003s (streams: 3, consumers: 0, compacted: 301.08 KB) component=nats
+2026/10/16 19:06:48 INFO JetStream Shutdown component=nats
+2026/10/16 19:06:48 INFO Initiating Shutdown... component=nats
+2026/10/16 19:06:48 INFO Server Exiting.. component=nats
+--- PASS: TestRolloutExecutorUpdatesARunningCell (75.08s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/app	145.680s
