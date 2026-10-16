@@ -12,6 +12,7 @@ import (
 // ImageOCID is observed through OCI IMDSv2 on the pinned SSH host; it is
 // not cryptographic instance or boot attestation. The producer independently binds it
 // to the imported QCOW2 digest in Candidate.ArtifactSHA256.
+// Component file hashes do not attest which containerd or runc process is running.
 type Identity struct {
 	Architecture     string `json:"architecture"`
 	KernelRelease    string `json:"kernel_release"`

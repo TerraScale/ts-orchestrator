@@ -120,8 +120,8 @@ func openSession(ctx context.Context, cfg SessionConfig, worker []byte, signer s
 	// RunID has a strict alphabet. The private key is never copied to a host.
 	upload.Stdin = bytes.NewReader(worker)
 	var output bytes.Buffer
-	upload.Stdout, upload.Stderr = &output, &output
-	err = upload.Run("umask 077; test ! -e '" + remote + "' && mkdir '" + remote + "' && cat > '" + remote + "/worker' && chmod 700 '" + remote + "/worker' && sha256sum '" + remote + "/worker'")
+	upload.Stdout, upload.Stderr = &output, io.Discard
+	err = upload.Run("umask 077; test ! -e '" + remote + "' && mkdir '" + remote + "' && cat > '" + remote + "/worker' && chmod 700 '" + remote + "/worker' && sha256sum < '" + remote + "/worker'")
 	upload.Close()
 	if err != nil {
 		return nil, fmt.Errorf("upload native worker: %w", err)
@@ -225,9 +225,9 @@ func (p *Session) UploadFile(ctx context.Context, remoteBasename, path, expected
 	defer transfer.Close()
 	transfer.Stdin = file
 	var output bytes.Buffer
-	transfer.Stdout, transfer.Stderr = &output, &output
+	transfer.Stdout, transfer.Stderr = &output, io.Discard
 	remote := p.remote + "/" + remoteBasename
-	if err := transfer.Run("umask 077; set -C; cat > '" + remote + "' && sha256sum '" + remote + "'"); err != nil {
+	if err := transfer.Run("umask 077; set -C; cat > '" + remote + "' && sha256sum < '" + remote + "'"); err != nil {
 		return fmt.Errorf("upload native file: %w", err)
 	}
 	if !validRemoteDigest(output.Bytes(), expectedSHA256) {
@@ -238,7 +238,7 @@ func (p *Session) UploadFile(ctx context.Context, remoteBasename, path, expected
 
 func validRemoteDigest(output []byte, expected string) bool {
 	fields := bytes.Fields(output)
-	return len(fields) == 2 && string(fields[0]) == expected
+	return len(fields) == 2 && string(fields[0]) == expected && string(fields[1]) == "-"
 }
 
 func readPrivateKey(path string) (ssh.Signer, error) {

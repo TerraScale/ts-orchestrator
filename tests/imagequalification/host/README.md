@@ -11,6 +11,8 @@ SSH on cancellation. The key stays on the driver.
 
 `MeasureIdentity` observes local component hashes and OCI IMDSv2 instance/image
 metadata. It does not cryptographically attest the instance or boot image; the
-parent must authenticate their relationship through the OCI SDK. These shared
+parent must authenticate their relationship through the OCI SDK. File hashes
+also do not bind the containerd socket's daemon or task runc to running processes.
+These shared
 types and local SSH/filesystem/process/HTTP tests grant no cloud authorization,
 workload admission or native acceptance.

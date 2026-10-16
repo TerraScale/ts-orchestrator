@@ -147,7 +147,8 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 	}
 	p := &Session{client: client, remote: "/run/ts-native-fixture"}
 	if err := p.UploadFile(t.Context(), "payload.oci", payload, digest([]byte("exact upload bytes"))); err != nil {
-		t.Fatal(err)
+		actual, readErr := os.ReadFile(filepath.Join(uploadDirectory, "payload.oci"))
+		t.Fatalf("%v (fixture remote bytes=%d digest=%s read=%v)", err, len(actual), digest(actual), readErr)
 	}
 	actual, err := os.ReadFile(filepath.Join(uploadDirectory, "payload.oci"))
 	if err != nil || string(actual) != "exact upload bytes" {
