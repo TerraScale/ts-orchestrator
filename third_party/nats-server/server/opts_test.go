@@ -14,16 +14,24 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -4778,4 +4786,1329 @@ func TestOptionsRemoteLeafNodeName(t *testing.T) {
 	r1 := &RemoteLeafOpts{URLs: []*url.URL{u1}, LocalAccount: "A", Credentials: "creds"}
 	r2 := &RemoteLeafOpts{URLs: []*url.URL{u1}, LocalAccount: `A", credentials="creds`}
 	require_False(t, r1.name() == r2.name())
+}
+
+type optsStartupProcess struct {
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	done      chan struct{}
+	exitErr   error
+	logPath   string
+	portsFile string
+}
+
+func startOptsStartupProcess(t *testing.T, content string, env map[string]string) *optsStartupProcess {
+	t.Helper()
+	config := filepath.Join(t.TempDir(), "nats.conf")
+	require_NoError(t, os.WriteFile(config, []byte(content), 0o600))
+	return startOptsConfigProcess(t, config, env, "-a", "127.0.0.1", "-p", "-1", "-m", "-1")
+}
+
+func startOptsConfigProcess(t *testing.T, config string, env map[string]string, args ...string) *optsStartupProcess {
+	t.Helper()
+	executable, err := os.Executable()
+	require_NoError(t, err)
+	dir := filepath.Dir(config)
+	logPath := filepath.Join(dir, "process.log")
+	log, err := os.Create(logPath)
+	require_NoError(t, err)
+	t.Cleanup(func() { log.Close() })
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	processArgs := append([]string{
+		"-test.run=^TestOptsConfiguredStartupProcess$", "--", "opts-startup-child",
+		"-c", config, "--ports_file_dir", dir,
+	}, args...)
+	cmd := exec.CommandContext(ctx, executable, processArgs...)
+	cmd.Stdout, cmd.Stderr = log, log
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		name, _, _ := strings.Cut(entry, "=")
+		_, replaced := env[name]
+		return replaced
+	})
+	for name, value := range env {
+		cmd.Env = append(cmd.Env, name+"="+value)
+	}
+	stdin, err := cmd.StdinPipe()
+	require_NoError(t, err)
+	t.Cleanup(func() { stdin.Close() })
+	require_NoError(t, cmd.Start())
+	child := &optsStartupProcess{
+		cmd: cmd, stdin: stdin, done: make(chan struct{}), logPath: logPath,
+		portsFile: filepath.Join(dir, fmt.Sprintf("%s_%d.ports", filepath.Base(executable), cmd.Process.Pid)),
+	}
+	go func() {
+		child.exitErr = cmd.Wait()
+		close(child.done)
+	}()
+	t.Cleanup(func() {
+		stdin.Close()
+		select {
+		case <-child.done:
+		case <-time.After(5 * time.Second):
+			t.Errorf("child did not stop after input closed; output:\n%s", optsStartupOutput(t, child))
+			cmd.Process.Kill()
+			<-child.done
+		}
+	})
+	return child
+}
+
+func optsStartupOutput(t *testing.T, child *optsStartupProcess) string {
+	t.Helper()
+	log, err := os.Open(child.logPath)
+	require_NoError(t, err)
+	defer log.Close()
+	output, err := io.ReadAll(io.LimitReader(log, 256*1024))
+	require_NoError(t, err)
+	return string(output)
+}
+
+func waitOptsStartupExit(t *testing.T, child *optsStartupProcess) {
+	t.Helper()
+	select {
+	case <-child.done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("child did not exit; output:\n%s", optsStartupOutput(t, child))
+	}
+}
+
+func stopOptsStartupProcess(t *testing.T, child *optsStartupProcess) {
+	t.Helper()
+	require_NoError(t, child.stdin.Close())
+	waitOptsStartupExit(t, child)
+	require_NoError(t, child.exitErr)
+	_, err := os.Stat(child.portsFile)
+	require_True(t, os.IsNotExist(err))
+}
+
+func rejectOptsStartupProcess(t *testing.T, content, phase, diagnostic string, env map[string]string) {
+	t.Helper()
+	child := startOptsStartupProcess(t, content, env)
+	rejectOptsProcess(t, child, phase, diagnostic)
+}
+
+func rejectOptsProcess(t *testing.T, child *optsStartupProcess, phase, diagnostic string) {
+	t.Helper()
+	waitOptsStartupExit(t, child)
+	exit, ok := errors.AsType[*exec.ExitError](child.exitErr)
+	if !ok || exit.ExitCode() != 1 {
+		t.Fatalf("expected configuration rejection with exit 1, got %v; output:\n%s", child.exitErr, optsStartupOutput(t, child))
+	}
+	output := optsStartupOutput(t, child)
+	require_Contains(t, output, phase+": ")
+	require_Contains(t, output, diagnostic)
+	require_False(t, strings.Contains(output, "Server is ready"))
+	require_False(t, strings.Contains(output, "panic: "))
+	_, err := os.Stat(child.portsFile)
+	require_True(t, os.IsNotExist(err))
+}
+
+func runOptsStartupChild(args []string) {
+	if len(args) > 0 {
+		if mode, ok := strings.CutPrefix(args[len(args)-1], "opts-api-"); ok {
+			runOptsAPIChild(mode, args[:len(args)-1])
+			return
+		}
+	}
+	fs := flag.NewFlagSet("nats-server", flag.ContinueOnError)
+	opts, err := ConfigureOptions(fs, args, PrintServerAndExit, fs.Usage, PrintTLSHelpAndDie)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "configure: %v\n", err)
+		os.Exit(1)
+	}
+	if opts == nil {
+		return
+	}
+	if opts.CheckConfig {
+		fmt.Fprintf(os.Stderr, "configuration file %s is valid (%s)\n", opts.ConfigFile, opts.ConfigDigest())
+		return
+	}
+	RedactArgs(os.Args)
+	s, err := NewServer(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "new-server: %v\n", err)
+		os.Exit(1)
+	}
+	serveOptsStartupChild(s)
+}
+
+func serveOptsStartupChild(s *Server) {
+	s.ConfigureLogger()
+	// Closing the parent's input pipe stops only this child, on every platform.
+	go func() {
+		io.Copy(io.Discard, os.Stdin)
+		s.Shutdown()
+	}()
+	if err := Run(s); err != nil {
+		fmt.Fprintf(os.Stderr, "run: %v\n", err)
+		os.Exit(1)
+	}
+	s.WaitForShutdown()
+}
+
+func TestOptsConfiguredStartupProcess(t *testing.T) {
+	if marker := slices.Index(os.Args, "opts-startup-child"); marker >= 0 {
+		runOptsStartupChild(os.Args[marker+1:])
+		return
+	}
+	t.Run("authenticated-service-control", func(t *testing.T) {
+		child := startOptsStartupProcess(t, `
+			max_payload: 1024
+			max_pending: 8192
+			authorization { users: [{user: alice, password: secret}, {user: bob, password: other}] }
+		`, nil)
+		ports := optsStartupPorts(t, child)
+		nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("alice", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+		require_NoError(t, err)
+		defer nc.Close()
+		unauthorized, err := nats.Connect(ports.Nats[0], nats.UserInfo("bob", "wrong"), nats.NoReconnect(), nats.Timeout(time.Second))
+		if unauthorized != nil {
+			unauthorized.Close()
+		}
+		require_True(t, errors.Is(err, nats.ErrAuthorization))
+		sub, err := nc.SubscribeSync("opts.process")
+		require_NoError(t, err)
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		payload := bytes.Repeat([]byte("x"), 1024)
+		require_NoError(t, nc.Publish("opts.process", payload))
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		msg, err := sub.NextMsg(time.Second)
+		require_NoError(t, err)
+		require_True(t, bytes.Equal(msg.Data, payload))
+		require_Equal(t, nc.MaxPayload(), int64(1024))
+		client := &http.Client{Timeout: time.Second}
+		response, err := client.Get(ports.Monitoring[0] + VarzPath)
+		require_NoError(t, err)
+		defer response.Body.Close()
+		require_Equal(t, response.StatusCode, http.StatusOK)
+		var info Varz
+		require_NoError(t, json.NewDecoder(response.Body).Decode(&info))
+		require_Equal(t, info.MaxPayload, 1024)
+		require_Equal(t, info.MaxPending, int64(8192))
+		nc.Close()
+		require_NoError(t, child.stdin.Close())
+		waitOptsStartupExit(t, child)
+		require_NoError(t, child.exitErr)
+		_, err = os.Stat(child.portsFile)
+		require_True(t, os.IsNotExist(err))
+	})
+
+	op, err := nkeys.CreateOperator()
+	require_NoError(t, err)
+	opPublic, err := op.PublicKey()
+	require_NoError(t, err)
+	claims := jwt.NewOperatorClaims(opPublic)
+	claims.AssertServerVersion = "10.20.30"
+	versionJWT, err := claims.Encode(op)
+	require_NoError(t, err)
+	for _, tc := range []struct {
+		name, content, phase, diagnostic string
+		env                              map[string]string
+	}{
+		{"TestBadNkeyConfig", `authorization { users: [{nkey: "Ufoo"}] }`, "configure", "Not a valid public nkey for a user", nil},
+		{"TestNkeyWithPassConfig", `authorization { users: [{nkey: "UDKTV7HZVYJFJN64LLMYQBUR6MTNNYCDC3LAZH4VHURW3GZLL3FULBXV", pass: "foo"}] }`, "configure", "Nkey users do not take usernames or passwords", nil},
+		{"TestTokenWithUserPass", `authorization {user: user, pass: password, token: "$2a$11$whatever"}`, "configure", "token", nil},
+		{"TestTokenWithUsers", `authorization {token: "$2a$11$whatever", users: [{user: test, password: test}]}`, "configure", "token", nil},
+		{"TestMalformedListenAddress", "# test garbage listen address for failure\nlisten: 10.0.1.22:foo", "configure", "port", nil},
+		{"TestMalformedClusterAddress", "# Test malformed cluster listen address\ncluster { listen: 266.0.0.1:foo }", "configure", "port", nil},
+		{"TestPanic", `port: "this_string_trips_a_panic"`, "configure", ":1:0: interface conversion:", nil},
+		{"TestLargeMaxControlLine", `max_control_line: 3000000000`, "configure", "max_control_line value is too big", nil},
+		{"TestLargeMaxPayload/overflow", `max_payload: 3000000000`, "configure", "max_payload value is too big", nil},
+		{"TestLargeMaxPayload/payload-exceeds-pending", "max_payload: 100000\nmax_pending: 50000", "new-server", "max_payload (100000) cannot be higher than max_pending (50000)", nil},
+		{"TestReadOperatorJWTSystemAccountMismatch", operatorJwtWithSysAccAndMemResolver + "\nsystem_account: ADXJJCDCSRSMCOV25FXQW7R4QOG7R763TVEXBNWJHLBMBGWOJYG5XZBG", "new-server", "system_account in config and operator JWT must be identical", nil},
+		{"TestReadOperatorAssertVersionFail", fmt.Sprintf("operator: %s\nresolver: MEM", versionJWT), "new-server", "expected major version 10 > server major version", nil},
+		{"TestClusterNameAndGatewayNameConflict", "cluster { name: A, listen: 127.0.0.1:-1 }\ngateway { name: B, listen: 127.0.0.1:-1 }", "new-server", ErrClusterNameConfigConflict.Error(), nil},
+		{"TestResolverPinnedAccountsFail/public-key", fmt.Sprintf("operator: %s\nresolver: URL(http://127.0.0.1:1/)\nresolver_pinned_accounts: [f]", ojwt), "new-server", " is not a valid public account nkey", nil},
+		{"TestResolverPinnedAccountsFail/unsupported-type", fmt.Sprintf("operator: %s\nresolver: URL(http://127.0.0.1:1/)\nresolver_pinned_accounts: [1, x]", ojwt), "configure", "parsing resolver_pinned_accounts: unsupported type", nil},
+		{"TestDefaultSentinel", `default_sentinel: "hello"`, "new-server", "default sentinel requires operators and accounts", nil},
+		{"TestVarReferencesSelf", `A: $A`, "configure", "variable reference for 'A' on line 1 can not be found", nil},
+		{"TestEnvVarReferencesVar", "P: 8080\nport: $_TEST_ENV_NATS_PORT_", "configure", "variable reference for 'P' on line 1 can not be found", map[string]string{"_TEST_ENV_NATS_PORT_": "$P"}},
+		{"TestEnvVarReferencesSelf", "\nTEST: $_TEST_ENV_", "configure", "variable reference cycle", map[string]string{"_TEST_ENV_": "$_TEST_ENV_"}},
+		{"TestEnvVarReferencesSelfCycle", "\nTEST: $_TEST_ENV_A_", "configure", "variable reference cycle", map[string]string{"_TEST_ENV_A_": "$_TEST_ENV_B_", "_TEST_ENV_B_": "$_TEST_ENV_C_", "_TEST_ENV_C_": "$_TEST_ENV_A_"}},
+		{"TestEnvVarInclude", "\nTEST: $_TEST_ENV_A_", "configure", "Expected a top-level value to end with a new line, comment or EOF", map[string]string{"_TEST_ENV_A_": "include x"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rejectOptsStartupProcess(t, tc.content, tc.phase, tc.diagnostic, tc.env)
+		})
+	}
+
+	t.Run("TestParsingGatewaysErrors", func(t *testing.T) {
+		for _, test := range []struct{ name, content, expectedErr string }{
+			{
+				"bad_type",
+				`gateway: "bad_type"`,
+				"Expected gateway to be a map",
+			},
+			{
+				"bad_listen",
+				`gateway {
+				name: "A"
+				port: -1
+				listen: "bad::address"
+			}`,
+				"parse address",
+			},
+			{
+				"bad_auth",
+				`gateway {
+				name: "A"
+				port: -1
+				authorization {
+					users {
+					}
+				}
+			}`,
+				"be an array",
+			},
+			{
+				"unknown_field",
+				`gateway {
+				name: "A"
+				port: -1
+				reject_unknown_cluster: true
+				unknown_field: 1
+			}`,
+				"unknown field",
+			},
+			{
+				"users_not_supported",
+				`gateway {
+				name: "A"
+				port: -1
+				authorization {
+					users [
+						{user: alice, password: foo}
+						{user: bob,   password: bar}
+					]
+				}
+			}`,
+				"does not allow multiple users",
+			},
+			{
+				"tls_error",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					cert_file: 123
+				}
+			}`,
+				"to be filename",
+			},
+			{
+				"tls_gen_error_cert_file_not_found",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					cert_file: "./configs/certs/missing.pem"
+					key_file: "./configs/certs/server-key.pem"
+				}
+			}`,
+				"certificate/key pair",
+			},
+			{
+				"tls_gen_error_key_file_not_found",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					cert_file: "./configs/certs/server.pem"
+					key_file: "./configs/certs/missing.pem"
+				}
+			}`,
+				"certificate/key pair",
+			},
+			{
+				"tls_gen_error_key_file_missing",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					cert_file: "./configs/certs/server.pem"
+				}
+			}`,
+				`missing 'key_file' in TLS configuration`,
+			},
+			{
+				"tls_gen_error_cert_file_missing",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					key_file: "./configs/certs/server-key.pem"
+				}
+			}`,
+				`missing 'cert_file' in TLS configuration`,
+			},
+			{
+				"tls_gen_error_key_file_not_found",
+				`gateway {
+				name: "A"
+				port: -1
+				tls {
+					cert_file: "./configs/certs/server.pem"
+					key_file: "./configs/certs/missing.pem"
+				}
+			}`,
+				"certificate/key pair",
+			},
+			{
+				"gateways_needs_to_be_an_array",
+				`gateway {
+				name: "A"
+				gateways {
+					name: "B"
+				}
+			}`,
+				"Expected gateways field to be an array",
+			},
+			{
+				"gateways_entry_needs_to_be_a_map",
+				`gateway {
+				name: "A"
+				gateways [
+					"g1", "g2"
+				]
+			}`,
+				"Expected gateway entry to be a map",
+			},
+			{
+				"bad_url",
+				`gateway {
+				name: "A"
+				gateways [
+					{
+						name: "B"
+						url: "nats://wrong url"
+					}
+				]
+			}`,
+				"error parsing gateway url",
+			},
+			{
+				"bad_urls",
+				`gateway {
+				name: "A"
+				gateways [
+					{
+						name: "B"
+						urls: ["nats://wrong url", "nats://host:5222"]
+					}
+				]
+			}`,
+				"error parsing gateway url",
+			},
+			{
+				"gateway_tls_error",
+				`gateway {
+				name: "A"
+				port: -1
+				gateways [
+					{
+						name: "B"
+						tls {
+							cert_file: 123
+						}
+					}
+				]
+			}`,
+				"to be filename",
+			},
+			{
+				"gateway_unknown_field",
+				`gateway {
+				name: "A"
+				port: -1
+				gateways [
+					{
+						name: "B"
+						unknown_field: 1
+					}
+				]
+			}`,
+				"unknown field",
+			},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				rejectOptsStartupProcess(t, test.content, "configure", test.expectedErr, nil)
+			})
+		}
+	})
+
+	t.Run("TestAuthorizationAndAccountsMisconfigurations", func(t *testing.T) {
+		for _, test := range []struct{ name, config, err string }{
+			{
+				"duplicate users",
+				`
+			authorization = {users = [ {user: "user1", pass: "pwd"} ] }
+			accounts { ACC { users = [ {user: "user1"} ] } }
+			`,
+				fmt.Sprintf("Duplicate user %q detected", "user1"),
+			},
+			{
+				"duplicate nkey",
+				`
+			authorization = {users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] }
+			accounts { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+				fmt.Sprintf("Duplicate nkey %q detected", "UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX"),
+			},
+			{
+				"auth single user and password and accounts users",
+				`
+			authorization = {user: "user1", password: "pwd"}
+			accounts = { ACC { users = [ {user: "user2", pass: "pwd"} ] } }
+			`,
+				"Can not have a single user/pass",
+			},
+			{
+				"auth single user and password and accounts nkeys",
+				`
+			authorization = {user: "user1", password: "pwd"}
+			accounts = { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+				"Can not have a single user/pass",
+			},
+			{
+				"auth token and accounts users",
+				`
+			authorization = {token: "my_token"}
+			accounts = { ACC { users = [ {user: "user2", pass: "pwd"} ] } }
+			`,
+				"Can not have a token",
+			},
+			{
+				"auth token and accounts nkeys",
+				`
+			authorization = {token: "my_token"}
+			accounts = { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+				"Can not have a token",
+			},
+			{
+				"auth callout allowed accounts",
+				`
+			accounts {
+				AUTH { users = [ {user: "auth", password: "auth"} ] }
+				FOO {}
+			}
+			authorization {
+				auth_callout {
+					issuer: "ABJHLOVMPA4CI6R5KLNGOB4GSLNIY7IOUPAJC4YFNDLQVIOBYQGUWVLA"
+					account: AUTH
+					auth_users: [ auth ]
+					allowed_accounts: [ BAR ]
+				}
+			}
+			`,
+				"auth_callout allowed account \"BAR\" not found in configured accounts",
+			},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				rejectOptsStartupProcess(t, test.config, "configure", test.err, nil)
+			})
+		}
+	})
+}
+
+func TestOptsConfiguredVariablesProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name, content, include string
+		env                    map[string]string
+	}{
+		{"TestVarReferencesVar", "A: %d\nB: $A\nC: $B\nport: $C", "", nil},
+		{"TestVarReferencesEnvVar", "A: $_TEST_ENV_NATS_PORT_\nB: $A\nC: $B\nport: $C", "", map[string]string{"_TEST_ENV_NATS_PORT_": "%d"}},
+		{"TestEnvVarReferencesEnvVar", "port: $_TEST_ENV_A_", "", map[string]string{"_TEST_ENV_A_": "$_TEST_ENV_B_", "_TEST_ENV_B_": "$_TEST_ENV_C_", "_TEST_ENV_C_": "%d"}},
+		{"TestEnvVarFromIncludedFile", "include \"./port.conf\"\nport: $TEST_PORT", "TEST_PORT: $_TEST_ENV_PORT_A_", map[string]string{"_TEST_ENV_PORT_A_": "$_TEST_ENV_PORT_B_", "_TEST_ENV_PORT_B_": "%d"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reservation, err := net.Listen("tcp", "127.0.0.1:0")
+			require_NoError(t, err)
+			port := reservation.Addr().(*net.TCPAddr).Port
+			require_NoError(t, reservation.Close())
+			content := strings.ReplaceAll(tc.content, "%d", fmt.Sprint(port))
+			env := make(map[string]string, len(tc.env))
+			for key, value := range tc.env {
+				env[key] = strings.ReplaceAll(value, "%d", fmt.Sprint(port))
+			}
+			dir := t.TempDir()
+			config := filepath.Join(dir, "nats.conf")
+			require_NoError(t, os.WriteFile(config, []byte(content), 0o600))
+			if tc.include != "" {
+				require_NoError(t, os.WriteFile(filepath.Join(dir, "port.conf"), []byte(tc.include), 0o600))
+			}
+			child := startOptsConfigProcess(t, config, env, "-a", "127.0.0.1", "-m", "-1")
+			ports := optsStartupPorts(t, child)
+			endpoint, err := url.Parse(ports.Nats[0])
+			require_NoError(t, err)
+			require_Equal(t, endpoint.Host, fmt.Sprintf("127.0.0.1:%d", port))
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			subject := nats.NewInbox()
+			sub, err := nc.SubscribeSync(subject)
+			require_NoError(t, err)
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			require_NoError(t, nc.Publish(subject, []byte(content)))
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			msg, err := sub.NextMsg(time.Second)
+			require_NoError(t, err)
+			require_Equal(t, string(msg.Data), content)
+			nc.Close()
+			require_NoError(t, child.stdin.Close())
+			waitOptsStartupExit(t, child)
+			require_NoError(t, child.exitErr)
+			_, err = os.Stat(child.portsFile)
+			require_True(t, os.IsNotExist(err))
+		})
+	}
+}
+
+func runOptsAPIChild(mode string, args []string) {
+	fs := flag.NewFlagSet("opts-api-child", flag.ContinueOnError)
+	var config, portsDir string
+	fs.StringVar(&config, "c", "", "test config path")
+	fs.StringVar(&portsDir, "ports_file_dir", "", "test ports path")
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "api-arguments: %v\n", err)
+		os.Exit(1)
+	}
+	opts := &Options{Host: "127.0.0.1", Port: -1, HTTPHost: "127.0.0.1", HTTPPort: -1, PortsFileDir: portsDir}
+	var s *Server
+	var err error
+	switch mode {
+	case "string":
+		var body []byte
+		body, err = os.ReadFile(config)
+		if err == nil {
+			err = opts.ProcessConfigString(string(body))
+		}
+		if err == nil {
+			s, err = NewServer(opts)
+		}
+	case "from-config":
+		opts.ConfigFile = config
+		s, err = NewServerFromConfig(opts)
+	case "load-config":
+		opts = LoadConfig(config)
+		opts.PortsFileDir = portsDir
+		s, err = NewServer(opts)
+	default:
+		err = fmt.Errorf("unknown API mode %q", mode)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "api-%s: %v\n", mode, err)
+		os.Exit(1)
+	}
+	serveOptsStartupChild(s)
+}
+
+func TestOptsEmbeddedAPIStartupProcess(t *testing.T) {
+	config := `
+		host: 127.0.0.1
+		port: -1
+		http: "127.0.0.1:-1"
+		max_payload: 4194304
+		max_connections: 200
+		ping_interval: "30s"
+	`
+	observed := make(map[string]Varz)
+	for _, mode := range []string{"string", "from-config", "load-config"} {
+		t.Run(mode+"-service-control", func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(path, []byte(config), 0o600))
+			child := startOptsConfigProcess(t, path, nil, "opts-api-"+mode)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			require_Equal(t, nc.MaxPayload(), int64(4194304))
+			subject := nats.NewInbox()
+			sub, err := nc.SubscribeSync(subject)
+			require_NoError(t, err)
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			require_NoError(t, nc.Publish(subject, []byte(mode)))
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			msg, err := sub.NextMsg(time.Second)
+			require_NoError(t, err)
+			require_Equal(t, string(msg.Data), mode)
+			client := &http.Client{Timeout: time.Second}
+			response, err := client.Get(ports.Monitoring[0] + VarzPath)
+			require_NoError(t, err)
+			defer response.Body.Close()
+			require_Equal(t, response.StatusCode, http.StatusOK)
+			var info Varz
+			require_NoError(t, json.NewDecoder(response.Body).Decode(&info))
+			require_Equal(t, info.MaxPayload, 4194304)
+			require_Equal(t, info.MaxConn, 200)
+			require_Equal(t, info.PingInterval, 30*time.Second)
+			observed[mode] = info
+			nc.Close()
+			require_NoError(t, child.stdin.Close())
+			waitOptsStartupExit(t, child)
+			require_NoError(t, child.exitErr)
+			_, err = os.Stat(child.portsFile)
+			require_True(t, os.IsNotExist(err))
+		})
+	}
+	require_True(t, observed["from-config"].ConfigDigest != "")
+	require_Equal(t, observed["from-config"].ConfigDigest, observed["load-config"].ConfigDigest)
+
+	t.Run("TestNewServerFromConfigFunctionality", func(t *testing.T) {
+		for _, tc := range []struct{ name, content, diagnostic string }{
+			{"overflow", "max_payload: 3000000000", "max_payload value is too big"},
+			{"payload-exceeds-pending", "max_payload: 100000\nmax_pending: 50000", "max_payload (100000) cannot be higher than max_pending (50000)"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				path := filepath.Join(t.TempDir(), "nats.conf")
+				require_NoError(t, os.WriteFile(path, []byte(tc.content), 0o600))
+				child := startOptsConfigProcess(t, path, nil, "opts-api-from-config")
+				rejectOptsProcess(t, child, "api-from-config", tc.diagnostic)
+			})
+		}
+	})
+}
+
+func TestOptsConfigStringRejectedStartupProcess(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		config string
+		err    string
+	}{
+		{
+			"duplicate users",
+			`
+			authorization = {users = [ {user: "user1", pass: "pwd"} ] }
+			accounts { ACC { users = [ {user: "user1"} ] } }
+			`,
+			fmt.Sprintf("Duplicate user %q detected", "user1"),
+		},
+		{
+			"duplicate nkey",
+			`
+			authorization = {users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] }
+			accounts { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+			fmt.Sprintf("Duplicate nkey %q detected", "UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX"),
+		},
+		{
+			"auth single user and password and accounts users",
+			`
+			authorization = {user: "user1", password: "pwd"}
+			accounts = { ACC { users = [ {user: "user2", pass: "pwd"} ] } }
+			`,
+			"Can not have a single user/pass",
+		},
+		{
+			"auth single user and password and accounts nkeys",
+			`
+			authorization = {user: "user1", password: "pwd"}
+			accounts = { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+			"Can not have a single user/pass",
+		},
+		{
+			"auth token and accounts users",
+			`
+			authorization = {token: "my_token"}
+			accounts = { ACC { users = [ {user: "user2", pass: "pwd"} ] } }
+			`,
+			"Can not have a token",
+		},
+		{
+			"auth token and accounts nkeys",
+			`
+			authorization = {token: "my_token"}
+			accounts = { ACC { users = [ {nkey: UC6NLCN7AS34YOJVCYD4PJ3QB7QGLYG5B5IMBT25VW5K4TNUJODM7BOX} ] } }
+			`,
+			"Can not have a token",
+		},
+		{
+			"auth callout allowed accounts",
+			`
+			accounts {
+				AUTH { users = [ {user: "auth", password: "auth"} ] }
+				FOO {}
+			}
+			authorization {
+				auth_callout {
+					issuer: "ABJHLOVMPA4CI6R5KLNGOB4GSLNIY7IOUPAJC4YFNDLQVIOBYQGUWVLA"
+					account: AUTH
+					auth_users: [ auth ]
+					allowed_accounts: [ BAR ]
+				}
+			}
+			`,
+			"auth_callout allowed account \"BAR\" not found in configured accounts",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(path, []byte(test.config), 0o600))
+			child := startOptsConfigProcess(t, path, nil, "opts-api-string")
+			rejectOptsProcess(t, child, "api-string", test.err)
+		})
+	}
+}
+
+func optsStartupPorts(t *testing.T, child *optsStartupProcess) Ports {
+	t.Helper()
+	var ports Ports
+	checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+		select {
+		case <-child.done:
+			return fmt.Errorf("child exited: %v; output: %s", child.exitErr, optsStartupOutput(t, child))
+		default:
+		}
+		body, err := os.ReadFile(child.portsFile)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(body, &ports); err != nil {
+			return err
+		}
+		if len(ports.Nats) != 1 || len(ports.Monitoring) != 1 {
+			return fmt.Errorf("listeners not ready: %+v", ports)
+		}
+		return nil
+	})
+	return ports
+}
+
+func readOptsStartupJSON(t *testing.T, endpoint string, destination any) {
+	t.Helper()
+	client := &http.Client{Timeout: time.Second}
+	response, err := client.Get(endpoint)
+	require_NoError(t, err)
+	defer response.Body.Close()
+	require_Equal(t, response.StatusCode, http.StatusOK)
+	require_NoError(t, json.NewDecoder(response.Body).Decode(destination))
+}
+
+func exchangeOptsStartupMessage(t *testing.T, publisher, subscriber *nats.Conn) {
+	t.Helper()
+	subject := nats.NewInbox()
+	sub, err := subscriber.SubscribeSync(subject)
+	require_NoError(t, err)
+	defer sub.Unsubscribe()
+	require_NoError(t, subscriber.FlushTimeout(time.Second))
+	payload := []byte(subject)
+	require_NoError(t, publisher.Publish(subject, payload))
+	require_NoError(t, publisher.FlushTimeout(time.Second))
+	msg, err := sub.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_True(t, bytes.Equal(msg.Data, payload))
+}
+
+func TestOptsConfiguredNoAuthUserProcess(t *testing.T) {
+	config := `
+		no_auth_user: $NO_AUTH_USER
+		accounts {
+			synadia {
+				users [
+					{user: "a", password: "a"},
+					{nkey: UBAAQWTW6CG2G6ANGNKB5U2B7HRWHSGMZEZX3AQSAJOQDAUGJD46LD2E}
+				]
+			}
+			acc { users [{user: "c", password: "c"}] }
+		}
+		authorization { users [{user: "b", password: "b"}] }
+	`
+	for _, user := range []string{"a", "b", "b"} {
+		t.Run(user, func(t *testing.T) {
+			child := startOptsStartupProcess(t, config, map[string]string{"NO_AUTH_USER": user})
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			anonymous, err := nats.Connect(ports.Nats[0], nats.Name("opts-anonymous"), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer anonymous.Close()
+			authenticated, err := nats.Connect(ports.Nats[0], nats.UserInfo(user, user), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer authenticated.Close()
+			exchangeOptsStartupMessage(t, authenticated, anonymous)
+			exchangeOptsStartupMessage(t, anonymous, authenticated)
+			var connections Connz
+			readOptsStartupJSON(t, ports.Monitoring[0]+ConnzPath+"?auth=true", &connections)
+			found := false
+			for _, connection := range connections.Conns {
+				if connection.Name != "opts-anonymous" {
+					continue
+				}
+				found = true
+				require_Equal(t, connection.AuthorizedUser, user)
+				account := ""
+				if user == "a" {
+					account = "synadia"
+				}
+				require_Equal(t, connection.Account, account)
+			}
+			require_True(t, found)
+		})
+	}
+	for _, user := range []string{"notthere", "UBAAQWTW6CG2G6ANGNKB5U2B7HRWHSGMZEZX3AQSAJOQDAUGJD46LD2F"} {
+		t.Run("invalid-"+user, func(t *testing.T) {
+			rejectOptsStartupProcess(t, config, "new-server", "no_auth_user", map[string]string{"NO_AUTH_USER": user})
+		})
+	}
+}
+
+func TestOptsConfiguredClosedHistoryProcess(t *testing.T) {
+	child := startOptsStartupProcess(t, "max_closed_clients: 5", nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	survivor, err := nats.Connect(ports.Nats[0], nats.Name("survivor"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer survivor.Close()
+	for i := range 7 {
+		name := fmt.Sprintf("closed-%d", i)
+		nc, err := nats.Connect(ports.Nats[0], nats.Name(name), nats.NoReconnect(), nats.Timeout(time.Second))
+		require_NoError(t, err)
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		nc.Close()
+		checkFor(t, time.Second, 10*time.Millisecond, func() error {
+			var history Connz
+			readOptsStartupJSON(t, ports.Monitoring[0]+ConnzPath+"?state=closed", &history)
+			if history.Total != min(i+1, 5) {
+				return fmt.Errorf("closed count: got %d, want %d", history.Total, min(i+1, 5))
+			}
+			for _, connection := range history.Conns {
+				if connection.Name == name && connection.Stop != nil {
+					return nil
+				}
+			}
+			return fmt.Errorf("latest closed connection %s missing", name)
+		})
+	}
+	var history Connz
+	readOptsStartupJSON(t, ports.Monitoring[0]+ConnzPath+"?state=closed", &history)
+	require_Equal(t, len(history.Conns), 5)
+	names := make(map[string]bool)
+	for _, connection := range history.Conns {
+		names[connection.Name] = true
+		require_Equal(t, connection.Reason, ClientClosed.String())
+	}
+	for i := 2; i < 7; i++ {
+		require_True(t, names[fmt.Sprintf("closed-%d", i)])
+	}
+	exchangeOptsStartupMessage(t, survivor, survivor)
+}
+
+func TestOptsConfiguredPingIntervalProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name, content string
+		interval      time.Duration
+		warning       string
+	}{
+		{"TestPingIntervalOld", "ping_interval: 5", 5 * time.Second, "ping_interval should be converted to a duration"},
+		{"TestPingIntervalNew", `ping_interval: "5m"`, 5 * time.Minute, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := startOptsStartupProcess(t, tc.content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			exchangeOptsStartupMessage(t, nc, nc)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.PingInterval, tc.interval)
+			if tc.warning != "" {
+				require_Contains(t, optsStartupOutput(t, child), tc.warning)
+			}
+		})
+	}
+}
+
+func TestOptsConfiguredSublistCacheProcess(t *testing.T) {
+	child := startOptsStartupProcess(t, "disable_sublist_cache: true", nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer nc.Close()
+	sub, err := nc.SubscribeSync("cache.>")
+	require_NoError(t, err)
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	for i := range 3 {
+		subject := fmt.Sprintf("cache.%d", i)
+		require_NoError(t, nc.Publish(subject, []byte(subject)))
+		require_NoError(t, nc.FlushTimeout(time.Second))
+		msg, err := sub.NextMsg(time.Second)
+		require_NoError(t, err)
+		require_Equal(t, string(msg.Data), subject)
+	}
+	var stats Subsz
+	readOptsStartupJSON(t, ports.Monitoring[0]+SubszPath, &stats)
+	require_True(t, stats.NumSubs > 0)
+	require_Equal(t, stats.NumCache, uint32(0))
+}
+
+func TestOptsConfiguredStorageQuotaProcess(t *testing.T) {
+	for _, tc := range []struct {
+		input string
+		quota int64
+	}{
+		{"1K", 1024},
+		{"1M", 1048576},
+		{"1G", 1073741824},
+		{"1T", 1099511627776},
+		{"", 0},
+	} {
+		t.Run("size-"+tc.input, func(t *testing.T) {
+			fileSize, fileQuota := tc.input, tc.quota
+			if tc.input == "" {
+				fileSize, fileQuota = "1M", 1048576
+			}
+			content := fmt.Sprintf(`
+				jetstream {
+					store_dir: %q
+					max_memory_store: %q
+					max_file_store: %q
+				}
+			`, filepath.Join(t.TempDir(), "store"), tc.input, fileSize)
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_True(t, info.JetStream.Config != nil)
+			require_Equal(t, info.JetStream.Config.MaxMemory, tc.quota)
+			require_Equal(t, info.JetStream.Config.MaxStore, fileQuota)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			js, err := nc.JetStream(nats.MaxWait(time.Second))
+			require_NoError(t, err)
+			for _, storage := range []struct {
+				kind  nats.StorageType
+				quota int64
+				code  ErrorIdentifier
+			}{
+				{nats.MemoryStorage, tc.quota, JSMemoryResourcesExceededErr},
+				{nats.FileStorage, fileQuota, JSStorageResourcesExceededErr},
+			} {
+				name := fmt.Sprintf("QUOTA_%d", storage.kind)
+				request, err := json.Marshal(&nats.StreamConfig{
+					Name: name, Subjects: []string{name}, Storage: storage.kind, MaxBytes: storage.quota + 1,
+				})
+				require_NoError(t, err)
+				response, err := nc.Request(fmt.Sprintf(JSApiStreamCreateT, name), request, time.Second)
+				require_NoError(t, err)
+				var rejected JSApiStreamCreateResponse
+				require_NoError(t, json.Unmarshal(response.Data, &rejected))
+				require_True(t, rejected.Error != nil)
+				require_Equal(t, rejected.Error.ErrCode, uint16(storage.code))
+				if storage.quota == 0 {
+					continue
+				}
+				// Reserving the exact quota tests large units without allocating that much data.
+				_, err = js.AddStream(&nats.StreamConfig{
+					Name: name, Subjects: []string{name}, Storage: storage.kind, MaxBytes: storage.quota,
+				})
+				require_NoError(t, err)
+				payload := []byte("configured storage quota")
+				ack, err := js.Publish(name, payload)
+				require_NoError(t, err)
+				stored, err := js.GetMsg(name, ack.Sequence)
+				require_NoError(t, err)
+				require_True(t, bytes.Equal(stored.Data, payload))
+				require_NoError(t, js.DeleteStream(name))
+			}
+		})
+	}
+	for _, input := range []string{"1L", "TT"} {
+		for _, field := range []string{"max_memory_store", "max_file_store"} {
+			t.Run(input+"-"+field, func(t *testing.T) {
+				diagnostic := "sizes defined as strings must end in K, M, G, T"
+				if input == "TT" {
+					diagnostic = `parsing "T": invalid syntax`
+				}
+				rejectOptsStartupProcess(t, fmt.Sprintf("jetstream { %s: %q }", field, input), "configure", diagnostic, nil)
+			})
+		}
+	}
+}
+
+func TestOptsConfiguredAuthorizationTimeoutProcess(t *testing.T) {
+	type testCase struct {
+		name                string
+		config              string
+		expectParsed        float64
+		expectRunning       float64
+		expectErrorContains string
+	}
+
+	for _, tc := range []testCase{{
+		name:          "defaults",
+		config:        "authorization {}",
+		expectParsed:  0,
+		expectRunning: 2,
+	}, {
+		name: "explicit zero",
+		config: `
+			authorization {
+				timeout: 0
+			}`,
+		expectParsed:  0,
+		expectRunning: 2,
+	}, {
+		name: "explicit one",
+		config: `
+			authorization {
+				timeout: 1
+			}`,
+		expectParsed:  1,
+		expectRunning: 1,
+	}, {
+		name: "garbage",
+		config: `
+			authorization {
+				timeout: random_garbage
+			}`,
+		expectErrorContains: `invalid duration "random_garbage"`,
+	}, {
+		name: "human readable",
+		config: `
+			authorization {
+				timeout: 10s
+			}`,
+		expectParsed:  10,
+		expectRunning: 10,
+	}, {
+		name: "bare values could be parsed as integers",
+		config: `
+			authorization {
+				timeout: 1m
+			}`,
+		expectParsed:  1000000,
+		expectRunning: 1000000,
+	}, {
+		name: "but quoted values will be parsed as durations",
+		config: `
+			authorization {
+				timeout: "1m"
+			}`,
+		expectParsed:  60,
+		expectRunning: 60,
+	}, {
+		name: "human readable minutes quoted",
+		config: `
+			authorization {
+				timeout: "10m5s30ms"
+			}`,
+		expectParsed:  605.03,
+		expectRunning: 605.03,
+	}, {
+		name: "floats work",
+		config: `
+			authorization {
+				timeout: 0.091
+			}`,
+		expectParsed:  .091,
+		expectRunning: .091,
+	}, {
+		name: "but no leading digit fails",
+		config: `
+			authorization {
+				timeout: .091
+			}`,
+		expectErrorContains: "Floats must start with a digit",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.expectErrorContains != "" {
+				rejectOptsStartupProcess(t, tc.config, "configure", tc.expectErrorContains, nil)
+				return
+			}
+			content := strings.Replace(tc.config, "authorization {", "authorization { user: user, password: secret,", 1)
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo("user", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			exchangeOptsStartupMessage(t, nc, nc)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.AuthTimeout, tc.expectRunning)
+			if tc.expectRunning <= 2 {
+				endpoint, err := url.Parse(ports.Nats[0])
+				require_NoError(t, err)
+				assertOptsAuthenticationTimeout(t, endpoint.Host, tc.expectRunning)
+			}
+		})
+	}
+}
+
+func TestOptsConfiguredLeafAuthorizationTimeoutProcess(t *testing.T) {
+	type testCase struct {
+		name                string
+		config              string
+		expect              float64
+		expectErrorContains string
+	}
+
+	for _, tc := range []testCase{{
+		name:   "defaults",
+		config: "leafnodes { authorization {} }",
+		expect: 0,
+	}, {
+		name: "explicit zero",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: 0
+				}
+			}`,
+		expect: 0,
+	}, {
+		name: "explicit one",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: 1
+				}
+			}`,
+		expect: 1,
+	}, {
+		name: "garbage",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: random_garbage
+				}
+			}`,
+		expectErrorContains: `invalid duration "random_garbage"`,
+	}, {
+		name: "human readable",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: 10s
+				}
+			}`,
+		expect: 10,
+	}, {
+		name: "bare values could be parsed as integers",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: 1m
+				}
+			}`,
+		expect: 1000000,
+	}, {
+		name: "but quoted values will be parsed as durations",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: "1m"
+				}
+			}`,
+		expect: 60,
+	}, {
+		name: "human readable minutes quoted",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: "10m5s30ms"
+				}
+			}`,
+		expect: 605.03,
+	}, {
+		name: "floats work",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: 0.091
+				}
+			}`,
+		expect: .091,
+	}, {
+		name: "but no leading digit fails",
+		config: `
+			leafnodes {
+				authorization {
+					timeout: .091
+				}
+			}`,
+		expectErrorContains: "Floats must start with a digit",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.expectErrorContains != "" {
+				rejectOptsStartupProcess(t, tc.config, "configure", tc.expectErrorContains, nil)
+				return
+			}
+			content := strings.Replace(tc.config, "leafnodes {", `leafnodes { listen: "127.0.0.1:-1", compression: off,`, 1)
+			content = strings.Replace(content, "authorization {", "authorization { user: leaf, password: secret,", 1)
+			child := startOptsStartupProcess(t, content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			expected := tc.expect
+			if expected == 0 {
+				expected = float64(AUTH_TIMEOUT) / float64(time.Second)
+			}
+			require_Equal(t, info.LeafNode.AuthTimeout, expected)
+			require_True(t, info.LeafNode.Port > 0)
+			address := net.JoinHostPort("127.0.0.1", fmt.Sprint(info.LeafNode.Port))
+			leaf, err := net.DialTimeout("tcp", address, time.Second)
+			require_NoError(t, err)
+			defer leaf.Close()
+			require_NoError(t, leaf.SetDeadline(time.Now().Add(time.Second)))
+			reader := bufio.NewReader(leaf)
+			greeting, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.HasPrefix(greeting, "INFO "))
+			_, err = io.WriteString(leaf, "CONNECT {\"name\":\"opts-leaf\",\"user\":\"leaf\",\"pass\":\"secret\"}\r\nPING\r\n")
+			require_NoError(t, err)
+			pong := false
+			for range 20 {
+				line, err := reader.ReadString('\n')
+				require_NoError(t, err)
+				require_False(t, strings.HasPrefix(line, "-ERR"))
+				if line == "PONG\r\n" {
+					pong = true
+					break
+				}
+			}
+			require_True(t, pong)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			subject := nats.NewInbox()
+			sub, err := nc.SubscribeSync(subject)
+			require_NoError(t, err)
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			_, err = fmt.Fprintf(leaf, "LMSG %s 4\r\nlive\r\n", subject)
+			require_NoError(t, err)
+			msg, err := sub.NextMsg(time.Second)
+			require_NoError(t, err)
+			require_Equal(t, string(msg.Data), "live")
+			if expected <= 2 {
+				assertOptsAuthenticationTimeout(t, address, expected)
+			}
+		})
+	}
+}
+
+func assertOptsAuthenticationTimeout(t *testing.T, address string, seconds float64) {
+	t.Helper()
+	started := time.Now()
+	conn, err := net.DialTimeout("tcp", address, time.Second)
+	require_NoError(t, err)
+	defer conn.Close()
+	expected := time.Duration(seconds * float64(time.Second))
+	require_NoError(t, conn.SetDeadline(time.Now().Add(expected+2*time.Second)))
+	reader := bufio.NewReader(conn)
+	greeting, err := reader.ReadString('\n')
+	require_NoError(t, err)
+	require_True(t, strings.HasPrefix(greeting, "INFO "))
+	response, err := io.ReadAll(io.LimitReader(reader, 4096))
+	require_NoError(t, err)
+	require_Contains(t, string(response), "Authentication Timeout")
+	require_True(t, time.Since(started) >= expected/2)
 }

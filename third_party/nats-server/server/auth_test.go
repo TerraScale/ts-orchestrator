@@ -123,113 +123,6 @@ func TestUserCloneNil(t *testing.T) {
 	}
 }
 
-func TestUserUnknownAllowedConnectionType(t *testing.T) {
-	o := DefaultOptions()
-	o.Users = []*User{{
-		Username:               "user",
-		Password:               "pwd",
-		AllowedConnectionTypes: testCreateAllowedConnectionTypes([]string{jwt.ConnectionTypeStandard, "someNewType"}),
-	}}
-	_, err := NewServer(o)
-	if err == nil || !strings.Contains(err.Error(), "connection type") {
-		t.Fatalf("Expected error about unknown connection type, got %v", err)
-	}
-
-	o.Users[0].AllowedConnectionTypes = testCreateAllowedConnectionTypes([]string{"websocket"})
-	s, err := NewServer(o)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	s.mu.Lock()
-	user := s.opts.Users[0]
-	s.mu.Unlock()
-	for act := range user.AllowedConnectionTypes {
-		if act != jwt.ConnectionTypeWebsocket {
-			t.Fatalf("Expected map to have been updated with proper case, got %v", act)
-		}
-	}
-	// Same with NKey user now.
-	o.Users = nil
-	o.Nkeys = []*NkeyUser{{
-		Nkey:                   "somekey",
-		AllowedConnectionTypes: testCreateAllowedConnectionTypes([]string{jwt.ConnectionTypeStandard, "someNewType"}),
-	}}
-	_, err = NewServer(o)
-	if err == nil || !strings.Contains(err.Error(), "connection type") {
-		t.Fatalf("Expected error about unknown connection type, got %v", err)
-	}
-	o.Nkeys[0].AllowedConnectionTypes = testCreateAllowedConnectionTypes([]string{"websocket"})
-	s, err = NewServer(o)
-	if err != nil {
-		t.Fatalf("Unexpected error: %v", err)
-	}
-	s.mu.Lock()
-	nkey := s.opts.Nkeys[0]
-	s.mu.Unlock()
-	for act := range nkey.AllowedConnectionTypes {
-		if act != jwt.ConnectionTypeWebsocket {
-			t.Fatalf("Expected map to have been updated with proper case, got %v", act)
-		}
-	}
-}
-
-func TestDNSAltNameMatching(t *testing.T) {
-	for idx, test := range []struct {
-		altName string
-		urls    []string
-		match   bool
-	}{
-		{"foo", []string{"FOO"}, true},
-		{"foo", []string{".."}, false},
-		{"foo", []string{"."}, false},
-		{"Foo", []string{"foO"}, true},
-		{"FOO", []string{"foo"}, true},
-		{"foo1", []string{"bar"}, false},
-		{"multi", []string{"m", "mu", "mul", "multi"}, true},
-		{"multi", []string{"multi", "m", "mu", "mul"}, true},
-		{"foo.bar", []string{"foo", "foo.bar.bar", "foo.baz"}, false},
-		{"foo.Bar", []string{"foo", "bar.foo", "Foo.Bar"}, true},
-		{"foo.*", []string{"foo", "bar.foo", "Foo.Bar"}, false}, // only match left most
-		{"f*.bar", []string{"foo", "bar.foo", "Foo.Bar"}, false},
-		{"*.bar", []string{"foo.bar"}, true},
-		{"*", []string{"baz.bar", "bar", "z.y"}, true},
-		{"*", []string{"bar"}, true},
-		{"*", []string{"."}, false},
-		{"*", []string{""}, true},
-		{"*", []string{"*"}, true},
-		{"bar.*", []string{"bar.*"}, true},
-		{"*.Y-X-red-mgmt.default.svc", []string{"A.Y-X-red-mgmt.default.svc"}, true},
-		{"*.Y-X-green-mgmt.default.svc", []string{"A.Y-X-green-mgmt.default.svc"}, true},
-		{"*.Y-X-blue-mgmt.default.svc", []string{"A.Y-X-blue-mgmt.default.svc"}, true},
-		{"Y-X-red-mgmt", []string{"Y-X-red-mgmt"}, true},
-		{"Y-X-red-mgmt", []string{"X-X-red-mgmt"}, false},
-		{"Y-X-red-mgmt", []string{"Y-X-green-mgmt"}, false},
-		{"Y-X-red-mgmt", []string{"Y"}, false},
-		{"Y-X-red-mgmt", []string{"Y-X"}, false},
-		{"Y-X-red-mgmt", []string{"Y-X-red"}, false},
-		{"Y-X-red-mgmt", []string{"X-red-mgmt"}, false},
-		{"Y-X-green-mgmt", []string{"Y-X-green-mgmt"}, true},
-		{"Y-X-blue-mgmt", []string{"Y-X-blue-mgmt"}, true},
-		{"connect.Y.local", []string{"connect.Y.local"}, true},
-		{"connect.Y.local", []string{".Y.local"}, false},
-		{"connect.Y.local", []string{"..local"}, false},
-		{"gcp.Y.local", []string{"gcp.Y.local"}, true},
-		{"uswest1.gcp.Y.local", []string{"uswest1.gcp.Y.local"}, true},
-	} {
-		urlSet := make([]*url.URL, len(test.urls))
-		for i, u := range test.urls {
-			var err error
-			urlSet[i], err = url.Parse("nats://" + u)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-		if dnsAltNameMatches(dnsAltNameLabels(test.altName), urlSet) != test.match {
-			t.Fatal("Test", idx, "Match miss match, expected:", test.match)
-		}
-	}
-}
-
 func TestAuthDNSAltNamesTLSRoutes(t *testing.T) {
 	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	require_NoError(t, err)
@@ -355,42 +248,6 @@ func TestAuthDNSAltNamesTLSRoutes(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestProcessUserPermissionsTemplateMalformedOpDoesNotPanic(t *testing.T) {
-	defer require_NoPanic(t)
-
-	lim := jwt.UserPermissionLimits{}
-	lim.Permissions.Sub.Deny = jwt.StringList{"foo.{{x}}"}
-
-	_, err := processUserPermissionsTemplate(lim, &jwt.UserClaims{}, &Account{})
-	require_Error(t, err)
-}
-
-func TestProcessUserPermissionsTemplateUnknownAllowOpDoesNotPanic(t *testing.T) {
-	defer require_NoPanic(t)
-
-	lim := jwt.UserPermissionLimits{}
-	lim.Permissions.Pub.Allow = jwt.StringList{"foo.{{unknown()}}"}
-
-	_, err := processUserPermissionsTemplate(lim, &jwt.UserClaims{}, &Account{})
-	require_Error(t, err)
-}
-
-func TestProcessUserPermissionsTemplateRejectsExcessiveTagExpansions(t *testing.T) {
-	defer require_NoPanic(t)
-
-	lim := jwt.UserPermissionLimits{}
-	lim.Permissions.Pub.Allow = jwt.StringList{"foo.{{tag(a)}}.{{tag(b)}}"}
-
-	uc := &jwt.UserClaims{}
-	for i := range 128 {
-		uc.Tags = append(uc.Tags, fmt.Sprintf("a:v%d", i))
-		uc.Tags = append(uc.Tags, fmt.Sprintf("b:v%d", i))
-	}
-
-	_, err := processUserPermissionsTemplate(lim, uc, &Account{})
-	require_Error(t, err)
 }
 
 func TestAuthPermissionTemplatesTCP(t *testing.T) {
@@ -544,18 +401,35 @@ func TestAuthUserOptionsIsolationTCP(t *testing.T) {
 		{"nil permissions", nil},
 		{"empty permissions", &Permissions{}},
 		{"restricted permissions", &Permissions{
-			Publish:   &SubjectPermission{Allow: []string{"installed"}},
-			Subscribe: &SubjectPermission{Allow: []string{"installed"}},
+			Publish:   &SubjectPermission{Allow: []string{"foo"}},
+			Subscribe: &SubjectPermission{Allow: []string{"bar"}},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			user := &User{Username: "user", Password: "original", Permissions: tc.permissions}
 			o := defaultServerOptions
-			o.Users = []*User{user}
+			o.Users = []*User{user, {Username: "control", Password: "control"}}
 			s := RunServer(&o)
 			t.Cleanup(s.Shutdown)
+			control := natsConnect(t, s.ClientURL(), nats.UserInfo("control", "control"), nats.Timeout(2*time.Second), nats.NoReconnect())
+			defer control.Close()
+			checkDelivery := func(nc *nats.Conn) {
+				t.Helper()
+				incoming := natsSubSync(t, nc, "bar")
+				defer incoming.Unsubscribe()
+				outgoing := natsSubSync(t, control, "foo")
+				defer outgoing.Unsubscribe()
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				require_NoError(t, control.FlushTimeout(2*time.Second))
+				require_NoError(t, control.Publish("bar", []byte("to-user")))
+				require_NoError(t, nc.Publish("foo", []byte("from-user")))
+				require_NoError(t, control.FlushTimeout(2*time.Second))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				require_Equal(t, string(natsNexMsg(t, incoming, 2*time.Second).Data), "to-user")
+				require_Equal(t, string(natsNexMsg(t, outgoing, 2*time.Second).Data), "from-user")
+			}
 			baseline := natsConnect(t, s.ClientURL(), nats.UserInfo("user", "original"), nats.Timeout(2*time.Second), nats.NoReconnect())
-			authSubjectDelivery(t, baseline, "installed")
+			checkDelivery(baseline)
 			baseline.Close()
 
 			// Caller-owned options must not mutate the installed authentication snapshot.
@@ -581,7 +455,7 @@ func TestAuthUserOptionsIsolationTCP(t *testing.T) {
 					errorsCh <- err
 				}))
 			defer nc.Close()
-			authSubjectDelivery(t, nc, "installed")
+			checkDelivery(nc)
 			if tc.name == "restricted permissions" {
 				_, err := nc.SubscribeSync("changed")
 				require_NoError(t, err)

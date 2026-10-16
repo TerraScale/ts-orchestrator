@@ -1612,6 +1612,93 @@ func TestJWTSystemAccountRefreshKeepsInflightReplyOverTCP(t *testing.T) {
 	}
 }
 
+func TestJWTExporterRefreshPreservesResponseExpiryOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	importerKP, _, importClaim := NewJwtAccountClaim("importer")
+	threshold := 20 * time.Millisecond
+	exportClaim.Exports.Add(&jwt.Export{Subject: "short", Type: jwt.Service, ResponseThreshold: threshold})
+	importClaim.Imports.Add(&jwt.Import{Account: exporter, Subject: "short", Type: jwt.Service})
+	s, sc := runJWTClaimsServer(t, exportClaim, importClaim)
+	ec := natsConnect(t, s.ClientURL(), createUserCreds(t, s, exporterKP), nats.NoReconnect())
+	defer ec.Close()
+	nc := natsConnect(t, s.ClientURL(), createUserCreds(t, s, importerKP), nats.NoReconnect())
+	defer nc.Close()
+	requests := natsSubSync(t, ec, "short")
+	replies := natsSubSync(t, nc, nats.NewInbox())
+	require_NoError(t, ec.FlushTimeout(2*time.Second))
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	for _, phase := range []string{"before refresh", "expired during refresh", "after expiry"} {
+		natsPubReq(t, nc, "short", replies.Subject, []byte(phase))
+		request := natsNexMsg(t, requests, 2*time.Second)
+		require_Equal(t, request.Subject, "short")
+		require_Equal(t, string(request.Data), phase)
+		require_True(t, strings.HasPrefix(request.Reply, "_R_."))
+		if phase == "expired during refresh" {
+			exportClaim.Name = "exporter metadata refreshed"
+			require_NoError(t, requestJWTAccountUpdate(sc, exporter, encodeClaim(t, exportClaim, exporter)))
+			time.Sleep(3 * threshold)
+		}
+		natsPub(t, ec, request.Reply, []byte("reply:"+phase))
+		require_NoError(t, ec.FlushTimeout(2*time.Second))
+		if phase != "expired during refresh" {
+			response := natsNexMsg(t, replies, 2*time.Second)
+			require_Equal(t, response.Subject, replies.Subject)
+			require_Equal(t, string(response.Data), "reply:"+phase)
+		}
+		natsPub(t, nc, replies.Subject, []byte("marker:"+phase))
+		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "marker:"+phase)
+	}
+}
+
+func TestJWTExporterRefreshRejectsUnsolicitedRepliesOverTCP(t *testing.T) {
+	exporterKP, exporter, exportClaim := NewJwtAccountClaim("exporter")
+	importerKP, _, importClaim := NewJwtAccountClaim("importer")
+	exportClaim.Exports.Add(&jwt.Export{Subject: "held", Type: jwt.Service})
+	importClaim.Imports.Add(&jwt.Import{Account: exporter, Subject: "held", Type: jwt.Service})
+	s, sc := runJWTClaimsServer(t, exportClaim, importClaim)
+	ec := natsConnect(t, s.ClientURL(), createUserCreds(t, s, exporterKP), nats.NoReconnect())
+	defer ec.Close()
+	nc := natsConnect(t, s.ClientURL(), createUserCreds(t, s, importerKP), nats.NoReconnect())
+	defer nc.Close()
+	requests := natsSubSync(t, ec, "held")
+	replies := natsSubSync(t, nc, nats.NewInbox())
+	require_NoError(t, ec.FlushTimeout(2*time.Second))
+	require_NoError(t, nc.FlushTimeout(2*time.Second))
+	natsPubReq(t, nc, "held", replies.Subject, []byte("held legitimate request"))
+	request := natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, request.Subject, "held")
+	require_Equal(t, string(request.Data), "held legitimate request")
+	require_True(t, strings.HasPrefix(request.Reply, "_R_."))
+	// Keep the actual service-reply prefix and length while using an unallocated response token.
+	suffix := "A"
+	if strings.HasSuffix(request.Reply, suffix) {
+		suffix = "B"
+	}
+	forged := request.Reply[:len(request.Reply)-1] + suffix
+	exportClaim.Name = "exporter refreshed with pending reply"
+	require_NoError(t, requestJWTAccountUpdate(sc, exporter, encodeClaim(t, exportClaim, exporter)))
+	natsPub(t, ec, forged, []byte("unsolicited pending reply"))
+	require_NoError(t, ec.FlushTimeout(2*time.Second))
+	natsPub(t, nc, replies.Subject, []byte("pending marker"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "pending marker")
+	natsPub(t, ec, request.Reply, []byte("legitimate held reply"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "legitimate held reply")
+	exportClaim.Name = "exporter refreshed after consuming reply"
+	require_NoError(t, requestJWTAccountUpdate(sc, exporter, encodeClaim(t, exportClaim, exporter)))
+	natsPub(t, ec, request.Reply, []byte("stale consumed reply"))
+	natsPub(t, ec, forged, []byte("unsolicited after consumption"))
+	require_NoError(t, ec.FlushTimeout(2*time.Second))
+	natsPub(t, nc, replies.Subject, []byte("consumed marker"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "consumed marker")
+	natsPubReq(t, nc, "held", replies.Subject, []byte("fresh request"))
+	fresh := natsNexMsg(t, requests, 2*time.Second)
+	require_Equal(t, fresh.Subject, "held")
+	require_Equal(t, string(fresh.Data), "fresh request")
+	require_NotEqual(t, fresh.Reply, request.Reply)
+	natsPub(t, ec, fresh.Reply, []byte("fresh reply"))
+	require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "fresh reply")
+}
+
 func TestJWTStartupAdmissionOverProcess(t *testing.T) {
 	if conf := os.Getenv("NATS_TEST_JWT_STARTUP_CONFIG"); conf != "" {
 		fs := flag.NewFlagSet("nats-server", flag.ContinueOnError)

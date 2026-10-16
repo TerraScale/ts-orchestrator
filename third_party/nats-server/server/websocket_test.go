@@ -1020,6 +1020,7 @@ func TestWSControlFramesOverSocket(t *testing.T) {
 		{"close empty", wsCloseMessage, nil},
 		{"close status", wsCloseMessage, []byte{3, 232}},
 		{"close payload", wsCloseMessage, append([]byte{3, 232}, []byte("optional payload")...)},
+		{"close internal error", wsCloseMessage, append([]byte{3, 243}, []byte("ABCDEFGHIJ")...)},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			wsc, br := testWSCreateClient(t, false, false, o.Websocket.Host, o.Websocket.Port)
@@ -1048,6 +1049,15 @@ func TestWSControlFramesOverSocket(t *testing.T) {
 					t.Fatalf("Expected EOF after close handshake, got %v", err)
 				}
 			} else {
+				header, err := br.Peek(2)
+				require_NoError(t, err)
+				require_Equal(t, header[0], byte(wsBinaryMessage)|wsFinalBit)
+				require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+				_, err = wsc.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte("PING\r\n")))
+				require_NoError(t, err)
+				header, err = br.Peek(2)
+				require_NoError(t, err)
+				require_Equal(t, header[0], byte(wsBinaryMessage)|wsFinalBit)
 				require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
 			}
 		})
@@ -1195,6 +1205,32 @@ func TestWSPayloadStreamingOverSocket(t *testing.T) {
 		_, err := wsc.Write(frame)
 		require_NoError(t, err)
 		require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "firstsecondthird")
+		require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+	})
+	t.Run("application gated masking", func(t *testing.T) {
+		conn, br := testWSCreateClient(t, false, false, o.Websocket.Host, o.Websocket.Port)
+		defer conn.Close()
+		require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
+		frame := testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte("PING\r\nPING\r\nPING\r\n"))
+		start := 0
+		for _, end := range []int{12, 18, len(frame)} {
+			_, err := conn.Write(frame[start:end])
+			require_NoError(t, err)
+			// Receiving PONG before the next write forces reads across the same frame's mask offset.
+			require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+			start = end
+		}
+	})
+	t.Run("coalesced data frames", func(t *testing.T) {
+		conn, br := testWSCreateClient(t, false, false, o.Websocket.Host, o.Websocket.Port)
+		defer conn.Close()
+		require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
+		frames := testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte("PUB streamed 5\r\nfirst\r\n"))
+		frames = append(frames, testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte("PUB streamed 6\r\nsecond\r\nPING\r\n"))...)
+		_, err := conn.Write(frames)
+		require_NoError(t, err)
+		require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "first")
+		require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "second")
 		require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
 	})
 }
@@ -5872,6 +5908,59 @@ func TestWSOutboundIntegrityOverSocket(t *testing.T) {
 	}
 }
 
+func TestWSLargeOutboundFramesOverSocket(t *testing.T) {
+	for _, test := range []struct {
+		name, userAgent string
+		compression     bool
+	}{
+		{"nonbrowser uncompressed", "", false},
+		{"nonbrowser compressed", "", true},
+		{"safari compressed", "Mozilla/5.0 Version/17.0 Safari/605.1.15", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			o := testWSOptions()
+			o.Websocket.Compression = test.compression
+			s := RunServer(o)
+			defer s.Shutdown()
+			conn, br, _ := testNewWSClient(t, testWSClientOptions{
+				host: o.Websocket.Host, port: o.Websocket.Port, compress: test.compression,
+				extraHeaders: map[string][]string{"User-Agent": {test.userAgent}},
+			})
+			defer conn.Close()
+			require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+			proto := []byte("CONNECT {\"verbose\":false}\r\nSUB large.outbound 1\r\nPING\r\n")
+			_, err := conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, test.compression, proto))
+			require_NoError(t, err)
+			require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+			nc := natsConnect(t, s.ClientURL())
+			defer nc.Close()
+			payload := make([]byte, 100000)
+			_, err = io.ReadFull(rand.NewChaCha8([32]byte{43}), payload)
+			require_NoError(t, err)
+			require_NoError(t, nc.Publish("large.outbound", payload))
+			require_NoError(t, nc.Flush())
+			expected := fmt.Appendf(nil, "MSG large.outbound 1 %d\r\n%s\r\n", len(payload), payload)
+			header, err := br.Peek(10)
+			require_NoError(t, err)
+			first := byte(wsBinaryMessage) | wsFinalBit
+			if test.compression {
+				first |= wsRsv1Bit
+			}
+			require_Equal(t, header[0], first)
+			require_Equal(t, header[1], byte(127))
+			length := binary.BigEndian.Uint64(header[2:10])
+			require_True(t, length >= 65536 && length <= uint64(2*len(expected)))
+			if !test.compression {
+				require_Equal(t, length, uint64(len(expected)))
+			}
+			require_True(t, bytes.Equal(testWSReadFrame(t, br), expected))
+			_, err = conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, test.compression, []byte("PING\r\n")))
+			require_NoError(t, err)
+			require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+		})
+	}
+}
+
 func testWSRequestUserInfo(t *testing.T, conn net.Conn, br *bufio.Reader) UserInfo {
 	t.Helper()
 	require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
@@ -6180,6 +6269,19 @@ func TestWSUpgradeHeadersOverSocket(t *testing.T) {
 				require_Equal(t, resp.Header.Get(key), value)
 			}
 			require_Equal(t, strings.Contains(resp.Header.Get("Sec-Websocket-Extensions"), "permessage-deflate"), test.server && test.ask)
+			expected := http.Header{
+				"Upgrade":              {"websocket"},
+				"Connection":           {"Upgrade"},
+				"Sec-Websocket-Accept": {"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="},
+				"X-Header":             {"some-value"},
+				"X-Another-Header":     {"another-value"},
+			}
+			if test.server && test.ask {
+				expected.Set("Sec-Websocket-Extensions", "permessage-deflate; server_no_context_takeover; client_no_context_takeover")
+			}
+			if !reflect.DeepEqual(resp.Header, expected) {
+				t.Fatalf("Unexpected upgrade headers: got %v, want %v", resp.Header, expected)
+			}
 			require_True(t, bytes.HasPrefix(testWSReadFrame(t, br), []byte("INFO ")))
 			_, err := conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, test.server && test.ask, []byte("CONNECT {\"verbose\":false}\r\nPING\r\n")))
 			require_NoError(t, err)
@@ -6402,18 +6504,49 @@ func TestWSEmptyCompressedMessagesOverSocket(t *testing.T) {
 	defer s.Shutdown()
 	for _, fragmented := range []bool{false, true} {
 		t.Run(fmt.Sprintf("fragmented=%t", fragmented), func(t *testing.T) {
-			conn, br := testWSCreateClient(t, true, false, o.Websocket.Host, o.Websocket.Port)
-			defer conn.Close()
-			require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
-			frame := testWSCreateClientMsg(wsBinaryMessage, 1, !fragmented, false, nil)
-			frame[0] |= wsRsv1Bit
-			if fragmented {
-				frame = append(frame, testWSCreateClientMsg(wsBinaryMessage, 2, true, false, nil)...)
+			for _, valid := range []bool{false, true} {
+				t.Run(fmt.Sprintf("valid=%t", valid), func(t *testing.T) {
+					logger := &captureErrorLogger{errCh: make(chan string, 10)}
+					s.SetLogger(logger, false, false)
+					conn, br := testWSCreateClient(t, true, false, o.Websocket.Host, o.Websocket.Port)
+					defer conn.Close()
+					require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
+					var payload []byte
+					if valid {
+						// An empty DEFLATE message still needs its initial stored-block header byte.
+						payload = []byte{0}
+					}
+					frame := testWSCreateClientMsg(wsBinaryMessage, 1, !fragmented, false, payload)
+					frame[0] |= wsRsv1Bit
+					if fragmented {
+						frame = append(frame, testWSCreateClientMsg(wsBinaryMessage, 2, true, false, nil)...)
+					}
+					frame = append(frame, testWSCreateClientMsg(wsBinaryMessage, 1, true, true, []byte("PING\r\n"))...)
+					_, err := conn.Write(frame)
+					require_NoError(t, err)
+					if valid {
+						require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
+						return
+					}
+					_, err = br.ReadByte()
+					if !errors.Is(err, io.EOF) {
+						t.Fatalf("Expected EOF after malformed empty DEFLATE stream, got %v", err)
+					}
+					select {
+					case message := <-logger.errCh:
+						_, diagnostic, _ := strings.Cut(message, "read error: ")
+						require_Equal(t, diagnostic, flate.CorruptInputError(5).Error())
+					case <-time.After(time.Second):
+						t.Fatal("Expected malformed empty DEFLATE diagnostic")
+					}
+					healthy, healthyReader := testWSCreateClient(t, true, false, o.Websocket.Host, o.Websocket.Port)
+					defer healthy.Close()
+					require_NoError(t, healthy.SetDeadline(time.Now().Add(2*time.Second)))
+					_, err = healthy.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, true, []byte("PING\r\n")))
+					require_NoError(t, err)
+					require_Equal(t, string(testWSReadFrame(t, healthyReader)), "PONG\r\n")
+				})
 			}
-			frame = append(frame, testWSCreateClientMsg(wsBinaryMessage, 1, true, true, []byte("PING\r\n"))...)
-			_, err := conn.Write(frame)
-			require_NoError(t, err)
-			require_Equal(t, string(testWSReadFrame(t, br)), "PONG\r\n")
 		})
 	}
 }
@@ -6502,6 +6635,10 @@ func TestWSConfigurationProcessBoundary(t *testing.T) {
 		os.Exit(0)
 	}
 
+	key, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	publicKey, err := key.PublicKey()
+	require_NoError(t, err)
 	tests := []struct {
 		name, content, diagnostic string
 	}{
@@ -6530,6 +6667,10 @@ func TestWSConfigurationProcessBoundary(t *testing.T) {
 websocket: { port: -1, no_tls: true, authorization { user: "ws", password: "pwd" } }`, "websocket authentication username not compatible with presence of users/nkeys"},
 		{"token conflicts with users", `authorization { users: [{ user: "user", password: "pwd" }] }
 websocket: { port: -1, no_tls: true, authorization { token: "token" } }`, "websocket authentication token not compatible with presence of users/nkeys"},
+		{"username conflicts with nkeys", fmt.Sprintf(`authorization { users: [{ nkey: %q }] }
+websocket: { port: -1, no_tls: true, authorization { user: "ws", password: "pwd" } }`, publicKey), "websocket authentication username not compatible with presence of users/nkeys"},
+		{"token conflicts with nkeys", fmt.Sprintf(`authorization { users: [{ nkey: %q }] }
+websocket: { port: -1, no_tls: true, authorization { token: "token" } }`, publicKey), "websocket authentication token not compatible with presence of users/nkeys"},
 		{"unknown noauth user", `authorization { users: [{ user: "user", password: "pwd" }] }
 websocket: { port: -1, no_tls: true, no_auth_user: "notfound" }`, "not present as user"},
 		{"override unknown noauth user", `authorization { users: [{ user: "user", password: "pwd" }] }
@@ -6620,6 +6761,8 @@ func TestWSMQTTEndpointOverSocket(t *testing.T) {
 		t.Run(fmt.Sprintf("mqtt=%t", mqtt), func(t *testing.T) {
 			o := testWSOptions()
 			if mqtt {
+				o.ServerName = "websocket-mqtt-integration"
+				o.Cluster = ClusterOpts{}
 				o.JetStream = true
 				o.StoreDir = t.TempDir()
 				o.MQTT.Host, o.MQTT.Port = "127.0.0.1", -1

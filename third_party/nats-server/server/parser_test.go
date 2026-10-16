@@ -14,8 +14,16 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"strconv"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1090,5 +1098,653 @@ func TestMaxControlLineNonClientUpperBound(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+// Capping accepted TCP Reads forces parser boundaries through the production read loop.
+type parserIngressReadConn struct {
+	net.Conn
+	width int
+	reads atomic.Int64
+}
+
+func (c *parserIngressReadConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p[:min(len(p), c.width)])
+	if n > 0 {
+		c.reads.Add(1)
+	}
+	return n, err
+}
+
+type parserIngressWire struct {
+	net.Conn
+	reader *bufio.Reader
+	input  *parserIngressReadConn
+}
+
+func parserIngressTCP(t *testing.T, s *Server, kind, width int) *parserIngressWire {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require_NoError(t, err)
+	defer listener.Close()
+	peer, err := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	require_NoError(t, err)
+	t.Cleanup(func() { peer.Close() })
+	require_NoError(t, peer.SetDeadline(time.Now().Add(5*time.Second)))
+	accepted, err := listener.Accept()
+	require_NoError(t, err)
+	input := &parserIngressReadConn{Conn: accepted, width: width}
+	switch kind {
+	case CLIENT:
+		require_NotNil(t, s.createClient(input))
+	case ROUTER:
+		require_NotNil(t, s.createRoute(input, nil, Implicit, gossipDefault, _EMPTY_))
+	case LEAF:
+		require_NotNil(t, s.createLeafNode(input, nil, nil, nil))
+	case GATEWAY:
+		s.createGateway(nil, nil, input)
+	default:
+		t.Fatalf("unsupported ingress kind %d", kind)
+	}
+	p := &parserIngressWire{Conn: peer, reader: bufio.NewReader(peer), input: input}
+	if line := p.line(t); !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("expected initial INFO, got %q", line)
+	}
+	return p
+}
+
+func (p *parserIngressWire) write(t *testing.T, protocol string) {
+	t.Helper()
+	require_NoError(t, p.SetDeadline(time.Now().Add(5*time.Second)))
+	_, err := io.WriteString(p, protocol)
+	require_NoError(t, err)
+}
+
+func (p *parserIngressWire) line(t *testing.T) string {
+	t.Helper()
+	line, err := p.reader.ReadString('\n')
+	require_NoError(t, err)
+	return line
+}
+
+func (p *parserIngressWire) pong(t *testing.T) {
+	t.Helper()
+	for range 100 {
+		line := p.line(t)
+		switch {
+		case line == "PONG\r\n":
+			return
+		case line == "PING\r\n":
+			p.write(t, "PONG\r\n")
+		case line == "+OK\r\n":
+		case strings.HasPrefix(line, "INFO "), strings.HasPrefix(line, "RS+ "), strings.HasPrefix(line, "LS+ "):
+		default:
+			t.Fatalf("unexpected control frame %q", line)
+		}
+	}
+	t.Fatal("no PONG within 100 control frames")
+}
+
+func (p *parserIngressWire) roundTrip(t *testing.T, protocol string) {
+	t.Helper()
+	before := p.input.reads.Load()
+	packet := protocol + "PING\r\n"
+	p.write(t, packet)
+	p.pong(t)
+	if reads := p.input.reads.Load() - before; reads < int64((len(packet)+p.input.width-1)/p.input.width) {
+		t.Fatalf("input was not fragmented: %d reads for %d bytes at width %d", reads, len(packet), p.input.width)
+	}
+}
+
+func (p *parserIngressWire) message(t *testing.T, subject, sid, reply, header, payload string) {
+	t.Helper()
+	prefix := "MSG "
+	if len(header) > 0 {
+		prefix = "HMSG "
+	}
+	want := prefix + subject + " " + sid + " "
+	if reply != "" {
+		want += reply + " "
+	}
+	if len(header) > 0 {
+		want += fmt.Sprintf("%d ", len(header))
+	}
+	want += fmt.Sprintf("%d\r\n", len(header)+len(payload))
+	var line string
+	for range 100 {
+		line = p.line(t)
+		if line != "PING\r\n" {
+			break
+		}
+		p.write(t, "PONG\r\n")
+	}
+	require_Equal(t, line, want)
+	body := make([]byte, len(header)+len(payload)+2)
+	_, err := io.ReadFull(p.reader, body)
+	require_NoError(t, err)
+	require_Equal(t, string(body), header+payload+"\r\n")
+}
+
+func parserIngressOptions() *Options {
+	o := DefaultOptions()
+	o.NoSystemAccount = true
+	o.Cluster.PoolSize = 1
+	o.Cluster.Compression.Mode = CompressionOff
+	o.LeafNode.Host, o.LeafNode.Port = "127.0.0.1", -1
+	o.LeafNode.Compression.Mode = CompressionOff
+	return o
+}
+
+func TestParserClientProtocolIngress(t *testing.T) {
+	s := RunServer(parserIngressOptions())
+	defer s.Shutdown()
+	for _, width := range []int{1, 2, 7, 64} {
+		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+			p := parserIngressTCP(t, s, CLIENT, width)
+			p.roundTrip(t, "CONNECT {\"verbose\":false,\"pedantic\":true,\"tls_required\":false,\"headers\":true}\r\n")
+			p.roundTrip(t, "PING  \r  \nPONG\r\nPONG  \r  \n+OK\r\n")
+			// An incomplete SUB must retain its arguments until the next production Read.
+			p.write(t, "SUB > 1\r")
+			p.roundTrip(t, "\n")
+			for _, test := range []struct {
+				arg, subject, reply string
+				size                int
+				szb                 string
+			}{
+				{arg: "a 2", subject: "a", reply: "", size: 2, szb: "2"},
+				{arg: "a 222", subject: "a", reply: "", size: 222, szb: "222"},
+				{arg: "foo 22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: " foo 22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo 22 ", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo   22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: " foo 22 ", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: " foo   22 ", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo bar 22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: " foo bar 22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "foo bar 22 ", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "foo  bar  22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: " foo bar 22 ", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "  foo   bar  22  ", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "  foo   bar  2222  ", subject: "foo", reply: "bar", size: 2222, szb: "2222"},
+				{arg: "  foo     2222  ", subject: "foo", reply: "", size: 2222, szb: "2222"},
+				{arg: "a\t2", subject: "a", reply: "", size: 2, szb: "2"},
+				{arg: "a\t222", subject: "a", reply: "", size: 222, szb: "222"},
+				{arg: "foo\t22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "\tfoo\t22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo\t22\t", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo\t\t\t22", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "\tfoo\t22\t", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "\tfoo\t\t\t22\t", subject: "foo", reply: "", size: 22, szb: "22"},
+				{arg: "foo\tbar\t22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "\tfoo\tbar\t22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "foo\tbar\t22\t", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "foo\t\tbar\t\t22", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "\tfoo\tbar\t22\t", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "\t \tfoo\t \t \tbar\t \t22\t \t", subject: "foo", reply: "bar", size: 22, szb: "22"},
+				{arg: "\t\tfoo\t\t\tbar\t\t2222\t\t", subject: "foo", reply: "bar", size: 2222, szb: "2222"},
+				{arg: "\t \tfoo\t \t \t\t\t2222\t \t", subject: "foo", reply: "", size: 2222, szb: "2222"},
+			} {
+				t.Run("PUB/"+test.arg, func(t *testing.T) {
+					payload := strings.Repeat("A", test.size)
+					p.write(t, "PUB "+test.arg+"\r\n"+payload+"\r\n")
+					p.message(t, test.subject, "1", test.reply, "", payload)
+					p.roundTrip(t, "")
+				})
+			}
+			for _, test := range []struct {
+				arg, subject, reply string
+				hdr, size           int
+				szb                 string
+			}{
+				{arg: "a 2 4", subject: "a", reply: "", hdr: 2, size: 4, szb: "4"},
+				{arg: "a 22 222", subject: "a", reply: "", hdr: 22, size: 222, szb: "222"},
+				{arg: "foo 3 22", subject: "foo", reply: "", hdr: 3, size: 22, szb: "22"},
+				{arg: " foo   1 22", subject: "foo", reply: "", hdr: 1, size: 22, szb: "22"},
+				{arg: "foo 0   22 ", subject: "foo", reply: "", hdr: 0, size: 22, szb: "22"},
+				{arg: "foo  0     22", subject: "foo", reply: "", hdr: 0, size: 22, szb: "22"},
+				{arg: " foo 1 22 ", subject: "foo", reply: "", hdr: 1, size: 22, szb: "22"},
+				{arg: " foo   3 22 ", subject: "foo", reply: "", hdr: 3, size: 22, szb: "22"},
+				{arg: "foo bar 1 22", subject: "foo", reply: "bar", hdr: 1, size: 22, szb: "22"},
+				{arg: " foo bar 11 22", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo bar 11 22 ", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo  bar  11  22", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: " foo bar  11 22 ", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "  foo   bar  11   22  ", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "  foo   bar  22   2222  ", subject: "foo", reply: "bar", hdr: 22, size: 2222, szb: "2222"},
+				{arg: "  foo 1    2222  ", subject: "foo", reply: "", hdr: 1, size: 2222, szb: "2222"},
+				{arg: "a\t2\t22", subject: "a", reply: "", hdr: 2, size: 22, szb: "22"},
+				{arg: "a\t2\t\t222", subject: "a", reply: "", hdr: 2, size: 222, szb: "222"},
+				{arg: "foo\t2 22", subject: "foo", reply: "", hdr: 2, size: 22, szb: "22"},
+				{arg: "\tfoo\t11\t  22", subject: "foo", reply: "", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo\t11\t22\t", subject: "foo", reply: "", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo\t\t\t11 22", subject: "foo", reply: "", hdr: 11, size: 22, szb: "22"},
+				{arg: "\tfoo\t11\t \t 22\t", subject: "foo", reply: "", hdr: 11, size: 22, szb: "22"},
+				{arg: "\tfoo\t\t\t11 22\t", subject: "foo", reply: "", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo\tbar\t2 22", subject: "foo", reply: "bar", hdr: 2, size: 22, szb: "22"},
+				{arg: "\tfoo\tbar\t11\t22", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo\tbar\t11\t\t22\t ", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "foo\t\tbar\t\t11\t\t\t22", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "\tfoo\tbar\t11\t22\t", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "\t \tfoo\t \t \tbar\t \t11\t 22\t \t", subject: "foo", reply: "bar", hdr: 11, size: 22, szb: "22"},
+				{arg: "\t\tfoo\t\t\tbar\t\t22\t\t\t2222\t\t", subject: "foo", reply: "bar", hdr: 22, size: 2222, szb: "2222"},
+				{arg: "\t \tfoo\t \t \t\t\t11\t\t 2222\t \t", subject: "foo", reply: "", hdr: 11, size: 2222, szb: "2222"},
+			} {
+				t.Run("HPUB/"+test.arg, func(t *testing.T) {
+					header := strings.Repeat("H", test.hdr)
+					payload := strings.Repeat("A", test.size-test.hdr)
+					p.write(t, "HPUB "+test.arg+"\r\n"+header+payload+"\r\n")
+					p.message(t, test.subject, "1", test.reply, header, payload)
+					p.roundTrip(t, "")
+				})
+			}
+			for _, reply := range []string{"", "INBOX.22"} {
+				arg := ""
+				if reply != "" {
+					arg = reply + " "
+				}
+				p.write(t, "HPUB foo "+arg+"12 17\r\nname:derek\r\nHELLO\r")
+				p.write(t, "\n")
+				p.message(t, "foo", "1", reply, "name:derek\r\n", "HELLO")
+				p.roundTrip(t, "")
+			}
+			p.write(t, "HPUB foo INBOX.22 0 5\r\nHELLO\r\n")
+			p.message(t, "foo", "1", "INBOX.22", "", "HELLO")
+			p.roundTrip(t, "")
+		})
+	}
+}
+
+func (p *parserIngressWire) rejected(t *testing.T, diagnostic string) {
+	t.Helper()
+	var output strings.Builder
+	for {
+		line, err := p.reader.ReadString('\n')
+		output.WriteString(line)
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				if networkError, ok := errors.AsType[net.Error](err); ok && networkError.Timeout() {
+					t.Fatalf("connection remained open after malformed input: %q", output.String())
+				}
+			}
+			break
+		}
+	}
+	if diagnostic != "" && !strings.Contains(output.String(), diagnostic) {
+		t.Fatalf("expected diagnostic %q, got %q", diagnostic, output.String())
+	}
+}
+
+func TestParserMalformedClientIngress(t *testing.T) {
+	o := parserIngressOptions()
+	o.MaxPayload = 32768
+	s := RunServer(o)
+	defer s.Shutdown()
+	healthy := parserIngressTCP(t, s, CLIENT, 7)
+	healthy.roundTrip(t, "CONNECT {\"verbose\":false}\r\nSUB sentinel 1\r\n")
+	protocols := []string{
+
+		"xxx",
+		"Px", "PIx", "PINx", " PING",
+		"POx", "PONx",
+		"+x", "+Ox",
+		"-x", "-Ex", "-ERx", "-ERRx",
+		"Cx", "COx", "CONx", "CONNx", "CONNEx", "CONNECx", "CONNECx", "CONNECT \r\n",
+		"PUx", "PUB foo\r\n", "PUB  \r\n", "PUB foo bar       \r\n",
+		"PUB foo 2\r\nok \r\n", "PUB foo 2\r\nok\r \n",
+		"Sx", "SUx", "SUB\r\n", "SUB  \r\n", "SUB foo\r\n",
+		"SUB foo bar baz 22\r\n",
+		"Ux", "UNx", "UNSx", "UNSUx", "UNSUBx", "UNSUBUNSUB 1\r\n", "UNSUB_2\r\n",
+		"UNSUB_UNSUB_UNSUB 2\r\n", "UNSUB_\t2\r\n", "UNSUB\r\n", "UNSUB \r\n",
+		"UNSUB          \t       \r\n",
+		"Ix", "INx", "INFx", "INFO  \r\n",
+		"PUB foo 3333333333333333333333333333333333333333333333333333333333333333\r\n",
+		"PUB foo 2222222222222222\r\n",
+		"PUB foo 32769\r\n",
+		"HPUB foo 10 8\r\n",
+		"M",
+	}
+	for _, width := range []int{1, 7, 64} {
+		for i, protocol := range protocols {
+			t.Run(fmt.Sprintf("width-%d/case-%d", width, i), func(t *testing.T) {
+				p := parserIngressTCP(t, s, CLIENT, width)
+				p.roundTrip(t, "CONNECT {\"verbose\":false,\"headers\":true}\r\n")
+				p.write(t, protocol)
+				p.rejected(t, "")
+				healthy.write(t, "PUB sentinel 2\r\nok\r\n")
+				healthy.message(t, "sentinel", "1", "", "", "ok")
+				healthy.roundTrip(t, "")
+			})
+		}
+	}
+	// The configured limit itself is accepted; rejection above cannot be only overflow.
+	p := parserIngressTCP(t, s, CLIENT, 64)
+	p.roundTrip(t, "CONNECT {\"verbose\":false}\r\nSUB boundary 1\r\n")
+	payload := strings.Repeat("A", 32768)
+	p.write(t, "PUB boundary 32768\r\n"+payload+"\r\n")
+	p.message(t, "boundary", "1", "", "", payload)
+	p.roundTrip(t, "")
+}
+
+func parserIngressPeerConnect(t *testing.T, p *parserIngressWire, s *Server, kind int) {
+	t.Helper()
+	name := "PARSER_" + t.Name() + "_" + p.LocalAddr().String()
+	connect := fmt.Sprintf("CONNECT {\"name\":%q,\"cluster\":%q,\"headers\":true,\"user\":\"peer\",\"pass\":\"pwd\"}\r\n", name, s.ClusterName())
+	switch kind {
+	case ROUTER:
+		info, err := json.Marshal(Info{ID: name, Name: name, Cluster: s.ClusterName(), Headers: true, RoutePoolSize: 1, Proto: RouteProtoV2})
+		require_NoError(t, err)
+		p.roundTrip(t, connect+"INFO "+string(info)+"\r\n")
+	case LEAF:
+		p.roundTrip(t, fmt.Sprintf("CONNECT {\"name\":%q,\"headers\":true,\"user\":\"peer\",\"pass\":\"pwd\"}\r\n", name))
+	case GATEWAY:
+		info, err := json.Marshal(Info{ID: name, Name: name, Gateway: "parser-remote", Headers: true})
+		require_NoError(t, err)
+		p.roundTrip(t, fmt.Sprintf("CONNECT {\"name\":%q,\"gateway\":\"parser-remote\",\"user\":\"peer\",\"pass\":\"pwd\"}\r\nINFO %s\r\n", name, info))
+	default:
+		t.Fatalf("unsupported peer kind %d", kind)
+	}
+}
+
+func TestParserRouteProtocolIngress(t *testing.T) {
+	for _, width := range []int{1, 7, 64} {
+		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+			a, b := NewAccount("A"), NewAccount("B")
+			o := parserIngressOptions()
+			o.Accounts = []*Account{a, b}
+			o.Users = []*User{{Username: "a", Password: "pwd", Account: a}, {Username: "b", Password: "pwd", Account: b}}
+			s := RunServer(o)
+			defer s.Shutdown()
+			subscriber := func(user, subscription string) *parserIngressWire {
+				p := parserIngressTCP(t, s, CLIENT, 7)
+				p.roundTrip(t, fmt.Sprintf("CONNECT {\"verbose\":false,\"headers\":true,\"user\":%q,\"pass\":\"pwd\"}\r\nSUB foo %s\r\n", user, subscription))
+				return p
+			}
+			plain := subscriber("a", "1")
+			queues := []*parserIngressWire{subscriber("a", "queue1 1"), subscriber("a", "queue2 1")}
+			other := subscriber("b", "1")
+			peer := parserIngressTCP(t, s, ROUTER, width)
+			parserIngressPeerConnect(t, peer, s, ROUTER)
+			checkNumRoutes(t, s, 1)
+			for _, header := range []string{"", "XXX"} {
+				for _, form := range []struct {
+					args, reply string
+					queued      bool
+				}{
+					{"", "", false}, {" INBOX.22", "INBOX.22", false},
+					{" + reply queue1 queue2", "reply", true}, {" | queue1 queue2", "", true},
+				} {
+					op, size := "RMSG", "11"
+					if header != "" {
+						op, size = "HMSG", "3 14"
+					}
+					peer.roundTrip(t, op+" A foo"+form.args+" "+size+"\r\n"+header+"hello world\r\n")
+					plain.message(t, "foo", "1", form.reply, header, "hello world")
+					for _, q := range queues {
+						if form.queued {
+							q.message(t, "foo", "1", form.reply, header, "hello world")
+						}
+						q.roundTrip(t, "")
+					}
+					other.roundTrip(t, "")
+				}
+			}
+			peer.write(t, "HMSG A foo 10 8\r\n")
+			peer.rejected(t, "")
+			checkNumRoutes(t, s, 0)
+			for _, invalid := range []string{"Mx", "MSx", "MSGx", "MSG  \r\n", "MSG \r\n", "MSG A foo 5\r\nhello\r\n"} {
+				bad := parserIngressTCP(t, s, ROUTER, width)
+				parserIngressPeerConnect(t, bad, s, ROUTER)
+				bad.write(t, invalid)
+				bad.rejected(t, "")
+			}
+			plain.roundTrip(t, "")
+		})
+	}
+}
+
+func TestParserLeafPayloadBoundaryIngress(t *testing.T) {
+	for _, width := range []int{1, 7, 64} {
+		for _, header := range []string{"", "HEAD"} {
+			t.Run(fmt.Sprintf("read-width-%d/header-%d", width, len(header)), func(t *testing.T) {
+				a := NewAccount("A")
+				o := parserIngressOptions()
+				o.MaxPayload = 16
+				o.Accounts = []*Account{a}
+				o.Users = []*User{{Username: "a", Password: "pwd", Account: a}}
+				o.LeafNode.Users = []*User{{Username: "peer", Password: "pwd", Account: a}}
+				s := RunServer(o)
+				defer s.Shutdown()
+				receiver := parserIngressTCP(t, s, CLIENT, 7)
+				receiver.roundTrip(t, "CONNECT {\"verbose\":false,\"headers\":true,\"user\":\"a\",\"pass\":\"pwd\"}\r\nSUB foo 1\r\n")
+				peer := parserIngressTCP(t, s, LEAF, width)
+				parserIngressPeerConnect(t, peer, s, LEAF)
+				checkLeafNodeConnected(t, s)
+				op, size := "LMSG", "16"
+				if header != "" {
+					op, size = "HMSG", "4 16"
+				}
+				payload := strings.Repeat("A", 16-len(header))
+				peer.roundTrip(t, op+" foo "+size+"\r\n"+header+payload+"\r\n")
+				receiver.message(t, "foo", "1", "", header, payload)
+				if header != "" {
+					size = "4 17"
+				} else {
+					size = "17"
+				}
+				peer.write(t, op+" foo "+size+"\r\n")
+				peer.rejected(t, "Maximum Payload Violation")
+				checkLeafNodeConnectedCount(t, s, 0)
+				receiver.roundTrip(t, "")
+			})
+		}
+	}
+}
+
+func TestParserPreConnectAuthenticationIngress(t *testing.T) {
+	for _, restriction := range []string{"unrestricted", "websocket-only", "proxy-required"} {
+		t.Run(restriction, func(t *testing.T) {
+			o := parserIngressOptions()
+			o.Websocket = testWSOptions().Websocket
+			o.NoAuthUser = "foo"
+			user := &User{Username: "foo", Password: "pwd"}
+			if restriction == "websocket-only" {
+				user.AllowedConnectionTypes = map[string]struct{}{jwt.ConnectionTypeWebsocket: {}}
+			}
+			if restriction == "proxy-required" {
+				user.ProxyRequired = true
+			}
+			o.Users = []*User{user}
+			o.Cluster.Username, o.Cluster.Password = "peer", "pwd"
+			o.LeafNode.Username, o.LeafNode.Password = "peer", "pwd"
+			o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "parser-local", "127.0.0.1", -1
+			o.Gateway.Username, o.Gateway.Password = "peer", "pwd"
+			s := RunServer(o)
+			defer s.Shutdown()
+			t.Run("TCP", func(t *testing.T) {
+				p := parserIngressTCP(t, s, CLIENT, 1)
+				if restriction != "unrestricted" {
+					p.write(t, "PING\r\n")
+					p.rejected(t, "Authorization Violation")
+					return
+				}
+				p.roundTrip(t, "")
+				p.roundTrip(t, "SUB marker 1\r\n")
+				p.write(t, "PUB marker 2\r\nok\r\n")
+				p.message(t, "marker", "1", "", "", "ok")
+				p.roundTrip(t, "")
+			})
+			t.Run("WebSocket", func(t *testing.T) {
+				conn, reader, _ := testWSCreateClientGetInfo(t, false, false, o.Websocket.Host, o.Websocket.Port)
+				defer conn.Close()
+				require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+				send := func(protocol string) {
+					t.Helper()
+					_, err := conn.Write(testWSCreateClientMsg(wsBinaryMessage, 1, true, false, []byte(protocol)))
+					require_NoError(t, err)
+				}
+				send("PING\r\n")
+				frame := testWSReadFrame(t, reader)
+				if restriction == "proxy-required" {
+					require_True(t, bytes.Contains(frame, []byte("Authorization Violation")))
+					return
+				}
+				require_Equal(t, string(frame), "PONG\r\n")
+				send("SUB marker 1\r\nPUB marker 2\r\nok\r\nPING\r\n")
+				var received []byte
+				for range 10 {
+					received = append(received, testWSReadFrame(t, reader)...)
+					if bytes.Contains(received, []byte("PONG\r\n")) {
+						break
+					}
+				}
+				require_Equal(t, string(received), "MSG marker 1 2\r\nok\r\nPONG\r\n")
+			})
+			for _, kind := range []int{LEAF, ROUTER, GATEWAY} {
+				t.Run(fmt.Sprintf("peer-%d", kind), func(t *testing.T) {
+					pending := parserIngressTCP(t, s, kind, 1)
+					pending.write(t, "PING\r\n")
+					pending.rejected(t, "Authorization Violation")
+					established := parserIngressTCP(t, s, kind, 1)
+					parserIngressPeerConnect(t, established, s, kind)
+					established.roundTrip(t, "")
+				})
+			}
+		})
+	}
+}
+
+func TestParserPongKeepsConnectionAliveIngress(t *testing.T) {
+	o := parserIngressOptions()
+	o.DisableShortFirstPing = true
+	o.PingInterval = 50 * time.Millisecond
+	o.MaxPingsOut = 2
+	s := RunServer(o)
+	defer s.Shutdown()
+	for _, width := range []int{1, 7} {
+		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+			p := parserIngressTCP(t, s, CLIENT, width)
+			p.roundTrip(t, "CONNECT {\"verbose\":false}\r\n")
+			for range 5 {
+				require_Equal(t, p.line(t), "PING\r\n")
+				p.write(t, "PONG  \r  \n")
+			}
+			p.roundTrip(t, "SUB marker 1\r\n")
+			p.write(t, "PUB marker 2\r\nok\r\n")
+			p.message(t, "marker", "1", "", "", "ok")
+			p.roundTrip(t, "")
+		})
+	}
+}
+
+func TestParserMalformedDiagnosticIngress(t *testing.T) {
+	s := RunServer(parserIngressOptions())
+	defer s.Shutdown()
+	logger := &captureErrorLogger{errCh: make(chan string, 8)}
+	s.SetLogger(logger, false, false)
+	for _, width := range []int{1, 64} {
+		t.Run(fmt.Sprintf("read-width-%d", width), func(t *testing.T) {
+			p := parserIngressTCP(t, s, CLIENT, width)
+			p.roundTrip(t, "CONNECT {\"verbose\":false}\r\n")
+			p.write(t, "xabcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+			p.rejected(t, "Unknown Protocol Operation")
+			select {
+			case log := <-logger.errCh:
+				require_True(t, strings.Contains(log, "parser ERROR"))
+				_, snippet, ok := strings.Cut(log, "proto='")
+				require_True(t, ok)
+				snippet, _, ok = strings.Cut(snippet, "...'")
+				require_True(t, ok)
+				decoded, err := strconv.Unquote(snippet)
+				require_NoError(t, err)
+				require_True(t, len(decoded) <= PROTO_SNIPPET_SIZE)
+				if width == 1 {
+					require_Equal(t, decoded, "")
+				}
+			case <-time.After(time.Second):
+				t.Fatal("missing production parser diagnostic")
+			}
+		})
+	}
+}
+
+// Compact handshakes fit the non-client 16x bound even with an 8-byte client limit.
+func parserIngressCompactConnect(t *testing.T, p *parserIngressWire, kind int) {
+	t.Helper()
+	switch kind {
+	case CLIENT, LEAF:
+		p.roundTrip(t, "CONNECT {}\r\n")
+	case ROUTER:
+		p.roundTrip(t, "CONNECT {\"name\":\"P\",\"cluster\":\"abc\"}\r\nINFO {\"server_id\":\"P\",\"cluster\":\"abc\",\"route_pool_size\":1}\r\n")
+	case GATEWAY:
+		p.roundTrip(t, "CONNECT {\"name\":\"P\",\"gateway\":\"remote\"}\r\nINFO {\"server_id\":\"P\",\"gateway\":\"remote\"}\r\n")
+	}
+}
+
+func TestParserControlLineIngress(t *testing.T) {
+	for _, kind := range []int{CLIENT, LEAF, ROUTER, GATEWAY} {
+		for _, width := range []int{1, 64} {
+			t.Run(fmt.Sprintf("kind-%d/read-width-%d", kind, width), func(t *testing.T) {
+				o := parserIngressOptions()
+				o.MaxControlLine = 8
+				o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+				s := RunServer(o)
+				defer s.Shutdown()
+				receiver := parserIngressTCP(t, s, CLIENT, 1)
+				parserIngressCompactConnect(t, receiver, CLIENT)
+				receiver.roundTrip(t, "SUB > 1\r\n")
+				peer := parserIngressTCP(t, s, kind, width)
+				parserIngressCompactConnect(t, peer, kind)
+				protocol := "PUB foo.bar.baz 2\r\nok\r\n"
+				switch kind {
+				case LEAF:
+					protocol = "LMSG foo.bar.baz 2\r\nok\r\n"
+				case ROUTER, GATEWAY:
+					protocol = "RMSG $G foo.bar.baz 2\r\nok\r\n"
+				}
+				if kind == CLIENT {
+					peer.write(t, protocol)
+					peer.rejected(t, ErrMaxControlLine.Error())
+				} else {
+					peer.roundTrip(t, protocol)
+					receiver.message(t, "foo.bar.baz", "1", "", "", "ok")
+				}
+				receiver.roundTrip(t, "")
+			})
+		}
+	}
+}
+
+func TestParserPeerControlLineBoundaryIngress(t *testing.T) {
+	for _, kind := range []int{LEAF, ROUTER, GATEWAY} {
+		for _, width := range []int{7, 64} {
+			for _, offset := range []int{-1, 0, 1} {
+				t.Run(fmt.Sprintf("kind-%d/read-width-%d/offset-%d", kind, width, offset), func(t *testing.T) {
+					o := parserIngressOptions()
+					o.MaxControlLine = MAX_CONTROL_LINE_SIZE
+					o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+					s := RunServer(o)
+					defer s.Shutdown()
+					receiver := parserIngressTCP(t, s, CLIENT, 7)
+					receiver.roundTrip(t, "CONNECT {\"verbose\":false}\r\nSUB > 1\r\n")
+					peer := parserIngressTCP(t, s, kind, width)
+					parserIngressCompactConnect(t, peer, kind)
+					op, account := "LMSG ", ""
+					if kind != LEAF {
+						op, account = "RMSG ", "$G "
+					}
+					subject := strings.Repeat("x", MAX_CONTROL_LINE_SIZE*16+offset-len(account)-len(" 2"))
+					args := account + subject + " 2"
+					if offset > 0 {
+						// No newline: rejection must happen while production Reads accumulate args.
+						peer.write(t, op+args)
+						peer.rejected(t, ErrMaxControlLine.Error())
+					} else {
+						peer.roundTrip(t, op+args+"\r\nok\r\n")
+						receiver.message(t, subject, "1", "", "", "ok")
+					}
+					receiver.roundTrip(t, "")
+				})
+			}
+		}
 	}
 }

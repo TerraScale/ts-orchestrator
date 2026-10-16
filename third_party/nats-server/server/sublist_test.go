@@ -751,8 +751,11 @@ func TestSublistRoutingCorruptSubjectRecovery(t *testing.T) {
 	for _, corrupt := range []string{"foo.\x00bar", "foo.\ufffdbar"} {
 		t.Run(fmt.Sprintf("%q", corrupt), func(t *testing.T) {
 			dir := t.TempDir()
+			serverName := "sublist-recovery-" + nuid.Next()
 			start := func() *Server {
 				opts := DefaultOptions()
+				opts.Cluster = ClusterOpts{}
+				opts.ServerName = serverName
 				opts.JetStream, opts.StoreDir = true, dir
 				s := RunServer(opts)
 				t.Cleanup(s.Shutdown)
@@ -925,10 +928,14 @@ func TestSublistRoutingPermissionOverlap(t *testing.T) {
 func TestSublistRoutingLeafPermissionIntersection(t *testing.T) {
 	opts := DefaultOptions()
 	opts.LeafNode.Host, opts.LeafNode.Port = "127.0.0.1", -1
-	opts.LeafNode.Users = []*User{{Username: "leaf", Password: "test", Permissions: &Permissions{
-		Publish:   &SubjectPermission{Allow: []string{">"}},
-		Subscribe: &SubjectPermission{Allow: []string{"foo", "bar", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.*.*.>", "_INBOX.>"}},
-	}}}
+	// LeafNode.Users only authenticates/binds accounts; normal users install leaf ACLs.
+	opts.Users = []*User{
+		{Username: "leaf", Password: "test", Permissions: &Permissions{
+			Publish:   &SubjectPermission{Allow: []string{">"}},
+			Subscribe: &SubjectPermission{Allow: []string{"foo", "bar", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.*.*.>", "_INBOX.>"}},
+		}},
+		{Username: "publisher", Password: "test"},
+	}
 	hub := RunServer(opts)
 	defer hub.Shutdown()
 	u, err := url.Parse(fmt.Sprintf("nats://leaf:test@127.0.0.1:%d", opts.LeafNode.Port))
@@ -939,7 +946,7 @@ func TestSublistRoutingLeafPermissionIntersection(t *testing.T) {
 	leaf := RunServer(opts)
 	defer leaf.Shutdown()
 	checkLeafNodeConnected(t, leaf)
-	pub := natsConnect(t, hub.ClientURL(), nats.Timeout(time.Second))
+	pub := natsConnect(t, hub.ClientURL(), nats.UserInfo("publisher", "test"), nats.Timeout(time.Second))
 	defer pub.Close()
 	publish := []string{"foo", "bar", "baz", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.1.2.3.x", "qux"}
 	for _, test := range []struct {
