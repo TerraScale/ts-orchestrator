@@ -1,6 +1,8 @@
 package sdnotify
 
 import (
+	"errors"
+	"net"
 	"path/filepath"
 	"testing"
 	"time"
@@ -32,8 +34,14 @@ func TestKeepStartingExtendsTheStartTimeoutUntilStopped(t *testing.T) {
 	if count, err := conn.Read(buffer); err == nil {
 		t.Fatalf("extension sent after stop: %q", buffer[:count])
 	}
-	// Outside systemd, or with an extension no longer than the interval, it
-	// is a no-op.
-	New("", "", "", 1).KeepStarting(t.Context(), time.Millisecond, time.Minute)()
-	notifier.KeepStarting(t.Context(), time.Minute, time.Minute)()
+	for _, interval := range []time.Duration{0, time.Minute} {
+		stop := notifier.KeepStarting(t.Context(), interval, time.Minute)
+		stop()
+		_ = conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+		if _, err := conn.Read(buffer); err == nil {
+			t.Fatal("invalid extension interval sent a notification")
+		} else if timeout, ok := errors.AsType[net.Error](err); !ok || !timeout.Timeout() {
+			t.Fatal(err)
+		}
+	}
 }
