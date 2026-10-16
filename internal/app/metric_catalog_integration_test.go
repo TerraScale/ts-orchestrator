@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/dashboard"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
@@ -23,10 +24,15 @@ func TestJournalAPISharesAuthenticatedCatalogHistory(t *testing.T) {
 	}
 	history := observability.NewHistory(observability.HistoryConfig{})
 	history.Append(time.Now(), []observability.Sample{{Metric: "app_catalog_capacity", Value: 3}})
+	board := dashboard.New(dashboard.Options{})
+	board.Mount(server)
+	runtime := new(runtimeObservability)
+	runtime.addBoard(board, server)
+	runtime.attachBoards(func() { runtime.boardJournal = &dashboard.Journal{History: history} })
 	mountJournalAPI(server, journalProviders{History: history})
 	listener := httptest.NewServer(server)
 	t.Cleanup(listener.Close)
-	for _, path := range []string{"/v1/metrics/catalog", "/v1/history/metrics", "/v1/history?metric=app_catalog_capacity&tier=raw"} {
+	for _, path := range []string{"/v1/metrics/catalog", "/v1/history/metrics", "/v1/history?metric=app_catalog_capacity&tier=raw", "/metric-catalog?metric=app_catalog_capacity"} {
 		for _, authenticated := range []bool{false, true} {
 			request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listener.URL+path, nil)
 			if err != nil {
@@ -53,7 +59,7 @@ func TestJournalAPISharesAuthenticatedCatalogHistory(t *testing.T) {
 			if response.StatusCode != http.StatusOK || !strings.Contains(string(body), "app_catalog_capacity") {
 				t.Fatalf("authenticated %s = %d %s", path, response.StatusCode, body)
 			}
-			if strings.Contains(path, "?metric=") {
+			if strings.HasPrefix(path, "/v1/history?") {
 				var result observability.CatalogHistory
 				if err := json.Unmarshal(body, &result); err != nil || result.State != "available" || len(result.Series) != 1 {
 					t.Fatalf("history differs from shared catalog: %+v %v", result, err)

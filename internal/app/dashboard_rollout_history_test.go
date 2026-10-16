@@ -247,7 +247,7 @@ func TestDashboardRolloutHistoryRetainsTerminalRecords(t *testing.T) {
 					}
 				}
 				board := dashboard.New(dashboard.Options{})
-				telemetry.addBoard(board)
+				telemetry.addBoard(board, nil)
 				for _, path := range []string{"/rollouts", "/rollouts/" + id} {
 					response := httptest.NewRecorder()
 					board.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx))

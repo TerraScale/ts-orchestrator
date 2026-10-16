@@ -24,6 +24,8 @@ type Journal struct {
 	Live decisionlog.LiveSource
 	// History is the metric ring-buffer store the charts read.
 	History observability.HistorySource
+	// Metrics exposes the same local registry catalog and history as the API and CLI.
+	Metrics observability.CatalogSource
 	// Insights is the ranked needs-attention list; its changes raise toasts.
 	Insights insights.Source
 	// Summaries writes the plain-language 1h and 24h paragraphs.

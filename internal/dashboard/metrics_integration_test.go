@@ -1,0 +1,174 @@
+package dashboard
+
+import (
+	"bufio"
+	"encoding/json/v2"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/VictoriaMetrics/metrics"
+
+	"github.com/TerraScale/ts-orchestrator/internal/observability"
+)
+
+// Exercise the private listener, real exporter registry and real tiered history
+// together: rendering helpers alone cannot prove catalog/API/dashboard parity.
+func TestMetricDashboardRegistryHistoryHTTP(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Second)
+	registry := observability.NewRegistry(true)
+	set := metrics.NewSet()
+	queue := set.NewGauge("obs_dashboard_queue", nil)
+	queue.Set(0)
+	set.NewCounter("obs_dashboard_actions_total").Add(3)
+	longMetric := "obs_dashboard_" + strings.Repeat("a", 180)
+	set.NewGauge(longMetric, nil).Set(7)
+	registry.Register(set)
+	registry.RegisterWriter(func(writer io.Writer) {
+		_, _ = io.WriteString(writer, "# HELP obs_dashboard_queue Work waiting for placement\n# TYPE obs_dashboard_queue gauge\n# UNIT obs_dashboard_queue count\n")
+	})
+	history := observability.NewHistory(observability.HistoryConfig{})
+	for _, second := range []int{50, 40, 10, 0} {
+		history.Append(now.Add(-time.Duration(second)*time.Second), []observability.Sample{{Metric: "obs_dashboard_queue", Value: float64(second)}})
+	}
+	for worker := range 33 {
+		history.Append(now, []observability.Sample{{Metric: "obs_dashboard_worker", Value: float64(worker),
+			Labels: observability.L("member", fmt.Sprintf("worker-%02d", worker))}})
+	}
+	const token = "metric-dashboard-integration-private-token"
+	listener, err := observability.NewTokenServer(observability.Config{}, token, observability.ServerDeps{
+		Registry: registry, Health: new(observability.Health),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.HandleMetricHistory(history)
+	dashboard := New(Options{Now: func() time.Time { return now }, Interval: 10 * time.Millisecond,
+		Journal: &Journal{Metrics: listener.MetricCatalog()}})
+	dashboard.Mount(listener)
+	server := httptest.NewServer(listener)
+	t.Cleanup(server.Close)
+	request := func(path string, authenticated bool) *http.Response {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if authenticated {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		req.Header.Set("Accept", "application/json")
+		response, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return response
+	}
+	read := func(path string) string {
+		t.Helper()
+		response := request(path, true)
+		defer response.Body.Close()
+		body, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s: status=%d err=%v body=%s", path, response.StatusCode, err, body)
+		}
+		return string(body)
+	}
+	unauthorized := request("/metric-catalog", false)
+	unauthorized.Body.Close()
+	if unauthorized.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated metrics page: %d", unauthorized.StatusCode)
+	}
+	queuePath := "/metric-catalog?metric=obs_dashboard_queue&range=15m"
+	body := read(queuePath)
+	for _, want := range []string{"Work waiting for placement", "gauge / count", "registry,history", "Current samples",
+		"Retained resolutions", "raw, 1m, 5m, 1h", "Gaps / partial observations: 1", "Retained metric observations",
+		"Events at this time", "this is not a fleet coverage inventory", "metric-catalog/stream?"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metric page lacks %q", want)
+		}
+	}
+	if !regexp.MustCompile(`>\s*0\s*<`).MatchString(body) {
+		t.Fatal("a genuine zero sample is not visible")
+	}
+	chartMatch := regexp.MustCompile(`<ts-chart[^>]*data-spec="([^"]*)"`).FindStringSubmatch(body)
+	if len(chartMatch) != 2 {
+		t.Fatal("metric page has no chart spec")
+	}
+	var chart struct {
+		Series []struct {
+			Points [][2]float64 `json:"points"`
+		} `json:"series"`
+	}
+	if err := json.Unmarshal([]byte(html.UnescapeString(chartMatch[1])), &chart); err != nil {
+		t.Fatal(err)
+	}
+	if len(chart.Series) != 2 || len(chart.Series[0].Points) != 2 || len(chart.Series[1].Points) != 2 {
+		t.Fatalf("chart must break at missing intervals: %+v", chart)
+	}
+	filtered := read("/metric-catalog?q=Work+waiting")
+	if !strings.Contains(filtered, "obs_dashboard_queue") || strings.Contains(filtered, ">obs_dashboard_actions_total</a>") {
+		t.Fatal("description search did not filter registry families")
+	}
+	if process := read("/metric-catalog?q=go_"); !strings.Contains(process, ">go_") || strings.Contains(process, ">obs_dashboard_queue</a>") {
+		t.Fatal("Go runtime metrics are not searchable")
+	}
+	if long := read("/metric-catalog?metric=" + url.QueryEscape(longMetric)); !regexp.MustCompile(`>\s*7\s*<`).MatchString(long) || !strings.Contains(long, "Unsupported metadata:") {
+		t.Fatal("long family selection or unsupported metadata is missing")
+	}
+	if missing := read("/metric-catalog?metric=absent_metric"); !strings.Contains(missing, "selected metric is absent") {
+		t.Fatal("missing family is not explicit")
+	}
+	if unsupported := read("/metric-catalog?metric=obs_dashboard_actions_total"); !strings.Contains(unsupported, "not retained by the history source") {
+		t.Fatal("unsupported history is not explained")
+	}
+	if truncated := read("/metric-catalog?metric=obs_dashboard_worker"); !strings.Contains(truncated, "Truncated: more series exist") {
+		t.Fatal("series truncation is not visible")
+	}
+	// Live rendering follows the same registry rather than a second UI sampler.
+	queue.Set(9)
+	stream := request("/metric-catalog/stream?metric=obs_dashboard_queue&range=15m", true)
+	defer stream.Body.Close()
+	if stream.StatusCode != http.StatusOK || !strings.Contains(stream.Header.Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("metric stream response: %d %v", stream.StatusCode, stream.Header)
+	}
+	scanner := bufio.NewScanner(stream.Body)
+	scanner.Buffer(make([]byte, 4096), 2<<20)
+	found := false
+	for scanner.Scan() {
+		if regexp.MustCompile(`>\s*9\s*<`).MatchString(scanner.Text()) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Datastar stream did not reflect updated registry gauge: %v", scanner.Err())
+	}
+}
+
+func TestMetricDashboardMissingProviderHTTP(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(New(Options{}).Handler())
+	t.Cleanup(server.Close)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/metric-catalog", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil || response.StatusCode != http.StatusOK || !strings.Contains(string(body), "metric catalog provider is not attached") {
+		t.Fatalf("missing provider: status=%d err=%v body=%s", response.StatusCode, err, body)
+	}
+}

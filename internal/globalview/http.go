@@ -21,6 +21,7 @@ func Handler(view *View) http.Handler {
 		}
 		writeJSON(writer, region)
 	})
+	mountDrilldowns(mux, view)
 	return mux
 }
 

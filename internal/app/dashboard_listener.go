@@ -193,7 +193,7 @@ func (runtime *runtimeObservability) startDashboard(ctx context.Context, listene
 			return func() {}, nil, err
 		}
 		servers, boards = append(servers, server), append(boards, board)
-		runtime.addBoard(board)
+		runtime.addBoard(board, server)
 		go func() { stopped <- <-serving }()
 	}
 	return stop, stopped, nil
