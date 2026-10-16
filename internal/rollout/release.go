@@ -200,7 +200,7 @@ func (s *Store) ReleaseGeneration(ctx context.Context, generation uint64) (Relea
 
 // generation reads a retained copy. The copy has no schema version of its
 // own: the desired record's, which every caller has validated, covers it. A
-// breaking Release change raises SchemaVersion, so an older controller
+// breaking Release change raises DesiredSchemaVersion, so an older controller
 // refuses the desired record and never reads a newer generation it would
 // misread; a newer binary's added members are skipped, as in the desired
 // record itself.
@@ -275,10 +275,12 @@ func (s *Store) publishRelease(ctx context.Context, epoch uint64, release Releas
 				return Release{}, err
 			}
 			if !retry {
-				if err := s.writeDesired(ctx, epoch, next, revision); errors.Is(err, ErrConflict) {
-					continue
-				} else if err != nil {
-					return Release{}, err
+				if desired.SchemaVersion != DesiredSchemaVersion || desired.OrderingFloor.ReleaseSequence != next.OrderingFloor.ReleaseSequence || desired.LegacyFloor.Generation != next.LegacyFloor.Generation {
+					if err := s.writeDesired(ctx, epoch, next, revision); errors.Is(err, ErrConflict) {
+						continue
+					} else if err != nil {
+						return Release{}, err
+					}
 				}
 				return desired.Release, ErrReleaseUnchanged
 			}

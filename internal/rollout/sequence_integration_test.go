@@ -320,3 +320,50 @@ func TestSequencePublicationRejectsInvalidProofBeforeWrites(t *testing.T) {
 		t.Fatalf("unlinked migration replaced ordering namespace: %v", err)
 	}
 }
+
+func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
+	fixture := newSequenceFixture(t)
+	store, _ := testStore(t)
+	ctx := t.Context()
+	// A pre-upgrade rollback leaves the greatest run outside the 64-generation window.
+	historical := Release{ID: generationKey(store.cell, 1), Generation: 1, Digest: fromDigest, RunNumber: 2000, Actor: "ci", CreatedAt: fixture.now}
+	if err := store.retain(ctx, 7, historical); err != nil {
+		t.Fatal(err)
+	}
+	current := historical
+	current.ID, current.Generation, current.Digest, current.RunNumber = generationKey(store.cell, 100), 100, toDigest, 1
+	legacy := Desired{SchemaVersion: SchemaVersion, Cell: store.cell, Release: current}
+	wire, err := protocol.EncodeJSON(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.kv.Create(ctx, desiredKey, wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 1001, 1, otherBad, true), fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("migration erased out-of-window legacy floor: %v", err)
+	}
+	var migration release.SequenceMigration
+	if err := protocol.DecodeStrict(fixture.migration.Payload, &migration, trust.MaxPayloadBytes); err != nil {
+		t.Fatal(err)
+	}
+	migration.SequenceFloor = 2000
+	for i := range migration.Regions {
+		migration.Regions[i].RunNumber = 2000
+	}
+	fixture.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.migrationSHA, err = trust.Fingerprint(fixture.migration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 2001, 1, otherBad, true), fixture.roots, "GRU", "production"); err != nil {
+		t.Fatal(err)
+	}
+	desired, _, err := store.Desired(ctx)
+	if err != nil || desired.SchemaVersion != DesiredSchemaVersion || desired.LegacyFloor.Generation != 1 || desired.LegacyFloor.RunNumber != 2000 || desired.OrderingFloor.ReleaseSequence != 2001 {
+		t.Fatalf("legacy schema migration lost evidence: %+v %v", desired, err)
+	}
+}
