@@ -27,6 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
@@ -295,7 +296,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
+	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
 	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true, loseSourceCreate: true}
@@ -323,6 +324,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		client.HTTPClient = endpoint.Client()
 		policy := common.NoRetryPolicy()
 		client.Configuration.RetryPolicy = &policy
+		ociclient.ConfigureRequestCancellation(client)
 	}
 	var reader *region.SignedFootprint
 	cfg := bootstrapmaterial.Config{Environment: "production", Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: anchor.Anchor().DeploymentID, ClusterID: anchor.Anchor().ClusterID, SubnetCIDR: "10.251.0.0/24", ValidityHours: 48, Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.11"}, {Name: "controller-b", PrivateIP: "10.251.0.12"}, {Name: "controller-c", PrivateIP: "10.251.0.13"}}}
@@ -376,8 +378,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range 2 {
-		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now); err == nil {
+	for attempt := range 2 {
+		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now.Add(time.Duration(attempt)*time.Second)); err == nil {
 			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
 		}
 	}
@@ -410,7 +412,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err := json.Unmarshal(committedWire, &committed); err != nil {
 		t.Fatal(err)
 	}
-	if committed.Token != sources[0].state.RetryToken {
+	if committed.Token != sources[0].state.RetryToken || !sources[0].state.StartedAt.Equal(now) {
 		t.Fatal("source recovery changed original retry identity")
 	}
 	committedBody, err := base64.StdEncoding.DecodeString(committed.Content)
@@ -498,6 +500,43 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
+	}
+	link, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "home-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkRecord := link.Record()
+	if linkRecord.Signer == "" || !strings.HasPrefix(link.source.state.SecretName, "ts-bootstrap-source-link-") {
+		t.Fatal("missing separately escrowed Link signer")
+	}
+	protocol.mu.Lock()
+	protocol.loseCreate = true
+	protocol.mu.Unlock()
+	if _, err := link.Provision(t.Context(), target, &management, &bundles, now); err == nil {
+		t.Fatal("lost Link publication response unexpectedly succeeded")
+	}
+	recoveredLink, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-home-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkPublication, err := recoveredLink.Provision(t.Context(), target, &management, &bundles, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(linkRecord, recoveredLink.Record()) || protocol.creates != 37 || len(linkPublication.References) != 8 {
+		t.Fatalf("Link source rotated or publication duplicated: creates=%d refs=%d", protocol.creates, len(linkPublication.References))
+	}
+	for _, ref := range linkPublication.References {
+		if ref.Reference.TargetFile == "issuer-link.seed" || ref.Reference.SecretOCID == recoveredLink.source.state.Reference.SecretOCID {
+			t.Fatal("Link founder source leaked to ordinary hosts")
+		}
+	}
+	verifiedLink, err := recoveredLink.InstallMaterial(t.Context())
+	if err != nil || !verifiedLink.IsVerified() || verifiedLink.VerifyCurrent(t.Context()) != nil {
+		t.Fatalf("Link sealed projection: %v", err)
+	}
+	if _, err := ResolveLinkSource(t.Context(), replacement, replacement, new(LinkSource), &objects, &management, &bundles, filepath.Join(t.TempDir(), "invalid-link"), now); err == nil {
+		t.Fatal("empty home Link proof admitted")
 	}
 	grant.Generation = 2
 	grant.Regions[0].Generation = 2

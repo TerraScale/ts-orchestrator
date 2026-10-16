@@ -36,6 +36,8 @@ var ErrMaterialSource = errors.New("regional bootstrap source unavailable or con
 
 type materialSourceArchive struct {
 	SchemaVersion  int               `json:"schemaVersion"`
+	Kind           string            `json:"kind,omitempty"`
+	BindingSHA256  string            `json:"bindingSha256,omitempty"`
 	InstallationID string            `json:"installationId"`
 	Cell           string            `json:"cell"`
 	Generation     uint64            `json:"generation"`
@@ -51,6 +53,8 @@ type materialSourceReference struct {
 
 type materialSourceState struct {
 	SchemaVersion  int                           `json:"schemaVersion"`
+	Kind           string                        `json:"kind,omitempty"`
+	BindingSHA256  string                        `json:"bindingSha256,omitempty"`
 	InstallationID string                        `json:"installationId"`
 	Cell           string                        `json:"cell"`
 	Generation     uint64                        `json:"generation"`
@@ -66,13 +70,15 @@ type materialSourceState struct {
 // ColdStartMaterial retains the one CAS revision authorizing source escrow and
 // host publication. Only the founder-only Vault contains the signing source.
 type ColdStartMaterial struct {
-	grant                region.VerifiedBootstrapMaterial
-	objects              bootstrapstart.FounderSelectionObjectWriter
-	directory, key, etag string
-	state                materialSourceState
-	archive              materialSourceArchive
-	record               bootstrapmaterial.Record
-	publication          bootstrapmaterial.Publication
+	grant                     region.VerifiedBootstrapMaterial
+	objects                   bootstrapstart.FounderSelectionObjectWriter
+	directory, key, etag      string
+	kind, binding, secretName string
+	link                      *linkInputs
+	state                     materialSourceState
+	archive                   materialSourceArchive
+	record                    bootstrapmaterial.Record
+	publication               bootstrapmaterial.Publication
 }
 
 func (source *ColdStartMaterial) Record() bootstrapmaterial.Record { return cloneRecord(source.record) }
@@ -85,10 +91,15 @@ func ResolveColdStartMaterial(ctx context.Context, grant region.VerifiedBootstra
 		return nil, ErrMaterialSource
 	}
 	scope := sha256.Sum256([]byte(grant.InstallationID() + "\x00" + cfg.Cell))
-	source := &ColdStartMaterial{grant: grant, objects: objects, directory: directory, key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + hex.EncodeToString(scope[:]) + ".json"}
+	source := &ColdStartMaterial{grant: grant, objects: objects, directory: directory, key: grant.StorageDomain().Prefix + "/bootstrap/v2/material-source/" + hex.EncodeToString(scope[:]) + ".json", secretName: "ts-bootstrap-source-" + hex.EncodeToString(scope[:16])}
+	return resolveSource(ctx, source, management, bundles, now)
+}
+
+func resolveSource(ctx context.Context, source *ColdStartMaterial, management bootstrapmaterial.VaultClient, bundles EscrowClient, now time.Time) (*ColdStartMaterial, error) {
+	grant, cfg := source.grant, source.grant.Config()
 	state, etag, err := source.read(ctx)
 	if errors.Is(err, os.ErrNotExist) {
-		state = materialSourceState{SchemaVersion: 1, InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), SecretName: "ts-bootstrap-source-" + hex.EncodeToString(scope[:16]), RetryToken: uuid.New().String(), StartedAt: now.UTC()}
+		state = materialSourceState{SchemaVersion: 1, InstallationID: grant.InstallationID(), Cell: cfg.Cell, Generation: grant.Generation(), PlanSHA256: grant.PlanDigest(), Target: grant.EscrowTarget(), Kind: source.kind, BindingSHA256: source.binding, SecretName: source.secretName, RetryToken: uuid.New().String(), StartedAt: now.UTC()}
 		_, _ = source.write(ctx, state, "")
 		state, etag, err = source.read(ctx)
 	}
@@ -156,7 +167,11 @@ func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrap
 	if source == nil || !now.Before(source.grant.ExpiresAt()) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
 	}
-	publication, err := bootstrapmaterial.ProvisionDurable(ctx, source.directory, target, management, bundles, now, func(journal []byte) error {
+	provision := bootstrapmaterial.ProvisionDurable
+	if source.link != nil {
+		provision = bootstrapmaterial.ProvisionLinkDurable
+	}
+	publication, err := provision(ctx, source.directory, target, management, bundles, now, func(journal []byte) error {
 		next := source.state
 		next.Journal = bytes.Clone(journal)
 		etag, err := source.write(ctx, next, source.etag)
@@ -183,11 +198,22 @@ func (source *ColdStartMaterial) generate(now time.Time) ([]byte, error) {
 	}
 	defer os.RemoveAll(parent)
 	path := filepath.Join(parent, "source")
-	record, err := bootstrapmaterial.Generate(path, source.grant.Config(), now)
+	var record bootstrapmaterial.Record
+	if source.link == nil {
+		record, err = bootstrapmaterial.Generate(path, source.grant.Config(), now)
+	} else {
+		homeLinkPath := path
+		if source.link.homeLink != nil {
+			homeLinkPath = source.link.homeLink.source.directory
+		}
+		var linkRecord bootstrapmaterial.LinkRecord
+		linkRecord, err = bootstrapmaterial.GenerateLink(source.link.regional.directory, source.link.home.directory, homeLinkPath, path, now)
+		record = linkRecord.Record
+	}
 	if err != nil {
 		return nil, err
 	}
-	archive := materialSourceArchive{SchemaVersion: 1, InstallationID: source.grant.InstallationID(), Cell: record.Config.Cell, Generation: source.grant.Generation(), PlanSHA256: source.grant.PlanDigest(), Files: make(map[string][]byte)}
+	archive := materialSourceArchive{SchemaVersion: 1, Kind: source.kind, BindingSHA256: source.binding, InstallationID: source.grant.InstallationID(), Cell: record.Config.Cell, Generation: source.grant.Generation(), PlanSHA256: source.grant.PlanDigest(), Files: make(map[string][]byte)}
 	defer clearArchive(archive)
 	names := []string{"material.json", "READY"}
 	for _, file := range record.Files {
@@ -239,7 +265,7 @@ func (source *ColdStartMaterial) decodeArchive(body []byte) (materialSourceArchi
 		return materialSourceArchive{}, ErrMaterialSource
 	}
 	var archive materialSourceArchive
-	if json.Unmarshal(wire, &archive, json.RejectUnknownMembers(true)) != nil || archive.SchemaVersion != 1 || archive.InstallationID != source.grant.InstallationID() || archive.Cell != source.grant.Config().Cell || archive.Generation == 0 || archive.Generation > source.grant.Generation() || archive.PlanSHA256 != source.grant.PlanDigest() || len(archive.Files) < 3 || len(archive.Files) > 66 {
+	if json.Unmarshal(wire, &archive, json.RejectUnknownMembers(true)) != nil || archive.SchemaVersion != 1 || archive.Kind != source.kind || archive.BindingSHA256 != source.binding || archive.InstallationID != source.grant.InstallationID() || archive.Cell != source.grant.Config().Cell || archive.Generation == 0 || archive.Generation > source.grant.Generation() || archive.PlanSHA256 != source.grant.PlanDigest() || len(archive.Files) < 3 || len(archive.Files) > 66 {
 		clearArchive(archive)
 		return materialSourceArchive{}, ErrMaterialSource
 	}
@@ -310,11 +336,10 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	var state materialSourceState
-	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 {
+	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Kind != source.kind || state.BindingSHA256 != source.binding || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
-	scope := sha256.Sum256([]byte(state.InstallationID + "\x00" + state.Cell))
-	if state.SecretName != "ts-bootstrap-source-"+hex.EncodeToString(scope[:16]) {
+	if state.SecretName != source.secretName {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	if _, err := uuid.Parse(state.RetryToken); err != nil {
@@ -328,7 +353,7 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 }
 
 func (source *ColdStartMaterial) write(ctx context.Context, state materialSourceState, etag string) (string, error) {
-	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) {
+	if ctx.Err() != nil || !time.Now().Before(source.grant.ExpiresAt()) || source.link != nil && source.link.verify(ctx) != nil {
 		return "", ErrMaterialSource
 	}
 	wire, err := json.Marshal(state, json.Deterministic(true))
@@ -372,12 +397,12 @@ func (source *ColdStartMaterial) restore(ctx context.Context) error {
 			return err
 		}
 	}
-	record, err := bootstrapmaterial.Load(parent)
+	record, err := source.loadRecord(parent)
 	if err != nil {
 		return err
 	}
 	configWire, err := json.Marshal(record.Config, json.Deterministic(true))
-	if err != nil || digestWire(configWire) != source.grant.PlanDigest() || !time.Now().Before(record.ExpiresAt) || bootstrapmaterial.ValidateLive(parent, record) != nil {
+	if err != nil || digestWire(configWire) != source.grant.PlanDigest() || !time.Now().Before(record.ExpiresAt) {
 		return ErrMaterialSource
 	}
 	if len(source.state.Journal) > 0 {
@@ -462,7 +487,7 @@ func (source *ColdStartMaterial) restoreJournal(ctx context.Context) error {
 			return err
 		}
 	}
-	if _, err := bootstrapmaterial.Load(source.directory); err != nil {
+	if _, err := source.loadRecord(source.directory); err != nil {
 		return err
 	}
 	if len(source.state.Journal) == 0 {
@@ -572,7 +597,7 @@ func (verified VerifiedColdStartMaterial) Grant() region.VerifiedBootstrapMateri
 	return verified.source.grant
 }
 func (verified VerifiedColdStartMaterial) VerifyCurrent(ctx context.Context) error {
-	if !verified.IsVerified() || !time.Now().Before(verified.source.grant.ExpiresAt()) {
+	if !verified.IsVerified() || !time.Now().Before(verified.source.grant.ExpiresAt()) || verified.source.link != nil && verified.source.link.verify(ctx) != nil {
 		return ErrMaterialSource
 	}
 	state, etag, err := verified.source.read(ctx)
@@ -584,14 +609,14 @@ func (verified VerifiedColdStartMaterial) VerifyCurrent(ctx context.Context) err
 	defer clear(want)
 	actual, actualErr := json.Marshal(state, json.Deterministic(true))
 	defer clear(actual)
-	record, recordErr := bootstrapmaterial.Load(verified.source.directory)
+	record, recordErr := verified.source.loadRecord(verified.source.directory)
 	recordWire, recordEncodeErr := json.Marshal(record, json.Deterministic(true))
 	expectedRecord, expectedRecordErr := json.Marshal(verified.record, json.Deterministic(true))
 	if err != nil || actualErr != nil || !bytes.Equal(want, actual) || recordErr != nil || recordEncodeErr != nil || expectedRecordErr != nil || !bytes.Equal(recordWire, expectedRecord) {
 		return ErrMaterialSource
 	}
 	metadata, err := os.ReadFile(filepath.Join(verified.source.directory, "material.json"))
-	if err != nil || digestWire(metadata) != verified.publication.MaterialSHA256 || bootstrapmaterial.ValidatePublication(verified.source.directory, verified.publication, state.Journal) != nil {
+	if err != nil || digestWire(metadata) != verified.publication.MaterialSHA256 || verified.source.validatePublication(verified.publication, state.Journal) != nil {
 		return ErrMaterialSource
 	}
 	return nil
