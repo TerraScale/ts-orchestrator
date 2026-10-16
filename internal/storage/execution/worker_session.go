@@ -207,7 +207,7 @@ func WorkerAdmissionSHA256(payload WorkerGrantPayload) (string, error) {
 }
 
 func (s *WorkerSession) Resolve(ctx context.Context, task *api.Task) (VerifiedWorkerGrant, error) {
-	if s == nil || ctx == nil || task == nil {
+	if s == nil || ctx == nil || ctx.Err() != nil || task == nil {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
 	hash, err := TaskSHA256(task)
@@ -309,7 +309,7 @@ func (s *WorkerSession) TrackRuntime(ctx context.Context, task *api.Task, pins R
 	grant := held.grant
 	expired := held.closing || held.stopped || !held.grant.Deadline().After(time.Now().Add(workerStopReserve))
 	s.mu.Unlock()
-	if persistErr := s.persistRuntime(grant, pins, observed); persistErr != nil {
+	if persistErr := s.persistRuntime(grant, pins, observed); persistErr != nil || s.VerifyCurrent(ctx, task, grant) != nil {
 		expired = true
 	}
 	if expired {
@@ -408,13 +408,22 @@ func (s *WorkerSession) watchdog(hash string, held *workerTaskSession) {
 			<-time.After(wait)
 			continue
 		}
-		s.expire(hash, held)
-		return
+		if s.expire(hash, held) {
+			return
+		}
 	}
 }
 
-func (s *WorkerSession) expire(hash string, held *workerTaskSession) {
+func (s *WorkerSession) expire(hash string, held *workerTaskSession) bool {
 	s.mu.Lock()
+	if held.closing || held.stopped {
+		s.mu.Unlock()
+		return true
+	}
+	if held.grant.Deadline().Add(-workerStopReserve).After(time.Now()) {
+		s.mu.Unlock()
+		return false
+	}
 	held.closing = true
 	grant, task, source := held.grant, held.task.Copy(), s.source
 	s.mu.Unlock()
@@ -436,7 +445,7 @@ func (s *WorkerSession) expire(hash string, held *workerTaskSession) {
 	// settlement observer still retries, allowing a delayed actual stop to settle.
 	_ = errors.Join(withdrawErr, stopErr)
 	s.settleStopped(task, hash, held)
-
+	return true
 }
 
 func (s *WorkerSession) settleStopped(task *api.Task, hash string, held *workerTaskSession) {
