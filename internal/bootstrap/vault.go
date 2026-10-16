@@ -210,7 +210,7 @@ func authorizeSecretMaterialization(manifest StartupAuthority, receipt VerifiedR
 		return fmt.Errorf("%w: secret reference is not present in the signed manifest", ErrManifestInvalid)
 	}
 	switch reference.Purpose {
-	case SecretRegionalShared, SecretHostIssuer:
+	case SecretRegionalShared, SecretHostIssuer, SecretControllerIssuer:
 		return nil
 	case SecretSeedFounder, SecretSeedLedgerSigner:
 		if receipt.receipt.Slot != payload.SeedSlot {
@@ -219,6 +219,10 @@ func authorizeSecretMaterialization(manifest StartupAuthority, receipt VerifiedR
 	case SecretController:
 		if reference.Slot != receipt.receipt.Slot {
 			return fmt.Errorf("%w: controller secret is bound to a different slot", ErrReceiptInvalid)
+		}
+	case SecretInterRegion:
+		if reference.Slot != "" && reference.Slot != receipt.receipt.Slot {
+			return fmt.Errorf("%w: Link TLS secret is bound to a different slot", ErrReceiptInvalid)
 		}
 	default:
 		return fmt.Errorf("%w: unknown secret purpose", ErrManifestInvalid)
