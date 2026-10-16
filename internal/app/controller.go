@@ -38,6 +38,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/lb"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
 	"github.com/TerraScale/ts-orchestrator/internal/rolloutexec"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
@@ -538,6 +539,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		roleIdentity = roleIdentityIssuer(issuer, runtime, cfg.NATS.Replicas)
 	}
 	var automaticFunctions atomic.Pointer[functionController]
+	var automaticContainers atomic.Pointer[containerMaterialController]
 	var functionCalls sync.RWMutex
 	hostController, _, err := retryControllerOpen(ctx, "open regional host control", fullClusterReady, false,
 		func(attempt context.Context) (*host.Controller, error) {
@@ -560,9 +562,25 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 					}
 					return controller.material(ctx, registration, binding)
 				},
+				ContainerMaterialProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.ContainerMaterialFiles, error) {
+					functionCalls.RLock()
+					defer functionCalls.RUnlock()
+					controller := automaticContainers.Load()
+					if controller == nil {
+						return host.ContainerMaterialFiles{}, errors.New("automatic container authority is unavailable")
+					}
+					return controller.material(ctx, registration, binding)
+				},
 				RegistryAdmissionProvider: func(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
 					functionCalls.RLock()
 					defer functionCalls.RUnlock()
+					if len(registration.Roles) != 1 || registration.Roles[0] != swarmruntime.FunctionWorkerRole {
+						controller := automaticContainers.Load()
+						if controller == nil {
+							return host.RegistryAdmissionDocument{}, errors.New("automatic container registry authority is unavailable")
+						}
+						return controller.registryAdmission(ctx, registration, binding)
+					}
 					controller := automaticFunctions.Load()
 					if controller == nil {
 						return host.RegistryAdmissionDocument{}, errors.New("automatic function registry authority is unavailable")
@@ -787,6 +805,41 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		functionCalls.Lock()
 		defer functionCalls.Unlock()
 		stopFunctions()
+	}()
+	containerFounders, err := currentControllerHostReader(runCtx)
+	if err != nil {
+		return err
+	}
+	containerMutations, err := authority.OpenReader(runCtx, runtime.JetStream(), cfg.NATS.Cell)
+	if err != nil {
+		return err
+	}
+	containerRegistrations, err := host.NewReader(runCtx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: containerMutations})
+	if err != nil {
+		return err
+	}
+	containerChannel := instancePrincipalChannel(capacityFoundation.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
+	containers, stopContainers, err := startContainerMaterial(runCtx, containerMaterialConfig{
+		Factory: capacityFoundation.factory, Hosts: hostController, Authority: control, Client: functionClient,
+		Specs: services, Delivery: service, Founders: containerFounders, Accepted: acceptedRuntime,
+		JS: runtime.JetStream(), Mutations: containerMutations, Registrations: containerRegistrations, ResponsePublic: responseKey.Public().(ed25519.PublicKey),
+		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
+			location, err := containerChannel.get(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return releasechannel.ReadContainerEvidence(ctx, location, role, digest)
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("start automatic regional container material: %w", err)
+	}
+	automaticContainers.Store(containers)
+	defer func() {
+		automaticContainers.Store(nil)
+		functionCalls.Lock()
+		defer functionCalls.Unlock()
+		stopContainers()
 	}()
 	homeKey := func(ctx context.Context) (ed25519.PublicKey, error) {
 		local, derived, present, err := installedAutomaticStartup(ctx)

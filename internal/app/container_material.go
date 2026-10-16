@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"io"
@@ -10,26 +12,35 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type containerMaterialConfig struct {
-	Factory   *ociclient.Factory
-	Hosts     seatrollout.Hosts
-	Authority authority.Fencer
-	Client    api.ControlClient
-	Specs     *specRegistry
-	Delivery  *delivery.Service
-	Evidence  func(context.Context, string, string) (io.ReadCloser, error)
+	Factory        *ociclient.Factory
+	Hosts          seatrollout.Hosts
+	Authority      authority.Fencer
+	Client         api.ControlClient
+	Specs          *specRegistry
+	Delivery       *delivery.Service
+	Evidence       func(context.Context, string, string) (io.ReadCloser, error)
+	Founders       *bootstrapstart.CurrentFounderAuthorityReader
+	Accepted       bootstrapstart.AcceptedIdentity
+	JS             jetstream.JetStream
+	Mutations      *authority.Reader
+	Registrations  *host.Reader
+	ResponsePublic ed25519.PublicKey
 }
 
 type containerMaterialController struct{ config containerMaterialConfig }
@@ -46,7 +57,8 @@ type containerMaterialRecipient struct {
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
-	if config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil {
+	if config.Factory == nil || config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil ||
+		config.Founders == nil || config.Accepted.Validate() != nil || config.JS == nil || config.Mutations == nil || config.Registrations == nil || len(config.ResponsePublic) != ed25519.PublicKeySize {
 		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
 	}
 	controller := &containerMaterialController{config: config}
@@ -59,6 +71,9 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 		return containerMaterialRecipient{}, containermaterial.ErrPending
 	}
 	config := controller.config
+	if binding.HostID != registration.ID {
+		return fail()
+	}
 	epoch := config.Authority.Current().Epoch
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
 		return containerMaterialRecipient{}, err
@@ -86,6 +101,7 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 		return fail()
 	}
 	roots := config.Specs.roots.current()
+	rootHead := config.Specs.roots.reply("").Head
 	proof, err := containermaterial.VerifyProfile(entry.Value(), roots, config.Specs.identity, intent)
 	if err != nil {
 		return containerMaterialRecipient{}, err
@@ -97,10 +113,12 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if node == nil || node.Node == nil || node.Node.Description == nil || node.Node.Description.Platform == nil {
 		return fail()
 	}
-	// Manager material additionally needs the sealed bootstrap/OCI association;
-	// a registration or self-reported hostname cannot supply that authority.
+	var enrollment controllerEnrollmentSnapshot
 	if node.Node.Role == api.NodeRoleManager {
-		return fail()
+		enrollment, err = completedControllerEnrollment(ctx, config, registration, binding.InstanceID)
+		if err != nil {
+			return containerMaterialRecipient{}, err
+		}
 	}
 	expected, err := containermaterial.ServiceIntent(proof, node.Node.Description.Platform.Architecture)
 	if err != nil {
@@ -118,7 +136,16 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err != nil {
 		return containerMaterialRecipient{}, err
 	}
-	if err := containermaterial.VerifyTask(ctx, config.Client, task, expected, verified, roots, proof, registration, binding); err != nil {
+	taskBinding := binding
+	var controllerProof *bootstrapstart.ControllerHostRecipient
+	if node.Node.Role == api.NodeRoleManager {
+		controllerProof, err = bootstrapstart.ReadControllerHostRecipient(ctx, config.Founders, config.Accepted, entry.Value(), registration.Node, binding.InstanceID, node.Node.Status.Addr)
+		if err != nil {
+			return containerMaterialRecipient{}, err
+		}
+		taskBinding.HostID = controllerProof.ControllerSlot()
+	}
+	if err := containermaterial.VerifyTask(ctx, config.Client, task, expected, verified, roots, proof, registration, taskBinding, controllerProof); err != nil {
 		return containerMaterialRecipient{}, err
 	}
 	service, err := config.Client.GetService(ctx, &api.GetServiceRequest{ServiceID: binding.ServiceID})
@@ -129,7 +156,7 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 		return fail()
 	}
 	latest, err := config.Specs.kv.Get(ctx, cellSpecKey)
-	if err != nil || latest.Revision() != entry.Revision() {
+	if err != nil || latest.Revision() != entry.Revision() || !bytes.Equal(latest.Value(), entry.Value()) {
 		return fail()
 	}
 	confirmed, err := config.Delivery.ContainerIntent(ctx, intent.OperationID)
@@ -143,6 +170,20 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	}
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
 		return containerMaterialRecipient{}, err
+	}
+	if controllerProof != nil {
+		confirmed, err := completedControllerEnrollment(ctx, config, registration, binding.InstanceID)
+		before, beforeErr := protocol.EncodeJSON(enrollment)
+		after, afterErr := protocol.EncodeJSON(confirmed)
+		if err != nil || beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+			return fail()
+		}
+	}
+	if err := controllerHostSpecCurrent(ctx, config.Specs, entry, rootHead); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && !controllerProof.Valid(time.Now()) {
+		return fail()
 	}
 	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof}, nil
 }
@@ -285,7 +326,15 @@ func (controller *containerMaterialController) renew(ctx context.Context) error 
 		binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], Region: node.Node.Spec.Annotations.Labels[swarmruntime.LabelRegion], HostID: node.Node.Spec.Annotations.Name, Fingerprint: fingerprint}
 		var registration *host.Registration
 		for _, status := range hosts {
-			if status.Retired || status.Registration.ManagedOCI == nil || status.Registration.ID != binding.HostID || status.Registration.ManagedOCI.InstanceID != binding.InstanceID {
+			if status.Retired {
+				continue
+			}
+			if node.Node.Role == api.NodeRoleManager {
+				grant, _, ok := controller.config.Specs.hostGrant(status.Registration.Node)
+				if !ok || grant.Controller == "" || grant.Controller != node.Node.Spec.Annotations.Name || grant.PrivateIP != node.Node.Status.Addr || status.Registration.ManagedOCI != nil {
+					continue
+				}
+			} else if status.Registration.ManagedOCI == nil || status.Registration.ID != binding.HostID || status.Registration.ManagedOCI.InstanceID != binding.InstanceID {
 				continue
 			}
 			if registration != nil {
@@ -299,6 +348,7 @@ func (controller *containerMaterialController) renew(ctx context.Context) error 
 			failures = append(failures, containermaterial.ErrPending)
 			continue
 		}
+		binding.HostID = registration.ID
 		files, err := controller.material(ctx, *registration, binding)
 		for _, value := range files.Files {
 			clear(value)
