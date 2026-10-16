@@ -73,9 +73,6 @@ func (o Ownership) Owns(key Key, tags Tags) bool {
 // stamps ownership onto an existing resource refuses a claimed one it does
 // not already own.
 func (o Ownership) Claimed(tags Tags) bool {
-	if o.Validate() != nil {
-		return true
-	}
 	return tags.Freeform[freeformManagedBy] != "" || tags.Freeform[freeformOwner] != "" || tags.Freeform[freeformResource] != ""
 }
 
