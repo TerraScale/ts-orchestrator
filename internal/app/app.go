@@ -41,6 +41,9 @@ func Run(ctx context.Context, args []string, output io.Writer) error {
 	if command == "runtime-worker-admission-source" {
 		return runRuntimeWorkerAdmissionSource(ctx, args[1:], os.Stdin, output)
 	}
+	if command == runtimeControllerHostSourceCommand {
+		return runRuntimeControllerHostAdmissionSource(ctx, args[1:], os.Stdin, output)
+	}
 	if command == "runtime-worker-membership-source" {
 		return runRuntimeWorkerMembershipSource(ctx, args[1:], os.Stdin, output)
 	}

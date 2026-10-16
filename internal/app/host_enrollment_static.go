@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
 )
 
@@ -109,6 +110,9 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 		cached = grant.RenewalResponse
 	}
 	if len(cached) != 0 {
+		if descriptor.IsController() {
+			return enrollment.prepareRuntimeWorker(ctx, epoch, wire, cached)
+		}
 		return cached, enrollment.fencer.Guard(ctx, epoch)
 	}
 	jwt, chain, expires, err := enrollment.issuer.Issue(request, csr, descriptor.Node, time.Now().UTC())
@@ -143,9 +147,11 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 		if responseWire, err = protocol.EncodeJSON(response); err != nil {
 			return nil, err
 		}
-		responseWire, err = enrollment.prepareRuntimeWorker(ctx, epoch, wire, responseWire)
-		if err != nil {
-			return nil, err
+		if !descriptor.IsController() {
+			responseWire, err = enrollment.prepareRuntimeWorker(ctx, epoch, wire, responseWire)
+			if err != nil {
+				return nil, err
+			}
 		}
 		var again staticAdmission
 		if instance, again, err = enrollment.observeStatic(ctx, peerIP, request, descriptor); err != nil {
@@ -161,6 +167,17 @@ func (enrollment *managedHostEnrollment) enrollStatic(ctx context.Context, epoch
 	}
 	if err := enrollment.fencer.Guard(ctx, epoch); err != nil {
 		return nil, err
+	}
+	if descriptor.IsController() {
+		current, currentRevision, err := hostenroll.ReadCurrentGrant(ctx, enrollment.js, request.InstanceID)
+		if err != nil || currentRevision != revision || !reflect.DeepEqual(current, grant) ||
+			!workerGrantAuthorizesPreparation(current, swarmruntime.WorkerRegistrationQuery{Request: wire, Response: responseWire}, time.Now().UTC()) {
+			return nil, errors.New("controller enrollment no longer owns its exact live claim")
+		}
+		responseWire, err = enrollment.prepareRuntimeWorker(ctx, epoch, wire, responseWire)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if request.Operation == "renew" {
 		err = enrollment.grants.FinishRenew(ctx, grant, revision, responseWire, time.Now().UTC())

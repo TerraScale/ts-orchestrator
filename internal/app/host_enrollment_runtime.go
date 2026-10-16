@@ -80,8 +80,10 @@ type managedHostEnrollment struct {
 	// of its host grants.
 	services *specRegistry
 	// pool admits the node pool's instances. Nil refuses every pool node.
-	pool            nodePoolMembers
-	runtimeIdentity bootstrapstart.AcceptedIdentity
+	pool                  nodePoolMembers
+	runtimeIdentity       bootstrapstart.AcceptedIdentity
+	registrationMutations *authority.Reader
+	registrations         *host.Reader
 }
 
 var errStaleUnclaimedRenewal = errors.New("stale unclaimed host renewal")
@@ -128,6 +130,14 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 	if err != nil || listenPort != "8443" || net.ParseIP(listenIP) == nil || listenIP != cfg.NATS.Embedded.Host {
 		return nil, nil, nil, errors.New("host enrollment listener must bind the exact private broker IP on port 8443")
 	}
+	registrationMutations, err := authority.OpenReader(ctx, runtime.JetStream(), cfg.NATS.Cell)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	registrations, err := host.NewReader(ctx, host.ReaderConfig{Cell: cfg.NATS.Cell, Conn: runtime.Conn(), JS: runtime.JetStream(), StateReplicas: cfg.NATS.Replicas, HostMutations: registrationMutations})
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	listener, err := net.Listen("tcp", cfg.Controller.HostEnrollmentListenAddress)
 	if err != nil {
 		return nil, nil, nil, err
@@ -140,6 +150,7 @@ func startManagedHostEnrollment(ctx context.Context, cfg Config, runtime *natsce
 		fleet:     fleet, intents: intents, members: members, controller: controller, verifier: verifier,
 		grants: grantStore, js: runtime.JetStream(), issuer: issuer, responseKey: responseKey, fencer: fencer,
 		services: services, runtimeIdentity: runtimeIdentity,
+		registrationMutations: registrationMutations, registrations: registrations,
 	}
 	// A nil pool refuses every pool node. The typed nil is kept out of the interface.
 	// A pool that has not bound yet refuses until it does.

@@ -28,6 +28,13 @@ func (enrollment *managedHostEnrollment) prepareRuntimeWorker(ctx context.Contex
 	if enrollment.runtimeIdentity.Validate() != nil {
 		return nil, errors.New("accepted root runtime identity is unavailable for worker enrollment")
 	}
+	_, descriptor, err := hostenroll.ParseRetainedWorkerRequest(request, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if descriptor.IsController() {
+		return enrollment.prepareRuntimeControllerHost(ctx, epoch, request, response)
+	}
 	wire, err := swarmruntime.PrepareEnrolledWorker(ctx, enrollment.runtimeIdentity, swarmruntime.WorkerRegistrationQuery{Request: request, Response: response})
 	if err != nil {
 		return nil, err
