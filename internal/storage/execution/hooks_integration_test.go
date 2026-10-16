@@ -236,7 +236,7 @@ func TestExecutorSafetyIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config := oci.RegionConfig{Region: oci.RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1.." + strings.Repeat("a", 52), ImageCompartmentID: "ocid1.compartment.oc1.." + strings.Repeat("b", 52), AvailabilityDomain: "sa-saopaulo-1-AD-1", FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1." + strings.Repeat("a", 52), ImageID: "ocid1.image.oc1.sa-saopaulo-1." + strings.Repeat("a", 52), BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Shape: "VM.Standard.E5.Flex", Owner: "orchestrator"}
+	config := oci.RegionConfig{Region: oci.RegionGRU, Generation: 7, Endpoint: "https://iaas.sa-saopaulo-1.oraclecloud.com", CompartmentID: "ocid1.compartment.oc1.." + strings.Repeat("a", 52), ImageCompartmentID: "ocid1.compartment.oc1.." + strings.Repeat("b", 52), AvailabilityDomain: "sa-saopaulo-1-AD-1", FaultDomains: []string{"FAULT-DOMAIN-1"}, SubnetID: "ocid1.subnet.oc1.sa-saopaulo-1." + strings.Repeat("a", 52), NetworkSecurityGroupIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1." + strings.Repeat("a", 52)}, ImageID: "ocid1.image.oc1.sa-saopaulo-1." + strings.Repeat("a", 52), BootVolumeGB: 50, BootVolumeVPUsPerGB: 10, DataVolumeVPUsPerGB: 10, MaxDataVolumeGB: 32768, Shape: "VM.Standard.E5.Flex", Owner: "orchestrator"}
 	fleet, err := oci.NewFleet(config, oci.RegionIntent{SchemaVersion: 1, Generation: 7, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}, emptyInventory{}, journal, auth, nil, nil)
 	if err != nil {
 		t.Fatal(err)
