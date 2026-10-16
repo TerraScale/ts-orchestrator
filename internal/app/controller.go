@@ -333,7 +333,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	nativeReleases := &nativeHistory{kv: nativeKV, js: runtime.JetStream(), services: services,
 		deliveries: service, fencer: control, cfg: cfg}
 	planner.nativeHistory, services.nativeHistory = nativeReleases, nativeReleases
-	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control, services)
+	stopKVSnapshots, kvSnapshots, err := startKVSnapshots(ctx, cfg, runtime.JetStream(), control)
 	if err != nil {
 		return err
 	}
