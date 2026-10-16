@@ -223,6 +223,7 @@ func currentWorkerRegistration(ctx context.Context, mutations *authority.Reader,
 		return fail(errors.New("worker registration changed during enrollment grant read"))
 	}
 	return swarmruntime.WorkerRegistrationSnapshot{Registration: registration, Sequence: entry.Sequence, Retired: retired,
+		Pending:  !grant.MatchesCompletedWorkerEnrollment(hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}),
 		Disabled: grant.Disabled, TerminalOperationID: grant.TerminalOperationID, IdentityResetOperationID: grant.IdentityResetOperationID,
 		RequestSHA256: hostenroll.RequestSHA256(query.Request), InstanceID: instanceID}, nil
 }

@@ -63,6 +63,12 @@ func (enrollment *managedHostEnrollment) refreshRuntimeWorker(writer http.Respon
 		http.Error(writer, "worker peer is not current", http.StatusForbidden)
 		return
 	}
+	grant, _, err := enrollment.grants.Read(ctx, enrolled.InstanceID)
+	if err != nil || grant.Disabled || grant.TerminalOperationID != "" || grant.IdentityResetOperationID != "" ||
+		!grant.MatchesCompletedWorkerEnrollment(transport) {
+		http.Error(writer, "worker refresh requires current completed enrollment", http.StatusForbidden)
+		return
+	}
 	response, err := enrollment.prepareRuntimeWorker(ctx, epoch, transport.Request, transport.Response)
 	if err != nil {
 		http.Error(writer, "worker projection is unavailable", http.StatusServiceUnavailable)

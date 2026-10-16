@@ -22,8 +22,10 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/containerd/containerd/v2/core/remotes"
 	"github.com/moby/swarmkit/v2/api"
@@ -276,7 +278,10 @@ func runRuntimeWorker(ctx context.Context, output io.Writer) error {
 		}
 		initialize, done := context.WithTimeout(ctx, 30*time.Second)
 		err = executor.InitializeStateful(initialize, agent, signed.InstanceID, joined, local.baked.Roots,
-			location, filepath.Join(runtimeWorkerDirectory, "execution"))
+			location, filepath.Join(runtimeWorkerDirectory, "execution"),
+			func(ctx context.Context, bundle release.ContainerBundle, roots trust.Keyring, target release.ContainerTarget) (release.SequenceLocation, error) {
+				return currentContainerAllocations(ctx, local.factory, bundle, roots, target)
+			})
 		done()
 		if err != nil {
 			return err
