@@ -129,7 +129,7 @@ func (c command) signUpdateDelegation(args []string) error {
 // gitLineage proves ancestry in a verified checkout of the repository after
 // fetching main without force: the source must descend from the delegation's
 // base and be contained in origin/main. origin must resolve to the pinned
-// repository on the pinned Forgejo host, so a fork or a repointed remote can
+// repository on the pinned GitHub host, so a fork or a repointed remote can
 // never stand in for reviewed main.
 type gitLineage struct {
 	ctx      context.Context
@@ -137,8 +137,8 @@ type gitLineage struct {
 	run      func(ctx context.Context, args ...string) (string, error)
 }
 
-// lineageHost is the Forgejo host that serves release.QualificationRepository.
-const lineageHost = "git.terrascale.tech"
+// lineageHost is the GitHub host that serves release.QualificationRepository.
+const lineageHost = "github.com"
 
 func runGit(ctx context.Context, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, "git", args...)
@@ -215,11 +215,11 @@ func (lineage gitLineage) CheckLineage(base, revision, ref string) error {
 }
 
 func (c command) signBinaryUpdate(args []string) error {
-	return c.signBinaryUpdateWith(args, c.verifyForgejoQualification, c.inspectBinary, runGit)
+	return c.signBinaryUpdateWith(args, c.verifyGitHubQualification, c.inspectBinary, runGit)
 }
 
 // signBinaryUpdateWith is the online leaf operation: it applies every check
-// of sign-binary (candidate, exact retained binary, successful Forgejo
+// of sign-binary (candidate, exact retained binary, successful GitHub
 // qualification run), proves lineage, and signs an update receipt under the
 // scoped delegation.
 func (c command) signBinaryUpdateWith(args []string, check func(release.Qualification, string) error,

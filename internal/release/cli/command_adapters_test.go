@@ -9,8 +9,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
-func verifyForgejoQualification(qualification release.Qualification, qualificationSHA256 string) error {
-	return (command{ctx: context.Background(), output: os.Stdout}).verifyForgejoQualification(qualification, qualificationSHA256)
+func verifyGitHubQualification(qualification release.Qualification, qualificationSHA256 string) error {
+	return (command{ctx: context.Background(), output: os.Stdout}).verifyGitHubQualification(qualification, qualificationSHA256)
 }
 
 func extractGuestBinary(imageFile, guestPath string, expectedBytes int64) (*os.File, error) {

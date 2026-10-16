@@ -48,7 +48,7 @@ func (feed *cdTestFeed) add(root, version string, runID uint64) string {
 	}
 	qualification["repository"] = "TerraScale/TerraBase"
 	verification := qualification["verification"].(map[string]any)
-	verification["run_id"], verification["run_number"], verification["job"] = runID, runID, "fast"
+	verification["run_id"], verification["run_number"], verification["job"] = runID, runID+1000, "fast"
 	wire, err = json.Marshal(qualification)
 	if err != nil {
 		feed.t.Fatal(err)
@@ -76,7 +76,7 @@ func (feed *cdTestFeed) add(root, version string, runID uint64) string {
 	tag := fmt.Sprintf("ci-%s-run-%d", source.SourceRevision, runID)
 	feed.releases[tag] = files
 	feed.commits = append(feed.commits, source.SourceRevision)
-	feed.listing = append(feed.listing, "\u2068"+tag+"\u2069 (prerelease)")
+	feed.listing = append(feed.listing, tag)
 	return tag
 }
 
@@ -99,24 +99,33 @@ func (feed *cdTestFeed) run(_ context.Context, name string, args ...string) ([]b
 			return nil, nil
 		}
 	}
-	if name != "fj" {
+	if name != "gh" {
 		feed.t.Fatalf("unexpected command: %s %v", name, args)
 	}
 	if args[0] == "release" && args[1] == "list" {
-		return []byte(strings.Join(feed.listing, "\n")), nil
+		var releases []map[string]any
+		for _, tag := range feed.listing {
+			releases = append(releases, map[string]any{"tagName": tag, "isDraft": false, "isPrerelease": true})
+		}
+		return json.Marshal(releases)
 	}
-	if args[0] == "release" && args[1] == "asset" {
-		feed.downloads = append(feed.downloads, args[8])
-		files := feed.releases[args[7]]
-		source := map[string]string{"qualification.json": files.Qualification, terrabaseServerArtifact: files.Binary, "source-digest.json": files.SourceDigest}[args[8]]
+	if args[0] == "release" && args[1] == "download" {
+		feed.downloads = append(feed.downloads, args[6])
+		files := feed.releases[args[2]]
+		source := map[string]string{"qualification.json": files.Qualification, terrabaseServerArtifact: files.Binary, "source-digest.json": files.SourceDigest}[args[6]]
 		wire, err := os.ReadFile(source)
 		if err != nil {
 			return nil, err
 		}
-		return nil, os.WriteFile(args[10], wire, 0o600)
+		return nil, os.WriteFile(args[8], wire, 0o600)
 	}
-	if args[0] == "actions" {
-		id, err := strconv.ParseUint(args[2], 10, 64)
+	if args[0] == "api" {
+		if len(args) < 4 || args[1] != "--hostname" || args[2] != "github.com" {
+			feed.t.Fatalf("GitHub API hostname is not pinned: %v", args)
+		}
+		endpoint := args[len(args)-1]
+		parts := strings.Split(endpoint, "/")
+		id, err := strconv.ParseUint(parts[5], 10, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -126,17 +135,22 @@ func (feed *cdTestFeed) run(_ context.Context, name string, args ...string) ([]b
 			if runID != id {
 				continue
 			}
-			if args[1] == "run-detail" {
-				status := "success"
+			if parts[4] == "runs" && len(parts) == 6 {
+				status, conclusion := "completed", "success"
 				if feed.badRun {
-					status = "running"
+					status, conclusion = "in_progress", ""
 				}
-				return json.Marshal(map[string]any{"run_id": id, "run_number": id, "head_sha": match[1],
-					"workflow": "fast.yml", "status": status, "jobs": []map[string]any{
-						{"id": 1, "run_id": id, "name": "fast", "status": "success"},
-						{"id": id, "run_id": id, "name": "publish", "status": "success"}}})
+				return json.Marshal(map[string]any{"id": id, "run_number": id + 1000, "head_sha": match[1],
+					"path": ".github/workflows/fast.yml", "status": status, "conclusion": conclusion, "run_attempt": 1,
+					"repository":      map[string]string{"full_name": terrabaseGitHubRepo},
+					"head_repository": map[string]string{"full_name": terrabaseGitHubRepo}})
 			}
-			if args[1] == "job-logs" {
+			if parts[4] == "runs" && strings.Contains(endpoint, "/attempts/1/jobs") {
+				return json.Marshal([]map[string]any{{"jobs": []map[string]any{
+					{"id": 1, "run_id": id, "name": "fast", "status": "completed", "conclusion": "success", "run_attempt": 1},
+					{"id": id, "run_id": id, "name": "publish", "status": "completed", "conclusion": "success", "run_attempt": 1}}}})
+			}
+			if parts[4] == "jobs" {
 				if feed.badLog {
 					return []byte("unrelated qualification"), nil
 				}
@@ -145,7 +159,7 @@ func (feed *cdTestFeed) run(_ context.Context, name string, args ...string) ([]b
 					return nil, err
 				}
 				sum := sha256.Sum256(wire)
-				return fmt.Appendf(nil, "2026-09-30T00:00:00Z TS_TERRABASE_QUALIFICATION_V2 source_sha=%s run_id=%d run_number=%d manifest_sha256=%x\n", match[1], id, id, sum), nil
+				return fmt.Appendf(nil, "2026-09-30T00:00:00Z TS_TERRABASE_QUALIFICATION_V2 source_sha=%s run_id=%d run_number=%d manifest_sha256=%x\n", match[1], id, id+1000, sum), nil
 			}
 		}
 	}
@@ -198,7 +212,7 @@ func TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout(t *tes
 		t.Fatalf("updates=%d completion=%+v", updates, completed)
 	}
 	// Crash recovery after the completion receipt is synced must remove the
-	// stale active pin without contacting Forgejo or running another update.
+	// stale active pin without contacting GitHub or running another update.
 	journal, err := openDeployState(state)
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +229,7 @@ func TestTerraBaseSyncSelectsNewestSourceAndDoesNotRepeatCompletedRollout(t *tes
 }
 
 func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing.T) {
-	for _, failure := range []string{"binary", "source digest", "run", "publish log", "origin", "git error"} {
+	for _, failure := range []string{"binary", "source digest", "run", "publish log", "origin", "git error", "legacy origin", "invalid listing", "draft release", "qualification run"} {
 		t.Run(failure, func(t *testing.T) {
 			root := t.TempDir()
 			feed := newCDTestFeed(t)
@@ -236,8 +250,30 @@ func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing
 				feed.badRun = true
 			case "publish log":
 				feed.badLog = true
-			case "origin", "git error":
+			case "qualification run":
+				wire, err := os.ReadFile(feed.releases[latest].Qualification)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wire = []byte(strings.Replace(string(wire), `"run_id":20`, `"run_id":999`, 1))
+				if err := os.WriteFile(feed.releases[latest].Qualification, wire, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			case "invalid listing", "draft release":
 				run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+					if name == "gh" && args[0] == "release" && args[1] == "list" {
+						if failure == "invalid listing" {
+							return []byte("not JSON"), nil
+						}
+						return json.Marshal([]map[string]any{{"tagName": latest, "isDraft": true, "isPrerelease": true}})
+					}
+					return feed.run(ctx, name, args...)
+				}
+			case "origin", "legacy origin", "git error":
+				run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+					if name == "git" && args[2] == "remote" && failure == "legacy origin" {
+						return []byte("https://github.com/TerraScale/TerraBase.git"), nil
+					}
 					if name == "git" && args[2] == "remote" && failure == "origin" {
 						return []byte("https://example.com/unreviewed.git"), nil
 					}
@@ -250,8 +286,8 @@ func TestTerraBaseSyncRejectsUnqualifiedOrChangedInputsBeforeUpdating(t *testing
 			if err := syncTerraBase(t.Context(), state, root, run, func(terrabaseReleaseFiles) error {
 				t.Fatal("unqualified input reached the updater")
 				return nil
-			}, io.Discard); err == nil {
-				t.Fatal("unqualified release accepted")
+			}, io.Discard); (err == nil) != (failure == "draft release") {
+				t.Fatalf("unexpected unqualified release result: %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(state, cdActiveFile)); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("unverified release pinned: %v", err)

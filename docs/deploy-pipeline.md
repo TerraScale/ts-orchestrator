@@ -114,7 +114,7 @@ Status's GRU/SFO vantage bindings at `/api/v1/deployments`; both Status
 vantage Workers also prove their own revision. The guard discovers membership
 through the same orch-published topology and requires proofs for every region;
 a newly admitted region without its vantage proof raises an alert. The guard opens or updates one
-assigned Forgejo alert, mentions `@mariogk`, and fails its scheduled job when
+assigned GitHub alert, mentions `@mariogk`, and fails its scheduled job when
 a qualified build is overdue after 30 minutes or telemetry is unreadable.
 It closes the alert only when the full matrix has valid fresh proofs and no
 overdue builds; missing or stale proofs keep the incident open even when all

@@ -40,7 +40,7 @@ type deployEnv struct {
 }
 
 func (c command) deploy(args []string) error {
-	return c.deployWith(args, deployEnv{check: c.verifyForgejoQualification, inspect: c.inspectBinary, git: runGit,
+	return c.deployWith(args, deployEnv{check: c.verifyGitHubQualification, inspect: c.inspectBinary, git: runGit,
 		storage: operatorObjectStorage, secret: readVaultSecret, discover: discoverServingCells})
 }
 

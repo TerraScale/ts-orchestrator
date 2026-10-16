@@ -29,19 +29,50 @@ func TestD15PublisherReadback(t *testing.T) {
 			for _, arch := range []string{"amd64", "arm64"} {
 				script.Write(t, filepath.Join(root, "dist/terrascale-orchestrator-linux-"+arch), []byte("fixture "+arch+"\n"), 0o644)
 			}
-			for _, name := range []string{"git", "go", "sleep", "fj"} {
+			for _, name := range []string{"git", "go", "sleep"} {
 				script.Write(t, filepath.Join(root, "bin", name), script.Read(t, filepath.Join(repo, "tests/runtime_priority/testdata/publisher", name)), 0o755)
 			}
+			script.Write(t, filepath.Join(root, "bin", "gh"), []byte(`#!/usr/bin/env bash
+set -euo pipefail
+[[ $GH_HOST == github.com && $GH_TOKEN == fixture-token ]] || exit 5
+[[ $1 == release ]] || exit 4
+case $2 in
+  create)
+    [[ $4 == --repo && $5 == TerraScale/ts-orchestrator ]] || exit 4
+    printf 'release-created\n' >> "$FAKE_GH_EVENTS" ;;
+  download)
+    [[ $4 == --repo && $5 == TerraScale/ts-orchestrator && $6 == --pattern && $8 == --output ]] || exit 4
+    name=$7
+    output=$9
+    [[ ! -e $output ]] || exit 3
+    count_file="$FAKE_GH_STATE/$name.count"
+    count=0
+    [[ ! -f $count_file ]] || count=$(cat "$count_file")
+    count=$((count + 1))
+    printf '%s\n' "$count" > "$count_file"
+    [[ $FAKE_GH_HTTP_FAILURE != yes ]] || exit 22
+    if [[ $FAKE_GH_PERMANENT == yes || ( $name == terrascale-d15-qualify && $count == 1 ) ]]; then
+      printf 'transient wrong attachment body\n' > "$output"
+    else
+      cp -- "$FAKE_REPO/dist/$name" "$output"
+    fi ;;
+  upload)
+    [[ $4 == dist/qualification.json && $5 == --repo && $6 == TerraScale/ts-orchestrator ]] || exit 4
+    printf 'qualification-created\n' >> "$FAKE_GH_EVENTS" ;;
+  *) exit 4 ;;
+esac
+`), 0o755)
+
 			r := script.Exec(t, root, map[string]string{
 				"PATH":          filepath.Join(root, "bin") + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"GITHUB_RUN_ID": "123", "GITHUB_RUN_NUMBER": "7", "GITHUB_SHA": strings.Repeat("a", 40), "FIXTURE_TREE": strings.Repeat("b", 40),
-				"FORGEJO_TOKEN": "fixture-write-token", "FORGEJO_READ_TOKEN": "fixture-read-token", "FORGEJO_SERVER_URL": "https://fixture.invalid",
-				"FAKE_FJ_STATE": root, "FAKE_FJ_EVENTS": filepath.Join(root, "events"), "FAKE_FJ_PERMANENT": tc.permanent, "FAKE_FJ_HTTP_FAILURE": tc.httpFailure, "FAKE_REPO": root,
+				"GH_TOKEN":      "fixture-token",
+				"FAKE_GH_STATE": root, "FAKE_GH_EVENTS": filepath.Join(root, "events"), "FAKE_GH_PERMANENT": tc.permanent, "FAKE_GH_HTTP_FAILURE": tc.httpFailure, "FAKE_REPO": root,
 			}, "bash", filepath.Join(root, "scripts/ci/publish-qualification.sh"))
 			if (r.Code == 0) != tc.success {
 				t.Fatalf("exit %d: %s\n%s", r.Code, r.Stdout, r.Stderr)
 			}
-			for _, secret := range []string{"fixture-write-token", "fixture-read-token"} {
+			for _, secret := range []string{"fixture-token"} {
 				if strings.Contains(r.Stdout+r.Stderr, secret) {
 					t.Fatal("credential leaked")
 				}

@@ -89,7 +89,7 @@ func TestDeriveRoundTripsTheReviewedPlan(t *testing.T) {
 		public["subnet_cidr"] != "10.253.0.128/26" || !reflect.DeepEqual(public["terrabase_members"], []any{"ts-fra-1", "ts-fra-2", "ts-fra-3"}) ||
 		fra["preview_compartment_names"].(map[string]any)["control"] != "fra-1-control" ||
 		fra["hosts"].([]any)[2].(map[string]any)["private_ip"] != "10.253.0.13" ||
-		!reflect.DeepEqual(fra["existing_forgejo"], sfo["existing_forgejo"]) || !reflect.DeepEqual(public["origin_pull"], sfo["public_api"].(map[string]any)["origin_pull"]) {
+		!reflect.DeepEqual(fra["existing_operations_host"], sfo["existing_operations_host"]) || !reflect.DeepEqual(public["origin_pull"], sfo["public_api"].(map[string]any)["origin_pull"]) {
 		t.Fatalf("fra plan: %s", text)
 	}
 	fra["purpose"] = purpose

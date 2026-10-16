@@ -152,7 +152,7 @@ func newServiceDeployFixture(t *testing.T) *serviceDeployFixture {
 
 func (fixture *serviceDeployFixture) args(cells ...string) []string {
 	args := []string{"--role", "ts-auth", "--binary", fixture.binary,
-		"--repository", "https://git.terrascale.tech/TerraScale/ts-auth", "--commit", fixture.commit,
+		"--repository", "https://github.com/TerraScale/ts-auth", "--commit", fixture.commit,
 		"--source-checkout", fixture.checkout, "--environment", "canary", "--actor", "ci-release",
 		"--signing-key", fixture.key, "--namespace", "ns", "--poll", "1ms"}
 	for _, cell := range cells {

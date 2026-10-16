@@ -82,10 +82,10 @@ func wantFailure(t *testing.T, want string, fn func()) {
 	}
 }
 
-// cellInventory is a fresh inventory of the unrelated Forgejo baseline, the
+// cellInventory is a fresh inventory of the unrelated operations host baseline, the
 // plan-bound gateways, and extra instances.
 func cellInventory(plan Object, path string, instances ...Object) Object {
-	ids, existing, shared := obj(plan["resource_ids"]), obj(plan["existing_forgejo"]), plan["shared_compartment_id"]
+	ids, existing, shared := obj(plan["resource_ids"]), obj(plan["existing_operations_host"]), plan["shared_compartment_id"]
 	resources := []any{
 		Object{"kind": "instance", "id": existing["instance_id"], "compartment-id": shared, "lifecycle-state": "RUNNING", "shape": "VM.Standard.A1.Flex", "shape-config": Object{"ocpus": existing["expected_ocpus"], "memory-in-gbs": existing["expected_memory_gb"]}},
 		Object{"kind": "boot-volume", "id": existing["boot_volume_id"], "compartment-id": shared, "lifecycle-state": "AVAILABLE", "size-in-gbs": 50, "vpus-per-gb": 10},
@@ -401,7 +401,7 @@ func TestCellPlanNamesTheCheckedInSFOCell(t *testing.T) {
 	profile := filepath.Join(t.TempDir(), "terrabase-sfo-1-profile.json")
 	writeJSON(profile, Object{"env": Object{"TERRABASE_REGION": "sfo-1", "TERRABASE_PEER_PORT": "9443", "TERRABASE_CLIENT_PORT": "9465",
 		"TERRABASE_PEERS": "ts-sfo-1=10.252.0.11:9443,ts-sfo-2=10.252.0.12:9443,ts-sfo-3=10.252.0.13:9443"}})
-	existing := obj(plan["existing_forgejo"])
+	existing := obj(plan["existing_operations_host"])
 	gru := Object{"kind": "local-peering-gateway", "id": fakeOCID("localpeeringgateway", "sa-saopaulo-1", "gru"), "compartment-id": plan["shared_compartment_id"], "vcn-id": existing["vcn_id"], "lifecycle-state": "AVAILABLE"}
 	inventory := filepath.Join(t.TempDir(), "inventory.json")
 	writeJSON(inventory, cellInventory(plan, path, gru))

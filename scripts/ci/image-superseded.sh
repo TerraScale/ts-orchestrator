@@ -24,22 +24,18 @@ wait_seconds=${4:-6000}
 	echo "usage: $0 SOURCE_SHA CI_RUN_ID CI_RUN_NUMBER [WAIT_SECONDS]" >&2
 	exit 2
 }
-[[ -r ${FORGEJO_READ_TOKEN_FILE:-} ]] || { echo 'FORGEJO_READ_TOKEN_FILE must name a readable token file' >&2; exit 2; }
-: "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
+export GH_TOKEN=${GH_TOKEN:-${GH_READ_TOKEN:-}}
+: "${GH_TOKEN:?GitHub read token is required}"
+export GH_HOST=github.com
 : "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
 workflow=${GATE_WORKFLOW:-image.yml}
 
-umask 077
-header=$(mktemp)
-trap 'rm -f -- "$header"' EXIT
-printf 'Authorization: token %s\n' "$(<"$FORGEJO_READ_TOKEN_FILE")" > "$header"
 deadline=$((SECONDS + wait_seconds))
 api_get() {
 	local remaining=$((deadline - SECONDS))
 	((remaining > 0)) || return 1
 	((remaining <= 30)) || remaining=30
-	curl --fail --silent --show-error --max-time "$remaining" -H "@$header" \
-		"$FORGEJO_SERVER_URL/api/v1/repos/TerraScale/ts-orchestrator/actions/runs?$1"
+	timeout "$remaining" gh api "$@"
 }
 wait_again() {
 	local remaining=$((deadline - SECONDS))
@@ -52,11 +48,12 @@ wait_again() {
 }
 
 while :; do
-	if ! status=$(api_get "workflow_id=ci.yml&run_number=$ci_run_number&limit=50" |
-		jq -r --arg id "$ci_run_id" --arg source "$source_sha" \
-		'[(.workflow_runs // [])[] | select((.id | tostring) == $id and
-		  .workflow_id == "ci.yml" and .prettyref == "main" and .commit_sha == $source)] |
-		  first | .status // "absent"'); then
+	if ! status=$(api_get "repos/TerraScale/ts-orchestrator/actions/runs/$ci_run_id" |
+		jq -r --arg id "$ci_run_id" --arg number "$ci_run_number" --arg source "$source_sha" '
+		  if (.id | tostring) == $id and (.run_number | tostring) == $number and
+		    .path == ".github/workflows/ci.yml" and .head_branch == "main" and .head_sha == $source then
+		    if .status == "completed" then .conclusion else .status end
+		  else "absent" end'); then
 		status=poll-failed
 		echo "actions run poll failed; retrying run $ci_run_id" >&2
 	fi
@@ -66,7 +63,7 @@ while :; do
 			echo "skip=true" >> "$GITHUB_OUTPUT"
 			echo "$workflow for $source_sha skipped: dispatching ci.yml run $ci_run_id ended $status"
 			exit 0 ;;
-		blocked|skipped)
+		action_required|skipped|timed_out|neutral|stale|startup_failure)
 			echo "dispatching ci.yml run $ci_run_id is $status; dispatch $workflow manually after ci.yml succeeds" >&2
 			exit 1 ;;
 	esac
@@ -77,9 +74,9 @@ done
 # Retry supersession reads within the same budget instead of losing a
 # qualified image on a transient Actions API failure.
 while :; do
-	if latest=$(api_get "workflow_id=ci.yml&status=success&limit=50&page=1" |
-		jq -c '[(.workflow_runs // [])[] | select(.workflow_id == "ci.yml" and
-		  .prettyref == "main" and .status == "success")] | max_by(.id) // {}'); then
+	if latest=$(api_get --paginate --slurp "repos/TerraScale/ts-orchestrator/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=100" |
+		jq -c '[.[].workflow_runs[] | select(.path == ".github/workflows/ci.yml" and
+		  .head_branch == "main" and .status == "completed" and .conclusion == "success")] | max_by(.id) // {}'); then
 		break
 	fi
 	status=supersession-poll-failed
@@ -87,9 +84,9 @@ while :; do
 	wait_again
 done
 latest_id=$(jq -r '.id // 0' <<< "$latest")
-if ((latest_id > ci_run_id)) && [[ $(jq -r .commit_sha <<< "$latest") != "$source_sha" ]]; then
+if ((latest_id > ci_run_id)) && [[ $(jq -r .head_sha <<< "$latest") != "$source_sha" ]]; then
 	echo "skip=true" >> "$GITHUB_OUTPUT"
-	echo "$workflow for $source_sha skipped: $(jq -r .commit_sha <<< "$latest") passed ci.yml later (run $latest_id) and runs next"
+	echo "$workflow for $source_sha skipped: $(jq -r .head_sha <<< "$latest") passed ci.yml later (run $latest_id) and runs next"
 else
 	echo "skip=false" >> "$GITHUB_OUTPUT"
 	echo "$workflow for $source_sha qualified by dispatching ci.yml run $ci_run_id"

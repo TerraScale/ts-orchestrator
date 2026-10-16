@@ -306,12 +306,12 @@ func terrabaseAttempt(t *testing.T, commit string) (*Attempt, *[][]string) {
 		if slices.Contains(c.Args, "rev-parse") {
 			return taggedCommit + "\n", nil
 		}
-		if c.Args[0] == "fj" {
-			b, err := os.ReadFile(filepath.Join("..", "terrabase", "testdata", c.Args[len(c.Args)-3]))
+		if c.Args[0] == "gh" {
+			b, err := os.ReadFile(filepath.Join("..", "terrabase", "testdata", flagValue(c.Args, "--pattern")))
 			if err != nil {
 				return "", err
 			}
-			return "", os.WriteFile(flagValue(c.Args, "-o"), b, 0600)
+			return "", os.WriteFile(flagValue(c.Args, "--output"), b, 0600)
 		}
 		return "", nil
 	}
@@ -323,7 +323,7 @@ func TestTerraBaseRollsOutTheVerifiedRelease(t *testing.T) {
 	a.PhaseTerraBase()
 	binary, source := a.Path("terrabase", "ci-"+terrabaseCommit+"-run-1", "terrabase-linux-arm64"), a.Path("terrabase", "source")
 	want := [][]string{
-		{"git", "clone", "--quiet", "https://git.terrascale.tech/TerraScale/terrabase", source},
+		{"git", "clone", "--quiet", "https://github.com/TerraScale/terrabase", source},
 		{"git", "-C", source, "cat-file", "-e", terrabaseCommit + "^{commit}"},
 		{"sudo", "--preserve-env=PATH,LIBGUESTFS_PATH", a.Path("release", OperatorCLI), "operator", "terrabase-release",
 			"--config", "/var/lib/terrascale-operator/operator.json", "--binary", binary, "--sha256", binary + ".sha256",
@@ -341,7 +341,7 @@ func TestTerraBaseRollsOutTheVerifiedRelease(t *testing.T) {
 	a.PhaseTerraBase()
 	next := a.Path("terrabase", "v0.2.0", "terrabase-linux-arm64")
 	if a.Err() != nil || len(*commands) != 6 ||
-		!slices.Equal((*commands)[0], []string{"fj", "release", "asset", "download", "-r", "TerraScale/terrabase", "v0.2.0", "terrabase-linux-arm64", "-o", next}) ||
+		!slices.Equal((*commands)[0], []string{"gh", "release", "download", "v0.2.0", "--repo", "TerraScale/terrabase", "--pattern", "terrabase-linux-arm64", "--output", next}) ||
 		!slices.Equal((*commands)[2], []string{"git", "-C", source, "fetch", "--quiet", "--tags", "origin"}) ||
 		!slices.Equal((*commands)[4], []string{"git", "-C", source, "rev-parse", "--verify", "--end-of-options", "v0.2.0^{commit}"}) ||
 		flagValue((*commands)[5], "--binary") != next {

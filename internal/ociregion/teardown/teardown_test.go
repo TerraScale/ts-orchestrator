@@ -75,7 +75,7 @@ func gruPlan() Plan {
 			{Kind: "kms-key", ID: "key", Name: "terrascale-control-key-gru", Compartment: cellCompartment, VaultID: "vault"},
 			{Kind: "vault-secret", ID: "secret", Name: "terrascale-gru-netbird-setup-key", Compartment: cellCompartment},
 		},
-		Keep: []Resource{{Kind: "instance", ID: "ts-ops", Name: "ts-ops", Reason: "Forgejo and NetBird manager"}},
+		Keep: []Resource{{Kind: "instance", ID: "ts-ops", Name: "ts-ops", Reason: "operations host and NetBird manager"}},
 	}
 }
 
@@ -110,7 +110,7 @@ func TestDryRunPrintsDiffWithoutDeleting(t *testing.T) {
 		"teardown GRU sa-saopaulo-1 (dry run)",
 		"delete   vault-secret terrascale-gru-netbird-setup-key secret",
 		"held     compartment  terrascale-control " + cellCompartment + " waits for 3 resources inside it to be gone",
-		"keep     instance     ts-ops ts-ops Forgejo and NetBird manager",
+		"keep     instance     ts-ops ts-ops operations host and NetBird manager",
 		"incomplete: gone 0, absent 0, pending 0, delete 3, held 1, keep 1",
 	} {
 		if !strings.Contains(out, want) {

@@ -261,23 +261,34 @@ func localTerraBaseBinary(ctx context.Context, cache string, pins localPins) (st
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://git.terrascale.tech/TerraScale/terrabase/releases/download/"+pins.TerraBase.Release+"/terrabase-linux-amd64", nil)
+	downloadCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(downloadCtx, "gh", "release", "download", pins.TerraBase.Release,
+		"--repo", "TerraScale/terrabase", "--pattern", "terrabase-linux-amd64", "--output", "-")
+	cmd.Env = localEnv()
+	if token := envDefault("TERRABASE_TOKEN", os.Getenv("E2E_GITHUB_TOKEN")); token != "" {
+		cmd.Env = append(cmd.Env, "GH_TOKEN="+token)
+	}
+	cmd.WaitDelay = 5 * time.Second
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return "", err
 	}
-	if token := envDefault("TERRABASE_TOKEN", os.Getenv("E2E_FORGEJO_TOKEN")); token != "" {
-		req.Header.Set("Authorization", "token "+token)
-	}
-	client := &http.Client{Timeout: 5 * time.Minute}
-	res, err := client.Do(req)
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("download pinned TerraBase: %w", err)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download pinned TerraBase: HTTP %d (TERRABASE_TOKEN or E2E_FORGEJO_TOKEN may be required)", res.StatusCode)
+	path, installErr := installLocalBinary(stdout, cache, pins)
+	if installErr != nil {
+		cancel()
 	}
-	return installLocalBinary(res.Body, cache, pins)
+	waitErr := cmd.Wait()
+	if err := errors.Join(installErr, waitErr); err != nil {
+		if path != "" {
+			err = errors.Join(err, os.Remove(path))
+		}
+		return "", fmt.Errorf("download pinned TerraBase (TERRABASE_TOKEN or E2E_GITHUB_TOKEN may be required): %w", err)
+	}
+	return path, nil
 }
 
 func installLocalBinary(source io.Reader, cache string, pins localPins) (string, error) {
@@ -329,12 +340,12 @@ func localSource(ctx context.Context, root, cache, name, revision string) error 
 		return err
 	}
 	askpass := filepath.Join(root, ".askpass")
-	if err := os.WriteFile(askpass, []byte("#!/bin/sh\ncase \"$1\" in Username*) printf '%s\\n' oauth2 ;; *) printf '%s\\n' \"$E2E_SOURCE_TOKEN\" ;; esac\n"), 0700); err != nil {
+	if err := os.WriteFile(askpass, []byte("#!/bin/sh\ncase \"$1\" in Username*) printf '%s\\n' x-access-token ;; *) printf '%s\\n' \"$E2E_SOURCE_TOKEN\" ;; esac\n"), 0700); err != nil {
 		return err
 	}
 	defer os.Remove(askpass)
 	env := append(localEnv(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS="+askpass,
-		"E2E_SOURCE_TOKEN="+envDefault("E2E_FORGEJO_TOKEN", os.Getenv("TERRABASE_TOKEN")))
+		"E2E_SOURCE_TOKEN="+envDefault("E2E_GITHUB_TOKEN", os.Getenv("TERRABASE_TOKEN")))
 	repo := filepath.Join(cache, "git", name+"-"+revision+".git")
 	if err := os.MkdirAll(repo, 0700); err != nil {
 		return err
@@ -348,8 +359,8 @@ func localSource(ctx context.Context, root, cache, name, revision string) error 
 	check.Env = env
 	verified, checkErr := check.Output()
 	if checkErr != nil || strings.TrimSpace(string(verified)) != revision {
-		if err := localCommand(ctx, repo, env, "git", "-c", "credential.helper=", "fetch", "-q", "--depth=1", "https://git.terrascale.tech/TerraScale/"+name+".git", revision); err != nil {
-			return fmt.Errorf("fetch pinned %s source (E2E_FORGEJO_TOKEN or TERRABASE_TOKEN may be required): %w", name, err)
+		if err := localCommand(ctx, repo, env, "git", "-c", "credential.helper=", "fetch", "-q", "--depth=1", "https://github.com/TerraScale/"+name+".git", revision); err != nil {
+			return fmt.Errorf("fetch pinned %s source (E2E_GITHUB_TOKEN or TERRABASE_TOKEN may be required): %w", name, err)
 		}
 	}
 	for _, args := range [][]string{{"init", "-q"}, {"fetch", "-q", "--depth=1", repo, revision}, {"checkout", "-q", "--detach", "FETCH_HEAD"}} {

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Retain an image built by build-image.sh in CI as the Forgejo prerelease
+# Retain an image built by build-image.sh in CI as the GitHub prerelease
 # image-<source>-run-<run id>-attempt-<attempt>.
 #
 # usage: publish-image.sh DIRECTORY
 #
-# Uses fj with write authentication for the release and a separate read
-# profile (XDG_DATA_HOME of FJ_READ_PROFILE) for readback. The QCOW2, kernel
+# Uses GH_TOKEN for release publication and readback. The QCOW2, kernel
 # and SHA256SUMS are uploaded and read back first; image-qualification.json
 # is the completion marker and goes last. The job then logs one
 # TS_IMAGE_QUALIFICATION_V1 marker that ts-orch image promote matches after the run
@@ -16,11 +15,17 @@ directory=${1:-}
 [[ -d $directory && $# == 1 ]] || { echo "usage: $0 DIRECTORY" >&2; exit 2; }
 repository=TerraScale/ts-orchestrator
 manifest="$directory/image-qualification.json"
-[[ -d ${FJ_READ_PROFILE:-} ]] || { echo 'FJ_READ_PROFILE must name the read-only fj profile' >&2; exit 2; }
+: "${GH_TOKEN:?GitHub Actions token is required}"
+export GH_HOST=github.com
 (cd "$directory" && sha256sum --check --strict --quiet SHA256SUMS)
 
 source_sha=$(jq -r .source_revision "$manifest")
-jq -e --argjson run_id "${GITHUB_RUN_ID:?}" '.builder.kind == "ci" and .builder.run_id == $run_id' \
+jq -e --arg source "$(git rev-parse HEAD)" --argjson run_id "${GITHUB_RUN_ID:?}" \
+	--argjson run_number "${GITHUB_RUN_NUMBER:?}" --argjson attempt "${GITHUB_RUN_ATTEMPT:?}" '
+	.source_revision == $source and .builder.kind == "ci" and .builder.run_id == $run_id and
+	.builder.run_number == $run_number and .builder.run_attempt == $attempt and
+	.builder.workflow == "image.yml" and .builder.job == "build/qualified-gru-arm64-image" and
+	(.builder.job_id | type == "number" and . > 0)' \
 	"$manifest" >/dev/null || { echo 'image manifest was not built by this CI run' >&2; exit 1; }
 attempt=$(jq -r .builder.run_attempt "$manifest")
 tag="image-${source_sha}-run-${GITHUB_RUN_ID}-attempt-${attempt}"
@@ -28,26 +33,25 @@ tag="image-${source_sha}-run-${GITHUB_RUN_ID}-attempt-${attempt}"
 umask 077
 work=$(mktemp -d "${RUNNER_TEMP:-/tmp}/ts-image-publish.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
-fj_read() { XDG_DATA_HOME="$FJ_READ_PROFILE" fj "$@"; }
 
-if ! fj_read release view --repo "$repository" --by-tag "$tag" > "$work/view.txt" 2>/dev/null; then
-	fj release create -r "$repository" "$tag" --create-tag="$tag" --branch "$source_sha" --prerelease >/dev/null
-	fj_read release view --repo "$repository" --by-tag "$tag" > "$work/view.txt"
+if ! gh release view "$tag" --repo "$repository" --json tagName,assets > "$work/view.json" 2>/dev/null; then
+	gh release create "$tag" --repo "$repository" --target "$source_sha" --prerelease --title "$tag" --notes '' >/dev/null
+	gh release view "$tag" --repo "$repository" --json tagName,assets > "$work/view.json"
 fi
-grep -Fq "$tag" "$work/view.txt" || { echo 'image release readback differs from its tag' >&2; exit 1; }
-while IFS= read -r listed; do
-	case $listed in
-		'- terrascale-gru-arm64.qcow2'|'- guest-kernel'|'- SHA256SUMS'|'- image-qualification.json'|'- source.zip'|'- source.tar.gz') ;;
-		*) echo "image release contains unexpected asset: $listed" >&2; exit 1 ;;
-	esac
-done < <(grep '^- ' "$work/view.txt" || true)
+jq -e --arg tag "$tag" '.tagName == $tag' "$work/view.json" >/dev/null || {
+	echo 'image release readback differs from its tag' >&2; exit 1;
+}
+jq -e '.assets | all(.name == "terrascale-gru-arm64.qcow2" or .name == "guest-kernel" or
+	.name == "SHA256SUMS" or .name == "image-qualification.json")' "$work/view.json" >/dev/null || {
+	echo 'image release contains unexpected asset' >&2; exit 1;
+}
 
 retain() {
 	local name=$1
-	if ! grep -Fqx -- "- $name" "$work/view.txt"; then
-		fj release asset create -r "$repository" "$tag" "$directory/$name" >/dev/null
+	if ! jq -e --arg name "$name" 'any(.assets[]; .name == $name)' "$work/view.json" >/dev/null; then
+		gh release upload "$tag" "$directory/$name" --repo "$repository" >/dev/null
 	fi
-	fj_read release asset download -r "$repository" "$tag" "$name" -o "$work/$name" >/dev/null
+	gh release download "$tag" --repo "$repository" --pattern "$name" --output "$work/$name" >/dev/null
 	cmp -s -- "$directory/$name" "$work/$name" || {
 		echo "retained image asset differs from this run: $name" >&2
 		return 1

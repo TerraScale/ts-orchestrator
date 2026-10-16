@@ -17,15 +17,18 @@ func (f testTransport) RoundTrip(r *http.Request) (*http.Response, error) { retu
 
 func TestHistoryKeepsFirstQualificationAcrossFailedDeploymentAndRerun(t *testing.T) {
 	a := api{readToken: "read", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("Authorization") != "token read" {
+		if r.URL.Host != "api.github.com" || r.URL.Query().Get("per_page") != "50" || r.URL.Query().Has("limit") {
+			t.Fatalf("incorrect GitHub history URL: %s", r.URL)
+		}
+		if r.Header.Get("Authorization") != "Bearer read" {
 			t.Fatal("missing authenticated history request")
 		}
 		body := `[{"sha":"abc","GreenAt":"2000-01-01T00:00:00Z"}]`
 		if strings.Contains(r.URL.Path, "statuses") {
 			body = `[
-				{"context":"deploy","status":"failure","created_at":"2026-10-09T15:00:00Z"},
-				{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:59:00Z"},
-				{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:00:00Z"}
+				{"context":"deploy","state":"failure","created_at":"2026-10-09T15:00:00Z"},
+				{"context":"deployment/qualified","state":"success","created_at":"2026-10-09T14:59:00Z"},
+				{"context":"deployment/qualified","state":"success","created_at":"2026-10-09T14:00:00Z"}
 			]`
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}, nil
@@ -47,10 +50,10 @@ func TestHistoryPaginatesQualificationStatusesAndFailsOnUnreadablePage(t *testin
 					pages = append(pages, page)
 					switch page {
 					case "1":
-						entry := `{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:59:00Z"}`
+						entry := `{"context":"deployment/qualified","state":"success","created_at":"2026-10-09T14:59:00Z"}`
 						body = "[" + strings.Repeat(entry+",", 49) + entry + "]"
 					case "2":
-						body = `[{"context":"deployment/qualified","status":"success","created_at":"2026-10-09T14:00:00Z"}]`
+						body = `[{"context":"deployment/qualified","state":"success","created_at":"2026-10-09T14:00:00Z"}]`
 						if unreadable {
 							status = http.StatusServiceUnavailable
 						}
@@ -108,7 +111,7 @@ func TestRunDeliversAlertAfterCollectionContextEnds(t *testing.T) {
 func TestAlertCreatesAssignedIncidentAndClosesItAfterRecovery(t *testing.T) {
 	var methods []string
 	a := api{writeToken: "write", client: &http.Client{Transport: testTransport(func(r *http.Request) (*http.Response, error) {
-		if r.Header.Get("Authorization") != "token write" {
+		if r.Header.Get("Authorization") != "Bearer write" {
 			t.Fatal("alert lacks write credential")
 		}
 		methods = append(methods, r.Method)
@@ -198,11 +201,14 @@ func TestAlertFindsAndRecoversAnIncidentBeyondTheFirstPage(t *testing.T) {
 				methods = append(methods, r.Method)
 				body := "[]"
 				if r.Method == "GET" {
+					if r.URL.Query().Get("per_page") != "50" || r.URL.Query().Has("type") {
+						t.Fatalf("incorrect GitHub issues URL: %s", r.URL)
+					}
 					switch r.URL.Query().Get("page") {
 					case "1":
 						body = "[" + strings.Repeat(`{"number":1,"title":"unrelated"},`, 49) + `{"number":50,"title":"unrelated"}]`
 					case "2":
-						body = `[{"number":42,"title":"TS-768: Deployment lag exceeds 30 minutes"}]`
+						body = `[{"number":41,"title":"TS-768: Deployment lag exceeds 30 minutes","pull_request":{}},{"number":42,"title":"TS-768: Deployment lag exceeds 30 minutes"}]`
 					default:
 						t.Fatalf("unexpected page: %s", r.URL)
 					}
@@ -258,7 +264,7 @@ func TestRunValidatesCurrentProofsBeforeClosingAnIncident(t *testing.T) {
 					if strings.Contains(r.URL.Path, latest) {
 						greenAt = now()
 					}
-					body = fmt.Sprintf(`[{"context":"deployment/qualified","status":"success","created_at":%q}]`, greenAt.Format(time.RFC3339))
+					body = fmt.Sprintf(`[{"context":"deployment/qualified","state":"success","created_at":%q}]`, greenAt.Format(time.RFC3339))
 				case strings.HasSuffix(r.URL.Path, "/commits"):
 					body = fmt.Sprintf(`[{"sha":%q},{"sha":%q}]`, latest, deployed)
 				case r.URL.Path == "/api/v1/deployments":

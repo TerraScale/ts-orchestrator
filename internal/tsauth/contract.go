@@ -38,7 +38,7 @@ const (
 	// Role is the native workload role of a ts-auth replica.
 	Role = "ts-auth"
 	// Repository is the source of every ts-auth release.
-	Repository = "https://git.terrascale.tech/TerraScale/ts-auth"
+	Repository = "https://github.com/TerraScale/ts-auth"
 	// Port is the plain-HTTP listener on every interface of a replica's
 	// host. The cell's public API load balancer (TS-486) sends the cell's
 	// Hostname to it; the cell plan admits the load balancer's subnet on it.

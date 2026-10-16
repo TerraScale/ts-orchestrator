@@ -14,8 +14,8 @@ The native Go tables preserve all 52 upstream test methods after the shared Open
 | PreviewAdmissionTests.test_extra_public_ip_or_backups_fail_closed | `estimate` × 2 |
 | PreviewAdmissionTests.test_five_host_budget_includes_existing_resources_and_reserves | `estimate` × 1 |
 | PreviewAdmissionTests.test_fixed_cell_mapping_rejects_unmapped_region | `load_plan` × 1 |
-| PreviewAdmissionTests.test_forgejo_data_volume_and_preview_volumes_use_exact_plan_sizes | `estimate` × 2 |
-| PreviewAdmissionTests.test_forgejo_data_volume_expectation_is_bounded | `load_plan` × 1 |
+| PreviewAdmissionTests.test_operations_host_data_volume_and_preview_volumes_use_exact_plan_sizes | `estimate` × 2 |
+| PreviewAdmissionTests.test_operations_host_data_volume_expectation_is_bounded | `load_plan` × 1 |
 | PreviewAdmissionTests.test_full_projection_carries_exact_base_only_admission_lineage | `main` × 1, `import_estimate` × 3, `establish_base_lineage` × 3 |
 | PreviewAdmissionTests.test_host_credential_requires_vaultsecret_ocid_kind | `load_plan` × 2 |
 | PreviewAdmissionTests.test_host_secret_policy_is_exact_and_attached_to_selected_compartment | `load_plan` × 1, `estimate` × 1, `required_plan_bootstrap_prefix` × 3, `required_controller_statements` × 1, `required_netbird_statements` × 1, `check_live_iam` × 2 |

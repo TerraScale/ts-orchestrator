@@ -88,7 +88,7 @@ func TestDelegatedReleaseKeyReleasesOnlyItsDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	repository := "https://git.terrascale.tech/TerraScale/terrabase"
+	repository := "https://github.com/TerraScale/terrabase"
 	record := delivery.ArtifactRecord{Cell: "gru", Role: "terrabase", Environment: "canary",
 		Source: delivery.ArtifactSource{Repository: repository}}
 	actor, err := release.DelegatedReleaseActor(public)

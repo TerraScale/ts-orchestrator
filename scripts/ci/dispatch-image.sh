@@ -9,10 +9,10 @@ set -euo pipefail
 workflow=${1:-image.yml}
 [[ $workflow == image.yml || $workflow == deploy.yml ]] || { echo "usage: $0 [image.yml|deploy.yml]" >&2; exit 2; }
 
-: "${FORGEJO_TOKEN:?Forgejo Actions token is required}"
-: "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
-[[ ${GITHUB_SHA:-} =~ ^[0-9a-f]{40}$ ]] || { echo 'Forgejo source SHA is required' >&2; exit 1; }
-[[ ${GITHUB_RUN_ID:-} =~ ^[1-9][0-9]{0,17}$ && ${GITHUB_RUN_NUMBER:-} =~ ^[1-9][0-9]{0,17}$ ]] || { echo 'Forgejo CI run identity is required' >&2; exit 1; }
+: "${GH_TOKEN:?GitHub Actions token is required}"
+export GH_HOST=github.com
+[[ ${GITHUB_SHA:-} =~ ^[0-9a-f]{40}$ ]] || { echo 'GitHub source SHA is required' >&2; exit 1; }
+[[ ${GITHUB_RUN_ID:-} =~ ^[1-9][0-9]{0,17}$ && ${GITHUB_RUN_NUMBER:-} =~ ^[1-9][0-9]{0,17}$ ]] || { echo 'GitHub CI run identity is required' >&2; exit 1; }
 [[ ${GITHUB_REF:-} == refs/heads/main ]] || { echo "only main revisions start $workflow automatically" >&2; exit 1; }
 
 # An image is rebuilt only when its inputs change, and weekly (the schedule)
@@ -26,15 +26,8 @@ if [[ $workflow == image.yml && ${GITHUB_EVENT_NAME:-} != schedule ]]; then
 	fi
 fi
 
-umask 077
-header=$(mktemp)
-trap 'rm -f -- "$header"' EXIT
-printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$header"
-unset FORGEJO_TOKEN GITHUB_TOKEN
-body=$(jq -cn --arg source "$GITHUB_SHA" --arg run_id "$GITHUB_RUN_ID" --arg run_number "$GITHUB_RUN_NUMBER" \
-	'{ref:"main", inputs:{source_revision:$source, source_ci_run_id:$run_id, source_ci_run_number:$run_number, trigger:"ci"}}')
-status=$(curl --silent --show-error --output /dev/stderr --write-out '%{http_code}' --max-time 30 \
-	-X POST -H "@$header" -H 'Content-Type: application/json' --data "$body" \
-	"$FORGEJO_SERVER_URL/api/v1/repos/TerraScale/ts-orchestrator/actions/workflows/$workflow/dispatches")
-[[ $status == 204 || $status == 201 ]] || { echo "$workflow dispatch returned HTTP $status" >&2; exit 1; }
+gh api --method POST "repos/TerraScale/ts-orchestrator/actions/workflows/$workflow/dispatches" \
+	-f ref=main -f "inputs[source_revision]=$GITHUB_SHA" \
+	-f "inputs[source_ci_run_id]=$GITHUB_RUN_ID" -f "inputs[source_ci_run_number]=$GITHUB_RUN_NUMBER" \
+	-f 'inputs[trigger]=ci'
 echo "$workflow dispatched for $GITHUB_SHA"

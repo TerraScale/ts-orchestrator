@@ -16,7 +16,7 @@ import (
 )
 
 // Repository is the source of every TerraBase release.
-const Repository = "https://git.terrascale.tech/TerraScale/terrabase"
+const Repository = "https://github.com/TerraScale/terrabase"
 
 // Release assets are terrabase-linux-<arch> and terrabase-linux-<arch>.sha256,
 // attached to the prerelease ci-<commit>-run-<run> of each main push and to

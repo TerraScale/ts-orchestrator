@@ -1,3 +1,11 @@
+> **Legacy ts-ops runbook.** This describes the previous shared host installation,
+> including unrelated Forgejo resources retained for safety. Forgejo is no longer
+> a source, release, CI, or NetBird prerequisite. Do not use this layout for new
+> provisioning: [REFACTOR.md](../../REFACTOR.md) specifies the dedicated GRU A1
+> manager and orchestrator-owned bootstrap, Vault credentials, backup and restore.
+> Those lifecycle changes remain implementation work; this migration has not
+> provisioned or moved the live manager.
+
 # NetBird
 
 The [zero-configuration contract](../../docs/zero-configuration.md) is required production policy.
@@ -153,7 +161,7 @@ private subnet, so their nodes are reached with NetBird SSH only.
 | `<cell>-servers-to-gru-servers-fabric` | `<cell>-servers` → `gru-servers` | TCP 7422, 9443 | one-way |
 | `operators-to-<cell>-servers-dashboard` | `operators`, `ops-automation` → `<cell>-servers` (also `gru-servers`) | TCP 9463, the operator dashboard on each controller's NetBird address | one-way |
 | `<cell>-servers-to-<cell>-servers-ping` | Each regional servers group → itself (also `gru-servers`) | ICMP diagnostics and sibling peer DNS visibility | one-way |
-| `operators-to-ts-ops-forgejo` | `operators` → `ts-ops-gateway` | TCP 22, 443, 2022 | one-way |
+| `operators-to-ts-ops-services` | `operators` → `ts-ops-gateway` | TCP 443, 2022 | one-way |
 | `operators-to-ts-ops-ping` | `operators` → `ts-ops-gateway` | ICMP | one-way |
 
 The two `-fabric` policies are the regions' fallback path beside the OCI

@@ -6,7 +6,7 @@ production activation instructions.
 
 TerraScale Orchestrator is a Go control plane distributed as one binary. A
 regional controller embeds its NATS server and JetStream store; hosts connect
-to the regional cell to receive signed, digest-pinned desired state. Forgejo
+to the regional cell to receive signed, digest-pinned desired state. GitHub
 Actions owns source verification and binary builds. The orchestrator owns
 artifact admission and rollout authority. `ts-deploy` is not the build or
 rollout engine for this repository.
@@ -89,7 +89,7 @@ pin changes one node at a time. See [managed NetBird](docs/netbird-managed.md)
 for first adoption, verified artifacts and the pin-bump workflow.
 
 `make release-linux` creates static Linux amd64 and arm64 executables and
-requires no Go runtime on the target machine. Forgejo CI repeats the checks
+requires no Go runtime on the target machine. GitHub CI repeats the checks
 against the event's exact commit, verifies both ELF architectures and the
 embedded Git revision, and prints SHA-256 digests.
 
@@ -132,3 +132,7 @@ Live OCI mutation, scale-in, region decommission, production authority
 failover, signed release publication, and guest-level rollback remain outside
 the evidence currently available here. Do not use this repository as a
 production-ready cloud control plane.
+
+GitHub migration currently blocks fresh qualified service inputs and full E2E:
+`TerraScale/terrabase`, `TerraScale/ts-auth` and `TerraScale/ts-libs` return
+404 to the current account. See [E2E prerequisites](docs/e2e.md).

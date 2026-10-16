@@ -156,7 +156,7 @@ func TestPublicAPISchemaEstimateSafeguards(t *testing.T) {
 				obj(plan["public_api"])["max_mbps"] = nil
 			}
 			path := pathValue(plan["_source_path"])
-			existing, shared := obj(plan["existing_forgejo"]), plan["shared_compartment_id"]
+			existing, shared := obj(plan["existing_operations_host"]), plan["shared_compartment_id"]
 			resources := []any{
 				Object{"kind": "instance", "id": existing["instance_id"], "compartment-id": shared, "lifecycle-state": "RUNNING", "shape": "VM.Standard.A1.Flex", "shape-config": Object{"ocpus": 2, "memory-in-gbs": 4}},
 				Object{"kind": "boot-volume", "id": existing["boot_volume_id"], "compartment-id": shared, "lifecycle-state": "AVAILABLE", "size-in-gbs": 50, "vpus-per-gb": 10},
@@ -185,7 +185,7 @@ func TestPublicAPISchemaEstimateSafeguards(t *testing.T) {
 			if present != (tc.wantCost != "") || present && got != tc.wantCost {
 				t.Fatalf("load balancer cost=%v, present=%v, want %q", got, present, tc.wantCost)
 			}
-			// Only the balancer's own VIP joins the Forgejo address.
+			// Only the balancer's own VIP joins the operations host address.
 			inventory["resources"] = append(resources, Object{"kind": "public-ip", "id": "ocid1.publicip.other",
 				"lifecycle-state": "ASSIGNED", "display-name": "Floating IP for VIP public-vip on LB ocid1.loadbalancer.other"})
 			if _, err := Estimate(plan, inventory, path); err == nil || !strings.Contains(err.Error(), "public IP inventory") {
@@ -196,14 +196,14 @@ func TestPublicAPISchemaEstimateSafeguards(t *testing.T) {
 }
 
 // Always Free covers A1 compute and block storage only in the home region:
-// Forgejo stays inside it, and a second region's hosts pay for all of theirs.
+// The operations host stays inside it, and a second region's hosts pay for all of theirs.
 func TestEstimateBillsHostsOutsideTheHomeRegionInFull(t *testing.T) {
 	plan, err := balancerPlan(t, func(p Object) { legacyPublicPlan(p) })
 	if err != nil {
 		t.Fatal(err)
 	}
 	path := pathValue(plan["_source_path"])
-	existing, shared := obj(plan["existing_forgejo"]), plan["shared_compartment_id"]
+	existing, shared := obj(plan["existing_operations_host"]), plan["shared_compartment_id"]
 	inventory := Object{"schema_version": 2, "tenancy_id": plan["tenancy_id"], "plan_sha256": fileSHA(path), "captured_at": time.Now().UTC().Format(time.RFC3339Nano),
 		"regions": []any{plan["region"]}, "preview_compartment_ids": Object{"control": nil, "network": "network", "workload": nil}, "images": []any{}, "buckets": []any{},
 		"resources": []any{

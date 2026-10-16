@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'e2e/**'
-      - '.forgejo/workflows/e2e.yml'
+      - '.github/workflows/e2e.yml'
   schedule:
     - cron: '0 3 * * *'
   workflow_dispatch:
@@ -20,14 +20,16 @@ on:
 
 # Let the harness finish cleanup rather than cancelling an active run.
 concurrency:
-  group: ts-orchestrator-e2e-${{ forgejo.ref }}-${{ inputs.target || 'local' }}
+  group: ts-orchestrator-e2e-${{ github.ref }}-${{ inputs.target || 'local' }}
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 env:
+  GH_TOKEN: ${{ github.token }}
   CI: 'true'
-  SOURCE_SHA: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
-  GOCACHE: /cache/go/build
-  GOMODCACHE: /cache/go/mod
+  SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
   GOFLAGS: -p=4
   GOMAXPROCS: '2'
   E2E_REPORT: report.json
@@ -40,20 +42,25 @@ defaults:
 jobs:
   local:
     name: local E2E
-    if: ${{ forgejo.event_name != 'workflow_dispatch' || inputs.target == 'local' }}
-    runs-on: terrascale-builder
-    container:
-      options: --init --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.target == 'local' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       E2E_TARGET: local
     steps:
       - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
 
       - name: Verify the source revision and Go toolchain
         run: |
@@ -75,35 +82,40 @@ jobs:
         env:
           # Read-only artifact and source credentials; no production identity.
           TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-          E2E_FORGEJO_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
+          E2E_GH_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
         run: go run .
 
       - name: Retain the local JSON report even on failure
         if: ${{ always() }}
-        # Forgejo's v3-node20 fork uses the legacy artifact protocol.
-        uses: https://data.forgejo.org/forgejo/upload-artifact@ed48a7bb0c8a9079492c354d37994c413423c83e # v3-node20
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-local-${{ forgejo.sha }}-${{ forgejo.run_id }}
+          name: e2e-local-${{ github.sha }}-${{ github.run_id }}
           path: e2e/report.json
           if-no-files-found: warn
           retention-days: 30
 
   prod:
+    environment: production
     name: production E2E (manual only)
-    if: ${{ forgejo.event_name == 'workflow_dispatch' && inputs.target == 'prod' }}
-    runs-on: terrascale-builder
-    container:
-      options: --init --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.target == 'prod' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       E2E_TARGET: prod
     steps:
       - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
 
       - name: Verify the source revision and Go toolchain
         run: |
@@ -117,7 +129,7 @@ jobs:
       - name: Run production E2E in the dedicated organization
         env:
           TERRABASE_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
-          E2E_FORGEJO_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
+          E2E_GH_TOKEN: ${{ secrets.ORG_READ_TOKEN }}
           # This URL configures the harness, not a public SDK default.
           E2E_TERRABASE_URL: https://gru.api.terrascale.tech
           E2E_AUTH_URL: https://gru.auth.terrascale.tech
@@ -132,9 +144,9 @@ jobs:
 
       - name: Retain the production JSON report even on failure
         if: ${{ always() }}
-        uses: https://data.forgejo.org/forgejo/upload-artifact@ed48a7bb0c8a9079492c354d37994c413423c83e # v3-node20
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: e2e-prod-${{ forgejo.sha }}-${{ forgejo.run_id }}
+          name: e2e-prod-${{ github.sha }}-${{ github.run_id }}
           path: e2e/report.json
           if-no-files-found: warn
           retention-days: 30

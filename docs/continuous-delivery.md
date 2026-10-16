@@ -1,5 +1,13 @@
 # Continuous delivery to running cells
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 Every green main push dispatches automatic binary delivery to every serving
 region. Controllers follow their region's release channel and health-gated
 rollouts include participating managed hosts. Serving membership and admitted
@@ -18,14 +26,14 @@ Image-based orchestrator replacement remains a proposed follow-up.
 For `operator terrabase-sync`, use one operator-host timer per deployed TerraBase placement, with a reviewed
 inventory covering every placement in each cell. Poll every minute; a
 publication notification can wake the same timer sooner. CI only publishes
-inputs. The operator host reaches Forgejo and controllers through existing
+inputs. The operator host reaches GitHub and controllers through existing
 TLS/Bastion access, holds the narrowly scoped online operator keys, and runs
-the single orchestrator binary. Controllers and hosts need no Forgejo route.
+the single orchestrator binary. Controllers and hosts need no GitHub route.
 Keep this protocol's operator and compatibility keys outside Actions. The
 automatic binary pipeline reads its delegated release leaf from OCI Vault;
 the offline root key stays outside Actions.
 
-Publication is not deployment authorization. Forgejo metadata and assets are
+Publication is not deployment authorization. GitHub metadata and assets are
 untrusted inputs until their source lineage, qualification and byte digests
 are checked. The existing operator signature admits a TerraBase artifact;
 the independent compatibility signature certifies the exact old/candidate
@@ -63,8 +71,8 @@ binary-only self-update below replaces the executable, not the image):
 | Orchestrator image receipt | Existing image workflow builds and qualifies; authorized operator imports; offline root narrows the delegation to the cell/image OCID; local leaf owner signs and verifies the image receipt (`ts-orch image promote`). |
 | Running-cell replacement plan | Proposed new offline-root-signed authorization pins predecessor install/instance, successor manifest/image receipt, same cell/deployment/slot, increasing generation, credentials/config digests, validity, resource budget and explicit rollback target. Accepted restart does not supply this authority. Root private keys stay offline. |
 
-Forgejo has no authenticated protected-environment reviewer gate here
-([releases.md](releases.md)). Retain independent review evidence externally.
+The signing process retains independent review evidence externally
+([releases.md](releases.md)); migration does not provision a GitHub environment approval gate.
 Immediate automatic delivery of *arbitrary* orchestrator publications is
 incompatible with the present per-source/per-image human signing gates.
 Automatically discover and prepare candidates, then automatically execute
@@ -73,9 +81,8 @@ those gates would be a new trust decision, outside this change.
 
 ## Implemented TerraBase entry point
 
-After the decisions below, provision a full TerraBase checkout via `fj repo
-clone`, the pinned admission `fj` extension from
-`scripts/ci/prepare-fj-admission.sh`, operator config/keys and an existing
+After the decisions below, provision a full TerraBase checkout via `gh repo
+clone`, standard `gh` on PATH, operator config/keys and an existing
 Bastion forward on the operator host. Invoke this command from a one-minute
 timer with a one-hour service deadline longer than `--timeout`:
 
@@ -91,7 +98,7 @@ terrascale-orchestrator operator terrabase-sync \
 ```
 
 The command checks the checkout's origin, fetches main without force,
-discovers non-draft `ci-<sha>-run-<id>` releases with `fj`, and selects the
+discovers non-draft `ci-<sha>-run-<id>` releases with `gh`, and selects the
 newest published descendant of the completed source on main. Commit ancestry,
 not run ID, determines newness. Rebuilds of identical source are ignored.
 Multiple publications can coalesce before a rollout starts; an active rollout
@@ -109,7 +116,7 @@ An owner-only state directory and kernel file lock serialize sync invocations
 for a placement. Synced, immutable `cd-complete-<generation>.json` receipts
 advance its source baseline only after both seats serve. Cancellation/timeouts
 leave the active pin for resume. Changed assets, bad provenance, unreachable
-Forgejo or unavailable forwarding never allow a different active candidate.
+GitHub or unavailable forwarding never allow a different active candidate.
 Input failures before admission retry without creating a stop marker.
 
 The updater waits for a fresh serving proof from each seat, then soaks it
@@ -336,7 +343,7 @@ every source revision. The scoped binary update delegation
   descendants of a pinned, reviewed `lineage_base` revision.
 
 The leaf signs a `terrascale.release.binary-update.v1` receipt only after the
-qualification manifest matches the binary, the Forgejo run succeeded and git
+qualification manifest matches the binary, the GitHub run succeeded and git
 proves the source descends from the base and is on `origin/main`. The
 `--source-checkout` origin must resolve to
 `github.com/TerraScale/ts-orchestrator` (https or ssh), so a fork
@@ -719,7 +726,7 @@ not deployment pause switches; destructive resets still require explicit approva
    (`scripts/ci/image-superseded.sh` with `GATE_WORKFLOW=deploy.yml`).
 2. `ts-orch release deploy` (`scripts/ci/deploy-fleet.sh`) checks the
    retained binaries against `qualification.json` and the successful
-   Forgejo run, reads the update leaf key from OCI Vault, proves lineage
+   GitHub run, reads the update leaf key from OCI Vault, proves lineage
    and signs one update receipt per cell and architecture before any region
    sees the release. Each channel is checked with the consumer's own
    verification (`Channel.Verify`), and again right before it is published,
@@ -818,7 +825,7 @@ Limits of this part:
   as root); from then on CI moves it.
 - Hosts join the same way: the first release with host self-update reaches
   a host by hand, or with a rebuilt image.
-- Forgejo repository secrets reach any workflow pushed to the repository,
+- GitHub repository secrets reach any workflow pushed to the repository,
   so every account with write access can obtain `TS_DEPLOY_OCI_KEY`, read
   the leaf and sign any binary for the delegation's cells, architectures and
   environment until it expires. Keep the delegation short and narrow; OCI
@@ -1133,9 +1140,9 @@ dashboard is not part of the cell. TS-601 checks `/login` from CI instead.
 
 #### gru-1 wiring
 
-Live since 2026-10-07. Names and OCIDs only; the secrets stay in OCI Vault
-(`gru-1-vault`, compartment `TerraScale`), and the Forgejo secret is the CI
-copy.
+Historical wiring recorded on 2026-10-07: names and OCIDs only; secrets
+were held in OCI Vault (`gru-1-vault`, compartment `TerraScale`) with a
+Forgejo CI copy. This inventory does not establish GitHub secret provisioning.
 
 | What | Name | OCID |
 | --- | --- | --- |
@@ -1204,9 +1211,9 @@ automatically follows every green main push.
 
 Every main run retains a CI pre-release (`ci-<sha>-run-<id>`, about 130 MB;
 image builds add `image-<sha>-run-<id>-attempt-<n>`). The daily
-`prune-releases.yml` deletes, through the Forgejo API, every CI pre-release
+`prune-releases.yml` deletes, through the GitHub API, every CI pre-release
 past the newest 20 that is older than 7 days, unless a region pins it. The
-attachments leave the ts-forgejo bucket; the git tags stay. Each deletion is
+assets are deleted from GitHub release storage; the git tags stay. Each deletion is
 logged, and the job ends with one `TS_RELEASE_PRUNE` line (releases,
 deleted, kept as pinned, bytes freed). Dispatch it with `dry_run=true` to
 only log. TerraBase runs the same job (`--role terrabase`).
@@ -1224,7 +1231,7 @@ has not changed. Stable inventories are refreshed every 30 seconds, including
 roles with no `release.json`; removing a claim preserves persisted release
 pins. No `TS_RELEASE_PINS` repo variable is needed for these pins.
 Retain external CI tools (`TS_ORCH_RELEASE` and `TS_PRUNE_ORCH_RELEASE`) and
-founding images through Forgejo's native non-prerelease flag, because they
+founding images through GitHub's native non-prerelease flag, because they
 are dependencies outside the cell's rollback inventory. Clear that flag on
 each newly selected tool or founding image before retiring its predecessor.
 The former manual pins were retained this way for TS-653: tool

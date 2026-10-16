@@ -132,7 +132,7 @@ func newDeployFixture(t *testing.T) *deployFixture {
 	fixture.delegation = filepath.Join(fixture.directory, "update-delegation.json")
 	if err := c.signUpdateDelegation([]string{"--subject-public-key", fixture.leafPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "production", "--lineage-base", testLineageBase,
-		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
+		"--service", "terrabase=https://github.com/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339), "--out", fixture.delegation}); err != nil {
 		t.Fatal(err)

@@ -15,7 +15,7 @@ mise exec -- go test -race ./tests/runtime_priority
 `make test` runs `go test ./...`. `make verify` checks Go formatting, runs
 `go vet ./...`, and runs the complete suite with the race detector. The race
 scheduler shards long product packages and runs every test, example, and
-fuzz seed once. Forgejo uses the same tests through `make ci-verify`, together
+fuzz seed once. GitHub uses the same tests through `make ci-verify`, together
 with static release-binary checks.
 
 Deployment, OCI admission, CI, runtime-priority, and Firecracker driver
@@ -48,13 +48,12 @@ infrastructure call `tier.Qualification` with the variables that supply it:
 they skip while those are unset and fail in a `TS_TEST_TIER=qualification`
 run. Other environment-dependent tests, such as root or cgroup capability
 checks, use `t.Skip` with the missing prerequisite.
-The pinned Forgejo attachment contract runs through Go on every verified
-build or cache hit in `scripts/ci/prepare-fj-admission.sh`. It can also run
-against a supplied client:
+GitHub run admission uses the standard `gh` CLI and validates run identity,
+repository, workflow, attempt and paginated jobs before accepting evidence.
+Run its focused mock API checks locally:
 
 ```sh
-TS_FJ_PROBE_BINARY=/absolute/path/to/fj mise exec -- go test ./scripts/ci \
-  -run '^TestFJAttachmentProbe$' -count=1
+nice -n 19 go test ./internal/githubapi
 ```
 
 ## TerraBase upgrade traffic regression (TS-719, first slice)

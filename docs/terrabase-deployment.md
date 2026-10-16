@@ -1,5 +1,13 @@
 # TerraBase deployment into a running cell
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 The [zero-configuration contract](zero-configuration.md) is required production policy.
 Configuration fields, manual bootstrap paths and dated observations below are
 legacy implementation inventory, not feature/region activation or credential-copy
@@ -113,7 +121,7 @@ controller through an OCI Bastion forward.
    controllers on 4222 (NATS).
 7. **Operator grant.** The operator's signer grant lists role `terrabase`
    and the target environment; if it lists repositories, it includes
-   `https://git.terrascale.tech/TerraScale/terrabase`.
+   `https://github.com/TerraScale/terrabase`.
 
 ## Workload profile
 
@@ -135,7 +143,7 @@ profile differs. For cell `gru-1` with two members:
 ```
 
 `TERRABASE_REGION` is required outside Development starting with
-[TerraBase #18](https://git.terrascale.tech/TerraScale/terrabase/pulls/18).
+the historical [TerraBase #18](https://git.terrascale.tech/TerraScale/terrabase/pulls/18).
 Without it the binary exits before opening storage. Use `gru-1` in both the
 signed controller profile and the operator's `--profile` file; the host
 preserves this environment setting when adding the member's local paths.
@@ -159,10 +167,10 @@ the [runtime contract](terrabase-runtime-contract.md#workload-profile).
 TAG=ci-<commit>-run-<run id>   # or v<Version>
 COMMIT=<full 40-character commit of the release>
 WORK=$(mktemp -d) && cd "$WORK"
-fj -H git.terrascale.tech release asset download -r TerraScale/terrabase "$TAG" terrabase-linux-arm64
-fj -H git.terrascale.tech release asset download -r TerraScale/terrabase "$TAG" terrabase-linux-arm64.sha256
+gh release download "$TAG" --repo TerraScale/terrabase --pattern terrabase-linux-arm64 --output terrabase-linux-arm64
+gh release download "$TAG" --repo TerraScale/terrabase --pattern terrabase-linux-arm64.sha256 --output terrabase-linux-arm64.sha256
 sha256sum -c terrabase-linux-arm64.sha256
-fj repo clone -H https://git.terrascale.tech TerraScale/terrabase "$WORK/terrabase"
+gh repo clone TerraScale/terrabase "$WORK/terrabase"
 ```
 
 Keep the asset file names: the command checks them. `--commit` must be a

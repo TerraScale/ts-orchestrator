@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-[[ $* == 'repo clone -H https://codeberg.org forgejo-contrib/forgejo-cli '* ]] || exit 7
-printf 'clone\n' >> "$MOCK_BUILD_LOG"
-destination=${!#}
-mkdir -p "$destination"
-cp "$MOCK_LOCK" "$destination/Cargo.lock"

@@ -20,7 +20,7 @@ func signedServiceClaim(t *testing.T, issued time.Time) []byte {
 		t.Fatal(err)
 	}
 	record, err := delivery.NewArtifactRecord(delivery.ArtifactClaimRequest{Source: delivery.ArtifactSource{
-		Repository: "https://git.terrascale.tech/TerraScale/ts-auth", Commit: strings.Repeat("a", 40),
+		Repository: "https://github.com/TerraScale/ts-auth", Commit: strings.Repeat("a", 40),
 		TreeDigest: strings.Repeat("b", 64)}, Cell: "gru", Role: "ts-auth", Environment: "canary"}, strings.Repeat("c", 64), 10)
 	if err != nil {
 		t.Fatal(err)

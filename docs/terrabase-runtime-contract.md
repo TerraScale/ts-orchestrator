@@ -1,5 +1,13 @@
 # TerraBase runtime contract
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 The [zero-configuration contract](zero-configuration.md) is required production policy.
 Configuration fields, manual bootstrap paths and dated observations below are
 legacy implementation inventory, not feature/region activation or credential-copy
@@ -50,7 +58,7 @@ controller's artifact admission limit), and matches the single line of its
 `.sha256` asset. The verified digest is the
 artifact digest the rollout pins. TerraBase publishes no source digest, so
 the artifact's source claim is repository
-`https://git.terrascale.tech/TerraScale/terrabase`, the commit, and the
+`https://github.com/TerraScale/terrabase`, the commit, and the
 SHA-256 of `git archive --format=tar <commit>` in a TerraBase checkout.
 
 ## The binary

@@ -330,7 +330,7 @@ func (e *Engine) liveOperator(plan, ids Object) {
 	if plan["operator_gateway"] == nil {
 		return
 	}
-	gateway, existing := obj(plan["operator_gateway"]), obj(plan["existing_forgejo"])
+	gateway, existing := obj(plan["operator_gateway"]), obj(plan["existing_operations_host"])
 	region := text(plan["region"])
 	for _, row := range [][]any{{ids["local_peering_gateway"], gateway["local_peering_gateway_id"], ids["network_compartment"], ids["vcn"], gateway["vcn_cidr"]}, {gateway["local_peering_gateway_id"], ids["local_peering_gateway"], plan["shared_compartment_id"], existing["vcn_id"], plan["network_cidr"]}} {
 		m := requireLiveID(e.oci(region, "network", "local-peering-gateway", "get", "--local-peering-gateway-id", str(row[0])), row[0], "local peering gateway")
@@ -360,7 +360,7 @@ func (e *Engine) liveNetbirdIngress(plan, vnic Object) {
 	for _, id := range ids {
 		requireOCID(id, "networksecuritygroup", text(plan["region"]))
 		nsg := requireLiveID(e.oci(text(plan["region"]), "network", "nsg", "get", "--nsg-id", str(id)), id, "NetBird gateway network security group")
-		if nsg["compartment-id"] != plan["shared_compartment_id"] || nsg["vcn-id"] != obj(plan["existing_forgejo"])["vcn_id"] {
+		if nsg["compartment-id"] != plan["shared_compartment_id"] || nsg["vcn-id"] != obj(plan["existing_operations_host"])["vcn_id"] {
 			fail("live NetBird gateway network security group ownership differs from the plan")
 		}
 		for _, v := range rows(e.oci(text(plan["region"]), "network", "nsg", "rules", "list", "--nsg-id", str(id), "--all")) {

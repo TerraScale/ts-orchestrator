@@ -1,5 +1,13 @@
 # Cross-project E2E (TS-512)
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 For read-only production observations, use
 [`ts-orch verify --live` (TS-520)](live-verification.md). It reports missing
 deployment/persistence evidence as UNKNOWN and does not run the mutating
@@ -20,7 +28,7 @@ The suite owns temporary data, certificates, credentials and child processes.
 
 ```sh
 cd e2e
-# Set TERRABASE_TOKEN and E2E_FORGEJO_TOKEN in your environment if Forgejo
+# Set TERRABASE_TOKEN and E2E_GITHUB_TOKEN in your environment if GitHub
 # requires read credentials. These are read-only artifact/source credentials.
 nice -n 19 go test -race ./...
 nice -n 19 go vet ./...
@@ -106,7 +114,7 @@ inspect the dedicated organization before retrying if a request outcome was lost
 
 ## CI
 
-`.forgejo/workflows/e2e.yml` runs the local target for PRs touching `e2e/`,
+`.github/workflows/e2e.yml` runs the local target for PRs touching `e2e/`,
 nightly at 03:00 UTC, and manual dispatch with `target=local` (default).
 A separate job runs production only on manual dispatch with `target=prod`.
 Both retain the JSON report even on failure. CI uses normal CPU priority.
@@ -144,7 +152,7 @@ The SDK is pinned in `e2e/go.mod` to the merged `main` commit
 which cleanup requires before project deletion. The local backend starts with
 `--management-credential-file` and a 256 MiB memory budget. Service-credential
 Management requests use its loopback admin listener. Its vanity path is not published, so a
-Forgejo replacement fetches that same commit. Update both version references
+GitHub replacement fetches that same commit. Update both version references
 and run `go mod tidy` when bumping. Replace the pseudo-version with the release
 tag once the SDK release is published. Review newly shipped features and replace
 their pending entry with a real assertion in the same change; rerun local E2E

@@ -2,9 +2,9 @@
 # Deploy one CI-qualified main revision to every serving region, the
 # concurrently, with ts-orch release deploy (docs/deploy-pipeline.md).
 #
-# usage: deploy-fleet.sh FORGEJO_PROFILES
+# usage: deploy-fleet.sh
 #
-# FORGEJO_PROFILES is the directory configure-fj-profiles.sh created. Inputs:
+# Inputs:
 #   SOURCE_SHA, SOURCE_CI_RUN_ID   the revision and its successful ci.yml run
 #   TS_OBJECT_NAMESPACE            Object Storage namespace of the head buckets
 #   TS_RELEASE_VAULT_ID            OCI Vault holding the update leaf key and the
@@ -14,14 +14,14 @@
 #   TS_DEPLOY_OCI_KEY              the deployment's scoped OCI API key
 set -euo pipefail
 
-profiles=${1:-}
-[[ -d $profiles && $# == 1 ]] || { echo "usage: $0 FORGEJO_PROFILES" >&2; exit 2; }
+export GH_HOST=github.com
+[[ $# == 0 ]] || { echo "usage: $0" >&2; exit 2; }
 [[ ${SOURCE_SHA:-} =~ ^[0-9a-f]{40}$ && ${SOURCE_CI_RUN_ID:-} =~ ^[1-9][0-9]{0,17}$ ]] || {
 	echo 'SOURCE_SHA and SOURCE_CI_RUN_ID must name the qualified run' >&2
 	exit 2
 }
 for variable in TS_OBJECT_NAMESPACE TS_RELEASE_VAULT_ID TS_RELEASE_LEAF_SECRET TS_DEPLOY_OCI_USER TS_DEPLOY_OCI_TENANCY TS_DEPLOY_OCI_FINGERPRINT \
-	TS_DEPLOY_OCI_KEY FORGEJO_SERVER_URL; do
+	TS_DEPLOY_OCI_KEY; do
 	[[ -n ${!variable:-} ]] || { echo "$variable is required" >&2; exit 2; }
 done
 [[ $(git rev-parse HEAD) == "$SOURCE_SHA" ]] || { echo 'checked-out source differs from the deployed revision' >&2; exit 1; }
@@ -40,24 +40,21 @@ printf '[DEFAULT]\nuser=%s\nfingerprint=%s\ntenancy=%s\nregion=sa-saopaulo-1\nke
 export OCI_CONFIG_FILE=$work/oci/config
 
 tag="ci-${SOURCE_SHA}-run-${SOURCE_CI_RUN_ID}"
-XDG_DATA_HOME="$profiles/read" fj release asset download -r TerraScale/ts-orchestrator "$tag" qualification.json \
-	-o "$work/release/qualification.json" >/dev/null
+gh release download "$tag" --repo TerraScale/ts-orchestrator --pattern qualification.json \
+	--output "$work/release/qualification.json" >/dev/null
 assets=$(jq -er '.artifacts[].name' "$work/release/qualification.json")
 while IFS= read -r asset; do
 	[[ $asset =~ ^terrascale-orchestrator-linux-(amd64|arm64)$ ]] || { echo 'invalid qualified binary name' >&2; exit 2; }
-	XDG_DATA_HOME="$profiles/read" fj release asset download -r TerraScale/ts-orchestrator "$tag" "$asset" \
-		-o "$work/release/$asset" >/dev/null
+	gh release download "$tag" --repo TerraScale/ts-orchestrator --pattern "$asset" \
+		--output "$work/release/$asset" >/dev/null
 done <<< "$assets"
 root_key=$(jq -er '.trust_roots[0].path' deploy/image/image-inputs.json)
 
 make build GO=go
-# The lineage proof fetches main with the read token for this process only;
-# nothing is written to .git/config.
-read_token=$(<"$profiles/read-token")
-export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$FORGEJO_SERVER_URL/.extraheader" \
-	GIT_CONFIG_VALUE_0="Authorization: token $read_token"
+# GitHub CLI supplies credentials to git without writing token files.
+gh auth setup-git --hostname github.com
 # The root re-signs the release-delegation Vault secret at least every 31 days.
-XDG_DATA_HOME="$profiles/read" dist/ts-orch release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
+dist/ts-orch release deploy --dir "$work/release" --source-revision "$SOURCE_SHA" \
 	--update-delegation-secret release-delegation --root-key "$root_key" \
 	--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID" \
 	--source-checkout . \

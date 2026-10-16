@@ -33,7 +33,7 @@ import (
 
 const (
 	deployTestCell       = "gru"
-	deployTestRepository = "https://git.terrascale.tech/TerraScale/TerraBase"
+	deployTestRepository = "https://github.com/TerraScale/TerraBase"
 	deployTestOwner      = "ts-preview-gru-test"
 )
 

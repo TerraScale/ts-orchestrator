@@ -54,8 +54,8 @@ func matches(text, pattern string) []string {
 }
 
 func TestWorkflowContracts(t *testing.T) {
-	ci := workflowText(t, ".forgejo/workflows/ci.yml")
-	image := workflowText(t, ".forgejo/workflows/image.yml")
+	ci := workflowText(t, ".github/workflows/ci.yml")
+	image := workflowText(t, ".github/workflows/image.yml")
 	t.Run("every_main_change_dispatches_delivery", func(t *testing.T) {
 		forbidText(t, ci, "paths-ignore:")
 		forbidText(t, ci, "TS_AUTO_DEPLOY_")
@@ -76,10 +76,10 @@ func TestWorkflowContracts(t *testing.T) {
 		_, deployStep, _ := strings.Cut(ci, "- name: Start the fleet deployment for this revision")
 		requireText(t, deployStep, "run: bash scripts/ci/dispatch-image.sh deploy.yml\n")
 		forbidText(t, deployStep, "continue-on-error:")
-		requireText(t, deployStep, "if: ${{ forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main' }}")
+		requireText(t, deployStep, "if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
 		// The weekly run rebuilds the image but never redeploys.
 		requireText(t, ci, "  schedule:\n    - cron: ")
-		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `source_ci_run_id:$run_id, source_ci_run_number:$run_number, trigger:"ci"`)
+		requireText(t, workflowText(t, "scripts/ci/dispatch-image.sh"), `-f "inputs[source_ci_run_id]=$GITHUB_RUN_ID" -f "inputs[source_ci_run_number]=$GITHUB_RUN_NUMBER"`)
 		requireText(t, image, "inputs.trigger == 'ci'")
 		requireText(t, image, "  cancel-in-progress: false\n")
 		requireText(t, image, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 6000`)
@@ -130,12 +130,12 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 	})
 	t.Run("deploy_waits_for_ci_without_an_opt_in", func(t *testing.T) {
-		deploy := workflowText(t, ".forgejo/workflows/deploy.yml")
+		deploy := workflowText(t, ".github/workflows/deploy.yml")
 		forbidText(t, deploy, "  push:")
 		if got := matches(deploy, `(?m)^    name: (.+)$`); !reflect.DeepEqual(got, []string{"deploy/every-region"}) {
 			t.Fatalf("jobs: %v", got)
 		}
-		requireText(t, deploy, "    if: ${{ forgejo.ref == 'refs/heads/main' }}\n")
+		requireText(t, deploy, "    if: ${{ github.ref == 'refs/heads/main' }}\n")
 		forbidText(t, deploy, "TS_AUTO_DEPLOY_")
 		// Queued, never cancelled: CI never abandons a region mid-rollout.
 		requireText(t, deploy, "  group: ts-orchestrator-deploy\n  cancel-in-progress: false\n")
@@ -153,13 +153,12 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		// Scripts of the revision run with secrets only once it is on main,
 		// and the signer is never built from the shared Go caches.
-		if verify := slices.Index(steps, "Verify the source revision and Go toolchain"); verify != 1 {
+		if verify := slices.Index(steps, "Verify the source revision and Go toolchain"); verify < 1 || verify >= gate {
 			t.Fatalf("the source must be verified right after checkout: %v", steps)
 		}
 		_, verifyStep, _ := strings.Cut(deploy, "- name: Verify the source revision and Go toolchain")
 		verifyStep, _, _ = strings.Cut(verifyStep, "- name:")
 		requireText(t, verifyStep, `git merge-base --is-ancestor "${SOURCE_SHA}" refs/remotes/origin/main`)
-		requireText(t, verifyStep, `"${RUNNER_TEMP}/go/build" "${RUNNER_TEMP}/go/mod" >> "${GITHUB_ENV}"`)
 		forbidText(t, deploy, "/cache/go")
 		_, gateStep, _ := strings.Cut(deploy, "- name: Wait for ci.yml and skip a failed or overtaken revision")
 		gateStep, _, _ = strings.Cut(gateStep, "- name:")
@@ -168,7 +167,7 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300`)
 		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and deploy every region concurrently")
 		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
-		requireText(t, rollStep, `run: bash scripts/ci/deploy-fleet.sh "${RUNNER_TEMP}/forgejo"`)
+		requireText(t, rollStep, "run: bash scripts/ci/deploy-fleet.sh")
 		// The OCI key reaches only the rollout step, and the leaf key never
 		// reaches the job: ts-orch reads it from OCI Vault.
 		if strings.Count(deploy, "secrets.TS_DEPLOY_OCI_KEY") != 1 || !strings.Contains(rollStep, "secrets.TS_DEPLOY_OCI_KEY") {
@@ -185,14 +184,19 @@ func TestWorkflowContracts(t *testing.T) {
 		forbidText(t, wrapper, "--signing-key \"")
 	})
 	t.Run("test_tiers", func(t *testing.T) {
-		requireText(t, ci, "      TS_TEST_TIER: ${{ forgejo.event_name == 'pull_request' && 'pr' || 'full' }}\n")
+		requireText(t, ci, "      TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}\n")
 		requireText(t, ci, "      TS_RACE_IDLE_JOBS: '5'\n")
-		_, admission, ok := strings.Cut(ci, "- name: Prepare pinned Forgejo admission client")
-		if !ok {
-			t.Fatal("missing admission client step")
+		forbidText(t, ci, "prepare-fj-admission.sh")
+		for _, text := range []string{ci, image, workflowText(t, ".github/workflows/deploy.yml")} {
+			requireText(t, text, "runs-on: ubuntu-24.04")
+			requireText(t, text, "go-version: '1.27.1'")
+			forbidText(t, text, "container:")
+			forbidText(t, text, "FORGEJO_")
+			forbidText(t, text, "/cache/")
+			if !regexp.MustCompile(`uses: actions/checkout@[0-9a-f]{40}`).MatchString(text) {
+				t.Error("checkout action must be pinned to a commit")
+			}
 		}
-		admission, _, _ = strings.Cut(admission, "- name:")
-		requireText(t, admission, "if: ${{ forgejo.event_name != 'pull_request' }}")
 		makefile := workflowText(t, "Makefile")
 		requireText(t, makefile, "$(if $(filter pr,$(TS_TEST_TIER)),,fixturetest-check)")
 		requireText(t, makefile, "$(GO) vet -tags fixturetest ./...")
@@ -208,7 +212,7 @@ func TestWorkflowContracts(t *testing.T) {
 			t.Fatalf("the checkout must be stamped right before the checks: %v", steps)
 		}
 		requireText(t, ci, "run: go run ./scripts/ci/stablemtime\n")
-		requireText(t, ci, "      options: --init --tmpfs /tmp:")
+		forbidText(t, ci, "--tmpfs")
 		makefile := workflowText(t, "Makefile")
 		_, ciVerify, _ := strings.Cut(makefile, "\nci-verify:\n")
 		ciVerify, _, _ = strings.Cut(ciVerify, "\n\n")
@@ -257,7 +261,7 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 		{"newer", "success", "skip=true\n", 0},
 		{"normal", "failure", "skip=true\n", 0},
 		{"normal", "cancelled", "skip=true\n", 0},
-		{"normal", "blocked", "", 1},
+		{"normal", "action_required", "", 1},
 		{"normal", "skipped", "", 1},
 		{"wrong-id", "success", "", 1},
 		{"persistent", "success", "", 1},
@@ -266,12 +270,10 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 			t.Parallel()
 			root := t.TempDir()
 			bin := filepath.Join(root, "bin")
-			script.Write(t, filepath.Join(bin, "curl"), script.Read(t, filepath.Join(script.Root(t), "tests/ci/testdata/image-gate/curl")), 0o755)
+			script.Write(t, filepath.Join(bin, "gh"), script.Read(t, filepath.Join(script.Root(t), "tests/ci/testdata/image-gate/curl")), 0o755)
 			script.Write(t, filepath.Join(bin, "sleep"), []byte("#!/usr/bin/env bash\nif [[ $MOCK_MODE == wrong-id || $MOCK_MODE == persistent ]]; then exec \"$MOCK_REAL_SLEEP\" \"$@\"; fi\n"), 0o755)
 			output := filepath.Join(root, "output")
 			script.Write(t, output, nil, 0o600)
-			token := filepath.Join(root, "token")
-			script.Write(t, token, []byte("fixture-token"), 0o600)
 			budget := "10"
 			if test.mode == "wrong-id" || test.mode == "persistent" {
 				// Leave enough time to reach the transport even on a contended host.
@@ -280,12 +282,12 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 			env := map[string]string{
 				"PATH":      bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"MOCK_ROOT": root, "MOCK_MODE": test.mode, "MOCK_STATUS": test.status, "MOCK_REAL_SLEEP": sleepPath,
-				"MOCK_SOURCE": strings.Repeat("a", 40), "FORGEJO_READ_TOKEN_FILE": token,
-				"FORGEJO_SERVER_URL": "https://forgejo.invalid", "GITHUB_OUTPUT": output,
+				"MOCK_SOURCE": strings.Repeat("a", 40), "GH_TOKEN": "fixture-token",
+				"GITHUB_OUTPUT": output,
 			}
 			// The fleet deployment shares the gate; its repair names deploy.yml.
 			workflow := "image.yml"
-			if test.status == "blocked" {
+			if test.status == "action_required" {
 				workflow = "deploy.yml"
 				env["GATE_WORKFLOW"] = workflow
 			}
@@ -296,8 +298,8 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 			if test.code == 1 && !strings.Contains(result.Stderr, "dispatch "+workflow+" manually") {
 				t.Fatal("missing visible repair: " + result.Stderr)
 			}
-			if !strings.Contains(string(script.Read(t, filepath.Join(root, "requests"))), "run_number=7") {
-				t.Fatal("dispatching run number was not requested")
+			if !strings.Contains(string(script.Read(t, filepath.Join(root, "requests"))), "repos/TerraScale/ts-orchestrator/actions/runs/42") {
+				t.Fatal("dispatching run ID was not requested")
 			}
 		})
 	}
@@ -306,10 +308,10 @@ func TestImageGateWaitsForDispatchingRun(t *testing.T) {
 func TestImageDispatchPinsRun(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(root, "bin")
-	script.Write(t, filepath.Join(bin, "curl"), script.Read(t, filepath.Join(script.Root(t), "tests/ci/testdata/image-gate/curl")), 0o755)
+	script.Write(t, filepath.Join(bin, "gh"), script.Read(t, filepath.Join(script.Root(t), "tests/ci/testdata/image-gate/curl")), 0o755)
 	env := map[string]string{
 		"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "MOCK_ROOT": root,
-		"FORGEJO_TOKEN": "fixture-token", "FORGEJO_SERVER_URL": "https://forgejo.invalid",
+		"GH_TOKEN":   "fixture-token",
 		"GITHUB_SHA": strings.Repeat("a", 40), "GITHUB_RUN_ID": "42", "GITHUB_RUN_NUMBER": "7", "GITHUB_REF": "refs/heads/main",
 	}
 	result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh")
@@ -359,8 +361,9 @@ func TestImageDispatchOnlyForChangedInputs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			bin := filepath.Join(root, "bin")
-			script.Write(t, filepath.Join(bin, "curl"), []byte(`#!/usr/bin/env bash
-if [[ $* == *dispatches* ]]; then printf '%s' "${!#}" > "$MOCK_ROOT/url"; printf 204; exit 0; fi
+			script.Write(t, filepath.Join(bin, "gh"), []byte(`#!/usr/bin/env bash
+[[ $1 == api && $GH_HOST == github.com ]] || exit 2
+if [[ $* == *dispatches* ]]; then printf '%s' "$4" > "$MOCK_ROOT/url"; exit 0; fi
 [[ $MOCK_RELEASES != fail ]] || exit 22
 printf '%s' "$MOCK_RELEASES"
 `), 0o755)
@@ -377,7 +380,7 @@ esac
 			env := map[string]string{
 				"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"), "MOCK_ROOT": root,
 				"MOCK_RELEASES": tc.releases, "MOCK_DIFF": tc.diff, "GITHUB_EVENT_NAME": tc.event,
-				"FORGEJO_TOKEN": "fixture-token", "FORGEJO_SERVER_URL": "https://forgejo.invalid",
+				"GH_TOKEN":   "fixture-token",
 				"GITHUB_SHA": strings.Repeat("a", 40), "GITHUB_RUN_ID": "42", "GITHUB_RUN_NUMBER": "7", "GITHUB_REF": "refs/heads/main",
 			}
 			result := runCI(t, env, "bash", "scripts/ci/dispatch-image.sh", tc.workflow)

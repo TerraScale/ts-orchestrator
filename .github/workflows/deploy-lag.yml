@@ -9,27 +9,42 @@ concurrency:
   group: deployment-lag-guard
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   check:
-    runs-on: terrascale-builder
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
+      issues: write
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       CI: 'true'
-      GOCACHE: /cache/go/build
-      GOMODCACHE: /cache/go/mod
     steps:
       - name: Check out the protected main guard
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: https://git.terrascale.tech
           ref: main
           persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+
 
       - name: Compare qualified builds with fresh regional deployment proofs
         shell: bash
         env:
-          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
-          FORGEJO_WRITE_TOKEN: ${{ forgejo.token }}
+          GH_READ_TOKEN: ${{ github.token }}
+          GH_WRITE_TOKEN: ${{ github.token }}
           TS_OBJECT_NAMESPACE: ${{ vars.TS_OBJECT_NAMESPACE }}
           TS_DEPLOY_OCI_USER: ${{ vars.TS_DEPLOY_OCI_USER }}
           TS_DEPLOY_OCI_TENANCY: ${{ vars.TS_DEPLOY_OCI_TENANCY }}

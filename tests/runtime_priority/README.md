@@ -77,23 +77,23 @@ probe does not establish this newer D15 contract. CI publishes
 binaries on `ci-${SOURCE_SHA}-run-${RUN_ID}`; the existing
 `qualification.json` keeps its strict two-binary schema. Download all three
 readback files into a new private directory and admit them against the live
-Forgejo job record before staging on any guest:
+GitHub job record before staging on any guest:
 
 ```sh
 umask 077
 WORK=$(mktemp -d)
 TAG="ci-${SOURCE_SHA}-run-${RUN_ID}"
-fj release asset download "$TAG" terrascale-d15-qualify \
-  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-qualify"
-fj release asset download "$TAG" terrascale-d15-probe.json \
-  -r TerraScale/ts-orchestrator -o "$WORK/terrascale-d15-probe.json"
-fj release asset download "$TAG" qualification.json \
-  -r TerraScale/ts-orchestrator -o "$WORK/qualification.json"
-fj actions run-detail "$RUN_NUMBER" -r TerraScale/ts-orchestrator \
+gh release download "$TAG" --repo TerraScale/ts-orchestrator \
+  --pattern terrascale-d15-qualify --output "$WORK/terrascale-d15-qualify"
+gh release download "$TAG" --repo TerraScale/ts-orchestrator \
+  --pattern terrascale-d15-probe.json --output "$WORK/terrascale-d15-probe.json"
+gh release download "$TAG" --repo TerraScale/ts-orchestrator \
+  --pattern qualification.json --output "$WORK/qualification.json"
+ts-orch release run-detail --repository TerraScale/ts-orchestrator --run-id "$RUN_ID" \
   > "$WORK/ci-run-detail.json"
 JOB_ID=$(jq -er '.jobs | if length == 1 then .[0].id else error("expected one job") end' \
   "$WORK/ci-run-detail.json")
-fj actions job-logs "$JOB_ID" -r TerraScale/ts-orchestrator \
+gh api "repos/TerraScale/ts-orchestrator/actions/jobs/$JOB_ID/logs" \
   > "$WORK/ci-job.log"
 ts-orch runtime-priority probe-admission \
   --probe "$WORK/terrascale-d15-qualify" \
@@ -107,8 +107,8 @@ RECEIPT_SHA256=$(sha256sum "$WORK/probe-admission.json" | awk '{print $1}')
 PROBE_PATH="/run/terrascale-d15/probes/${SOURCE_SHA}/${PROBE_SHA256}/qualify"
 ```
 
-Use the pinned `fj` extension described in [release admission](../../docs/releases.md)
-for `actions run-detail` and `actions job-logs`. Admission requires one exact
+Use the normalized `ts-orch release run-detail` record and native GitHub job
+logs shown above; see [release admission](../../docs/releases.md). Admission requires one exact
 timestamped probe publication marker and one exact binary qualification marker
 in the successful producing job's log. The receipt binds the exact downloaded
 probe, publication and strict two-binary qualification files, source commit/tree,

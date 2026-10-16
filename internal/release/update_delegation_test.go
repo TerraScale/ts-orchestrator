@@ -15,7 +15,7 @@ import (
 
 const (
 	testLineageBase       = "89abcdef0123456789abcdef0123456789abcdef"
-	testServiceRepository = "https://git.terrascale.tech/TerraScale/terrabase"
+	testServiceRepository = "https://github.com/TerraScale/terrabase"
 )
 
 type fakeLineage struct {
@@ -241,7 +241,7 @@ func TestBinaryUpdateDelegationServices(t *testing.T) {
 	if err := fixture.delegation.Validate(); err != nil {
 		t.Fatalf("delegation with services: %v", err)
 	}
-	if !fixture.delegation.MayRelease("terrabase", testServiceRepository) || fixture.delegation.MayRelease("terrabase", "https://git.terrascale.tech/TerraScale/other") ||
+	if !fixture.delegation.MayRelease("terrabase", testServiceRepository) || fixture.delegation.MayRelease("terrabase", "https://github.com/TerraScale/other") ||
 		fixture.delegation.MayRelease("ts-orchestrator", testServiceRepository) {
 		t.Fatal("MayRelease does not name exactly the granted role and repository")
 	}
@@ -249,7 +249,7 @@ func TestBinaryUpdateDelegationServices(t *testing.T) {
 		"unsorted":       {{Role: "ts-auth", Repository: testServiceRepository}, {Role: "terrabase", Repository: testServiceRepository}},
 		"duplicate role": {{Role: "terrabase", Repository: testServiceRepository}, {Role: "terrabase", Repository: testServiceRepository}},
 		"bad role":       {{Role: "TerraBase", Repository: testServiceRepository}},
-		"plain http":     {{Role: "terrabase", Repository: "http://git.terrascale.tech/TerraScale/terrabase"}},
+		"plain http":     {{Role: "terrabase", Repository: "http://github.com/TerraScale/terrabase"}},
 	} {
 		invalid := fixture.delegation
 		invalid.Services = services

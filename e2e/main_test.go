@@ -13,7 +13,7 @@ import (
 
 func TestInvalidTargetWritesFailReport(t *testing.T) {
 	t.Setenv("E2E_TARGET", "typo")
-	t.Setenv("E2E_FORGEJO_TOKEN", "never-leak-this")
+	t.Setenv("E2E_GITHUB_TOKEN", "never-leak-this")
 	path := filepath.Join(t.TempDir(), "report.json")
 	t.Setenv("E2E_REPORT", path)
 	var stdout, stderr bytes.Buffer

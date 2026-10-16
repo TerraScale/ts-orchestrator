@@ -1,7 +1,4 @@
 name: Prune old CI pre-releases
-
-# TS-608: every main run retains a ~130 MB CI pre-release, so Forgejo storage
-# (the ts-forgejo bucket) grows without bound. Daily, delete the CI
 # pre-releases past the newest 20 that are older than 7 days, except those
 # the regions pin: the release in each head bucket's channel and its
 # leader's rollback/known-bad pins in status.json (TS-653), read with
@@ -21,22 +18,34 @@ concurrency:
   group: ts-orchestrator-prune-releases
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
 jobs:
   prune:
-    if: ${{ forgejo.ref == 'refs/heads/main' }}
+    environment: production
+    permissions:
+      contents: write
+    if: ${{ github.ref == 'refs/heads/main' }}
     name: prune/ci-prereleases
-    runs-on: terrascale-builder
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Check out main
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: "https://git.terrascale.tech"
-          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
-      # Built with private Go caches: this job holds the OCI key, and
-      # pull-request jobs write the shared /cache.
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+
+
       - name: Read the regions' pinned releases
         shell: bash
         env:
@@ -62,7 +71,6 @@ jobs:
       - name: Delete unpinned CI pre-releases past the retention window
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
-          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
           TS_PRUNE_DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: bash scripts/ci/prune-releases.sh "${GITHUB_REPOSITORY}" "${RUNNER_TEMP}/pins"

@@ -61,6 +61,8 @@ func (c command) run(args []string) error {
 		return usageError()
 	}
 	switch args[0] {
+	case "run-detail":
+		return c.runDetail(args[1:])
 	case "sign-delegation":
 		return c.signDelegation(args[1:])
 	case "binary-candidate":
@@ -99,7 +101,7 @@ func (c command) run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|deploy|fleet-status> [flags]")
+	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|deploy|fleet-status> [flags]")
 }
 
 func (c command) publish(args []string) error {
@@ -312,7 +314,7 @@ func (c command) binaryCandidate(args []string) error {
 }
 
 func (c command) signBinary(args []string) error {
-	return c.signBinaryWithCheck(args, c.verifyForgejoQualification, c.inspectBinary)
+	return c.signBinaryWithCheck(args, c.verifyGitHubQualification, c.inspectBinary)
 }
 
 func (c command) signBinaryWithCheck(args []string, check func(release.Qualification, string) error,
@@ -532,7 +534,7 @@ func (c command) imageCandidate(args []string) error {
 }
 
 func (c command) signImage(args []string) error {
-	return c.signImageWithCheck(args, c.verifyForgejoQualification, c.inspectBinary)
+	return c.signImageWithCheck(args, c.verifyGitHubQualification, c.inspectBinary)
 }
 
 func (c command) signImageWithCheck(args []string, check func(release.Qualification, string) error,

@@ -4,8 +4,7 @@
 #
 # usage: pin-terrabase.sh TERRABASE_RELEASE_TAG
 #
-# Run from a clean ts-orchestrator checkout of main with an authenticated fj
-# that has `actions run-detail`, and git push access to origin. TerraBase's
+# Run from a clean ts-orchestrator checkout of main with an authenticated GitHub CLI (gh), and git push access to origin. TerraBase's
 # publish job calls it for every release it publishes; run it by hand to pin
 # an older release. The release's Fast job must have succeeded; the image
 # build later requires the whole TerraBase run to have succeeded.
@@ -30,10 +29,10 @@ else
 	go build -trimpath -buildvcs=true -o "$work/ts-orch" ./cmd/terrascale-orchestrator
 fi
 pin_tool="$work/ts-orch"
-fj release asset download -r TerraScale/TerraBase "$tag" qualification.json -o "$work/qualification.json" >/dev/null
-fj release asset download -r TerraScale/TerraBase "$tag" tb-server-linux-arm64 -o "$work/tb-server-linux-arm64" >/dev/null
+gh release download "$tag" --repo TerraScale/TerraBase --pattern qualification.json --output "$work/qualification.json" >/dev/null
+gh release download "$tag" --repo TerraScale/TerraBase --pattern tb-server-linux-arm64 --output "$work/tb-server-linux-arm64" >/dev/null
 run_number=$(jq -er .verification.run_number "$work/qualification.json")
-fj actions run-detail "$run_number" -r TerraScale/TerraBase > "$work/run-detail.json"
+"$pin_tool" release run-detail --repository TerraScale/TerraBase --run-id "$(jq -er .verification.run_id "$work/qualification.json")" > "$work/run-detail.json"
 jq -e --arg sha "$(sha256sum "$work/tb-server-linux-arm64" | cut -d ' ' -f 1)" \
 	'[.artifacts[] | select(.name == "tb-server-linux-arm64" and .sha256 == $sha)] | length == 1' \
 	"$work/qualification.json" >/dev/null || { echo "tb-server-linux-arm64 of $tag differs from its qualification" >&2; exit 1; }
@@ -47,7 +46,7 @@ for attempt in 1 2 3 4 5; do
 		echo "TerraBase $terrabase_sha is already pinned"
 		exit 0
 	fi
-	git -c user.name=terrascale-bot -c user.email=terrascale-bot@noreply.git.terrascale.tech \
+	git -c user.name=terrascale-bot -c user.email=terrascale-bot@users.noreply.github.com \
 		commit --quiet -m "Pin TerraBase ${terrabase_sha:0:12} (Fast run $run_number) in image inputs
 
 Data-only pin bump from TerraBase release $tag." -- deploy/image/image-inputs.json

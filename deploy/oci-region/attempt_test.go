@@ -26,7 +26,7 @@ func attemptFixture(t *testing.T) (*attempt.Attempt, string) {
 	for _, k := range []string{"root_public", "root_private", "release_leaf_public", "release_leaf_private"} {
 		trust[k] = filepath.Join(dir, k)
 	}
-	config := map[string]any{"workdir": work, "deployment_id": "0000000000F9PR1WNVDTEXS31Z", "prefix": "bootstrap/a", "validity_days": 1, "trust": trust, "tools": map[string]any{"fj_dir": "/fj", "guestfs_tools_dir": "/guestfs", "libguestfs_dir": "/libguestfs", "libguestfs_appliance": "/appliance"}, "orchestrator": map[string]any{"repository": "/repository", "source_revision": strings.Repeat("a", 40), "ci_run_number": 1}, "image": map[string]any{"base_qcow2": "/base.qcow2", "kernel_release": "kernel", "native_verifier": "/native", "native_verifier_sha256": strings.Repeat("b", 64), "timesyncd_config": "/timesyncd", "priority": map[string]any{"profile_id": "profile", "system_reserve_bytes": 1, "host_memory_min_bytes": 1, "host_memory_low_bytes": 1, "controller_memory_min_bytes": 1, "controller_memory_low_bytes": 1, "system_slice_memory_min_bytes": 1, "system_slice_memory_low_bytes": 1}}}
+	config := map[string]any{"workdir": work, "deployment_id": "0000000000F9PR1WNVDTEXS31Z", "prefix": "bootstrap/a", "validity_days": 1, "trust": trust, "tools": map[string]any{"guestfs_tools_dir": "/guestfs", "libguestfs_dir": "/libguestfs", "libguestfs_appliance": "/appliance"}, "orchestrator": map[string]any{"repository": "/repository", "source_revision": strings.Repeat("a", 40), "ci_run_number": 1, "ci_run_id": 42}, "image": map[string]any{"base_qcow2": "/base.qcow2", "kernel_release": "kernel", "native_verifier": "/native", "native_verifier_sha256": strings.Repeat("b", 64), "timesyncd_config": "/timesyncd", "priority": map[string]any{"profile_id": "profile", "system_reserve_bytes": 1, "host_memory_min_bytes": 1, "host_memory_low_bytes": 1, "controller_memory_min_bytes": 1, "controller_memory_low_bytes": 1, "system_slice_memory_min_bytes": 1, "system_slice_memory_low_bytes": 1}}}
 	b, e := json.Marshal(config)
 	if e != nil {
 		t.Fatal(e)
@@ -77,16 +77,27 @@ func TestAttemptReleaseUsesSourceCommandConvention(t *testing.T) {
 	for _, name := range []string{"qualification.json", "terrascale-orchestrator-linux-arm64", "terrascale-orchestrator-linux-amd64"} {
 		script.Write(t, filepath.Join(work, "release", name), []byte("qualified fixture"), 0600)
 	}
-	var calls [][]string
+	var calls, apiCalls [][]string
 	a.Runner = func(ctx context.Context, c attempt.Command) (string, error) {
-		if c.Args[0] == "fj" {
-			return `{"head_sha":"` + strings.Repeat("a", 40) + `","status":"success","run_id":2}`, nil
+		if c.Args[0] == "gh" {
+			apiCalls = append(apiCalls, c.Args)
+			if slices.Contains(c.Args, "--paginate") {
+				return `[{"jobs":[]}]`, nil
+			}
+			return `{"id":42,"run_number":1,"run_attempt":2,"head_sha":"` + strings.Repeat("a", 40) + `","status":"completed","conclusion":"success","path":".github/workflows/ci.yml","repository":{"full_name":"TerraScale/ts-orchestrator"},"head_repository":{"full_name":"TerraScale/ts-orchestrator"}}`, nil
 		}
 		calls = append(calls, c.Args)
 		return "", nil
 	}
 	a.RunBootstrap("verify-anchor")
 	a.PhaseRelease()
+	wantAPI := [][]string{
+		{"gh", "api", "repos/TerraScale/ts-orchestrator/actions/runs/42"},
+		{"gh", "api", "--paginate", "--slurp", "repos/TerraScale/ts-orchestrator/actions/runs/42/attempts/2/jobs?per_page=100"},
+	}
+	if !slices.EqualFunc(apiCalls, wantAPI, slices.Equal) {
+		t.Fatalf("GitHub commands = %v; want %v", apiCalls, wantAPI)
+	}
 	want := []string{"verify-anchor", "sign-delegation", "binary-candidate", "sign-binary", "verify-binary"}
 	if a.Err() != nil || len(calls) != len(want) {
 		t.Fatal(calls, a.Err())
@@ -376,5 +387,18 @@ func TestAttemptMembersBindsLaunchedSeedBeforeAdmission(t *testing.T) {
 	}
 	if plan.ResourceIDs.Instances["controller-a"] != "ocid1.instance.oc1..seed" {
 		t.Fatalf("controller A is not bound before admission: %v", plan.ResourceIDs.Instances)
+	}
+}
+
+func TestAttemptReleaseRequiresRunID(t *testing.T) {
+	a, _ := attemptFixture(t)
+	delete(a.Config["orchestrator"].(map[string]any), "ci_run_id")
+	a.Runner = func(context.Context, attempt.Command) (string, error) {
+		t.Fatal("missing run ID must not execute commands")
+		return "", nil
+	}
+	a.PhaseRelease()
+	if a.Err() == nil || !strings.Contains(a.Err().Error(), "ci_run_id") {
+		t.Fatalf("error = %v; want missing run ID", a.Err())
 	}
 }

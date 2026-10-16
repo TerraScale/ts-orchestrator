@@ -12,10 +12,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/githubapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -28,8 +28,8 @@ var imageAssets = []string{"terrascale-gru-arm64.qcow2", "guest-kernel", "image-
 const orchestratorAsset = "terrascale-orchestrator-linux-arm64"
 
 type PromotionOptions struct {
-	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, FJ, ReleaseTool string
-	SignBinary, DryRun, Resume                                                                                                                                                bool
+	ImageRelease, ImageDir, Out, Environment, Delegation, ImageDelegation, RootKey, BinaryReceipt, SigningKey, CompartmentID, Namespace, Bucket, DisplayName, ReleaseTool string
+	SignBinary, DryRun, Resume                                                                                                                                            bool
 	// Importer builds the OCI image importer; nil uses the in-binary SDK
 	// over the operator's ~/.oci/config. It is not a flag.
 	Importer imageimport.ImporterFactory
@@ -156,10 +156,9 @@ func BuildReleaseTool(ctx context.Context, root, work, source, prebuilt string, 
 
 type promotion struct {
 	ctx           context.Context
-	root, work    string
+	root          string
 	o             PromotionOptions
 	out           io.Writer
-	fj            string
 	receipt       map[string]any
 	manifest      imageManifest
 	raw           map[string]any
@@ -168,8 +167,7 @@ type promotion struct {
 
 func (p *promotion) step(message string) { fmt.Fprintln(p.out, "promote-image:", message) }
 func (p *promotion) run(capture bool, command ...string) (string, error) {
-	env := append(os.Environ(), "PATH="+filepath.Join(p.work, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
-	out, e := Execute(p.ctx, "", env, command...)
+	out, e := Execute(p.ctx, "", nil, command...)
 	if e != nil {
 		action := ""
 		if len(command) > 1 {
@@ -202,7 +200,7 @@ func (p *promotion) download(tag, asset, destination string) (string, error) {
 	if e := os.MkdirAll(filepath.Dir(destination), 0755); e != nil {
 		return "", e
 	}
-	_, e := p.run(true, p.fj, "release", "asset", "download", "-r", repository, tag, asset, "-o", destination)
+	_, e := p.run(true, "gh", "release", "download", tag, "--repo", repository, "--pattern", asset, "--output", destination, "--clobber")
 	return destination, e
 }
 func (p *promotion) acquireImage() error {
@@ -284,12 +282,17 @@ func (p *promotion) acquireImage() error {
 		if tag != p.o.ImageRelease {
 			return errors.New("image release tag differs from its manifest")
 		}
-		detail, e := p.run(true, p.fj, "actions", "run-detail", strconv.FormatInt(builder.RunNumber, 10), "-r", repository)
+		detail, e := githubapi.RunDetail(repository, builder.RunID, func(args ...string) ([]byte, error) {
+			output, err := p.run(true, append([]string{"gh"}, args...)...)
+			return []byte(output), err
+		})
 		if e != nil {
 			return e
 		}
 		var run struct {
-			RunID            int64 `json:"run_id"`
+			RunID            int64  `json:"run_id"`
+			RunNumber        int64  `json:"run_number"`
+			HeadSHA          string `json:"head_sha"`
 			Workflow, Status string
 			Jobs             []struct {
 				ID           int64 `json:"id"`
@@ -297,10 +300,10 @@ func (p *promotion) acquireImage() error {
 				Attempt      int64 `json:"attempt"`
 			}
 		}
-		if e = json.Unmarshal([]byte(detail), &run, json.MatchCaseInsensitiveNames(true)); e != nil {
+		if e = json.Unmarshal(detail, &run, json.MatchCaseInsensitiveNames(true)); e != nil {
 			return e
 		}
-		if run.RunID != builder.RunID || run.Workflow != "image.yml" || run.Status != "success" {
+		if run.RunID != builder.RunID || run.RunNumber != builder.RunNumber || run.HeadSHA != m.SourceRevision || run.Workflow != "image.yml" || run.Status != "success" {
 			return errors.New("image.yml run did not succeed")
 		}
 		jobs := 0
@@ -316,7 +319,7 @@ func (p *promotion) acquireImage() error {
 			return errors.New("image job did not succeed on this attempt")
 		}
 		marker := fmt.Sprintf("TS_IMAGE_QUALIFICATION_V1 source_sha=%s run_id=%d run_number=%d job_id=%d attempt=%d image_sha256=%s kernel_sha256=%s provenance_sha256=%s tag=%s", m.SourceRevision, builder.RunID, builder.RunNumber, builder.JobID, builder.Attempt, m.Image.SHA256, m.Kernel.SHA256, sums[imageAssets[2]], tag)
-		logs, e := p.run(true, p.fj, "actions", "logs", strconv.FormatInt(builder.RunNumber, 10), "-r", repository)
+		logs, e := p.run(true, "gh", "api", "--hostname", "github.com", fmt.Sprintf("repos/%s/actions/jobs/%d/logs", repository, builder.JobID))
 		if e != nil {
 			return e
 		}
@@ -597,41 +600,16 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 		return e
 	}
 	o.Out = absoluteOut
-	work, e := os.MkdirTemp("", "ts-promote-")
+	p := &promotion{ctx: ctx, root: root, o: o, out: out}
+	gh, e := exec.LookPath("gh")
+	if e != nil {
+		return errors.New("gh is required on PATH")
+	}
+	digest, e := fileHash(gh)
 	if e != nil {
 		return e
 	}
-	defer os.RemoveAll(work)
-	p := &promotion{ctx: ctx, root: root, work: work, o: o, out: out}
-	fj := o.FJ
-	if fj == "" {
-		fj = os.Getenv("TS_FJ")
-	}
-	if fj == "" {
-		home, e := os.UserHomeDir()
-		if e != nil {
-			return e
-		}
-		fj = filepath.Join(home, ".local/share/terrascale-controller-bootstrap-20260927/fj-admission-pinned-7f44ff1a/bin/fj")
-	}
-	s, e := os.Stat(fj)
-	if e != nil || !s.Mode().IsRegular() || s.Mode().Perm()&0111 == 0 {
-		return fmt.Errorf("pinned fj not found: %s (--fj)", fj)
-	}
-	for _, command := range []string{"run-detail", "logs"} {
-		if _, e = Execute(ctx, "", nil, fj, "actions", command, "--help"); e != nil {
-			return fmt.Errorf("%s lacks the pinned `fj actions %s` extension", fj, command)
-		}
-	}
-	p.fj, e = filepath.Abs(fj)
-	if e != nil {
-		return e
-	}
-	digest, e := fileHash(p.fj)
-	if e != nil {
-		return e
-	}
-	tools := map[string]any{"fj": map[string]any{"path": p.fj, "sha256": digest}}
+	tools := map[string]any{"gh": map[string]any{"path": gh, "sha256": digest}}
 	p.receipt = map[string]any{"schema": "terrascale.image.promotion.v1", "dry_run": o.DryRun, "started_at": time.Now().UTC().Format(time.RFC3339), "environment": o.Environment, "tools": tools}
 	if o.Resume {
 		p.receipt["resumed"] = true
@@ -642,12 +620,6 @@ func Promote(ctx context.Context, root string, o PromotionOptions, out io.Writer
 			return e
 		}
 	} else if e = os.Mkdir(o.Out, 0755); e != nil {
-		return e
-	}
-	if e = os.Mkdir(filepath.Join(work, "bin"), 0755); e != nil {
-		return e
-	}
-	if e = os.Symlink(p.fj, filepath.Join(work, "bin/fj")); e != nil {
 		return e
 	}
 	virtCat, e := exec.LookPath("virt-cat")
@@ -860,7 +832,7 @@ func runPromotion(ctx context.Context, root string, args []string, out, stderr i
 	for _, f := range []struct {
 		p    *string
 		name string
-	}{{&o.ImageRelease, "image-release"}, {&o.ImageDir, "image-dir"}, {&o.Out, "out"}, {&o.Delegation, "delegation"}, {&o.ImageDelegation, "image-delegation"}, {&o.RootKey, "root-key"}, {&o.BinaryReceipt, "binary-receipt"}, {&o.SigningKey, "signing-key"}, {&o.CompartmentID, "compartment-id"}, {&o.Namespace, "namespace"}, {&o.Bucket, "bucket"}, {&o.DisplayName, "display-name"}, {&o.FJ, "fj"}, {&o.ReleaseTool, "release-tool"}} {
+	}{{&o.ImageRelease, "image-release"}, {&o.ImageDir, "image-dir"}, {&o.Out, "out"}, {&o.Delegation, "delegation"}, {&o.ImageDelegation, "image-delegation"}, {&o.RootKey, "root-key"}, {&o.BinaryReceipt, "binary-receipt"}, {&o.SigningKey, "signing-key"}, {&o.CompartmentID, "compartment-id"}, {&o.Namespace, "namespace"}, {&o.Bucket, "bucket"}, {&o.DisplayName, "display-name"}, {&o.ReleaseTool, "release-tool"}} {
 		fs.StringVar(f.p, f.name, "", f.name)
 	}
 	fs.StringVar(&o.Environment, "environment", "canary", "release environment")

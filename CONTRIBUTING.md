@@ -9,7 +9,7 @@ create Python operational scripts or a separate project for these features.
 
 Before adding automation, check whether a `ts-orch` command already provides
 the operation. Extend that command or its feature package when appropriate.
-Forgejo workflows and shell entry points should call the CLI; validation,
+GitHub workflows and shell entry points should call the CLI; validation,
 signing, provider operations, retry policy, and durable progress belong in Go.
 Thin wrappers may select tools or pass arguments, but must not duplicate the
 command's operational logic.

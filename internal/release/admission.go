@@ -21,7 +21,7 @@ var ErrInvalidQualification = errors.New("release qualification is invalid")
 
 // Qualification identifies a successful source check and the exact binary
 // assets retained by that check. The caller must independently verify the
-// Forgejo run result before treating this manifest as promotion authority.
+// GitHub run result before treating this manifest as promotion authority.
 type Qualification struct {
 	Schema         string              `json:"schema"`
 	Repository     string              `json:"repository"`
@@ -51,7 +51,7 @@ type QualifiedArtifact struct {
 
 // DecodeQualification rejects ambiguous JSON and returns the digest of the
 // exact retained manifest bytes. Its success field is only a claim until the
-// caller checks the Forgejo result independently.
+// caller checks the GitHub result independently.
 func DecodeQualification(wire []byte) (Qualification, string, error) {
 	var qualification Qualification
 	if err := protocol.DecodeStrict(wire, &qualification, MaxQualificationBytes); err != nil {

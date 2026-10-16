@@ -44,7 +44,7 @@ func configMembers(typ reflect.Type) []string {
 		for typ.Kind() == reflect.Pointer || typ.Kind() == reflect.Slice || typ.Kind() == reflect.Map {
 			typ = typ.Elem()
 		}
-		if typ.Kind() != reflect.Struct || !strings.HasPrefix(typ.PkgPath(), "git.terrascale.tech/") ||
+		if typ.Kind() != reflect.Struct || !strings.HasPrefix(typ.PkgPath(), "github.com/TerraScale/") ||
 			slices.Contains(stack, typ) {
 			return
 		}
@@ -72,7 +72,7 @@ func jsonShape(typ reflect.Type) string {
 	case reflect.Map:
 		return "map[" + jsonShape(typ.Key()) + "]" + jsonShape(typ.Elem())
 	}
-	if strings.HasPrefix(typ.PkgPath(), "git.terrascale.tech/") {
+	if strings.HasPrefix(typ.PkgPath(), "github.com/TerraScale/") {
 		return typ.Kind().String()
 	}
 	return typ.String()

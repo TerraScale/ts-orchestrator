@@ -32,7 +32,7 @@ through `ts-orch`; tests exercise those APIs or the CLI. Do not add Python test 
 **TerraScale Orchestrator**
 
 One Go executable for regional control, host convergence, signed artifact
-admission, and generic native-workload rollout. Forgejo Actions builds and
+admission, and generic native-workload rollout. GitHub Actions builds and
 tests repository source. Managed OCI placement can provision a host and
 retained volume and, after confirmed attachment, publish signed TerraBase
 desired state; it then holds at `awaiting-healthy` and never reports a serving
@@ -130,7 +130,7 @@ does not prove that CI independently reproduced the build.
 
 **Repository build**
 
-The Forgejo workflow checks the exact source revision, runs Go tests, vet, race
+The GitHub workflow checks the exact source revision, runs Go tests, vet, race
 checks, and builds static Linux amd64 and arm64 binaries. The current runner
 prints checksums but does not retain downloadable artifacts or sign a
 production release.

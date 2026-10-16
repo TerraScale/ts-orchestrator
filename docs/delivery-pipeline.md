@@ -1,5 +1,13 @@
 # Delivery pipeline
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 How a merged change reaches the servers: merge → CI → retained artifacts →
 image → OCI import → rollout. Every stage finds its input from the previous
 stage's retained record by source revision; nothing is copied by hand except
@@ -20,7 +28,7 @@ TerraBase main push ──► fast.yml: fast ∥ release ──► publish ─�
 
 ## Stages
 
-### 1. Orchestrator CI (`.forgejo/workflows/ci.yml`)
+### 1. Orchestrator CI (`.github/workflows/ci.yml`)
 
 Runs on every push to `main` or `develop`, including documentation-only
 changes. A newer push cancels a running check of the same
@@ -40,7 +48,7 @@ which deploys nothing. Running nodes take new binaries through self-update,
 so a code-only merge needs no image. Pull requests run the fast test tier (`-short`)
 and skip the admission client; pushes run every tier (CONTRIBUTING.md).
 
-### 2. TerraBase CI (`terrabase/.forgejo/workflows/fast.yml`)
+### 2. TerraBase CI (`terrabase/.github/workflows/fast.yml`)
 
 `fast` (format, Clippy, Fast suite) and `release` (static x86_64 and ARM64
 build, smoke run under qemu) run in parallel. On `main`, `release` retains
@@ -51,7 +59,7 @@ repository's `deploy/image/image-inputs.json` through
 `scripts/ci/pin-terrabase.sh`, a data-only commit to `main` that runs
 stage 1 and images the new pin.
 
-### 3. Image (`.forgejo/workflows/image.yml`, `deploy/image/`)
+### 3. Image (`.github/workflows/image.yml`, `deploy/image/`)
 
 `build-image.sh` checks out the named revision and reads every other input
 from `deploy/image/image-inputs.json`: the base QCOW2 retained once on
@@ -87,7 +95,7 @@ travels in the root-signed manifest and each instance verifies it before its
 controller starts. TerraBase binary updates do not need a new image: they
 roll out through the managed update path and signed desired state.
 
-### 6. Fleet deployment (`.forgejo/workflows/deploy.yml`)
+### 6. Fleet deployment (`.github/workflows/deploy.yml`)
 
 Every successful push to `main`, including documentation changes, dispatches
 deployment automatically. `ci.yml` dispatches it after the image dispatch; it waits for the
@@ -116,12 +124,12 @@ ts-orch image promote --image-release ... --out /tmp/promote-<sha>-import \
 ts-orch image promote ... --out /tmp/promote-<sha>-sign \
   --image-delegation image-delegation.json --signing-key leaf.pem
 
-# Pin a TerraBase release by hand (pinned fj on PATH).
+# Pin a TerraBase release by hand (standard gh on PATH).
 scripts/ci/pin-terrabase.sh ci-<terrabase sha>-run-<run id>
 ```
 
 To rebuild a named revision in CI, run the "Qualified GRU ARM64 image"
-workflow on `main` from the Forgejo Actions page with `source_revision` set;
+workflow on `main` from the GitHub Actions page with `source_revision` set;
 it needs no other input. `--sign-binary --signing-key leaf.pem` also signs the
 binary receipt when the candidate's CI release has none. Local builds are
 promoted with `--image-dir`.
@@ -139,7 +147,7 @@ promoted with `--image-dir`.
 | Binary update signing and region-by-region rollout | every green push to `main` | monthly root-signed update delegation |
 | TerraBase and ts-auth rollout to every region | their `main` CI `deploy` job ([automatic service releases](continuous-delivery.md#automatic-service-releases-ts-610)) | none |
 
-## Measured (Forgejo runs, 2026-09-29)
+## Historical measurements (Forgejo runs, 2026-09-29)
 
 | Stage | Before | After |
 | --- | --- | --- |

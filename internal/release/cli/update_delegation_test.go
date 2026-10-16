@@ -21,7 +21,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	delegationPath := filepath.Join(fixture.directory, "update-delegation.json")
 	delegationArgs := []string{"--subject-public-key", fixture.leafPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
-		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
+		"--service", "terrabase=https://github.com/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339), "--out", delegationPath}
 	tooLong := append([]string{}, delegationArgs...)
@@ -100,7 +100,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	}
 	// A checkout whose origin is a fork never proves lineage, even when
 	// every ancestry check would pass.
-	origin = "https://git.terrascale.tech/someone/ts-orchestrator.git\n"
+	origin = "https://github.com/someone/ts-orchestrator.git\n"
 	if err := c.signBinaryUpdateWith(rejected, check, inspect, git); !errors.Is(err, release.ErrLineage) {
 		t.Fatalf("a forked origin proved lineage: %v", err)
 	}
@@ -118,15 +118,15 @@ func TestPinnedLineageRemote(t *testing.T) {
 		"https://github.com/TerraScale/ts-orchestrator.git":             true,
 		"https://github.com/TerraScale/ts-orchestrator":                 true,
 		"ssh://git@github.com/TerraScale/ts-orchestrator.git":           true,
-		"ssh://git@git.terrascale.tech:2222/TerraScale/ts-orchestrator.git":      true,
-		"git@git.terrascale.tech:TerraScale/ts-orchestrator.git":                 true,
-		"https://git.terrascale.tech/someone/ts-orchestrator.git":                false,
-		"https://evil.example/TerraScale/ts-orchestrator.git":                    false,
+		"ssh://git@github.com:2222/TerraScale/ts-orchestrator.git":      true,
+		"git@github.com:TerraScale/ts-orchestrator.git":                 true,
+		"https://github.com/someone/ts-orchestrator.git":                false,
+		"https://evil.example/TerraScale/ts-orchestrator.git":           false,
 		"https://user:secret@github.com/TerraScale/ts-orchestrator.git": false,
 		"http://github.com/TerraScale/ts-orchestrator.git":              false,
-		"file:///srv/TerraScale/ts-orchestrator.git":                             false,
-		"/srv/checkout/TerraScale/ts-orchestrator":                               false,
-		"git@evil.example:TerraScale/ts-orchestrator.git":                        false,
+		"file:///srv/TerraScale/ts-orchestrator.git":                    false,
+		"/srv/checkout/TerraScale/ts-orchestrator":                      false,
+		"git@evil.example:TerraScale/ts-orchestrator.git":               false,
 		"": false,
 	} {
 		if got := pinnedLineageRemote(remote); got != want {
@@ -140,7 +140,7 @@ func TestSignUpdateDelegationRefusesTheRootAsLeaf(t *testing.T) {
 	c := command{ctx: context.Background(), output: os.Stdout}
 	args := []string{"--subject-public-key", fixture.rootPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
-		"--service", "terrabase=https://git.terrascale.tech/TerraScale/terrabase", "--arch", "amd64",
+		"--service", "terrabase=https://github.com/TerraScale/terrabase", "--arch", "amd64",
 		"--issued-at", fixture.now.Add(-time.Minute).Format(time.RFC3339),
 		"--expires-at", fixture.now.Add(24 * time.Hour).Format(time.RFC3339),
 		"--out", filepath.Join(fixture.directory, "root-leaf.json")}

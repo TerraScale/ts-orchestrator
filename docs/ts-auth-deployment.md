@@ -1,5 +1,13 @@
 # ts-auth deployment on gru-1
 
+GitHub migration status (2026-10-16): `TerraScale/terrabase`,
+`TerraScale/ts-auth` and `TerraScale/ts-libs` are not available through the
+current GitHub account (API returns 404). Fresh qualified service inputs and
+full E2E runs remain blocked until those repositories, pinned commits and
+release assets are available on GitHub. Commands below describe the target
+GitHub flow; they do not establish a successful deployment. Historical
+Forgejo evidence and signed records remain historical and must not be relabeled.
+
 The [zero-configuration contract](zero-configuration.md) is required production policy.
 Configuration fields, manual bootstrap paths and dated observations below are
 legacy implementation inventory, not feature/region activation or credential-copy
@@ -58,7 +66,7 @@ ts-auth CI publishes `ts-auth-linux-arm64` and `ts-auth-linux-arm64.sha256`
 (TS-488). `tsauth.VerifyRelease` checks them like a TerraBase release: the
 asset name (`ts-auth-linux-amd64` or `-arm64`), ELF magic, at most 512 MiB,
 and the single `sha256sum` line; that digest is admitted and pinned. The
-source claim is `https://git.terrascale.tech/TerraScale/ts-auth`, the commit
+source claim is `https://github.com/TerraScale/ts-auth`, the commit
 and the SHA-256 of `git archive --format=tar <commit>`.
 
 ### Signed configuration

@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-if [[ $* == *'rev-parse HEAD' ]]; then
-  printf '%s\n' '7f44ff1a1587a406b627ac45f0a2485b970c6379'
-fi

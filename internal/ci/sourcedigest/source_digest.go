@@ -24,6 +24,8 @@ import (
 )
 
 const Domain = "terrascale.terrabase.source-tree-sha256.v1\x00"
+
+// Repository is historical hash framing for the fixed CI #1004 audit reproduction; it is never fetched.
 const Repository = "https://git.terrascale.tech/TerraScale/TerraBase"
 const QualificationSHA256 = "8ae3133ab66b6b300e5ad2e34ca42a11b61cef580657715480e68362f4bc7b09"
 const ServerSHA256 = "bd940fe8055c61ea076e584b7d221c0f6b2c7dc1fee02232a82c476cb34ba81c"

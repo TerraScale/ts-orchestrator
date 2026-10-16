@@ -45,35 +45,38 @@ func TestPromotionCommand(t *testing.T) {
 		}
 	}
 	switch kind {
-	case "fj":
-		appendLog("fj-calls.log", strings.Join(args, " "))
-		if args[len(args)-1] == "--help" {
-			os.Exit(0)
-		}
+	case "gh":
+		appendLog("gh-calls.log", strings.Join(args, " "))
 		switch {
-		case slices.Equal(args[:3], []string{"release", "asset", "download"}):
-			source := filepath.Join(fixture, "releases", strings.ReplaceAll(args[4], "/", "_"), args[5], args[6])
+		case len(args) == 10 && args[9] == "--clobber" && slices.Equal(args[:2], []string{"release", "download"}):
+			source := filepath.Join(fixture, "releases", strings.ReplaceAll(args[4], "/", "_"), args[2], args[6])
 			b, err := os.ReadFile(source)
 			if err != nil {
-				fail("asset not found: " + args[5] + "/" + args[6])
+				fail("asset not found: " + args[2] + "/" + args[6])
 			}
 			if err := os.WriteFile(args[8], b, 0600); err != nil {
 				fail(err.Error())
 			}
-		case slices.Equal(args[:2], []string{"actions", "run-detail"}):
-			b, err := os.ReadFile(filepath.Join(fixture, "run-detail", args[2]+".json"))
+		case slices.Equal(args, []string{"api", "--hostname", "github.com", "repos/TerraScale/ts-orchestrator/actions/runs/11738"}):
+			b, err := os.ReadFile(filepath.Join(fixture, "run-detail/11738.json"))
 			if err != nil {
 				fail(err.Error())
 			}
 			fmt.Println(string(b))
-		case slices.Equal(args[:2], []string{"actions", "logs"}):
-			b, err := os.ReadFile(filepath.Join(fixture, "logs", args[2]+".txt"))
+		case slices.Equal(args, []string{"api", "--hostname", "github.com", "--paginate", "--slurp", "repos/TerraScale/ts-orchestrator/actions/runs/11738/attempts/1/jobs?per_page=100"}):
+			b, err := os.ReadFile(filepath.Join(fixture, "jobs/11738.json"))
+			if err != nil {
+				fail(err.Error())
+			}
+			fmt.Println(string(b))
+		case slices.Equal(args, []string{"api", "--hostname", "github.com", "repos/TerraScale/ts-orchestrator/actions/jobs/25300/logs"}):
+			b, err := os.ReadFile(filepath.Join(fixture, "logs/25300.txt"))
 			if err != nil {
 				fail(err.Error())
 			}
 			fmt.Println(string(b))
 		default:
-			fail(fmt.Sprintf("unexpected fj call: %q", args))
+			fail(fmt.Sprintf("unexpected gh call: %q", args))
 		}
 	case "release":
 		if args[0] != "release" {
@@ -108,7 +111,7 @@ func TestPromotionCommand(t *testing.T) {
 
 type promotionFixture struct {
 	t                                                  *testing.T
-	root, fixture, bin, fj, tool, trust, out, imageDir string
+	root, fixture, bin, gh, tool, trust, out, imageDir string
 	image, kernel                                      []byte
 	manifest                                           map[string]any
 	// oci is the stand-in OCI region the in-binary SDK importer talks to.
@@ -121,9 +124,9 @@ func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'
 func newPromotion(t *testing.T) *promotionFixture {
 	t.Helper()
 	dir := t.TempDir()
-	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), fj: filepath.Join(dir, "fj"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("final qcow2 bytes"), kernel: []byte("arm64 kernel")}
+	f := &promotionFixture{t: t, root: dir, fixture: filepath.Join(dir, "fixture"), bin: filepath.Join(dir, "bin"), gh: filepath.Join(dir, "bin", "gh"), tool: filepath.Join(dir, "ts-orch"), trust: filepath.Join(dir, "trust"), out: filepath.Join(dir, "promotion"), image: []byte("final qcow2 bytes"), kernel: []byte("arm64 kernel")}
 	exe := fakeToolBinary(t)
-	for path, kind := range map[string]string{f.fj: "fj", f.tool: "release"} {
+	for path, kind := range map[string]string{f.gh: "gh", f.tool: "release"} {
 		write(t, path, []byte("#!/bin/sh\nexec "+shellQuote(exe)+" -test.run=^TestPromotionCommand$ -- "+kind+" \"$@\"\n"), 0755)
 	}
 	// The promotion must never fall back to the Python OCI CLI.
@@ -159,17 +162,21 @@ func (f *promotionFixture) writeImage() {
 	}
 	f.imageDir = f.writeRelease(imageTag, map[string][]byte{"terrascale-gru-arm64.qcow2": f.image, "guest-kernel": f.kernel, "image-qualification.json": manifest, "SHA256SUMS": []byte(sums)})
 	marker := fmt.Sprintf("TS_IMAGE_QUALIFICATION_V1 source_sha=%s run_id=11738 run_number=713 job_id=25300 attempt=1 image_sha256=%s kernel_sha256=%s provenance_sha256=%s tag=%s", promoteSource, digest(f.image), digest(f.kernel), digest(manifest), imageTag)
-	write(f.t, filepath.Join(f.fixture, "logs/713.txt"), []byte("job_id=25300\n2026-09-29T16:00:00.1234567Z "+marker+"\n"), 0600)
+	write(f.t, filepath.Join(f.fixture, "logs/25300.txt"), []byte("job_id=25300\n2026-09-29T16:00:00.1234567Z "+marker+"\n"), 0600)
 }
 func (f *promotionFixture) writeRun(run, job string) {
-	write(f.t, filepath.Join(f.fixture, "run-detail/713.json"), jsonBytes(f.t, map[string]any{"run_id": 11738, "run_number": 713, "head_sha": promoteSource, "workflow": "image.yml", "status": run, "jobs": []any{map[string]any{"id": 25300, "run_id": 11738, "attempt": 1, "name": "build/qualified-gru-arm64-image", "status": job}}}), 0600)
+	write(f.t, filepath.Join(f.fixture, "run-detail/11738.json"), jsonBytes(f.t, map[string]any{
+		"id": 11738, "run_number": 713, "run_attempt": 1, "head_sha": promoteSource, "path": ".github/workflows/image.yml", "status": "completed", "conclusion": run,
+		"repository": map[string]any{"full_name": "TerraScale/ts-orchestrator"}, "head_repository": map[string]any{"full_name": "TerraScale/ts-orchestrator"},
+	}), 0600)
+	write(f.t, filepath.Join(f.fixture, "jobs/11738.json"), jsonBytes(f.t, []any{map[string]any{"jobs": []any{map[string]any{"id": 25300, "run_id": 11738, "run_attempt": 1, "name": "build/qualified-gru-arm64-image", "status": "completed", "conclusion": job}}}}), 0600)
 }
 func (f *promotionFixture) promote(image []string, env map[string]string, extra ...string) script.Result {
 	if image == nil {
 		image = []string{"--image-release", imageTag}
 	}
 	args := append([]string{"image", "promote"}, image...)
-	args = append(args, "--out", f.out, "--delegation", filepath.Join(f.trust, "delegation.json"), "--root-key", filepath.Join(f.trust, "root.pub"), "--fj", f.fj, "--release-tool", f.tool)
+	args = append(args, "--out", f.out, "--delegation", filepath.Join(f.trust, "delegation.json"), "--root-key", filepath.Join(f.trust, "root.pub"), "--release-tool", f.tool)
 	args = append(args, extra...)
 	environment := map[string]string{"PATH": f.bin + string(os.PathListSeparator) + os.Getenv("PATH"), "PROMOTE_FIXTURE": f.fixture, ociStandInEnv: f.oci.URL}
 	for k, v := range env {
@@ -283,7 +290,7 @@ func TestPromotionCIImageImportedSignedVerifiedAndReceipted(t *testing.T) {
 	equal(t, image["sha256"], digest(f.image))
 	equal(t, image["provenance"].(map[string]any)["release_tag"], imageTag)
 	equal(t, r["image_receipt"].(map[string]any)["image_ocid"], importedOCID)
-	equal(t, r["tools"].(map[string]any)["fj"].(map[string]any)["sha256"], digest(read(t, f.fj)))
+	equal(t, r["tools"].(map[string]any)["gh"].(map[string]any)["sha256"], digest(read(t, f.gh)))
 	equal(t, r["outcome"], "promotion complete")
 }
 func TestPromotionFirstRunWaitsForImageDelegation(t *testing.T) {
@@ -324,9 +331,17 @@ func TestPromotionRejectsInvalidEvidenceBeforeEffects(t *testing.T) {
 		env           map[string]string
 	}{
 		{"failed-run", "image.yml run did not succeed", func(f *promotionFixture) { f.writeRun("failure", "success") }, nil},
+		{"wrong-run-number", "image.yml run did not succeed", func(f *promotionFixture) {
+			path := filepath.Join(f.fixture, "run-detail/11738.json")
+			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), `"run_number":713`, `"run_number":714`, 1)), 0600)
+		}, nil},
+		{"wrong-run-source", "image.yml run did not succeed", func(f *promotionFixture) {
+			path := filepath.Join(f.fixture, "run-detail/11738.json")
+			write(f.t, path, []byte(strings.Replace(string(read(f.t, path)), promoteSource, strings.Repeat("b", 40), 1)), 0600)
+		}, nil},
 		{"failed-attempt", "image job did not succeed on this attempt", func(f *promotionFixture) { f.writeRun("success", "failure") }, nil},
 		{"missing-marker", "lacks one exact TS_IMAGE_QUALIFICATION_V1 marker", func(f *promotionFixture) {
-			write(f.t, filepath.Join(f.fixture, "logs/713.txt"), []byte("no marker\n"), 0600)
+			write(f.t, filepath.Join(f.fixture, "logs/25300.txt"), []byte("no marker\n"), 0600)
 		}, nil},
 		{"tampered-image", "image asset differs from SHA256SUMS: terrascale-gru-arm64.qcow2", func(f *promotionFixture) {
 			write(f.t, filepath.Join(f.imageDir, "terrascale-gru-arm64.qcow2"), []byte("tampered"), 0600)
@@ -363,8 +378,8 @@ func TestPromotionLocalImageWithoutCIEvidence(t *testing.T) {
 	f.manifest["builder"] = map[string]any{"kind": "local", "user": "operator", "host": "dev"}
 	f.writeImage()
 	successful(t, f.promote([]string{"--image-dir", f.imageDir}, nil, "--dry-run"))
-	for _, call := range f.lines("fj-calls.log") {
-		if strings.Contains(call, "actions run-detail 713") {
+	for _, call := range f.lines("gh-calls.log") {
+		if strings.Contains(call, "actions/runs/11738") {
 			t.Fatal("local image requested CI evidence")
 		}
 	}
@@ -379,12 +394,12 @@ func TestPromotionRequiresOCITargetsAndSigning(t *testing.T) {
 	equal(t, r.Code, 2)
 	contains(t, r.Stderr, "need --signing-key")
 }
-func TestPromotionRejectsUnpinnedForgejo(t *testing.T) {
+func TestPromotionReportsGitHubDownloadFailure(t *testing.T) {
 	f := newPromotion(t)
-	write(t, f.fj, []byte("#!/bin/sh\nexit 1\n"), 0755)
+	write(t, f.gh, []byte("#!/bin/sh\nexit 1\n"), 0755)
 	r := f.promote(nil, nil, "--dry-run")
 	equal(t, r.Code, 1)
-	contains(t, r.Stderr, "lacks the pinned `fj actions run-detail` extension")
+	contains(t, r.Stderr, "gh release download failed")
 }
 
 func promotionBuild(t *testing.T, unified bool, revision string, modified, failure bool) (string, map[string]any) {
@@ -517,7 +532,7 @@ func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
 	successful(t, f.promote(nil, nil, f.importArgs()...))
 	large := []string{" terrascale-gru-arm64.qcow2 ", " base-image.qcow2 ", " terrascale-orchestrator-linux-arm64 "}
 	for _, asset := range large {
-		equal(t, f.countCalls("fj-calls.log", asset), 1)
+		equal(t, f.countCalls("gh-calls.log", asset), 1)
 	}
 	f.imported(1)
 	requests := len(f.oci.Requests())
@@ -528,7 +543,7 @@ func TestPromotionResumeReusesVerifiedWork(t *testing.T) {
 	r = f.promote(nil, nil, append(f.realArgs(), "--resume")...)
 	successful(t, r)
 	for _, asset := range large {
-		equal(t, f.countCalls("fj-calls.log", asset), 1)
+		equal(t, f.countCalls("gh-calls.log", asset), 1)
 	}
 	f.imported(1)
 	// The resumed promotion reused the recorded import without touching OCI.
@@ -546,8 +561,8 @@ func TestPromotionResumeRefetchesChangedAssetsAndRefusesOtherImages(t *testing.T
 	successful(t, f.promote(nil, nil, f.importArgs()...))
 	write(t, filepath.Join(f.out, "base-image.qcow2"), []byte("corrupted"), 0600)
 	successful(t, f.promote(nil, nil, append(f.realArgs(), "--resume")...))
-	equal(t, f.countCalls("fj-calls.log", " base-image.qcow2 "), 2)
-	equal(t, f.countCalls("fj-calls.log", " terrascale-gru-arm64.qcow2 "), 1)
+	equal(t, f.countCalls("gh-calls.log", " base-image.qcow2 "), 2)
+	equal(t, f.countCalls("gh-calls.log", " terrascale-gru-arm64.qcow2 "), 1)
 
 	state := filepath.Join(f.out, "promotion-state.json")
 	write(t, state, []byte(`{"image_release":"image-`+strings.Repeat("1", 40)+`-run-1-attempt-1","schema":"terrascale.image.promotion-state.v1"}`), 0600)

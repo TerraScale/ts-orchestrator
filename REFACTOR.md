@@ -576,11 +576,15 @@ risk-based source review, not exhaustive inspection of every file or live proof.
 
 ### Must fix before claiming the first milestone
 
-1. **GitHub must produce deployable releases.** `.forgejo/workflows/` and
-   `internal/release/cli/admission.go` still require the old provider; GitHub
-   currently has no Actions workflows. Migrate producers, exact-run/job and
-   source lineage validators, SDK fetching, and consumers together. Otherwise
-   a GitHub checkout cannot qualify, fetch, and deploy its own release.
+1. **Qualify GitHub release continuity.** The reviewed baseline had no GitHub
+   workflows. This change migrates all seven workflows to hosted Actions, SDK
+   fetching and the Go module to GitHub, and producers/consumers to native `gh`.
+   Exact run ID/number, attempt, job, source, manifest and lineage checks remain.
+   GitHub CI results still need to establish the new pipeline. Old standalone
+   TerraBase, ts-auth and ts-libs repositories/qualified releases return 404 to
+   the current account; agree their current source/artifact contract before
+   generating fresh GitHub qualifications. Never relabel old signatures or
+   run IDs. [Migration status](docs/github-migration.md) records remaining gates.
 2. **NetBird must bootstrap and recover independently.** The manager installer
    and `setup-owner.sh` require ts-ops; `netbirdManagementLoop` also requires
    explicit PAT/peer-map inputs. Replace these assumptions with the foundation

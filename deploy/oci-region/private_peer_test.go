@@ -116,7 +116,7 @@ func ppNew(t *testing.T) *ppFixture {
 		script.Write(t, paths[0], ppJSON(t, p), 0600)
 		f.plans[cell] = p
 		f.paths[cell] = paths
-		existing := ppMap(p["existing_forgejo"])
+		existing := ppMap(p["existing_operations_host"])
 		shared := p["shared_compartment_id"]
 		resources := []any{}
 		for _, kind := range []string{"instance", "boot-volume", "volume", "public-ip", "internet-gateway"} {

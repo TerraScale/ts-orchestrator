@@ -300,7 +300,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 	if !valid || age < -30*time.Second || age > time.Duration(maxAge*float64(time.Minute)) {
 		fail("inventory is stale or has an invalid timestamp")
 	}
-	existing := obj(plan["existing_forgejo"])
+	existing := obj(plan["existing_operations_host"])
 	resources := inventory["resources"]
 	for _, pair := range [][2]string{{"instance", "instance_id"}, {"boot-volume", "boot_volume_id"}, {"volume", "data_volume_id"}} {
 		matches := []any{}
@@ -310,7 +310,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 			}
 		}
 		if len(matches) != 1 || obj(matches[0])["compartment-id"] != plan["shared_compartment_id"] {
-			fail("existing Forgejo " + pair[0] + " identity changed")
+			fail("existing operations host " + pair[0] + " identity changed")
 		}
 	}
 	instances := active(resources, "instance")
@@ -343,9 +343,9 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		m := obj(v)
 		shape := obj(m["shape-config"])
 		if m["id"] == existing["instance_id"] {
-			// The plan's dimensions bound Forgejo's share of the estimate.
+			// The plan's dimensions bound the operations host's share of the estimate.
 			if m["shape"] != "VM.Standard.A1.Flex" || number(shape["ocpus"]) > number(existing["expected_ocpus"]) || number(shape["memory-in-gbs"]) > number(existing["expected_memory_gb"]) {
-				fail("Forgejo A1 dimensions exceed the plan")
+				fail("operations host A1 dimensions exceed the plan")
 			}
 			continue
 		}
@@ -422,7 +422,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 		}
 	}
 	if len(public) != 1 || !public[text(existing["public_ip_id"])] {
-		fail("public IP inventory differs from the unrelated Forgejo baseline")
+		fail("public IP inventory differs from the unrelated operations host baseline")
 	}
 	if greater(backupSize, obj(plan["budget"])["snapshot_gb_max"]) {
 		fail("retained volume backups exceed the 350 GB reserve")
@@ -434,7 +434,7 @@ func (e *Engine) verifyInventory(plan, inventory Object, path string, now time.T
 	verifyGateways(plan, resources, ids)
 }
 func verifyGateways(plan Object, resources any, preview Object) {
-	existing, ids := obj(plan["existing_forgejo"]), obj(plan["resource_ids"])
+	existing, ids := obj(plan["existing_operations_host"]), obj(plan["resource_ids"])
 	expected := map[string][]any{"internet-gateway": {[]any{existing["internet_gateway_id"], plan["shared_compartment_id"], existing["vcn_id"]}}, "network-load-balancer": {}, "local-peering-gateway": {}}
 	if plan["public_api"] != nil {
 		if ids["internet_gateway"] != nil {
@@ -451,7 +451,7 @@ func verifyGateways(plan Object, resources any, preview Object) {
 	if ids["local_peering_gateway"] != nil {
 		expected["local-peering-gateway"] = append(expected["local-peering-gateway"], []any{ids["local_peering_gateway"], preview["network"], ids["vcn"]})
 	}
-	errors := map[string]string{"internet-gateway": "internet gateway inventory differs from the Forgejo and public API baseline", "network-load-balancer": "network load balancer inventory differs from the recorded public API balancer", "local-peering-gateway": "local peering gateway inventory differs from the recorded operator gateway pair"}
+	errors := map[string]string{"internet-gateway": "internet gateway inventory differs from the operations host and public API baseline", "network-load-balancer": "network load balancer inventory differs from the recorded public API balancer", "local-peering-gateway": "local peering gateway inventory differs from the recorded operator gateway pair"}
 	for kind, want := range expected {
 		seen := map[string]bool{}
 		field := "vcn-id"
@@ -503,9 +503,9 @@ func (e *Engine) estimate(plan, inventory Object, path string, now time.Time, ma
 	rates := obj(budget["rates"])
 	hours := budget["month_hours"]
 	// Always Free covers A1 compute and block storage in the home region
-	// only, beside Forgejo: another region's hosts pay for all of theirs.
-	forgejo := obj(plan["existing_forgejo"])
-	ocpus, memory, storage := add(forgejo["expected_ocpus"]), add(forgejo["expected_memory_gb"]), add(50, forgejo["expected_volume_gb"])
+	// only, beside the operations host: another region's hosts pay for all of theirs.
+	operationsHost := obj(plan["existing_operations_host"])
+	ocpus, memory, storage := add(operationsHost["expected_ocpus"]), add(operationsHost["expected_memory_gb"]), add(50, operationsHost["expected_volume_gb"])
 	hostOCPUs, hostMemory, hostStorage := add(0), add(0), add(0)
 	for _, v := range arr(plan["hosts"]) {
 		h := obj(v)

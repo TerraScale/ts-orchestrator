@@ -50,7 +50,7 @@ chunk sequence and size, and both object and signed digests before the
 controller caches bytes for host delivery; it reads chunk messages directly
 without creating a JetStream consumer.
 
-Forgejo Actions builds and tests repository source. The control plane owns
+GitHub Actions builds and tests repository source. The control plane owns
 admission of signed immutable artifacts and rollout authority. Artifact
 admission records verified content metadata outside the authority log; it does
 not grant mutation authority. Before deployment, the controller rechecks the

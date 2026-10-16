@@ -15,58 +15,48 @@ on:
 # A newer push supersedes a running check of the same branch. On main the
 # newer revision contains the older one and becomes the candidate.
 concurrency:
-  group: ts-orchestrator-${{ forgejo.workflow }}-${{ forgejo.ref }}
+  group: ts-orchestrator-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   # TS-795 switch guard: fails when the change adds an on/off setting.
-  # Same text in every repo; ts-builder's scripts/bump-ci-ref.sh moves the pinned ref.
+  # Policy is vendored so fork PRs require no external credentials.
   guard:
-    runs-on: terrascale-builder
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: https://git.terrascale.tech
-          ref: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          github-server-url: https://git.terrascale.tech
-          repository: TerraScale/ts-builder
-          ref: 8dacab451c3c16924622ff512d7aa17501b70ecc # guard ref
-          path: .zero-config-policy
-          token: ${{ secrets.TERRASCALE_BOT_TOKEN }}
-          persist-credentials: false
       - env:
-          ZERO_CONFIG_BASE: ${{ forgejo.event.pull_request.base.sha || forgejo.event.before }}
-          ZERO_CONFIG_HEAD: ${{ forgejo.event.pull_request.head.sha || forgejo.sha }}
+          ZERO_CONFIG_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          ZERO_CONFIG_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -eu
-          if [ -z "$ZERO_CONFIG_BASE" ]; then
+          if [ -z "$ZERO_CONFIG_BASE" ] || [ "$ZERO_CONFIG_BASE" = "0000000000000000000000000000000000000000" ]; then
             ZERO_CONFIG_BASE=$(git rev-parse "$ZERO_CONFIG_HEAD^")
           fi
-          python3 .zero-config-policy/scripts/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
+          python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
 
   build:
+    permissions:
+      contents: write
+      actions: write
+      statuses: write
     needs: [guard]
     name: verify/go + artifact/linux-amd64-arm64
-    runs-on: terrascale-builder
-    container:
-      # Process labs and bounded log collectors must meet real lease/cleanup
-      # deadlines even when Rust jobs saturate the shared Docker disk. This
-      # per-job scratch mount retains files across child-process restarts;
-      # dependency/build caches and published binaries remain persistent.
-      # --init reaps the orphans that killed test shards and their helper
-      # processes leave behind, instead of tail as PID 1.
-      options: --init --tmpfs /tmp:rw,exec,nosuid,nodev,size=8g
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
-      SOURCE_SHA: ${{ forgejo.sha }}
-      # Persist dependency, build and test-result caches in the runner mount.
-      GOCACHE: /cache/go/build
-      GOMODCACHE: /cache/go/mod
+      SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       # Bound nested parallelism: make, Go packages and race shards
       # otherwise each try to use every CPU on the shared builder.
       GOFLAGS: -p=4
@@ -77,13 +67,21 @@ jobs:
       # Pull requests run the fast tier (go test -short); pushes run every
       # tier-gated test and the fixturetest build. Images are built only
       # from main pushes, so the full tier still gates every image.
-      TS_TEST_TIER: ${{ forgejo.event_name == 'pull_request' && 'pr' || 'full' }}
+      TS_TEST_TIER: ${{ github.event_name == 'pull_request' && 'pr' || 'full' }}
     steps:
       - name: Check out the exact source revision
-        uses: https://data.forgejo.org/actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          github-server-url: "https://git.terrascale.tech"
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+
+      - name: Install the pinned Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.1'
+          cache-dependency-path: |
+            go.sum
+            e2e/go.sum
 
       - name: Verify the source revision and Go toolchain
         shell: bash
@@ -97,7 +95,6 @@ jobs:
           mkdir -p "$(go env GOCACHE)" "$(go env GOMODCACHE)"
           test -w "$(go env GOCACHE)"
           test -w "$(go env GOMODCACHE)"
-          test "$(stat -f -c %T /tmp)" = tmpfs
           df -h /tmp
           printf 'gocache=%s gomodcache=%s goflags=%s gomaxprocs=%s cpus=%s\n' \
             "$(go env GOCACHE)" "$(go env GOMODCACHE)" "$(go env GOFLAGS)" "${GOMAXPROCS}" "$(nproc)"
@@ -113,6 +110,9 @@ jobs:
       # Go's test cache keys the repository files a test reads on size and
       # modification time. Content-derived times let tests whose inputs did
       # not change hit the persistent cache after this fresh checkout.
+      - name: Install shell validation tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
       - name: Stamp tracked files with content-derived times
         shell: bash
         run: go run ./scripts/ci/stablemtime
@@ -120,39 +120,26 @@ jobs:
       - name: Check, test and build static binaries in parallel
         shell: bash
         run: make ci-verify GO=go GOFMT=gofmt
-
-      # Only the retain step uses the admission client; pull requests skip both.
-      - name: Prepare pinned Forgejo admission client
-        if: ${{ forgejo.event_name != 'pull_request' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          export TS_FJ_ADMISSION_CACHE_DIR="${TS_FJ_ADMISSION_CACHE_DIR-/cache/ts-orchestrator/fj-admission}"
-          bash scripts/ci/prepare-fj-admission.sh "${RUNNER_TEMP}/fj-admission-bin"
-          printf '%s\n' "${RUNNER_TEMP}/fj-admission-bin" >> "${GITHUB_PATH}"
-
       - name: Retain verified binaries and qualification manifest
-        if: ${{ forgejo.event_name != 'pull_request' }}
+        if: ${{ github.event_name != 'pull_request' }}
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
-          FORGEJO_READ_TOKEN: ${{ secrets.TS_DEPLOY_READ_TOKEN }}
-          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ github.token }}
         run: bash scripts/ci/publish-qualification.sh
 
 
       # Deployment failure must not erase the time this build became qualified.
       - name: Record the qualified main build for the deployment-lag guard
-        if: forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ forgejo.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          curl -fsS --connect-timeout 10 --max-time 30 -o /dev/null \
-            -H "Authorization: token ${FORGEJO_TOKEN}" -H 'Content-Type: application/json' \
-            --data '{"state":"success","context":"deployment/qualified","description":"Verified main build ready for automatic deployment"}' \
-            "https://git.terrascale.tech/api/v1/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            -f state=success -f context=deployment/qualified \
+            -f description='Verified main build ready for automatic deployment'
       # Last, after the release is retained, so the image job never holds a
       # builder slot while it waits for these checks; it still confirms this
       # run succeeded and skips itself if it did not. The run's own result
@@ -161,20 +148,18 @@ jobs:
       # change to an image input (scripts/ci/image-inputs-changed.sh) or the
       # weekly schedule starts a build.
       - name: Start the image build for this revision
-        if: ${{ forgejo.event_name != 'pull_request' && forgejo.ref == 'refs/heads/main' }}
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         continue-on-error: true
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
-          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh
 
       # Every successful main push starts fleet deployment after retention.
       # Dispatch failure must be visible in CI.
       - name: Start the fleet deployment for this revision
-        if: ${{ forgejo.event_name == 'push' && forgejo.ref == 'refs/heads/main' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         shell: bash
         env:
-          FORGEJO_TOKEN: ${{ github.token }}
-          FORGEJO_SERVER_URL: ${{ github.server_url }}
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/ci/dispatch-image.sh deploy.yml

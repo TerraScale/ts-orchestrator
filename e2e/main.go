@@ -139,7 +139,7 @@ func redact(message string, e *environment) string {
 			}
 		}
 	}
-	for _, name := range []string{"E2E_FORGEJO_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY"} {
+	for _, name := range []string{"E2E_GITHUB_TOKEN", "TERRABASE_TOKEN", "E2E_MANAGEMENT_CREDENTIAL", "E2E_API_KEY"} {
 		if s := os.Getenv(name); s != "" {
 			message = strings.ReplaceAll(message, s, "[redacted]")
 		}

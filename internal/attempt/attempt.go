@@ -23,19 +23,20 @@ import (
 	"strings"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/githubapi"
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrap"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/bootstrapstart"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/naming"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/oci"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/terrabase"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/tsauth"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/terrabase"
+	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 )
 
 const OperatorCLI = "terrascale-orchestrator-linux-amd64"
@@ -135,7 +136,7 @@ func New(ctx context.Context, configPath string, out, errOut io.Writer) (*Attemp
 		}
 		env = append(env, k+"="+v)
 	}
-	set("PATH", strings.Join([]string{str(tools, "fj_dir"), str(tools, "guestfs_tools_dir"), str(tools, "libguestfs_dir"), os.Getenv("PATH")}, ":"))
+	set("PATH", strings.Join([]string{str(tools, "guestfs_tools_dir"), str(tools, "libguestfs_dir"), os.Getenv("PATH")}, ":"))
 	set("LIBGUESTFS_PATH", str(tools, "libguestfs_appliance"))
 	a := &Attempt{Config: c, Work: work, Deployment: str(c, "deployment_id"), Prefix: str(c, "prefix"), Env: env, Executable: executable, Now: time.Now, Out: out, ErrOut: errOut, ctx: ctx}
 	a.Sleep = func(ctx context.Context, d time.Duration) error {
@@ -569,24 +570,33 @@ func (a *Attempt) validFor() string { return text(num(a.Config["validity_days"])
 func (a *Attempt) PhaseRelease() {
 	orch := object(a.Config["orchestrator"])
 	revision, runNumber := str(orch, "source_revision"), text(orch["ci_run_number"])
+	runID, err := strconv.ParseInt(text(orch["ci_run_id"]), 10, 64)
+	if err != nil || runID <= 0 {
+		a.fail(fmt.Errorf("attempt config needs a positive orchestrator ci_run_id"))
+		return
+	}
 	release := a.Path("release")
 	a.mkdir(release)
-	s := a.capture("fj", "actions", "run-detail", runNumber, "-r", "TerraScale/ts-orchestrator")
+	s, err := githubapi.RunDetail("TerraScale/ts-orchestrator", runID, func(args ...string) ([]byte, error) {
+		output := a.capture(append([]string{"gh"}, args...)...)
+		return []byte(output), a.err
+	})
+	a.fail(err)
 	var detail Object
 	if a.err == nil {
-		a.fail(json.Unmarshal([]byte(s), &detail))
+		a.fail(json.Unmarshal(s, &detail))
 	}
 	if a.err != nil {
 		return
 	}
-	if detail["head_sha"] != revision || detail["status"] != "success" {
+	if detail["head_sha"] != revision || detail["status"] != "success" || text(detail["run_number"]) != runNumber {
 		a.fail(fmt.Errorf("CI run %s is not a successful run of %s", runNumber, revision))
 		return
 	}
 	tag := "ci-" + revision + "-run-" + text(detail["run_id"])
 	for _, asset := range []string{"qualification.json", "terrascale-orchestrator-linux-arm64", OperatorCLI} {
 		if !exists(filepath.Join(release, asset)) {
-			a.run("fj", "release", "asset", "download", "-r", "TerraScale/ts-orchestrator", tag, asset, "-o", filepath.Join(release, asset))
+			a.run("gh", "release", "download", tag, "--repo", "TerraScale/ts-orchestrator", "--pattern", asset, "--output", filepath.Join(release, asset))
 		}
 	}
 	issued, expires := a.validity()
@@ -1333,7 +1343,7 @@ func (a *Attempt) PhaseTerraBase() {
 	checksum := binary + ".sha256"
 	for _, asset := range []string{binary, checksum} {
 		if !exists(asset) {
-			a.run("fj", "release", "asset", "download", "-r", "TerraScale/terrabase", tag, filepath.Base(asset), "-o", asset)
+			a.run("gh", "release", "download", tag, "--repo", "TerraScale/terrabase", "--pattern", filepath.Base(asset), "--output", asset)
 		}
 	}
 	if a.err != nil {

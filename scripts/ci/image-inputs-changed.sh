@@ -14,24 +14,18 @@ unchanged=3
 
 # Everything an image bakes in besides the binary: the pinned base and
 # inputs, the units and udev rules it installs, and the code that builds it.
-inputs=(deploy/image deploy/systemd deploy/udev internal/image internal/netbird/client .forgejo/workflows/image.yml)
+inputs=(deploy/image deploy/systemd deploy/udev internal/image internal/netbird/client .github/workflows/image.yml)
 
-: "${FORGEJO_TOKEN:?Forgejo Actions token is required}"
-: "${FORGEJO_SERVER_URL:?Forgejo server URL is required}"
-[[ ${GITHUB_SHA:-} =~ ^[0-9a-f]{40}$ ]] || { echo 'Forgejo source SHA is required' >&2; exit 0; }
+: "${GH_TOKEN:?GitHub Actions token is required}"
+export GH_HOST=github.com
+[[ ${GITHUB_SHA:-} =~ ^[0-9a-f]{40}$ ]] || { echo 'GitHub source SHA is required' >&2; exit 0; }
 repository=TerraScale/ts-orchestrator
-
-umask 077
-header=$(mktemp)
-trap 'rm -f -- "$header"' EXIT
-printf 'Authorization: token %s\n' "$FORGEJO_TOKEN" > "$header"
 
 # Releases list newest first; ci-<sha> releases outnumber image releases.
 base=
 page_size=50
 for page in {1..10}; do
-	if ! releases=$(curl --silent --show-error --fail --max-time 30 -H "@$header" \
-		"$FORGEJO_SERVER_URL/api/v1/repos/$repository/releases?limit=$page_size&page=$page"); then
+	if ! releases=$(timeout 30 gh api "repos/$repository/releases?per_page=$page_size&page=$page"); then
 		echo 'image releases are unreadable; building the image' >&2
 		exit 0
 	fi
@@ -42,7 +36,7 @@ done
 [[ -n $base ]] || { echo 'no image release found; building the image'; exit 0; }
 
 # Both trees are fetched one level deep; diffing two trees needs no history.
-auth=$(printf 'x-access-token:%s' "$FORGEJO_TOKEN" | base64 -w 0)
+auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)
 if ! GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraHeader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
 	timeout 120 git fetch --quiet --no-tags --depth=1 origin "$base"; then
 	echo "image release source $base is unreadable; building the image" >&2

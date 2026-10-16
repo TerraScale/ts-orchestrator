@@ -99,7 +99,7 @@ replicas can bias fractions; no-data is never evidence of health.
 ## Validate and enable in a follow-up slice
 
 1. Run the evaluations with the pinned Prometheus 3.15.0 `promtool` (archive
-   SHA-256 is pinned in [the workflow](../../.forgejo/workflows/slo.yml)):
+   SHA-256 is pinned in [the workflow](../../.github/workflows/slo.yml)):
 
    ```sh
    TS_SLO_PROMTOOL=/absolute/path/to/promtool GOMAXPROCS=2 GOFLAGS=-p=2 \

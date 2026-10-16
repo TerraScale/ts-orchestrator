@@ -19,15 +19,16 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/githubapi"
 	staged "github.com/TerraScale/ts-orchestrator/internal/rollout"
 )
 
 const (
-	terrabaseForgejoRepo = "TerraScale/TerraBase"
-	terrabaseSourceRepo  = "https://git.terrascale.tech/TerraScale/TerraBase"
-	cdActiveFile         = "cd-active.json"
-	cdBlockedFile        = "cd-blocked.json"
-	cdTransientFile      = "cd-transient.json"
+	terrabaseGitHubRepo = "TerraScale/TerraBase"
+	terrabaseSourceRepo = "https://github.com/TerraScale/TerraBase"
+	cdActiveFile        = "cd-active.json"
+	cdBlockedFile       = "cd-blocked.json"
+	cdTransientFile     = "cd-transient.json"
 )
 
 // cdRetryPolicy bounds how a sync run treats transient rollout failures:
@@ -113,7 +114,7 @@ func runTerraBaseSync(ctx context.Context, args []string, output io.Writer) erro
 type cdRunCommand func(context.Context, string, ...string) ([]byte, error)
 
 // Bound subprocess output too: a broken CLI or huge job log cannot exhaust
-// the operator. Private credentials stay in fj's profile, never arguments.
+// the operator. Private credentials stay in GitHub CLI authentication, never arguments.
 type cdCommandOutput struct{ buffer bytes.Buffer }
 
 func (out *cdCommandOutput) Write(data []byte) (int, error) {
@@ -195,8 +196,8 @@ func syncTerraBaseWithPolicy(ctx context.Context, statePath, checkout string, ru
 		return err
 	}
 	if url := strings.TrimSpace(string(origin)); !strings.EqualFold(url, terrabaseSourceRepo+".git") &&
-		!strings.EqualFold(url, "ssh://git@git.terrascale.tech/TerraScale/TerraBase.git") &&
-		!strings.EqualFold(url, "git@git.terrascale.tech:TerraScale/TerraBase.git") {
+		!strings.EqualFold(url, "ssh://git@github.com/TerraScale/TerraBase.git") &&
+		!strings.EqualFold(url, "git@github.com:TerraScale/TerraBase.git") {
 		return errors.New("TerraBase checkout origin differs from the reviewed repository")
 	}
 	if _, err := run(ctx, "git", "-C", checkout, "fetch", "origin", "main:refs/remotes/origin/main"); err != nil {
@@ -230,8 +231,8 @@ func syncTerraBaseWithPolicy(ctx context.Context, statePath, checkout string, ru
 	files := terrabaseReleaseFiles{Qualification: filepath.Join(directory, "qualification.json"),
 		Binary: filepath.Join(directory, terrabaseServerArtifact), SourceDigest: filepath.Join(directory, "source-digest.json")}
 	download := func(path string) error {
-		if _, err := run(ctx, "fj", "release", "asset", "download", "-H", "https://git.terrascale.tech",
-			"-r", terrabaseForgejoRepo, candidate.Tag, filepath.Base(path), "-o", path); err != nil {
+		if _, err := run(ctx, "gh", "release", "download", candidate.Tag, "--repo", terrabaseGitHubRepo,
+			"--pattern", filepath.Base(path), "--output", path); err != nil {
 			return fmt.Errorf("download %s for %s: %w", filepath.Base(path), candidate.Tag, err)
 		}
 		return nil
@@ -406,20 +407,24 @@ func cdBaseline(state deployState) (string, uint64, error) {
 }
 
 func discoverTerraBase(ctx context.Context, checkout, baseline string, run cdRunCommand) (terrabaseCDCandidate, error) {
-	listing, err := run(ctx, "fj", "release", "list", "-H", "https://git.terrascale.tech", "-r", terrabaseForgejoRepo, "--include-prerelease")
+	listing, err := run(ctx, "gh", "release", "list", "--repo", terrabaseGitHubRepo, "--json", "tagName,isDraft,isPrerelease", "--limit", "100")
 	if err != nil {
 		return terrabaseCDCandidate{}, err
 	}
+	var releases []struct {
+		TagName      string `json:"tagName"`
+		IsDraft      bool   `json:"isDraft"`
+		IsPrerelease bool   `json:"isPrerelease"`
+	}
+	if err := json.Unmarshal(listing, &releases); err != nil {
+		return terrabaseCDCandidate{}, err
+	}
 	var selected terrabaseCDCandidate
-	// fj wraps names in Unicode isolation marks even in minimal style. Parse
-	// complete ci tag tokens only, never descriptions or shell commands.
-	listingText := strings.NewReplacer("\u2068", "", "\u2069", "").Replace(string(listing))
-	for line := range strings.SplitSeq(listingText, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 0 {
+	for _, release := range releases {
+		if release.IsDraft {
 			continue
 		}
-		match := cdTagPattern.FindStringSubmatch(fields[0])
+		match := cdTagPattern.FindStringSubmatch(release.TagName)
 		if match == nil || match[1] == baseline {
 			continue
 		}
@@ -472,17 +477,20 @@ func cdVerifyPublication(ctx context.Context, path string, candidate terrabaseCD
 			Workflow  string `json:"workflow"`
 			Job       string `json:"job"`
 			RunNumber uint64 `json:"run_number"`
+			RunID     uint64 `json:"run_id"`
 		} `json:"verification"`
 	}
 	if err := json.Unmarshal(wire, &qualification); err != nil {
 		return err
 	}
 	if qualification.Repository != "TerraScale/TerraBase" || qualification.Verification.Workflow != "fast.yml" ||
-		qualification.Verification.Job != "fast" || qualification.Verification.RunNumber == 0 {
+		qualification.Verification.Job != "fast" || qualification.Verification.RunNumber == 0 ||
+		qualification.Verification.RunID != candidate.RunID {
 		return errors.New("automatic TerraBase delivery requires a Fast-qualified publication")
 	}
-	detailWire, err := run(ctx, "fj", "actions", "run-detail", strconv.FormatUint(qualification.Verification.RunNumber, 10),
-		"-H", "https://git.terrascale.tech", "-r", terrabaseForgejoRepo)
+	detailWire, err := githubapi.RunDetail(terrabaseGitHubRepo, int64(candidate.RunID), func(args ...string) ([]byte, error) {
+		return run(ctx, "gh", args...)
+	})
 	if err != nil {
 		return err
 	}
@@ -521,7 +529,7 @@ func cdVerifyPublication(ctx context.Context, path string, candidate terrabaseCD
 	if fast != 1 || publish != 1 {
 		return errors.New("TerraBase publication lacks exactly one successful Fast and publish job")
 	}
-	logs, err := run(ctx, "fj", "actions", "job-logs", strconv.FormatUint(publishID, 10), "-H", "https://git.terrascale.tech", "-r", terrabaseForgejoRepo)
+	logs, err := run(ctx, "gh", "api", "--hostname", "github.com", fmt.Sprintf("repos/%s/actions/jobs/%d/logs", terrabaseGitHubRepo, publishID))
 	if err != nil {
 		return err
 	}

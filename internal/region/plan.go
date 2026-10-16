@@ -39,7 +39,7 @@ func Network(cell string) (string, error) {
 }
 
 // Derive returns label's plan in ociRegion from a reviewed plan of another
-// non-home region. The template's tenancy, shared compartments, Forgejo,
+// non-home region. The template's tenancy, shared compartments, operations host,
 // origin-pull trust, host sizes and budget stay. Names, addresses, the
 // region, its availability domain and its service gateway change, and
 // every resource ID is unbound: ts-orch oci-region foundation binds them.

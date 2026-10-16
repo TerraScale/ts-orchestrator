@@ -12,51 +12,51 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
-func TestForgejoDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
+func TestGitHubDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
 	qualification, _, err := release.DecodeQualification(testQualificationBytes())
 	if err != nil {
 		t.Fatal(err)
 	}
-	valid := forgejoRunDetail{
+	valid := githubRunDetail{
 		RunID: qualification.Verification.RunID, RunNumber: qualification.Verification.RunNumber,
 		HeadSHA: qualification.SourceRevision, Workflow: qualification.Verification.Workflow, Status: "success",
-		Jobs: []forgejoJobDetail{{ID: 24140, RunID: qualification.Verification.RunID,
+		Jobs: []githubJobDetail{{ID: 24140, RunID: qualification.Verification.RunID,
 			Name: qualification.Verification.Job, Status: "success", Attempt: 1}},
 	}
 	for _, test := range []struct {
 		name      string
-		mutate    func(*forgejoRunDetail)
+		mutate    func(*githubRunDetail)
 		wantError bool
 	}{
-		{"success", func(*forgejoRunDetail) {}, false},
-		{"additional configuration check", func(d *forgejoRunDetail) {
-			d.Jobs = append([]forgejoJobDetail{{ID: 24139, RunID: d.RunID,
+		{"success", func(*githubRunDetail) {}, false},
+		{"additional configuration check", func(d *githubRunDetail) {
+			d.Jobs = append([]githubJobDetail{{ID: 24139, RunID: d.RunID,
 				Name: "Reject new configuration switches", Status: "success", Attempt: 1}}, d.Jobs...)
 		}, false},
-		{"missing required job", func(d *forgejoRunDetail) { d.Jobs = nil }, true},
-		{"other run ID", func(d *forgejoRunDetail) { d.RunID++ }, true},
-		{"other run number", func(d *forgejoRunDetail) { d.RunNumber++ }, true},
-		{"other full source", func(d *forgejoRunDetail) { d.HeadSHA = qualification.SourceRevision[:10] + strings.Repeat("a", 30) }, true},
-		{"other workflow", func(d *forgejoRunDetail) { d.Workflow = "release.yml" }, true},
-		{"failed run", func(d *forgejoRunDetail) { d.Status = "failure" }, true},
-		{"extra job suffix", func(d *forgejoRunDetail) { d.Jobs[0].Name += " extra" }, true},
-		{"failed job", func(d *forgejoRunDetail) { d.Jobs[0].Status = "failure" }, true},
-		{"job on another run", func(d *forgejoRunDetail) { d.Jobs[0].RunID++ }, true},
-		{"missing job ID", func(d *forgejoRunDetail) { d.Jobs[0].ID = 0 }, true},
-		{"missing job attempt", func(d *forgejoRunDetail) { d.Jobs[0].Attempt = 0 }, true},
-		{"duplicate job", func(d *forgejoRunDetail) { d.Jobs = append(d.Jobs, d.Jobs[0]) }, true},
+		{"missing required job", func(d *githubRunDetail) { d.Jobs = nil }, true},
+		{"other run ID", func(d *githubRunDetail) { d.RunID++ }, true},
+		{"other run number", func(d *githubRunDetail) { d.RunNumber++ }, true},
+		{"other full source", func(d *githubRunDetail) { d.HeadSHA = qualification.SourceRevision[:10] + strings.Repeat("a", 30) }, true},
+		{"other workflow", func(d *githubRunDetail) { d.Workflow = "release.yml" }, true},
+		{"failed run", func(d *githubRunDetail) { d.Status = "failure" }, true},
+		{"extra job suffix", func(d *githubRunDetail) { d.Jobs[0].Name += " extra" }, true},
+		{"failed job", func(d *githubRunDetail) { d.Jobs[0].Status = "failure" }, true},
+		{"job on another run", func(d *githubRunDetail) { d.Jobs[0].RunID++ }, true},
+		{"missing job ID", func(d *githubRunDetail) { d.Jobs[0].ID = 0 }, true},
+		{"missing job attempt", func(d *githubRunDetail) { d.Jobs[0].Attempt = 0 }, true},
+		{"duplicate job", func(d *githubRunDetail) { d.Jobs = append(d.Jobs, d.Jobs[0]) }, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			detail := valid
-			detail.Jobs = append([]forgejoJobDetail(nil), valid.Jobs...)
+			detail.Jobs = append([]githubJobDetail(nil), valid.Jobs...)
 			test.mutate(&detail)
 			wire, err := trust.EncodePayload(detail)
 			if err != nil {
 				t.Fatal(err)
 			}
-			job, err := matchForgejoRunDetail(wire, qualification)
+			job, err := matchGitHubRunDetail(wire, qualification)
 			if (err != nil) != test.wantError {
-				t.Fatalf("matchForgejoRunDetail() error = %v; wantError=%t", err, test.wantError)
+				t.Fatalf("matchGitHubRunDetail() error = %v; wantError=%t", err, test.wantError)
 			}
 			if err == nil && job.ID != valid.Jobs[0].ID {
 				t.Fatalf("selected job ID = %d; want %d", job.ID, valid.Jobs[0].ID)
@@ -65,7 +65,7 @@ func TestForgejoDetailMustMatchExactRunSourceJobAndSuccess(t *testing.T) {
 	}
 }
 
-func TestForgejoLogSealsExactRetainedManifest(t *testing.T) {
+func TestGitHubLogSealsExactRetainedManifest(t *testing.T) {
 	qualification, digest, err := release.DecodeQualification(testQualificationBytes())
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +73,8 @@ func TestForgejoLogSealsExactRetainedManifest(t *testing.T) {
 	marker := "TS_RELEASE_QUALIFICATION_V1 source_sha=" + qualification.SourceRevision +
 		" run_id=4001 run_number=620 manifest_sha256=" + digest
 	stamp := "2026-09-26T23:13:24.7600896Z "
-	if err := matchForgejoQualificationLog([]byte("build verified\n"+stamp+marker+"\n"), qualification, digest); err != nil {
-		t.Fatalf("matchForgejoQualificationLog() rejected exact marker: %v", err)
+	if err := matchGitHubQualificationLog([]byte("build verified\n"+stamp+marker+"\n"), qualification, digest); err != nil {
+		t.Fatalf("matchGitHubQualificationLog() rejected exact marker: %v", err)
 	}
 	for _, logs := range []string{
 		"build verified\n",
@@ -84,8 +84,8 @@ func TestForgejoLogSealsExactRetainedManifest(t *testing.T) {
 		marker + "\n",
 		"bad-timestamp " + marker + "\n",
 	} {
-		if err := matchForgejoQualificationLog([]byte(logs), qualification, digest); err == nil {
-			t.Fatalf("matchForgejoQualificationLog() accepted missing, altered, or duplicate marker: %q", logs)
+		if err := matchGitHubQualificationLog([]byte(logs), qualification, digest); err == nil {
+			t.Fatalf("matchGitHubQualificationLog() accepted missing, altered, or duplicate marker: %q", logs)
 		}
 	}
 }

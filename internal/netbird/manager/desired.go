@@ -125,9 +125,9 @@ func GRU() Desired {
 				Description: "Operator automation peers → GRU servers: NetBird SSH with identity-provider login",
 				Protocol:    "netbird-ssh", Sources: []string{"ops-automation"}, Destinations: []string{"gru-servers"}},
 		}, serverAccessPolicies([]string{"gru-servers"}), []PolicySpec{
-			{Name: "operators-to-ts-ops-forgejo", RenamedFrom: []string{"operators-to-forgejo"},
-				Description: "Operators → ts-ops: Git SSH 22, HTTPS 443, admin SSH 2022",
-				Protocol:    "tcp", Ports: []string{"22", "443", "2022"},
+			{Name: "operators-to-ts-ops-services", RenamedFrom: []string{"operators-to-ts-ops-forgejo", "operators-to-forgejo"},
+				Description: "Operators → ts-ops: HTTPS 443, admin SSH 2022",
+				Protocol:    "tcp", Ports: []string{"443", "2022"},
 				Sources: []string{"operators"}, Destinations: []string{"ts-ops-gateway"}},
 			{Name: "operators-to-ts-ops-ping", RenamedFrom: []string{"operators-ping-to-forgejo"},
 				Description: "Operators → ts-ops: ICMP ping",

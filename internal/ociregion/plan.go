@@ -435,15 +435,16 @@ func (e *Engine) loadPlan(path string) Object {
 	if number(b["snapshot_gb_max"]) > 350 || number(b["object_storage_gb_max"]) < 0 || number(b["object_storage_gb_max"]) > 10 || number(b["staging_object_storage_gb_max"]) < 0 || number(b["staging_object_storage_gb_max"]) > 10 {
 		fail("storage allowance exceeds the bounded plan")
 	}
-	existing := obj(p["existing_forgejo"])
+	// Retain unrelated operations inventory for safety accounting, independent of its services.
+	existing := obj(p["existing_operations_host"])
 	if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
-		fail("manual plan must bind the exact existing Forgejo baseline")
+		fail("manual plan must bind the exact existing operations host baseline")
 	}
 	for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
 		requireOCID(existing[key], kind, "")
 	}
 	if !eq(existing["expected_volume_gb"], 50) || !eq(existing["expected_volume_vpus_per_gb"], 10) {
-		fail("existing Forgejo data volume differs from the bounded cost model")
+		fail("existing operations host data volume differs from the bounded cost model")
 	}
 	gateway := validateGateway(p, network)
 	if ids["local_peering_gateway"] != nil && gateway == nil {

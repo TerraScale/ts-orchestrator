@@ -17,7 +17,7 @@ import (
 )
 
 // TestPruneReleasesKeepsNewestRecentAndPinned runs prune-releases.sh against
-// a fake Forgejo with 25 daily CI pre-releases and a stable release.
+// a fake GitHub with 25 daily CI pre-releases and a stable release.
 func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 	const token = "prune-token-do-not-log"
 	digest := strings.Repeat("d", 64)
@@ -38,7 +38,7 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 	var mu sync.Mutex
 	var deleted []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "token "+token {
+		if r.Header.Get("Authorization") != "Bearer "+token {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -48,7 +48,7 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 			deleted = append(deleted, filepath.Base(r.URL.Path))
 			mu.Unlock()
 			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/api/v1/repos/TerraScale/demo/releases":
+		case r.URL.Path == "/repos/TerraScale/demo/releases":
 			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 			start, end := min((page-1)*20, len(releases)), min(page*20, len(releases))
 			if err := json.MarshalWrite(w, releases[start:end]); err != nil {
@@ -67,8 +67,29 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	for i := range releases[:25] {
-		releases[i]["assets"].([]map[string]any)[0]["browser_download_url"] = server.URL + "/download/" + strconv.Itoa(i)
+	bin := t.TempDir()
+	gh := `#!/usr/bin/env bash
+set -euo pipefail
+[[ $GH_HOST == github.com ]] || exit 2
+if [[ $1 == api ]]; then
+	shift
+	if [[ $1 == --method ]]; then
+		[[ $2 == DELETE ]] || exit 2
+		curl --fail --silent --show-error -X DELETE -H "Authorization: Bearer $GH_TOKEN" "$MOCK_GITHUB_API/$3"
+	else
+		[[ $1 == 'repos/TerraScale/demo/releases?per_page=50&page='* ]] || exit 2
+		curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" "$MOCK_GITHUB_API/$1"
+	fi
+elif [[ $1 == release && $2 == download ]]; then
+	[[ $4 == --repo && $5 == TerraScale/demo && $6 == --pattern && $7 == qualification.json && $8 == --output ]] || exit 2
+	id=${3##*-run-}
+	curl --fail --silent --show-error -H "Authorization: Bearer $GH_TOKEN" "$MOCK_GITHUB_API/download/$((id - 100))" -o "$9"
+else
+	exit 2
+fi
+`
+	if err := os.WriteFile(filepath.Join(bin, "gh"), []byte(gh), 0o700); err != nil {
+		t.Fatal(err)
 	}
 
 	run := func(pins string) (string, error) {
@@ -77,7 +98,7 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.CommandContext(t.Context(), "bash", "prune-releases.sh", "TerraScale/demo", path)
-		cmd.Env = append(os.Environ(), "FORGEJO_SERVER_URL="+server.URL, "FORGEJO_TOKEN="+token)
+		cmd.Env = append(os.Environ(), "MOCK_GITHUB_API="+server.URL, "GH_TOKEN="+token, "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 		output, err := cmd.CombinedOutput()
 		if strings.Contains(string(output), token) {
 			t.Fatalf("the token leaked into the output:\n%s", output)
@@ -100,4 +121,16 @@ func TestPruneReleasesKeepsNewestRecentAndPinned(t *testing.T) {
 		!strings.Contains(output, "TS_RELEASE_PRUNE repository=TerraScale/demo releases=26 deleted=1 kept_pinned=4 bytes=1010 dry_run=false") {
 		t.Fatalf("deleted %v\n%s", deleted, output)
 	}
+	mu.Lock()
+	deleted = nil
+	mu.Unlock()
+	output, err = run(revision(21))
+	if err != nil {
+		t.Fatalf("prune without digest pins: %v\n%s", err, output)
+	}
+	slices.Sort(deleted)
+	if !slices.Equal(deleted, []string{"20", "22", "24"}) {
+		t.Fatalf("unreadable qualification was not retained without digest pins: %v\n%s", deleted, output)
+	}
+
 }

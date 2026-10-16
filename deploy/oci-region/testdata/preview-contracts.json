@@ -548,7 +548,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1010,7 +1010,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1260,7 +1260,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1352,7 +1352,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1558,7 +1558,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1627,7 +1627,7 @@
         "$fixture": "fixture-0076"
       }
     },
-    "fixture-0158": "PreviewAdmissionTests.test_forgejo_data_volume_and_preview_volumes_use_exact_plan_sizes",
+    "fixture-0158": "PreviewAdmissionTests.test_operations_host_data_volume_and_preview_volumes_use_exact_plan_sizes",
     "fixture-0159": {
       "_source_path": {
         "$path": "/tmp/tmpdq9gdffn/plan.json"
@@ -1641,7 +1641,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1731,7 +1731,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -1966,7 +1966,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -2307,7 +2307,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -2485,7 +2485,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -2592,7 +2592,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -2885,7 +2885,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -2991,7 +2991,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -3067,7 +3067,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -3185,7 +3185,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -3326,7 +3326,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -3565,7 +3565,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -4626,7 +4626,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -4731,7 +4731,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -4835,7 +4835,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -4953,7 +4953,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5128,7 +5128,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5257,7 +5257,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5340,7 +5340,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5414,7 +5414,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5580,7 +5580,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5827,7 +5827,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -5935,7 +5935,7 @@
       "cell": "GRU",
       "controller_replicas": 3,
       "database_members": 2,
-      "existing_forgejo": {
+      "existing_operations_host": {
         "$fixture": "fixture-0012"
       },
       "foundation_buckets": {
@@ -6850,7 +6850,7 @@
         "cell": "GRU",
         "controller_replicas": 3,
         "database_members": 2,
-        "existing_forgejo": {
+        "existing_operations_host": {
           "$fixture": "fixture-0012"
         },
         "foundation_buckets": {
@@ -7402,7 +7402,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -8778,7 +8778,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -8878,7 +8878,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -8969,7 +8969,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -9060,7 +9060,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -9151,7 +9151,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -9242,7 +9242,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -9333,7 +9333,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -9424,7 +9424,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -10221,7 +10221,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -10491,7 +10491,7 @@
       "clock": "2026-10-01T18:18:26.843302+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "public IP inventory differs from the unrelated Forgejo baseline",
+      "error": "public IP inventory differs from the unrelated operations host baseline",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0157"
@@ -10584,7 +10584,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -10871,7 +10871,7 @@
       "clock": "2026-10-01T18:18:26.878423+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "existing Forgejo data volume differs from the bounded cost model",
+      "error": "existing operations host data volume differs from the bounded cost model",
       "error_type": "ValueError",
       "files": {
         "/tmp/tmp0pziwwao/plan.json": {
@@ -10885,7 +10885,7 @@
       "function": "load_plan",
       "kwargs": {},
       "plan": "/tmp/tmptvp2_ksw/plan.json",
-      "test": "PreviewAdmissionTests.test_forgejo_data_volume_expectation_is_bounded",
+      "test": "PreviewAdmissionTests.test_operations_host_data_volume_expectation_is_bounded",
       "writes": {}
     },
     {
@@ -11312,7 +11312,7 @@
         "cell": "GRU",
         "controller_replicas": 3,
         "database_members": 2,
-        "existing_forgejo": {
+        "existing_operations_host": {
           "$fixture": "fixture-0012"
         },
         "foundation_buckets": {
@@ -14194,7 +14194,7 @@
       "clock": "2026-10-01T18:18:27.225778+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "internet gateway inventory differs from the Forgejo and public API baseline",
+      "error": "internet gateway inventory differs from the operations host and public API baseline",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0292"
@@ -14268,7 +14268,7 @@
       "clock": "2026-10-01T18:18:27.231565+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "internet gateway inventory differs from the Forgejo and public API baseline",
+      "error": "internet gateway inventory differs from the operations host and public API baseline",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0292"
@@ -14353,7 +14353,7 @@
       "clock": "2026-10-01T18:18:27.237175+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "internet gateway inventory differs from the Forgejo and public API baseline",
+      "error": "internet gateway inventory differs from the operations host and public API baseline",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0292"
@@ -14427,7 +14427,7 @@
       "clock": "2026-10-01T18:18:27.240638+00:00",
       "deleted": [],
       "dependencies": [],
-      "error": "internet gateway inventory differs from the Forgejo and public API baseline",
+      "error": "internet gateway inventory differs from the operations host and public API baseline",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0292"
@@ -15333,7 +15333,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -15453,7 +15453,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -15573,7 +15573,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -15664,7 +15664,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -15755,7 +15755,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -18442,7 +18442,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -18727,7 +18727,7 @@
         "cell": "GRU",
         "controller_replicas": 3,
         "database_members": 2,
-        "existing_forgejo": {
+        "existing_operations_host": {
           "$fixture": "fixture-0012"
         },
         "foundation_buckets": {
@@ -18838,7 +18838,7 @@
         "cell": "GRU",
         "controller_replicas": 3,
         "database_members": 2,
-        "existing_forgejo": {
+        "existing_operations_host": {
           "$fixture": "fixture-0012"
         },
         "foundation_buckets": {
@@ -18942,7 +18942,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -19053,7 +19053,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -19182,7 +19182,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -19918,7 +19918,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -20016,7 +20016,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -20114,7 +20114,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -20677,7 +20677,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -20859,7 +20859,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -22554,7 +22554,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -24360,7 +24360,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -24475,7 +24475,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -24612,7 +24612,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -24746,7 +24746,7 @@
           "cell": "GRU",
           "controller_replicas": 3,
           "database_members": 2,
-          "existing_forgejo": {
+          "existing_operations_host": {
             "$fixture": "fixture-0012"
           },
           "foundation_buckets": {
@@ -25577,7 +25577,7 @@
               "cell": "GRU",
               "controller_replicas": 3,
               "database_members": 2,
-              "existing_forgejo": {
+              "existing_operations_host": {
                 "$fixture": "fixture-0012"
               },
               "foundation_buckets": {
@@ -25754,7 +25754,7 @@
               "cell": "GRU",
               "controller_replicas": 3,
               "database_members": 2,
-              "existing_forgejo": {
+              "existing_operations_host": {
                 "$fixture": "fixture-0012"
               },
               "foundation_buckets": {
@@ -25924,7 +25924,7 @@
               "cell": "GRU",
               "controller_replicas": 3,
               "database_members": 2,
-              "existing_forgejo": {
+              "existing_operations_host": {
                 "$fixture": "fixture-0012"
               },
               "foundation_buckets": {

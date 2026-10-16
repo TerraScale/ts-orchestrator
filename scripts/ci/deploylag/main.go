@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json/v2"
 	"errors"
@@ -15,14 +16,14 @@ import (
 	"sync"
 	"time"
 
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/atlas"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociclient"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/ociregion/catalog"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/release"
-	"git.terrascale.tech/TerraScale/ts-orchestrator/internal/releasechannel"
+	"github.com/TerraScale/ts-orchestrator/internal/atlas"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 )
 
-const forge = "https://git.terrascale.tech/api/v1/repos/TerraScale/"
+const forge = "https://api.github.com/repos/TerraScale/"
 const qualifiedContext = "deployment/qualified"
 const alertTitle = "TS-768: Deployment lag exceeds 30 minutes"
 const lagLimit = 30 * time.Minute
@@ -64,7 +65,7 @@ func (a api) request(ctx context.Context, method, url, token string, input, outp
 		return err
 	}
 	if token != "" {
-		req.Header.Set("Authorization", "token "+token)
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cache-Control", "no-cache")
@@ -90,7 +91,7 @@ func (a api) request(ctx context.Context, method, url, token string, input, outp
 // Bound API work; an exhausted history fails visibly instead of assuming green.
 func (a api) history(ctx context.Context, service string) ([]commit, error) {
 	var commits []commit
-	if err := a.request(ctx, "GET", forge+service+"/commits?sha=main&limit=50", a.readToken, nil, &commits); err != nil {
+	if err := a.request(ctx, "GET", forge+service+"/commits?sha=main&per_page=50", a.readToken, nil, &commits); err != nil {
 		return nil, err
 	}
 	found := false
@@ -98,10 +99,10 @@ func (a api) history(ctx context.Context, service string) ([]commit, error) {
 		for page := 1; ; page++ {
 			var statuses []struct {
 				Context   string    `json:"context"`
-				State     string    `json:"status"`
+				State     string    `json:"state"`
 				CreatedAt time.Time `json:"created_at"`
 			}
-			url := fmt.Sprintf("%s%s/commits/%s/statuses?limit=50&page=%d", forge, service, commits[i].SHA, page)
+			url := fmt.Sprintf("%s%s/commits/%s/statuses?per_page=50&page=%d", forge, service, commits[i].SHA, page)
 			if err := a.request(ctx, "GET", url, a.readToken, nil, &statuses); err != nil {
 				return nil, err
 			}
@@ -216,16 +217,17 @@ func (a api) alert(ctx context.Context, findings []string) error {
 	body += strings.Join(findings, "\n") + "\n\nPart of TS-768. See docs/deploy-pipeline.md and the scheduled deploy-lag.yml run."
 	for page := 1; ; page++ {
 		var issues []struct {
-			Number int    `json:"number"`
-			Title  string `json:"title"`
-			Body   string `json:"body"`
+			Number      int       `json:"number"`
+			Title       string    `json:"title"`
+			Body        string    `json:"body"`
+			PullRequest *struct{} `json:"pull_request"`
 		}
-		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&type=issues&limit=50&page=%d", base, page),
+		if err := a.request(ctx, "GET", fmt.Sprintf("%s?state=open&per_page=50&page=%d", base, page),
 			a.writeToken, nil, &issues); err != nil {
 			return err
 		}
 		for _, issue := range issues {
-			if issue.Title != alertTitle {
+			if issue.PullRequest != nil || issue.Title != alertTitle {
 				continue
 			}
 			if len(findings) == 0 {
@@ -355,9 +357,10 @@ func main() {
 	defer cancel()
 	a := api{client: &http.Client{Timeout: 20 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-		readToken: os.Getenv("FORGEJO_READ_TOKEN"), writeToken: os.Getenv("FORGEJO_WRITE_TOKEN")}
+		readToken:  cmp.Or(os.Getenv("GH_READ_TOKEN"), os.Getenv("GH_TOKEN")),
+		writeToken: cmp.Or(os.Getenv("GH_WRITE_TOKEN"), os.Getenv("GH_TOKEN"))}
 	if a.readToken == "" || (os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1" && a.writeToken == "") {
-		fmt.Fprintln(os.Stderr, "deployment guard requires Forgejo read and alert-write credentials")
+		fmt.Fprintln(os.Stderr, "deployment guard requires GitHub read and alert-write credentials")
 		os.Exit(1)
 	}
 	if err := run(ctx, a, time.Now, native, os.Getenv("TS_DEPLOY_GUARD_DRY_RUN") != "1"); err != nil {

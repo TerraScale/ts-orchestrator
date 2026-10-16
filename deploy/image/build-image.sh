@@ -4,9 +4,7 @@
 # usage: build-image.sh --source SHA --out DIRECTORY [--wait-for-ci SECONDS]
 #
 # Run from a clean checkout of SOURCE with the pinned image tools on PATH
-# (deploy/image/tools.sh) and an fj that has `actions run-detail` and
-# `actions logs`, authenticated for reads. FORGEJO_READ_TOKEN_FILE names a
-# file holding a read token for the Actions API.
+# (deploy/image/tools.sh) and an authenticated GitHub CLI (gh).
 #
 # Every input is found from data, never copied by hand:
 #   - deploy/image/image-inputs.json pins the base image release, trust
@@ -21,7 +19,7 @@ set -euo pipefail
 repository_root=$(cd -- "$(dirname -- "$(realpath -- "$0")")/../.." && pwd)
 cd "$repository_root"
 repository=TerraScale/ts-orchestrator
-server=${FORGEJO_SERVER_URL:-https://git.terrascale.tech}
+export GH_HOST=github.com
 ci_job='verify/go + artifact/linux-amd64-arm64'
 image_job='build/qualified-gru-arm64-image'
 
@@ -52,15 +50,11 @@ done
 	echo "checkout is not a clean tree at $source_sha" >&2
 	exit 1
 }
-[[ -r ${FORGEJO_READ_TOKEN_FILE:-} ]] || { echo 'FORGEJO_READ_TOKEN_FILE must name a readable token file' >&2; exit 2; }
+gh auth status --hostname github.com >/dev/null
 test "$(go env GOVERSION)" = go1.27.1
-for tool in curl fj jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers; do
+for tool in curl gh jq sha256sum stat gpgv qemu-img guestfish systemctl systemd-sysusers; do
 	command -v "$tool" >/dev/null || { echo "missing image build tool: $tool" >&2; exit 1; }
 done
-if ! fj actions run-detail --help >/dev/null 2>&1 || ! fj actions logs --help >/dev/null 2>&1; then
-	echo 'fj lacks the pinned actions run-detail/logs extension' >&2
-	exit 1
-fi
 
 mkdir -p -- "$output"
 output=$(realpath -e -- "$output")
@@ -84,11 +78,8 @@ verify_file() {
 		return 1
 	}
 }
-api_get() {
-	curl --fail --silent --show-error --location --max-time 30 \
-		-H "@$work/api-header" "$server/api/v1/repos/$repository$1"
-}
-printf 'Authorization: token %s\n' "$(<"$FORGEJO_READ_TOKEN_FILE")" > "$work/api-header"
+api_get() { gh api "repos/$repository$1"; }
+run_detail() { "$TS_ORCH_BIN" release run-detail --repository "$1" --run-id "$2"; }
 
 # Base image: retained once as a release, pinned by digest, and proven to be
 # the Ubuntu image signed by the pinned key.
@@ -103,7 +94,7 @@ for asset in base-image.qcow2 ubuntu-SHA256SUMS ubuntu-SHA256SUMS.gpg ubuntu-clo
 		verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes" 2>/dev/null; then
 		continue
 	fi
-	fj release asset download -r "$repository" "$base_tag" "$asset" -o "$work/base/$asset" >/dev/null
+	gh release download "$base_tag" --repo "$repository" --pattern "$asset" --output "$work/base/$asset" --clobber >/dev/null
 	verify_file "$work/base/$asset" "$asset_sha256" "$asset_bytes"
 	if [[ -n $cached ]] && mkdir -p -- "$TS_IMAGE_BASE_CACHE" 2>/dev/null; then
 		if ! { cp --reflink=auto -- "$work/base/$asset" "$cached.$$" && mv -f -- "$cached.$$" "$cached"; }; then
@@ -139,20 +130,20 @@ terrabase_tag="ci-${terrabase_sha}-run-${terrabase_run_id}"
 if [[ $(input_json '.terrabase.archive != null') == true ]]; then
 	terrabase_tag=$(input_json .terrabase.archive.release_tag)
 	for asset in image-qualification.json tb-server-linux-arm64; do
-		fj release asset download -r "$repository" "$terrabase_tag" "$asset" -o "$work/terrabase/$asset" >/dev/null
+		gh release download "$terrabase_tag" --repo "$repository" --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	"$TS_ORCH_BIN" image inputs --file "$inputs" verify-terrabase-archive \
 		--qualification "$work/terrabase/image-qualification.json" --binary "$work/terrabase/tb-server-linux-arm64" >/dev/null
 else
 	for asset in qualification.json tb-server-linux-arm64; do
-		fj release asset download -r TerraScale/TerraBase "$terrabase_tag" "$asset" -o "$work/terrabase/$asset" >/dev/null
+		gh release download "$terrabase_tag" --repo TerraScale/TerraBase --pattern "$asset" --output "$work/terrabase/$asset" --clobber >/dev/null
 	done
 	[[ $(sha256 "$work/terrabase/qualification.json") == "$(input_json .terrabase.qualification_sha256)" &&
 		$(sha256 "$work/terrabase/tb-server-linux-arm64") == "$(input_json .terrabase.binary_sha256)" ]] || {
 		echo "TerraBase release $terrabase_tag differs from the pinned digests" >&2
 		exit 1
 	}
-	fj actions run-detail "$terrabase_run_number" -r TerraScale/TerraBase > "$work/terrabase/run-detail.json"
+	run_detail TerraScale/TerraBase "$terrabase_run_id" > "$work/terrabase/run-detail.json"
 	[[ $(jq -r .status "$work/terrabase/run-detail.json") == success ]] || {
 		echo "TerraBase run $terrabase_run_number has not succeeded" >&2
 		exit 1
@@ -170,14 +161,14 @@ echo "terrabase verified tag=$terrabase_tag binary_sha256=$(input_json .terrabas
 # Orchestrator candidate: the successful ci.yml run on main for this revision.
 deadline=$((SECONDS + wait_seconds))
 while :; do
-	api_get "/actions/runs?workflow_id=ci.yml&head_sha=$source_sha&limit=50${ci_run_number:+&run_number=$ci_run_number}" > "$work/go/runs.json"
+	api_get "/actions/workflows/ci.yml/runs?head_sha=$source_sha&branch=main&event=push&per_page=100" > "$work/go/runs.json"
 	run=$(jq -c --arg id "$ci_run_id" --arg source "$source_sha" \
-		'[(.workflow_runs // [])[] | select(.prettyref == "main" and .commit_sha == $source and
+		'[(.workflow_runs // [])[] | select(.head_branch == "main" and .head_sha == $source and .repository.full_name == "TerraScale/ts-orchestrator" and .head_repository.full_name == "TerraScale/ts-orchestrator" and
 		  ($id == "" or (.id | tostring) == $id))] | max_by(.id) // empty' "$work/go/runs.json")
-	status=$(jq -r '.status // "absent"' <<< "${run:-null}")
+	status=$(jq -r 'if .status == "completed" then .conclusion else (.status // "absent") end' <<< "${run:-null}")
 	case $status in
 		success) break ;;
-		failure|cancelled|skipped|blocked)
+		failure|cancelled|skipped|blocked|timed_out|action_required|neutral|stale|startup_failure)
 			echo "ci.yml run $(jq -r .id <<< "$run") for $source_sha ended $status; no image" >&2
 			exit 1 ;;
 	esac
@@ -186,10 +177,10 @@ while :; do
 	sleep 15
 done
 go_run_id=$(jq -r .id <<< "$run")
-go_run_number=$(jq -r .index_in_repo <<< "$run")
+go_run_number=$(jq -r .run_number <<< "$run")
 go_tag="ci-${source_sha}-run-${go_run_id}"
 for asset in qualification.json terrascale-orchestrator-linux-arm64; do
-	fj release asset download -r "$repository" "$go_tag" "$asset" -o "$work/go/$asset" >/dev/null
+	gh release download "$go_tag" --repo "$repository" --pattern "$asset" --output "$work/go/$asset" --clobber >/dev/null
 done
 qualification="$work/go/qualification.json"
 go_binary="$work/go/terrascale-orchestrator-linux-arm64"
@@ -209,7 +200,7 @@ jq -e --arg source "$source_sha" --arg tree "$source_tree" --arg job "$ci_job" \
 	echo 'CI qualification module digests differ from the checkout' >&2
 	exit 1
 }
-fj actions run-detail "$go_run_number" -r "$repository" > "$work/go/run-detail.json"
+run_detail "$repository" "$go_run_id" > "$work/go/run-detail.json"
 jq -e --arg source "$source_sha" --arg job "$ci_job" --argjson run_id "$go_run_id" \
 	--argjson run_number "$go_run_number" '
   .run_id == $run_id and .run_number == $run_number and .head_sha == $source and
@@ -217,7 +208,7 @@ jq -e --arg source "$source_sha" --arg job "$ci_job" --argjson run_id "$go_run_i
   ([.jobs[] | select(.run_id == $run_id and .name == $job and .status == "success")] | length) == 1
 ' "$work/go/run-detail.json" >/dev/null || { echo "ci.yml run $go_run_id did not qualify $source_sha" >&2; exit 1; }
 # The CI job log binds the retained manifest bytes to the successful job.
-fj actions logs "$go_run_number" -r "$repository" | tr -d '\r' > "$work/go/logs.txt"
+gh api "repos/$repository/actions/jobs/$(jq -er --arg job "$ci_job" '.jobs[] | select(.name == $job) | .id' "$work/go/run-detail.json")/logs" | tr -d '\r' > "$work/go/logs.txt"
 marker="TS_RELEASE_QUALIFICATION_V1 source_sha=$source_sha run_id=$go_run_id run_number=$go_run_number manifest_sha256=$(sha256 "$qualification")"
 [[ $(grep -c -E "^[0-9TZ:.-]+ ${marker}\$" "$work/go/logs.txt") == 1 ]] || {
 	echo "ci.yml job log lacks one exact qualification marker for $go_tag" >&2
@@ -261,7 +252,7 @@ chmod 0644 "$output/terrascale-gru-arm64.qcow2" "$output/guest-kernel"
 
 # Who built it: the image.yml job in CI, or a named local builder.
 if [[ -n ${GITHUB_RUN_ID:-} ]]; then
-	fj actions run-detail "${GITHUB_RUN_NUMBER:?}" -r "$repository" > "$work/image-run-detail.json"
+	run_detail "$repository" "$GITHUB_RUN_ID" > "$work/image-run-detail.json"
 	builder=$(jq -c --arg job "$image_job" --argjson run_id "$GITHUB_RUN_ID" '
 	  . as $run | [.jobs[] | select(.run_id == $run_id and .name == $job)] |
 	  if length == 1 and ($run.workflow == "image.yml") and ($run.run_id == $run_id) then
