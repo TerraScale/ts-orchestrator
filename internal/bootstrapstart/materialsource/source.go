@@ -189,7 +189,7 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 // Provision checkpoints the original retry identities/timestamps before every
 // secret create. Escrow is never included in the ordinary host references.
 func (source *ColdStartMaterial) Provision(ctx context.Context, target bootstrapmaterial.VaultTarget, management bootstrapmaterial.VaultClient, bundles bootstrapmaterial.BundleClient, now time.Time) (bootstrapmaterial.Publication, error) {
-	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil {
+	if source == nil || !now.Before(source.grant.ExpiresAt()) || source.verifySource(ctx) != nil || !source.publicationTargetAllowed(target) {
 		return bootstrapmaterial.Publication{}, ErrMaterialSource
 	}
 	provision := bootstrapmaterial.ProvisionDurable
@@ -233,13 +233,23 @@ func (source *ColdStartMaterial) generate(ctx context.Context, now time.Time) ([
 		if err := source.link.verify(ctx); err != nil {
 			return nil, err
 		}
-		homeLinkPath := path
-		if source.link.homeLink != nil {
-			homeLinkPath = source.link.homeLink.source.directory
+		if source.link.recipient != nil {
+			regional, readErr := source.link.regionalRecord()
+			if readErr != nil {
+				return nil, readErr
+			}
+			var linkRecord bootstrapmaterial.LinkRecord
+			linkRecord, err = bootstrapmaterial.GenerateSpokeLink(source.link.home.directory, source.link.homeLink.source.directory, regional, source.link.regionalDigest, path, now)
+			record = linkRecord.Record
+		} else {
+			homeLinkPath := path
+			if source.link.homeLink != nil {
+				homeLinkPath = source.link.homeLink.source.directory
+			}
+			var linkRecord bootstrapmaterial.LinkRecord
+			linkRecord, err = bootstrapmaterial.GenerateLink(source.link.regional.directory, source.link.home.directory, homeLinkPath, path, now)
+			record = linkRecord.Record
 		}
-		var linkRecord bootstrapmaterial.LinkRecord
-		linkRecord, err = bootstrapmaterial.GenerateLink(source.link.regional.directory, source.link.home.directory, homeLinkPath, path, now)
-		record = linkRecord.Record
 	}
 	if err != nil {
 		return nil, err
@@ -367,7 +377,7 @@ func (source *ColdStartMaterial) read(ctx context.Context) (materialSourceState,
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	var state materialSourceState
-	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Kind != source.kind || state.BindingSHA256 != source.binding || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 {
+	if json.Unmarshal(wire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Kind != source.kind || state.BindingSHA256 != source.binding || state.InstallationID != source.grant.InstallationID() || state.Cell != source.grant.Config().Cell || state.Generation == 0 || state.Generation > source.grant.Generation() || state.PlanSHA256 != source.grant.PlanDigest() || state.Target != source.grant.EscrowTarget() || state.StartedAt.IsZero() || len(state.Journal) > 1<<20 || len(state.Delivery) > bootstrap.MaxManifestBytes || len(state.Delivery) > 0 && (source.kind != "spoke-link-v1" || len(state.Journal) == 0) {
 		return materialSourceState{}, "", ErrMaterialSource
 	}
 	if state.SecretName != source.secretName || len(state.SeedCompletion) > 256<<10 || len(state.SeedCompletion) > 0 && (state.Kind != "" || len(state.Startup) == 0) {
