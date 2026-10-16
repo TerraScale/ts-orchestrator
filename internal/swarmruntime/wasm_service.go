@@ -100,6 +100,45 @@ func (i FunctionServiceIntent) VerifyTask(task *api.Task, service *api.Service, 
 	return err
 }
 
+// VerifyWorkerFloor denies material for an image superseded by the durable
+// regional role floor. The caller first verifies live worker qualification.
+func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api.ControlClient, worker release.VerifiedContainer) error {
+	region, known := catalog.CellForOCIRegion(i.Region)
+	claim := worker.Claim()
+	if !known || worker.Fingerprint() == "" || claim.Cell != region.Cell || claim.Environment != i.Environment || claim.Role != FunctionWorkerRole || claim.Architecture != i.Architecture {
+		return errors.New("worker release differs from admitted function target")
+	}
+	cell := strings.ToLower(region.Cell)
+	identity := sha256.Sum256([]byte(i.Environment + "/" + cell + "/" + FunctionWorkerRole))
+	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{fmt.Sprintf("ts-release-%x", identity[:16])}}})
+	if err != nil {
+		return err
+	}
+	if listed == nil || len(listed.Configs) != 1 || listed.Configs[0] == nil {
+		return errors.New("qualified worker has no unique durable release floor")
+	}
+	floor := listed.Configs[0]
+	for key, value := range map[string]string{LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region), LabelRole: FunctionWorkerRole, LabelRegion: cell, LabelEnvironment: i.Environment} {
+		if floor.Spec.Annotations.Labels[key] != value {
+			return errors.New("worker release floor ownership or target mismatch")
+		}
+	}
+	// The exact immutable migration must match the already verified worker proof;
+	// mutable sequence labels alone cannot establish a release ordering namespace.
+	migration, err := trust.DecodeEnvelope(floor.Spec.Data)
+	if err != nil {
+		return err
+	}
+	fingerprint, err := trust.Fingerprint(migration)
+	if err != nil {
+		return err
+	}
+	if fingerprint != claim.SequenceMigrationSHA256 || floor.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || floor.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
+		return errors.New("qualified worker release floor differs or was superseded")
+	}
+	return ctx.Err()
+}
+
 // ApplyFunctionService admits the qualified OCI worker separately from its
 // tenant function and waits for authenticated application readiness. Material
 // delivery remains bound to the actual scheduled task by the executor provider.
@@ -173,7 +212,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 		return nil, err
 	}
 	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: strings.ToLower(region.Cell), Environment: intent.Environment}
-	floor, err := reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
+	_, err = reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -181,14 +220,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 		if err := checkIntent(); err != nil {
 			return err
 		}
-		stored, err := client.GetConfig(ctx, &api.GetConfigRequest{ConfigID: floor.ID})
-		if err != nil {
-			return err
-		}
-		if stored.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(worker.Claim().ReleaseSequence, 10) || stored.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
-			return errors.New("qualified worker release was superseded")
-		}
-		return ctx.Err()
+		return intent.VerifyWorkerFloor(ctx, client, worker)
 	}
 	if err := guard(); err != nil {
 		return nil, err
