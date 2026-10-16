@@ -28,7 +28,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	state := t.TempDir()
 	cfg := nodeFixtureConfig(t, "founder", "manager")
 	cfg.Admission.Region = "gru"
-	e, err := NewExecutor(*integrationSocket, state)
+	e, err := newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	t.Cleanup(func() {
 		cleanup, stop := context.WithTimeout(context.Background(), 20*time.Second)
 		defer stop()
-		runtime, err := NewExecutor(*integrationSocket, state)
+		runtime, err := newIntegrationExecutor(*integrationSocket, state)
 		if err != nil {
 			t.Error(err)
 			return
@@ -138,7 +138,7 @@ func TestRuntimeServiceSurvivesNodeRestart(t *testing.T) {
 	if err := probe(ctx, nil); err != nil {
 		t.Fatalf("application stopped with embedded manager/agent: %v", err)
 	}
-	e, err = NewExecutor(*integrationSocket, state)
+	e, err = newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}

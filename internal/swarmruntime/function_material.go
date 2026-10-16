@@ -99,22 +99,27 @@ func (c *controller) stageFunctionMaterial(input map[string][]byte) error {
 	if len(input) != len(functionMaterialLimits) {
 		return errors.New("function material file set is incomplete")
 	}
+	for name, limit := range functionMaterialLimits {
+		value := input[name]
+		if len(value) == 0 || len(value) > limit || name == "root.pub" && len(value) != 32 {
+			return fmt.Errorf("invalid function material %s", name)
+		}
+	}
+	return stageTaskMaterial(c.functionMaterialPath(), input, 65532, 65532)
+}
+
+func stageTaskMaterial(destination string, input map[string][]byte, uid, gid uint32) error {
 	files := make(map[string][]byte, len(input))
 	defer func() {
 		for _, value := range files {
 			clear(value)
 		}
 	}()
-	for name, limit := range functionMaterialLimits {
-		value := input[name]
-		if len(value) == 0 || len(value) > limit || name == "root.pub" && len(value) != 32 {
-			return fmt.Errorf("invalid function material %s", name)
-		}
+	for name, value := range input {
 		files[name] = slices.Clone(value)
 	}
-	destination := c.functionMaterialPath()
 	if _, err := os.Lstat(destination); err == nil {
-		return verifyFunctionMaterial(destination, files)
+		return verifyTaskMaterial(destination, files, uid, gid)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -133,12 +138,12 @@ func (c *controller) stageFunctionMaterial(input map[string][]byte) error {
 			return err
 		}
 		_, writeErr := f.Write(value)
-		err = errors.Join(writeErr, f.Chown(65532, 65532), f.Sync(), f.Close())
+		err = errors.Join(writeErr, f.Chown(int(uid), int(gid)), f.Sync(), f.Close())
 		if err != nil {
 			return err
 		}
 	}
-	if err := os.Chown(temporary, 65532, 65532); err != nil {
+	if err := os.Chown(temporary, int(uid), int(gid)); err != nil {
 		return err
 	}
 	if err := syncMaterialDirectory(temporary); err != nil {
@@ -147,17 +152,17 @@ func (c *controller) stageFunctionMaterial(input map[string][]byte) error {
 	// Never replace another process's immutable task material.
 	if err := unix.Renameat2(unix.AT_FDCWD, temporary, unix.AT_FDCWD, destination, unix.RENAME_NOREPLACE); err != nil {
 		if errors.Is(err, unix.EEXIST) {
-			return verifyFunctionMaterial(destination, files)
+			return verifyTaskMaterial(destination, files, uid, gid)
 		}
 		return err
 	}
 	return syncMaterialDirectory(parent)
 }
 
-func verifyFunctionMaterial(destination string, files map[string][]byte) error {
+func verifyTaskMaterial(destination string, files map[string][]byte, uid, gid uint32) error {
 	info, err := os.Lstat(destination)
-	if err != nil || !ownedFunctionMaterial(info, true) {
-		return errors.New("function material path is not an owned private directory")
+	if err != nil || !ownedTaskMaterial(info, true, uid, gid) {
+		return errors.New("task material path is not an owned private directory")
 	}
 	root, err := os.OpenRoot(destination)
 	if err != nil {
@@ -169,12 +174,12 @@ func verifyFunctionMaterial(destination string, files map[string][]byte) error {
 		return err
 	}
 	if len(entries) != len(files) {
-		return errors.New("function material directory has unexpected entries")
+		return errors.New("task material directory has unexpected entries")
 	}
 	for name, expected := range files {
 		info, err := root.Lstat(name)
-		if err != nil || !ownedFunctionMaterial(info, false) || info.Size() != int64(len(expected)) {
-			return fmt.Errorf("unsafe existing function material %s", name)
+		if err != nil || !ownedTaskMaterial(info, false, uid, gid) || info.Size() != int64(len(expected)) {
+			return fmt.Errorf("unsafe existing task material %s", name)
 		}
 		f, err := root.Open(name)
 		if err != nil {
@@ -188,18 +193,18 @@ func verifyFunctionMaterial(destination string, files map[string][]byte) error {
 			return err
 		}
 		if !equal {
-			return errors.New("function material changed for an existing task; replace the task")
+			return errors.New("task material changed for an existing task; replace the task")
 		}
 	}
 	return nil
 }
 
-func ownedFunctionMaterial(info os.FileInfo, directory bool) bool {
+func ownedTaskMaterial(info os.FileInfo, directory bool, uid, gid uint32) bool {
 	if info == nil || info.Mode()&os.ModeSymlink != 0 {
 		return false
 	}
 	owner, ok := info.Sys().(*syscall.Stat_t)
-	return ok && owner.Uid == 65532 && owner.Gid == 65532 && (directory && info.IsDir() && info.Mode().Perm() == 0700 || !directory && info.Mode().IsRegular() && info.Mode().Perm() == 0600)
+	return ok && owner.Uid == uid && owner.Gid == gid && (directory && info.IsDir() && info.Mode().Perm() == 0700 || !directory && info.Mode().IsRegular() && info.Mode().Perm() == 0600)
 }
 
 func syncMaterialDirectory(path string) error {
@@ -211,21 +216,25 @@ func syncMaterialDirectory(path string) error {
 }
 
 func (c *controller) verifyFunctionMount(ctx context.Context, ctr containerd.Container, expected []runtimespec.Mount) error {
+	return verifyTaskMaterialMount(ctx, ctr, FunctionMaterialDirectory, expected)
+}
+
+func verifyTaskMaterialMount(ctx context.Context, ctr containerd.Container, destination string, expected []runtimespec.Mount) error {
 	spec, err := ctr.Spec(ctx)
 	if err != nil {
 		return err
 	}
 	var actual []runtimespec.Mount
 	for _, mount := range spec.Mounts {
-		if mount.Destination == FunctionMaterialDirectory {
+		if mount.Destination == destination {
 			actual = append(actual, mount)
 		}
 	}
 	if len(actual) != len(expected) {
-		return errors.New("container function material mount conflicts with task")
+		return errors.New("container material mount conflicts with task")
 	}
 	if len(actual) != 0 && (actual[0].Source != expected[0].Source || actual[0].Type != expected[0].Type || !slices.Equal(actual[0].Options, expected[0].Options)) {
-		return errors.New("container function material mount conflicts with task")
+		return errors.New("container material mount conflicts with task")
 	}
 	return nil
 }

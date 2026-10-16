@@ -28,17 +28,19 @@ const logSegmentBytes = 1 << 20
 
 // Executor translates upstream SwarmKit tasks directly into containerd objects.
 type Executor struct {
-	client           *containerd.Client
-	socket           string
-	logRoot          string
-	executable       string
-	mu               sync.Mutex
-	functionMaterial FunctionMaterialProvider
-	functionIdentity FunctionTaskBinding
-	functionNodeID   string
-	node             *api.Node
-	registry         RegistryResolver
-	stateful         *execution.Source
+	client            *containerd.Client
+	socket            string
+	logRoot           string
+	executable        string
+	mu                sync.Mutex
+	functionMaterial  FunctionMaterialProvider
+	containerMaterial ContainerMaterialProvider
+	containerIdentity ContainerTaskBinding
+	functionIdentity  FunctionTaskBinding
+	functionNodeID    string
+	node              *api.Node
+	registry          RegistryResolver
+	stateful          *execution.Source
 }
 
 var _ exec.Executor = (*Executor)(nil)
