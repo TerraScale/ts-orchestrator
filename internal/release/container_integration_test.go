@@ -115,7 +115,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 		t.Fatalf("qualified child image admission: %+v %v", verified, err)
 	}
 	renewed := claim
-	qualificationEnvelope, err = trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now.Add(-time.Second), now.Add(time.Hour), root)
+	qualificationEnvelope, err = trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now, now.Add(59*time.Minute), root)
 	if err != nil {
 		t.Fatal(err)
 	}
