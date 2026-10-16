@@ -18,7 +18,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
 func (f *currentDiscoveryScenario) export(t *testing.T) RetainedFoundation {
