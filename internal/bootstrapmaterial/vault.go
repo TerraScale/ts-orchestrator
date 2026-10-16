@@ -106,6 +106,19 @@ type journal struct {
 // its original retry token; after 23 hours the command holds for inspection.
 // It never regenerates source material or silently rotates a Vault version.
 func Provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time) (Publication, error) {
+	return provision(ctx, directory, target, management, bundles, now, nil)
+}
+
+// ProvisionDurable checkpoints the exact publication journal to the source
+// authority before any secret create, preserving recovery across host loss.
+func ProvisionDurable(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {
+	if checkpoint == nil {
+		return Publication{}, ErrProvision
+	}
+	return provision(ctx, directory, target, management, bundles, now, checkpoint)
+}
+
+func provision(ctx context.Context, directory string, target VaultTarget, management VaultClient, bundles BundleClient, now time.Time, checkpoint func([]byte) error) (Publication, error) {
 	if management == nil || bundles == nil || ctx.Err() != nil {
 		return Publication{}, ErrProvision
 	}
@@ -134,7 +147,7 @@ func Provision(ctx context.Context, directory string, target VaultTarget, manage
 		return Publication{}, ErrProvision
 	}
 	materialDigest := digest(metadata)
-	state, err := loadJournal(directory, record, target, materialDigest)
+	state, err := loadJournal(directory, record, target, materialDigest, checkpoint)
 	if err != nil {
 		return Publication{}, err
 	}
@@ -147,7 +160,7 @@ func Provision(ctx context.Context, directory string, target VaultTarget, manage
 		if !ok {
 			return Publication{}, ErrProvision
 		}
-		if err := publishOne(ctx, directory, target, record.Config.Region, management, bundles, file, entry, &state, now); err != nil {
+		if err := publishOne(ctx, directory, target, record.Config.Region, management, bundles, file, entry, &state, now, checkpoint); err != nil {
 			return Publication{}, err
 		}
 	}
@@ -173,7 +186,7 @@ func findFile(record Record, name string) (File, bool) {
 	return File{}, false
 }
 
-func loadJournal(directory string, record Record, target VaultTarget, materialDigest string) (journal, error) {
+func loadJournal(directory string, record Record, target VaultTarget, materialDigest string, checkpoint func([]byte) error) (journal, error) {
 	path := filepath.Join(directory, journalName)
 	wire, err := readOwnedFile(path, 1<<20)
 	if err != nil {
@@ -190,7 +203,7 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 		if len(state.Entries) == 0 || len(state.Entries) > 64 {
 			return journal{}, ErrProvision
 		}
-		if err := saveJournal(directory, state); err != nil {
+		if err := checkpointJournal(directory, state, checkpoint); err != nil {
 			return journal{}, err
 		}
 		return state, nil
@@ -225,7 +238,25 @@ func loadJournal(directory string, record Record, target VaultTarget, materialDi
 			return journal{}, ErrProvision
 		}
 	}
+	if err := checkpointJournal(directory, state, checkpoint); err != nil {
+		return journal{}, err
+	}
 	return state, nil
+}
+
+func checkpointJournal(directory string, state journal, checkpoint func([]byte) error) error {
+	if err := saveJournal(directory, state); err != nil {
+		return err
+	}
+	if checkpoint == nil {
+		return nil
+	}
+	wire, err := readOwnedFile(filepath.Join(directory, journalName), 1<<20)
+	if err != nil {
+		return err
+	}
+	defer clear(wire)
+	return checkpoint(wire)
 }
 
 func secretName(cfg Config, file File) string {
@@ -240,7 +271,7 @@ func secretName(cfg Config, file File) string {
 }
 
 func publishOne(ctx context.Context, directory string, target VaultTarget, region string, management VaultClient, bundles BundleClient,
-	file File, entry *journalEntry, state *journal, now time.Time) error {
+	file File, entry *journalEntry, state *journal, now time.Time, checkpoint func([]byte) error) error {
 	id, found, err := lookup(ctx, target, region, entry.Name, management)
 	if err != nil {
 		return ErrProvision
@@ -256,14 +287,14 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 			return ErrProvision
 		}
 		entry.SecretOCID, entry.Verified = id, true
-		return saveJournal(directory, *state)
+		return checkpointJournal(directory, *state, checkpoint)
 	}
 	if entry.Verified || entry.SecretOCID != "" || !entry.SentAt.IsZero() && (now.Before(entry.SentAt) || now.Sub(entry.SentAt) >= retryWindow) {
 		return ErrProvision
 	}
 	if entry.SentAt.IsZero() {
 		entry.SentAt = now.UTC()
-		if err := saveJournal(directory, *state); err != nil {
+		if err := checkpointJournal(directory, *state, checkpoint); err != nil {
 			return err
 		}
 	}
@@ -280,6 +311,12 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 	if ctx.Err() != nil {
 		return ErrProvision
 	}
+	if checkpoint != nil {
+		if err := checkpointJournal(directory, *state, checkpoint); err != nil {
+			encoded = ""
+			return err
+		}
+	}
 	response, err := management.CreateSecret(ctx, ocivault.CreateSecretRequest{
 		CreateSecretDetails: ocivault.CreateSecretDetails{
 			CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID),
@@ -295,7 +332,7 @@ func publishOne(ctx context.Context, directory string, target VaultTarget, regio
 		return ErrProvision
 	}
 	entry.SecretOCID, entry.Verified = *response.Id, true
-	return saveJournal(directory, *state)
+	return checkpointJournal(directory, *state, checkpoint)
 }
 
 func lookup(ctx context.Context, target VaultTarget, region, name string, client VaultClient) (string, bool, error) {
