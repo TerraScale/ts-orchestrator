@@ -68,6 +68,11 @@ func SignFoundationDiscovery(ctx context.Context, grant FoundationGrant, anchor 
 		}
 		return nil
 	}
+	for _, authority := range grant.ReleaseAuthorities {
+		if err := boundEnvelopeExpiry(authority.DelegationWire); err != nil {
+			return RetainedFoundation{}, err
+		}
+	}
 	for _, regional := range grant.Regions {
 		startup := regional.BootstrapMaterial.Startup
 		cell := regional.Plan["cell"].(string)
