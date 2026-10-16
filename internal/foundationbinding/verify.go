@@ -251,6 +251,14 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 			}
 		}
 	}
+	if len(selected.BootstrapMaterial) != 0 && string(selected.BootstrapMaterial) != "null" {
+		pins := selected.Plan["resource_ids"].(map[string]any)
+		for _, key := range []string{"control_compartment", "vault", "key"} {
+			if pins[key] == nil || pins[key] == "" {
+				requested[key] = true
+			}
+		}
+	}
 	if len(authority.Keys) != 0 {
 		narrowed := map[string]bool{}
 		for _, key := range authority.Keys {
