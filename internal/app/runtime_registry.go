@@ -370,6 +370,24 @@ func managedRuntimeRegistryResolver(ctx context.Context, cfg Config, reader *boo
 			rootState.reply("").Head != rootHead || ctx.Err() != nil {
 			return nil, errors.New("registry manager admission expired during final task verification")
 		}
+		admission.VerifyCurrent = func(ctx context.Context) error {
+			current, err := agent.CurrentRegistryAdmission(ctx, binding)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(document.Document, current.Document) {
+				return errors.New("registry manager authority changed during Vault credential read")
+			}
+			if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
+				return err
+			}
+			now := time.Now().UTC()
+			if !now.Before(deadline) || !now.Before(document.ExpiresAt) || !now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) ||
+				!verified.Valid(now) || rootState.reply("").Head != rootHead {
+				return errors.New("registry manager admission expired during Vault credential read")
+			}
+			return ctx.Err()
+		}
 		return admission, nil
 	})
 }
@@ -549,6 +567,19 @@ func workerRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *host.
 		if err != nil || afterErr != nil || before != after || confirmed.SpecRevision != snapshot.SpecRevision || rootsErr != nil || confirmedRoots.Head != rootHead || roots.reply("").Head != rootHead ||
 			!time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmedDocument.ExpiresAt) || !verified.Valid(time.Now().UTC()) {
 			return nil, errors.New("registry worker authority changed during credential admission")
+		}
+		admission.VerifyCurrent = func(ctx context.Context) error {
+			current, err := agent.CurrentRegistryAdmission(ctx, binding)
+			if err != nil {
+				return err
+			}
+			now := time.Now().UTC()
+			if !bytes.Equal(document.Document, current.Document) || !now.Before(deadline) || !now.Before(document.ExpiresAt) ||
+				!now.Before(confirmedDocument.ExpiresAt) || !now.Before(current.ExpiresAt) || !verified.Valid(now) ||
+				signed.Validate(now) != nil || roots.reply("").Head != rootHead {
+				return errors.New("registry worker authority changed during Vault credential read")
+			}
+			return ctx.Err()
 		}
 		return admission, nil
 	})

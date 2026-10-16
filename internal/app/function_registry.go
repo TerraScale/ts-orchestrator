@@ -161,6 +161,7 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if err := roots.adopt(snapshot.Chain); err != nil {
 			return nil, err
 		}
+		rootHead := roots.reply("").Head
 		claim := snapshot.Function
 		if claim.Validate() != nil || claim.Cell != strings.ToUpper(signed.Cell) || claim.Environment != signed.Environment || catalog.OCIRegion(claim.Cell) != signed.OCIRegion {
 			return nil, release.ErrExpectationMismatch
@@ -218,6 +219,21 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 		if !bytes.Equal(document.Document, confirmed.Document) || !time.Now().Before(document.ExpiresAt) || !time.Now().Before(confirmed.ExpiresAt) ||
 			!receipt.Valid() || !verified.Valid(time.Now().UTC()) || signed.Validate(time.Now().UTC()) != nil {
 			return nil, errors.New("function registry authority changed during credential admission")
+		}
+		admission.VerifyCurrent = func(ctx context.Context) error {
+			mu.Lock()
+			defer mu.Unlock()
+			current, err := agent.CurrentRegistryAdmission(ctx, binding)
+			if err != nil {
+				return err
+			}
+			now := time.Now().UTC()
+			if !bytes.Equal(document.Document, current.Document) || !now.Before(deadline) || !now.Before(document.ExpiresAt) ||
+				!now.Before(confirmed.ExpiresAt) || !now.Before(current.ExpiresAt) || !receipt.Valid() || !verified.Valid(now) ||
+				signed.Validate(now) != nil || roots.reply("").Head != rootHead {
+				return errors.New("function registry authority changed during Vault credential read")
+			}
+			return ctx.Err()
 		}
 		return admission, nil
 	})
