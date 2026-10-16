@@ -112,8 +112,8 @@ func TestRegistryResolverAuthenticatedHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := private(ctx, task, nil); err == nil {
-		t.Fatal("missing private admission fell back to anonymous pull")
+	if _, err := private(ctx, task, nil); err == nil || err.Error() != "private OCI registry release admission is unavailable" {
+		t.Fatalf("missing private admission did not reject before credentials: %v", err)
 	}
 	private, err = NewOCIRegistryResolver(factory, func(context.Context, *api.Task) (*RegistryAdmission, error) {
 		return &RegistryAdmission{ServiceID: "serviceid", Environment: intent.Environment, Region: intent.Region,
@@ -122,8 +122,8 @@ func TestRegistryResolverAuthenticatedHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := private(ctx, task, &api.Node{ID: "different-certificate-node"}); err == nil {
-		t.Fatal("private credentials accepted another certificate node")
+	if _, err := private(ctx, task, &api.Node{ID: "different-certificate-node"}); err == nil || err.Error() != "registry release does not match current task and admitted node" {
+		t.Fatalf("foreign certificate node did not reject before credentials: %v", err)
 	}
 }
 
