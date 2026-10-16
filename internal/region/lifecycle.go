@@ -291,7 +291,7 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			return current, errors.New("foundation record belongs to another authorized scope")
 		}
 		if epoch < current.Epoch || intent.Generation < current.Generation || intent.Generation == current.Generation && digest != current.IntentDigest {
-			return current, ErrFoundationFenced
+			return current, fmt.Errorf("%w: signed generation or full intent differs from the protected record; preserve the journal and follow docs/foundation-binding-recovery.md", ErrFoundationFenced)
 		}
 		if current.LeaseID != "" && now.Before(current.ExpiresAt) && epoch <= current.Epoch {
 			return current, ErrFoundationBusy

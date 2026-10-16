@@ -40,7 +40,7 @@ func (r FoundationResolver) Resolve(ctx context.Context, cell string) (Foundatio
 		}
 		if record.IntentDigest != digest || record.Generation != intent.Generation || record.TenancyID != footprint.TenancyID ||
 			record.ParentCompartmentID != footprint.ParentCompartmentID || record.SharedCompartmentID != footprint.SharedCompartmentID || record.Stage != "reconciled" {
-			return FoundationRecord{}, errors.New("authorized regional foundation is not reconciled at its current generation")
+			return FoundationRecord{}, errors.New("authorized regional foundation is not reconciled at its current full intent; preserve the journal and follow docs/foundation-binding-recovery.md")
 		}
 		return record, nil
 	}

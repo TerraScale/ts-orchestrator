@@ -133,13 +133,12 @@ func TestLogicalSpendingBindingsRetainSignedAuthority(t *testing.T) {
 	grantSHA := sha256.Sum256(wire)
 	reader.home.GrantSHA256 = hex.EncodeToString(grantSHA[:])
 	write("bootstrap/"+foundationGrantObject, wire)
-	intentWire, err := json.Marshal(grant.Regions[0], json.Deterministic(true))
+	intentSHA, err := FoundationIntentDigest(grant.Regions[0])
 	if err != nil {
 		t.Fatal(err)
 	}
-	intentSHA := sha256.Sum256(intentWire)
 	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: tenancy, ParentCompartmentID: parent, SharedCompartmentID: grant.SharedCompartmentID, Generation: 1,
-		GrantSHA256: reader.home.GrantSHA256, IntentDigest: hex.EncodeToString(intentSHA[:]), OperationID: entityid.Derive("regional-foundation", tenancy, "GRU", "1"), Epoch: 1, Stage: "foundation", LeaseID: entityid.New(), ExpiresAt: now.Add(time.Minute), StartedAt: now, UpdatedAt: now,
+		GrantSHA256: reader.home.GrantSHA256, IntentDigest: intentSHA, OperationID: entityid.Derive("regional-foundation", tenancy, "GRU", "1"), Epoch: 1, Stage: "foundation", LeaseID: entityid.New(), ExpiresAt: now.Add(time.Minute), StartedAt: now, UpdatedAt: now,
 		ResourceIDs: map[string]string{"control_compartment": control}, ResourceProvenance: map[string]FoundationResourceProvenance{}}
 	checkpoint := func(role, id string) {
 		record.ResourceIDs[role] = id
