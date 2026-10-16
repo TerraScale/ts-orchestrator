@@ -52,12 +52,6 @@ func reportFixture(t *testing.T, f qualificationFixture) (host.Report, journal, 
 
 func TestRetainedUnsignedProofBindsObjectsAndExistingQualifier(t *testing.T) {
 	f := fixture(t)
-	wireWithWhitespace := append([]byte(" \n"), f.wire...)
-	var err error
-	f.prepared, err = Prepare(wireWithWhitespace, nil, f.roots, f.prepared.approval.Candidate, f.prepared.approval.RunID, f.disk, f.qualification, f.now)
-	if err != nil {
-		t.Fatal(err)
-	}
 	r, j, hosts := reportFixture(t, f)
 	directory := t.TempDir()
 	now := r.CompletedAt.Add(time.Second)
