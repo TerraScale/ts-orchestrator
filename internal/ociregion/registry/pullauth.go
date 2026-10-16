@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json/v2"
 	"errors"
 	"regexp"
 	"strings"
@@ -28,13 +29,13 @@ type PullScope struct {
 }
 
 // PullSecret is an independently root-approved credential binding. Repository
-// includes the tenancy namespace. Ref holds an existing OCI-issued auth token;
+// includes the tenancy namespace. Ref holds an existing OCI-issued credential
+// as Vault-only JSON {username,password};
 // its IAM user must already have server-side read access limited to this repo.
 // Naming a Vault secret does not prove that IAM policy or grant access to it.
 type PullSecret struct {
 	RegistryHost string          `json:"registry_host"`
 	Repository   string          `json:"repository"`
-	Username     string          `json:"username"`
 	Ref          vaultsecret.Ref `json:"ref"`
 }
 
@@ -77,12 +78,7 @@ func (p *PullSecrets) validate(scope PullScope, owned PullSecret) error {
 		!ocirHost.MatchString(scope.RegistryHost) || len(scope.RegistryHost) > 253 ||
 		!ocirPath.MatchString(scope.Repository) || len(scope.Repository) > 512 ||
 		!validDigest(scope.Digest) || scope.TaskPrincipal == "" || len(scope.TaskPrincipal) > 256 || strings.ContainsAny(scope.TaskPrincipal, "\x00\t\r\n ") ||
-		owned.RegistryHost != scope.RegistryHost || owned.Repository != scope.Repository || owned.Ref.Name == "" ||
-		owned.Username == "" || len(owned.Username) > 512 || strings.ContainsAny(owned.Username, "\x00\t\r\n: ") {
-		return ErrPullAuth
-	}
-	namespace, _, _ := strings.Cut(scope.Repository, "/")
-	if user, ok := strings.CutPrefix(owned.Username, namespace+"/"); !ok || user == "" {
+		owned.RegistryHost != scope.RegistryHost || owned.Repository != scope.Repository || owned.Ref.Name == "" {
 		return ErrPullAuth
 	}
 	return nil
@@ -95,7 +91,7 @@ func (p *PullSecrets) read(ctx context.Context, scope PullScope, owned PullSecre
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	value, err := vaultsecret.ReadCurrent(ociclient.RequestContext(ctx), p.client, owned.Ref)
-	if err != nil || value.Value() == "" || strings.ContainsAny(value.Value(), "\x00\r\n") {
+	if err != nil || value.Value() == "" {
 		return vaultsecret.Current{}, errors.Join(ErrPullAuth, ctx.Err())
 	}
 	return value, nil
@@ -112,6 +108,9 @@ func (p *PullSecrets) Describe(ctx context.Context, scope PullScope, owned PullS
 	if err != nil {
 		return PullClaim{}, err
 	}
+	if _, err := decodePull(value.Value(), scope); err != nil {
+		return PullClaim{}, err
+	}
 	sum := sha256.Sum256([]byte(value.Value()))
 	return PullClaim{Scope: scope, Secret: owned, SecretID: value.ID, Version: value.Version, SHA256: hex.EncodeToString(sum[:]), Generation: generation}, nil
 }
@@ -122,6 +121,23 @@ type PullCredentials struct {
 	host     string
 	username string
 	password string
+}
+
+func decodePull(value string, scope PullScope) (PullCredentials, error) {
+	var decoded struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.Unmarshal([]byte(value), &decoded, json.RejectUnknownMembers(true)); err != nil ||
+		decoded.Username == "" || len(decoded.Username) > 512 || strings.ContainsAny(decoded.Username, "\x00\t\r\n: ") ||
+		decoded.Password == "" || strings.ContainsAny(decoded.Password, "\x00\r\n") {
+		return PullCredentials{}, ErrPullAuth
+	}
+	namespace, _, _ := strings.Cut(scope.Repository, "/")
+	if user, ok := strings.CutPrefix(decoded.Username, namespace+"/"); !ok || user == "" {
+		return PullCredentials{}, ErrPullAuth
+	}
+	return PullCredentials{host: scope.RegistryHost, username: decoded.Username, password: decoded.Password}, nil
 }
 
 func (PullCredentials) String() string               { return "private OCIR pull credential" }
@@ -152,5 +168,5 @@ func (p *PullSecrets) Resolve(ctx context.Context, claim PullClaim, expected Pul
 	if value.ID != claim.SecretID || value.Version != claim.Version || hex.EncodeToString(sum[:]) != claim.SHA256 {
 		return PullCredentials{}, ErrPullAuth
 	}
-	return PullCredentials{host: expected.RegistryHost, username: owned.Username, password: value.Value()}, nil
+	return decodePull(value.Value(), expected)
 }

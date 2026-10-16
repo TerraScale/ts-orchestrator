@@ -50,8 +50,10 @@ The credentials owner must automate creation, delivery, rotation and resolution
 at the executor boundary; no manual credential configuration is introduced here.
 
 `NewPullSecrets` now provides the narrow existing-token boundary. An independently
-root-approved `PullSecret` fixes the OCIR host, namespace/repository, OCI username
-and regional Vault reference. `Describe` reads the actual CURRENT version and
+root-approved `PullSecret` fixes the OCIR host, namespace/repository
+and regional Vault reference. Both username and vendor-issued token remain in
+one existing Vault JSON value `{username,password}`; neither enters admission
+or object-storage metadata. `Describe` reads the actual CURRENT version and
 returns only identity/version/hash/generation metadata for the existing release
 or task admission. `Resolve` compares that claim to independently authenticated
 `PullScope` and owned binding before rereading Vault. It rejects a changed secret

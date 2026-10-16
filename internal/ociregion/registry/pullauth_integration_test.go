@@ -22,20 +22,21 @@ import (
 )
 
 type pullVault struct {
-	mu      sync.Mutex
-	token   string
-	version int64
-	id      string
-	status  int
-	expiry  time.Time
-	calls   atomic.Int64
-	blocked atomic.Bool
+	mu       sync.Mutex
+	token    string
+	username string
+	version  int64
+	id       string
+	status   int
+	expiry   time.Time
+	calls    atomic.Int64
+	blocked  atomic.Bool
 }
 
 func setupPull(t *testing.T) (*PullSecrets, *pullVault, PullScope, PullSecret) {
 	t.Helper()
-	vault := &pullVault{token: "test-issued-ocir-token-keep-private", version: 3, id: "ocid1.vaultsecret.oc1.sa-saopaulo-1.pull"}
-	owned := PullSecret{RegistryHost: "gru.ocir.io", Repository: "tenancy/terrascale/terrabase", Username: "tenancy/oci-pull-user", Ref: vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.owned", Name: "gru-orch-ocir-terrabase-pull"}}
+	vault := &pullVault{token: "test-issued-ocir-token-keep-private", username: "tenancy/oci-pull-user", version: 3, id: "ocid1.vaultsecret.oc1.sa-saopaulo-1.pull"}
+	owned := PullSecret{RegistryHost: "gru.ocir.io", Repository: "tenancy/terrascale/terrabase", Ref: vaultsecret.Ref{Vault: "ocid1.vault.oc1.sa-saopaulo-1.owned", Name: "gru-orch-ocir-terrabase-pull"}}
 	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
 		vault.calls.Add(1)
 		if r.Method != "POST" || !strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName") ||
@@ -56,7 +57,12 @@ func setupPull(t *testing.T) (*PullSecrets, *pullVault, PullScope, PullSecret) {
 			_, _ = w.Write([]byte(`{"code":"NotAuthorizedOrNotFound","message":"` + vault.token + `"}`))
 			return
 		}
-		response := map[string]any{"secretId": vault.id, "versionNumber": vault.version, "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(vault.token))}}
+		credential, err := json.Marshal(map[string]string{"username": vault.username, "password": vault.token})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		response := map[string]any{"secretId": vault.id, "versionNumber": vault.version, "secretBundleContent": map[string]string{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString(credential)}}
 		if !vault.expiry.IsZero() {
 			response["timeOfExpiry"] = vault.expiry.Format(time.RFC3339Nano)
 		}
@@ -92,7 +98,7 @@ func TestVaultPullMetadataAndScopedCredentialHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, value := range []string{string(wire), fmt.Sprint(credential), fmt.Sprintf("%+v", credential), fmt.Sprintf("%#v", credential)} {
-		if strings.Contains(value, vault.token) || strings.Contains(value, owned.Username) {
+		if strings.Contains(value, vault.token) || strings.Contains(value, vault.username) {
 			t.Fatal("credential formatting leaked private values")
 		}
 	}
@@ -100,13 +106,13 @@ func TestVaultPullMetadataAndScopedCredentialHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(metadata), vault.token) {
+	if strings.Contains(string(metadata), vault.token) || strings.Contains(string(metadata), vault.username) {
 		t.Fatal("admission metadata contains credential bytes")
 	}
 	var authenticated atomic.Bool
 	registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		username, password, ok := r.BasicAuth()
-		if !ok || username != owned.Username || password != vault.token {
+		if !ok || username != vault.username || password != vault.token {
 			w.WriteHeader(401)
 			return
 		}
@@ -157,6 +163,26 @@ func TestVaultPullRotationExpiryAndMissingCredentialBlock(t *testing.T) {
 	claim, err := reader.Describe(t.Context(), scope, owned, 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	vault.mu.Lock()
+	vault.id = "ocid1.vaultsecret.oc1.sa-saopaulo-1.replaced"
+	vault.mu.Unlock()
+	if _, err := reader.Resolve(t.Context(), claim, scope, owned); !errors.Is(err, ErrPullAuth) {
+		t.Fatal("replacement Vault secret identity accepted")
+	}
+	vault.mu.Lock()
+	vault.id = claim.SecretID
+	vault.username = "other-tenancy/oci-pull-user"
+	vault.mu.Unlock()
+	if _, err := reader.Describe(t.Context(), scope, owned, 2); !errors.Is(err, ErrPullAuth) {
+		t.Fatal("credential outside admitted tenancy namespace accepted")
+	}
+	vault.mu.Lock()
+	vault.username = "tenancy/oci-pull-user"
+	vault.token = "changed-without-version-private-token"
+	vault.mu.Unlock()
+	if _, err := reader.Resolve(t.Context(), claim, scope, owned); !errors.Is(err, ErrPullAuth) {
+		t.Fatal("changed credential hash accepted")
 	}
 	vault.mu.Lock()
 	vault.token = "rotated-issued-private-ocir-token"
