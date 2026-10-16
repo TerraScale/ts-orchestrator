@@ -341,7 +341,9 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return fail()
 	}
 	labels := service.Spec.Annotations.Labels
-	proof, err := controller.config.Material.Reader.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
+	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch,
+		roots: controller.config.Roots, rootHead: rootHead}
+	proof, err := source.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -356,13 +358,17 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if nodeResponse == nil {
 		return fail()
 	}
+	admittedNode := func(node *api.Node) bool {
+		return node != nil && node.Description != nil && node.Description.Platform != nil && node.ID == task.NodeID &&
+			node.Spec.Membership == api.NodeMembershipAccepted && node.Status.State == api.NodeStatus_READY &&
+			node.Spec.Availability == api.NodeAvailabilityActive && node.Spec.Annotations.Name == registration.ID &&
+			node.Spec.Annotations.Labels[swarmruntime.LabelRegion] == binding.Region &&
+			node.Spec.Annotations.Labels[swarmruntime.LabelHostRole] == "wasm" &&
+			node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] == "tenant" &&
+			node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] == binding.InstanceID
+	}
 	node := nodeResponse.Node
-	if node == nil || node.Description == nil || node.Description.Platform == nil || node.ID != task.NodeID || node.Spec.Membership != api.NodeMembershipAccepted || node.Status.State != api.NodeStatus_READY ||
-		node.Spec.Availability != api.NodeAvailabilityActive || node.Spec.Annotations.Name != registration.ID ||
-		node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region ||
-		node.Spec.Annotations.Labels[swarmruntime.LabelHostRole] != "wasm" ||
-		node.Spec.Annotations.Labels[swarmruntime.LabelExecutionScope] != "tenant" ||
-		node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID {
+	if !admittedNode(node) {
 		return fail()
 	}
 	intent := functionServiceTarget(proof, node.Description.Platform.Architecture)
@@ -381,14 +387,18 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
-	if err := intent.VerifyTask(task, service, proof, verifiedWorker); err != nil {
-		return release.VerifiedFunction{}, err
-	}
-	if err := intent.VerifyWorkerFloor(ctx, controller.config.Client, verifiedWorker); err != nil {
+	if err := swarmruntime.VerifyFunctionMaterialTask(ctx, controller.config.Client, task, intent, source, verifiedWorker); err != nil {
 		return release.VerifiedFunction{}, err
 	}
 	fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
 	if err != nil || fingerprint != binding.Fingerprint {
+		return fail()
+	}
+	nodeResponse, err = controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
+	if err != nil {
+		return release.VerifiedFunction{}, err
+	}
+	if nodeResponse == nil || !admittedNode(nodeResponse.Node) || nodeResponse.Node.Description.Platform.Architecture != intent.Architecture {
 		return fail()
 	}
 	if err := ctx.Err(); err != nil {
