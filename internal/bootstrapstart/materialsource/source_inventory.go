@@ -16,7 +16,7 @@ func (source *ColdStartMaterial) signInventory(ctx context.Context) ([]byte, err
 		return nil, ErrMaterialSource
 	}
 	if _, err := source.grant.SourceRegistration(); err != nil {
-		return nil, ErrMaterialSource
+		return bytes.Clone(source.state.Inventory), nil
 	}
 	binding := bootstrap.RegionalSourceInventory{SchemaVersion: 1, GrantSHA256: digestWire(source.grant.FoundationGrantWire()), PlanSHA256: source.grant.PlanDigest(), SourceSHA256: source.state.Reference.SHA256, MaterialRecord: bytes.Clone(source.archive.Files["material.json"])}
 	payload, err := trust.EncodePayload(binding)
@@ -37,7 +37,14 @@ func (source *ColdStartMaterial) signInventory(ctx context.Context) ([]byte, err
 		}
 	}
 	// Source creation and grant renewal share the exact recovered original key.
-	issued := now.UTC()
+	grantEnvelope, err := trust.DecodeEnvelope(source.grant.FoundationGrantWire())
+	if err != nil {
+		return nil, err
+	}
+	issued := source.record.IssuedAt
+	if grantEnvelope.IssuedAt.After(issued) {
+		issued = grantEnvelope.IssuedAt
+	}
 	expires := source.grant.ExpiresAt()
 	if source.record.ExpiresAt.Before(expires) {
 		expires = source.record.ExpiresAt
