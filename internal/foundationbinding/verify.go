@@ -86,6 +86,7 @@ func (v VerifiedBindings) Revalidate(ctx context.Context) error {
 }
 
 type grant struct {
+	WorkerProfiles      jsontext.Value   `json:"workerProfiles,omitempty"`
 	ReleaseAuthorities  jsontext.Value   `json:"releaseAuthorities,omitempty"`
 	InstallationID      string           `json:"installationId"`
 	SchemaVersion       int              `json:"schemaVersion"`
@@ -357,7 +358,7 @@ func validateRecord(current record, approved grant, authority Authority, intentD
 		current.OperationID != entityid.Derive("regional-foundation", authority.TenancyID, authority.Cell, fmt.Sprint(authority.Generation)) ||
 		current.Epoch == 0 || current.StartedAt.IsZero() || current.UpdatedAt.Before(current.StartedAt) || current.BlockedReason != "" ||
 		len(current.ResourceIDs) > 128 || len(current.ResourceProvenance) > 128 || len(current.PendingCreates) > 64 {
-		return errors.New("foundation record lacks the current reconciled signed operation")
+		return errors.New("foundation record lacks the current signed operation")
 	}
 	switch current.Stage {
 	case "reconciled":
