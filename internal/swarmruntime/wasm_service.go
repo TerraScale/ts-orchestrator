@@ -16,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 const (
@@ -65,6 +66,8 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 		"node.labels." + LabelExecutionScope + "==tenant",
 		"node.labels." + LabelHostRole + "==wasm",
 	}
+	spec.Task.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+	spec.Task.Resources.Reservations = spec.Task.Resources.Limits.Copy()
 	labels := spec.Annotations.Labels
 	labels[LabelFunctionTenant], labels[LabelFunctionID] = f.TenantID, f.FunctionID
 	labels[LabelFunctionRevision], labels[LabelFunctionDigest] = f.Revision, f.Digest
@@ -72,6 +75,9 @@ func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, wo
 	// Renewed proof material requires a new task even when module bytes match.
 	fingerprint := sha256.Sum256([]byte(function.EnvelopeSHA256()))
 	spec.Task.ForceUpdate = binary.BigEndian.Uint64(fingerprint[:8])
+	if _, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: spec.Task, ServiceAnnotations: spec.Annotations}); err != nil {
+		return nil, err
+	}
 	return spec, nil
 }
 

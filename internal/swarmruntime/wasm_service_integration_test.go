@@ -19,11 +19,22 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 type functionIntentFixture struct {
 	proof   release.VerifiedFunction
 	revoked bool
+}
+
+type functionSlotExecutor struct{ serviceExecutor }
+
+func (e functionSlotExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
+	description, err := e.serviceExecutor.Describe(ctx)
+	if err == nil {
+		description.Resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+	}
+	return description, err
 }
 
 func (f *functionIntentFixture) CurrentFunction(_ context.Context, tenant, function string) (release.VerifiedFunction, error) {
@@ -46,7 +57,17 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	wasmCfg := serviceConfig(t, "ts-gru-wasm", "wasm")
 	wasmCfg.Admission.ManagerAddress = workerCfg.Admission.ManagerAddress
 	wasmCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
-	wasm := serviceStart(t, ctx, wasmCfg)
+	wasm, err := StartNode(ctx, wasmCfg, functionSlotExecutor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		stop, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		if err := wasm.Stop(stop); err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err := AdmitNode(ctx, client, wasm.ID(), wasmCfg.Admission); err != nil {
 		t.Fatal(err)
 	}
@@ -152,4 +173,16 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err != nil || updated.ID != created.ID || updated.Spec.Task.ForceUpdate == created.Spec.Task.ForceUpdate {
 		t.Fatalf("renewed function proof did not replace stable worker task: %+v %v", updated, err)
 	}
+	// The upstream scheduler must leave a second worker pending rather than
+	// assigning a fixed-port collision for the local executor to reject forever.
+	second := updated.Spec.Copy()
+	second.Annotations.Name += "-slot"
+	blocked, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceEventually(t, ctx, func() bool {
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{blocked.Service.ID}}})
+		return err == nil && len(tasks.Tasks) == 1 && tasks.Tasks[0].Status.State == api.TaskStatePending && tasks.Tasks[0].NodeID == ""
+	})
 }
