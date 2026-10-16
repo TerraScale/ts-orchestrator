@@ -106,7 +106,11 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if !ok {
 		return bootstrapstart.ErrSourceFounder
 	}
-	grant, err := authority.resolver.BootstrapMaterial(ctx, entry.Cell)
+	current, err := DiscoverCurrentFoundation(ctx, authority.factory)
+	if err != nil {
+		return err
+	}
+	grant, err := current.BootstrapMaterial(ctx, entry.Cell)
 	if err != nil {
 		return err
 	}
