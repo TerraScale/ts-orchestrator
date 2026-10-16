@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,9 +27,17 @@ import (
 func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	const resourceID = "ocid1.compartment.oc1..ownedcontrol"
 	var live Object
-	writes, guards, releases := 0, 0, 0
+	var state sync.Mutex
+	var createToken string
+	hideList := false
+	writes, posts, guards, releases := 0, 0, 0, 0
+	setLive := func(value Object) { state.Lock(); live = value; state.Unlock() }
+	numWrites := func() int { state.Lock(); defer state.Unlock(); return writes }
+	numPosts := func() int { state.Lock(); defer state.Unlock(); return posts }
 	parent := ""
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		state.Lock()
+		defer state.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if r.Header.Get("Authorization") == "" {
 			t.Error("unsigned OCI request")
@@ -37,20 +46,30 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/20160918/tenancies/"):
 			io.WriteString(w, `{"homeRegionKey":"FRA"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/20160918/compartments":
-			if live == nil {
+			if live == nil || hideList {
 				io.WriteString(w, `[]`)
 			} else {
 				data, _ := json.Marshal([]Object{live})
 				w.Write(data)
 			}
 		case r.Method == http.MethodPost && r.URL.Path == "/20160918/compartments":
-			writes++
+			posts++
 			if !strings.Contains(r.Host, "eu-frankfurt-1") {
 				t.Errorf("IAM write addressed non-home endpoint %s", r.Host)
 			}
 			if r.Header.Get("opc-retry-token") == "" {
 				t.Error("create omitted retry token")
 			}
+			if createToken != "" {
+				if r.Header.Get("opc-retry-token") != createToken {
+					t.Error("restart changed durable retry token")
+				}
+				data, _ := json.Marshal(live)
+				w.Write(data)
+				return
+			}
+			writes++
+			createToken = r.Header.Get("opc-retry-token")
 			body, err := io.ReadAll(r.Body)
 			if err != nil {
 				t.Error(err)
@@ -59,8 +78,9 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 				t.Error(err)
 			}
 			live["id"], live["lifecycleState"] = resourceID, "ACTIVE"
-			data, _ := json.Marshal(live)
-			w.Write(data)
+			// OCI accepted the operation before its response was lost.
+			w.WriteHeader(http.StatusServiceUnavailable)
+			io.WriteString(w, `{"code":"InternalError","message":"response lost"}`)
 		case r.Method == http.MethodGet && r.URL.Path == "/20160918/compartments/"+resourceID:
 			data, _ := json.Marshal(live)
 			w.Write(data)
@@ -83,7 +103,7 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	plan := loadPlan(t)
 	provider := common.NewRawConfigurationProvider(text(plan["tenancy_id"]), "ocid1.user.oc1..test", sfo, "test", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: sfo, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
+	factory, err := ociclient.New(provider, ociclient.Options{Region: sfo, Retry: ociclient.RetryOptions{BaseDelay: time.Millisecond, MaxDelay: time.Millisecond}, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,31 +132,45 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	}
 	parent = text(plan["parent_compartment_id"])
 	// Same-name foreign resources must be refused before any provider mutation.
-	live = Object{"id": resourceID, "name": "sfo-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE"}
-	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "ownership") || writes != 0 {
-		t.Fatalf("foreign adoption: writes=%d err=%v", writes, err)
+	setLive(Object{"id": resourceID, "name": "sfo-1-control", "compartmentId": parent, "lifecycleState": "ACTIVE"})
+	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "ownership") || numWrites() != 0 {
+		t.Fatalf("foreign adoption: writes=%d err=%v", numWrites(), err)
 	}
-	live = nil
-	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || !checkpointed || writes != 1 || guards != 1 || releases != 1 {
-		t.Fatalf("checkpoint boundary: writes=%d guards=%d releases=%d err=%v", writes, guards, releases, err)
+	setLive(nil)
+	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || !checkpointed || numWrites() != 1 || guards != 1 || releases != 1 {
+		t.Fatalf("checkpoint boundary: writes=%d guards=%d releases=%d err=%v", numWrites(), guards, releases, err)
 	}
+	state.Lock()
 	tags := obj(live["freeformTags"])
-	if tags["terrascale.owner"] != "ts-orch" || tags["terrascale.cell"] != "sfo-1" {
+	owned := tags["terrascale.owner"] == "ts-orch" && tags["terrascale.cell"] == "sfo-1" && tags["terrascale.operation"] == foundation.OperationID
+	state.Unlock()
+	if !owned {
 		t.Fatalf("creation omitted ownership: %v", tags)
 	}
+	// Replay an unknown response while provider listing is still stale. OCI
+	// must see the same token across reconciliation calls and create only once.
+	state.Lock()
+	hideList = true
+	state.Unlock()
+	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || numWrites() != 1 || numPosts() != 3 {
+		t.Fatalf("unknown-result replay duplicated resource: posts=%d writes=%d err=%v", numPosts(), numWrites(), err)
+	}
+	state.Lock()
+	hideList = false
+	state.Unlock()
 	// The controller restores this checkpoint after restart; an identical resource
 	// is recovered without a second create, and a discovery miss cannot replace it.
 	obj(plan["resource_ids"])["control_compartment"] = resourceID
-	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || writes != 1 {
-		t.Fatalf("restart duplicated resource: writes=%d err=%v", writes, err)
+	if _, err := foundation.Reconcile(t.Context(), plan); !errors.Is(err, interrupted) || numWrites() != 1 {
+		t.Fatalf("restart duplicated resource: writes=%d err=%v", numWrites(), err)
 	}
-	live = nil
-	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "refusing replacement") || writes != 1 {
-		t.Fatalf("missing recorded resource replaced: writes=%d err=%v", writes, err)
+	setLive(nil)
+	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || !strings.Contains(err.Error(), "refusing replacement") || numWrites() != 1 {
+		t.Fatalf("missing recorded resource replaced: writes=%d err=%v", numWrites(), err)
 	}
 	// Validation rejects malformed intent before even listing provider resources.
 	plan["region"] = "eu-frankfurt-1"
-	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || writes != 1 {
+	if _, err := foundation.Reconcile(t.Context(), plan); err == nil || numWrites() != 1 {
 		t.Fatalf("invalid intent wrote provider resources: %v", err)
 	}
 }

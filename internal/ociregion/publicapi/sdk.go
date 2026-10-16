@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 // SDKClient serves the provisioner's commands through the OCI Go SDK inside
@@ -280,13 +281,17 @@ func createInternetGateway(ctx context.Context, c *SDKClient, command sdkcli.Com
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateInternetGateway(ctx, core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{FreeformTags: tags,
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateInternetGateway(ociclient.RequestContext(ctx), core.CreateInternetGatewayRequest{OpcRetryToken: token, CreateInternetGatewayDetails: core.CreateInternetGatewayDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IsEnabled: enabled}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetInternetGateway(ctx, core.GetInternetGatewayRequest{IgId: response.Id})
+		got, err := client.GetInternetGateway(ociclient.RequestContext(ctx), core.GetInternetGatewayRequest{IgId: response.Id})
 		return got.InternetGateway, string(got.LifecycleState), err
 	})
 }
@@ -308,13 +313,17 @@ func createRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRouteTable(ctx, core.CreateRouteTableRequest{OpcRetryToken: retryToken(), CreateRouteTableDetails: core.CreateRouteTableDetails{FreeformTags: tags,
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRouteTable(ociclient.RequestContext(ctx), core.CreateRouteTableRequest{OpcRetryToken: token, CreateRouteTableDetails: core.CreateRouteTableDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], RouteRules: rules}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: response.Id})
+		got, err := client.GetRouteTable(ociclient.RequestContext(ctx), core.GetRouteTableRequest{RtId: response.Id})
 		return got.RouteTable, string(got.LifecycleState), err
 	})
 }
@@ -340,13 +349,17 @@ func createSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecurityList(ctx, core.CreateSecurityListRequest{OpcRetryToken: retryToken(), CreateSecurityListDetails: core.CreateSecurityListDetails{FreeformTags: tags,
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSecurityList(ociclient.RequestContext(ctx), core.CreateSecurityListRequest{OpcRetryToken: token, CreateSecurityListDetails: core.CreateSecurityListDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], IngressSecurityRules: ingress, EgressSecurityRules: egress}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetSecurityList(ctx, core.GetSecurityListRequest{SecurityListId: response.Id})
+		got, err := client.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: response.Id})
 		return got.SecurityList, string(got.LifecycleState), err
 	})
 }
@@ -372,14 +385,18 @@ func createSubnet(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSubnet(ctx, core.CreateSubnetRequest{OpcRetryToken: retryToken(), CreateSubnetDetails: core.CreateSubnetDetails{FreeformTags: tags,
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSubnet(ociclient.RequestContext(ctx), core.CreateSubnetRequest{OpcRetryToken: token, CreateSubnetDetails: core.CreateSubnetDetails{FreeformTags: tags,
 		CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2], CidrBlock: &values[3], DnsLabel: &values[4],
 		RouteTableId: &values[5], SecurityListIds: securityLists, ProhibitPublicIpOnVnic: prohibitPublicIP}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: response.Id})
+		got, err := client.GetSubnet(ociclient.RequestContext(ctx), core.GetSubnetRequest{SubnetId: response.Id})
 		return got.Subnet, string(got.LifecycleState), err
 	})
 }
@@ -397,13 +414,17 @@ func createNSG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateNetworkSecurityGroup(ctx, core.CreateNetworkSecurityGroupRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateNetworkSecurityGroup(ociclient.RequestContext(ctx), core.CreateNetworkSecurityGroupRequest{OpcRetryToken: token,
 		CreateNetworkSecurityGroupDetails: core.CreateNetworkSecurityGroupDetails{FreeformTags: tags, CompartmentId: &values[0], VcnId: &values[1], DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetNetworkSecurityGroup(ctx, core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: response.Id})
+		got, err := client.GetNetworkSecurityGroup(ociclient.RequestContext(ctx), core.GetNetworkSecurityGroupRequest{NetworkSecurityGroupId: response.Id})
 		return got.NetworkSecurityGroup, string(got.LifecycleState), err
 	})
 }
@@ -421,7 +442,7 @@ func addNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.AddNetworkSecurityGroupSecurityRules(ctx, core.AddNetworkSecurityGroupSecurityRulesRequest{
+	response, err := client.AddNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.AddNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                      &values[0],
 		AddNetworkSecurityGroupSecurityRulesDetails: core.AddNetworkSecurityGroupSecurityRulesDetails{SecurityRules: rules}})
 	if err != nil {
@@ -443,7 +464,7 @@ func removeNSGRules(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	_, err = client.RemoveNetworkSecurityGroupSecurityRules(ctx, core.RemoveNetworkSecurityGroupSecurityRulesRequest{
+	_, err = client.RemoveNetworkSecurityGroupSecurityRules(ociclient.RequestContext(ctx), core.RemoveNetworkSecurityGroupSecurityRulesRequest{
 		NetworkSecurityGroupId:                         &values[0],
 		RemoveNetworkSecurityGroupSecurityRulesDetails: core.RemoveNetworkSecurityGroupSecurityRulesDetails{SecurityRuleIds: ids}})
 	return map[string]any{}, err
@@ -486,7 +507,11 @@ func createLoadBalancer(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateLoadBalancer(ctx, loadbalancer.CreateLoadBalancerRequest{CreateLoadBalancerDetails: details})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateLoadBalancer(ociclient.RequestContext(ctx), loadbalancer.CreateLoadBalancerRequest{OpcRetryToken: token, CreateLoadBalancerDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 
@@ -505,7 +530,11 @@ func createLBCertificate(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateCertificate(ctx, loadbalancer.CreateCertificateRequest{LoadBalancerId: &values[0], CreateCertificateDetails: details})
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateCertificate(ociclient.RequestContext(ctx), loadbalancer.CreateCertificateRequest{OpcRetryToken: token, LoadBalancerId: &values[0], CreateCertificateDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
 
@@ -522,7 +551,7 @@ func updateLBShape(ctx context.Context, c *SDKClient, command sdkcli.Command) (a
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateLoadBalancerShape(ctx, loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
+	response, err := client.UpdateLoadBalancerShape(ociclient.RequestContext(ctx), loadbalancer.UpdateLoadBalancerShapeRequest{LoadBalancerId: &values[0],
 		UpdateLoadBalancerShapeDetails: loadbalancer.UpdateLoadBalancerShapeDetails{ShapeName: &values[1], ShapeDetails: &shape}})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -542,7 +571,7 @@ func updateLBTags(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateLoadBalancer(ctx, loadbalancer.UpdateLoadBalancerRequest{LoadBalancerId: &values[0],
+	response, err := client.UpdateLoadBalancer(ociclient.RequestContext(ctx), loadbalancer.UpdateLoadBalancerRequest{LoadBalancerId: &values[0],
 		UpdateLoadBalancerDetails: loadbalancer.UpdateLoadBalancerDetails{FreeformTags: tags}})
 	if err != nil {
 		return nil, err
@@ -563,7 +592,7 @@ func updateBackendSet(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateBackendSet(ctx, loadbalancer.UpdateBackendSetRequest{LoadBalancerId: &values[0], BackendSetName: &values[1],
+	response, err := client.UpdateBackendSet(ociclient.RequestContext(ctx), loadbalancer.UpdateBackendSetRequest{LoadBalancerId: &values[0], BackendSetName: &values[1],
 		UpdateBackendSetDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -577,7 +606,7 @@ func updateHostname(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateHostname(ctx, loadbalancer.UpdateHostnameRequest{LoadBalancerId: &values[0], Name: &values[1],
+	response, err := client.UpdateHostname(ociclient.RequestContext(ctx), loadbalancer.UpdateHostnameRequest{LoadBalancerId: &values[0], Name: &values[1],
 		UpdateHostnameDetails: loadbalancer.UpdateHostnameDetails{Hostname: &values[2]}})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -595,7 +624,7 @@ func updateListener(ctx context.Context, c *SDKClient, command sdkcli.Command) (
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateListener(ctx, loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
+	response, err := client.UpdateListener(ociclient.RequestContext(ctx), loadbalancer.UpdateListenerRequest{LoadBalancerId: &values[0], ListenerName: &values[1],
 		UpdateListenerDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -614,7 +643,11 @@ func createRoutingPolicy(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRoutingPolicy(ctx, loadbalancer.CreateRoutingPolicyRequest{LoadBalancerId: &values[0],
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRoutingPolicy(ociclient.RequestContext(ctx), loadbalancer.CreateRoutingPolicyRequest{OpcRetryToken: token, LoadBalancerId: &values[0],
 		CreateRoutingPolicyDetails: details})
 	return map[string]any{"work-request-id": response.OpcWorkRequestId}, err
 }
@@ -639,7 +672,11 @@ func createSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateSecret(ctx, vault.CreateSecretRequest{CreateSecretDetails: vault.CreateSecretDetails{
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateSecret(ociclient.RequestContext(ctx), vault.CreateSecretRequest{OpcRetryToken: token, CreateSecretDetails: vault.CreateSecretDetails{
 		CompartmentId: &values[0], VaultId: &values[1], KeyId: &values[2], SecretName: &values[3], Description: &values[4],
 		SecretContent: vault.Base64SecretContentDetails{Content: &values[5]}}})
 	if err != nil {
@@ -658,7 +695,7 @@ func updateSecret(ctx context.Context, c *SDKClient, command sdkcli.Command) (an
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateSecret(ctx, vault.UpdateSecretRequest{SecretId: &values[0], UpdateSecretDetails: vault.UpdateSecretDetails{
+	response, err := client.UpdateSecret(ociclient.RequestContext(ctx), vault.UpdateSecretRequest{SecretId: &values[0], UpdateSecretDetails: vault.UpdateSecretDetails{
 		SecretContent: vault.Base64SecretContentDetails{Content: &values[1]}}})
 	if err != nil {
 		return nil, err
@@ -677,7 +714,7 @@ func listSecrets(ctx context.Context, c *SDKClient, command sdkcli.Command) (any
 	}
 	var secrets []vault.SecretSummary
 	for page := (*string)(nil); ; {
-		response, err := client.ListSecrets(ctx, vault.ListSecretsRequest{CompartmentId: &values[0], VaultId: &values[1], Name: &values[2], Page: page})
+		response, err := client.ListSecrets(ociclient.RequestContext(ctx), vault.ListSecretsRequest{CompartmentId: &values[0], VaultId: &values[1], Name: &values[2], Page: page})
 		if err != nil {
 			return nil, err
 		}
@@ -700,7 +737,7 @@ func getSecretBundle(ctx context.Context, c *SDKClient, command sdkcli.Command) 
 	}
 	client.SetRegion(factory.Region())
 	factory.Configure(&client.BaseClient, ociclient.ServiceKMS)
-	response, err := client.GetSecretBundle(ctx, secrets.GetSecretBundleRequest{SecretId: &values[0]})
+	response, err := client.GetSecretBundle(ociclient.RequestContext(ctx), secrets.GetSecretBundleRequest{SecretId: &values[0]})
 	if err != nil {
 		return nil, err
 	}

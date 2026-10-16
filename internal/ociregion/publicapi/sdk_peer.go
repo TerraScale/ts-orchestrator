@@ -6,6 +6,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 )
 
@@ -54,13 +55,17 @@ func createDRG(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateDrg(ctx, core.CreateDrgRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateDrg(ociclient.RequestContext(ctx), core.CreateDrgRequest{OpcRetryToken: token,
 		CreateDrgDetails: core.CreateDrgDetails{CompartmentId: &values[0], DisplayName: &values[1]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetDrg(ctx, core.GetDrgRequest{DrgId: response.Id})
+		got, err := client.GetDrg(ociclient.RequestContext(ctx), core.GetDrgRequest{DrgId: response.Id})
 		return got.Drg, string(got.LifecycleState), err
 	})
 }
@@ -74,13 +79,17 @@ func createRPC(ctx context.Context, c *SDKClient, command sdkcli.Command) (any, 
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateRemotePeeringConnection(ctx, core.CreateRemotePeeringConnectionRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateRemotePeeringConnection(ociclient.RequestContext(ctx), core.CreateRemotePeeringConnectionRequest{OpcRetryToken: token,
 		CreateRemotePeeringConnectionDetails: core.CreateRemotePeeringConnectionDetails{CompartmentId: &values[0], DrgId: &values[1], DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetRemotePeeringConnection(ctx, core.GetRemotePeeringConnectionRequest{RemotePeeringConnectionId: response.Id})
+		got, err := client.GetRemotePeeringConnection(ociclient.RequestContext(ctx), core.GetRemotePeeringConnectionRequest{RemotePeeringConnectionId: response.Id})
 		return got.RemotePeeringConnection, string(got.LifecycleState), err
 	})
 }
@@ -94,7 +103,7 @@ func connectRPC(ctx context.Context, c *SDKClient, command sdkcli.Command) (any,
 	if err != nil {
 		return nil, err
 	}
-	_, err = client.ConnectRemotePeeringConnections(ctx, core.ConnectRemotePeeringConnectionsRequest{RemotePeeringConnectionId: &values[0],
+	_, err = client.ConnectRemotePeeringConnections(ociclient.RequestContext(ctx), core.ConnectRemotePeeringConnectionsRequest{RemotePeeringConnectionId: &values[0],
 		ConnectRemotePeeringConnectionsDetails: core.ConnectRemotePeeringConnectionsDetails{PeerId: &values[1], PeerRegionName: &values[2]}})
 	return map[string]any{}, err
 }
@@ -108,14 +117,18 @@ func createDRGDistribution(ctx context.Context, c *SDKClient, command sdkcli.Com
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateDrgRouteDistribution(ctx, core.CreateDrgRouteDistributionRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateDrgRouteDistribution(ociclient.RequestContext(ctx), core.CreateDrgRouteDistributionRequest{OpcRetryToken: token,
 		CreateDrgRouteDistributionDetails: core.CreateDrgRouteDistributionDetails{DrgId: &values[0],
 			DistributionType: core.CreateDrgRouteDistributionDetailsDistributionTypeEnum(values[1]), DisplayName: &values[2]}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetDrgRouteDistribution(ctx, core.GetDrgRouteDistributionRequest{DrgRouteDistributionId: response.Id})
+		got, err := client.GetDrgRouteDistribution(ociclient.RequestContext(ctx), core.GetDrgRouteDistributionRequest{DrgRouteDistributionId: response.Id})
 		return got.DrgRouteDistribution, string(got.LifecycleState), err
 	})
 }
@@ -133,7 +146,7 @@ func addDRGStatements(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.AddDrgRouteDistributionStatements(ctx, core.AddDrgRouteDistributionStatementsRequest{DrgRouteDistributionId: &values[0],
+	response, err := client.AddDrgRouteDistributionStatements(ociclient.RequestContext(ctx), core.AddDrgRouteDistributionStatementsRequest{DrgRouteDistributionId: &values[0],
 		AddDrgRouteDistributionStatementsDetails: core.AddDrgRouteDistributionStatementsDetails{Statements: statements}})
 	return response.Items, err
 }
@@ -151,13 +164,17 @@ func createDRGRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateDrgRouteTable(ctx, core.CreateDrgRouteTableRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateDrgRouteTable(ociclient.RequestContext(ctx), core.CreateDrgRouteTableRequest{OpcRetryToken: token,
 		CreateDrgRouteTableDetails: core.CreateDrgRouteTableDetails{DrgId: &values[0], DisplayName: &values[1], ImportDrgRouteDistributionId: &values[2], IsEcmpEnabled: ecmp}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetDrgRouteTable(ctx, core.GetDrgRouteTableRequest{DrgRouteTableId: response.Id})
+		got, err := client.GetDrgRouteTable(ociclient.RequestContext(ctx), core.GetDrgRouteTableRequest{DrgRouteTableId: response.Id})
 		return got.DrgRouteTable, string(got.LifecycleState), err
 	})
 }
@@ -178,14 +195,18 @@ func createDRGAttachment(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.CreateDrgAttachment(ctx, core.CreateDrgAttachmentRequest{OpcRetryToken: retryToken(),
+	token, err := retryToken(ctx, c, command)
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.CreateDrgAttachment(ociclient.RequestContext(ctx), core.CreateDrgAttachmentRequest{OpcRetryToken: token,
 		CreateDrgAttachmentDetails: core.CreateDrgAttachmentDetails{DrgId: &values[0], DisplayName: &values[1], DrgRouteTableId: &values[2],
 			NetworkDetails: core.VcnDrgAttachmentNetworkCreateDetails{Id: &network.ID}}})
 	if err != nil {
 		return nil, err
 	}
 	return c.waitAvailable(ctx, command, func(ctx context.Context) (any, string, error) {
-		got, err := client.GetDrgAttachment(ctx, core.GetDrgAttachmentRequest{DrgAttachmentId: response.Id})
+		got, err := client.GetDrgAttachment(ociclient.RequestContext(ctx), core.GetDrgAttachmentRequest{DrgAttachmentId: response.Id})
 		return got.DrgAttachment, string(got.LifecycleState), err
 	})
 }
@@ -200,7 +221,7 @@ func updateDRGAttachment(ctx context.Context, c *SDKClient, command sdkcli.Comma
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateDrgAttachment(ctx, core.UpdateDrgAttachmentRequest{DrgAttachmentId: &values[0],
+	response, err := client.UpdateDrgAttachment(ociclient.RequestContext(ctx), core.UpdateDrgAttachmentRequest{DrgAttachmentId: &values[0],
 		UpdateDrgAttachmentDetails: core.UpdateDrgAttachmentDetails{DrgRouteTableId: &values[1]}})
 	return response.DrgAttachment, err
 }
@@ -214,7 +235,7 @@ func getRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command) (a
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.GetRouteTable(ctx, core.GetRouteTableRequest{RtId: &values[0]})
+	response, err := client.GetRouteTable(ociclient.RequestContext(ctx), core.GetRouteTableRequest{RtId: &values[0]})
 	return tagged{response.RouteTable, response.Etag}, err
 }
 
@@ -227,7 +248,7 @@ func getSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Command) 
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.GetSecurityList(ctx, core.GetSecurityListRequest{SecurityListId: &values[0]})
+	response, err := client.GetSecurityList(ociclient.RequestContext(ctx), core.GetSecurityListRequest{SecurityListId: &values[0]})
 	return tagged{response.SecurityList, response.Etag}, err
 }
 
@@ -246,7 +267,7 @@ func updateRouteTable(ctx context.Context, c *SDKClient, command sdkcli.Command)
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateRouteTable(ctx, core.UpdateRouteTableRequest{RtId: &values[0], IfMatch: &values[1],
+	response, err := client.UpdateRouteTable(ociclient.RequestContext(ctx), core.UpdateRouteTableRequest{RtId: &values[0], IfMatch: &values[1],
 		UpdateRouteTableDetails: core.UpdateRouteTableDetails{RouteRules: rules}})
 	return response.RouteTable, err
 }
@@ -266,7 +287,7 @@ func updateSecurityList(ctx context.Context, c *SDKClient, command sdkcli.Comman
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.UpdateSecurityList(ctx, core.UpdateSecurityListRequest{SecurityListId: &values[0], IfMatch: &values[1],
+	response, err := client.UpdateSecurityList(ociclient.RequestContext(ctx), core.UpdateSecurityListRequest{SecurityListId: &values[0], IfMatch: &values[1],
 		UpdateSecurityListDetails: core.UpdateSecurityListDetails{EgressSecurityRules: egress}})
 	return response.SecurityList, err
 }
