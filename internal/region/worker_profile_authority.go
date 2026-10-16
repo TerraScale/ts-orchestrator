@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/foundationbinding"
 	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
@@ -205,7 +206,7 @@ func (p VerifiedWorkerProfile) Bind(ctx context.Context, source bootstrap.Verifi
 }
 
 func (v VerifiedWorkerRecipe) IsVerified() bool {
-	return v.profile.IsVerified() && v.source.IsVerified() && v.recipe.ImageID != ""
+	return v.profile.IsVerified() && v.source.IsVerified() && v.recipe.ImageID != "" && time.Now().Before(v.profile.expires) && time.Now().Before(v.source.ExpiresAt())
 }
 func (v VerifiedWorkerRecipe) Recipe() WorkerRecipe {
 	r := v.recipe
@@ -367,4 +368,97 @@ func ValidateWorkerProfiles(grant FoundationGrant, profiles []WorkerProfile, roo
 		}
 	}
 	return nil
+}
+
+// AuthorizeWorkerRecipe is the concrete home-side consumer. Request metadata
+// contributes only public CA bytes whose hash the independent source pins.
+func (r FoundationResolver) AuthorizeWorkerRecipe(ctx context.Context, candidate WorkerRecipe) (VerifiedWorkerRecipe, error) {
+	profiles, err := r.WorkerProfiles(ctx, strings.ToUpper(candidate.Cell), candidate.Role)
+	if err != nil {
+		return VerifiedWorkerRecipe{}, err
+	}
+	bundle, err := hostenroll.ParsePublicBundle([]byte(candidate.Metadata[hostboot.EnrollmentMetadataKey]))
+	if err != nil {
+		return VerifiedWorkerRecipe{}, err
+	}
+	for _, profile := range profiles {
+		if profile.profile.Architecture != candidate.Architecture || profile.profile.Shape != candidate.Shape {
+			continue
+		}
+		source, err := profile.reader.workerSource(ctx, profile.profile.Cell)
+		if err != nil {
+			return VerifiedWorkerRecipe{}, err
+		}
+		recipe, err := profile.Bind(ctx, source, []byte(bundle.CAPEM))
+		if err != nil {
+			return VerifiedWorkerRecipe{}, err
+		}
+		if err := recipe.Match(candidate); err != nil {
+			return VerifiedWorkerRecipe{}, err
+		}
+		if err := recipe.Revalidate(ctx); err != nil {
+			return VerifiedWorkerRecipe{}, err
+		}
+		return recipe, nil
+	}
+	return VerifiedWorkerRecipe{}, errors.New("worker candidate has no exact signed role/architecture/shape policy")
+}
+
+// WorkerRecipes supplies launch bases from independent authority instead of the
+// controller's own shape, subnet, NSGs, SSH keys or other instance metadata.
+func (r FoundationResolver) WorkerRecipes(ctx context.Context, cell, role string, caWire []byte) ([]VerifiedWorkerRecipe, error) {
+	profiles, err := r.WorkerProfiles(ctx, cell, role)
+	if err != nil {
+		return nil, err
+	}
+	source, err := profiles[0].reader.workerSource(ctx, cell)
+	if err != nil {
+		return nil, err
+	}
+	recipes := make([]VerifiedWorkerRecipe, 0, len(profiles))
+	for _, profile := range profiles {
+		recipe, err := profile.Bind(ctx, source, caWire)
+		if err != nil {
+			return nil, err
+		}
+		recipes = append(recipes, recipe)
+	}
+	return recipes, nil
+}
+
+func (s *SignedFootprint) workerSource(ctx context.Context, cell string) (bootstrap.VerifiedRegionalSource, error) {
+	if !s.bootstrapAnchor.IsVerified() {
+		return bootstrap.VerifiedRegionalSource{}, errors.New("worker source requires the original independently verified bootstrap anchor")
+	}
+	wire, err := s.readGrant(ctx)
+	if err != nil {
+		return bootstrap.VerifiedRegionalSource{}, err
+	}
+	template, err := bootstrap.VerifyRegionalStartupTemplate(wire, s.roots, s.bootstrapAnchor, oci.Region(cell), time.Now())
+	if err != nil {
+		return bootstrap.VerifiedRegionalSource{}, err
+	}
+	return bootstrap.LoadRegionalSource(ctx, template, s.client, time.Now())
+}
+
+// WorkerVaultTarget is the exact owned Vault for a separately authenticated
+// instance-recipient grant. It confers no permission to read controller secrets.
+func (v VerifiedWorkerRecipe) WorkerVaultTarget() (bootstrapmaterial.VaultTarget, error) {
+	if !v.IsVerified() {
+		return bootstrapmaterial.VaultTarget{}, errors.New("worker Vault target lacks recipe authority")
+	}
+	control, _ := FoundationResourceReference(v.profile.profile.Cell, "control_compartment")
+	compartment, err := v.profile.bindings.Resolve(control)
+	if err != nil {
+		return bootstrapmaterial.VaultTarget{}, err
+	}
+	vault, err := v.profile.bindings.Resolve(v.profile.profile.Bootstrap.VaultRef)
+	if err != nil {
+		return bootstrapmaterial.VaultTarget{}, err
+	}
+	key, err := v.profile.bindings.Resolve(v.profile.profile.Bootstrap.KMSKeyRef)
+	if err != nil {
+		return bootstrapmaterial.VaultTarget{}, err
+	}
+	return bootstrapmaterial.VaultTarget{CompartmentOCID: compartment, VaultOCID: vault, KMSKeyOCID: key}, nil
 }
