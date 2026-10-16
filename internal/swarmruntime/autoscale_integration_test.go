@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -194,4 +195,34 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 	if current.PreviousSpec == nil || runtimeDigest(*current.PreviousSpec) != "sha256:"+strings.Repeat("a", 64) {
 		t.Fatal("autoscale overwrote the last healthy release while readiness was pending")
 	}
+
+	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerCfg := serviceConfig(t, "autoscale-worker", "container")
+	workerCfg.Admission.ManagerAddress, err = manager.RemoteAddress()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerCfg.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
+	worker := serviceStart(t, ctx, workerCfg)
+	follower, err := NewAutoscaler(client, worker.ID(), source, probe, []ScalePolicy{{Target: target, Bounds: autoscale.Bounds{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := follower.Tick(ctx); err != nil || len(follower.Last()) != 0 {
+		t.Fatalf("worker performed manager policy evaluation: %+v, %v", follower.Last(), err)
+	}
+	assertReplicas(2)
+
+	duplicate := intent
+	duplicate.ID = entityid.Derive("autoscale-duplicate", intent.ID)
+	if _, err := applyService(ctx, client, duplicate); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.Tick(ctx); err == nil {
+		t.Fatal("ambiguous service identity authorized a replica update")
+	}
+	assertReplicas(2)
 }
