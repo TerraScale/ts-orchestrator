@@ -897,6 +897,35 @@ func TestMonitorConnzOffsetOverflow(t *testing.T) {
 	require_NoError(t, err)
 }
 
+func TestMonitorConnzOffsetOverflowHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	nc := createClientConnSubscribeAndPublish(t, s)
+	defer nc.Close()
+	url := fmt.Sprintf("http://%s/connz", s.MonitorAddr())
+
+	baseline := pollConnz(t, s, 0, url, nil)
+	require_Equal(t, baseline.Total, 1)
+	require_Equal(t, baseline.NumConns, 1)
+	for _, limit := range []int{1, math.MaxInt64} {
+		t.Run(fmt.Sprintf("limit=%d", limit), func(t *testing.T) {
+			page := pollConnz(t, s, 0, fmt.Sprintf("%s?offset=%d&limit=%d", url, math.MaxInt64, limit), nil)
+			require_Equal(t, page.Offset, math.MaxInt64)
+			require_Equal(t, page.Limit, limit)
+			require_Equal(t, page.Total, baseline.Total)
+			require_Equal(t, page.NumConns, 0)
+			require_NotNil(t, page.Conns)
+			require_Len(t, len(page.Conns), 0)
+		})
+	}
+
+	// Overflow requests must leave the client and ordinary pagination usable.
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	page := pollConnz(t, s, 0, url, nil)
+	require_Equal(t, page.NumConns, 1)
+	require_Equal(t, page.Conns[0].Cid, baseline.Conns[0].Cid)
+}
+
 func TestMonitorConnzDefaultSorted(t *testing.T) {
 	s := runMonitorServer()
 	defer s.Shutdown()
@@ -1785,6 +1814,37 @@ func TestMonitorSubszOffsetOverflow(t *testing.T) {
 	// Both Offset and Limit at the max also overflows the sum.
 	_, err = s.Subsz(&SubszOptions{Subscriptions: true, Offset: math.MaxInt64, Limit: math.MaxInt64})
 	require_NoError(t, err)
+}
+
+func TestMonitorSubszOffsetOverflowHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	nc := createClientConnSubscribeAndPublish(t, s)
+	defer nc.Close()
+	for _, subject := range []string{"foo.*", "foo.bar", "foo.foo"} {
+		_, err := nc.SubscribeSync(subject)
+		require_NoError(t, err)
+	}
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	url := fmt.Sprintf("http://%s/subsz?subs=1", s.MonitorAddr())
+	baseline := pollSubsz(t, s, 0, url, nil)
+	require_Equal(t, baseline.Total, 3)
+	require_Equal(t, baseline.NumSubs, uint32(3))
+	for _, limit := range []int{1, math.MaxInt64} {
+		t.Run(fmt.Sprintf("limit=%d", limit), func(t *testing.T) {
+			page := pollSubsz(t, s, 0, fmt.Sprintf("%s&offset=%d&limit=%d", url, math.MaxInt64, limit), nil)
+			require_Equal(t, page.Offset, math.MaxInt64)
+			require_Equal(t, page.Limit, limit)
+			require_Equal(t, page.Total, baseline.Total)
+			require_Equal(t, page.NumSubs, baseline.NumSubs)
+			require_Len(t, len(page.Subs), 0)
+		})
+	}
+
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	page := pollSubsz(t, s, 0, url, nil)
+	require_Equal(t, page.Total, baseline.Total)
+	require_Len(t, len(page.Subs), 3)
 }
 
 func TestMonitorSubszTestPubSubject(t *testing.T) {
@@ -7033,4 +7093,545 @@ func TestConnzClosedSubsDetailNoSharedMutation(t *testing.T) {
 	if c.Conns[0].SubsDetail != nil {
 		t.Fatalf("Plain closed-conn query unexpectedly carried SubsDetail: %+v", c.Conns[0].SubsDetail)
 	}
+}
+
+func TestMonitorVarzMetadataHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+
+	v := pollVarz(t, s, 0, fmt.Sprintf("http://%s/varz", s.MonitorAddr()), nil)
+
+	expected := map[string]string{"key1": "value1", "key2": "value2"}
+	if !reflect.DeepEqual(expected, v.Metadata) {
+		t.Fatalf("expected: %v, got: %v", expected, v.Metadata)
+	}
+}
+
+func TestMonitorVarzFeatureFlagsHTTP(t *testing.T) {
+	featureFlags["fix"] = false
+	t.Cleanup(func() { delete(featureFlags, "fix") })
+
+	expected := make(map[string]bool)
+	for k, v := range featureFlags {
+		expected[k] = v
+	}
+	expected["fix"] = true
+
+	s := runMonitorServer()
+	defer s.Shutdown()
+
+	v := pollVarz(t, s, 0, fmt.Sprintf("http://%s/varz", s.MonitorAddr()), nil)
+
+	if !reflect.DeepEqual(expected, v.FeatureFlags) {
+		t.Fatalf("expected: %v, got: %v", expected, v.FeatureFlags)
+	}
+}
+
+func TestMonitorAccountszMappingOrderReportingHTTP(t *testing.T) {
+	conf := createConfFile(t, []byte(`
+	listen: 127.0.0.1:-1
+	http: 127.0.0.1:-1
+	server_name: SR22
+	accounts {
+		CLOUD {
+			exports [ { service: "downlink.>" } ]
+		}
+		CLOUD2 {
+			exports [ { service: "downlink.>" } ]
+		}
+		APP {
+			imports [
+				{ service: { account: CLOUD, subject: "downlink.>"}, to: "event.>"}
+				{ service: { account: CLOUD2, subject: "downlink.>"}, to: "event.>"}
+			]
+		}
+	}`))
+
+	s, _ := RunServerWithConfig(conf)
+	defer s.Shutdown()
+
+	az := pollAccountz(t, s, 0, fmt.Sprintf("http://%s/accountz?acc=APP", s.MonitorAddr()), nil)
+	require_NotNil(t, az.Account)
+	require_True(t, len(az.Account.Imports) > 0)
+
+	var found bool
+	m := map[string]struct{}{}
+	for _, si := range az.Account.Imports {
+		if si.Import.Subject == "downlink.>" {
+			found = true
+			require_True(t, si.Import.LocalSubject == "event.>")
+			m[si.Import.Account] = struct{}{}
+		}
+	}
+	require_True(t, found)
+	if len(m) != 2 {
+		t.Fatalf("Expected imports from CLOUD and CLOUD2, got %v", m)
+	}
+}
+
+// expectHealthStatus makes a request to the URL and checks the HTTP status code,
+// Content-Type header and health status string.
+
+func TestServerHealthzHTTP(t *testing.T) {
+	t.Run("BasicHealth", func(t *testing.T) {
+		s := runMonitorServer()
+		defer s.Shutdown()
+
+		// Test with nil options
+		status := pollMonitorHealthz(t, s, nil)
+		if status == nil {
+			t.Fatal("Expected non-nil HealthStatus")
+		}
+		if status.Status != "ok" {
+			t.Fatalf("Expected status 'ok', got %q", status.Status)
+		}
+		if status.StatusCode != http.StatusOK {
+			t.Fatalf("Expected status code %d, got %d", http.StatusOK, status.StatusCode)
+		}
+
+		// Test with empty options
+		status = pollMonitorHealthz(t, s, &HealthzOptions{})
+		if status == nil {
+			t.Fatal("Expected non-nil HealthStatus")
+		}
+		if status.Status != "ok" {
+			t.Fatalf("Expected status 'ok', got %q", status.Status)
+		}
+
+		// Test with JSServerOnly option
+		status = pollMonitorHealthz(t, s, &HealthzOptions{JSServerOnly: true})
+		if status == nil {
+			t.Fatal("Expected non-nil HealthStatus")
+		}
+		if status.Status != "ok" {
+			t.Fatalf("Expected status 'ok', got %q", status.Status)
+		}
+	})
+
+	t.Run("BadRequestMissingAccount", func(t *testing.T) {
+		s := runMonitorServer()
+		defer s.Shutdown()
+
+		// Stream without account should return bad request
+		status := pollMonitorHealthz(t, s, &HealthzOptions{Stream: "TEST"})
+		if status.StatusCode != http.StatusBadRequest {
+			t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, status.StatusCode)
+		}
+		if status.Status != "error" {
+			t.Fatalf("Expected status 'error', got %q", status.Status)
+		}
+	})
+
+	t.Run("BadRequestMissingStream", func(t *testing.T) {
+		s := runMonitorServer()
+		defer s.Shutdown()
+
+		// Consumer without stream should return bad request
+		status := pollMonitorHealthz(t, s, &HealthzOptions{Account: "ACC", Consumer: "TEST"})
+		if status.StatusCode != http.StatusBadRequest {
+			t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, status.StatusCode)
+		}
+		if status.Status != "error" {
+			t.Fatalf("Expected status 'error', got %q", status.Status)
+		}
+	})
+
+	t.Run("DetailsOption", func(t *testing.T) {
+		s := runMonitorServer()
+		defer s.Shutdown()
+
+		// Test with Details option - should still return ok for healthy server
+		status := pollMonitorHealthz(t, s, &HealthzOptions{Details: true})
+		if status == nil {
+			t.Fatal("Expected non-nil HealthStatus")
+		}
+		if status.Status != "ok" {
+			t.Fatalf("Expected status 'ok', got %q", status.Status)
+		}
+
+		// Test bad request with details - should populate Errors slice
+		status = pollMonitorHealthz(t, s, &HealthzOptions{Stream: "TEST", Details: true})
+		if status.StatusCode != http.StatusBadRequest {
+			t.Fatalf("Expected status code %d, got %d", http.StatusBadRequest, status.StatusCode)
+		}
+		if len(status.Errors) == 0 {
+			t.Fatal("Expected Errors slice to be populated with Details=true")
+		}
+		if status.Errors[0].Type != HealthzErrorBadRequest {
+			t.Fatalf("Expected error type %v, got %v", HealthzErrorBadRequest, status.Errors[0].Type)
+		}
+	})
+
+	t.Run("ServerNotReady", func(t *testing.T) {
+		s := runMonitorServer()
+		defer s.Shutdown()
+
+		// Simulate server not ready by removing listener
+		s.mu.Lock()
+		sl := s.listener
+		s.listener = nil
+		s.mu.Unlock()
+
+		status := pollMonitorHealthz(t, s, nil)
+		if status.StatusCode != http.StatusInternalServerError {
+			t.Fatalf("Expected status code %d, got %d", http.StatusInternalServerError, status.StatusCode)
+		}
+		if status.Status != "error" {
+			t.Fatalf("Expected status 'error', got %q", status.Status)
+		}
+
+		// Restore for proper shutdown
+		s.mu.Lock()
+		s.listener = sl
+		s.mu.Unlock()
+	})
+
+	t.Run("JetStreamUnavailable", func(t *testing.T) {
+		opts := DefaultMonitorOptions()
+		opts.JetStream = true
+		opts.StoreDir = t.TempDir()
+		s := RunServer(opts)
+		defer s.Shutdown()
+
+		if !s.JetStreamEnabled() {
+			t.Fatalf("want JetStream to be enabled first")
+		}
+
+		err := s.DisableJetStream()
+		if err != nil {
+			t.Fatalf("got an error disabling JetStream: %v", err)
+		}
+
+		// Should report unavailable when JS is disabled
+		status := pollMonitorHealthz(t, s, nil)
+		if status.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("Expected status code %d, got %d", http.StatusServiceUnavailable, status.StatusCode)
+		}
+		if status.Status != "unavailable" {
+			t.Fatalf("Expected status 'unavailable', got %q", status.Status)
+		}
+
+		// JSServerOnly should still report ok
+		status = pollMonitorHealthz(t, s, &HealthzOptions{JSServerOnly: true})
+		if status.Status != "ok" {
+			t.Fatalf("Expected status 'ok' with JSServerOnly, got %q", status.Status)
+		}
+	})
+}
+
+// When we converted ipq to use generics we still were using sync.Map. Currently you can not convert
+// any or any to a generic parameterized type. So this stopped working and panics.
+
+func TestMonitorConnzSortByIdleTimeHTTP(t *testing.T) {
+	now := time.Now().UTC()
+
+	cases := map[string]ConnInfos{
+		"zero values": {{}, {}, {}, {}},
+		"equal last activity times": {
+			{Start: now.Add(-50 * time.Minute), LastActivity: now.Add(-time.Minute)},
+			{Start: now.Add(-30 * time.Minute), LastActivity: now.Add(-time.Minute)},
+			{Start: now.Add(-10 * time.Second), LastActivity: now.Add(-time.Minute)},
+			{Start: now.Add(-2 * time.Hour), LastActivity: now.Add(-time.Minute)},
+		},
+		"last activity in the future": {
+			{Start: now.Add(-50 * time.Minute), LastActivity: now.Add(10 * time.Minute)}, // +10m
+			{Start: now.Add(-30 * time.Minute), LastActivity: now.Add(5 * time.Minute)},  // +5m
+			{Start: now.Add(-24 * time.Hour), LastActivity: now.Add(2 * time.Second)},    // +2s
+			{Start: now.Add(-10 * time.Second), LastActivity: now.Add(15 * time.Minute)}, // +15m
+			{Start: now.Add(-2 * time.Hour), LastActivity: now.Add(time.Minute)},         // +1m
+		},
+		"unsorted": {
+			{Start: now.Add(-50 * time.Minute), LastActivity: now.Add(-10 * time.Minute)}, // 10m ago
+			{Start: now.Add(-30 * time.Minute), LastActivity: now.Add(-5 * time.Minute)},  // 5m ago
+			{Start: now.Add(-24 * time.Hour), LastActivity: now.Add(-2 * time.Second)},    // 2s ago
+			{Start: now.Add(-10 * time.Second), LastActivity: now.Add(-15 * time.Minute)}, // 15m ago
+			{Start: now.Add(-2 * time.Hour), LastActivity: now.Add(-time.Minute)},         // 1m ago
+		},
+		"unsorted with zero value start time": {
+			{LastActivity: now.Add(-10 * time.Minute)}, // 10m ago
+			{LastActivity: now.Add(-5 * time.Minute)},  // 5m ago
+			{LastActivity: now.Add(-2 * time.Second)},  // 2s ago
+			{LastActivity: now.Add(-15 * time.Minute)}, // 15m ago
+			{LastActivity: now.Add(-time.Minute)},      // 1m ago
+		},
+		"sorted": {
+			{Start: now.Add(-24 * time.Hour), LastActivity: now.Add(-2 * time.Second)},    // 2s ago
+			{Start: now.Add(-2 * time.Hour), LastActivity: now.Add(-time.Minute)},         // 1m ago
+			{Start: now.Add(-30 * time.Minute), LastActivity: now.Add(-5 * time.Minute)},  // 5m ago
+			{Start: now.Add(-50 * time.Minute), LastActivity: now.Add(-10 * time.Minute)}, // 10m ago
+			{Start: now.Add(-10 * time.Second), LastActivity: now.Add(-15 * time.Minute)}, // 15m ago
+		},
+		"sorted with zero value start time": {
+			{LastActivity: now.Add(-2 * time.Second)},  // 2s ago
+			{LastActivity: now.Add(-time.Minute)},      // 1m ago
+			{LastActivity: now.Add(-5 * time.Minute)},  // 5m ago
+			{LastActivity: now.Add(-10 * time.Minute)}, // 10m ago
+			{LastActivity: now.Add(-15 * time.Minute)}, // 15m ago
+		},
+	}
+
+	for name, fixtures := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := runMonitorServer()
+			defer s.Shutdown()
+			for _, fixture := range fixtures {
+				nc := createClientConnSubscribeAndPublish(t, s)
+				defer nc.Close()
+				cid, err := nc.GetClientID()
+				require_NoError(t, err)
+				client := s.getClient(cid)
+				require_NotNil(t, client)
+				// Clock anomalies are fixtures; ordering is observed through real HTTP.
+				client.mu.Lock()
+				client.start = fixture.Start
+				client.last = fixture.LastActivity
+				client.mu.Unlock()
+			}
+			page := pollConnz(t, s, 0, fmt.Sprintf("http://%s/connz?sort=idle", s.MonitorAddr()), nil)
+			require_Len(t, len(page.Conns), len(fixtures))
+			for i := 1; i < len(page.Conns); i++ {
+				if page.Conns[i-1].LastActivity.After(page.Conns[i].LastActivity) {
+					t.Fatalf("idle order is not descending: %+v", page.Conns)
+				}
+			}
+		})
+	}
+}
+
+func pollMonitorHealthz(t *testing.T, s *Server, opts *HealthzOptions) *HealthStatus {
+	t.Helper()
+	query := url.Values{}
+	if opts != nil {
+		query.Set("account", opts.Account)
+		query.Set("stream", opts.Stream)
+		query.Set("consumer", opts.Consumer)
+		query.Set("details", fmt.Sprint(opts.Details))
+		query.Set("js-server-only", fmt.Sprint(opts.JSServerOnly))
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://%s/healthz?%s", s.MonitorAddr(), query.Encode()))
+	require_NoError(t, err)
+	defer resp.Body.Close()
+	require_Equal(t, resp.Header.Get("Content-Type"), appJSONContent)
+	var status HealthStatus
+	require_NoError(t, json.NewDecoder(resp.Body).Decode(&status))
+	// Healthz carries the status in HTTP rather than duplicating it in JSON.
+	require_Equal(t, status.StatusCode, 0)
+	status.StatusCode = resp.StatusCode
+	return &status
+}
+
+func TestMonitorUptimeHTTP(t *testing.T) {
+	for _, tc := range []struct {
+		age    time.Duration
+		prefix string
+	}{
+		{22 * time.Second, ""},
+		{4*time.Minute + 22*time.Second, "4m"},
+		{4*time.Hour + 4*time.Minute + 22*time.Second, "4h4m"},
+		{32*24*time.Hour + 4*time.Hour + 4*time.Minute + 22*time.Second, "32d4h4m"},
+		{(22*365+32)*24*time.Hour + 4*time.Hour + 4*time.Minute + 22*time.Second, "22y32d4h4m"},
+	} {
+		t.Run(tc.age.String(), func(t *testing.T) {
+			s := runMonitorServer()
+			defer s.Shutdown()
+			// Supply an old boot time without waiting years to inspect the HTTP format.
+			s.mu.Lock()
+			s.start = time.Now().Add(-tc.age).UTC()
+			s.mu.Unlock()
+			v := pollVarz(t, s, 0, fmt.Sprintf("http://%s/varz", s.MonitorAddr()), nil)
+			age := v.Now.Sub(v.Start)
+			require_True(t, age >= tc.age && age < tc.age+time.Minute)
+			require_Equal(t, v.Uptime, fmt.Sprintf("%s%ds", tc.prefix, int(age/time.Second)%60))
+		})
+	}
+}
+
+func TestMonitorHandlerHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	url := fmt.Sprintf("http://%s/varz", s.MonitorAddr())
+	v := pollVarz(t, s, 0, url, nil)
+	require_Equal(t, v.ID, s.ID())
+	s.Shutdown()
+	client := &http.Client{Timeout: time.Second}
+	resp, err := client.Get(url)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("monitoring endpoint still accepts requests after shutdown")
+	}
+}
+
+func TestMonitorHttpStatsHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	url := fmt.Sprintf("http://%s", s.MonitorAddr())
+	endpoints := []string{VarzPath, ConnzPath, RoutezPath, SubszPath}
+	// Direct API callers must not be counted as HTTP requests.
+	for range 10 {
+		s.Varz(nil)
+		s.Connz(nil)
+		s.Routez(nil)
+		s.Subsz(nil)
+	}
+	v := pollVarz(t, s, 0, url+VarzPath, nil)
+	for _, endpoint := range endpoints {
+		want := uint64(0)
+		if endpoint == VarzPath {
+			want = 1
+		}
+		require_Equal(t, v.HTTPReqStats[endpoint], want)
+	}
+	for range 10 {
+		for _, endpoint := range endpoints {
+			readBody(t, url+endpoint)
+		}
+	}
+	v = pollVarz(t, s, 0, url+VarzPath, nil)
+	for _, endpoint := range endpoints {
+		want := uint64(10)
+		if endpoint == VarzPath {
+			want += 2
+		}
+		require_Equal(t, v.HTTPReqStats[endpoint], want)
+	}
+}
+
+func TestMonitorJszNonJszServerHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	url := fmt.Sprintf("http://%s/jsz", s.MonitorAddr())
+	var info JSInfo
+	require_NoError(t, json.Unmarshal(readBody(t, url), &info))
+	require_Equal(t, info.ID, s.ID())
+	require_True(t, info.Disabled)
+	body := readBodyEx(t, url+"?leader-only=true", http.StatusBadRequest, textPlain)
+	require_Contains(t, string(body), errSkipZreq.Error())
+	require_Contains(t, string(body), "not leader")
+	// The rejected leader-only request must not disrupt normal monitoring.
+	require_NoError(t, json.Unmarshal(readBody(t, url), &info))
+	require_True(t, info.Disabled)
+}
+
+func TestMonitorConnzAccountReloadRaceHTTP(t *testing.T) {
+	config := func(subject string) []byte {
+		return fmt.Appendf(nil, `
+		listen: 127.0.0.1:-1
+		http: 127.0.0.1:-1
+		accounts {
+			A { users: [{user: a, password: a, permissions: {subscribe: %q}}] }
+			B { users: [{user: b, password: b}] }
+		}`, subject)
+	}
+	conf := createConfFile(t, config("foo.>"))
+	s, _ := RunServerWithConfig(conf)
+	defer s.Shutdown()
+	conn, err := net.DialTimeout("tcp", s.Addr().String(), time.Second)
+	require_NoError(t, err)
+	defer conn.Close()
+	require_NoError(t, conn.SetDeadline(time.Now().Add(15*time.Second)))
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	require_NoError(t, err)
+	require_True(t, strings.HasPrefix(line, "INFO "))
+	connect := func(user string) {
+		t.Helper()
+		_, err := fmt.Fprintf(conn, "CONNECT {\"verbose\":false,\"user\":%q,\"pass\":%q}\r\nPING\r\n", user, user)
+		require_NoError(t, err)
+		line, err := reader.ReadString('\n')
+		require_NoError(t, err)
+		require_Equal(t, line, "PONG\r\n")
+	}
+	connect("a")
+	url := fmt.Sprintf("http://%s/connz?acc=", s.MonitorAddr())
+	page := pollConnz(t, s, 0, url+"A", nil)
+	require_Len(t, len(page.Conns), 1)
+	cid := page.Conns[0].Cid
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		close(started)
+		for {
+			for _, account := range []string{"A", "B"} {
+				page := pollConnz(t, s, 0, url+account, nil)
+				require_Equal(t, page.NumConns, len(page.Conns))
+				for _, client := range page.Conns {
+					require_Equal(t, client.Cid, cid)
+					require_True(t, client.Account == "A" || client.Account == "B")
+				}
+			}
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	})
+	defer func() { close(stop); wg.Wait() }()
+	<-started
+	for i := range 100 {
+		if i%2 == 0 {
+			connect("a")
+		} else {
+			connect("b")
+		}
+		if i%10 == 0 {
+			subject := "foo.>"
+			if i%20 == 0 {
+				subject = "bar.>"
+			}
+			require_NoError(t, os.WriteFile(conf, config(subject), 0o600))
+			require_NoError(t, s.Reload())
+		}
+	}
+	page = pollConnz(t, s, 0, url+"B", nil)
+	require_Len(t, len(page.Conns), 1)
+	require_Equal(t, page.Conns[0].Cid, cid)
+	require_Equal(t, page.Conns[0].Account, "B")
+	page = pollConnz(t, s, 0, url+"A", nil)
+	require_Len(t, len(page.Conns), 0)
+}
+
+func TestMonitorConnzClosedSubsDetailHTTP(t *testing.T) {
+	s := runMonitorServer()
+	defer s.Shutdown()
+	nc := createClientConnSubscribeAndPublish(t, s)
+	defer nc.Close()
+	_, err := nc.SubscribeSync("foo.bar")
+	require_NoError(t, err)
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	cid, err := nc.GetClientID()
+	require_NoError(t, err)
+	nc.Close()
+	url := fmt.Sprintf("http://%s/connz?state=closed&cid=%d", s.MonitorAddr(), cid)
+	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+		page := pollConnz(t, s, 0, url, nil)
+		if len(page.Conns) != 1 {
+			return fmt.Errorf("closed client %d not recorded yet", cid)
+		}
+		return nil
+	})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 20 {
+				detail := pollConnz(t, s, 0, url+"&subs=detail", nil)
+				require_Len(t, len(detail.Conns), 1)
+				require_Equal(t, detail.Conns[0].Cid, cid)
+				require_Equal(t, detail.Conns[0].NumSubs, uint32(1))
+				require_Len(t, len(detail.Conns[0].SubsDetail), 1)
+				require_Equal(t, detail.Conns[0].SubsDetail[0].Subject, "foo.bar")
+				plain := pollConnz(t, s, 0, url, nil)
+				require_Len(t, len(plain.Conns), 1)
+				require_Equal(t, plain.Conns[0].Cid, cid)
+				if plain.Conns[0].SubsDetail != nil {
+					t.Errorf("plain closed connection response leaked subscription detail: %+v", plain.Conns[0].SubsDetail)
+				}
+			}
+		})
+	}
+	wg.Wait()
 }

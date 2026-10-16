@@ -260,6 +260,78 @@ func TestProcessUserPermissionsTemplateRejectsExcessiveTagExpansions(t *testing.
 	require_Error(t, err)
 }
 
+func TestAuthPermissionTemplatesTCP(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		configure func(*jwt.UserScope, *jwt.UserClaims)
+	}{
+		{"malformed deny operation", func(scope *jwt.UserScope, _ *jwt.UserClaims) {
+			scope.Template.Sub.Deny.Add("foo.{{x}}")
+		}},
+		{"unknown allow operation", func(scope *jwt.UserScope, _ *jwt.UserClaims) {
+			scope.Template.Pub.Allow.Add("foo.{{unknown()}}")
+		}},
+		{"excessive tag expansion", func(scope *jwt.UserScope, user *jwt.UserClaims) {
+			scope.Template.Pub.Allow.Add("foo.{{tag(a)}}.{{tag(b)}}")
+			for i := range 128 {
+				user.Tags.Add(fmt.Sprintf("a:v%d", i), fmt.Sprintf("b:v%d", i))
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, accountPub := createKey(t)
+			badKey, badPub := createKey(t)
+			goodKey, goodPub := createKey(t)
+			badScope, goodScope := jwt.NewUserScope(), jwt.NewUserScope()
+			badScope.Key, goodScope.Key = badPub, goodPub
+			goodScope.Template.Pub.Allow.Add("control.{{name()}}")
+			goodScope.Template.Sub.Allow.Add("control.{{name()}}")
+
+			badUser := newJWTTestUserClaims()
+			badUser.SetScoped(true)
+			badUser.IssuerAccount = accountPub
+			tc.configure(badScope, badUser)
+			goodUser := newJWTTestUserClaims()
+			goodUser.SetScoped(true)
+			goodUser.IssuerAccount = accountPub
+			goodUser.Name = "valid"
+
+			account := jwt.NewAccountClaims(accountPub)
+			account.SigningKeys.AddScopedSigner(badScope)
+			account.SigningKeys.AddScopedSigner(goodScope)
+			accountJWT, err := account.Encode(oKp)
+			require_NoError(t, err)
+			conf := createConfFile(t, fmt.Appendf(nil, `
+				listen: "127.0.0.1:-1"
+				operator: %s
+				resolver: MEM
+				resolver_preload: { %s: %s }
+			`, ojwt, accountPub, accountJWT))
+			s, _ := RunServerWithConfig(conf)
+			t.Cleanup(s.Shutdown)
+
+			goodCreds := createUserCredsEx(t, goodUser, goodKey)
+			checkDelivery := func() {
+				t.Helper()
+				nc := natsConnect(t, s.ClientURL(), goodCreds, nats.Timeout(2*time.Second), nats.NoReconnect())
+				defer nc.Close()
+				sub := natsSubSync(t, nc, "control.valid")
+				require_NoError(t, nc.Publish("control.valid", []byte("authorized")))
+				require_NoError(t, nc.FlushTimeout(2*time.Second))
+				msg := natsNexMsg(t, sub, 2*time.Second)
+				require_Equal(t, string(msg.Data), "authorized")
+			}
+			checkDelivery()
+			nc, err := nats.Connect(s.ClientURL(), createUserCredsEx(t, badUser, badKey), nats.Timeout(2*time.Second), nats.NoReconnect())
+			if nc != nil {
+				nc.Close()
+			}
+			require_True(t, errors.Is(err, nats.ErrAuthorization))
+			checkDelivery()
+		})
+	}
+}
+
 func TestNoAuthUser(t *testing.T) {
 	conf := createConfFile(t, []byte(`
 		listen: "127.0.0.1:-1"

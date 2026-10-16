@@ -179,6 +179,58 @@ func TestFileStoreMsgHeaders(t *testing.T) {
 	})
 }
 
+func TestFileStoreHeadersPersistWithRecordAccounting(t *testing.T) {
+	testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
+		cfg := StreamConfig{Name: "HEADERS", Storage: FileStorage}
+		created := time.Now()
+		fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		t.Cleanup(func() {
+			if fs != nil {
+				fs.Stop()
+			}
+		})
+		hdr, payload := []byte("name:derek"), []byte("Hello World")
+		seq, _, err := fs.StoreMsg("foo", hdr, payload, 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(1))
+		require_NoError(t, fs.Stop())
+
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		sm, err := fs.LoadMsg(seq, nil)
+		require_NoError(t, err)
+		require_Equal(t, sm.subj, "foo")
+		require_Equal(t, string(sm.hdr), string(hdr))
+		require_Equal(t, string(sm.msg), string(payload))
+		state := fs.State()
+		require_Equal(t, state.Msgs, uint64(1))
+		// Record: 22-byte prefix, subject, 4-byte header length, header, payload and 8-byte hash.
+		require_Equal(t, state.Bytes, uint64(58))
+
+		erased, err := fs.EraseMsg(seq)
+		require_NoError(t, err)
+		require_True(t, erased)
+		require_NoError(t, fs.Stop())
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		_, err = fs.LoadMsg(seq, nil)
+		if !errors.Is(err, ErrStoreMsgNotFound) && !errors.Is(err, ErrStoreEOF) {
+			t.Fatalf("erased message returned %v", err)
+		}
+		state = fs.State()
+		require_Equal(t, state.Msgs, uint64(0))
+		require_Equal(t, state.Bytes, uint64(0))
+		seq, _, err = fs.StoreMsg("foo", hdr, payload, 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(2))
+		sm, err = fs.LoadMsg(seq, nil)
+		require_NoError(t, err)
+		require_Equal(t, string(sm.hdr), string(hdr))
+		require_Equal(t, string(sm.msg), string(payload))
+	})
+}
+
 func TestFileStoreBasicWriteMsgsAndRestore(t *testing.T) {
 	testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
 		if _, err := newFileStore(fcfg, StreamConfig{Storage: MemoryStorage}); err == nil {
@@ -2503,6 +2555,110 @@ func TestFileStoreConsumerEncodeDecodePendingBelowStreamAckFloor(t *testing.T) {
 	}
 }
 
+func TestFileStoreConsumerRedeliveryStateRecovered(t *testing.T) {
+	testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
+		cfg := StreamConfig{Name: "REDELIVERY", Storage: FileStorage}
+		created := time.Now()
+		fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		t.Cleanup(func() {
+			if fs != nil {
+				fs.Stop()
+			}
+		})
+		ccfg := &ConsumerConfig{AckPolicy: AckExplicit}
+		o, err := fs.ConsumerStore("OBS", created, ccfg)
+		require_NoError(t, err)
+		want := &ConsumerState{
+			Delivered:   SequencePair{Consumer: 100, Stream: 100},
+			AckFloor:    SequencePair{Consumer: 50, Stream: 50},
+			Redelivered: map[uint64]uint64{122: 3, 144: 8},
+		}
+		require_NoError(t, o.Update(want))
+		require_NoError(t, fs.Stop())
+
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		o, err = fs.ConsumerStore("OBS", created, ccfg)
+		require_NoError(t, err)
+		got, err := o.State()
+		require_NoError(t, err)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("recovered state: got %+v, want %+v", got, want)
+		}
+
+		ts := time.Now().Truncate(time.Second).UnixNano()
+		require_NoError(t, o.UpdateDelivered(101, 145, 1, ts))
+		want.Delivered = SequencePair{Consumer: 101, Stream: 145}
+		want.Pending = map[uint64]*Pending{145: {Sequence: 101, Timestamp: ts}}
+		require_NoError(t, fs.Stop())
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		o, err = fs.ConsumerStore("OBS", created, ccfg)
+		require_NoError(t, err)
+		got, err = o.State()
+		require_NoError(t, err)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("state after subsequent delivery: got %+v, want %+v", got, want)
+		}
+	})
+}
+
+func TestFileStoreConsumerLegacyPendingStateRecovered(t *testing.T) {
+	fcfg := FileStoreConfig{StoreDir: t.TempDir()}
+	cfg := StreamConfig{Name: "PENDING", Storage: FileStorage}
+	created := time.Now()
+	fs, err := newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	t.Cleanup(func() {
+		if fs != nil {
+			fs.Stop()
+		}
+	})
+	ccfg := &ConsumerConfig{AckPolicy: AckExplicit}
+	_, err = fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	require_NoError(t, fs.Stop())
+
+	ts := time.Now().Truncate(time.Second).Add(-10 * time.Second).UnixNano()
+	want := &ConsumerState{
+		Delivered: SequencePair{Consumer: 1192, Stream: 10185},
+		AckFloor:  SequencePair{Consumer: 1189, Stream: 10815},
+		Pending: map[uint64]*Pending{
+			10782: {Sequence: 1190, Timestamp: ts},
+			10810: {Sequence: 1191, Timestamp: ts + int64(time.Second)},
+			10815: {Sequence: 1192, Timestamp: ts + int64(2*time.Second)},
+		},
+	}
+	// Legacy snapshots can contain pending entries below the stream ack floor.
+	fn := filepath.Join(fcfg.StoreDir, consumerDir, "OBS", consumerState)
+	require_NoError(t, os.WriteFile(fn, encodeConsumerState(want), defaultFilePerms))
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	o, err := fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	got, err := o.State()
+	require_NoError(t, err)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("recovered legacy pending state: got %+v, want %+v", got, want)
+	}
+
+	ts += int64(3 * time.Second)
+	require_NoError(t, o.UpdateDelivered(1193, 10816, 1, ts))
+	want.Delivered = SequencePair{Consumer: 1193, Stream: 10816}
+	want.Pending[10816] = &Pending{Sequence: 1193, Timestamp: ts}
+	require_NoError(t, fs.Stop())
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	o, err = fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	got, err = o.State()
+	require_NoError(t, err)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("legacy pending state after subsequent delivery: got %+v, want %+v", got, want)
+	}
+}
+
 func TestFileStoreWriteFailures(t *testing.T) {
 	// This test should be run inside an environment where this directory
 	// has a limited size.
@@ -3391,6 +3547,55 @@ func TestFileStoreBadConsumerState(t *testing.T) {
 	bs := []byte("\x16\x02\x01\x01\x03\x02\x01\x98\xf4\x8a\x8a\f\x01\x03\x86\xfa\n\x01\x00\x01")
 	if cs, err := decodeConsumerState(bs); err != nil || cs == nil {
 		t.Fatalf("Expected to not throw error, got %v and %+v", err, cs)
+	}
+}
+
+func TestFileStoreConsumerZeroRedeliverySequenceRecovered(t *testing.T) {
+	fcfg := FileStoreConfig{StoreDir: t.TempDir()}
+	cfg := StreamConfig{Name: "LEGACY", Storage: FileStorage}
+	created := time.Now()
+	fs, err := newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	t.Cleanup(func() {
+		if fs != nil {
+			fs.Stop()
+		}
+	})
+	ccfg := &ConsumerConfig{AckPolicy: AckExplicit}
+	_, err = fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	require_NoError(t, fs.Stop())
+
+	// This snapshot contains a zero redelivery sequence that previously caused a panic.
+	buf := []byte("\x16\x02\x01\x01\x03\x02\x01\x98\xf4\x8a\x8a\f\x01\x03\x86\xfa\n\x01\x00\x01")
+	fn := filepath.Join(fcfg.StoreDir, consumerDir, "OBS", consumerState)
+	require_NoError(t, os.WriteFile(fn, buf, defaultFilePerms))
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	o, err := fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	want, err := o.State()
+	require_NoError(t, err)
+	require_Equal(t, want.Delivered, SequencePair{Consumer: 3, Stream: 2})
+	require_Equal(t, want.AckFloor, SequencePair{Consumer: 1, Stream: 1})
+	require_Equal(t, len(want.Pending), 1)
+	require_NotNil(t, want.Pending[2])
+	require_Equal(t, want.Pending[2].Sequence, uint64(4))
+	require_Equal(t, len(want.Redelivered), 0)
+
+	ts := time.Now().Truncate(time.Second).UnixNano()
+	require_NoError(t, o.UpdateDelivered(4, 3, 1, ts))
+	want.Delivered = SequencePair{Consumer: 4, Stream: 3}
+	want.Pending[3] = &Pending{Sequence: 4, Timestamp: ts}
+	require_NoError(t, fs.Stop())
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	o, err = fs.ConsumerStore("OBS", created, ccfg)
+	require_NoError(t, err)
+	got, err := o.State()
+	require_NoError(t, err)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("state after legacy redelivery recovery: got %+v, want %+v", got, want)
 	}
 }
 
@@ -5530,6 +5735,82 @@ func TestFileStoreSkipMsgAndNumBlocks(t *testing.T) {
 	_, _, err = fs.StoreMsg(subj, nil, msg, 0)
 	require_NoError(t, err)
 	require_Equal(t, fs.numMsgBlocks(), 3)
+}
+
+func TestFileStoreSkippedSequencesRecoveredFromDisk(t *testing.T) {
+	for _, test := range []struct {
+		title      string
+		blockSize  uint64
+		skips      uint64
+		individual bool
+		asyncFlush bool
+	}{
+		{title: "SingleSkips", blockSize: 8192, skips: 10, individual: true},
+		{title: "BatchSkips", blockSize: 8192, skips: 10},
+		{title: "SmallBlockBatch", blockSize: 128, skips: 10_000},
+		{title: "AsyncBatch", blockSize: 8192, skips: 100_000, asyncFlush: true},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
+				fcfg.BlockSize, fcfg.AsyncFlush = test.blockSize, test.asyncFlush
+				cfg := StreamConfig{Name: "SKIPPED", Storage: FileStorage}
+				created := time.Now()
+				fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+				require_NoError(t, err)
+				t.Cleanup(func() {
+					if fs != nil {
+						fs.Stop()
+					}
+				})
+				payload := bytes.Repeat([]byte("X"), 100)
+				seq, _, err := fs.StoreMsg("zzz", nil, payload, 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, uint64(1))
+				firstBlock := fs.getFirstBlock()
+				if test.individual {
+					for i := range test.skips {
+						seq, err := fs.SkipMsg(i + 2)
+						require_NoError(t, err)
+						require_Equal(t, seq, i+2)
+					}
+				} else {
+					require_NoError(t, fs.SkipMsgs(2, test.skips))
+				}
+				// Batch rollover must flush the previous real block before shutdown.
+				info, err := os.Stat(firstBlock.mfn)
+				require_NoError(t, err)
+				require_True(t, info.Size() > 0)
+				seq, _, err = fs.StoreMsg("zzz", nil, []byte("after skips"), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, test.skips+2)
+				require_NoError(t, fs.Stop())
+
+				fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+				require_NoError(t, err)
+				sm, err := fs.LoadMsg(1, nil)
+				require_NoError(t, err)
+				require_Equal(t, sm.subj, "zzz")
+				require_True(t, bytes.Equal(sm.msg, payload))
+				for skipped := uint64(2); skipped <= test.skips+1; skipped++ {
+					_, err := fs.LoadMsg(skipped, nil)
+					require_Error(t, err, ErrStoreMsgNotFound, errDeletedMsg)
+				}
+				sm, err = fs.LoadMsg(seq, nil)
+				require_NoError(t, err)
+				require_Equal(t, sm.subj, "zzz")
+				require_Equal(t, string(sm.msg), "after skips")
+				var state StreamState
+				fs.FastState(&state)
+				require_Equal(t, state.Msgs, uint64(2))
+				require_Equal(t, state.FirstSeq, uint64(1))
+				require_Equal(t, state.LastSeq, seq)
+				require_Equal(t, state.NumDeleted, int(test.skips))
+				seq, _, err = fs.StoreMsg("zzz", nil, []byte("after restart"), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, test.skips+3)
+			})
+		})
+	}
 }
 
 func TestFileStoreRestoreEncryptedWithNoKeyFuncFails(t *testing.T) {
@@ -10967,6 +11248,66 @@ func TestFileStoreDecodeCorruptBlock(t *testing.T) {
 	require_True(t, errors.Is(err, s2.ErrCRC))
 }
 
+func TestFileStoreCorruptCompressedBlockRejectedOnRecovery(t *testing.T) {
+	fcfg := FileStoreConfig{StoreDir: t.TempDir(), Compression: S2Compression}
+	cfg := StreamConfig{Name: "COMPRESSED", Storage: FileStorage}
+	fs, err := newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	t.Cleanup(func() {
+		if fs != nil {
+			fs.Stop()
+		}
+	})
+
+	// Keep the compressed block large enough to exercise the plaintext fallback.
+	payload := make([]byte, 25*1024*1024)
+	_, err = crand.Read(payload)
+	require_NoError(t, err)
+	seq, _, err := fs.StoreMsg("test", nil, payload, 0)
+	require_NoError(t, err)
+	require_Equal(t, seq, uint64(1))
+	mb := fs.getFirstBlock()
+	require_NoError(t, mb.flushPendingMsgs())
+	func() {
+		mb.mu.Lock()
+		defer mb.mu.Unlock()
+		require_NoError(t, mb.recompressOnDiskIfNeeded())
+	}()
+	require_NoError(t, fs.Stop())
+
+	original, err := os.ReadFile(mb.mfn)
+	require_NoError(t, err)
+	corrupt := bytes.Clone(original)
+	corrupt[len(corrupt)/2] ^= 0xff
+	require_NoError(t, os.WriteFile(mb.mfn, corrupt, defaultFilePerms))
+	require_NoError(t, os.Remove(filepath.Join(fcfg.StoreDir, msgDir, streamStreamStateFile)))
+	fs, err = newFileStore(fcfg, cfg)
+	require_Error(t, err)
+	require_True(t, errors.Is(err, s2.ErrCRC))
+
+	// A rejected open must leave the block recoverable after restoring its bytes.
+	require_NoError(t, os.WriteFile(mb.mfn, original, defaultFilePerms))
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	sm, err := fs.LoadMsg(seq, nil)
+	require_NoError(t, err)
+	require_Equal(t, sm.subj, "test")
+	require_True(t, bytes.Equal(sm.msg, payload))
+	seq, _, err = fs.StoreMsg("test", nil, []byte("after repair"), 0)
+	require_NoError(t, err)
+	require_Equal(t, seq, uint64(2))
+	require_NoError(t, fs.Stop())
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	sm, err = fs.LoadMsg(1, nil)
+	require_NoError(t, err)
+	require_True(t, bytes.Equal(sm.msg, payload))
+	sm, err = fs.LoadMsg(seq, nil)
+	require_NoError(t, err)
+	require_Equal(t, sm.subj, "test")
+	require_Equal(t, string(sm.msg), "after repair")
+}
+
 func TestFileStoreCompressionAfterTruncate(t *testing.T) {
 	tests := []struct {
 		title  string
@@ -11559,6 +11900,184 @@ func TestFileStoreSourcesDecodeRejectsMalformed(t *testing.T) {
 	}
 }
 
+func TestFileStoreMessageScheduleRecoveryFromMalformedState(t *testing.T) {
+	header := func(count uint64) []byte {
+		b := make([]byte, headerLen)
+		b[0] = 1
+		binary.LittleEndian.PutUint64(b[1:], count)
+		return b
+	}
+
+	for _, test := range []struct {
+		title string
+		buf   []byte
+	}{
+		{title: "MissingIndex"},
+		{title: "ShortHeader", buf: make([]byte, headerLen-1)},
+		{title: "BadVersion", buf: func() []byte { b := header(0); b[0] = 2; return b }()},
+		{title: "TruncatedAtSubjLen", buf: header(1)},
+		{title: "TruncatedSubj", buf: append(header(1), 5, 0)},
+		{title: "TruncatedVarints", buf: append(header(1), 3, 0, 'f', 'o', 'o')},
+		{title: "TruncatedSeq", buf: append(append(header(1), 3, 0, 'f', 'o', 'o'), binary.AppendVarint(nil, 12345)...)},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			fcfg := FileStoreConfig{StoreDir: t.TempDir()}
+			cfg := StreamConfig{Name: "SCHEDULE", Subjects: []string{"foo.*"}, Storage: FileStorage, AllowMsgSchedules: true}
+			fs, err := newFileStoreWithCreatedAndMode(fcfg, cfg, time.Now(), nil, nil, true)
+			require_NoError(t, err)
+			t.Cleanup(func() {
+				if fs != nil {
+					fs.Stop()
+				}
+			})
+
+			schedule := time.Now().Add(250 * time.Millisecond).Format(time.RFC3339Nano)
+			hdr := genHeader(nil, JSSchedulePattern, "@at "+schedule)
+			hdr = genHeader(hdr, JSScheduleTarget, "foo.target")
+			seq, _, err := fs.StoreMsg("foo.schedule", hdr, []byte("scheduled payload"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(1))
+			require_NoError(t, fs.Stop())
+
+			// Leave message blocks available to recover a missing or corrupt index.
+			fn := filepath.Join(fcfg.StoreDir, msgDir, msgSchedulingStreamStateFile)
+			_, err = os.ReadFile(fn)
+			require_NoError(t, err)
+			if test.buf == nil {
+				require_NoError(t, os.Remove(fn))
+			} else {
+				require_NoError(t, os.WriteFile(fn, test.buf, defaultFilePerms))
+			}
+
+			fs, err = newFileStoreWithCreatedAndMode(fcfg, cfg, time.Now(), nil, nil, true)
+			require_NoError(t, err)
+			ch := make(chan *inMsg, 1)
+			fs.RegisterProcessJetStreamMsg(func(im *inMsg) { ch <- im })
+			fs.Ready()
+
+			sm, err := fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo.schedule")
+			require_Equal(t, string(sm.msg), "scheduled payload")
+			require_Equal(t, string(sm.hdr), string(hdr))
+			im := require_ChanRead(t, ch, 5*time.Second)
+			require_Equal(t, im.seq, seq)
+			require_Equal(t, im.subj, "foo.target")
+			require_Equal(t, string(im.msg), "scheduled payload")
+			require_Equal(t, string(getHeader(JSScheduler, im.hdr)), "foo.schedule")
+			require_Equal(t, string(getHeader(JSScheduleNext, im.hdr)), JSScheduleNextPurge)
+			removed, err := fs.RemoveMsg(im.seq)
+			require_NoError(t, err)
+			require_True(t, removed)
+
+			seq, _, err = fs.StoreMsg("foo.after", nil, []byte("after recovery"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(2))
+			require_NoError(t, fs.Stop())
+			fs, err = newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			sm, err = fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo.after")
+			require_Equal(t, string(sm.msg), "after recovery")
+			var state StreamState
+			fs.FastState(&state)
+			require_Equal(t, state.Msgs, uint64(1))
+			require_Equal(t, state.FirstSeq, uint64(2))
+			require_Equal(t, state.LastSeq, uint64(2))
+		})
+	}
+}
+
+func TestFileStoreSourcesRecoveryFromMalformedState(t *testing.T) {
+	header := func(count uint64) []byte {
+		b := make([]byte, sourcesHeaderLen)
+		b[0] = 1
+		binary.LittleEndian.PutUint64(b[1:], count)
+		return b
+	}
+	uvi := func(v uint64) []byte { return binary.AppendUvarint(nil, v) }
+
+	for _, test := range []struct {
+		title string
+		buf   []byte
+	}{
+		{title: "ShortHeader", buf: make([]byte, sourcesHeaderLen-1)},
+		{title: "BadVersion", buf: func() []byte { b := header(0); b[0] = 2; return b }()},
+		{title: "TruncatedAtSourceLen", buf: header(1)},
+		{title: "TruncatedSource", buf: append(header(1), uvi(5)...)},
+		{title: "TruncatedSeq", buf: append(append(header(1), uvi(3)...), 'f', 'o', 'o')},
+		{title: "TruncatedAtIdentLen", buf: append(append(append(header(1), uvi(3)...), 'f', 'o', 'o'), uvi(1)...)},
+		{title: "TruncatedIdent", buf: append(append(append(append(header(1), uvi(3)...), 'f', 'o', 'o'), uvi(1)...), uvi(5)...)},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			for _, allowMsgTTL := range []bool{false, true} {
+				t.Run(fmt.Sprintf("TTL=%t", allowMsgTTL), func(t *testing.T) {
+					fcfg := FileStoreConfig{StoreDir: t.TempDir(), BlockSize: 256}
+					cfg := StreamConfig{
+						Name: "SOURCE", Subjects: []string{"foo.*"}, Storage: FileStorage,
+						Sources: []*StreamSource{{Name: "ORIGIN"}}, AllowMsgTTL: allowMsgTTL,
+					}
+					fs, err := newFileStore(fcfg, cfg)
+					require_NoError(t, err)
+					t.Cleanup(func() {
+						if fs != nil {
+							fs.Stop()
+						}
+					})
+
+					const count = 3
+					for i := 1; i <= count; i++ {
+						hdr := genHeader(nil, JSStreamSource, fmt.Sprintf("ORIGIN %d > > foo.bar IDENTITY1", i+10))
+						seq, _, err := fs.StoreMsg("foo.bar", hdr, []byte(fmt.Sprintf("payload-%d", i)), 0)
+						require_NoError(t, err)
+						require_Equal(t, seq, uint64(i))
+					}
+					require_NoError(t, fs.Stop())
+
+					fn := filepath.Join(fcfg.StoreDir, sourcesStreamStateFile)
+					_, err = os.ReadFile(fn)
+					require_NoError(t, err)
+					require_NoError(t, os.WriteFile(fn, test.buf, defaultFilePerms))
+					fs, err = newFileStore(fcfg, cfg)
+					require_NoError(t, err)
+
+					state := fs.SourcesState()
+					require_Equal(t, state["ORIGIN > >"].Seq, uint64(count+10))
+					require_Equal(t, state["ORIGIN > >"].Ident, "IDENTITY1")
+					for i := 1; i <= count; i++ {
+						sm, err := fs.LoadMsg(uint64(i), nil)
+						require_NoError(t, err)
+						require_Equal(t, sm.subj, "foo.bar")
+						require_Equal(t, string(sm.msg), fmt.Sprintf("payload-%d", i))
+						require_Equal(t, string(getHeader(JSStreamSource, sm.hdr)), fmt.Sprintf("ORIGIN %d > > foo.bar IDENTITY1", i+10))
+					}
+
+					hdr := genHeader(nil, JSStreamSource, "ORIGIN 14 > > foo.bar IDENTITY2")
+					seq, _, err := fs.StoreMsg("foo.bar", hdr, []byte("after recovery"), 0)
+					require_NoError(t, err)
+					require_Equal(t, seq, uint64(count+1))
+					require_NoError(t, fs.Stop())
+					fs, err = newFileStore(fcfg, cfg)
+					require_NoError(t, err)
+					state = fs.SourcesState()
+					require_Equal(t, state["ORIGIN > >"].Seq, uint64(14))
+					require_Equal(t, state["ORIGIN > >"].Ident, "IDENTITY2")
+					sm, err := fs.LoadMsg(seq, nil)
+					require_NoError(t, err)
+					require_Equal(t, sm.subj, "foo.bar")
+					require_Equal(t, string(sm.msg), "after recovery")
+					var ss StreamState
+					fs.FastState(&ss)
+					require_Equal(t, ss.Msgs, uint64(count+1))
+					require_Equal(t, ss.FirstSeq, uint64(1))
+					require_Equal(t, ss.LastSeq, seq)
+				})
+			}
+		})
+	}
+}
+
 func TestFileStoreSourcesRecovery(t *testing.T) {
 	test := func(t *testing.T, remove bool) {
 		dir := t.TempDir()
@@ -12015,6 +12534,78 @@ func TestFileStoreCorruptedNonOrderedSequences(t *testing.T) {
 				require_NoError(t, err)
 				require_NoError(t, lmb.indexCacheBuf(buf))
 				require_True(t, lmb.cacheAlreadyLoaded())
+			})
+		})
+	}
+}
+
+func TestFileStoreNonOrderedSequencesRecoveredFromDisk(t *testing.T) {
+	for _, test := range []struct {
+		title string
+		seqs  []uint64
+		live  []uint64
+		last  uint64
+	}{
+		{title: "Unordered", seqs: []uint64{1, 3, 2, 4}, live: []uint64{1, 3, 4}, last: 4},
+		{title: "Duplicated", seqs: []uint64{1, 2, 2, 3}, live: []uint64{1, 2, 3}, last: 3},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
+				cfg := StreamConfig{Name: "SEQUENCES", Storage: FileStorage}
+				created := time.Now()
+				fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+				require_NoError(t, err)
+				t.Cleanup(func() {
+					if fs != nil {
+						fs.Stop()
+					}
+				})
+
+				// Write malformed record order to disk, bypassing sequence admission only for the fixture.
+				for _, seq := range test.seqs {
+					fs.mu.Lock()
+					_, err := fs.writeMsgRecord(seq, created.UnixNano(), "foo", nil, []byte(fmt.Sprintf("sequence-%d", seq)))
+					fs.mu.Unlock()
+					require_NoError(t, err)
+				}
+				mb := fs.getFirstBlock()
+				func() {
+					mb.mu.Lock()
+					defer mb.mu.Unlock()
+					require_NoError(t, mb.recompressOnDiskIfNeeded())
+				}()
+				require_NoError(t, fs.Stop())
+				require_NoError(t, os.Remove(filepath.Join(fcfg.StoreDir, msgDir, streamStreamStateFile)))
+
+				fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+				require_NoError(t, err)
+				for seq := uint64(1); seq <= test.last; seq++ {
+					sm, err := fs.LoadMsg(seq, nil)
+					if !slices.Contains(test.live, seq) {
+						require_Error(t, err, ErrStoreMsgNotFound)
+						continue
+					}
+					require_NoError(t, err)
+					require_Equal(t, sm.subj, "foo")
+					require_Equal(t, string(sm.msg), fmt.Sprintf("sequence-%d", seq))
+				}
+				var state StreamState
+				fs.FastState(&state)
+				require_Equal(t, state.Msgs, uint64(len(test.live)))
+				require_Equal(t, state.FirstSeq, uint64(1))
+				require_Equal(t, state.LastSeq, test.last)
+				require_Equal(t, state.NumDeleted, int(test.last)-len(test.live))
+
+				seq, _, err := fs.StoreMsg("foo", nil, []byte("after sequence recovery"), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, test.last+1)
+				require_NoError(t, fs.Stop())
+				fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+				require_NoError(t, err)
+				sm, err := fs.LoadMsg(seq, nil)
+				require_NoError(t, err)
+				require_Equal(t, sm.subj, "foo")
+				require_Equal(t, string(sm.msg), "after sequence recovery")
 			})
 		})
 	}
@@ -13808,6 +14399,116 @@ func BenchmarkFileStoreCheckSkipFirstBlockMultiTippingPoint(b *testing.B) {
 	}
 }
 
+func TestFileStoreReplicatedDeletesRecoverMessages(t *testing.T) {
+	for _, test := range []struct {
+		title        string
+		msgSize      int
+		blockSize    uint64
+		localDeleted []uint64
+		rounds       [][]uint64
+	}{
+		{title: "TwoGaps", msgSize: 256, blockSize: 256, rounds: [][]uint64{{10, 15}}},
+		{title: "SingleMessageBlocks", msgSize: 256, blockSize: 256, rounds: [][]uint64{
+			{10}, {11}, {5}, {6, 7, 8, 9}, {3, 16, 17, 18}, {1}, {20}, {19},
+		}},
+		{title: "MultipleMessagesPerBlock", msgSize: 20, blockSize: 256, rounds: [][]uint64{
+			{9}, {10}, {8}, {18, 17}, {6, 5, 7}, {20}, {19}, {11, 12}, {1, 2, 3, 4},
+		}},
+		{title: "SparseSameBoundsDifferentContents", msgSize: 20, blockSize: 4096,
+			localDeleted: []uint64{3, 6, 7}, rounds: [][]uint64{{3, 5, 7}}},
+		{title: "PriorTombstones", msgSize: 20, blockSize: 256,
+			localDeleted: []uint64{4, 3, 2, 10, 14, 15}, rounds: [][]uint64{
+				{4, 3, 2, 10, 14, 15}, {4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17},
+				{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
+			}},
+	} {
+		t.Run(test.title, func(t *testing.T) {
+			cfg := StreamConfig{Name: "REPLICATED", Storage: FileStorage}
+			fcfg := FileStoreConfig{StoreDir: t.TempDir(), BlockSize: test.blockSize}
+			source, err := newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			defer source.Stop()
+			fcfg.StoreDir = t.TempDir()
+			replica, err := newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			t.Cleanup(func() {
+				if replica != nil {
+					replica.Stop()
+				}
+			})
+
+			const count = 20
+			payloads := make([][]byte, count)
+			for i := range count {
+				payloads[i] = make([]byte, test.msgSize)
+				copy(payloads[i], fmt.Sprintf("%020d", i+1))
+				for _, store := range []*fileStore{source, replica} {
+					seq, _, err := store.StoreMsg("foo", nil, payloads[i], 0)
+					require_NoError(t, err)
+					require_Equal(t, seq, uint64(i+1))
+				}
+			}
+			sourceDeleted := make(map[uint64]bool)
+			wantDeleted := make(map[uint64]bool)
+			for _, seq := range test.localDeleted {
+				removed, err := replica.RemoveMsg(seq)
+				require_NoError(t, err)
+				require_True(t, removed)
+				wantDeleted[seq] = true
+			}
+
+			for round, seqs := range test.rounds {
+				for _, seq := range seqs {
+					removed, err := source.RemoveMsg(seq)
+					require_NoError(t, err)
+					require_Equal(t, removed, !sourceDeleted[seq])
+					sourceDeleted[seq], wantDeleted[seq] = true, true
+				}
+				buf, err := source.EncodedStreamState(0, false)
+				require_NoError(t, err)
+				state, err := DecodeStreamState(buf)
+				require_NoError(t, err)
+				_, err = replica.Compact(state.FirstSeq)
+				require_NoError(t, err)
+				require_NoError(t, replica.SyncDeleted(state.Deleted))
+				// Repeated replication must preserve both live data and prior local deletes.
+				require_NoError(t, replica.SyncDeleted(state.Deleted))
+				require_NoError(t, replica.Stop())
+				replica, err = newFileStore(fcfg, cfg)
+				require_NoError(t, err)
+				for i := range count {
+					seq := uint64(i + 1)
+					sm, err := replica.LoadMsg(seq, nil)
+					if wantDeleted[seq] {
+						if !errors.Is(err, ErrStoreMsgNotFound) && !errors.Is(err, ErrStoreEOF) {
+							t.Fatalf("round %d: deleted sequence %d returned %v", round, seq, err)
+						}
+						continue
+					}
+					require_NoError(t, err)
+					require_Equal(t, sm.subj, "foo")
+					require_True(t, bytes.Equal(sm.msg, payloads[i]))
+				}
+				var recovered StreamState
+				replica.FastState(&recovered)
+				require_Equal(t, recovered.Msgs, uint64(count-len(wantDeleted)))
+				require_Equal(t, recovered.LastSeq, uint64(count))
+			}
+
+			seq, _, err := replica.StoreMsg("foo", nil, []byte("after replicated deletes"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(count+1))
+			require_NoError(t, replica.Stop())
+			replica, err = newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			sm, err := replica.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo")
+			require_Equal(t, string(sm.msg), "after replicated deletes")
+		})
+	}
+}
+
 func TestFileStoreDeleteRangeTwoGaps(t *testing.T) {
 	fcfg := FileStoreConfig{
 		Cipher:      NoCipher,
@@ -15282,6 +15983,87 @@ func TestFileStoreSchedulingRecoveryAliasCorruption(t *testing.T) {
 	}
 }
 
+func TestFileStoreRecoveredSchedulesPublishLatestPayloads(t *testing.T) {
+	for _, recovery := range []string{"SavedIndex", "ScanBlocks"} {
+		t.Run(recovery, func(t *testing.T) {
+			fcfg := FileStoreConfig{StoreDir: t.TempDir(), BlockSize: 4 * 1024}
+			cfg := StreamConfig{Name: "SCHED", Subjects: []string{"sched.>"}, Storage: FileStorage, AllowMsgSchedules: true}
+			created := time.Now()
+			fs, err := newFileStoreWithCreatedAndMode(fcfg, cfg, created, nil, nil, true)
+			require_NoError(t, err)
+			t.Cleanup(func() {
+				if fs != nil {
+					fs.Stop()
+				}
+			})
+
+			const count = 40
+			subjects := make([]string, count)
+			schedule := time.Now().Add(250 * time.Millisecond).Format(time.RFC3339Nano)
+			for i := range count {
+				subjects[i] = fmt.Sprintf("sched.AAAA-%05d-%s", i, strings.Repeat("A", 40))
+				hdr := genHeader(nil, JSSchedulePattern, "@at "+schedule)
+				hdr = genHeader(hdr, JSScheduleTarget, fmt.Sprintf("target.%d", i))
+				hdr = genHeader(hdr, "Pad", strings.Repeat("X", 200))
+				seq, _, err := fs.StoreMsg(subjects[i], hdr, []byte("superseded"), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, uint64(i+1))
+			}
+			require_NoError(t, fs.Stop())
+			blocks, err := filepath.Glob(filepath.Join(fcfg.StoreDir, msgDir, "*.blk"))
+			require_NoError(t, err)
+			require_True(t, len(blocks) >= 2)
+			if recovery == "ScanBlocks" {
+				require_NoError(t, os.Remove(filepath.Join(fcfg.StoreDir, msgDir, msgSchedulingStreamStateFile)))
+			}
+
+			fs, err = newFileStoreWithCreatedAndMode(fcfg, cfg, created, nil, nil, true)
+			require_NoError(t, err)
+			ch := make(chan *inMsg, 2*count)
+			fs.RegisterProcessJetStreamMsg(func(im *inMsg) { ch <- im })
+			// Replacing recovered subjects must retire their old scheduled sequences.
+			for i, subj := range subjects {
+				hdr := genHeader(nil, JSSchedulePattern, "@at "+schedule)
+				hdr = genHeader(hdr, JSScheduleTarget, fmt.Sprintf("target.%d", i))
+				seq, _, err := fs.StoreMsg(subj, hdr, []byte(fmt.Sprintf("latest-%d", i)), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, uint64(count+i+1))
+			}
+			fs.Ready()
+
+			for i := range count {
+				im := require_ChanRead(t, ch, 5*time.Second)
+				require_Equal(t, im.seq, uint64(count+i+1))
+				require_Equal(t, im.subj, fmt.Sprintf("target.%d", i))
+				require_Equal(t, string(im.msg), fmt.Sprintf("latest-%d", i))
+				require_Equal(t, string(getHeader(JSScheduler, im.hdr)), subjects[i])
+				require_Equal(t, string(getHeader(JSScheduleNext, im.hdr)), JSScheduleNextPurge)
+			}
+			require_NoChanRead(t, ch, 300*time.Millisecond)
+			for i := range 2 * count {
+				removed, err := fs.RemoveMsg(uint64(i + 1))
+				require_NoError(t, err)
+				require_True(t, removed)
+			}
+			seq, _, err := fs.StoreMsg("sched.after", nil, []byte("after schedules"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(2*count+1))
+			require_NoError(t, fs.Stop())
+			fs, err = newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			sm, err := fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "sched.after")
+			require_Equal(t, string(sm.msg), "after schedules")
+			var state StreamState
+			fs.FastState(&state)
+			require_Equal(t, state.Msgs, uint64(1))
+			require_Equal(t, state.FirstSeq, seq)
+			require_Equal(t, state.LastSeq, seq)
+		})
+	}
+}
+
 func TestFileStoreConvertToEncryptedDoesNotResurrectXoredCache(t *testing.T) {
 	storeDir := t.TempDir()
 	fcfg := FileStoreConfig{StoreDir: storeDir, BlockSize: 8192}
@@ -15340,6 +16122,86 @@ func TestFileStoreConvertToEncryptedDoesNotResurrectXoredCache(t *testing.T) {
 	// block would decrypt to garbage and rebuildStateFromBufLocked would silently
 	// truncate it to zero bytes — losing the message.
 	require_NotEqual(t, len(mb.cache.buf), 0)
+}
+
+func TestFileStoreEncryptedConversionRecoversMessagesAndAppends(t *testing.T) {
+	for _, cipher := range []StoreCipher{AES, ChaCha} {
+		t.Run(cipher.String(), func(t *testing.T) {
+			fcfg := FileStoreConfig{StoreDir: t.TempDir(), BlockSize: 8192}
+			cfg := StreamConfig{Name: "CONVERT", Subjects: []string{"foo"}, Storage: FileStorage}
+			created := time.Now()
+			fs, err := newFileStore(fcfg, cfg)
+			require_NoError(t, err)
+			t.Cleanup(func() {
+				if fs != nil {
+					fs.Stop()
+				}
+			})
+			payload := bytes.Repeat([]byte("MARKER-PLAINTEXT-PAYLOAD-"), 32)
+			hdr := genHeader(nil, "X-Recovery", "original")
+			seq, _, err := fs.StoreMsg("foo", hdr, payload, 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(1))
+			require_NoError(t, fs.Stop())
+
+			fcfg.Cipher = cipher
+			fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+			require_NoError(t, err)
+			fs.mu.RLock()
+			mb := fs.lmb
+			fs.mu.RUnlock()
+			require_NotNil(t, mb)
+			func() {
+				mb.mu.Lock()
+				defer mb.mu.Unlock()
+				buf, err := mb.loadBlock(nil)
+				require_NoError(t, err)
+				rbek, err := genBlockEncryptionKey(cipher, mb.seed, mb.nonce)
+				require_NoError(t, err)
+				rbek.XORKeyStream(buf, buf)
+				require_NoError(t, os.WriteFile(mb.mfn, buf, defaultFilePerms))
+				recycleMsgBlockBuf(buf)
+
+				// Re-enter conversion with a used keystream and an elastic cache from before conversion.
+				stale := &cache{buf: bytes.Repeat([]byte{0xCA, 0xFE}, 64)}
+				mb.cache = stale
+				mb.ecache.Set(stale)
+				require_NoError(t, mb.convertToEncrypted())
+				mb.cache = nil
+				require_NoError(t, mb.setupWriteCache(nil))
+			}()
+
+			buf, err := os.ReadFile(mb.mfn)
+			require_NoError(t, err)
+			require_False(t, bytes.Contains(buf, payload))
+			sm, err := fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo")
+			require_Equal(t, string(sm.hdr), string(hdr))
+			require_Equal(t, string(sm.msg), string(payload))
+
+			seq, _, err = fs.StoreMsg("foo", nil, []byte("after conversion"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(2))
+			require_NoError(t, fs.Stop())
+			fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+			require_NoError(t, err)
+			sm, err = fs.LoadMsg(1, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo")
+			require_Equal(t, string(sm.hdr), string(hdr))
+			require_Equal(t, string(sm.msg), string(payload))
+			sm, err = fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, sm.subj, "foo")
+			require_Equal(t, string(sm.msg), "after conversion")
+			var state StreamState
+			fs.FastState(&state)
+			require_Equal(t, state.Msgs, uint64(2))
+			require_Equal(t, state.FirstSeq, uint64(1))
+			require_Equal(t, state.LastSeq, uint64(2))
+		})
+	}
 }
 
 func TestFileStoreRemoveMsgViaLimitsCallbackAliasedSubj(t *testing.T) {

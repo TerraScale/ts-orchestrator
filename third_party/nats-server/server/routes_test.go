@@ -19,15 +19,21 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +88,90 @@ func checkSubNoInterest(t *testing.T, s *Server, accName, subject string, timeou
 		}
 		return nil
 	})
+}
+
+func TestRouteConfigurationRuntime(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "nats.pid")
+	config := createConfFile(t, fmt.Appendf(nil, `
+		listen: "127.0.0.1:-1"
+		pid_file: %q
+		authorization {user: derek, password: porkchop, timeout: 1}
+		cluster {
+			name: abc
+			listen: "127.0.0.1:-1"
+			pool_size: -1
+			authorization {user: route_user, password: top_secret, timeout: 1}
+			no_advertise: true
+			connect_retries: 2
+			connect_backoff: true
+		}
+	`, pidFile))
+	s1, _ := RunServerWithConfig(config)
+	defer s1.Shutdown()
+	pid, err := os.ReadFile(pidFile)
+	require_NoError(t, err)
+	require_Equal(t, string(pid), strconv.Itoa(os.Getpid()))
+
+	o2 := DefaultOptions()
+	o2.Cluster.PoolSize = -1
+	o2.Routes = RoutesFromStr("nats://route_user:top_secret@" + s1.ClusterAddr().String())
+	s2 := RunServer(o2)
+	defer s2.Shutdown()
+	checkClusterFormed(t, s1, s2)
+	require_Equal(t, s1.NumRoutes(), 1)
+	require_Equal(t, s2.NumRoutes(), 1)
+
+	nc1 := natsConnect(t, s1.ClientURL(), nats.UserInfo("derek", "porkchop"))
+	defer nc1.Close()
+	nc2 := natsConnect(t, s2.ClientURL())
+	defer nc2.Close()
+	for _, traffic := range []struct {
+		publisher  *nats.Conn
+		subscriber *nats.Conn
+		sender     *Server
+	}{
+		{nc1, nc2, s1},
+		{nc2, nc1, s2},
+	} {
+		sub := natsSubSync(t, traffic.subscriber, "configured.route")
+		natsFlush(t, traffic.subscriber)
+		checkSubInterest(t, traffic.sender, globalAccountName, sub.Subject, time.Second)
+		natsPub(t, traffic.publisher, sub.Subject, []byte("authenticated route"))
+		require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "authenticated route")
+		require_NoError(t, sub.Unsubscribe())
+	}
+
+	for _, endpoint := range []struct {
+		name    string
+		address string
+		user    string
+	}{
+		{"Client", s1.Addr().String(), "derek"},
+		{"Route", s1.ClusterAddr().String(), "route_user"},
+	} {
+		t.Run(endpoint.name+"RejectsBadPassword", func(t *testing.T) {
+			conn, err := net.DialTimeout("tcp", endpoint.address, time.Second)
+			require_NoError(t, err)
+			defer conn.Close()
+			require_NoError(t, conn.SetDeadline(time.Now().Add(2*time.Second)))
+			reader := bufio.NewReader(conn)
+			line, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.HasPrefix(line, "INFO "))
+			if endpoint.name == "Client" {
+				var info Info
+				require_NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "INFO ")), &info))
+				require_True(t, info.AuthRequired)
+				require_Len(t, len(info.ClientConnectURLs), 0)
+			}
+			_, err = fmt.Fprintf(conn, "CONNECT {\"user\":%q,\"pass\":\"wrong\",\"name\":\"rejected-route\",\"cluster\":\"abc\"}\r\n", endpoint.user)
+			require_NoError(t, err)
+			line, err = reader.ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.Contains(line, "Authorization Violation"))
+		})
+	}
+	require_Equal(t, s1.NumRoutes(), 1)
 }
 
 func TestRouteConfig(t *testing.T) {
@@ -1008,6 +1098,68 @@ func getFirstRoute(s *Server) *client {
 	return nil
 }
 
+func TestRoutePermissionsEnforceInboundAndOutboundTraffic(t *testing.T) {
+	for _, direction := range []string{"Inbound", "Outbound"} {
+		t.Run(direction, func(t *testing.T) {
+			o1, o2 := DefaultOptions(), DefaultOptions()
+			o1.Cluster.PoolSize, o2.Cluster.PoolSize = -1, -1
+			restricted := o1
+			if direction == "Outbound" {
+				restricted = o2
+			}
+			restricted.Cluster.Permissions = &RoutePermissions{
+				Import: &SubjectPermission{Allow: []string{"imp.>"}, Deny: []string{"imp.secret"}},
+				Export: &SubjectPermission{Allow: []string{"exp.>"}, Deny: []string{"exp.secret"}},
+			}
+			s1 := RunServer(o1)
+			defer s1.Shutdown()
+			o2.Routes = RoutesFromStr("nats://" + s1.ClusterAddr().String())
+			s2 := RunServer(o2)
+			defer s2.Shutdown()
+			checkClusterFormed(t, s1, s2)
+			require_Equal(t, s1.NumRoutes(), 1)
+			require_Equal(t, s2.NumRoutes(), 1)
+
+			restrictedServer, remote := s1, s2
+			if direction == "Outbound" {
+				restrictedServer, remote = remote, restrictedServer
+			}
+			for _, traffic := range []struct {
+				name     string
+				prefix   string
+				sender   *Server
+				receiver *Server
+			}{
+				{"Import", "imp", remote, restrictedServer},
+				{"Export", "exp", restrictedServer, remote},
+			} {
+				t.Run(traffic.name, func(t *testing.T) {
+					publisher := natsConnect(t, traffic.sender.ClientURL())
+					defer publisher.Close()
+					subscriber := natsConnect(t, traffic.receiver.ClientURL())
+					defer subscriber.Close()
+					allowed := natsSubSync(t, subscriber, traffic.prefix+".public")
+					denied := natsSubSync(t, subscriber, traffic.prefix+".secret")
+					outside := natsSubSync(t, subscriber, "outside.allowlist")
+					natsFlush(t, subscriber)
+					checkSubInterest(t, traffic.sender, globalAccountName, allowed.Subject, time.Second)
+
+					natsPub(t, publisher, denied.Subject, []byte("denied"))
+					natsPub(t, publisher, outside.Subject, []byte("outside"))
+					natsPub(t, publisher, allowed.Subject, []byte("allowed"))
+					require_Equal(t, string(natsNexMsg(t, allowed, time.Second).Data), "allowed")
+					for _, sub := range []*nats.Subscription{denied, outside} {
+						_, err := sub.NextMsg(100 * time.Millisecond)
+						require_Error(t, err, nats.ErrTimeout)
+					}
+				})
+			}
+			require_Equal(t, s1.NumRoutes(), 1)
+			require_Equal(t, s2.NumRoutes(), 1)
+		})
+	}
+}
+
 func TestRoutePermsAppliedOnInboundAndOutboundRoute(t *testing.T) {
 
 	perms := &RoutePermissions{
@@ -1902,6 +2054,121 @@ func TestRouteSaveTLSName(t *testing.T) {
 	// it should start to work again.
 	reloadUpdateConfig(t, s2, c2And3Conf, fmt.Sprintf(tmpl, "localhost", o1.Cluster.Port))
 	checkClusterFormed(t, s1, s2, s3)
+}
+
+func TestRouteStartupConfigurationProcess(t *testing.T) {
+	const configEnv = "TS_NATS_ROUTE_STARTUP_CONFIG"
+	if config := os.Getenv(configEnv); config != _EMPTY_ {
+		// Use the production startup sequence in a child process so rejected
+		// configuration must produce an actual exit and diagnostic.
+		fs := flag.NewFlagSet("nats-server", flag.ContinueOnError)
+		opts, err := ConfigureOptions(fs, []string{"-c", config}, PrintServerAndExit, func() {}, PrintTLSHelpAndDie)
+		if err != nil {
+			PrintAndDie(err.Error())
+		}
+		s, err := NewServer(opts)
+		if err != nil {
+			PrintAndDie(err.Error())
+		}
+		s.ConfigureLogger()
+		if err := Run(s); err != nil {
+			PrintAndDie(err.Error())
+		}
+		defer s.Shutdown()
+		if err := s.readyForConnections(3 * time.Second); err != nil {
+			PrintAndDie(err.Error())
+		}
+		fmt.Println("ROUTE_STARTUP_URL " + s.ClientURL())
+		io.Copy(io.Discard, os.Stdin)
+		s.Shutdown()
+		s.WaitForShutdown()
+		return
+	}
+
+	for _, test := range []struct {
+		name    string
+		cluster string
+		err     string
+	}{
+		{"Valid", "compression: {mode: auto, rtt_thresholds: [5ms, 10ms]}", _EMPTY_},
+		{"DuplicatePinnedAccounts", `accounts: ["abc", "def", "abc"]`, "duplicate"},
+		{"UnsupportedCompression", "compression: gzip", "unsupported"},
+		{"NonAscendingThresholds", "compression: {mode: auto, rtt_thresholds: [5ms, 10ms, 2ms]}", "ascending"},
+		{"TooManyThresholds", "compression: {mode: auto, rtt_thresholds: [5ms, 10ms, 20ms, 40ms, 60ms]}", "more than 4"},
+		{"ZeroThresholds", "compression: {mode: auto, rtt_thresholds: [0ms, 0ms, 0ms, 0ms]}", "at least one"},
+		{"SingleZeroThreshold", "compression: {mode: auto, rtt_thresholds: [0ms]}", "at least one"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := createConfFile(t, fmt.Appendf(nil, `
+				listen: "127.0.0.1:-1"
+				cluster {
+					name: startup
+					listen: "127.0.0.1:-1"
+					%s
+				}
+			`, test.cluster))
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRouteStartupConfigurationProcess$")
+			cmd.Env = append(os.Environ(), configEnv+"="+config)
+			var stderr bytes.Buffer
+			cmd.Stderr = &stderr
+			stdout, err := cmd.StdoutPipe()
+			require_NoError(t, err)
+			stdin, err := cmd.StdinPipe()
+			require_NoError(t, err)
+			require_NoError(t, cmd.Start())
+			wait := sync.OnceValue(cmd.Wait)
+			defer wait()
+			defer stdin.Close()
+
+			var output strings.Builder
+			var clientURL string
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				line := scanner.Text()
+				fmt.Fprintln(&output, line)
+				if value, ok := strings.CutPrefix(line, "ROUTE_STARTUP_URL "); ok {
+					clientURL = value
+					break
+				}
+			}
+			if test.err != _EMPTY_ {
+				stdin.Close()
+				err := wait()
+				require_NoError(t, ctx.Err())
+				exit, ok := errors.AsType[*exec.ExitError](err)
+				if !ok || exit.ExitCode() != 1 || !strings.Contains(stderr.String(), test.err) || clientURL != _EMPTY_ {
+					t.Fatalf("expected startup exit 1 containing %q without readiness; err=%v stdout=%s stderr=%s", test.err, err, output.String(), stderr.String())
+				}
+				return
+			}
+			if clientURL == _EMPTY_ {
+				stdin.Close()
+				err := wait()
+				t.Fatalf("valid startup did not announce readiness: err=%v stdout=%s stderr=%s", err, output.String(), stderr.String())
+			}
+			u, err := url.Parse(clientURL)
+			require_NoError(t, err)
+			conn, err := net.DialTimeout("tcp", u.Host, time.Second)
+			require_NoError(t, err)
+			defer conn.Close()
+			require_NoError(t, conn.SetDeadline(time.Now().Add(time.Second)))
+			reader := bufio.NewReader(conn)
+			info, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.HasPrefix(info, "INFO "))
+			_, err = fmt.Fprint(conn, "CONNECT {\"verbose\":false}\r\nPING\r\n")
+			require_NoError(t, err)
+			pong, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_Equal(t, pong, "PONG\r\n")
+			require_NoError(t, conn.Close())
+			require_NoError(t, stdin.Close())
+			require_NoError(t, wait())
+			require_NoError(t, ctx.Err())
+		})
+	}
 }
 
 func TestRoutePoolAndPerAccountErrors(t *testing.T) {
@@ -3374,6 +3641,154 @@ func TestRoutePoolAndPerAccountWithServiceLatencyNoDataRace(t *testing.T) {
 	}
 }
 
+func TestRouteOriginProtocolDelivery(t *testing.T) {
+	for _, pinned := range []bool{false, true} {
+		t.Run(fmt.Sprintf("PinnedAccount=%v", pinned), func(t *testing.T) {
+			account, other := NewAccount("MY_ACCOUNT"), NewAccount("OTHER_ACCOUNT")
+			o := DefaultOptions()
+			o.NoSystemAccount = true
+			o.Cluster.PoolSize = 1
+			o.Cluster.Compression.Mode = CompressionOff
+			o.Accounts = []*Account{account, other}
+			o.Users = []*User{
+				{Username: "main", Password: "pwd", Account: account},
+				{Username: "other", Password: "pwd", Account: other},
+			}
+			o.LeafNode.Host, o.LeafNode.Port = "127.0.0.1", -1
+			o.LeafNode.Users = []*User{{Username: "leaf", Password: "pwd", Account: account}}
+			if pinned {
+				o.Cluster.PinnedAccounts = []string{"MY_ACCOUNT"}
+			}
+			s := RunServer(o)
+			defer s.Shutdown()
+			leafURL, err := url.Parse(fmt.Sprintf("nats-leaf://leaf:pwd@127.0.0.1:%d", o.LeafNode.Port))
+			require_NoError(t, err)
+			lo := DefaultOptions()
+			lo.NoSystemAccount = true
+			lo.Cluster.Name = "ORIGIN"
+			lo.LeafNode.Remotes = []*RemoteLeafOpts{{URLs: []*url.URL{leafURL}}}
+			leaf := RunServer(lo)
+			defer leaf.Shutdown()
+			checkLeafNodeConnected(t, s)
+			checkLeafNodeConnected(t, leaf)
+
+			nc := natsConnect(t, s.ClientURL(), nats.UserInfo("main", "pwd"))
+			defer nc.Close()
+			otherClient := natsConnect(t, s.ClientURL(), nats.UserInfo("other", "pwd"))
+			defer otherClient.Close()
+			leafClient := natsConnect(t, leaf.ClientURL())
+			defer leafClient.Close()
+			plain := natsSubSync(t, nc, "foo")
+			queues := []*nats.Subscription{
+				natsQueueSubSync(t, nc, "foo", "queue1"),
+				natsQueueSubSync(t, nc, "foo", "queue2"),
+			}
+			wrongAccount := natsSubSync(t, otherClient, "foo")
+			onLeaf := natsSubSync(t, leafClient, "foo")
+			natsFlush(t, nc)
+			natsFlush(t, otherClient)
+			natsFlush(t, leafClient)
+			checkFor(t, time.Second, time.Millisecond, func() error {
+				leafs, err := s.Leafz(&LeafzOptions{Account: "MY_ACCOUNT", Subscriptions: true})
+				if err != nil {
+					return err
+				}
+				if len(leafs.Leafs) != 1 || !slices.Contains(leafs.Leafs[0].Subs, "foo") {
+					return fmt.Errorf("leaf subscription has not propagated: %+v", leafs)
+				}
+				return nil
+			})
+
+			rc, err := net.DialTimeout("tcp", s.ClusterAddr().String(), time.Second)
+			require_NoError(t, err)
+			defer rc.Close()
+			require_NoError(t, rc.SetDeadline(time.Now().Add(3*time.Second)))
+			reader := bufio.NewReader(rc)
+			line, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_True(t, strings.HasPrefix(line, "INFO "))
+			info := Info{ID: "RAW_ORIGIN_PEER", Name: "raw-origin-peer", Cluster: o.Cluster.Name, Headers: true, LNOC: true, LNOCU: true, RoutePoolSize: 1, Proto: RouteProtoV2}
+			if pinned {
+				info.RouteAccount = "MY_ACCOUNT"
+			}
+			encoded, err := json.Marshal(info)
+			require_NoError(t, err)
+			roundTrip := func(protocol string) {
+				t.Helper()
+				require_NoError(t, rc.SetDeadline(time.Now().Add(3*time.Second)))
+				_, err := fmt.Fprint(rc, protocol+"PING\r\n")
+				require_NoError(t, err)
+				for range 100 {
+					line, err := reader.ReadString('\n')
+					require_NoError(t, err)
+					if line == "PONG\r\n" {
+						return
+					}
+					if line == "PING\r\n" {
+						_, err := fmt.Fprint(rc, "PONG\r\n")
+						require_NoError(t, err)
+					}
+					if strings.HasPrefix(line, "-ERR") {
+						t.Fatalf("route rejected protocol: %s", line)
+					}
+				}
+				t.Fatal("route did not answer PING within 100 control frames")
+			}
+			roundTrip(fmt.Sprintf("CONNECT {\"name\":\"RAW_ORIGIN_PEER\",\"cluster\":%q,\"headers\":true}\r\nINFO %s\r\n", o.Cluster.Name, encoded))
+			checkNumRoutes(t, s, 1)
+
+			for _, test := range []struct {
+				name   string
+				args   string
+				reply  string
+				queued bool
+			}{
+				{"Plain", _EMPTY_, _EMPTY_, false},
+				{"Reply", " bar", "bar", false},
+				{"ReplyAndQueues", " + bar queue1 queue2", "bar", true},
+				{"Queues", " | queue1 queue2", _EMPTY_, true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					for _, origin := range []string{"ORIGIN", "OTHER_ORIGIN"} {
+						payload := bytes.Repeat([]byte(origin+"-"), 333)[:333]
+						accountArg := " MY_ACCOUNT"
+						if pinned {
+							accountArg = _EMPTY_
+						}
+						roundTrip(fmt.Sprintf("LMSG %s%s foo%s 12 345\r\nNATS/1.0\r\n\r\n%s\r\n", origin, accountArg, test.args, payload))
+						check := func(sub *nats.Subscription, deliver bool) {
+							t.Helper()
+							if !deliver {
+								_, err := sub.NextMsg(50 * time.Millisecond)
+								require_Error(t, err, nats.ErrTimeout)
+								return
+							}
+							msg := natsNexMsg(t, sub, time.Second)
+							require_Equal(t, msg.Subject, "foo")
+							require_Equal(t, msg.Reply, test.reply)
+							require_True(t, bytes.Equal(msg.Data, payload))
+						}
+						check(plain, true)
+						for _, sub := range queues {
+							check(sub, test.queued)
+						}
+						check(wrongAccount, false)
+						check(onLeaf, origin != "ORIGIN")
+					}
+				})
+			}
+			accountArg := " MY_ACCOUNT"
+			if pinned {
+				accountArg = _EMPTY_
+			}
+			_, err = fmt.Fprintf(rc, "LMSG ORIGIN%s foo 12 11\r\n", accountArg)
+			require_NoError(t, err)
+			checkNumRoutes(t, s, 0)
+			require_NoError(t, nc.FlushTimeout(time.Second))
+		})
+	}
+}
+
 func TestRouteParseOriginClusterMsgArgs(t *testing.T) {
 	for _, test := range []struct {
 		racc    bool
@@ -4140,6 +4555,25 @@ func TestRouteCompressionMatrixModes(t *testing.T) {
 		{"best on", "best", "on", CompressionS2Best, CompressionS2Fast},
 		{"best better", "best", "better", CompressionS2Best, CompressionS2Better},
 		{"best best", "best", "best", CompressionS2Best, CompressionS2Best},
+
+		{"boolean true", "true", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"enabled alias", "enabled", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"mixed enabled alias", "EnaBled", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"uppercase on alias", "ON", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"fast alias", "fast", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"mixed fast alias", "Fast", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"s2 fast alias", "s2_fast", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"mixed s2 fast alias", "s2_Fast", "accept", CompressionS2Fast, CompressionS2Fast},
+		{"boolean false", "false", "accept", CompressionOff, CompressionOff},
+		{"disabled alias", "disabled", "accept", CompressionOff, CompressionOff},
+		{"mixed disabled alias", "DisableD", "accept", CompressionOff, CompressionOff},
+		{"uppercase off alias", "OFF", "accept", CompressionOff, CompressionOff},
+		{"mixed better alias", "Better", "accept", CompressionS2Better, CompressionS2Better},
+		{"s2 better alias", "s2_better", "accept", CompressionS2Better, CompressionS2Better},
+		{"uppercase s2 better alias", "S2_BETTER", "accept", CompressionS2Better, CompressionS2Better},
+		{"uppercase best alias", "BEST", "accept", CompressionS2Best, CompressionS2Best},
+		{"s2 best alias", "s2_best", "accept", CompressionS2Best, CompressionS2Best},
+		{"uppercase s2 best alias", "S2_BEST", "accept", CompressionS2Best, CompressionS2Best},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			conf1 := createConfFile(t, []byte(fmt.Sprintf(tmpl, "A", test.s1, _EMPTY_)))
@@ -4164,11 +4598,12 @@ func TestRouteCompressionMatrixModes(t *testing.T) {
 				sub := natsSubSync(t, ncs, subj)
 				checkSubInterest(t, s, globalAccountName, subj, time.Second)
 				natsPub(t, ncp, subj, payload)
-				natsNexMsg(t, sub, time.Second)
+				require_True(t, bytes.Equal(natsNexMsg(t, sub, time.Second).Data, payload))
 
 				for _, srv := range []*Server{s1, s2} {
 					rz, err := srv.Routez(nil)
 					require_NoError(t, err)
+					require_Len(t, len(rz.Routes), 1)
 					var expected string
 					if srv == s1 {
 						expected = test.s1Expected
@@ -4253,6 +4688,7 @@ func TestRouteCompressionImplicitRoute(t *testing.T) {
 		s.mu.RLock()
 		defer s.mu.RUnlock()
 		var err error
+		found := false
 		s.forEachRoute(func(r *client) {
 			if err != nil {
 				return
@@ -4261,6 +4697,7 @@ func TestRouteCompressionImplicitRoute(t *testing.T) {
 			ok := true
 			r.mu.Lock()
 			if r.route.remoteID == remoteID {
+				found = true
 				cm = r.route.compression
 				ok = cm == expected
 			}
@@ -4270,6 +4707,8 @@ func TestRouteCompressionImplicitRoute(t *testing.T) {
 					s, remoteID, expected, cm)
 			}
 		})
+		require_True(t, found)
+		require_NoError(t, err)
 	}
 	checkComp(s1, s2.ID(), CompressionS2Fast)
 	checkComp(s1, s3.ID(), CompressionS2Best)
@@ -4359,6 +4798,13 @@ func TestRouteCompressionAuto(t *testing.T) {
 	checkComp(CompressionS2Best)
 	// Try 400ms and we should still be using "best"
 	np.updateRTT(400 * time.Millisecond)
+	checkComp(CompressionS2Best)
+
+	// Negative thresholds also disable that level after a real reload.
+	reloadUpdateConfig(t, s2, conf2, fmt.Sprintf(tmpl, "B", "500ms", "{mode: s2_auto, rtt_thresholds: [-10ms, 100ms, 0ms, 300ms]}", routes))
+	np.updateRTT(1 * time.Millisecond)
+	checkComp(CompressionS2Fast)
+	np.updateRTT(150 * time.Millisecond)
 	checkComp(CompressionS2Best)
 
 	// Try other variations
@@ -5254,6 +5700,171 @@ func TestRouteMsgWithManyHeadersDoesNotCorruptJSON(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+func TestRouteWriteDeadlineAndTimeoutPolicy(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		policy    WriteTimeoutPolicy
+		deadline  time.Duration
+		solicited bool
+		keepStall bool
+	}{
+		{name: "DefaultInbound", deadline: 250 * time.Millisecond},
+		{name: "RetryOutbound", policy: WriteTimeoutPolicyRetry, deadline: 250 * time.Millisecond, solicited: true},
+		{name: "CloseInbound", policy: WriteTimeoutPolicyClose, deadline: 250 * time.Millisecond},
+		{name: "CloseOutboundLongerDeadline", policy: WriteTimeoutPolicyClose, deadline: 750 * time.Millisecond, solicited: true},
+		{name: "RetryClosesWithoutProgress", policy: WriteTimeoutPolicyRetry, deadline: 250 * time.Millisecond, keepStall: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			o1, o2 := DefaultOptions(), DefaultOptions()
+			for _, o := range []*Options{o1, o2} {
+				o.Cluster.PoolSize = -1
+				o.Cluster.Compression.Mode = CompressionOff
+				o.WriteDeadline = 5 * time.Second
+			}
+			target := o1
+			if test.solicited {
+				target = o2
+			}
+			target.Cluster.WriteDeadline = test.deadline
+			target.Cluster.WriteTimeout = test.policy
+			s1 := RunServer(o1)
+			defer s1.Shutdown()
+
+			// Both brokers use their normal route read/write loops. The proxy
+			// stops reading one real TCP socket to create OS backpressure.
+			listener, err := net.ListenTCP("tcp", &net.TCPAddr{IP: net.ParseIP("127.0.0.1")})
+			require_NoError(t, err)
+			defer listener.Close()
+			o2.Routes = RoutesFromStr("nats://" + listener.Addr().String())
+			s2 := RunServer(o2)
+			defer s2.Shutdown()
+			require_NoError(t, listener.SetDeadline(time.Now().Add(3*time.Second)))
+			peer, err := listener.AcceptTCP()
+			require_NoError(t, err)
+			defer peer.Close()
+			upstream, err := net.DialTimeout("tcp", s1.ClusterAddr().String(), 3*time.Second)
+			require_NoError(t, err)
+			defer upstream.Close()
+			require_NoError(t, listener.Close())
+
+			from, to := upstream, net.Conn(peer)
+			if test.solicited {
+				from, to = to, from
+			}
+			require_NoError(t, from.(*net.TCPConn).SetReadBuffer(64*1024))
+			var armed atomic.Bool
+			resume := make(chan struct{})
+			ctx, cancel := context.WithCancel(t.Context())
+			var workers sync.WaitGroup
+			defer func() {
+				cancel()
+				peer.Close()
+				upstream.Close()
+				workers.Wait()
+			}()
+			workers.Go(func() {
+				defer from.Close()
+				io.Copy(from, to)
+			})
+			workers.Go(func() {
+				defer to.Close()
+				buf := make([]byte, 32*1024)
+				for {
+					n, err := from.Read(buf)
+					if err != nil {
+						return
+					}
+					if armed.Load() {
+						select {
+						case <-resume:
+						case <-ctx.Done():
+							return
+						}
+					}
+					if _, err := to.Write(buf[:n]); err != nil {
+						return
+					}
+				}
+			})
+
+			checkClusterFormed(t, s1, s2)
+			require_Equal(t, s1.NumRoutes(), 1)
+			require_Equal(t, s2.NumRoutes(), 1)
+			sender, receiver := s1, s2
+			if test.solicited {
+				sender, receiver = receiver, sender
+			}
+			sender.mu.RLock()
+			route := getFirstRoute(sender)
+			sender.mu.RUnlock()
+			route.mu.Lock()
+			socket := route.nc.(*net.TCPConn)
+			route.mu.Unlock()
+			require_NoError(t, socket.SetWriteBuffer(4096))
+			before, err := sender.Routez(nil)
+			require_NoError(t, err)
+			require_Len(t, len(before.Routes), 1)
+			rid := before.Routes[0].Rid
+
+			publisher := natsConnect(t, sender.ClientURL())
+			defer publisher.Close()
+			subscriber := natsConnect(t, receiver.ClientURL())
+			defer subscriber.Close()
+			sub := natsSubSync(t, subscriber, "write.timeout")
+			natsFlush(t, subscriber)
+			checkSubInterest(t, sender, globalAccountName, "write.timeout", time.Second)
+			natsPub(t, publisher, "write.timeout", []byte("before stall"))
+			require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "before stall")
+
+			armed.Store(true)
+			payload := bytes.Repeat([]byte("route-write-timeout-"), 32*1024)
+			start := time.Now()
+			natsPub(t, publisher, "write.timeout", payload)
+			checkFor(t, test.deadline+2*time.Second, time.Millisecond, func() error {
+				if sender.NumSlowConsumersRoutes() == 0 {
+					return fmt.Errorf("route write did not reach its %v deadline", test.deadline)
+				}
+				return nil
+			})
+			if elapsed := time.Since(start); elapsed < test.deadline*3/4 {
+				t.Fatalf("route timed out after %v, before configured deadline %v", elapsed, test.deadline)
+			}
+			t.Logf("route %d reached %v write deadline after %v", rid, test.deadline, time.Since(start))
+			if test.policy != WriteTimeoutPolicyClose {
+				routes, err := sender.Routez(nil)
+				require_NoError(t, err)
+				require_Len(t, len(routes.Routes), 1)
+				require_Equal(t, routes.Routes[0].Rid, rid)
+			}
+
+			if test.policy == WriteTimeoutPolicyClose || test.keepStall {
+				checkFor(t, 2*test.deadline+2*time.Second, time.Millisecond, func() error {
+					routes, err := sender.Routez(nil)
+					if err != nil {
+						return err
+					}
+					for _, r := range routes.Routes {
+						if r.Rid == rid {
+							return fmt.Errorf("stalled route %d remains connected", rid)
+						}
+					}
+					return nil
+				})
+				return
+			}
+
+			close(resume)
+			require_True(t, bytes.Equal(natsNexMsg(t, sub, 5*time.Second).Data, payload))
+			natsPub(t, publisher, "write.timeout", []byte("after recovery"))
+			require_Equal(t, string(natsNexMsg(t, sub, time.Second).Data), "after recovery")
+			after, err := sender.Routez(nil)
+			require_NoError(t, err)
+			require_Len(t, len(after.Routes), 1)
+			require_Equal(t, after.Routes[0].Rid, rid)
+		})
+	}
 }
 
 func TestRouteConfigureWriteDeadline(t *testing.T) {

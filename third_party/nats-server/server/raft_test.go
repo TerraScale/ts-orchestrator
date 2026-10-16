@@ -18,14 +18,17 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/rand/v2"
+	"net"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -244,6 +247,99 @@ func TestNRGInlineStepdown(t *testing.T) {
 	n := rg.leader().node().(*raft)
 	require_NoError(t, n.StepDown())
 	require_NotEqual(t, n.State(), Leader)
+}
+
+func TestNRGMalformedPeerMessagesTCP(t *testing.T) {
+	c := createJetStreamClusterWithTemplateAndModHook(t, jsClusterTempl, "MALFORMED", 3, func(serverName, clusterName, storeDir, conf string) string {
+		return conf + fmt.Sprintf("\nlog_file: %q\n", filepath.Join(storeDir, "raft.log"))
+	})
+	defer c.shutdown()
+	for _, s := range c.servers {
+		s.ConfigureLogger()
+	}
+	for _, name := range []string{"empty_append", "short_append", "truncated_length", "truncated_data", "empty_response", "short_response"} {
+		t.Run(name, func(t *testing.T) {
+			group := "MALFORMED_" + name
+			rg := c.createRaftGroup(group, 3, newStateAdder)
+			leader := rg.waitOnLeader()
+			require_NotNil(t, leader)
+			leader.(*stateAdder).proposeDelta(1)
+			rg.waitOnTotal(t, 1)
+			waitRaftRouteMembership(t, rg, 3)
+			n := leader.node().(*raft)
+			n.RLock()
+			subject, marker := n.asubj, "AppendEntry failed to be placed on internal channel: corrupt entry"
+			ae := &appendEntry{leader: n.id, term: n.term, commit: n.commit, pterm: n.pterm, pindex: n.pindex, entries: []*Entry{newEntry(EntryNormal, binary.AppendVarint(nil, 2))}}
+			if strings.HasSuffix(name, "response") {
+				subject, marker = n.areply, "Received malformed append entry response"
+			}
+			n.RUnlock()
+			var payload []byte
+			switch name {
+			case "short_append", "short_response":
+				payload = []byte{1, 2, 3}
+			case "truncated_length":
+				payload = encode(t, ae)[:appendEntryBaseLen+2]
+			case "truncated_data":
+				payload = encode(t, ae)[:appendEntryBaseLen+5]
+			}
+			nc, err := nats.Connect(leader.server().ClientURL(), nats.UserInfo("admin", "s3cr3t!"), nats.NoReconnect())
+			require_NoError(t, err)
+			defer nc.Close()
+			require_NoError(t, nc.Publish(subject, payload))
+			require_NoError(t, nc.Flush())
+			checkFor(t, time.Second, 10*time.Millisecond, func() error {
+				b, err := os.ReadFile(leader.server().getOpts().LogFile)
+				if err != nil {
+					return err
+				}
+				if !strings.Contains(string(b), fmt.Sprintf(" - %s] %s", group, marker)) {
+					return errors.New("malformed wire message has not produced the persisted rejection log")
+				}
+				return nil
+			})
+			leader.(*stateAdder).proposeDelta(2)
+			rg.waitOnTotal(t, 3)
+			waitRaftRouteMembership(t, rg, 3)
+			follower := rg.nonLeader()
+			follower.stop()
+			follower.restart()
+			waitRaftRouteMembership(t, rg, 3)
+			rg.waitOnTotal(t, 3)
+		})
+	}
+}
+
+func TestNRGPeerStateDecodeTruncatedTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "CORRUPT_PEERS", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("CORRUPT_PEERS", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+
+	// Replicate the original truncated peer-id fixture over the real transport.
+	truncated := make([]byte, 8+idLen-5)
+	binary.LittleEndian.PutUint32(truncated, 1)
+	binary.LittleEndian.PutUint32(truncated[4:], 1)
+	n := leader.node()
+	require_NoError(t, n.ProposeMulti(n.Term(), []*Entry{newEntry(EntryPeerState, truncated)}))
+	leader.(*stateAdder).proposeDelta(2)
+	rg.waitOnTotal(t, 3)
+	waitRaftRouteMembership(t, rg, 3)
+	for _, sm := range rg {
+		require_Equal(t, len(sm.node().PeerNames()), 3)
+	}
+	follower := rg.nonLeader()
+	follower.stop()
+	follower.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
+	for _, sm := range rg {
+		require_Equal(t, len(sm.node().PeerNames()), 3)
+	}
 }
 
 func TestNRGMalformedAppendEntryResponse(t *testing.T) {
@@ -931,6 +1027,79 @@ func TestNRGSystemClientCleanupFromAccount(t *testing.T) {
 	}
 	finish := numClients()
 	require_Equal(t, start, finish)
+}
+
+func TestNRGCandidateDoesntRevertTermAfterOldAETCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 3)
+	rg := c.createRaftGroup("PARTITION", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+	follower := rg.nonLeader()
+	n := follower.node().(*raft)
+	initialTerm := n.Term()
+	partition.sides[follower.server().ID()].Store(1)
+	require_NoError(t, n.CampaignImmediately())
+	checkFor(t, 2*maxElectionTimeout+time.Second, 10*time.Millisecond, func() error {
+		if n.State() != Candidate || n.Term() < initialTerm+2 {
+			return errors.New("isolated peer has not campaigned twice")
+		}
+		return nil
+	})
+
+	nc, err := nats.Connect(follower.server().ClientURL(), nats.UserInfo("admin", "s3cr3t!"), nats.NoReconnect())
+	require_NoError(t, err)
+	defer nc.Close()
+	inbox := nats.NewInbox()
+	sub, err := nc.SubscribeSync(inbox)
+	require_NoError(t, err)
+	require_NoError(t, nc.Flush())
+	n.RLock()
+	before, commit, pterm, pindex := n.term, n.commit, n.pterm, n.pindex
+	n.RUnlock()
+	require_True(t, before-1 > pterm)
+	stale := encode(t, &appendEntry{leader: leader.node().ID(), term: before - 1, commit: commit, pterm: pterm, pindex: pindex})
+	assertRejected := func() {
+		t.Helper()
+		require_NoError(t, nc.PublishRequest("$NRG.AE.PARTITION", inbox, stale))
+		msg, err := sub.NextMsg(time.Second)
+		require_NoError(t, err)
+		ar := decodeAppendEntryResponse(msg.Data)
+		require_NotNil(t, ar)
+		require_Equal(t, ar.peer, follower.node().ID())
+		require_False(t, ar.success)
+		require_True(t, ar.term >= before)
+		require_True(t, follower.node().Term() >= before)
+		_, gotCommit, _ := follower.node().Progress()
+		require_Equal(t, gotCommit, commit)
+	}
+	for range 20 {
+		assertRejected()
+	}
+	before = n.Term()
+	follower.(*stateAdder).snapshot(t)
+	follower.stop()
+	follower.restart()
+	require_True(t, follower.node().Term() >= before)
+	assertRejected()
+
+	partition.heal()
+	checkFor(t, 10*time.Second, 10*time.Millisecond, func() error {
+		for _, sm := range rg {
+			if sm.node().Term() < before {
+				return errors.New("restored candidate term has not reached peers")
+			}
+		}
+		if rg.leader() == nil {
+			return errors.New("no leader after partition recovery")
+		}
+		return nil
+	})
+	waitRaftRouteMembership(t, rg, 3)
+	rg.leader().(*stateAdder).proposeDelta(2)
+	rg.waitOnTotal(t, 3)
 }
 
 func TestNRGCandidateDoesntRevertTermAfterOldAE(t *testing.T) {
@@ -2645,6 +2814,30 @@ func TestNRGCancelCatchupWhenDetectingHigherTermDuringVoteRequest(t *testing.T) 
 	require_True(t, n.catchup == nil)
 }
 
+func TestNRGMultipleStopsDontPanicTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "REPEATED_STOP", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("REPEATED_STOP", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+	follower := rg.nonLeader()
+	for range 10 {
+		follower.node().Stop()
+	}
+	follower.stop()
+	require_Equal(t, follower.node().State(), Closed)
+	leader.(*stateAdder).proposeDelta(2)
+	rg.waitOnTotal(t, 3)
+	follower.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
+	leader.(*stateAdder).proposeDelta(4)
+	rg.waitOnTotal(t, 7)
+}
+
 func TestNRGMultipleStopsDontPanic(t *testing.T) {
 	n, cleanup := initSingleMemRaftNode(t)
 	defer cleanup()
@@ -2977,6 +3170,52 @@ func TestNRGHealthCheckWaitForDoubleCatchup(t *testing.T) {
 	// Still need to wait for the last entry to be applied.
 	n.Applied(3)
 	require_True(t, n.Healthy())
+}
+
+func TestNRGHealthCheckWaitForPendingCommitsWhenPausedTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "PAUSED_APPLY", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("PAUSED_APPLY", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, 3)
+	follower := rg.nonLeader()
+	n := follower.node()
+	checkFor(t, time.Second, 10*time.Millisecond, func() error {
+		if !n.Healthy() {
+			return errors.New("caught-up follower not healthy")
+		}
+		return nil
+	})
+	_, committed, _ := n.Progress()
+	require_NoError(t, n.PauseApply())
+	require_True(t, n.Healthy())
+	leader.(*stateAdder).proposeDelta(2)
+	var active smGroup
+	for _, sm := range rg {
+		if sm != follower {
+			active = append(active, sm)
+		}
+	}
+	active.waitOnTotal(t, 3)
+	checkFor(t, time.Second, 10*time.Millisecond, func() error {
+		index, _, _ := n.Progress()
+		if index <= committed || n.Healthy() {
+			return errors.New("paused follower has not observed pending commits")
+		}
+		return nil
+	})
+	require_Equal(t, follower.(*stateAdder).total(), int64(1))
+	n.ResumeApply()
+	rg.waitOnTotal(t, 3)
+	waitRaftRouteMembership(t, rg, 3)
+	require_True(t, n.Healthy())
+	follower.stop()
+	follower.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 3)
 }
 
 func TestNRGHealthCheckWaitForPendingCommitsWhenPaused(t *testing.T) {
@@ -6624,6 +6863,52 @@ func TestNRGCheckpointInstallSnapshotWaitsForInFlightWrite(t *testing.T) {
 	require_True(t, bytes.Equal(snap.data, []byte("async")))
 }
 
+func TestNRGSnapshotCheckpointNodeClosedTCP(t *testing.T) {
+	for _, name := range []string{"Stop", "Delete"} {
+		t.Run(name, func(t *testing.T) {
+			c := createJetStreamClusterExplicit(t, "CLOSED_CHECKPOINT", 3)
+			defer c.shutdown()
+			rg := c.createRaftGroup("CLOSED_CHECKPOINT", 3, newStateAdder)
+			leader := rg.waitOnLeader()
+			require_NotNil(t, leader)
+			leader.(*stateAdder).proposeDelta(1)
+			rg.waitOnTotal(t, 1)
+			waitRaftRouteMembership(t, rg, 3)
+			follower := rg.nonLeader()
+			n := follower.node()
+			checkpoint, err := n.CreateSnapshotCheckpoint(false)
+			require_NoError(t, err)
+			if name == "Delete" {
+				n.Delete()
+			}
+			follower.stop()
+			require_Equal(t, n.State(), Closed)
+			_, err = checkpoint.LoadLastSnapshot()
+			require_Error(t, err, errNodeClosed)
+			var count int
+			for _, err := range checkpoint.AppendEntriesSeq() {
+				count++
+				require_Error(t, err, errNodeClosed)
+			}
+			require_Equal(t, count, 1)
+			_, err = checkpoint.InstallSnapshot(nil)
+			require_Error(t, err, errNodeClosed)
+
+			leader.(*stateAdder).proposeDelta(2)
+			rg.waitOnTotal(t, 3)
+			if name == "Stop" {
+				follower.restart()
+				waitRaftRouteMembership(t, rg, 3)
+				rg.waitOnTotal(t, 3)
+			} else {
+				require_True(t, n.IsDeleted())
+				_, err := os.Stat(n.(*raft).sd)
+				require_True(t, errors.Is(err, os.ErrNotExist))
+			}
+		})
+	}
+}
+
 func TestNRGSnapshotCheckpointNodeClosed(t *testing.T) {
 	for _, test := range []struct {
 		title string
@@ -7441,6 +7726,54 @@ func TestNRGOnlyCommitIfCurrentTerm(t *testing.T) {
 	// could still have overwritten the entry at index 2, resulting in a desync.
 	n.processAppendEntryResponse(&appendEntryResponse{term: 4, index: 3, peer: s2, success: true})
 	require_Equal(t, n.commit, 3)
+}
+
+func TestNRGTermFencedProposalsTCP(t *testing.T) {
+	c := createJetStreamClusterExplicit(t, "FENCED", 3)
+	defer c.shutdown()
+	rg := c.createRaftGroup("FENCED", 3, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	n, term := leader.node(), leader.node().Term()
+	delta := func(value int64) []byte {
+		return binary.AppendVarint(nil, value)
+	}
+	require_NoError(t, n.Propose(term, delta(1)))
+	rg.waitOnTotal(t, 1)
+	require_NoError(t, n.ProposeMulti(term, []*Entry{newEntry(EntryNormal, delta(2)), newEntry(EntryNormal, delta(4))}))
+	rg.waitOnTotal(t, 7)
+	for _, wrongTerm := range []uint64{0, term + 1} {
+		require_Error(t, n.Propose(wrongTerm, delta(1024)), errNotLeader)
+		require_Error(t, n.ProposeMulti(wrongTerm, []*Entry{newEntry(EntryNormal, delta(1024))}), errNotLeader)
+	}
+	require_NoError(t, n.Propose(term, delta(8)))
+	rg.waitOnTotal(t, 15)
+
+	preferred := rg.nonLeader()
+	require_NoError(t, n.StepDown(preferred.node().ID()))
+	checkFor(t, 10*time.Second, 10*time.Millisecond, func() error {
+		current := rg.leader()
+		if current == nil || current == leader || current.node().Term() <= term || n.Term() <= term {
+			return errors.New("leader transfer has not established a newer term")
+		}
+		return nil
+	})
+	waitRaftRouteMembership(t, rg, 3)
+	require_Error(t, n.Propose(term, delta(1024)), errNotLeader)
+	require_Error(t, n.ProposeMulti(term, []*Entry{newEntry(EntryNormal, delta(1024))}), errNotLeader)
+	current := rg.leader().node()
+	currentTerm := current.Term()
+	require_Error(t, current.Propose(term, delta(1024)), errNotLeader)
+	require_Error(t, current.ProposeMulti(term, []*Entry{newEntry(EntryNormal, delta(1024))}), errNotLeader)
+	require_NoError(t, current.Propose(currentTerm, delta(16)))
+	require_NoError(t, current.ProposeMulti(currentTerm, []*Entry{newEntry(EntryNormal, delta(32))}))
+	rg.waitOnTotal(t, 63)
+	require_NoError(t, n.ForwardProposal(delta(64)))
+	rg.waitOnTotal(t, 127)
+	leader.stop()
+	leader.restart()
+	waitRaftRouteMembership(t, rg, 3)
+	rg.waitOnTotal(t, 127)
 }
 
 func TestNRGTermFencedProposals(t *testing.T) {
@@ -8359,6 +8692,365 @@ func TestNRGProcessAppendEntryResponseTermRace(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	close(stop)
 	wg.Wait()
+}
+
+// raftRoutePartition drops complete data frames on real route sockets, leaving
+// PING/PONG alive so a reconnect cannot silently bypass the partition. Raft uses
+// defaultRaftTransport and the receiver's production route parser throughout.
+type raftRoutePartition struct {
+	sides   map[string]*atomic.Int32
+	cut     atomic.Pointer[raftRouteCut]
+	watch   atomic.Pointer[raftRouteVote]
+	dropped atomic.Int64
+	votes   atomic.Int64
+}
+
+type raftRouteCut struct {
+	leader, subject string
+	isolate         []*atomic.Int32
+	once            sync.Once
+	triggered       chan struct{}
+}
+
+type raftRouteVote struct {
+	peer, subject string
+}
+
+type raftRouteConn struct {
+	net.Conn
+	mu             sync.Mutex
+	pending        []byte
+	from, to       *atomic.Int32
+	partition      *raftRoutePartition
+	passedAddition bool
+}
+
+func (c *raftRouteConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = append(c.pending, p...)
+	for {
+		eol := bytes.Index(c.pending, []byte("\r\n"))
+		if eol < 0 {
+			return len(p), nil
+		}
+		fields := strings.Fields(string(c.pending[:eol]))
+		end := eol + 2
+		data := len(fields) > 0 && (fields[0] == "RMSG" || fields[0] == "HMSG" || fields[0] == "LMSG")
+		if data {
+			size, err := strconv.Atoi(fields[len(fields)-1])
+			if err != nil || size < 0 || size > MAX_PAYLOAD_SIZE {
+				return 0, fmt.Errorf("invalid route frame size: %q", c.pending[:eol])
+			}
+			end += size + 2
+			if len(c.pending) < end {
+				return len(p), nil
+			}
+		}
+		frame := c.pending[:end]
+		passAddition := false
+		if cut := c.partition.cut.Load(); cut != nil && data && len(fields) > 2 && fields[0] == "RMSG" && fields[2] == cut.subject {
+			ae, err := decodeAppendEntry(frame[eol+2:end-2], nil, _EMPTY_)
+			if err != nil {
+				return 0, err
+			}
+			addition := ae.leader == cut.leader && len(ae.entries) == 1 && ae.entries[0].Type == EntryAddPeer
+			ae.returnToPool()
+			if addition && !c.passedAddition {
+				// Deliver this membership entry once to each follower, but
+				// cut the return path before its acknowledgment can escape.
+				cut.once.Do(func() {
+					for _, side := range cut.isolate {
+						side.Store(1)
+					}
+					close(cut.triggered)
+				})
+				c.passedAddition, passAddition = true, true
+			}
+		}
+		if data && c.from.Load() != c.to.Load() && !passAddition {
+			c.partition.dropped.Add(1)
+		} else {
+			for left := frame; len(left) > 0; {
+				n, err := c.Conn.Write(left)
+				if err != nil {
+					return 0, err
+				}
+				if n == 0 {
+					return 0, io.ErrShortWrite
+				}
+				left = left[n:]
+			}
+			if watch := c.partition.watch.Load(); watch != nil && data && len(fields) > 2 && fields[0] == "RMSG" && fields[2] == watch.subject {
+				if vr := decodeVoteResponse(frame[eol+2 : end-2]); vr != nil && vr.peer == watch.peer && vr.granted {
+					c.partition.votes.Add(1)
+				}
+			}
+		}
+		c.pending = c.pending[end:]
+		if len(c.pending) == 0 {
+			c.pending = nil
+			return len(p), nil
+		}
+	}
+}
+
+func newRaftRoutePartition(t *testing.T, servers int) (*cluster, *raftRoutePartition) {
+	t.Helper()
+	tmpl := strings.Replace(jsClusterTempl, "routes =", "compression: off\n\t\tpool_size: -1\n\t\troutes =", 1)
+	c := createJetStreamClusterWithTemplate(t, tmpl, "PARTITION", servers)
+	t.Cleanup(c.shutdown)
+	p := &raftRoutePartition{sides: make(map[string]*atomic.Int32)}
+	for _, s := range c.servers {
+		p.sides[s.ID()] = new(atomic.Int32)
+	}
+	for _, s := range c.servers {
+		var routes []*client
+		s.mu.RLock()
+		s.forEachRoute(func(r *client) { routes = append(routes, r) })
+		s.mu.RUnlock()
+		for _, r := range routes {
+			checkFor(t, time.Second, time.Millisecond, func() error {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				if r.flags.isSet(flushOutbound) {
+					return errors.New("route write in progress")
+				}
+				r.nc = &raftRouteConn{Conn: r.nc, from: p.sides[s.ID()], to: p.sides[r.route.remoteID], partition: p}
+				return nil
+			})
+		}
+	}
+	t.Cleanup(func() {
+		// A new unwrapped connection would invalidate the failure injection.
+		for _, s := range c.servers {
+			s.mu.RLock()
+			var bypass bool
+			var count int
+			s.forEachRoute(func(r *client) {
+				r.mu.Lock()
+				defer r.mu.Unlock()
+				wrapped, ok := r.nc.(*raftRouteConn)
+				bypass = bypass || !ok || wrapped.partition != p
+				count++
+			})
+			s.mu.RUnlock()
+			if bypass || count != servers-1 {
+				t.Errorf("route partition bypass on %s: routes=%d, unwrapped=%v", s.Name(), count, bypass)
+			}
+		}
+		if p.dropped.Load() == 0 {
+			t.Error("partition dropped no real route frames")
+		}
+	})
+	return c, p
+}
+
+func (p *raftRoutePartition) heal() {
+	p.cut.Store(nil)
+	for _, side := range p.sides {
+		side.Store(0)
+	}
+}
+
+func (p *raftRoutePartition) cutOnAddition(leader stateMachine, isolate ...stateMachine) <-chan struct{} {
+	cut := &raftRouteCut{leader: leader.node().ID(), subject: "$NRG.AE.PARTITION", triggered: make(chan struct{})}
+	for _, sm := range isolate {
+		cut.isolate = append(cut.isolate, p.sides[sm.server().ID()])
+	}
+	p.cut.Store(cut)
+	return cut.triggered
+}
+
+func waitRaftRouteAddition(t *testing.T, triggered <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-triggered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no membership addition crossed the real route socket")
+	}
+}
+
+func waitRaftRouteMembership(t *testing.T, rg smGroup, size int) {
+	t.Helper()
+	checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+		for _, sm := range rg {
+			n := sm.node()
+			index, commit, applied := n.Progress()
+			if n.State() == Closed || n.ClusterSize() != size || n.MembershipChangeInProgress() || index != commit || commit != applied {
+				return fmt.Errorf("%s: state=%v size=%d changing=%v progress=%d/%d/%d", n.ID(), n.State(), n.ClusterSize(), n.MembershipChangeInProgress(), index, commit, applied)
+			}
+		}
+		return nil
+	})
+}
+
+func addRaftRoutePeer(c *cluster) stateMachine {
+	cfg := &RaftConfig{Name: "PARTITION", Store: c.t.TempDir(), Log: c.createWAL("PARTITION", FileStorage), NewTransport: defaultRaftTransport}
+	return c.createStateMachine(c.servers[3], cfg, serverPeerNames(c.servers), newStateAdder)
+}
+
+func TestNRGPartitionedPeerRemoveTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 2)
+	rg := c.createRaftGroup("PARTITION", 2, newStateAdder)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	follower := rg.nonLeader()
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, len(rg))
+
+	partition.sides[leader.server().ID()].Store(1)
+	require_NoError(t, leader.node().ProposeRemovePeer(follower.node().ID()))
+	require_NoError(t, follower.node().CampaignImmediately())
+	waitRaftRouteMembership(t, smGroup{leader}, 1)
+	leader.(*stateAdder).proposeDelta(2)
+	smGroup{leader}.waitOnTotal(t, 3)
+	until := time.Now().Add(maxElectionTimeout + hbInterval)
+	for time.Now().Before(until) {
+		require_NotEqual(t, follower.node().State(), Leader)
+		require_Equal(t, follower.node().ClusterSize(), 2)
+		require_Equal(t, follower.(*stateAdder).total(), int64(1))
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	partition.heal()
+	checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+		if follower.node().ClusterSize() != 1 {
+			return errors.New("removed peer has not learned committed membership")
+		}
+		return nil
+	})
+	leader.stop()
+	leader.restart()
+	waitRaftRouteMembership(t, smGroup{leader}, 1)
+	smGroup{leader}.waitOnTotal(t, 3)
+	require_NotNil(t, smGroup{leader}.waitOnLeader())
+	leader.(*stateAdder).proposeDelta(4)
+	smGroup{leader}.waitOnTotal(t, 7)
+}
+
+func TestNRGPeerAddAndPartitionLeaderTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 4)
+	rg := c.createRaftGroupWithPeers("PARTITION", c.servers[:3], newStateAdder, defaultRaftTransport, FileStorage)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	followers := rg.followers()
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, len(rg))
+	triggered := partition.cutOnAddition(leader, leader)
+	newNode := addRaftRoutePeer(c)
+	waitRaftRouteAddition(t, triggered)
+	majority := append(followers, newNode)
+	newLeader := majority.waitOnLeader()
+	require_NotNil(t, newLeader)
+	waitRaftRouteMembership(t, majority, 4)
+	newLeader.(*stateAdder).proposeDelta(2)
+	majority.waitOnTotal(t, 3)
+
+	partition.heal()
+	rg = append(rg, newNode)
+	waitRaftRouteMembership(t, rg, 4)
+	rg.waitOnTotal(t, 3)
+	leader.stop()
+	leader.restart()
+	waitRaftRouteMembership(t, rg, 4)
+	rg.waitOnTotal(t, 3)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	recovered.(*stateAdder).proposeDelta(4)
+	rg.waitOnTotal(t, 7)
+}
+
+func TestNRGLeaderWithoutQuorumAfterPeerAddTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 4)
+	rg := c.createRaftGroupWithPeers("PARTITION", c.servers[:3], newStateAdder, defaultRaftTransport, FileStorage)
+	leader := rg.waitOnLeader()
+	require_NotNil(t, leader)
+	followers := rg.followers()
+	leader.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, len(rg))
+	_, committed, _ := leader.node().Progress()
+	triggered := partition.cutOnAddition(leader, leader, followers[0])
+	newNode := addRaftRoutePeer(c)
+	waitRaftRouteAddition(t, triggered)
+	minority := smGroup{followers[1], newNode}
+	require_NoError(t, followers[1].node().CampaignImmediately())
+	until := time.Now().Add(lostQuorumInterval + maxElectionTimeout)
+	for time.Now().Before(until) {
+		for _, sm := range minority {
+			require_NotEqual(t, sm.node().State(), Leader)
+		}
+		for _, sm := range rg {
+			_, got, _ := sm.node().Progress()
+			require_Equal(t, got, committed)
+			require_Equal(t, sm.(*stateAdder).total(), int64(1))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	partition.heal()
+	rg = append(rg, newNode)
+	recovered := rg.waitOnLeader()
+	require_NotNil(t, recovered)
+	waitRaftRouteMembership(t, rg, 4)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, len(rg))
+	recovered.(*stateAdder).proposeDelta(2)
+	rg.waitOnTotal(t, 3)
+	newNode.stop()
+	newNode.restart()
+	waitRaftRouteMembership(t, rg, 4)
+	rg.waitOnTotal(t, 3)
+}
+
+func TestNRGRemovedPeerVoteDoesNotElectLeaderTCP(t *testing.T) {
+	c, partition := newRaftRoutePartition(t, 4)
+	rg := c.createRaftGroup("PARTITION", 4, newStateAdder)
+	nodeA := rg.waitOnLeader()
+	require_NotNil(t, nodeA)
+	followers := rg.followers()
+	nodeB, nodeC, nodeD := followers[0], followers[1], followers[2]
+	nodeA.(*stateAdder).proposeDelta(1)
+	rg.waitOnTotal(t, 1)
+	waitRaftRouteMembership(t, rg, len(rg))
+	partition.sides[nodeD.server().ID()].Store(1)
+	require_NoError(t, nodeA.node().ProposeRemovePeer(nodeD.node().ID()))
+	valid := smGroup{nodeA, nodeB, nodeC}
+	waitRaftRouteMembership(t, valid, 3)
+	require_Equal(t, nodeD.node().ClusterSize(), 4)
+
+	partition.sides[nodeC.server().ID()].Store(1)
+	n := nodeC.node().(*raft)
+	n.RLock()
+	voteSubject := n.vreply
+	n.RUnlock()
+	partition.watch.Store(&raftRouteVote{peer: nodeD.node().ID(), subject: voteSubject})
+	require_NoError(t, nodeC.node().CampaignImmediately())
+	nodeA.(*stateAdder).proposeDelta(2)
+	smGroup{nodeA, nodeB}.waitOnTotal(t, 3)
+	until := time.Now().Add(maxElectionTimeout + hbInterval)
+	for time.Now().Before(until) {
+		require_NotEqual(t, nodeC.node().State(), Leader)
+		require_NotEqual(t, nodeD.node().State(), Leader)
+		require_Equal(t, nodeC.(*stateAdder).total(), int64(1))
+		time.Sleep(10 * time.Millisecond)
+	}
+	require_True(t, partition.votes.Load() > 0)
+
+	partition.heal()
+	recovered := valid.waitOnLeader()
+	require_NotNil(t, recovered)
+	waitRaftRouteMembership(t, valid, 3)
+	valid.waitOnTotal(t, 3)
+	recovered.(*stateAdder).proposeDelta(4)
+	valid.waitOnTotal(t, 7)
+	nodeC.stop()
+	nodeC.restart()
+	waitRaftRouteMembership(t, valid, 3)
+	valid.waitOnTotal(t, 7)
 }
 
 func TestNRGPartitionedPeerRemove(t *testing.T) {

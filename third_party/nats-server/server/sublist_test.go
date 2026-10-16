@@ -14,20 +14,911 @@
 package server
 
 import (
+	"bufio"
 	"errors"
-	"flag"
 	"fmt"
 	"math/rand/v2"
+	"net"
+	"net/url"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nuid"
 )
+
+func TestSublistRoutingWildcardDelivery(t *testing.T) {
+	// NoSublistCache covers the upstream cache variants only in test fixtures.
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			pub := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer pub.Close()
+			for _, test := range []struct {
+				name     string
+				patterns []string
+				publish  []string
+				want     [][]string
+			}{
+				{"literal", []string{"foo"}, []string{"foo", "bar", "foo.bar"}, [][]string{{"foo"}}},
+				{"single-token-wildcard", []string{"*"}, []string{"foo", "foo.bar"}, [][]string{{"foo"}}},
+				{"all-tokens-wildcard", []string{">"}, []string{"foo", "foo.bar"}, [][]string{{"foo", "foo.bar"}}},
+				{"literal-prefix", []string{"stats.test.foos", "stats.test.foo"}, []string{"stats.test.foos"}, [][]string{{"stats.test.foos"}, {}}},
+				{"stats-wildcards", []string{"stats.>", "stats.*.*", "stats.test.*", "stats.*", "stats.*.*.foos"}, []string{"stats.test.22", "stats.test.foos", "stats.test"}, [][]string{{"stats.test.22", "stats.test.foos", "stats.test"}, {"stats.test.22", "stats.test.foos"}, {"stats.test.22", "stats.test.foos"}, {"stats.test"}, {}}},
+				{"foo-terminal-wildcard", []string{"foo.>", "bar.>"}, []string{"foo", "foo.bar"}, [][]string{{"foo.bar"}, {}}},
+				{"multi-token", []string{"a.b.c"}, []string{"a.b", "a.b.c", "a.b.c.d"}, [][]string{{"a.b.c"}}},
+				{"middle-wildcard", []string{"a.*.c"}, []string{"a.b.c", "a.x.c", "a.c", "a.b.x.c"}, [][]string{{"a.b.c", "a.x.c"}}},
+				{"end-wildcard", []string{"a.b.*"}, []string{"a.b.c", "a.b.d", "a.b", "a.b.c.d"}, [][]string{{"a.b.c", "a.b.d"}}},
+				{"terminal-wildcard", []string{"a.>"}, []string{"a", "a.b", "a.b.c", "b.a"}, [][]string{{"a.b", "a.b.c"}}},
+				{"wildcard-literals", []string{"foo.*-", "foo.>-"}, []string{"foo.bar", "foo.*-", "foo.>-"}, [][]string{{"foo.*-"}, {"foo.>-"}}},
+				{"overlap", []string{"a.b.c", "a.*.c", "a.>"}, []string{"a.b.c", "a.x.c", "a.b.c.d"}, [][]string{{"a.b.c"}, {"a.b.c", "a.x.c"}, {"a.b.c", "a.x.c", "a.b.c.d"}}},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+					defer nc.Close()
+					var subs []*nats.Subscription
+					for _, pattern := range test.patterns {
+						subs = append(subs, natsSubSync(t, nc, pattern))
+					}
+					fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+					require_NoError(t, nc.FlushTimeout(time.Second))
+					for _, subject := range test.publish {
+						natsPub(t, pub, subject, []byte(subject))
+					}
+					// All subscriptions share this connection, so the marker follows their deliveries.
+					natsPub(t, pub, fence.Subject, nil)
+					natsNexMsg(t, fence, time.Second)
+					for i, sub := range subs {
+						for _, subject := range test.want[i] {
+							msg := natsNexMsg(t, sub, time.Second)
+							require_Equal(t, msg.Subject, subject)
+							require_Equal(t, string(msg.Data), subject)
+						}
+						if sub.Subject == ">" {
+							require_Equal(t, natsNexMsg(t, sub, time.Second).Subject, fence.Subject)
+						}
+						pending, _, err := sub.Pending()
+						require_NoError(t, err)
+						require_Equal(t, pending, 0)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestSublistRoutingQueueGroups(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			pub := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer pub.Close()
+			subject := "routing." + nuid.Next()
+			plain, workers, other := make(chan *nats.Msg, 64), make(chan *nats.Msg, 64), make(chan *nats.Msg, 64)
+			_, err := nc.ChanSubscribe(subject, plain)
+			require_NoError(t, err)
+			first, err := nc.ChanQueueSubscribe("routing.*", "workers", workers)
+			require_NoError(t, err)
+			second, err := nc.ChanQueueSubscribe(subject, "workers", workers)
+			require_NoError(t, err)
+			_, err = nc.ChanQueueSubscribe(subject, "other", other)
+			require_NoError(t, err)
+			fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			publish := func(phase string) {
+				t.Helper()
+				for i := range 32 {
+					natsPub(t, pub, subject, []byte(fmt.Sprintf("%s:%d", phase, i)))
+				}
+				natsPub(t, pub, fence.Subject, nil)
+				natsNexMsg(t, fence, time.Second)
+			}
+			check := func(ch chan *nats.Msg, phase string, only *nats.Subscription) {
+				t.Helper()
+				require_Equal(t, len(ch), 32)
+				for i := range 32 {
+					msg := <-ch
+					require_Equal(t, msg.Subject, subject)
+					require_Equal(t, string(msg.Data), fmt.Sprintf("%s:%d", phase, i))
+					if only != nil {
+						require_Equal(t, msg.Sub, only)
+					}
+				}
+			}
+			publish("both")
+			check(plain, "both", nil)
+			check(workers, "both", nil)
+			check(other, "both", nil)
+			require_NoError(t, first.Unsubscribe())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			publish("survivor")
+			check(plain, "survivor", nil)
+			check(workers, "survivor", second)
+			check(other, "survivor", nil)
+			require_NoError(t, second.Unsubscribe())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			publish("removed")
+			check(plain, "removed", nil)
+			require_Equal(t, len(workers), 0)
+			check(other, "removed", nil)
+		})
+	}
+}
+
+func sublistRoutingClient(t *testing.T, s *Server) (net.Conn, *bufio.Reader) {
+	t.Helper()
+	conn, err := net.DialTimeout("tcp", s.Addr().String(), time.Second)
+	require_NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+	reader := bufio.NewReader(conn)
+	line, err := reader.ReadString('\n')
+	require_NoError(t, err)
+	if !strings.HasPrefix(line, "INFO ") {
+		t.Fatalf("Expected listener INFO, got %q", line)
+	}
+	_, err = fmt.Fprint(conn, "CONNECT {\"verbose\":false,\"pedantic\":true}\r\n")
+	require_NoError(t, err)
+	return conn, reader
+}
+
+func sublistRoutingExchange(t *testing.T, conn net.Conn, reader *bufio.Reader, subject, commands string) (map[string]int, []string) {
+	t.Helper()
+	require_NoError(t, conn.SetDeadline(time.Now().Add(5*time.Second)))
+	_, err := fmt.Fprintf(conn, "%sPING\r\n", commands)
+	require_NoError(t, err)
+	counts := make(map[string]int)
+	var rejected []string
+	for {
+		line, err := reader.ReadString('\n')
+		require_NoError(t, err)
+		switch {
+		case line == "PONG\r\n":
+			return counts, rejected
+		case strings.HasPrefix(line, "-ERR "):
+			rejected = append(rejected, line)
+		case strings.HasPrefix(line, "INFO "):
+		case strings.HasPrefix(line, "MSG "):
+			fields := strings.Fields(line)
+			require_Equal(t, len(fields), 4)
+			require_Equal(t, fields[1], subject)
+			require_Equal(t, fields[3], "1")
+			payload, err := reader.ReadString('\n')
+			require_NoError(t, err)
+			require_Equal(t, payload, "x\r\n")
+			counts[fields[2]]++
+		default:
+			t.Fatalf("Unexpected listener response %q", line)
+		}
+	}
+}
+
+func TestSublistRoutingSubscriptionChanges(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			conn, reader := sublistRoutingClient(t, s)
+			check := func(commands string, want map[string]int) {
+				t.Helper()
+				got, rejected := sublistRoutingExchange(t, conn, reader, "a.b.c", commands+"PUB a.b.c 1\r\nx\r\n")
+				require_Equal(t, len(rejected), 0)
+				require_Equal(t, len(got), len(want))
+				for sid, count := range want {
+					require_Equal(t, got[sid], count)
+				}
+			}
+			check("", nil)
+			check("SUB a.b.c 1\r\nSUB a.*.c 2\r\nSUB a.> 3\r\n", map[string]int{"1": 1, "2": 1, "3": 1})
+			check("UNSUB 999\r\n", map[string]int{"1": 1, "2": 1, "3": 1})
+			check("UNSUB 1\r\n", map[string]int{"2": 1, "3": 1})
+			check("UNSUB 3\r\n", map[string]int{"2": 1})
+			check("UNSUB 2\r\n", nil)
+			for range 4 {
+				check("SUB a.*.c 4\r\n", map[string]int{"4": 1})
+				check("UNSUB 4\r\n", nil)
+			}
+			var commands strings.Builder
+			want := make(map[string]int)
+			for i := range 600 {
+				sid := strconv.Itoa(i + 10)
+				fmt.Fprintf(&commands, "SUB a.b.c %s\r\n", sid)
+				want[sid] = 1
+			}
+			check(commands.String(), want)
+			check("", want)
+			for _, sid := range []string{"10", "310", "609"} {
+				delete(want, sid)
+			}
+			check("UNSUB 10\r\nUNSUB 310\r\nUNSUB 609\r\n", want)
+			commands.Reset()
+			for sid := range want {
+				fmt.Fprintf(&commands, "UNSUB %s\r\n", sid)
+			}
+			check(commands.String(), nil)
+		})
+	}
+}
+
+func TestSublistRoutingInvalidSubjects(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			for _, subject := range []string{".", ".foo", "foo.", "foo..bar", "foo.bar..baz", ">.bar", "foo.>.bar", "a.b..d", "a.>.b", "foo.bar.baz.\x00"} {
+				t.Run(subject, func(t *testing.T) {
+					conn, reader := sublistRoutingClient(t, s)
+					got, rejected := sublistRoutingExchange(t, conn, reader, "a.b.c", fmt.Sprintf("SUB %s bad\r\n", subject))
+					require_Equal(t, len(got), 0)
+					require_Equal(t, len(rejected), 1)
+					require_Contains(t, rejected[0], "Invalid Subject")
+					got, rejected = sublistRoutingExchange(t, conn, reader, "a.b.c", "SUB a.b.c good\r\nPUB a.b.c 1\r\nx\r\n")
+					require_Equal(t, len(rejected), 0)
+					require_Equal(t, len(got), 1)
+					require_Equal(t, got["good"], 1)
+				})
+			}
+		})
+	}
+}
+
+func TestSublistRoutingLiteralLifecycle(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			for _, subject := range []string{
+				"foo", "foo.bar", "foo*", "foo**", "foo.**", "foo*bar", "foo.*bar", "foo*.bar", "*bar",
+				"foo>", "foo>>", "foo.>>", "foo>bar", "foo.>bar", "foo>.bar", ">bar", "foo.***.bar", "foo.>>>.bar",
+				"foo*bar.baz", "foo>bar.baz", "foo.*-", "foo.>-",
+			} {
+				t.Run(subject, func(t *testing.T) {
+					conn, reader := sublistRoutingClient(t, s)
+					defer conn.Close()
+					publish := fmt.Sprintf("PUB %s 1\r\nx\r\n", subject)
+					for range 2 {
+						got, rejected := sublistRoutingExchange(t, conn, reader, subject, fmt.Sprintf("SUB %s literal\r\nSUB foo.bar unrelated\r\nUNSUB unrelated\r\n", subject)+publish)
+						require_Equal(t, len(rejected), 0)
+						require_Equal(t, len(got), 1)
+						require_Equal(t, got["literal"], 1)
+						got, rejected = sublistRoutingExchange(t, conn, reader, subject, "UNSUB literal\r\n"+publish)
+						require_Equal(t, len(rejected), 0)
+						require_Equal(t, len(got), 0)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestSublistRoutingEmptyTokenPublications(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			conn, reader := sublistRoutingClient(t, s)
+			commands := "SUB > plain\r\nSUB > workers queue\r\n"
+			for _, subject := range []string{".foo", "..foo", "foo..", "foo.", "foo..bar", "foo...bar"} {
+				commands += fmt.Sprintf("PUB %s 1\r\nx\r\n", subject)
+			}
+			got, rejected := sublistRoutingExchange(t, conn, reader, "a.b.c", commands+"PUB a.b.c 1\r\nx\r\n")
+			require_Equal(t, len(rejected), 6)
+			for _, rejection := range rejected {
+				require_Contains(t, rejection, "Invalid Publish Subject")
+			}
+			require_Equal(t, len(got), 2)
+			require_Equal(t, got["plain"], 1)
+			require_Equal(t, got["queue"], 1)
+			commands = "UNSUB plain\r\nUNSUB queue\r\n"
+			for _, subject := range []string{"foo.bar.*", "foo.bar.>", "*", ">"} {
+				commands += fmt.Sprintf("PUB %s 1\r\nx\r\n", subject)
+			}
+			got, rejected = sublistRoutingExchange(t, conn, reader, "a.b.c", commands+"SUB a.b.c good\r\nPUB a.b.c 1\r\nx\r\n")
+			require_Equal(t, len(rejected), 4)
+			for _, rejection := range rejected {
+				require_Contains(t, rejection, "Invalid Publish Subject")
+			}
+			require_Equal(t, len(got), 1)
+			require_Equal(t, got["good"], 1)
+		})
+	}
+}
+
+func TestSublistRoutingInterestLifecycle(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			for _, test := range []struct {
+				pattern     string
+				match, miss []string
+			}{
+				{"foo", []string{"foo"}, []string{"bar", "foo.bar"}},
+				{"foo.*", []string{"foo.bar", "foo.baz"}, []string{"foo", "foo.bar.baz"}},
+				{"foo.>", []string{"foo.bar", "foo.bar.baz"}, []string{"foo", "bar"}},
+				{"*.>", []string{"foo.bar", "foo.baz", "foo.bar.baz"}, []string{"foo"}},
+				{"*.bar", []string{"foo.bar"}, []string{"foo", "foo.baz", "foo.bar.baz"}},
+				{"*", []string{"foo"}, []string{"foo.bar"}},
+				{"a.b.c.d.e.f", []string{"a.b.c.d.e.f"}, []string{"a.b.c.d.e"}},
+				{"a.b.*.d.e.>", []string{"a.b.c.d.e.f"}, []string{"a.b.c.d.e"}},
+			} {
+				t.Run(test.pattern, func(t *testing.T) {
+					conn, reader := sublistRoutingClient(t, s)
+					defer conn.Close()
+					setup := fmt.Sprintf("SUB %s plain\r\nSUB %s first a\r\nSUB %s second b\r\nSUB %s second c\r\n", test.pattern, test.pattern, test.pattern, test.pattern)
+					for phase, commands := range []string{setup, "UNSUB a\r\n", "UNSUB b\r\n", "UNSUB c\r\n", "UNSUB plain\r\n"} {
+						for _, subjects := range [][]string{test.match, test.miss} {
+							for _, subject := range subjects {
+								got, rejected := sublistRoutingExchange(t, conn, reader, subject, commands+fmt.Sprintf("PUB %s 1\r\nx\r\n", subject))
+								commands = ""
+								require_Equal(t, len(rejected), 0)
+								if slices.Contains(test.miss, subject) || phase == 4 {
+									require_Equal(t, len(got), 0)
+									continue
+								}
+								require_Equal(t, got["plain"], 1)
+								if phase == 0 {
+									require_Equal(t, got["a"], 1)
+									require_Equal(t, len(got), 3)
+								} else {
+									require_Equal(t, got["a"], 0)
+								}
+								if phase < 3 {
+									require_Equal(t, got["b"]+got["c"], 1)
+									if phase > 0 {
+										require_Equal(t, len(got), 2)
+									}
+									if phase == 2 {
+										require_Equal(t, got["c"], 1)
+									}
+								} else {
+									require_Equal(t, len(got), 1)
+								}
+							}
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestSublistRoutingCacheMonitoring(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			opts.HTTPHost, opts.HTTPPort = "127.0.0.1", -1
+			s := RunServer(opts)
+			defer s.Shutdown()
+			nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			endpoint := fmt.Sprintf("http://%s/subsz?subs=1&acc=%s", s.MonitorAddr(), globalAccountName)
+			before := pollSubsz(t, s, 0, endpoint, nil)
+			var subs []*nats.Subscription
+			for _, subject := range []string{"foo", "bar", "foo.bar"} {
+				subs = append(subs, natsSubSync(t, nc, subject))
+			}
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			for range 4 {
+				// Separate publishers avoid hiding shared-cache lookups in a client's local cache.
+				pub := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+				natsPub(t, pub, "foo", []byte("cached"))
+				require_NoError(t, pub.FlushTimeout(time.Second))
+				pub.Close()
+			}
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			stats := pollSubsz(t, s, 0, endpoint, nil)
+			require_Equal(t, stats.NumSubs, before.NumSubs+3)
+			require_Equal(t, stats.NumMatches, before.NumMatches+4)
+			for _, subject := range []string{"foo", "bar", "foo.bar"} {
+				found := 0
+				for _, detail := range stats.Subs {
+					if detail.Subject == subject {
+						found++
+					}
+				}
+				require_Equal(t, found, 1)
+			}
+			if noCache {
+				require_Equal(t, stats.NumCache, uint32(0))
+				require_Equal(t, stats.CacheHitRate, float64(0))
+			} else {
+				require_Equal(t, stats.NumCache, before.NumCache+1)
+				require_Equal(t, stats.CacheHitRate, float64(3)/float64(stats.NumMatches))
+			}
+			for range 4 {
+				msg := natsNexMsg(t, subs[0], time.Second)
+				require_Equal(t, string(msg.Data), "cached")
+			}
+			for _, sub := range subs {
+				require_NoError(t, sub.Unsubscribe())
+			}
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			for i := range 2 * slCacheMax {
+				natsPub(t, nc, fmt.Sprintf("absent.%d", i), nil)
+			}
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
+				stats := pollSubsz(t, s, 0, endpoint, nil)
+				if stats.NumSubs != before.NumSubs || stats.NumCache > slCacheMax {
+					return fmt.Errorf("Expected baseline subscriptions and bounded cache, got %+v", stats.SublistStats)
+				}
+				if noCache && stats.NumCache != 0 {
+					return fmt.Errorf("No-cache server populated %d entries", stats.NumCache)
+				}
+				return nil
+			})
+		})
+	}
+}
+
+func TestSublistRoutingRemoteQueueWeights(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			first := RunServer(opts)
+			defer first.Shutdown()
+			opts = DefaultOptions()
+			opts.NoSublistCache = noCache
+			opts.Routes = RoutesFromStr("nats://" + first.ClusterAddr().String())
+			second := RunServer(opts)
+			defer second.Shutdown()
+			checkClusterFormed(t, first, second)
+			local := natsConnect(t, first.ClientURL(), nats.Timeout(time.Second))
+			defer local.Close()
+			remote := natsConnect(t, second.ClientURL(), nats.Timeout(time.Second))
+			defer remote.Close()
+			pub := natsConnect(t, first.ClientURL(), nats.Timeout(time.Second))
+			defer pub.Close()
+			subject := "weighted." + nuid.Next()
+			localMsgs, remoteMsgs := make(chan *nats.Msg, 1024), make(chan *nats.Msg, 1024)
+			for range 2 {
+				_, err := local.ChanQueueSubscribe(subject, "workers", localMsgs)
+				require_NoError(t, err)
+			}
+			var remoteSubs []*nats.Subscription
+			for range 10 {
+				sub, err := remote.ChanQueueSubscribe(subject, "workers", remoteMsgs)
+				require_NoError(t, err)
+				remoteSubs = append(remoteSubs, sub)
+			}
+			localFence := natsSubSync(t, local, "_INBOX."+nuid.Next())
+			remoteFence := natsSubSync(t, remote, "_INBOX."+nuid.Next())
+			ready := "_INBOX." + nuid.Next()
+			natsSub(t, remote, ready, func(msg *nats.Msg) {
+				if err := msg.Respond(nil); err != nil {
+					t.Errorf("Remote routing barrier: %v", err)
+				}
+			})
+			require_NoError(t, local.FlushTimeout(time.Second))
+			barrier := func() {
+				t.Helper()
+				require_NoError(t, remote.FlushTimeout(time.Second))
+				checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+					_, err := pub.Request(ready, nil, 100*time.Millisecond)
+					return err
+				})
+			}
+			checkBatch := func() int {
+				t.Helper()
+				for i := range 512 {
+					natsPub(t, pub, subject, []byte(strconv.Itoa(i)))
+				}
+				natsPub(t, pub, localFence.Subject, nil)
+				natsPub(t, pub, remoteFence.Subject, nil)
+				natsNexMsg(t, localFence, time.Second)
+				natsNexMsg(t, remoteFence, time.Second)
+				nlocal, nremote := len(localMsgs), len(remoteMsgs)
+				require_Equal(t, nlocal+nremote, 512)
+				var seen [512]bool
+				for _, ch := range []chan *nats.Msg{localMsgs, remoteMsgs} {
+					for range len(ch) {
+						msg := <-ch
+						require_Equal(t, msg.Subject, subject)
+						seq, err := strconv.Atoi(string(msg.Data))
+						require_NoError(t, err)
+						if seq < 0 || seq >= len(seen) || seen[seq] {
+							t.Fatalf("Invalid or duplicate queue delivery %q", msg.Data)
+						}
+						seen[seq] = true
+					}
+				}
+				return nremote
+			}
+			barrier()
+			if got := checkBatch(); got < 320 || got > 510 {
+				t.Fatalf("Ten remote versus two local workers: got %d of512 remote deliveries", got)
+			}
+			for _, sub := range remoteSubs[:9] {
+				require_NoError(t, sub.Unsubscribe())
+			}
+			barrier()
+			if got := checkBatch(); got < 100 || got > 260 {
+				t.Fatalf("One remote versus two local workers: got %d of512 remote deliveries", got)
+			}
+			require_NoError(t, remoteSubs[9].Unsubscribe())
+			barrier()
+			require_Equal(t, checkBatch(), 0)
+		})
+	}
+}
+
+func TestSublistRoutingConcurrentSubscriptions(t *testing.T) {
+	for _, noCache := range []bool{false, true} {
+		t.Run(fmt.Sprintf("no-cache=%t", noCache), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.NoSublistCache = noCache
+			s := RunServer(opts)
+			defer s.Shutdown()
+			observer := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer observer.Close()
+			pub := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer pub.Close()
+			subject := "churn." + nuid.Next()
+			sub := natsSubSync(t, observer, subject)
+			fence := natsSubSync(t, observer, "_INBOX."+nuid.Next())
+			require_NoError(t, observer.FlushTimeout(time.Second))
+			start := make(chan struct{})
+			errCh := make(chan error, 6)
+			var wg sync.WaitGroup
+			var clients []*nats.Conn
+			for range 6 {
+				nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+				t.Cleanup(nc.Close)
+				clients = append(clients, nc)
+			}
+			for worker, nc := range clients {
+				wg.Go(func() {
+					defer nc.Close()
+					<-start
+					for round := range 8 {
+						plain, err := nc.SubscribeSync("churn.*")
+						if err != nil {
+							errCh <- err
+							return
+						}
+						queue, err := nc.QueueSubscribeSync(subject, "workers")
+						if err == nil {
+							err = nc.FlushTimeout(time.Second)
+						}
+						if err == nil {
+							err = nc.Publish(subject, []byte(fmt.Sprintf("worker:%d:%d", worker, round)))
+						}
+						if err == nil {
+							err = plain.Unsubscribe()
+						}
+						if err == nil {
+							err = queue.Unsubscribe()
+						}
+						if err == nil {
+							err = nc.FlushTimeout(time.Second)
+						}
+						if err != nil {
+							errCh <- err
+							return
+						}
+					}
+				})
+			}
+			close(start)
+			defer wg.Wait()
+			want := make(map[string]bool)
+			for i := range 256 {
+				payload := fmt.Sprintf("publisher:%d", i)
+				want[payload] = true
+				natsPub(t, pub, subject, []byte(payload))
+			}
+			wg.Wait()
+			close(errCh)
+			for err := range errCh {
+				require_NoError(t, err)
+			}
+			for worker := range 6 {
+				for round := range 8 {
+					want[fmt.Sprintf("worker:%d:%d", worker, round)] = true
+				}
+			}
+			natsPub(t, pub, fence.Subject, nil)
+			natsNexMsg(t, fence, time.Second)
+			nextPublisher := 0
+			for range len(want) {
+				msg := natsNexMsg(t, sub, time.Second)
+				require_Equal(t, msg.Subject, subject)
+				payload := string(msg.Data)
+				if !want[payload] {
+					t.Fatalf("Unexpected or duplicate churn delivery %q", payload)
+				}
+				delete(want, payload)
+				if strings.HasPrefix(payload, "publisher:") {
+					require_Equal(t, payload, fmt.Sprintf("publisher:%d", nextPublisher))
+					nextPublisher++
+				}
+			}
+			require_Equal(t, len(want), 0)
+			pending, _, err := sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+			checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+				if got := s.NumClients(); got != 2 {
+					return fmt.Errorf("Expected only publisher and observer after churn, got %d clients", got)
+				}
+				return nil
+			})
+		})
+	}
+}
+
+func TestSublistRoutingMappings(t *testing.T) {
+	for _, test := range []struct {
+		source, destination, publish, want, alternative string
+	}{
+		{"bar", "foo", "bar", "foo", ""},
+		{"foo", "foo.bar", "foo", "foo.bar", ""},
+		{"*", "{{wildcard(1)}}", "abc", "abc", ""},
+		{"foo.>", ">", "foo.a.b", "a.b", ""},
+		{"foo.*", "bar.{{wildcard(1)}}", "foo.a", "bar.a", ""},
+		{"foo.>", "bar.>", "foo.a.b", "bar.a.b", ""},
+		{"foo.*.>", "bar.{{wildcard(1)}}.>", "foo.a.b.c", "bar.a.b.c", ""},
+		{"foo.*.bar", "bar.{{wildcard(1)}}.foo", "foo.a.bar", "bar.a.foo", ""},
+		{"foo.bar.>", "foo.bar.foo.>", "foo.bar.a.b", "foo.bar.foo.a.b", ""},
+		{"*", "foo.{{wildcard(1)}}", "abc", "foo.abc", ""},
+		{"*", "foo.{{ wildcard(1) }}", "abc", "foo.abc", ""},
+		{"*", "foo.{{wildcard( 1 )}}", "abc", "foo.abc", ""},
+		{"*", "foo.{{partition(2,1)}}", "abc", "foo.0", "foo.1"},
+		{"*.*", "foo.{{SplitFromLeft(2,1)}}", "abc.def", "foo.d.ef", ""},
+		{"*.*", "foo.{{SplitFromRight(2,1)}}", "abc.def", "foo.de.f", ""},
+		{"*.*", "foo.{{SliceFromLeft(2,1)}}", "abc.def", "foo.d.e.f", ""},
+		{"*.*", "foo.{{SliceFromRight(2,1)}}", "abc.def", "foo.d.e.f", ""},
+		{"*.*", "foo.{{split(1,-)}}", "a-b.c", "foo.a.b", ""},
+		{"*", "foo.{{random(1)}}", "abc", "foo.0", ""},
+		{"*", "foo.{{left(1,2)}}", "abcdef", "foo.ab", ""},
+		{"*", "foo.{{Left(1,2)}}", "abcdef", "foo.ab", ""},
+		{"*", "foo.{{right(1,2)}}", "abcdef", "foo.ef", ""},
+		{"*", "foo.{{Right(1,2)}}", "abcdef", "foo.ef", ""},
+		{"*", "foo.{{ left( 1 , 2 ) }}", "abcdef", "foo.ab", ""},
+	} {
+		t.Run(test.destination, func(t *testing.T) {
+			conf := createConfFile(t, []byte(fmt.Sprintf("listen: 127.0.0.1:-1\nmappings: {%q: %q}\n", test.source, test.destination)))
+			s, _ := RunServerWithConfig(conf)
+			defer s.Shutdown()
+			nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			sub := natsSubSync(t, nc, ">")
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			natsPub(t, nc, test.publish, []byte("mapped"))
+			msg := natsNexMsg(t, sub, time.Second)
+			if msg.Subject != test.want && (test.alternative == "" || msg.Subject != test.alternative) {
+				t.Fatalf("Mapping %q to %q delivered on %q, expected %q", test.source, test.destination, msg.Subject, test.want)
+			}
+			require_Equal(t, string(msg.Data), "mapped")
+		})
+	}
+	for _, destination := range []string{"foo.{{unknown(1)}}", "foo..}", "foo. bar}"} {
+		t.Run("invalid-"+destination, func(t *testing.T) {
+			conf := createConfFile(t, []byte("listen: 127.0.0.1:-1\nmappings: {foo: bar}\n"))
+			s, _ := RunServerWithConfig(conf)
+			defer s.Shutdown()
+			nc := natsConnect(t, s.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			sub := natsSubSync(t, nc, "bar")
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			require_NoError(t, os.WriteFile(conf, []byte(fmt.Sprintf("listen: 127.0.0.1:-1\nmappings: {foo: %q}\n", destination)), 0600))
+			require_Error(t, s.Reload())
+			natsPub(t, nc, "foo", []byte("retained"))
+			msg := natsNexMsg(t, sub, time.Second)
+			require_Equal(t, msg.Subject, "bar")
+			require_Equal(t, string(msg.Data), "retained")
+		})
+	}
+}
+
+func TestSublistRoutingImportSubset(t *testing.T) {
+	for _, test := range []struct {
+		imported, exported string
+		allowed            bool
+	}{
+		{"foo.bar", "foo.bar", true},
+		{"foo.*", ">", true},
+		{"foo.*", "*.*", true},
+		{"foo.*", "foo.*", true},
+		{"foo.*", "foo.bar", false},
+		{"foo.>", ">", true},
+		{"foo.>", "*.>", true},
+		{"foo.>", "foo.>", true},
+		{"foo.>", "foo.bar", false},
+		{"foo..bar", "foo.*", false},
+		{"foo.*", "foo..bar", false},
+	} {
+		t.Run(test.imported+"-from-"+test.exported, func(t *testing.T) {
+			config := func(imported, exported string) []byte {
+				return []byte(fmt.Sprintf(`
+					listen: 127.0.0.1:-1
+					accounts {
+					  exporter {
+					    users: [{user: publisher, password: test}]
+					    exports: [{stream: %q}]
+					  }
+					  importer {
+					    users: [{user: subscriber, password: test}]
+					    imports: [{stream: {account: exporter, subject: %q}}]
+					  }
+					}`, exported, imported))
+			}
+			path := createConfFile(t, config("safe", "safe"))
+			s, _ := RunServerWithConfig(path)
+			defer s.Shutdown()
+			require_NoError(t, os.WriteFile(path, config(test.imported, test.exported), 0600))
+			err := s.Reload()
+			pattern, subject := test.imported, "foo.bar"
+			if test.allowed {
+				require_NoError(t, err)
+			} else {
+				if err == nil {
+					t.Fatal("Reload accepted an import outside its export")
+				}
+				pattern, subject = "safe", "safe"
+			}
+			nc := natsConnect(t, s.ClientURL(), nats.UserInfo("subscriber", "test"), nats.Timeout(time.Second))
+			defer nc.Close()
+			pub := natsConnect(t, s.ClientURL(), nats.UserInfo("publisher", "test"), nats.Timeout(time.Second))
+			defer pub.Close()
+			sub := natsSubSync(t, nc, pattern)
+			fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			natsPub(t, pub, subject, []byte("imported"))
+			require_NoError(t, pub.FlushTimeout(time.Second))
+			natsPub(t, nc, fence.Subject, nil)
+			natsNexMsg(t, fence, time.Second)
+			msg := natsNexMsg(t, sub, time.Second)
+			require_Equal(t, msg.Subject, subject)
+			require_Equal(t, string(msg.Data), "imported")
+			pending, _, err := sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+		})
+	}
+}
+
+func TestSublistRoutingPermissionOverlap(t *testing.T) {
+	for _, test := range []struct {
+		pattern, deny string
+		publish, want []string
+	}{
+		{"foo.*", "foo.*.bar.>", []string{"foo.foo", "foo.foo.bar.x"}, []string{"foo.foo"}},
+		{"foo.*.bar.>", "foo.*", []string{"foo.foo", "foo.foo.bar.x"}, []string{"foo.foo.bar.x"}},
+		{"foo.*", "foo.foo", []string{"foo.foo", "foo.bar"}, []string{"foo.bar"}},
+		{"foo.*", "*.foo", []string{"foo.foo", "foo.bar"}, []string{"foo.bar"}},
+		{"foo.bar.>", "*.bar.foo", []string{"foo.bar.foo", "foo.bar.foo.x", "foo.bar.bar"}, []string{"foo.bar.foo.x", "foo.bar.bar"}},
+	} {
+		t.Run(test.pattern+"-deny-"+test.deny, func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.Users = []*User{
+				{Username: "publisher", Password: "test"},
+				{Username: "subscriber", Password: "test", Permissions: &Permissions{Subscribe: &SubjectPermission{Allow: []string{">"}, Deny: []string{test.deny}}}},
+			}
+			s := RunServer(opts)
+			defer s.Shutdown()
+			nc := natsConnect(t, s.ClientURL(), nats.UserInfo("subscriber", "test"), nats.Timeout(time.Second))
+			defer nc.Close()
+			pub := natsConnect(t, s.ClientURL(), nats.UserInfo("publisher", "test"), nats.Timeout(time.Second))
+			defer pub.Close()
+			sub := natsSubSync(t, nc, test.pattern)
+			fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			for _, subject := range test.publish {
+				natsPub(t, pub, subject, []byte(subject))
+			}
+			natsPub(t, pub, fence.Subject, nil)
+			natsNexMsg(t, fence, time.Second)
+			for _, subject := range test.want {
+				msg := natsNexMsg(t, sub, time.Second)
+				require_Equal(t, msg.Subject, subject)
+				require_Equal(t, string(msg.Data), subject)
+			}
+			pending, _, err := sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+		})
+	}
+}
+
+func TestSublistRoutingLeafPermissionIntersection(t *testing.T) {
+	opts := DefaultOptions()
+	opts.LeafNode.Host, opts.LeafNode.Port = "127.0.0.1", -1
+	opts.LeafNode.Users = []*User{{Username: "leaf", Password: "test", Permissions: &Permissions{
+		Publish:   &SubjectPermission{Allow: []string{">"}},
+		Subscribe: &SubjectPermission{Allow: []string{"foo", "bar", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.*.*.>", "_INBOX.>"}},
+	}}}
+	hub := RunServer(opts)
+	defer hub.Shutdown()
+	u, err := url.Parse(fmt.Sprintf("nats://leaf:test@127.0.0.1:%d", opts.LeafNode.Port))
+	require_NoError(t, err)
+	opts = DefaultOptions()
+	opts.Cluster.Name = "edge"
+	opts.LeafNode.Remotes = []*RemoteLeafOpts{{URLs: []*url.URL{u}}}
+	leaf := RunServer(opts)
+	defer leaf.Shutdown()
+	checkLeafNodeConnected(t, leaf)
+	pub := natsConnect(t, hub.ClientURL(), nats.Timeout(time.Second))
+	defer pub.Close()
+	publish := []string{"foo", "bar", "baz", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.1.2.3.x", "qux"}
+	for _, test := range []struct {
+		pattern string
+		want    []string
+	}{
+		{"foo", []string{"foo"}},
+		{"bar", []string{"bar"}},
+		{"*", []string{"foo", "bar"}},
+		{"baz", nil},
+		{"foo.*", []string{"foo.bar", "foo.baz"}},
+		{"*.*", []string{"foo.bar", "foo.baz"}},
+		{"*.bar", []string{"foo.bar"}},
+		{"*.baz", []string{"foo.baz"}},
+		{"bar.*", nil},
+		{"*.bat", nil},
+		{"foo.>", []string{"foo.bar", "foo.baz", "foo.bar.baz"}},
+		{">", []string{"foo", "bar", "foo.bar", "foo.baz", "foo.bar.baz", "uplink.1.2.3.x"}},
+		{"uplink.1.*.*.>", []string{"uplink.1.2.3.x"}},
+		{"uplink.1.2.3.>", []string{"uplink.1.2.3.x"}},
+	} {
+		t.Run(test.pattern, func(t *testing.T) {
+			nc := natsConnect(t, leaf.ClientURL(), nats.Timeout(time.Second))
+			defer nc.Close()
+			sub := natsSubSync(t, nc, test.pattern)
+			fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+			require_NoError(t, nc.FlushTimeout(time.Second))
+			checkSubInterest(t, hub, globalAccountName, fence.Subject, 5*time.Second)
+			if len(test.want) != 0 {
+				checkSubInterest(t, hub, globalAccountName, test.want[0], 5*time.Second)
+			}
+			for _, subject := range publish {
+				natsPub(t, pub, subject, []byte(subject))
+			}
+			natsPub(t, pub, fence.Subject, nil)
+			natsNexMsg(t, fence, time.Second)
+			for _, subject := range test.want {
+				msg := natsNexMsg(t, sub, time.Second)
+				require_Equal(t, msg.Subject, subject)
+				require_Equal(t, string(msg.Data), subject)
+			}
+			if test.pattern == ">" {
+				require_Equal(t, natsNexMsg(t, sub, time.Second).Subject, fence.Subject)
+			}
+			pending, _, err := sub.Pending()
+			require_NoError(t, err)
+			require_Equal(t, pending, 0)
+		})
+		for _, subject := range publish {
+			checkSubNoInterest(t, hub, globalAccountName, subject, 5*time.Second)
+		}
+	}
+}
 
 func stackFatalf(t *testing.T, f string, args ...any) {
 	lines := make([]string, 0, 32)
@@ -1615,29 +2506,6 @@ func TestSublistAddCacheHitRate(t *testing.T) {
 
 var benchSublistSubs []*subscription
 var benchSublistSl = NewSublistWithCache()
-
-// https://github.com/golang/go/issues/31859
-func TestMain(m *testing.M) {
-	flag.StringVar(&testDefaultClusterCompression, "cluster_compression", _EMPTY_, "Test with this compression level as the default")
-	flag.StringVar(&testDefaultLeafNodeCompression, "leafnode_compression", _EMPTY_, "Test with this compression level as the default")
-	flag.Parse()
-	initSublist := false
-	flag.Visit(func(f *flag.Flag) {
-		if f.Name == "test.bench" {
-			initSublist = true
-		}
-	})
-	if initSublist {
-		benchSublistSubs = make([]*subscription, 0, 256*1024)
-		toks := []string{"synadia", "nats", "jetstream", "nkeys", "jwt", "deny", "auth", "drain"}
-		subsInit("", toks)
-		for i := 0; i < len(benchSublistSubs); i++ {
-			benchSublistSl.Insert(benchSublistSubs[i])
-		}
-		addWildcards()
-	}
-	os.Exit(m.Run())
-}
 
 func TestSublistHasInterest(t *testing.T) {
 	sl := NewSublistWithCache()
