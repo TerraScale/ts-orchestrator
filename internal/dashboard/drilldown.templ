@@ -41,6 +41,11 @@ templ globalRegionBody(current view) {
 				<p class="empty">No data from this region yet.</p>
 			} else {
 				@kpiTiles(regionTiles(region.Rollup))
+				<article id="managed-services">
+					<h2>Managed services</h2>
+					<p class="muted">Observed: { managedServicesObserved(region) }. Source: { region.ManagedServiceState(true, region.Rollup.ServicesObservedAt) }.</p>
+					@dataTable(managedServiceTable(current, region))
+				</article>
 				<article id="nodes">
 					<h2>Nodes</h2>
 					@dataTable(nodeTable(current, regionNodes(region)))

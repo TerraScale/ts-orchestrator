@@ -42,6 +42,8 @@ var detailPages = []page{
 		needs: needGlobal, body: globalVolumeBody},
 	{slug: "global-service", parent: "nodes", pattern: "/regions/{r}/nodes/{n}/services/{s}", title: "Service",
 		group: "Overview", needs: needGlobal, body: globalServiceBody},
+	{slug: "managed-service", pattern: "/regions/{r}/services/{s}", title: "Managed service",
+		group: "Overview", needs: needGlobal, body: managedServiceBody},
 }
 
 // detailHistory is how far back a detail page looks for decisions, at
