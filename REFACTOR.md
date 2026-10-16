@@ -1,21 +1,24 @@
-# Orchestrator refactor: SwarmKit, containerd, and customer Wasm
+# OCI-native orchestrator: A1-first capacity and mixed Wasm, ARM, and x86
 
-Start with a disposable regional prototype of embedded upstream SwarmKit and
-one containerd executor. Prove automatic joining and a healthy rolling container
-deployment before migrating production workloads or adding function execution.
+Start with a disposable OCI regional prototype on A1 Flex: automatic cluster
+formation, one containerd executor, and a healthy rolling container deployment.
+Prove ARM/x86 placement and OCI host replacement before migrating production
+workloads. Qualify customer Wasm on that same capacity model.
 
 ## Status and decisions
 
-Planning baseline, 2026-10-16. Source reviewed: `main` at `5fbe42a8`.
-This document records the brainstorming outcome; it does not claim an implemented
+Planning revision, 2026-10-16. Code baseline: `5fbe42a8`; original plan: `7a65ad45`.
+This document records the reviewed direction; it does not claim an implemented
 runtime, measured savings, production readiness, or deployment authorization.
 
 | Decision | Direction |
 | --- | --- |
-| First deployment target | OCI hosts first; no Fly implementation in this refactor. |
-| Control plane | Keep `ts-orch` in Go; embed upstream SwarmKit without an initial fork. |
+| Infrastructure owner | `ts-orch` reconciles the platform's complete OCI lifecycle through the existing Go SDK clients. |
+| Capacity | Prefer `VM.Standard.A1.Flex`; qualify other ARM families and x86 without changing workload identity. |
+| Control plane | Keep `ts-orch` in Go; qualify embedded upstream SwarmKit before committing to migration. |
 | First-party workloads | OCI containers through containerd and runc; no Docker Engine. |
 | Customer workloads | Short-lived Wasm functions on isolated worker hosts. |
+| Mixed execution | Native `linux/arm64`, native `linux/amd64`, and portable Wasm coexist in each region as demand requires. |
 | Security and joining | Substantially simplify custom protocols; automatic discovery and worker admission using OCI identity and Vault-delivered bootstrap material. |
 
 Wasmtime is the proposed first function runtime, subject to the compatibility
@@ -24,10 +27,36 @@ or runtime implementation. Do not present Wasmtime or WASI Components as an
 already qualified dependency. Use wazero instead if the actual function contract
 fits its supported interfaces and its simpler Go integration wins the comparison.
 
-The OCI-first decision scopes this repository refactor; it does not move other
+OCI-native means OCI Compute, networking, storage, IAM, Vault, and registry APIs
+are the infrastructure primitives, with `ts-orch` owning their reconciliation.
+It does not require OKE, Kubernetes, Docker Engine, or a second infrastructure
+controller. Keep embedded regional NATS for orchestrator communication.
+
+This decision scopes the orchestrator-managed platform; it does not move other
 TerraScale services off Fly or Cloudflare. Keep the existing external service
 hosting boundaries. No new paid capacity, IAM permission, credential, or secret
 installation is authorized by this planning document.
+
+## Review verdict and required corrections
+
+The original direction makes sense as a compatibility spike, not yet as a
+production migration commitment. Preserve its rollout, isolation, and database
+safety requirements. Close these gaps before implementing the replacement:
+
+1. **Complete OCI ownership.** Existing resource reconcilers manage selected
+   rules and backends; creating infrastructure once is not continuous lifecycle
+   management. Join provisioning, repair, upgrades, backups, and safe retirement.
+2. **Remove the A1-only model.** Pool recipes, regional validation, bootstrap,
+   and cost estimation contain A1/ARM assumptions. An x86 container cannot run
+   on an ARM host just because both hosts joined the same scheduler.
+3. **Qualify SwarmKit's value.** It adds regional Raft beside NATS/JetStream and
+   still needs a containerd executor, OCI capacity controller, and routing.
+   Compare the adapter's total maintenance against the existing control path.
+4. **Close bootstrap and identity gaps.** NetBird admission must lead to serving
+   automatically, while OCI permissions come from verified host identity.
+   Workers cannot create a new regional cluster after an empty discovery result.
+5. **Make migrations explicit.** A newer ARM family, ARM-to-x86 move, database
+   relocation, and Wasm recompilation have different compatibility requirements.
 
 ## What the current code establishes
 
@@ -38,8 +67,18 @@ installation is authorized by this planning document.
 | The generic schema accepts rolling updates, dependencies, and stateful policy, but that planner does not enforce them. | Do not wire it into production as though those policies work. |
 | `internal/placement/controller.go` verifies serving reports; `internal/app/artifact_store.go` collects artifacts. | Older README/architecture statements that these are absent are stale. |
 | `internal/host/agent.go` stops execution after host-session loss. | Availability and database fencing must be separated deliberately during migration. |
+| `internal/ociclient/factory.go` provides shared SDK clients and instance principals; `internal/ociregion/foundation/` creates regional foundations. | Extend these paths rather than adding a parallel cloud provisioner. |
+| `internal/ociresource/` and `docs/oci-reconcile.md` cover selected rules, backend sets, and bucket protection. | Full creation, repair, and retirement still need an explicit owner for each resource. |
+| `internal/nodescale/pool.go` fixes one pool and `VM.Standard.A1.Flex`; `internal/ociregion/plan.go` rejects other shapes. | Mixed roles, shapes, and architectures require changing the provisioning model, not just scheduler labels. |
+| `internal/ociregion/seed.go` requires `linux-arm64`; `internal/ocicost/node.go` prices A1 SKUs. | Bootstrap images and pricing must become architecture- and shape-aware together. |
 
-The backup's sole open issue is [#352: deployment lag exceeds 30 minutes](https://git.mariogk.com/TerraScale-Old/ts-orchestrator/issues/352).
+Existing `enabled`, telemetry, report/enforce, and per-region activation paths are
+legacy inventory, not the target API. Remove their switches as their slices
+migrate; every feature and every admitted region serves automatically. Discover
+NetBird members, region inventory, placement, and qualified releases without
+operator-maintained host lists or shape-selection knobs.
+
+The original plan identified historical [#352: deployment lag exceeds 30 minutes](https://git.mariogk.com/TerraScale-Old/ts-orchestrator/issues/352).
 It reports unavailable serving-region discovery and qualified-main history.
 SwarmKit cannot repair missing build retention, region inventory, or deployment
 evidence by itself. Inspect those paths independently.
@@ -74,11 +113,21 @@ reconciliation, and rollout progression. Keep its Raft quorum inside one region;
 do not form one latency-sensitive quorum across regions. The initial production
 design uses three managers per region; measure its real capacity cost.
 
+Place managers across availability domains where offered, otherwise across
+fault domains. Managers may use different qualified CPU architectures; replace
+one at a time without losing quorum. Regional embedded NATS/JetStream must also
+form automatically with persistent identities and recoverable storage. The same
+three trusted hosts may run managers and NATS if measured resource reservations
+protect both quorums; exclude customer execution from those hosts.
+
 `ts-orch` owns app intent, artifact selection, regional deployment aggregation,
 OCI capacity, traffic readiness, and TerraBase's database-specific lifecycle.
 It translates accepted app intent into SwarmKit services with stable identities
-and retry-safe updates. NATS carries events and queues; existing JetStream state
-is retained only where a remaining platform feature needs it. Avoid storing two
+and retry-safe updates. `ts-orch` decides desired replica counts and required
+host capacity; SwarmKit assigns generic tasks to admitted hosts. OCI instance
+pools realize those host counts; do not attach an independent OCI autoscaler
+that competes with this decision. NATS carries events and queues; existing
+JetStream state is retained where a remaining platform feature needs it. Avoid storing two
 authoritative copies of generic task placement or adding a third state store.
 
 Containerd is a runtime, not a SwarmKit executor. Implement the adapter using
@@ -97,6 +146,145 @@ The control executable remains one Go binary. Host images also contain managed,
 pinned containerd/runc dependencies, and the proposed function runtime is a
 container artifact. This is one control binary, not one executable for the whole
 host. Reuse feature-sliced packages rather than introducing generic frameworks.
+
+`ts-orch` installs, verifies, supervises, and upgrades these host dependencies
+through its managed image/release path. Publish one controller binary per Linux
+architecture from the same source revision; do not require per-host operator
+installation of containerd, runc, NetBird, or a function runtime.
+
+## OCI resources: one complete lifecycle owner
+
+Reuse `internal/ociclient`, `internal/ociregion`, `internal/ociresource`,
+`internal/nodescale`, `internal/oci`, and the existing storage/release slices.
+`ts-orch` owns only platform resources within the authorized tenancy footprint,
+not unrelated workloads in the tenancy. Its ownership inventory must cover:
+
+| Resource group | Controller responsibility |
+| --- | --- |
+| Foundation and identity | Compartments, ownership tags, dynamic groups, scoped IAM policies, Vault keys/secrets, and regional discovery records. Serialize tenancy-wide IAM writes through one authority in the home region. |
+| Network and ingress | VCNs, subnets, NSGs, routes, required gateways, private discovery, and the chosen OCI LB/NLB with readiness-based backends and certificate renewal. Use existing NetBird membership across regions. |
+| Compute and runtime | Architecture-specific host images, instance configurations/pools, domain placement, capacity acquisition, dependency updates, draining, replacement, and orphan cleanup. |
+| Durable data and artifacts | Block/boot volumes, attachment/fencing, Object Storage backups and restore verification, OCIR container images and retention, and digest-addressed Wasm artifacts. OCI API permissions use instance principals where supported; automate any registry-specific credentials through Vault. |
+| Operations | Capacity/quota observations, actual usage and cost, runtime health, logs/metrics, OCI work-request failures, secret rotation, and recovery evidence exposed through the existing dashboard/insights. |
+
+Use the required services, not every OCI product: for example, choose the
+balancer the traffic contract needs rather than deploying both by default.
+Cloudflare DNS/certificates and vendor-issued credentials retain their existing
+provider boundary; orchestrate needed records/renewal with the established path,
+and keep vendor keys once in OCI Vault. No separate Terraform/OKE control loop.
+
+Observe live resources, compute a desired diff, persist an operation identity,
+apply with OCI retry tokens/ETags where supported, and wait for the observed
+result before dependent operations. Reconcile after process/leader loss without
+duplicating instances, secrets, pools, or volume attachments. Check authority
+before writes; after failover, recover in-flight OCI operations before starting
+conflicting work. A regional outage must not stop healthy regions from serving.
+
+Names/tags locate candidates; verify recorded OCIDs, compartment, and ownership
+before adoption or mutation. Never infer permission from a mutable worker tag.
+Retain data volumes, backups, and encryption material through host replacement;
+retirement needs proven drain and retention safety. A discovery miss never means
+delete a region or its data. Do not automatically add or remove serving regions
+or buy capacity outside the approved footprint merely because it appears in OCI.
+
+The first tenancy authorization is a real prerequisite: an unprivileged binary
+cannot grant itself IAM access. Once that scoped foundation authority exists,
+`ts-orch` creates and delivers first-party credentials and configures services
+automatically; vendor keys are supplied once. No per-node enrollment, copied
+secrets, per-region enable flag, or ongoing manual infrastructure recipe.
+
+## A1-first capacity without an A1-only architecture
+
+Oracle's Compute Shapes reference checked on 2026-10-16 lists A1, A2, and A4
+Flex. It does not list `VM.Standard.A3.Flex`; do not invent that identifier or
+assume a numeric upgrade sequence. Treat any later family, including a possible
+A3, as a discovered candidate requiring the same image/runtime qualification.
+
+| Candidate | Architecture | Selection rule |
+| --- | --- | --- |
+| `VM.Standard.A1.Flex` | `linux/arm64` | Default for compatible workloads because cost efficiency is the initial goal. |
+| `VM.Standard.A2.Flex`, `VM.Standard.A4.Flex` | `linux/arm64` | Use when available and qualified, and measured performance/capacity or price justifies replacing A1. |
+| Available, qualified AMD/Intel Flex shapes | `linux/amd64` | Use for x86-only artifacts or a measured workload advantage; coexist with ARM capacity. |
+| Other discovered families | Verify from OCI and the running host | Admit after qualification; family names alone establish neither architecture nor compatibility. |
+
+Discover subscribed regions, domains, image-compatible shapes (`ListShapes` with
+the image OCID), service limits, remaining quota, and capacity reports. A shape
+listing is not spare capacity; a capacity report is not a reservation. Handle
+allocation failure, refresh observations, and try the next qualified candidate
+within the authorized cost envelope. Unknown price is not zero. If none fits,
+leave demand pending with a concrete reason and preserve healthy capacity.
+
+Use a fixed selection policy in code: satisfy runtime/architecture, isolation,
+memory/CPU, storage/network, and failure-domain requirements first; prefer A1
+among viable candidates until measured evidence justifies another family. Avoid
+shape churn with a fixed stabilization policy. No operator shape lists, ordered
+fallback configuration, CPU emulation, or manual per-node architecture flags.
+
+Track OCI billing OCPUs separately from guest schedulable CPU and measured
+throughput. Oracle currently documents A1 as one core/vCPU per OCPU, A2/A4 as
+two cores/vCPUs per OCPU, and x86 as two vCPUs per OCPU. These do not promise
+equal useful work. Measure actual CPU topology/cgroup capacity and reserve CPU,
+memory, disk, and bandwidth for the OS, controller, NATS, and runtime.
+
+Keep separate pool/configuration identities for isolation role, architecture,
+and selected shape where required. Allow old and new pools to coexist during
+replacement. Updating a pool's instance configuration does not itself migrate
+existing instances. Include shape/image identity in recipe digests and scope
+configuration pruning to the owning pool so migration cannot delete another
+pool's active recipe. Trusted service, manager, and function hosts have distinct
+identity and isolation requirements even when they use the same shape.
+
+Price each candidate using its actual CPU/memory SKUs, storage/performance,
+network, registry/artifact storage, backup, and required spare capacity. Compare
+cost per useful workload at equal availability. Do not extend A1-only SKU logic
+to another family or treat Always Free capacity as a production availability
+guarantee. Three managers in every region plus isolated function hosts may cost
+more than A1 worker savings; publish the whole regional bill.
+
+## Mixed workloads and safe architecture migration
+
+An execution kind and a CPU architecture are different fields. Wasm is an
+artifact/runtime contract; its worker still runs native ARM or x86 code.
+
+| Artifact | Eligible host |
+| --- | --- |
+| Native ARM binary or ARM-only container | Qualified `linux/arm64` with required CPU features. |
+| Native x86 binary or x86-only container | Qualified `linux/amd64` with required CPU features. |
+| Multi-platform container image | Resolve its pinned index to the matching ARM/x86 child manifest; record both digests. |
+| Portable Wasm module/component | Qualified worker on either architecture implementing the declared WASI/host capabilities. |
+| Compiled Wasm cache/native sidecar | Exact compatible architecture, CPU features, runtime version, and compilation settings. |
+
+Verify host architecture and capabilities through OCI inventory plus admitted
+agent observations; propagate trusted constraints to SwarmKit placement. Build
+controller images, containerd/runc, service images, and function workers for
+both architectures. Admission refuses missing artifact variants or unsupported
+capabilities before rollout. Show missing compatible capacity as pending, never
+as a successful deployment or an instruction to run x86 code on ARM.
+
+Retain portable Wasm bytes as the authoritative artifact. Compile on the target
+worker and key caches by module digest, runtime/version, CPU target/features,
+and relevant compilation settings. An A1-optimized cache may be invalid on a
+different ARM family, even though both report `arm64`. Keep portable native
+baselines or explicit CPU-feature requirements; avoid accidental `-march=native`
+artifacts that only run on their build host.
+
+For A1-to-other-ARM or ARM-to-x86 moves, acquire and admit replacement capacity,
+pre-pull the matching artifacts, gate traffic on readiness, drain old tasks, and
+retire old instances only after their replacements serve. Keep rollback capacity
+until the release succeeds. Compatible OCI shape resizing can reboot a host;
+treat it as a planned drain operation, not a live CPU upgrade. ARM-to-x86 always
+requires an architecture-matching boot image and replacement host.
+
+TerraBase and JetStream data movement require explicit storage/on-disk format
+compatibility in addition to binary compatibility. Keep database membership,
+replication catch-up, writer fencing, and volume ownership authoritative. OCI
+block volumes are availability-domain scoped; cross-domain/region moves need
+replication or backup/restore to a new volume, not an assumed reattachment.
+Preserve object data and workload identity across CPU changes. Stop new writes
+and complete a final catch-up/fence before transferring a database writer; a
+generic readiness-based stateless replacement is insufficient. If cross-CPU
+database compatibility is unproven, retain its current architecture until a
+same-commit restore/replication exercise proves the migration.
 
 ## Automatic joining without manual enrollment
 
@@ -118,9 +306,10 @@ host. Reuse feature-sliced packages rather than introducing generic frameworks.
    manager, then joins its peers; workers must never initialize competing swarms
    merely because discovery returned no answer.
 
-Use the existing region-provisioning operation to select the first manager and
-publish its endpoint. Initial provisioning can remain explicit; subsequent host
-admission and region participation are automatic, without enable flags. Persist
+Use the existing region-provisioning operation under a single durable bootstrap
+authority to select the first manager and publish its endpoint. An admitted
+region forms and serves automatically within its authorized footprint; an
+initial tenancy/IAM authorization is not a per-region enable step. Persist
 identity and container inventory across agent restarts; do not kill healthy
 stateless containers merely to rebuild the supervisor's in-memory state.
 
@@ -187,6 +376,14 @@ boundaries between tenants initially; only pool guest instances when reset and
 cross-tenant tests establish the boundary. Wasm is not a full-Linux compatibility
 layer, and a container alone is not a VM-equivalent isolation guarantee.
 
+Block function sandboxes' access to OCI metadata/instance-principal endpoints,
+host sockets, and private control networks, including through host calls, SSRF,
+and redirects. A container network rule alone is insufficient when a trusted
+HTTP capability can fetch on its behalf. Function-host instance principals must
+also lack infrastructure mutation and general Vault privileges; host compromise
+must not yield controller authority. Admission requires isolation tests on both
+ARM and x86, not an assumption that Wasm or private networking supplies them.
+
 The platform owns HTTP listeners and NATS queue consumers. Functions receive
 typed input and restricted host capabilities, never raw cluster/NATS credentials
 or general OCI Vault access. TerraBase calls use a tenant/project-scoped host
@@ -214,32 +411,43 @@ missing observations from a real rollout exceeding its deadline.
 
 ## Migration sequence and acceptance
 
-1. **Baseline and compatibility spike.** Inventory production callers and state;
-   record present join/deployment failure stages. Run a disposable three-manager
+1. **Baseline, OCI capacity, and compatibility spike.** Inventory production
+   callers and state; record present join/deployment failure stages. Run a disposable three-manager
    SwarmKit cluster with one containerd executor, pinned upstream versions, and
-   both target architectures. Prove the executor and network path without a fork.
+   ARM and x86. Discover and price compatible shapes; qualify A1 first and other
+   available families. Prove the executor, network path, and mixed-architecture
+   constraints without a fork. Record the SwarmKit maintenance/cost decision.
 2. **Automatic joining and one stateless service.** Exercise simultaneous boot,
    replacement, persistent identity, Vault outage, manager loss, and partitions.
-   Deploy one container by digest, gate traffic on readiness, and prove rollback
-   after an unhealthy update. Existing stateless tasks survive manager unavailability.
+   Recover interrupted OCI creates and discover regions without enable flags.
+   Deploy ARM-only, x86-only, and multi-platform containers by digest; gate traffic
+   on readiness and prove rollback after an unhealthy update. Existing stateless
+   tasks survive manager unavailability. Exercise A1 exhaustion and unavailable
+   alternatives without discarding healthy hosts or exceeding authorized spend.
 3. **Replace generic orchestration.** Map Machines intent to SwarmKit, assign each
    migrated workload exactly one owner, and remove its old scheduler, native
    supervisor, host-session execution lease, and redundant authentication path.
-   Use a bounded deployment migration, not permanent dual controllers or flags.
+   Join foundation/resource, capacity, image, credential, and upgrade ownership
+   into continuous reconciliation. Exercise mixed pools, shape replacement,
+   manager/NATS quorum preservation, and safe cleanup. Use a bounded deployment
+   migration, not permanent dual controllers or flags.
 4. **Add functions.** Compare the required handler contract on Wasmtime/wazero;
    select one engine, then qualify HTTP/queue delivery, tenant isolation, quotas,
-   cancellation, compilation caching, worker loss, and revision rollback.
+   cancellation, compilation caching on both CPU architectures, worker loss,
+   metadata/control-network denial, and revision rollback.
 5. **Migrate TerraBase last.** Re-establish storage ownership, catch-up, drain,
    fencing, backups/restores, and member-by-member updates before removing its
-   previous executor. Require explicit authorization for destructive migration.
+   previous executor. Prove cross-architecture data compatibility or keep each
+   database on its qualified architecture. Require explicit authorization for
+   destructive migration.
 
 Each slice needs focused contract/failure tests and CI on the exact candidate
 commit. External tests use fakes/contract fixtures; do not download or run
 TerraBase from this repository's tests. Real TerraBase integration belongs in
 the monorepo using its same-commit build. Local build/test/benchmark commands run
 with `nice -n 19`; GitHub CI runs normally on hosted runners. No local check is
-required before opening a PR. Retire this backup's old Forgejo/private-builder
-assumptions as part of establishing its authorized implementation repository.
+required before opening a PR. Use the GitHub implementation repository and
+retire the old Forgejo/private-builder assumptions.
 
 ## Measure whether it is actually cheaper
 
@@ -251,10 +459,10 @@ three regional managers, NATS, containerd, image storage, and operational work.
 | Measure | Required comparison |
 | --- | --- |
 | Joining and deployments | p50/p95/p99 startup, first readiness, image pulls, failed rollout recovery, manager failover. |
-| Host overhead and density | CPU/RSS/disk at idle and load; safe tasks/invocations per host with reserve. |
+| Host overhead and density | CPU/RSS/disk at idle and load; safe tasks/invocations per A1/other ARM/x86 host with reserve and normalized CPU units. |
 | Functions | Cold/warm latency, compilation/cache cost, throughput, timeout behavior, tenant fairness. |
 | Availability and correctness | Node/manager loss, partitions, duplicate delivery, stale writers, rollback, restore. |
-| Overall cost | Cost per useful request/job and per region, plus adapters, patching, and maintenance effort. |
+| Overall cost | Actual per-shape cost per useful request/job and per region, including migration surge, backups, network/registry, adapters, patching, and maintenance effort. |
 
 Expected benefit: fewer custom scheduling and rollout mechanisms to maintain.
 Unproven benefit: lower infrastructure spend or faster function execution.
@@ -263,6 +471,8 @@ patches, stop and reassess the architecture rather than maintaining two platform
 
 ## Primary references
 
+- [OCI Compute shapes and OCPU definitions](https://docs.oracle.com/en-us/iaas/Content/Compute/References/computeshapes.htm), [shape changes and image compatibility](https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/resizinginstances.htm), and [ListShapes API](https://docs.oracle.com/en-us/iaas/api/#/en/iaas/20160918/Shape/ListShapes)
+- [OCI instance principals and dynamic groups](https://docs.oracle.com/en-us/iaas/Content/Identity/Tasks/callingservicesfrominstances.htm) and [instance metadata](https://docs.oracle.com/en-us/iaas/Content/Compute/Tasks/gettingmetadata.htm)
 - [SwarmKit architecture and features](https://github.com/moby/swarmkit)
 - [SwarmKit executor](https://github.com/moby/swarmkit/blob/master/agent/exec/executor.go), [task lifecycle](https://github.com/moby/swarmkit/blob/master/agent/exec/controller.go), and [generic runtime schema](https://github.com/moby/swarmkit/blob/master/api/specs.proto)
 - [Wasmtime security model](https://docs.wasmtime.dev/security.html) and [Go embedding](https://github.com/bytecodealliance/wasmtime-go)
