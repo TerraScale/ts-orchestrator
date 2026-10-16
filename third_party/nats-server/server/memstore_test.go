@@ -2686,6 +2686,17 @@ func TestMemStoreIntegrationPending(t *testing.T) {
 		require_NoError(t, err)
 	}
 	require_NoError(t, nc.FlushTimeout(30*time.Second))
+	// PONG fences client parsing; JetStream stores the queued messages separately.
+	checkFor(t, 5*time.Second, 10*time.Millisecond, func() error {
+		info, err := js.StreamInfo("MEM")
+		if err != nil {
+			return err
+		}
+		if info.State.Msgs != 50000 || info.State.LastSeq != 50000 {
+			return fmt.Errorf("waiting for 50000 stored messages: %+v", info.State)
+		}
+		return nil
+	})
 	stream, err := js.StreamInfo("MEM")
 	require_NoError(t, err)
 	require_Equal(t, stream.State.Msgs, 50000)
