@@ -166,12 +166,15 @@ func resolveSource(ctx context.Context, source *ColdStartMaterial, management bo
 		source.state.Reference = materialSourceReference{SecretOCID: id, SHA256: digestWire(body), MaxBytes: int64(len(body))}
 		checkpoint = true
 	}
-	if source.kind == "" && len(source.state.Inventory) == 0 {
-		source.state.Inventory, err = source.signInventory(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("sign original source inventory: %w", err)
+	if source.kind == "" {
+		inventory, signErr := source.signInventory(ctx)
+		if signErr != nil {
+			return nil, fmt.Errorf("sign original source inventory: %w", signErr)
 		}
-		checkpoint = true
+		if !bytes.Equal(inventory, source.state.Inventory) {
+			source.state.Inventory = inventory
+			checkpoint = true
+		}
 	}
 	if checkpoint {
 		source.etag, err = source.write(ctx, source.state, source.etag)
