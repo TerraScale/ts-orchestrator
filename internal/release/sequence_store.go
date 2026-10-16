@@ -129,7 +129,7 @@ func (location SequenceLocation) Allocate(ctx context.Context, identity Sequence
 // ImportMigration creates the ordering namespace once. A different migration
 // never overwrites an allocated sequence or an earlier migration.
 func (location SequenceLocation) ImportMigration(ctx context.Context, envelope trust.Envelope, roots trust.Keyring, role, environment string, now time.Time) error {
-	migration, err := VerifySequenceMigrationCurrent(envelope, roots, role, environment, now)
+	migration, err := VerifySequenceMigrationHistorical(envelope, roots, role, environment)
 	if err != nil {
 		return err
 	}
@@ -147,6 +147,9 @@ func (location SequenceLocation) ImportMigration(ctx context.Context, envelope t
 			return nil
 		}
 		return fmt.Errorf("%w: namespace already migrated", ErrSequenceConflict)
+	}
+	if _, err := VerifySequenceMigrationCurrent(envelope, roots, role, environment, now); err != nil {
+		return err
 	}
 	return location.write(ctx, role, environment, sequenceHead{Schema: "terrascale.release.sequence.v1", Sequence: migration.SequenceFloor, Migration: envelope}, etag)
 }
