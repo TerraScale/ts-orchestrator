@@ -39,7 +39,8 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 		grant.Regions = append(grant.Regions, FoundationIntent{Generation: 1,
 			Plan: map[string]any{"cell": entry.cell, "region": entry.region, "tenancy_id": reader.tenancy,
 				"parent_compartment_id": grant.ParentCompartmentID, "shared_compartment_id": grant.SharedCompartmentID,
-				"resource_ids": map[string]any{"control_compartment": "ocid1.compartment.oc1..control", "vault": vault, "key": "ocid1.key.oc1." + entry.region + ".owned"}},
+				"foundation_buckets": map[string]any{"backup": "owned-backups"},
+				"resource_ids":       map[string]any{"control_compartment": "ocid1.compartment.oc1..control", "vault": vault, "key": "ocid1.key.oc1." + entry.region + ".owned"}},
 			ReadAccess: &ReadAccessIntent{URLs: []string{"https://" + entry.cell + ".example.test"}, UsageToken: vaultsecret.Ref{Vault: vault, Name: "usage-token"}}})
 	}
 	publish := func(signedScope trust.Scope, expiry time.Time, pin bool) {
@@ -82,7 +83,8 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 		record := FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: intent.Plan["region"].(string), TenancyID: reader.tenancy,
 			ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID,
 			Generation: 1, IntentDigest: hex.EncodeToString(digest[:]), OperationID: entityid.New(), Epoch: 1, Stage: "reconciled",
-			StartedAt: now, UpdatedAt: now, CompletedAt: now, ResourceIDs: ids}
+			StartedAt: now, UpdatedAt: now, CompletedAt: now, ResourceIDs: ids,
+			AuxiliaryIDs: map[string]string{"backup_bucket": "ocid1.bucket.oc1." + intent.Plan["region"].(string) + ".owned"}}
 		etag, err := store.CompareAndSwap(t.Context(), record, "")
 		if err != nil {
 			t.Fatal(err)
@@ -103,6 +105,31 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 	}
 	if _, err := resolver.ReadAccess(t.Context(), "SFO"); !errors.Is(err, ErrReadAccessPending) {
 		t.Fatalf("unsigned region must stay pending: %v", err)
+	}
+	backup, err := resolver.BackupDestination(t.Context(), "FRA")
+	if err != nil || backup.OCIRegion() != "eu-frankfurt-1" || backup.BucketName() != "owned-backups" ||
+		backup.BucketID() != records["FRA"].AuxiliaryIDs["backup_bucket"] || backup.VaultTarget().VaultID != grant.Regions[1].ReadAccess.UsageToken.Vault || backup.Check(t.Context()) != nil {
+		t.Fatalf("signed current backup destination failed: destination=%+v err=%v", backup, err)
+	}
+	for _, id := range []string{"", "ocid1.bucket.oc1.eu-frankfurt-1.replacement"} {
+		changed := records["FRA"]
+		changed.AuxiliaryIDs = maps.Clone(changed.AuxiliaryIDs)
+		if id == "" {
+			delete(changed.AuxiliaryIDs, "backup_bucket")
+		} else {
+			changed.AuxiliaryIDs["backup_bucket"] = id
+		}
+		etag, err := store.CompareAndSwap(t.Context(), changed, etags["FRA"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := backup.Check(t.Context()); err == nil {
+			t.Fatal("backup destination outlived its exact durable bucket identity")
+		}
+		etags["FRA"], err = store.CompareAndSwap(t.Context(), records["FRA"], etag)
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	original := grant.Regions[1].ReadAccess
 	for _, scenario := range []string{"no access", "foreign Vault", "plaintext", "credential URL", "path URL", "query URL", "bad port", "wrong signature scope", "expired", "changed pinned wire"} {
@@ -162,6 +189,9 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 			}
 			if _, err := resolver.ReadAccess(t.Context(), "FRA"); err == nil {
 				t.Fatal("read access outlived its current owned reconciled record")
+			}
+			if err := backup.Check(t.Context()); err == nil {
+				t.Fatal("backup destination outlived its current owned reconciled record")
 			}
 			etags["FRA"], err = store.CompareAndSwap(t.Context(), records["FRA"], etag)
 			if err != nil {
