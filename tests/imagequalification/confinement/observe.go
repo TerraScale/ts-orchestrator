@@ -209,8 +209,11 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	found := false
 	for _, compartment := range compartments {
 		id := text(compartment.Id)
-		if id == "" || slices.Contains(f.Compartments, id) {
+		if id == "" || text(compartment.CompartmentId) == "" || slices.Contains(f.Compartments, id) {
 			return fail(errors.New("incomplete or duplicated compartment inventory"))
+		}
+		if text(compartment.CompartmentId) == s.Compartment {
+			return fail(errors.New("disposable permissions would inherit into a descendant compartment"))
 		}
 		f.Compartments = append(f.Compartments, id)
 		if id == s.Compartment && compartment.LifecycleState == identity.CompartmentLifecycleStateActive {
