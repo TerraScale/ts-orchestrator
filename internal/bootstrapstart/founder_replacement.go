@@ -247,7 +247,7 @@ func (caller founderCaller) finishStagedAdvance(ctx context.Context, slot string
 		clock = time.Now
 	}
 	now := clock().UTC().Truncate(time.Second)
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func (caller founderCaller) advancePeer(ctx context.Context, snapshot founderSna
 	now := clock().UTC().Truncate(time.Second)
 	selected := snapshot.selected
 	state := snapshot.recovery.State()
-	keys, err := caller.signers.Load(selected, caller.accepted, caller.roots, now)
+	keys, err := caller.signers.LoadContext(ctx, selected, caller.accepted, caller.roots, now)
 	if err != nil {
 		return err
 	}

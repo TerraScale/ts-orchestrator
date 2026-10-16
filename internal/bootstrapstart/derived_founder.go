@@ -57,6 +57,10 @@ func (reader *CurrentFounderAuthorityReader) readDerivedCurrent(ctx context.Cont
 	if err != nil {
 		return CurrentFounderAuthority{}, err
 	}
+	plan, err = plan.RevalidateCurrent(ctx, reader.baked.Roots, now)
+	if err != nil {
+		return CurrentFounderAuthority{}, err
+	}
 	local, ok := plan.Authority(reader.accepted.Slot)
 	if !ok || local.Digest() != reader.accepted.ManifestSHA256 || plan.Plan().SeedSlot != reader.accepted.SeedSlot || plan.Plan().AnchorSHA256 != anchor.Digest() {
 		return CurrentFounderAuthority{}, ErrFounderSelection
@@ -157,6 +161,9 @@ func ProvisionInitialDerivedFounderFloor(ctx context.Context, baked BakedInputs,
 func RunAdmittedDerivedFounder(ctx context.Context, baked BakedInputs, accepted AcceptedInstall,
 	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if accepted.validate() != nil || serviceUID == 0 || serviceGID == 0 || accepted.DeploymentID != baked.Identity.DeploymentID || accepted.Cell != string(baked.Identity.Cell) {
 		return ErrFounderRuntime
 	}
