@@ -1,7 +1,7 @@
 # Stateful admission source and qualification — 2026-10-16
 
 Production admission source is implemented through `e7cf1ea6`; the clean focused
-check candidate is `ecbe5d6951e12673df0d1706cbf40dccebd3bc17`. This record supersedes
+check candidate is `0623de6055a522f0e92c765c0c287ba79d2efe57`. This record supersedes
 the earlier executor-hook evidence's statement that no concrete `BindingSource`
 exists. It establishes source scope and local boundary evidence, not permission
 to migrate production data or accept a TerraBase build.
@@ -55,21 +55,34 @@ instead of fabricating a reservation envelope.
 
 ## Check state
 
-The mandatory-allocation candidate's two-package check is queued with QA and
-has **no passing result yet**. An earlier run failed on malformed synthetic OCI
-config JSON; `e7cf1ea6` corrects that fixture. Earlier focused source/qualification
-and namespace checks passed before this allocation API change; those results do
-not qualify the current candidate. Actual disposable ext4 format/blkid/growth
-boundary evidence passed at `843daa1f` in 0.111 seconds.
+The mandatory-allocation candidate's two-package check **passed**: execution
+0.947 seconds; executionleader compiled with no test files. No test sources call
+Skip, and the fixture's forbidden network-dial trap did not fire. The source,
+qualification, native ELF, NATS/Unix drain and kernel namespace assertions ran.
+Log: `/tmp/ts-data-allocation-0623de60-check.log`.
+
+Earlier attempts exposed malformed synthetic OCI config JSON, a missing canonical
+OCI-index helper and SDK endpoint resetting. The endpoint-reset attempt made an
+unauthorized GET with dummy credentials to OCI and returned 401 before migration
+write or qualification assertions. The final fixture rewrites every SDK URL to
+its literal loopback listener, rejects every other dial before network access,
+sets no proxy and rejects redirects. These failures remain recorded; only the
+final frozen candidate above has the passing allocation result. Actual disposable
+ext4 format/blkid/growth boundary evidence passed at `843daa1f` in 0.111 seconds.
 
 The candidate includes canonical REL `148d6913` equivalents for container
 verification, immutable reservation reads and cancellable OCI object reads, plus
 the authoritative `a7520a5c` module files. CORE's initializer adaptation is
 `d37e498f`; APP must supply the same mandatory resolver to both constructors.
+Integrators with canonical REL already present should import DATA production
+`e7cf1ea6` and fixture-only `6280f1b9081f460eb51a6d01de94d3780b4f1bec`. The latter
+changes only `execution/{allocation,qualification}_integration_test.go`; do not
+duplicate the canonical index helper from mixed prerequisite commit `62937c5a`.
 
 ## Open acceptance gates
 
-1. CORE owns the emergency-stop correction: strict serving observations must
+1. CORE owns emergency-stop correction `f0a85db5` plus fixture follow-up
+   `221c756e`, which are outside the passing allocation candidate. Strict serving observations must
    not prevent killing an independently authenticated, identical retained writer
    after mount/resource drift. Exact PID/start/cgroup/namespace/container identity
    and stopped-proof settlement remain mandatory.
