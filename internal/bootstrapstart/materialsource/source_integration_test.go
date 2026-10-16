@@ -341,7 +341,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	spokeIntent := &region.BootstrapMaterialIntent{InstallationID: intent.InstallationID, PlanSHA256: digestWire(spokeWire), Config: spokeConfig, SourceVaultTarget: target}
 	spokePlan := maps.Clone(grant.Regions[0].Plan)
 	spokePlan["cell"], spokePlan["region"] = "SFO", "us-sanjose-1"
-	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfo-control", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
+	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfocontrol", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
 	grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: spokePlan})
 	pinnedLedgerWire := bytes.Clone(anchor.Anchor().LedgerDelegationWire)
 	pinnedSlots := slices.Clone(anchor.Anchor().ControllerSlots)
@@ -673,7 +673,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	// Regional ledger storage deliberately differs from the foundation source
 	// bucket; the public proof must read home while preserving SFO ledger pins.
-	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfo-control", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
+	protocol.target = bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
 	if _, err := spokeSource.Provision(t.Context(), protocol.target, &management, &bundles, now); err != nil {
 		t.Fatal(err)
 	}
