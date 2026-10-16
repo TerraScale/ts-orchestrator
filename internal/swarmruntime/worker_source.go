@@ -202,7 +202,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 		return string(wire), nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.New("store recipient worker Vault material failed")
 	}
 	readback, err := vaultsecret.ReadBack(ctx, authority.bundles, authority.target.VaultID, name, stored.Created || stored.Provisioning)
 	if err != nil || readback != string(wire) {
