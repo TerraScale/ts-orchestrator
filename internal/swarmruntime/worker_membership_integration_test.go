@@ -73,13 +73,44 @@ func checkWorkerMembershipIntegration(t *testing.T, ctx context.Context, manager
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err = store.Finish(ctx, grant, revision, transport.Response)
+	var completed hostenroll.Response
+	if err := protocol.DecodeStrict(transport.Response, &completed, hostenroll.MaxResponseBytes); err != nil {
+		t.Fatal(err)
+	}
+	completed.Swarm = nil
+	if err := completed.Sign(responseKey); err != nil {
+		t.Fatal(err)
+	}
+	completedWire, err := protocol.EncodeJSON(completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err = store.Finish(ctx, grant, revision, completedWire)
 	if err != nil {
 		t.Fatal(err)
 	}
 	grant, revision, err = store.Read(ctx, grant.InstanceID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, mutate := range []func(*hostenroll.Response){
+		func(r *hostenroll.Response) { r.NATSUserJWT += "other" },
+		func(r *hostenroll.Response) { r.TLSCertificatePEM += "other" },
+		func(r *hostenroll.Response) { r.ExpiresAt = r.ExpiresAt.Add(time.Hour) },
+		func(r *hostenroll.Response) { r.RegistrationReceipt.Revision++ },
+	} {
+		changed := completed
+		mutate(&changed)
+		if err := changed.Sign(responseKey); err != nil {
+			t.Fatal(err)
+		}
+		wire, err := protocol.EncodeJSON(changed)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if grant.MatchesCompletedWorkerEnrollment(hostenroll.WorkerTransport{Request: transport.Request, Response: wire}) {
+			t.Fatal("worker projection changed immutable completed credentials")
+		}
 	}
 	if _, err := store.RecordSwarmMembership(ctx, grant, revision, record); err != nil {
 		t.Fatal("actual JetStream membership CAS failed", err)
@@ -156,7 +187,7 @@ func checkWorkerMembershipIntegration(t *testing.T, ctx context.Context, manager
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, descriptor, err := hostenroll.ParseRequest(transport.Request, time.Now())
+	request, descriptor, err := hostenroll.ParseRetainedWorkerRequest(transport.Request, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

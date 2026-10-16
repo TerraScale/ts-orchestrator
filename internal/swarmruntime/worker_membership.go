@@ -268,7 +268,7 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 		worker.Region != identity.OCIRegion || worker.OCIRegion != identity.OCIRegion || worker.FounderID != identity.SeedSlot || worker.SwarmID != cluster.ID {
 		return pause(errors.New("worker membership belongs to another admitted region or cluster"))
 	}
-	request, descriptor, err := hostenroll.ParseRequest(snapshot.Admission.Transport.Request, snapshot.Admission.Binding.IssuedAt)
+	request, descriptor, err := hostenroll.ParseRetainedWorkerRequest(snapshot.Admission.Transport.Request, snapshot.Admission.Binding.IssuedAt)
 	if err != nil {
 		return pause(err)
 	}

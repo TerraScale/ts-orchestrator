@@ -105,6 +105,23 @@ func ParseRequest(wire []byte, now time.Time) (Request, hostboot.Descriptor, err
 	return request, descriptor, nil
 }
 
+// ParseRetainedWorkerRequest authenticates an original enrollment signature.
+// It supplies no current authority: worker callers must additionally verify the
+// exact live completed grant, current registration/OCI and a fresh projection.
+func ParseRetainedWorkerRequest(wire []byte, now time.Time) (Request, hostboot.Descriptor, error) {
+	if len(wire) == 0 || len(wire) > MaxRequestBytes {
+		return Request{}, hostboot.Descriptor{}, errors.New("retained worker request is missing or oversized")
+	}
+	var request Request
+	if err := json.Unmarshal(wire, &request, json.RejectUnknownMembers(true)); err != nil {
+		return Request{}, hostboot.Descriptor{}, err
+	}
+	if now.IsZero() || request.IssuedAt.IsZero() || request.IssuedAt.After(now.Add(30*time.Second)) {
+		return Request{}, hostboot.Descriptor{}, errors.New("retained worker request issuance is invalid")
+	}
+	return ParseRequest(wire, request.IssuedAt)
+}
+
 // ParseCSR accepts only an empty-scope P-256 CSR. The controller, not the
 // requester, supplies the host DNS name and instance URI in the issued leaf.
 func ParseCSR(raw string) (*x509.CertificateRequest, error) {

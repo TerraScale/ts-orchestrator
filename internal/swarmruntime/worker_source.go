@@ -110,7 +110,7 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 	if err := authority.refresh(ctx); err != nil {
 		return fail(err)
 	}
-	request, descriptor, err := hostenroll.ParseRequest(query.Request, time.Now().UTC())
+	request, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, time.Now().UTC())
 	if err != nil {
 		return fail(err)
 	}
@@ -234,7 +234,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil {
 		return nil, err
 	}
-	_, descriptor, err := hostenroll.ParseRequest(query.Request, now)
+	_, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, now)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	if err != nil {
 		return err
 	}
-	_, descriptor, err := hostenroll.ParseRequest(query.Request, time.Now().UTC())
+	_, descriptor, err := hostenroll.ParseRetainedWorkerRequest(query.Request, time.Now().UTC())
 	if err != nil {
 		return err
 	}

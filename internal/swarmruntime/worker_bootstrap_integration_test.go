@@ -86,13 +86,28 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 	now := time.Now().UTC()
 	request := hostenroll.Request{SchemaVersion: 1, Operation: "enroll", InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.worker",
 		Descriptor: string(descriptorWire), IdentityPublicKey: base64.StdEncoding.EncodeToString(hostPublic), NATSUserPublicKey: natsPublic,
-		CSRPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})), Nonce: base64.StdEncoding.EncodeToString(nonce), IssuedAt: now}
+		CSRPEM: string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csr})), Nonce: base64.StdEncoding.EncodeToString(nonce), IssuedAt: now.Add(-72 * time.Hour)}
 	if err := request.Sign(hostKey); err != nil {
 		t.Fatal(err)
 	}
 	requestWire, err := protocol.EncodeJSON(request)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, _, err := hostenroll.ParseRequest(requestWire, now); err == nil {
+		t.Fatal("fresh enrollment parser accepted the retained day-3 request")
+	}
+	future := request
+	future.IssuedAt = now.Add(time.Hour)
+	if err := future.Sign(hostKey); err != nil {
+		t.Fatal(err)
+	}
+	futureWire, err := protocol.EncodeJSON(future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := hostenroll.ParseRetainedWorkerRequest(futureWire, now); err == nil {
+		t.Fatal("retained worker parser accepted future issuance")
 	}
 	material := workerJoinMaterial{Version: 1, DeploymentID: "0000000000F9PR1WNVDTEXS31Z", ClusterID: "0000000000RMSAJ9B0JFV7ESHN", Environment: "production",
 		Region: "sa-saopaulo-1", FounderID: "founder", RegistrationID: entityid.Derive("host", descriptor.Cell, descriptor.Node), InstanceID: request.InstanceID,
@@ -122,7 +137,7 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 		response := hostenroll.Response{SchemaVersion: 1, Operation: request.Operation, InstanceID: request.InstanceID, Node: descriptor.Node,
 			DescriptorSHA256: descriptorDigest, RequestSHA256: hostenroll.RequestSHA256(requestWire), Nonce: request.Nonce,
 			RegistrationReceipt: host.Receipt{Generation: worker.Generation, Revision: worker.Revision}, Swarm: &worker,
-			NATSUserJWT: "signed-enrollment-projection-fixture", TLSCertificatePEM: "separate-enrollment-chain", ExpiresAt: now.Add(10 * time.Minute)}
+			NATSUserJWT: "signed-enrollment-projection-fixture", TLSCertificatePEM: "separate-enrollment-chain", ExpiresAt: now.Add(7 * 24 * time.Hour)}
 		if err := response.Sign(responseKey); err != nil {
 			t.Fatal(err)
 		}

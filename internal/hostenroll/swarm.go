@@ -114,7 +114,7 @@ func verifyWorkerTransportAt(wire []byte, public ed25519.PublicKey, metadata Ins
 	if err := json.Unmarshal(wire, &transport, json.RejectUnknownMembers(true)); err != nil {
 		return VerifiedSwarmWorker{}, err
 	}
-	request, descriptor, err := ParseRequest(transport.Request, now)
+	request, descriptor, err := ParseRetainedWorkerRequest(transport.Request, now)
 	if err != nil {
 		return VerifiedSwarmWorker{}, err
 	}

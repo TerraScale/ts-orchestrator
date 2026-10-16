@@ -28,7 +28,7 @@ func VerifySwarmMembership(record SwarmMembership, public ed25519.PublicKey) (Ve
 	if at.IsZero() || at.After(time.Now().Add(5*time.Second)) || len(record.Certificate) > 32<<10 {
 		return fail(errors.New("invalid retained worker admission time or certificate"))
 	}
-	request, descriptor, err := ParseRequest(record.Transport.Request, at)
+	request, descriptor, err := ParseRetainedWorkerRequest(record.Transport.Request, at)
 	if err != nil {
 		return fail(err)
 	}
@@ -60,8 +60,7 @@ func (store *GrantStore) RecordSwarmMembership(ctx context.Context, expected Gra
 	if store == nil || store.kv == nil || revision == 0 || expected.SchemaVersion != 1 || expected.InstanceID == "" ||
 		expected.Disabled || expected.TerminalOperationID != "" || expected.IdentityResetOperationID != "" ||
 		record.Binding.NodeID == "" || !time.Now().Before(record.Binding.ExpiresAt) ||
-		!(bytes.Equal(record.Transport.Request, expected.Request) && bytes.Equal(record.Transport.Response, expected.Response) && len(expected.Response) != 0 ||
-			bytes.Equal(record.Transport.Request, expected.RenewalRequest) && bytes.Equal(record.Transport.Response, expected.RenewalResponse) && len(expected.RenewalResponse) != 0) {
+		!expected.MatchesCompletedWorkerEnrollment(record.Transport) {
 		return Grant{}, mutationNotApplied(errors.New("worker admission differs from current completed instance enrollment"))
 	}
 	current, currentRevision, err := store.Read(ctx, expected.InstanceID)
@@ -77,6 +76,27 @@ func (store *GrantStore) RecordSwarmMembership(ctx context.Context, expected Gra
 		return Grant{}, err
 	}
 	return expected, nil
+}
+
+// MatchesCompletedWorkerEnrollment permits a newly signed worker projection
+// while preserving every immutable field of the completed credential response.
+// Callers must independently authenticate the request and projected response.
+func (grant Grant) MatchesCompletedWorkerEnrollment(transport WorkerTransport) bool {
+	return bytes.Equal(transport.Request, grant.Request) && sameWorkerCredentialResponse(transport.Response, grant.Response) ||
+		bytes.Equal(transport.Request, grant.RenewalRequest) && sameWorkerCredentialResponse(transport.Response, grant.RenewalResponse)
+}
+
+func sameWorkerCredentialResponse(projectedWire, completedWire []byte) bool {
+	var projected, completed Response
+	if protocol.DecodeStrict(projectedWire, &projected, MaxResponseBytes) != nil || protocol.DecodeStrict(completedWire, &completed, MaxResponseBytes) != nil ||
+		projected.Signature == "" || completed.Signature == "" {
+		return false
+	}
+	projected.Swarm, completed.Swarm = nil, nil
+	projected.Signature, completed.Signature = "", ""
+	left, err := json.Marshal(projected, json.Deterministic(true))
+	right, otherErr := json.Marshal(completed, json.Deterministic(true))
+	return err == nil && otherErr == nil && bytes.Equal(left, right)
 }
 
 func sameSwarmMembership(left, right *SwarmMembership) bool {
