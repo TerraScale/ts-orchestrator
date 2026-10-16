@@ -52,6 +52,10 @@ func (template StartupTemplate) Clone() StartupTemplate {
 }
 
 func (template StartupTemplate) Validate() error {
+	return template.validateFoundation("")
+}
+
+func (template StartupTemplate) validateFoundation(cell string) error {
 	if !controllerSlotRE.MatchString(template.SeedSlot) || len(template.Profiles) == 0 || len(template.Profiles) > MaxBootstrapAnchorSlots ||
 		!isOCID(template.ImageOCID, "image") || template.ImageArchitecture != "linux-amd64" && template.ImageArchitecture != "linux-arm64" ||
 		len(template.ReleaseImageReceiptWire) == 0 || len(template.ReleaseImageReceiptWire) > MaxManifestBytes ||
@@ -59,7 +63,7 @@ func (template StartupTemplate) Validate() error {
 		template.ControllerConfigDerivation != ControllerConfigDerivationV1 {
 		return ErrManifestInvalid
 	}
-	if len(template.ControllerFiles) != len(ControllerConfigFileNames) || template.ManagedMaterial != nil && template.ManagedMaterial.Validate() != nil {
+	if len(template.ControllerFiles) != len(ControllerConfigFileNames) || template.ManagedMaterial != nil && template.ManagedMaterial.validateFoundation(cell) != nil {
 		return ErrManifestInvalid
 	}
 	for index, file := range template.ControllerFiles {
@@ -71,7 +75,7 @@ func (template StartupTemplate) Validate() error {
 	}
 	seen := make(map[string]bool, len(template.Profiles))
 	for _, profile := range template.Profiles {
-		if profile.validate() != nil || seen[profile.Slot] {
+		if profile.validateFoundation(cell) != nil || seen[profile.Slot] {
 			return ErrManifestInvalid
 		}
 		seen[profile.Slot] = true
@@ -81,7 +85,7 @@ func (template StartupTemplate) Validate() error {
 		for index, profile := range template.Profiles {
 			slots[index] = profile.Slot
 		}
-		if err := template.FounderResources.Validate(slots); err != nil {
+		if err := template.FounderResources.validateFoundation(slots, cell); err != nil {
 			return err
 		}
 	}
