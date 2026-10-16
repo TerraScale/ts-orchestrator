@@ -77,7 +77,7 @@ func ppNew(t *testing.T) *ppFixture {
 		for _, role := range []string{"control", "network", "workload"} {
 			ids[role+"_compartment"] = "ocid1.compartment.oc1.." + lower + role
 		}
-		for key, kind := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway"} {
+		for key, kind := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "security_list": "securitylist", "route_table": "routetable", "service_gateway": "servicegateway", "nat_gateway": "natgateway"} {
 			ids[key] = "ocid1." + kind + ".oc1." + region + "." + lower + strings.ReplaceAll(key, "_", "")
 		}
 		for key, kind := range map[string]string{"controller_dynamic_group": "dynamicgroup", "controller_policy": "policy", "objectstorage_key_policy": "policy", "host_dynamic_group": "dynamicgroup", "host_policy": "policy"} {
@@ -102,10 +102,10 @@ func ppNew(t *testing.T) *ppFixture {
 		service := "all-" + lower + "-services-in-oracle-services-network"
 		sec["service_gateway_service_id"] = "ocid1.service.oc1." + region + "." + lower + "service"
 		sec["service_gateway_cidr_block"] = service
-		sec["route_rules"] = []any{ppObject{"destination": service, "destination_type": "SERVICE_CIDR_BLOCK", "network_entity_id": "{service_gateway_id}"}}
+		sec["route_rules"] = []any{ppObject{"destination": service, "destination_type": "SERVICE_CIDR_BLOCK", "network_entity_id": "{service_gateway_id}"}, ppObject{"destination": "0.0.0.0/0", "destination_type": "CIDR_BLOCK", "network_entity_id": "{nat_gateway_id}"}}
 		for _, v := range ppRows(sec["security_list_egress_rules"]) {
 			r := ppMap(v)
-			if r["destination_type"] == "CIDR_BLOCK" && r["destination"] != "169.254.169.254/32" {
+			if r["destination_type"] == "CIDR_BLOCK" && r["destination"] != "169.254.169.254/32" && r["destination"] != "0.0.0.0/0" {
 				r["destination"] = cidr
 			}
 			if r["destination_type"] == "SERVICE_CIDR_BLOCK" {
@@ -147,6 +147,7 @@ func ppNew(t *testing.T) *ppFixture {
 			}
 			resources = append(resources, r)
 		}
+		resources = append(resources, ppObject{"kind": "nat-gateway", "id": ids["nat_gateway"], "compartment-id": ids["network_compartment"], "vcn-id": ids["vcn"], "lifecycle-state": "AVAILABLE", "block-traffic": false})
 		compartments := ppObject{}
 		for _, role := range []string{"control", "network", "workload"} {
 			compartments[role] = ids[role+"_compartment"]
@@ -248,8 +249,11 @@ func (f *ppFixture) makeResponses() {
 		sl["egress-security-rules"] = egress
 		put("network security-list get", "", sl)
 		rt := obj(ids["route_table"])
-		rt["route-rules"] = []any{ppObject{"destination": sec["service_gateway_cidr_block"], "destination-type": "SERVICE_CIDR_BLOCK", "network-entity-id": ids["service_gateway"]}, ppObject{"destination": other["subnet_cidr"], "destination-type": "CIDR_BLOCK", "network-entity-id": own["drg"]}}
+		rt["route-rules"] = []any{ppObject{"destination": sec["service_gateway_cidr_block"], "destination-type": "SERVICE_CIDR_BLOCK", "network-entity-id": ids["service_gateway"]}, ppObject{"destination": "0.0.0.0/0", "destination-type": "CIDR_BLOCK", "network-entity-id": ids["nat_gateway"]}, ppObject{"destination": other["subnet_cidr"], "destination-type": "CIDR_BLOCK", "network-entity-id": own["drg"]}}
 		put("network route-table get", "", rt)
+		nat := obj(ids["nat_gateway"])
+		nat["block-traffic"] = false
+		put("network nat-gateway get", "", nat)
 		sg := obj(ids["service_gateway"])
 		sg["services"] = []any{ppObject{"service-id": sec["service_gateway_service_id"]}}
 		put("network service-gateway get", "", sg)
@@ -513,7 +517,7 @@ func ppChangeCIDR(p ppObject, cidr, subnet, ip string) {
 	}
 	for _, v := range ppRows(sec["security_list_egress_rules"]) {
 		r := ppMap(v)
-		if r["destination_type"] == "CIDR_BLOCK" && r["destination"] != "169.254.169.254/32" {
+		if r["destination_type"] == "CIDR_BLOCK" && r["destination"] != "169.254.169.254/32" && r["destination"] != "0.0.0.0/0" {
 			r["destination"] = cidr
 		}
 	}
