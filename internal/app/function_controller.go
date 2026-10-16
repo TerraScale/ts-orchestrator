@@ -67,7 +67,7 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || config.Client == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
+	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
 		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
 		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
