@@ -76,8 +76,15 @@ func TestWorkerProfileAuthorityRequiresIndependentCurrentSources(t *testing.T) {
 	if _, err := reader.WorkerProfiles(t.Context(), "GRU", "container"); err == nil || !strings.Contains(err.Error(), "independently authenticated OCI source") {
 		t.Fatalf("root profile manufactured current worker proof: %v", err)
 	}
+	spending := grant.InfrastructureSpend
+	grant.InfrastructureSpend = nil
+	write()
+	if _, err := reader.WorkerProfiles(t.Context(), "GRU", "container"); err == nil || !strings.Contains(err.Error(), "bounded fleet spending") {
+		t.Fatalf("worker profile bypassed numerical fleet authority: %v", err)
+	}
+	grant.InfrastructureSpend = spending
 	original, _ := json.Marshal(grant.WorkerProfiles, json.Deterministic(true))
-	for _, alter := range []func(){func() { grant.WorkerProfiles[0].NSGRef = ref("network_security_group") }, func() { grant.WorkerProfiles[0].ImageSource.CurrentObject = "caller-selected" }, func() { grant.WorkerProfiles[0].Bootstrap.RecipientPermission = "MANAGE_SECRETS" }, func() { grant.WorkerProfiles[0].OCPUs = 4 }, func() { grant.WorkerProfiles[0].Bootstrap.MaterialPlanSHA256 = strings.Repeat("b", 64) }} {
+	for _, alter := range []func(){func() { grant.WorkerProfiles[0].NSGRef = ref("network_security_group") }, func() { grant.WorkerProfiles[0].ImageSource.CurrentObject = "caller-selected" }, func() { grant.WorkerProfiles[0].Bootstrap.RecipientPermission = "MANAGE_SECRETS" }, func() { grant.WorkerProfiles[0].OCPUs = 4 }, func() { grant.WorkerProfiles[0].Bootstrap.MaterialPlanSHA256 = strings.Repeat("b", 64) }, func() { grant.WorkerProfiles[0].AvailabilityDomains = []string{"test:AD-1", "test:AD-1"} }} {
 		if err := json.Unmarshal(original, &grant.WorkerProfiles); err != nil {
 			t.Fatal(err)
 		}

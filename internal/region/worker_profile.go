@@ -15,6 +15,7 @@ type WorkerImageSource struct {
 	QualificationDomain string `json:"qualificationDomain"`
 }
 
+// Optional image receipt and runtime digest fields are seed evidence; launches read the current channel independently.
 type WorkerProfile struct {
 	ImageSource         WorkerImageSource       `json:"imageSource"`
 	Cell                string                  `json:"cell"`

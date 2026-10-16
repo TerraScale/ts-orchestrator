@@ -69,8 +69,13 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return nil, err
 	}
+	if grant.InfrastructureSpend == nil || grant.InfrastructureSpend.MonthlyLimitMinor <= 0 || len(grant.WorkerProfiles) > 512 {
+		return nil, errors.New("worker authority lacks explicit bounded fleet spending")
+	}
 	var result []VerifiedWorkerProfile
 	seen := map[string]bool{}
+	images := map[string]releasechannel.CurrentImage{}
+	var bindings foundationbinding.VerifiedBindings
 	for _, profile := range grant.WorkerProfiles {
 		if err := ValidateWorkerProfile(grant, profile); err != nil {
 			return nil, err
@@ -86,18 +91,28 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 		if s.factory == nil || profile.ImageSource.Namespace != s.storage.Namespace {
 			return nil, errors.New("worker current image requires the independently authenticated OCI source")
 		}
-		current, found, err := releasechannel.ReadCurrentImageSDK(ctx, s.factory, profile.ImageSource.Namespace, s.roots,
-			releasechannel.CurrentImageExpectation{Cell: cell, Environment: profile.Environment, Architecture: profile.Architecture, Role: role}, time.Now())
-		if err != nil {
-			return nil, err
+		current, checked := images[profile.Architecture]
+		if !checked {
+			var found bool
+			current, found, err = releasechannel.ReadCurrentImageSDK(ctx, s.factory, profile.ImageSource.Namespace, s.roots,
+				releasechannel.CurrentImageExpectation{Cell: cell, Environment: profile.Environment, Architecture: profile.Architecture, Role: role}, time.Now())
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				current = releasechannel.CurrentImage{}
+			}
+			images[profile.Architecture] = current
 		}
-		if !found {
+		if !current.Image.IsVerified() {
 			continue
 		}
 		image := current.Image
-		bindings, err := s.resourceBindingsFor(ctx, cell, wire, "control_compartment", "workload_compartment", "subnet", "workload_network_security_group", "vault", "key")
-		if err != nil {
-			return nil, err
+		if bindings.GrantSHA256() == "" {
+			bindings, err = s.resourceBindingsFor(ctx, cell, wire, "control_compartment", "workload_compartment", "subnet", "workload_network_security_group", "vault", "key")
+			if err != nil {
+				return nil, err
+			}
 		}
 		if bindings.GrantSHA256() != s.home.GrantSHA256 || bindings.Generation() != grant.Generation {
 			return nil, errors.New("worker bindings differ from the same root grant")
@@ -108,6 +123,18 @@ func (s *SignedFootprint) WorkerProfiles(ctx context.Context, cell, role string)
 		}
 		if image.ExpiresAt().Before(deadline) {
 			deadline = image.ExpiresAt()
+		}
+		for _, wire := range [][]byte{current.QualificationWire, current.QualificationDelegationWire} {
+			if len(wire) == 0 {
+				continue
+			}
+			envelope, err := trust.DecodeEnvelope(wire)
+			if err != nil {
+				return nil, err
+			}
+			if envelope.ExpiresAt.Before(deadline) {
+				deadline = envelope.ExpiresAt
+			}
 		}
 		result = append(result, VerifiedWorkerProfile{profile: cloneWorkerProfile(profile), image: image, grantDigest: s.home.GrantSHA256,
 			generation: grant.Generation, expires: deadline, reader: s, bindings: bindings})
@@ -135,10 +162,12 @@ func ValidateWorkerProfile(grant FoundationGrant, p WorkerProfile) error {
 		p.ImageSource.ImageDomain != release.ImageDomain || p.ImageSource.QualificationDomain != release.ProductionQualificationDomain {
 		return errors.New("worker image source is outside the fixed qualified release channel")
 	}
+	seenAD := map[string]bool{}
 	for _, ad := range p.AvailabilityDomains {
-		if ad == "" || len(ad) > 255 || strings.ContainsAny(ad, "\r\n") {
+		if ad == "" || len(ad) > 255 || strings.ContainsAny(ad, "\r\n") || seenAD[ad] {
 			return errors.New("invalid worker availability domain")
 		}
+		seenAD[ad] = true
 	}
 	for _, pair := range [][2]string{{p.CompartmentRef, "workload_compartment"}, {p.SubnetRef, "subnet"}, {p.NSGRef, "workload_network_security_group"}, {p.Bootstrap.VaultRef, "vault"}, {p.Bootstrap.KMSKeyRef, "key"}} {
 		expected, err := FoundationResourceReference(p.Cell, pair[1])
@@ -217,8 +246,24 @@ func (v VerifiedWorkerRecipe) Recipe() WorkerRecipe {
 }
 func (v VerifiedWorkerRecipe) Profile() VerifiedWorkerProfile { return v.profile }
 func (v VerifiedWorkerRecipe) SourceSHA256() string {
-	sum := sha256.Sum256(v.source.Inventory())
-	return hex.EncodeToString(sum[:])
+	if !v.source.IsVerified() {
+		return ""
+	}
+	envelope, err := trust.DecodeEnvelope(v.source.Inventory())
+	if err != nil {
+		return ""
+	}
+	var inventory bootstrap.RegionalSourceInventory
+	if err := json.Unmarshal(envelope.Payload, &inventory, json.RejectUnknownMembers(true)); err != nil {
+		return ""
+	}
+	return inventory.SourceSHA256
+}
+func (v VerifiedWorkerRecipe) InventorySHA256() string {
+	if !v.source.IsVerified() {
+		return ""
+	}
+	return workerSHA256(v.source.Inventory())
 }
 
 func (v VerifiedWorkerRecipe) Match(candidate WorkerRecipe) error {
@@ -230,10 +275,12 @@ func (v VerifiedWorkerRecipe) Match(candidate WorkerRecipe) error {
 	if len(candidate.AvailabilityDomains) == 0 {
 		return errors.New("worker placement is absent")
 	}
+	seenAD := map[string]bool{}
 	for _, ad := range candidate.AvailabilityDomains {
-		if !slices.Contains(expected.AvailabilityDomains, ad) {
+		if !slices.Contains(expected.AvailabilityDomains, ad) || seenAD[ad] {
 			return errors.New("worker placement is outside signed authority")
 		}
+		seenAD[ad] = true
 	}
 	expected.AvailabilityDomains = slices.Clone(candidate.AvailabilityDomains)
 	expected.NSGIDs = slices.Sorted(slices.Values(expected.NSGIDs))
