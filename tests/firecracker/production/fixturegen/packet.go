@@ -28,7 +28,7 @@ const (
 	ManifestVersion = 1
 	maxPacketBytes  = 640 << 20
 	maxRouteBodies  = 32 << 20
-	maxSourcePins   = 256
+	maxSourcePins   = 512
 )
 
 type FileEntry struct {
