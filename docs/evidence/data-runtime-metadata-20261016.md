@@ -1,9 +1,9 @@
 # Runtime admission through containerd metadata — 2026-10-16
 
 `TestContainerdRuntimeSpecMetadataIntegration` passed on clean source
-`9539389c36deed01b18bf677c6c5e7a2a89e3610`: scenario 0.19 seconds, package 0.226
+`812d936ae7cb00206d49979775c950154c81a63e`: scenario 0.21 seconds, package 0.249
 seconds, all nine drift subtests passed without skips. Log:
-`/tmp/ts-data-runtime-metadata-9539389c.log`. QA granted the capacity lane; the
+`/tmp/ts-data-runtime-metadata-812d936a.log`. QA granted the capacity lane; the
 command used its lock, GOMAXPROCS=2, GOFLAGS=-p=2, nice -n 19 and the existing
 containerd executable from `/tmp/ts-runtime-tools/bin` on PATH.
 
