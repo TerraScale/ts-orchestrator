@@ -12,6 +12,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
 
@@ -109,12 +110,12 @@ type jetStreamStore struct {
 	intents AdmittedIntentReader
 }
 
-type memberPinReader struct{ state jetstream.KeyValue }
+type memberPinReader struct{ js nats.JetStreamContext }
 
 // OpenMemberPinReader reads existing placement seats without creating or
 // changing the member-state bucket.
 func OpenMemberPinReader(ctx context.Context, js jetstream.JetStream, cell string, replicas int) (MemberPinReader, error) {
-	if !validToken(cell) || js == nil || replicas < 1 || replicas > 5 {
+	if !validToken(cell) || js == nil || js.Conn() == nil || replicas < 1 || replicas > 5 {
 		return nil, errors.New("placement member reader requires cell, JetStream and valid replica count")
 	}
 	kv, err := js.KeyValue(ctx, stateBucketName)
@@ -131,11 +132,35 @@ func OpenMemberPinReader(ctx context.Context, js jetstream.JetStream, cell strin
 		config.MaxValueSize <= 0 || config.MaxValueSize > maxStateBytes {
 		return nil, errors.New("existing placement member state has incompatible identity or durability limits")
 	}
-	return memberPinReader{state: kv}, nil
+	options := js.Options()
+	legacyOptions := []nats.JSOpt{nats.APIPrefix(options.APIPrefix), nats.MaxWait(options.DefaultTimeout)}
+	if options.Domain != "" {
+		legacyOptions = append(legacyOptions, nats.Domain(options.Domain))
+	}
+	legacy, err := js.Conn().JetStream(legacyOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("open ordered placement member reader: %w", err)
+	}
+	return memberPinReader{js: legacy}, nil
 }
 
 func (reader memberPinReader) ReadMember(ctx context.Context, databaseID, partitionID, seatID string) (VersionedMemberState, error) {
-	return (&jetStreamStore{state: reader.state}).ReadMember(ctx, databaseID, partitionID, seatID)
+	if !validDatabaseKeyID(databaseID) || !entityid.Valid(partitionID) || !entityid.Valid(seatID) {
+		return VersionedMemberState{}, fmt.Errorf("%w: database, partition, or seat id", ErrInvalidIntent)
+	}
+	key := memberStateKey(databaseID, partitionID, seatID)
+	subject := "$KV." + stateBucketName + "." + key
+	entry, err := reader.js.GetLastMsg("KV_"+stateBucketName, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) {
+		return VersionedMemberState{}, ErrMemberNotFound
+	}
+	if err != nil {
+		return VersionedMemberState{}, err
+	}
+	if entry == nil || entry.Subject != subject || entry.Sequence == 0 || entry.Header.Get("KV-Operation") != "" || entry.Header.Get(jetstream.MarkerReasonHeader) != "" {
+		return VersionedMemberState{}, fmt.Errorf("%w: corrupt or deleted ordered state at %s", ErrStoreCorrupt, key)
+	}
+	return decodeMemberState(databaseID, partitionID, seatID, entry.Data, entry.Sequence)
 }
 
 // NewJetStreamStore opens the durable member-state bucket for one regional
@@ -246,15 +271,20 @@ func (store *jetStreamStore) ReadMember(ctx context.Context, databaseID, partiti
 	if entry.Operation() != jetstream.KeyValuePut {
 		return VersionedMemberState{}, fmt.Errorf("%w: tombstone at %s", ErrStoreCorrupt, key)
 	}
+	return decodeMemberState(databaseID, partitionID, seatID, entry.Value(), entry.Revision())
+}
+
+func decodeMemberState(databaseID, partitionID, seatID string, data []byte, revision uint64) (VersionedMemberState, error) {
+	key := memberStateKey(databaseID, partitionID, seatID)
 	var state MemberState
-	if err := json.Unmarshal(entry.Value(), &state, json.RejectUnknownMembers(true)); err != nil {
-		return VersionedMemberState{}, fmt.Errorf("%w: decode %s: %v", ErrStoreCorrupt, key, err)
+	if len(data) > maxStateBytes || json.Unmarshal(data, &state, json.RejectUnknownMembers(true)) != nil {
+		return VersionedMemberState{}, fmt.Errorf("%w: decode %s", ErrStoreCorrupt, key)
 	}
 	if err := state.Validate(); err != nil || state.DatabaseID != databaseID || state.PartitionID != partitionID ||
 		state.MemberID != seatID || memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) != key {
 		return VersionedMemberState{}, fmt.Errorf("%w: invalid state at %s", ErrStoreCorrupt, key)
 	}
-	return VersionedMemberState{State: state, Revision: entry.Revision()}, nil
+	return VersionedMemberState{State: state, Revision: revision}, nil
 }
 
 func (store *jetStreamStore) CompareAndSwap(ctx context.Context, expected uint64, state MemberState) (uint64, error) {

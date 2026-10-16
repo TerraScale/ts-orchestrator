@@ -125,8 +125,11 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	if err != nil {
 		return err
 	}
-	fleet, err := oci.NewFleetObserver(managed.region, managed.intent, local.factory, journal,
-		managedImageVerifierFor(cfg.Controller, services.hostImageSnapshot, services.holdLaunch))
+	images, err := managedImageVerifierFor(cfg.Controller, services.hostImageSnapshot, services.holdLaunch)(ctx, managed.region)
+	if err != nil {
+		return err
+	}
+	fleet, err := oci.NewFleetObserver(managed.region, managed.intent, local.factory, journal, images)
 	if err != nil {
 		return err
 	}
@@ -193,12 +196,18 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 			return err
 		}
 	}
-	confirmed, err := currentWorkerRegistration(ctx, mutations, reader, runtime.JetStream(), query, request.InstanceID, descriptor.Node, cfg.NATS.Cell)
-	if err != nil || confirmed.Sequence != snapshot.Sequence || confirmed.Retired || confirmed.RequestSHA256 != snapshot.RequestSHA256 {
-		return errors.New("worker registration changed during source observation")
-	}
-	if err := verifier.VerifyManagedRegistration(ctx, confirmed.Registration); err != nil {
+	if err := verifier.VerifyManagedRegistration(ctx, registration); err != nil {
 		return err
+	}
+	confirmed, err := currentWorkerRegistration(ctx, mutations, reader, runtime.JetStream(), query, request.InstanceID, descriptor.Node, cfg.NATS.Cell)
+	before, beforeErr := protocol.EncodeJSON(snapshot)
+	if err != nil {
+		return err
+	}
+	confirmed.Response = snapshot.Response
+	after, afterErr := protocol.EncodeJSON(confirmed)
+	if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+		return errors.New("worker registration changed during source observation")
 	}
 	wire, err = protocol.EncodeJSON(snapshot)
 	if err != nil || len(wire) > 128<<10 {

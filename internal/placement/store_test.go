@@ -25,6 +25,19 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = runtime.Close() })
 	js := runtime.JetStream()
+	leader, err := js.Conn().SubscribeSync("$JS.API.STREAM.MSG.GET.KV_" + stateBucketName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leader.Unsubscribe()
+	direct, err := js.Conn().SubscribeSync("$JS.API.DIRECT.GET.>")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer direct.Unsubscribe()
+	if err := js.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := OpenMemberPinReader(t.Context(), js, "gru", 1); err == nil {
 		t.Fatal("member reader opened an absent bucket")
 	}
@@ -66,6 +79,34 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	after, err := kv.Status(t.Context())
 	if err != nil || !reflect.DeepEqual(before.Config(), after.Config()) || before.Values() != after.Values() {
 		t.Fatalf("member reader changed bucket configuration or values: %v", err)
+	}
+	state.HostAttempt++
+	wire, err = protocol.EncodeJSON(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := kv.Put(t.Context(), memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID), wire); err != nil {
+		t.Fatal(err)
+	}
+	member, err = reader.ReadMember(t.Context(), state.DatabaseID, state.PartitionID, state.MemberID)
+	if err != nil || member.Revision <= revision || member.State.HostAttempt != state.HostAttempt {
+		t.Fatalf("ordered member reader retained an old attempt: %+v, %v", member, err)
+	}
+	if err := kv.Delete(t.Context(), memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.ReadMember(t.Context(), state.DatabaseID, state.PartitionID, state.MemberID); !errors.Is(err, ErrStoreCorrupt) {
+		t.Fatalf("ordered member reader accepted a tombstone: %v", err)
+	}
+	if err := js.Conn().Flush(); err != nil {
+		t.Fatal(err)
+	}
+	reads, _, err := leader.Pending()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count, _, err := direct.Pending(); err != nil || count != 0 || reads != 3 {
+		t.Fatalf("member reader bypassed leader: leader=%d, direct=%d, error=%v", reads, count, err)
 	}
 }
 
