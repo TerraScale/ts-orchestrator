@@ -14,7 +14,9 @@
         "expected_ocpus": 2,
         "expected_memory_gb": 4,
         "expected_volume_gb": 100,
-        "expected_volume_vpus_per_gb": 10
+        "expected_volume_vpus_per_gb": 10,
+        "expected_shape": "VM.Standard.A1.Flex",
+        "expected_architecture": "arm64"
     },
     "preview_compartment_names": {
         "control": "terrascale-control",
@@ -44,7 +46,8 @@
             "ocpus": 1,
             "memory_gb": 6,
             "boot_gb": 50,
-            "data_gb": 0
+            "data_gb": 0,
+            "architecture": "arm64"
         },
         {
             "slot": "controller-b",
@@ -57,7 +60,8 @@
             "ocpus": 1,
             "memory_gb": 6,
             "boot_gb": 50,
-            "data_gb": 0
+            "data_gb": 0,
+            "architecture": "arm64"
         },
         {
             "slot": "controller-c",
@@ -70,7 +74,8 @@
             "ocpus": 1,
             "memory_gb": 6,
             "boot_gb": 50,
-            "data_gb": 0
+            "data_gb": 0,
+            "architecture": "arm64"
         },
         {
             "slot": "member-a",
@@ -84,7 +89,8 @@
             "ocpus": 1,
             "memory_gb": 6,
             "boot_gb": 50,
-            "data_gb": 50
+            "data_gb": 50,
+            "architecture": "arm64"
         },
         {
             "slot": "member-b",
@@ -98,7 +104,8 @@
             "ocpus": 1,
             "memory_gb": 6,
             "boot_gb": 50,
-            "data_gb": 50
+            "data_gb": 50,
+            "architecture": "arm64"
         }
     ],
     "volume_vpus_per_gb": 10,
