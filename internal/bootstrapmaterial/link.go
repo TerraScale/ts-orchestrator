@@ -464,3 +464,13 @@ func (publication Publication) LinkGenerationReferences() []bootstrap.SecretRefe
 	}
 	return refs
 }
+
+// ValidateLinkPublication binds host references to the complete Link source
+// journal; the founder's owner-only signing seed can never be delivered.
+func ValidateLinkPublication(directory string, publication Publication, journalWire []byte, now time.Time) error {
+	record, err := LoadLink(directory, now)
+	if err != nil {
+		return ErrProvision
+	}
+	return validatePublication(directory, record.Record, publication, journalWire)
+}

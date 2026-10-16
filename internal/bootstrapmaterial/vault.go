@@ -450,7 +450,14 @@ func saveJournal(directory string, state journal) error {
 // journal. Owner-only escrow material cannot appear in a host publication.
 func ValidatePublication(directory string, publication Publication, journalWire []byte) error {
 	record, err := Load(directory)
-	if err != nil || publication.SchemaVersion != 1 || publication.Target.Validate(record.Config.Region) != nil {
+	if err != nil {
+		return ErrProvision
+	}
+	return validatePublication(directory, record, publication, journalWire)
+}
+
+func validatePublication(directory string, record Record, publication Publication, journalWire []byte) error {
+	if publication.SchemaVersion != 1 || publication.Target.Validate(record.Config.Region) != nil {
 		return ErrProvision
 	}
 	metadata, err := readOwnedFile(filepath.Join(directory, metadataName), 1<<20)
