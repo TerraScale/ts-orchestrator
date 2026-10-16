@@ -211,7 +211,7 @@ func TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof(t 
 	if _, err := fixture.gate.trustStore.measureInitialLaunchMaterial(manifest, fixture.gate.Roots, fixture.now.Add(2*time.Hour)); !errors.Is(err, trust.ErrExpired) {
 		t.Fatalf("expired image qualification accepted: %v", err)
 	}
-	for _, fault := range []string{"image", "shape"} {
+	for _, fault := range []string{"image", "region"} {
 		payload := manifest.Manifest()
 		for i, file := range payload.ControllerFiles {
 			if file.Name != "oci-region.json" {
@@ -224,7 +224,7 @@ func TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof(t 
 			if fault == "image" {
 				region.ImageID += "-other"
 			} else {
-				region.Shape = "VM.Standard.A1.Flex"
+				region.Region = oci.RegionSFO
 			}
 			wire, err := protocol.EncodeJSON(region)
 			if err != nil {
@@ -245,7 +245,7 @@ func TestInitialLaunchMaterialUsesIndependentPinnedRegionImageAndCurrentProof(t 
 			t.Fatal(err)
 		}
 		if _, err := fixture.gate.trustStore.measureInitialLaunchMaterial(verified, fixture.gate.Roots, *fixture.now); err == nil {
-			t.Fatalf("%s from receipt replaced independently pinned launch expectation", fault)
+			t.Fatalf("mismatched %s launch scope was admitted", fault)
 		}
 	}
 }
