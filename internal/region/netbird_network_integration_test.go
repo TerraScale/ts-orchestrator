@@ -244,4 +244,11 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 	if _, _, err := ReconcileNetBirdNetwork(t.Context(), factory, plan, profile, progress); err == nil || posts != 7 {
 		t.Fatalf("unfenced create reached OCI: %v", err)
 	}
+	released := false
+	progress.BeforeWrite = func(context.Context, bool) (context.Context, func(), error) {
+		return nil, func() { released = true }, nil
+	}
+	if _, _, err := ReconcileNetBirdNetwork(t.Context(), factory, plan, profile, progress); err == nil || posts != 7 || !released {
+		t.Fatalf("invalid leased context was used or leaked: released=%v err=%v", released, err)
+	}
 }

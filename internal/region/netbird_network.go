@@ -213,6 +213,9 @@ func (n *netBirdNetwork) ensure(ctx context.Context, suffix, kind string, detail
 			return "", err
 		}
 		if child == nil || release == nil {
+			if release != nil {
+				release()
+			}
 			return "", errors.New("NetBird network write lacks a fenced authority context")
 		}
 		guarded := ociclient.WithAuthority(child, func(ctx context.Context) error {
