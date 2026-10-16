@@ -137,9 +137,15 @@ func TestNodeCostPricesThePoolAndForecasts(t *testing.T) {
 	if _, err := cost(ctx, pool); err == nil || reads != 5 {
 		t.Fatalf("mixed legacy capacity was priced: err = %v, recipe reads = %d", err, reads)
 	}
+	if views.nodes() != nil || views.view(ctx) == nil || views.view(ctx).Missing == "" || views.rollup() != nil {
+		t.Fatal("pending capacity left a stale priced forecast visible")
+	}
 	pool.Pending = ""
+	if _, err := cost(ctx, pool); err != nil || reads != 6 || views.view(ctx) != nil {
+		t.Fatalf("pricing did not recover: err = %v, recipe reads = %d", err, reads)
+	}
 	shape = "VM.Standard.A2.Flex"
-	if _, err := cost(ctx, pool); err == nil || reads != 6 {
+	if _, err := cost(ctx, pool); err == nil || reads != 7 {
 		t.Fatalf("changed shape reused the old price: err = %v, recipe reads = %d", err, reads)
 	}
 }

@@ -36,6 +36,7 @@ type ociCostViews struct {
 	cell    string
 	store   *ocicost.Store
 	pool    atomic.Pointer[[]ocicost.Host]
+	pricing atomic.Pointer[string]
 	current atomic.Pointer[ocicost.View]
 }
 
@@ -68,7 +69,16 @@ func (views *ociCostViews) nodes() []ocicost.Host {
 // so replacement capacity cannot retain the previous shape's cost.
 func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Recipe, error), now func() time.Time,
 ) func(context.Context, nodescale.PoolState) (nodescale.Cost, error) {
-	return func(ctx context.Context, state nodescale.PoolState) (nodescale.Cost, error) {
+	return func(ctx context.Context, state nodescale.PoolState) (cost nodescale.Cost, err error) {
+		defer func() {
+			if err != nil {
+				reason := err.Error()
+				views.pricing.Store(&reason)
+				views.pool.Store(nil)
+			} else {
+				views.pricing.Store(nil)
+			}
+		}()
 		if state.Pending != "" {
 			return nodescale.Cost{}, fmt.Errorf("node capacity price is pending: %s", state.Pending)
 		}
@@ -102,13 +112,22 @@ func (views *ociCostViews) nodeCost(recipe func(context.Context) (nodescale.Reci
 
 // view is the latest view; nil before the first refresh.
 func (views *ociCostViews) view(context.Context) *ocicost.View {
-	return views.current.Load()
+	current := views.current.Load()
+	if issue := views.pricing.Load(); issue != nil {
+		view := ocicost.View{Cell: views.cell}
+		if current != nil {
+			view = *current
+		}
+		view.Missing = *issue
+		return &view
+	}
+	return current
 }
 
 // rollup is the view as the dashboard rollup's cost section: nil until the
 // region has a report. Per hour is the daily rate with pending hosts.
 func (views *ociCostViews) rollup() *globalview.Cost {
-	v := views.current.Load()
+	v := views.view(context.Background())
 	if v == nil || v.Missing != "" {
 		return nil
 	}
