@@ -333,11 +333,14 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 	if err := installLinks(g, work, repo, out); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-host.service", "terrascale-orchestrator-controller.service"} {
+	for _, name := range []string{"containerd.service", "terrascale-orchestrator-managed-host-start.service", "terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-controller.service"} {
 		state, err := Execute(t.Context(), "", append(os.Environ(), "SYSTEMD_OFFLINE=1"), "systemctl", "--root="+root, "is-enabled", name)
 		if err != nil || state != "enabled" {
 			t.Fatalf("guest %s is not enabled: %s, %v", name, state, err)
 		}
+	}
+	if _, err := os.Lstat(filepath.Join(root, "etc/systemd/system/multi-user.target.wants/terrascale-orchestrator-host.service")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("image activates a second native host Agent: %v", err)
 	}
 	// Supply distribution targets and inert executable files so systemd verifies the real project dependency graph offline.
 	for _, name := range []string{"basic", "sysinit", "sockets", "shutdown", "network", "network-online", "local-fs", "multi-user"} {
@@ -360,6 +363,7 @@ func runtimeFixtureSystemd(t *testing.T, g *Guest, root, work string, out io.Wri
 	for _, edge := range []struct{ unit, dependency string }{
 		{"terrascale-orchestrator-controller.service", "terrascale-orchestrator-managed-runtime.service"},
 		{"terrascale-orchestrator-managed-runtime.service", "containerd.service"},
+		{"terrascale-orchestrator-managed-runtime.service", "terrascale-orchestrator-managed-host-start.service"},
 	} {
 		data, err := os.ReadFile(filepath.Join(root, "etc/systemd/system", edge.unit))
 		if err != nil {

@@ -1,8 +1,8 @@
 [Unit]
 Description=TerraScale admitted regional Swarm runtime
 Wants=network-online.target
-Requires=containerd.service terrascale-orchestrator-bootstrap.service
-After=network-online.target containerd.service terrascale-orchestrator-bootstrap.service
+Requires=containerd.service terrascale-orchestrator-managed-host-start.service
+After=network-online.target containerd.service terrascale-orchestrator-managed-host-start.service
 Before=terrascale-orchestrator-controller.service
 StartLimitIntervalSec=0
 
@@ -21,6 +21,9 @@ UMask=0077
 SupplementaryGroups=
 StateDirectory=terrascale-orchestrator-host
 StateDirectoryMode=0755
+RuntimeDirectory=terrascale-orchestrator-host-credentials
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
 Delegate=yes
 
 [Install]

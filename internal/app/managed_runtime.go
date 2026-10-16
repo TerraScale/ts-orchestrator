@@ -30,6 +30,9 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	} else if err != nil {
 		return fmt.Errorf("inspect accepted runtime role: %w", err)
 	}
+	if err := runRestoreControllerMaterial(ctx, nil, output); err != nil {
+		return fmt.Errorf("restore accepted controller runtime credentials: %w", err)
+	}
 	cfg, err := LoadConfig("/etc/terrascale-orchestrator/controller.json")
 	if err != nil {
 		return fmt.Errorf("read installed controller runtime configuration: %w", err)
