@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +84,17 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.Close() })
+	description, err := e.Describe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if description.Resources.NanoCPUs < 250_000_000 || description.Resources.NanoCPUs >= int64(runtime.NumCPU())*1_000_000_000 {
+		t.Fatalf("runtime cannot schedule its bounded smoke task with reserved host CPU: %d", description.Resources.NanoCPUs)
+	}
+	if runtime.NumCPU() == 1 && description.Resources.NanoCPUs != 750_000_000 {
+		t.Fatalf("single-CPU runtime must reserve 250m and advertise 750m, got %d", description.Resources.NanoCPUs)
+	}
+	t.Logf("runtime reports %d CPU(s), %dm allocatable", runtime.NumCPU(), description.Resources.NanoCPUs/1_000_000)
 	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", "test \"$(id -u)\" = 65532 || exit 11; if touch /must-not-write 2>/dev/null; then exit 12; fi; head -c 2097152 /dev/zero; trap 'exit 0' TERM; while :; do echo runtime-ready; sleep 1; done"}})
 	if err != nil {
 		t.Fatal(err)
