@@ -159,7 +159,7 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 	if err := p.UploadFile(t.Context(), "wrong.oci", payload, digest([]byte("different bytes"))); err == nil {
 		t.Fatal("local upload digest mismatch accepted")
 	}
-	for _, mode := range []string{"native-fixture-serve", "native-fixture-unknown"} {
+	for _, mode := range []string{"native-fixture-serve", "native-fixture-unknown", "native-fixture-stall"} {
 		session, err := client.NewSession()
 		if err != nil {
 			t.Fatal(err)
@@ -179,12 +179,21 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 			t.Fatal(err)
 		}
 		var result response
-		err = p.Exchange(t.Context(), command{Operation: "cluster"}, &result)
+		operation := t.Context()
+		cancel := func() {}
+		if mode == "native-fixture-stall" {
+			operation, cancel = context.WithTimeout(operation, 100*time.Millisecond)
+		}
+		err = p.Exchange(operation, command{Operation: "cluster"}, &result)
+		cancel()
 		if mode == "native-fixture-serve" && (err != nil || !strings.Contains(result.Error, "identity must be verified")) {
 			t.Fatalf("SSH worker protocol: %+v, %v", result, err)
 		}
 		if mode == "native-fixture-unknown" && err == nil {
 			t.Fatal("unknown SSH response member accepted")
+		}
+		if mode == "native-fixture-stall" && !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("blocked SSH exchange did not abort on context deadline: %v", err)
 		}
 		p.in.Close()
 		session.Close()
@@ -209,6 +218,8 @@ func serveSSHFixture(channel ssh.Channel, requests <-chan *ssh.Request, uploadDi
 			process.Env = append(os.Environ(), "TS_NATIVE_PROTOCOL_FIXTURE=1")
 		case "native-fixture-unknown":
 			process = exec.Command("sh", "-c", `read line; printf '{"unexpected":true}\n'`)
+		case "native-fixture-stall":
+			process = exec.Command("sh", "-c", "cat >/dev/null")
 		default:
 			// Only the production uploader's fixed command reaches this fixture.
 			process = exec.Command("sh", "-c", strings.ReplaceAll(invocation.Command, "/run/ts-native-fixture", uploadDirectory))
