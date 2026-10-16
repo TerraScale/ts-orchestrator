@@ -94,6 +94,12 @@ func LinkScope(signer string) *jwt.UserScope {
 		root + "." + cell + ".obs." + protocol.ObservabilityDecisionsLeaf, root + ".*.region.>",
 		protocol.InterRegionRoot + "." + cell + ".global", root + "." + cell + ".inbox.>", "_INBOX.>", "$JSC.R.>",
 	}
+	for _, action := range []string{"reserve", "revalidate", "observe"} {
+		scope.Template.Pub.Allow.Add(root + "." + cell + ".capacity." + action)
+	}
+	// Only the home answers spending requests. A spoke may receive its own
+	// replies, but cannot publish any capacity reply or receive any request.
+	scope.Template.Sub.Allow.Add(root + "." + cell + ".capacity-reply.>")
 	scope.Template.AllowedConnectionTypes = jwt.StringList{jwt.ConnectionTypeLeafnode}
 	// A member answers each request once, on the requester's reply subject.
 	scope.Template.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: time.Minute}
