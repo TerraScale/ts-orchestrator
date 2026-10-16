@@ -160,8 +160,9 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
 	defer cancel()
 	root := t.TempDir()
-	broker, err := natscell.Start(ctx, natscell.Config{
-		Cell: cell, Instance: "managed-enrollment", Replicas: 1, Lab: true,
+	auth := newAuthenticatedNATS(t, cell)
+	broker, err := auth.start(t, ctx, natscell.Config{
+		Cell: cell, Instance: "managed-enrollment", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")},
 	})
 	if err != nil {
@@ -192,10 +193,10 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 		t.Fatal(err)
 	}
 	operatorConfig := testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: cell, Instance: "enrollment-operator", Replicas: 1, Lab: true,
-			URL: broker.URL()},
+		NATS: auth.config(t, natscell.Config{Cell: cell, Instance: "enrollment-operator", Replicas: 1, ClientRole: "operator",
+			URL: broker.URL()}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
-		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")},
+		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key"), BrokerTicketPublicKeyFile: auth.ticketPublicFile},
 	})
 	placementSubscription, err := servePlacementAdmission(ctx, broker.Conn(), cell, policy, control)
 	if err != nil {
@@ -592,8 +593,8 @@ func testManagedPlacementEnrollmentThroughSignedOperatorAndCurrentHostSession(
 	if err := register("registration.json", registration); err != nil {
 		t.Fatalf("signed exact managed host registration: %v", err)
 	}
-	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: cell, Instance: "enrolled-host", Replicas: 1,
-		Lab: true, URL: broker.URL(), ClientRole: "host"})
+	hostRuntime, err := auth.start(t, ctx, natscell.Config{Cell: cell, Instance: "enrolled-host", Replicas: 1,
+		URL: broker.URL(), NKeySeedFile: hostSeedPath, ClientRole: "host"})
 	if err != nil {
 		t.Fatal(err)
 	}

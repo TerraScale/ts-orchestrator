@@ -290,7 +290,7 @@ func TestManagedImageReleaseScopeIntegration(t *testing.T) {
 	verifier, _ := managedImageVerifierFixture(t, architecture)
 	services := fixture.signer.services(t)
 	services.ociRegion = &verifier.region
-	control, err := newRolloutControl(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, services, "")
+	control, err := newRolloutControl(Config{NATS: natscell.Config{Cell: "gru"}}, services, "")
 	if err != nil || control.managedArchitecture == nil {
 		t.Fatalf("managed controller construction requires OCI or lost its observer: %v", err)
 	}

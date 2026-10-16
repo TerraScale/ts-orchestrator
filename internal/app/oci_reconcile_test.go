@@ -162,8 +162,9 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 	region := oci.RegionConfig{Region: oci.RegionGRU, NetworkSecurityGroupIDs: []string{reconcileTestNSG}}
 	signed := desiredTestConfig(t, `{"prune":true,"buckets":{"backups":{"policy":"enforce","spec":`+
 		`{"namespace":"tenancy","bucket":"backups","versioning":"Enabled"}},"logs":{"spec":{"namespace":"tenancy","bucket":"logs"}}}}`)
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+	cfg := Config{NATS: natscell.Config{Cell: "gru"},
 		Controller: ControllerConfig{OciReconcile: &OciReconcileConfig{Enabled: true, Desired: &signed}}}
+	newAcceptedSpecTrust(t, &cfg)
 	registry, err := newSpecRegistry(cfg, "")
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +185,7 @@ func TestOciDesiredFollowsTheCellSpec(t *testing.T) {
 		OCIDesired: &foreign}); err == nil {
 		t.Fatal("section naming an NSG the signed region config does not admit")
 	}
-	off, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, "")
+	off, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}

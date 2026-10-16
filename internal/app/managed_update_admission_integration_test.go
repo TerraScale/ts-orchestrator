@@ -33,8 +33,8 @@ func TestTrustedOperatorManagedUpdatePrepareCommitsThroughAppToR3(t *testing.T) 
 	root := t.TempDir()
 	const cell = "gru"
 
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: cell, Instance: "managed-update-app-integration",
-		Replicas: 1, Lab: true,
+	broker, err := newAuthenticatedNATS(t, cell).start(t, ctx, natscell.Config{Cell: cell, Instance: "managed-update-app-integration",
+		Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")}})
 	if err != nil {
 		t.Fatal(err)

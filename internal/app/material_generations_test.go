@@ -39,7 +39,7 @@ func TestMaterialGenerationRequestsNeedTheGrant(t *testing.T) {
 	}
 	opsPublic, opsKey, _ := ed25519.GenerateKey(rand.Reader)
 	ciPublic, ciKey, _ := ed25519.GenerateKey(rand.Reader)
-	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
+	policy, err := buildSignerPolicy(Config{NATS: natscell.Config{Cell: "gru"},
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{
 			{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(opsPublic), Roles: []string{"terrabase"},
 				Environments: []string{"production"}, CanInstallMaterial: true},
