@@ -47,20 +47,11 @@ func TestContainerdStatefulMissingAdmissionDeniesAllClaims(t *testing.T) {
 	if err := executor.Configure(ctx, &api.Node{ID: task.NodeID}); err != nil {
 		t.Fatal(err)
 	}
-	if err := executor.BindStateful(new(execution.Source)); err != nil {
-		t.Fatal(err)
+	if err := executor.BindStateful(new(execution.Source)); !errors.Is(err, execution.ErrUnsafe) {
+		t.Fatalf("uninitialized source was bound: %v", err)
 	}
-	denied, err := executor.Controller(task)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, effect := range map[string]func(context.Context) error{
-		"prepare": denied.Prepare, "start": denied.Start, "shutdown": denied.Shutdown,
-		"terminate": denied.Terminate, "remove": denied.Remove,
-	} {
-		if err := effect(ctx); !errors.Is(err, execution.ErrUnsafe) {
-			t.Fatalf("uninitialized source %s: %v", name, err)
-		}
+	if _, err := executor.Controller(task); !errors.Is(err, execution.ErrUnsafe) {
+		t.Fatalf("uninitialized source granted controller: %v", err)
 	}
 	containers, err := executor.client.Containers(runtimeContext(ctx), "id==ts-"+task.ID)
 	if err != nil || len(containers) != 0 {
