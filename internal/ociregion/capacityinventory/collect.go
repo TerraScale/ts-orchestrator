@@ -60,6 +60,7 @@ func (r *Reader) ReadOwned(ctx context.Context, scope Scope) (Snapshot, error) {
 	if err != nil || tenancy != scope.TenancyID {
 		return Snapshot{}, errors.New("inventory principal differs from signed tenancy")
 	}
+	// shortcut: search and public rates are partial cost evidence; complete owned accounting before authorizing growth.
 	result := Snapshot{ScopeSHA256: scope.SHA256, Currency: scope.Currency, ObservedAt: started, ExpiresAt: started.Add(2 * time.Minute),
 		Pending: []string{"resource search consistency is not an authoritative complete fleet ledger", "current-month incurred charges and non-resource commitments require accounting reconciliation"}}
 	prices := catalogReader{client: r.http, endpoint: r.pricesEndpoint, currency: scope.Currency, cache: map[string]tariff{}}
