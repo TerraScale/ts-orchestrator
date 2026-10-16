@@ -173,6 +173,11 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	reader, ok := current.Footprint.(*SignedFootprint)
+	if !ok {
+		return bootstrapstart.ErrSourceFounder
+	}
+	reader.factory = authority.factory
 	grant, err := current.BootstrapMaterial(ctx, entry.Cell)
 	if err != nil {
 		return err
