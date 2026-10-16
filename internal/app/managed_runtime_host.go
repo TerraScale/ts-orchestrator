@@ -80,8 +80,7 @@ func (source *managedRuntimeHost) CurrentContainerMaterial(ctx context.Context, 
 			result = swarmruntime.ContainerMaterial{}
 		}
 	}()
-	confirmed, err := swarmruntime.ReadControllerHostBinding(ctx, source.reader, source.accepted, source.agent, source.transport.Request, source.transport.Response)
-	if err != nil || confirmed.Identity() != identity || confirmed.HostID() != current.HostID() || confirmed.ControllerSlot() != current.ControllerSlot() || ctx.Err() != nil || source.session.Err() != nil || !time.Now().Before(result.ExpiresAt) {
+	if ctx.Err() != nil || source.session.Err() != nil || !time.Now().Before(result.ExpiresAt) {
 		return result, errors.New("controller ownhost changed during material delivery")
 	}
 	result.Binding = binding
