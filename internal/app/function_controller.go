@@ -266,6 +266,13 @@ func functionServiceTarget(proof release.VerifiedFunction, architecture string) 
 func (controller functionController) material(ctx context.Context, registration host.Registration, request host.FunctionMaterialBinding) (host.FunctionMaterialFiles, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
+	if controller.config.Authority == nil || controller.config.Roots == nil {
+		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
+	}
+	epoch, rootHead := controller.config.Authority.Current().Epoch, controller.config.Roots.reply("").Head
+	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+		return host.FunctionMaterialFiles{}, err
+	}
 	binding := functionmaterial.Binding{TaskID: request.TaskID, ServiceID: request.ServiceID, NodeID: request.NodeID,
 		InstanceID: request.InstanceID, Region: request.Region, HostID: request.HostID, Fingerprint: request.Fingerprint}
 	proof, err := controller.recipient(ctx, registration, binding)
@@ -283,6 +290,12 @@ func (controller functionController) material(ctx context.Context, registration 
 	}
 	if !delivery.Valid() || delivery.Binding() != binding || delivery.Function().EnvelopeSHA256() != proof.EnvelopeSHA256() {
 		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
+	}
+	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+		return host.FunctionMaterialFiles{}, err
+	}
+	if controller.config.Roots.reply("").Head != rootHead {
+		return host.FunctionMaterialFiles{}, errors.New("function roots changed during material preparation")
 	}
 	return host.FunctionMaterialFiles{Files: delivery.Files(), ExpiresAt: delivery.ExpiresAt(), CredentialExpiresAt: delivery.CredentialExpiresAt()}, nil
 }
