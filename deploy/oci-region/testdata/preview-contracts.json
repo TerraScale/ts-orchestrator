@@ -9758,43 +9758,32 @@
         "list",
         "--bucket-name",
         "empty",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--bucket-name",
-              "empty",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$fixture": "fixture-0143"
+            "status": 200,
+            "body": "{\"objects\":[]}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.804587+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
+      "dependencies": [],
       "files": {
         "$fixture": "fixture-0142"
       },
@@ -9812,43 +9801,32 @@
         "list-object-versions",
         "--bucket-name",
         "empty",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list-object-versions",
-              "--bucket-name",
-              "empty",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/objectversions"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$fixture": "fixture-0143"
+            "status": 200,
+            "body": "{\"items\":[]}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.806027+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
+      "dependencies": [],
       "files": {
         "$fixture": "fixture-0142"
       },
@@ -9864,47 +9842,35 @@
         "os",
         "object",
         "list",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": "{\"prefixes\": [\"hidden/\"]}"
-            }
+            "status": 200,
+            "body": "{\"prefixes\": [\"hidden/\"]}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.808234+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
+      "dependencies": [],
+      "error": "OCI object list lacks objects",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -9920,47 +9886,35 @@
         "os",
         "object",
         "list",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": "{\"prefixes\": [], \"next-start-with\": \"next\"}"
-            }
+            "status": 200,
+            "body": "{\"prefixes\": [], \"next-start-with\": \"next\"}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.810054+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
+      "dependencies": [],
+      "error": "OCI object list lacks objects",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -9976,47 +9930,35 @@
         "os",
         "object",
         "list",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": "{}"
-            }
+            "status": 200,
+            "body": "{}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.811902+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
+      "dependencies": [],
+      "error": "OCI object list lacks objects",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -10032,48 +9974,34 @@
         "os",
         "object",
         "list",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": "{\"objects\": []}"
-            }
+            "status": 200,
+            "body": "{\"objects\": []}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.813249+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
-      "error_type": "ValueError",
+      "dependencies": [],
       "files": {
         "$fixture": "fixture-0142"
       },
@@ -10081,47 +10009,42 @@
       "kwargs": {},
       "plan": "/tmp/tmpwpnqzooy/plan.json",
       "test": "PreviewAdmissionTests.test_empty_object_lists_use_exact_oci_cli_empty_shape",
-      "writes": {}
+      "writes": {},
+      "result": []
     },
     {
       "args": [
         "os",
         "object",
-        "list"
+        "list",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$fixture": "fixture-0143"
+            "status": 200,
+            "body": "{\"prefixes\": []}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.814538+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
+      "dependencies": [],
+      "error": "OCI object list lacks objects",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -10137,42 +10060,33 @@
         "network",
         "vcn",
         "list",
-        "--all"
+        "--all",
+        "--compartment-id",
+        "ocid1.compartment.oc1..preview"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "network",
-              "vcn",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/20160918/vcns"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": "compartmentId=ocid1.compartment.oc1..preview"
           },
-          "name": "subprocess.run",
           "result": {
-            "$fixture": "fixture-0143"
+            "status": 200,
+            "body": "{\"prefixes\": []}"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.816626+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for network vcn list",
+      "dependencies": [],
+      "error": "cannot unmarshal object",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -10188,46 +10102,32 @@
         "network",
         "vcn",
         "list",
-        "--all"
+        "--all",
+        "--compartment-id",
+        "ocid1.compartment.oc1..preview"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "network",
-              "vcn",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/20160918/vcns"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": "compartmentId=ocid1.compartment.oc1..preview"
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": ""
-            }
+            "status": 200,
+            "body": "[]"
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.818075+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
+      "dependencies": [],
       "files": {
         "$fixture": "fixture-0142"
       },
@@ -10243,47 +10143,35 @@
         "os",
         "object",
         "list",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/o"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": ""
-            }
+            "status": 200,
+            "body": ""
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.819419+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list",
+      "dependencies": [],
+      "error": "invalid OCI response:",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"
@@ -10299,47 +10187,35 @@
         "os",
         "object",
         "list-object-versions",
-        "--all"
+        "--all",
+        "--namespace-name",
+        "preview",
+        "--bucket-name",
+        "empty"
       ],
       "argv": [
         "/tmp/terrascale-capture-current-preview.py"
       ],
       "calls": [
         {
+          "name": "http",
           "args": [
-            [
-              "oci",
-              "os",
-              "object",
-              "list-object-versions",
-              "--all",
-              "--output",
-              "json"
-            ]
+            "GET",
+            "/n/preview/b/empty/objectversions"
           ],
           "kwargs": {
-            "capture_output": true,
-            "check": false,
-            "text": true,
-            "timeout": 180
+            "query": ""
           },
-          "name": "subprocess.run",
           "result": {
-            "$process": {
-              "args": [],
-              "returncode": 0,
-              "stderr": null,
-              "stdout": ""
-            }
+            "status": 200,
+            "body": ""
           }
         }
       ],
       "clock": "2026-10-01T18:18:26.820398+00:00",
       "deleted": [],
-      "dependencies": [
-        "subprocess.run"
-      ],
-      "error": "invalid OCI response for os object list-object-versions",
+      "dependencies": [],
+      "error": "invalid OCI response:",
       "error_type": "ValueError",
       "files": {
         "$fixture": "fixture-0142"

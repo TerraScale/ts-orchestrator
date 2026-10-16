@@ -1,15 +1,21 @@
 package ociregion_test
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
+	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"io"
 	"io/fs"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -19,7 +25,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"github.com/TerraScale/ts-orchestrator/internal/testutil/script"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 // These are data snapshots of API inputs and their observable contracts, not
@@ -227,7 +237,56 @@ func runPreviewContract(t *testing.T, originalWire []byte, sourceRoot string) {
 		observation["result"] = response["result"]
 		return ociregion.DecodeInvocation(response["result"]), nil
 	}
-	result, operationErr := engine.Invoke(contract.Function, ociregion.DecodeInvocation(contract.Args).([]any), ociregion.DecodeInvocation(contract.Kwargs).(map[string]any))
+	var result any
+	var operationErr error
+	if contract.Function == "oci" {
+		// Legacy direct OCI captures now exercise the actual SDK boundary.
+		// Each client has its own signer and local endpoint; no operator
+		// configuration, shared transport or external process is involved.
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
+				t.Error("preview SDK request lacks its synthetic signature")
+			}
+			response, err := engine.Dependency("http", []any{r.Method, r.URL.Path}, map[string]any{"query": r.URL.RawQuery})
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			row := response.(map[string]any)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(int(row["status"].(float64)))
+			_, _ = io.WriteString(w, row["body"].(string))
+		}))
+		t.Cleanup(server.Close)
+		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			t.Fatal(err)
+		}
+		provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..preview", "ocid1.user.oc1..preview", "sa-saopaulo-1", "preview",
+			string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
+		factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := ociregion.DecodeInvocation(contract.Args).([]any)
+		words := make([]string, len(args))
+		for i, arg := range args {
+			words[i] = arg.(string)
+		}
+		data, handled, err := sdkcli.NewClient(factory, server.URL).Call(t.Context(), words)
+		server.Close()
+		if !handled {
+			t.Fatalf("direct OCI capture escaped its SDK handler: %v", err)
+		}
+		if err != nil {
+			operationErr = ociregion.Failure{Message: err.Error(), Kind: "ValueError"}
+		} else if err := json.Unmarshal(data, &result); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		result, operationErr = engine.Invoke(contract.Function, ociregion.DecodeInvocation(contract.Args).([]any), ociregion.DecodeInvocation(contract.Kwargs).(map[string]any))
+	}
 	callWire, err := json.Marshal(calls)
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +310,13 @@ func runPreviewContract(t *testing.T, originalWire []byte, sourceRoot string) {
 			t.Fatal(err)
 		}
 	}
-	if observation.ErrorType != contract.ErrorType || observation.Error != contract.Error {
+	errorMatches := observation.Error == contract.Error
+	if contract.Function == "oci" && contract.Error != "" {
+		// SDK decoder diagnostics include response URLs and Go model names;
+		// captures pin their stable cause and still require the error type.
+		errorMatches = strings.Contains(observation.Error, contract.Error)
+	}
+	if observation.ErrorType != contract.ErrorType || !errorMatches {
 		t.Errorf("exception = %s(%q), want %s(%q)", observation.ErrorType, observation.Error, contract.ErrorType, contract.Error)
 	}
 	if !reflect.DeepEqual(observation.Result, contract.Result) {
