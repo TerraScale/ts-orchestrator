@@ -105,32 +105,7 @@ func (s *WorkerSession) persistGrant(grant VerifiedWorkerGrant) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(s.guardRoot, ".grant-*")
-	if err != nil {
-		return err
-	}
-	name := file.Name()
-	defer os.Remove(name)
-	if _, err := file.Write(wire); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, filepath.Join(s.guardRoot, grant.TaskSHA256()+".json")); err != nil {
-		return err
-	}
-	dir, err := os.Open(s.guardRoot)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	return dir.Sync()
+	return s.writeRuntimeFile(grant.TaskSHA256()+".json", wire)
 }
 
 // VerifyWorkerGuard rechecks the actual signed cache after the root process dies.
@@ -142,24 +117,7 @@ func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time
 		guard.TaskSHA256 == "" || guard.AdmissionSHA256 == "" || guard.Revision == 0 || guard.Deadline.IsZero() || guard.Epoch == 0 || !entityid.Valid(guard.EffectID) {
 		return time.Time{}, 0, ErrUnsafe
 	}
-	if err := verifySourceDirectory(filepath.Dir(guard.CachePath), 0o700); err != nil {
-		return time.Time{}, 0, err
-	}
-	fd, err := unix.Open(guard.CachePath, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	file := os.NewFile(uintptr(fd), guard.CachePath)
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		return time.Time{}, 0, err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || stat.Uid != 0 || info.Size() > 1<<20 {
-		return time.Time{}, 0, ErrUnsafe
-	}
-	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	data, err := readProtectedRuntimeFile(guard.CachePath)
 	if err != nil {
 		return time.Time{}, 0, err
 	}
@@ -203,4 +161,28 @@ func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time
 		return time.Time{}, 0, errors.Join(ErrUnsafe, err)
 	}
 	return payload.Deadline, payload.Revision, nil
+}
+
+func readProtectedRuntimeFile(path string) ([]byte, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, ErrUnsafe
+	}
+	if err := verifySourceDirectory(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || stat.Uid != 0 || info.Size() > 1<<20 {
+		return nil, ErrUnsafe
+	}
+	return io.ReadAll(io.LimitReader(file, (1<<20)+1))
 }
