@@ -37,12 +37,27 @@ func AllocateInfrastructure(ctx context.Context, reader *globalcontrol.Reader, p
 	}
 	if exists {
 		c.Spending, c.Reservations = stored.Spending, slices.Clone(stored.Reservations)
-	} else if c.Spending != nil || len(c.Reservations) > 0 {
+		c.BootstrapReservedCents = max(c.BootstrapReservedCents, stored.BootstrapReservedCents)
+		if stored.BootstrapSHA256 != "" {
+			c.BootstrapSHA256 = stored.BootstrapSHA256
+		}
+	} else if c.Spending != nil || len(c.Reservations) > 0 || c.BootstrapReservedCents > 0 || c.BootstrapSHA256 != "" {
 		return fail(errors.New("previous infrastructure commitments are absent from the durable ledger"))
+	}
+	// Pin signed bootstrap commitments even when complete cost evidence is unavailable.
+	if err := retainBootstrap(&c, proof); err != nil {
+		return fail(err)
 	}
 	monthly, hasBudget, limit, err := spendingFacts(ctx, reader, proof, snapshot, now)
 	if err != nil {
 		return fail(err)
+	}
+	limit, err = bootstrapLimit(c, proof, limit)
+	if err != nil {
+		return fail(err)
+	}
+	if limit == 0 {
+		return fail(errors.New("the full infrastructure ceiling is reserved for bootstrap"))
 	}
 	seen := map[string]bool{}
 	for _, status := range regions {

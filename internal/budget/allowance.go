@@ -63,17 +63,19 @@ type RegionAllowance struct {
 
 // Capacity is the global capacity document the home region's leader writes.
 type Capacity struct {
-	Schema         int                     `json:"schema"`
-	At             time.Time               `json:"at"`
-	CapCents       uint64                  `json:"cap_cents,omitzero"`
-	Currency       string                  `json:"currency,omitempty"`
-	ProjectedCents uint64                  `json:"projected_cents"`
-	Ratio          float64                 `json:"ratio"`
-	State          State                   `json:"state"`
-	Reason         string                  `json:"reason"`  // one sentence: why growth is held, or what was granted
-	Regions        []RegionAllowance       `json:"regions"` // sorted by Cell
-	Spending       *InfrastructureSpending `json:"infrastructure_spending,omitempty"`
-	Reservations   []Reservation           `json:"reservations,omitempty"`
+	Schema                 int                     `json:"schema"`
+	At                     time.Time               `json:"at"`
+	CapCents               uint64                  `json:"cap_cents,omitzero"`
+	Currency               string                  `json:"currency,omitempty"`
+	ProjectedCents         uint64                  `json:"projected_cents"`
+	Ratio                  float64                 `json:"ratio"`
+	State                  State                   `json:"state"`
+	Reason                 string                  `json:"reason"`  // one sentence: why growth is held, or what was granted
+	Regions                []RegionAllowance       `json:"regions"` // sorted by Cell
+	Spending               *InfrastructureSpending `json:"infrastructure_spending,omitempty"`
+	Reservations           []Reservation           `json:"reservations,omitempty"`
+	BootstrapReservedCents uint64                  `json:"bootstrap_reserved_cents,omitzero"`
+	BootstrapSHA256        string                  `json:"bootstrap_sha256,omitempty"`
 }
 
 // Allocate projects the month from every region's own forecast and grants one
@@ -91,6 +93,7 @@ func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) 
 	if prior != nil {
 		capacity.Spending = prior.Spending
 		capacity.Reservations = slices.Clone(prior.Reservations)
+		capacity.BootstrapReservedCents, capacity.BootstrapSHA256 = prior.BootstrapReservedCents, prior.BootstrapSHA256
 	}
 	for index, region := range sorted {
 		capacity.Regions[index] = RegionAllowance{
@@ -309,6 +312,10 @@ func WriteCapacity(ctx context.Context, writer *globalcontrol.Writer, epoch uint
 		}
 		if found {
 			c.Spending, c.Reservations = prior.Spending, prior.Reservations
+			c.BootstrapReservedCents = max(c.BootstrapReservedCents, prior.BootstrapReservedCents)
+			if prior.BootstrapSHA256 != "" {
+				c.BootstrapSHA256 = prior.BootstrapSHA256
+			}
 			if c.Spending != nil && c.State != StateNone {
 				c.ProjectedCents = max(c.ProjectedCents, c.Spending.ProjectedCents)
 				c.Ratio = float64(c.ProjectedCents) / float64(c.CapCents)

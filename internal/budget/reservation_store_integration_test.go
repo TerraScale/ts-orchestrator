@@ -61,7 +61,11 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant.InfrastructureSpend = &region.InfrastructureSpendIntent{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: scopeDigest}
+	slot := region.BootstrapSlotIntent{SlotID: region.BootstrapSlotID(installation, "GRU", "controller", "controller-a"), Cell: "GRU", Role: "controller", Slot: "controller-a",
+		CompartmentID: "ocid1.compartment.oc1..control", ProfileSHA256: strings.Repeat("d", 64), RecipeSHA256: strings.Repeat("e", 64),
+		Shape: "VM.Standard.A1.Flex", OCPUs: 2, MemoryGB: 4, BootGB: 50, MonthlyLimitMinor: 2000}
+	grant.InfrastructureSpend = &region.InfrastructureSpendIntent{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: scopeDigest,
+		Bootstrap: &region.BootstrapSpendingIntent{ReservedMinor: 2000, Slots: []region.BootstrapSlotIntent{slot}}}
 	payload, err := trust.EncodePayload(grant)
 	if err != nil {
 		t.Fatal(err)
@@ -150,6 +154,20 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	if err != nil || !proof.ValidAt(time.Now()) {
 		t.Fatalf("signed infrastructure authority was not verified: %v", err)
 	}
+	bootstrapDigest := proof.BootstrapDigest()
+	if proof.BootstrapReservedMinor() != 2000 || !reservationDigest.MatchString(bootstrapDigest) || proof.Generation() != 1 || proof.InstallationID() != installation || proof.PhysicalScopeDigest() != proof.ScopeDigest() || proof.BindingDigest() != "" {
+		t.Fatalf("signed bootstrap slice was not sealed: reserve=%d digest=%q", proof.BootstrapReservedMinor(), bootstrapDigest)
+	}
+	allocation, err := signed.BootstrapAllocation(ctx, slot.SlotID)
+	if err != nil || !allocation.IsVerified() || allocation.Slot() != slot || allocation.SignedSlot() != slot || allocation.OperationID() != region.BootstrapOperationID(installation, slot.SlotID) {
+		t.Fatalf("signed bootstrap slot was not verified: allocation=%+v err=%v", allocation, err)
+	}
+	if available, err := bootstrapLimit(Capacity{}, proof, 9000); err != nil || available != 7000 {
+		t.Fatalf("ordinary spending did not withhold the entire signed slice: available=%d err=%v", available, err)
+	}
+	if available, err := bootstrapLimit(Capacity{}, proof, 1000); err == nil || available != 0 {
+		t.Fatalf("tenant tightening below the bootstrap slice did not fail closed: available=%d err=%v", available, err)
+	}
 	inventory, err := capacityinventory.New(factory)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +186,10 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 		t.Fatalf("denied observation created a commitment: found=%v err=%v", found, err)
 	}
 	demand := []Region{{Cell: "gru", Nodes: 1, Want: 2, Pressure: .9, At: time.Now(), NodeMonthlyCents: 1, ProjectedCents: 0, Currency: "USD"}}
+	stale := Allocate(nil, demand, nil, time.Now())
+	if err := WriteCapacity(ctx, writer, epoch, stale); err != nil {
+		t.Fatal(err)
+	}
 	held, err := AllocateInfrastructure(ctx, &writer.Reader, proof, snapshot, demand, nil, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "incomplete") || held.State != StateNone || held.Regions[0].Allowance != 1 || !held.Regions[0].GrantedAt.IsZero() {
 		t.Fatalf("signed planning with canceled costs trusted regional prices: capacity=%+v err=%v", held, err)
@@ -176,8 +198,25 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	persisted, found, err := ReadCapacity(ctx, &writer.Reader)
-	if err != nil || !found || persisted.Regions[0].Allowance != 1 || len(persisted.Reservations) != 0 {
+	if err != nil || !found || persisted.Regions[0].Allowance != 1 || len(persisted.Reservations) != 0 || persisted.BootstrapReservedCents != 2000 || persisted.BootstrapSHA256 != bootstrapDigest {
 		t.Fatalf("failed planning did not persist a hold: %+v found=%v err=%v", persisted, found, err)
+	}
+	if err := WriteCapacity(ctx, writer, epoch, stale); err != nil {
+		t.Fatal(err)
+	}
+	persisted, found, err = ReadCapacity(ctx, &writer.Reader)
+	if err != nil || !found || persisted.BootstrapReservedCents != 2000 || persisted.BootstrapSHA256 != bootstrapDigest {
+		t.Fatalf("stale periodic write refunded signed bootstrap slice: %+v found=%v err=%v", persisted, found, err)
+	}
+	for _, current := range []region.VerifiedInfrastructureSpend{proof, {}} {
+		if available, err := bootstrapLimit(persisted, current, 1000); err == nil || available != 0 {
+			t.Fatalf("tenant tightening or missing grant refunded pinned bootstrap slice: available=%d err=%v", available, err)
+		}
+	}
+	drifted := persisted
+	drifted.BootstrapSHA256 = strings.Repeat("f", 64)
+	if available, err := bootstrapLimit(drifted, proof, 9000); err == nil || available != 0 {
+		t.Fatalf("changed allocation admitted ordinary spending: available=%d err=%v", available, err)
 	}
 	monthly := Budget{Schema: Schema, ID: entityid.New(), MonthlyCapCents: 1000, Currency: "USD", SetBy: "integration", SetAt: time.Now()}
 	if err := WriteBudget(ctx, writer, epoch, monthly); err != nil {
@@ -191,6 +230,122 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "signed infrastructure") || held.State != StateNone || held.Regions[0].Allowance != 1 {
 		t.Fatalf("tenant budget replaced missing signed spending authority: %+v err=%v", held, err)
 	}
+	for _, current := range []region.VerifiedInfrastructureSpend{{}, proof} {
+		held, err := AllocateInfrastructure(ctx, &writer.Reader, current, snapshot, demand, &persisted, proof.ExpiresAt().Add(time.Second))
+		if err == nil || held.BootstrapReservedCents != 2000 || held.BootstrapSHA256 != bootstrapDigest {
+			t.Fatalf("missing or expired authority released bootstrap slice: %+v err=%v", held, err)
+		}
+		if err := WriteCapacity(ctx, writer, epoch, held); err != nil {
+			t.Fatal(err)
+		}
+		stored, found, err := ReadCapacity(ctx, &writer.Reader)
+		if err != nil || !found || stored.BootstrapReservedCents != 2000 || stored.BootstrapSHA256 != bootstrapDigest {
+			t.Fatalf("held periodic write released bootstrap slice: %+v found=%v err=%v", stored, found, err)
+		}
+	}
+	for _, scenario := range []struct {
+		name    string
+		mutate  func(*region.BootstrapSpendingIntent)
+		valid   bool
+		logical bool
+	}{
+		{"increased-slice", func(b *region.BootstrapSpendingIntent) { b.ReservedMinor = 2500 }, true, false},
+		{"logical-unbound", func(b *region.BootstrapSpendingIntent) {}, false, true},
+		{"zero-geometry", func(b *region.BootstrapSpendingIntent) { b.Slots[0].OCPUs = 0 }, false, false},
+		{"duplicate-slot", func(b *region.BootstrapSpendingIntent) { b.Slots = append(b.Slots, b.Slots[0]) }, false, false},
+		{"slot-over-slice", func(b *region.BootstrapSpendingIntent) { b.Slots[0].MonthlyLimitMinor = 2001 }, false, false},
+		{"slice-over-ceiling", func(b *region.BootstrapSpendingIntent) { b.ReservedMinor = 9001 }, false, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			changed := grant
+			spending := *grant.InfrastructureSpend
+			allocation := *spending.Bootstrap
+			allocation.Slots = slices.Clone(allocation.Slots)
+			scenario.mutate(&allocation)
+			spending.Bootstrap, changed.InfrastructureSpend = &allocation, &spending
+			if scenario.logical {
+				changed.SchemaVersion = 2
+				changed.Regions = slices.Clone(changed.Regions)
+				changed.Regions[0].Plan = map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": tenancy,
+					"parent_compartment_id": parent, "shared_compartment_id": shared, "resource_ids": map[string]any{}}
+				ref, err := region.FoundationResourceReference("GRU", "control_compartment")
+				if err != nil {
+					t.Fatal(err)
+				}
+				allocation.Slots[0].CompartmentID = ref
+				spending.ScopeSHA256, err = region.FoundationInfrastructureScopeDigest(changed)
+				if err != nil || spending.ScopeSHA256 == proof.ScopeDigest() {
+					t.Fatalf("logical producer did not retain a distinct canonical authority scope: digest=%q err=%v", spending.ScopeSHA256, err)
+				}
+				if err := region.ValidateBootstrapSpending(changed); err != nil {
+					t.Fatalf("canonical logical bootstrap role was rejected before signing: %v", err)
+				}
+			}
+			payload, err := trust.EncodePayload(changed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			envelope, err := trust.Sign(payload, trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: deployment, Cell: "GRU", Environment: "production", Role: "foundation", Slot: cluster}, now.Add(-time.Minute), now.Add(30*time.Minute), private)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire, err := trust.EncodeEnvelope(envelope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			variantStore := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write(wire) }))
+			defer variantStore.Close()
+			variantObjects, err := factory.ObjectStorage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			variantObjects.Host = variantStore.URL
+			variantAnchor := anchor
+			home := *anchor.FoundationScope
+			digest := sha256.Sum256(wire)
+			home.GrantSHA256, variantAnchor.FoundationScope = hex.EncodeToString(digest[:]), &home
+			signedAnchor, err := bootstrap.SignBootstrapAnchor(variantAnchor, now.Add(-time.Minute), now.Add(time.Hour), private)
+			if err != nil {
+				t.Fatal(err)
+			}
+			verifiedAnchor, err := bootstrap.VerifyBootstrapAnchor(signedAnchor, roots, bootstrap.BootstrapAnchorExpectation{DeploymentID: deployment, Environment: "production", Cell: oci.RegionGRU}, now, bootstrap.BootstrapAnchorTrustPolicy())
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader, err := region.NewSignedFootprint(&variantObjects, verifiedAnchor, roots, tenancy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			variant, err := reader.InfrastructureSpend(ctx)
+			if !scenario.valid {
+				if scenario.logical && (err == nil || !strings.Contains(err.Error(), "independently verified foundation bindings")) {
+					t.Fatalf("logical scope did not reach the authenticated physical-binding boundary: %v", err)
+				}
+				if err == nil || variant.IsVerified() {
+					t.Fatal("invalid root-signed bootstrap allocation became spending authority")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			held, err := AllocateInfrastructure(ctx, &writer.Reader, variant, snapshot, demand, &persisted, time.Now())
+			if err == nil || held.BootstrapReservedCents != 2500 || held.BootstrapSHA256 != bootstrapDigest {
+				t.Fatalf("changed grant refunded the larger slice or replaced the original identity: %+v err=%v", held, err)
+			}
+			if err := WriteCapacity(ctx, writer, epoch, held); err != nil {
+				t.Fatal(err)
+			}
+			stored, found, err := ReadCapacity(ctx, &writer.Reader)
+			if err != nil || !found || stored.BootstrapReservedCents != 2500 || stored.BootstrapSHA256 != bootstrapDigest {
+				t.Fatalf("changed slice was not retained through home CAS: %+v found=%v err=%v", stored, found, err)
+			}
+			if available, err := bootstrapLimit(stored, variant, 9000); err == nil || available != 0 {
+				t.Fatalf("changed grant admitted ordinary spending: available=%d err=%v", available, err)
+			}
+		})
+	}
+
 }
 
 // This exercises persisted commitments, not spending admission: no fixture can
@@ -266,6 +421,8 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 	results := make(chan error, 2)
 	second := seed
 	second.OperationID = entityid.New()
+	second.GrantGeneration, second.ResolvedScopeSHA256, second.BindingSHA256, second.QuoteSHA256 = 1, strings.Repeat("d", 64), strings.Repeat("e", 64), strings.Repeat("f", 64)
+	second.Currency, second.TenancyID = "USD", "ocid1.tenancy.oc1..integration"
 	go func() {
 		<-start
 		results <- appendCommitment(second)
@@ -302,6 +459,9 @@ func TestReservationLedgerSurvivesPeriodicWritesThroughHomeCAS(t *testing.T) {
 			t.Fatalf("unknown budget/spend or expired launch released commitments: %+v, found=%v, err=%v", stored, found, err)
 		}
 		for _, receipt := range stored.Reservations {
+			if receipt.OperationID == second.OperationID && (receipt.GrantGeneration != second.GrantGeneration || receipt.ResolvedScopeSHA256 != second.ResolvedScopeSHA256 || receipt.BindingSHA256 != second.BindingSHA256 || receipt.QuoteSHA256 != second.QuoteSHA256 || receipt.Currency != second.Currency || receipt.TenancyID != second.TenancyID) {
+				t.Fatalf("periodic write replaced original authority or quote receipt metadata: %+v", receipt)
+			}
 			if receipt.MonthlyCents != 300 || !receipt.RetiredAt.IsZero() || len(receipt.ResourceIDs) != 0 {
 				t.Fatalf("unknown outcome was changed or retired: %+v", receipt)
 			}

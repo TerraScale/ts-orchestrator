@@ -53,6 +53,12 @@ type Reservation struct {
 	InfrastructureBudgetID string    `json:"infrastructure_budget_id"`
 	GrantSHA256            string    `json:"grant_sha256"`
 	ScopeSHA256            string    `json:"scope_sha256"`
+	ResolvedScopeSHA256    string    `json:"resolved_scope_sha256,omitempty"`
+	BindingSHA256          string    `json:"binding_sha256,omitempty"`
+	GrantGeneration        uint64    `json:"grant_generation,omitzero"`
+	QuoteSHA256            string    `json:"quote_sha256,omitempty"`
+	Currency               string    `json:"currency,omitempty"`
+	TenancyID              string    `json:"tenancy_id,omitempty"`
 	IssuedAt               time.Time `json:"issued_at"`
 	LaunchExpiresAt        time.Time `json:"launch_expires_at"`
 	ResourceIDs            []string  `json:"resource_ids,omitempty"`
@@ -84,12 +90,23 @@ func validGeometry(shape string, ocpus, memoryGB, bootGB float64) bool {
 }
 
 func validateReservations(c Capacity) error {
+	if c.BootstrapReservedCents > maxMonthlyCapCents || (c.BootstrapReservedCents == 0) != (c.BootstrapSHA256 == "") || c.BootstrapSHA256 != "" && !reservationDigest.MatchString(c.BootstrapSHA256) {
+		return errors.New("bootstrap allocation lacks its immutable finite slice and digest")
+	}
 	if len(c.Reservations) > maxInfrastructureReservations {
 		return errors.New("infrastructure reservation ledger exceeds its bound")
 	}
 	for index, r := range c.Reservations {
 		if !entityid.Valid(r.OperationID) || !reservationDigest.MatchString(r.RecipeSHA256) || !reservationDigest.MatchString(r.GrantSHA256) || !reservationDigest.MatchString(r.ScopeSHA256) || r.InfrastructureBudgetID == "" || r.Cell == "" || r.CompartmentID == "" || !validGeometry(r.Shape, r.OCPUs, r.MemoryGB, r.BootGB) || r.MonthlyCents == 0 || r.MonthlyCents > maxMonthlyCapCents || r.IssuedAt.IsZero() || !r.LaunchExpiresAt.After(r.IssuedAt) || len(r.ResourceIDs) > 16 || !slices.IsSorted(r.ResourceIDs) {
 			return errors.New("infrastructure reservation is invalid")
+		}
+		if r.GrantGeneration == 0 {
+			// Historical commitments remain charged but cannot authorize a new launch.
+			if r.ResolvedScopeSHA256 != "" || r.BindingSHA256 != "" || r.QuoteSHA256 != "" || r.Currency != "" || r.TenancyID != "" {
+				return errors.New("historical reservation has partial original authority metadata")
+			}
+		} else if !reservationDigest.MatchString(r.ResolvedScopeSHA256) || !reservationDigest.MatchString(r.QuoteSHA256) || r.BindingSHA256 != "" && !reservationDigest.MatchString(r.BindingSHA256) || !currencyCode.MatchString(r.Currency) || !strings.HasPrefix(r.TenancyID, "ocid1.tenancy.") {
+			return errors.New("reservation lacks exact original physical binding, grant generation or sealed quote identity")
 		}
 		if index > 0 && c.Reservations[index-1].OperationID >= r.OperationID {
 			return errors.New("infrastructure reservations must be sorted by unique operation")
@@ -104,7 +121,7 @@ func validateReservations(c Capacity) error {
 		}
 	}
 	if s := c.Spending; s != nil {
-		if s.InfrastructureBudgetID == "" || !reservationDigest.MatchString(s.GrantSHA256) || !reservationDigest.MatchString(s.ScopeSHA256) || !currencyCode.MatchString(s.Currency) || s.MonthlyLimitCents == 0 || s.MonthlyLimitCents > maxMonthlyCapCents || s.ObservedAt.IsZero() || !s.ExpiresAt.After(s.ObservedAt) {
+		if s.InfrastructureBudgetID == "" || !reservationDigest.MatchString(s.GrantSHA256) || !reservationDigest.MatchString(s.ScopeSHA256) || !currencyCode.MatchString(s.Currency) || s.MonthlyLimitCents > maxMonthlyCapCents || s.ObservedAt.IsZero() || !s.ExpiresAt.After(s.ObservedAt) {
 			return errors.New("infrastructure spending observation is invalid")
 		}
 	}
@@ -117,8 +134,14 @@ func spendingFacts(ctx context.Context, reader *globalcontrol.Reader, proof regi
 	if reader == nil {
 		return Budget{}, false, 0, errors.New("infrastructure spending requires the home global reader")
 	}
-	if !proof.IsVerified() || !now.Before(proof.ExpiresAt()) || proof.MonthlyLimitMinor() <= 0 || uint64(proof.MonthlyLimitMinor()) > maxMonthlyCapCents {
+	if !proof.ValidAt(now) || proof.MonthlyLimitMinor() <= 0 || uint64(proof.MonthlyLimitMinor()) > maxMonthlyCapCents {
 		return Budget{}, false, 0, errors.New("no current signed infrastructure spending authority")
+	}
+	if err := proof.RevalidateBindings(ctx); err != nil {
+		return Budget{}, false, 0, err
+	}
+	if checkedAt := time.Now(); checkedAt.After(now) {
+		now = checkedAt
 	}
 	if err := snapshot.Validate(proof.Footprint(), now); err != nil {
 		return Budget{}, false, 0, err
@@ -135,6 +158,36 @@ func spendingFacts(ctx context.Context, reader *globalcontrol.Reader, proof regi
 		limit = min(limit, monthly.MonthlyCapCents)
 	}
 	return monthly, found, limit, nil
+}
+
+// retainBootstrap preserves the original allocation identity and the largest
+// verified slice, including during held planning and historical observations.
+func retainBootstrap(c *Capacity, proof region.VerifiedInfrastructureSpend) error {
+	if !proof.IsVerified() || proof.BootstrapReservedMinor() <= 0 {
+		return nil
+	}
+	reserved := uint64(proof.BootstrapReservedMinor())
+	if reserved > maxMonthlyCapCents {
+		return errors.New("bootstrap allocation exceeds the supported finite ceiling")
+	}
+	c.BootstrapReservedCents = max(c.BootstrapReservedCents, reserved)
+	if c.BootstrapSHA256 == "" {
+		c.BootstrapSHA256 = proof.BootstrapDigest()
+	}
+	return nil
+}
+
+// bootstrapLimit never refunds a signed bootstrap slice on renewal or expiry.
+// A changed allocation needs provider-proven fencing, for which no release path exists.
+func bootstrapLimit(c Capacity, proof region.VerifiedInfrastructureSpend, limit uint64) (uint64, error) {
+	if c.BootstrapSHA256 != "" && c.BootstrapSHA256 != proof.BootstrapDigest() {
+		return 0, errors.New("bootstrap allocation changed without provider-proven fencing")
+	}
+	reserved := max(c.BootstrapReservedCents, uint64(proof.BootstrapReservedMinor()))
+	if reserved > limit {
+		return 0, errors.New("full bootstrap allocation exceeds the current infrastructure ceiling")
+	}
+	return limit - reserved, nil
 }
 
 func allowedCompartment(scope capacityinventory.Scope, cell, compartment string) bool {
@@ -198,6 +251,10 @@ func InfrastructureHeadroom(ctx context.Context, reader *globalcontrol.Reader, p
 	if err != nil {
 		return 0, err
 	}
+	limit, err = bootstrapLimit(c, proof, limit)
+	if err != nil {
+		return 0, err
+	}
 	exclude := ""
 	if i := reservationIndex(c, operationID); i >= 0 {
 		tenantID := ""
@@ -239,6 +296,16 @@ func Reserve(ctx context.Context, reader *globalcontrol.Reader, writer *globalco
 	}
 	var result Reservation
 	err := changeReservations(ctx, reader, writer, epoch, proof, snapshot, now, true, func(c *Capacity, monthly Budget, found bool) error {
+		checkedAt := time.Now()
+		if now.After(checkedAt) {
+			checkedAt = now
+		}
+		if err := request.validate(checkedAt); err != nil {
+			return err
+		}
+		if err := quotedCandidate(proof, quote, request.Cell, request.CompartmentID, request.Shape, request.OCPUs, request.MemoryGB, request.BootGB, request.MonthlyCents, checkedAt); err != nil {
+			return err
+		}
 		tenantID := ""
 		if found {
 			tenantID = monthly.ID
@@ -248,7 +315,7 @@ func Reserve(ctx context.Context, reader *globalcontrol.Reader, writer *globalco
 			if r.RecipeSHA256 != request.RecipeSHA256 || r.MonthlyCents != request.MonthlyCents || r.Cell != request.Cell || r.CompartmentID != request.CompartmentID || r.Shape != request.Shape || r.OCPUs != request.OCPUs || r.MemoryGB != request.MemoryGB || r.BootGB != request.BootGB {
 				return errors.New("operation is already reserved for a different candidate or price")
 			}
-			if err := currentReservation(r, tenantID, proof, now); err != nil {
+			if err := currentReservation(r, tenantID, proof, checkedAt); err != nil {
 				return err
 			}
 			result = r
@@ -261,7 +328,8 @@ func Reserve(ctx context.Context, reader *globalcontrol.Reader, writer *globalco
 		expires := minTime(request.FactsExpireAt, proof.ExpiresAt(), quote.ExpiresAt(), snapshot.ExpiresAt, now.Add(ReservationTTL))
 		result = Reservation{OperationID: request.OperationID, RecipeSHA256: request.RecipeSHA256, Cell: request.Cell,
 			CompartmentID: request.CompartmentID, Shape: request.Shape, OCPUs: request.OCPUs, MemoryGB: request.MemoryGB, BootGB: request.BootGB, MonthlyCents: request.MonthlyCents, BudgetID: tenantID,
-			InfrastructureBudgetID: proof.BudgetID(), GrantSHA256: proof.GrantDigest(), ScopeSHA256: proof.ScopeDigest(), IssuedAt: now, LaunchExpiresAt: expires}
+			InfrastructureBudgetID: proof.BudgetID(), GrantSHA256: proof.GrantDigest(), ScopeSHA256: proof.ScopeDigest(),
+			ResolvedScopeSHA256: proof.PhysicalScopeDigest(), BindingSHA256: proof.BindingDigest(), GrantGeneration: proof.Generation(), QuoteSHA256: quote.SHA256(), Currency: proof.Currency(), TenancyID: proof.Footprint().TenancyID, IssuedAt: now, LaunchExpiresAt: expires}
 		c.Reservations = append(slices.Clone(c.Reservations), result)
 		slices.SortFunc(c.Reservations, func(a, b Reservation) int { return cmp.Compare(a.OperationID, b.OperationID) })
 		return nil
@@ -270,7 +338,7 @@ func Reserve(ctx context.Context, reader *globalcontrol.Reader, writer *globalco
 }
 
 func currentReservation(r Reservation, tenantID string, proof region.VerifiedInfrastructureSpend, now time.Time) error {
-	if !r.RetiredAt.IsZero() || !now.Before(r.LaunchExpiresAt) || r.BudgetID != tenantID || r.InfrastructureBudgetID != proof.BudgetID() || r.GrantSHA256 != proof.GrantDigest() || r.ScopeSHA256 != proof.ScopeDigest() {
+	if !r.RetiredAt.IsZero() || !now.Before(r.LaunchExpiresAt) || r.BudgetID != tenantID || r.InfrastructureBudgetID != proof.BudgetID() || r.GrantSHA256 != proof.GrantDigest() || r.ScopeSHA256 != proof.ScopeDigest() || r.ResolvedScopeSHA256 != proof.PhysicalScopeDigest() || r.BindingSHA256 != proof.BindingDigest() || r.GrantGeneration != proof.Generation() || !reservationDigest.MatchString(r.QuoteSHA256) || r.Currency != proof.Currency() || r.TenancyID != proof.Footprint().TenancyID {
 		return errors.New("reservation is retired, expired or differs from current spending authority")
 	}
 	return nil
@@ -295,12 +363,16 @@ func Revalidate(ctx context.Context, reader *globalcontrol.Reader, receipt Reser
 	if !exists {
 		return errors.New("capacity reservation ledger is unavailable")
 	}
+	limit, err = bootstrapLimit(c, proof, limit)
+	if err != nil {
+		return err
+	}
 	i := reservationIndex(c, receipt.OperationID)
 	if i < 0 {
 		return errors.New("capacity reservation was never committed")
 	}
 	r := c.Reservations[i]
-	if r.RecipeSHA256 != receipt.RecipeSHA256 || r.MonthlyCents != receipt.MonthlyCents || r.Cell != receipt.Cell || r.CompartmentID != receipt.CompartmentID || r.Shape != receipt.Shape || r.OCPUs != receipt.OCPUs || r.MemoryGB != receipt.MemoryGB || r.BootGB != receipt.BootGB || r.InfrastructureBudgetID != receipt.InfrastructureBudgetID || r.GrantSHA256 != receipt.GrantSHA256 || r.ScopeSHA256 != receipt.ScopeSHA256 || r.BudgetID != receipt.BudgetID || !r.IssuedAt.Equal(receipt.IssuedAt) || !r.LaunchExpiresAt.Equal(receipt.LaunchExpiresAt) {
+	if r.RecipeSHA256 != receipt.RecipeSHA256 || r.MonthlyCents != receipt.MonthlyCents || r.Cell != receipt.Cell || r.CompartmentID != receipt.CompartmentID || r.Shape != receipt.Shape || r.OCPUs != receipt.OCPUs || r.MemoryGB != receipt.MemoryGB || r.BootGB != receipt.BootGB || r.InfrastructureBudgetID != receipt.InfrastructureBudgetID || r.GrantSHA256 != receipt.GrantSHA256 || r.ScopeSHA256 != receipt.ScopeSHA256 || r.ResolvedScopeSHA256 != receipt.ResolvedScopeSHA256 || r.BindingSHA256 != receipt.BindingSHA256 || r.GrantGeneration != receipt.GrantGeneration || r.QuoteSHA256 != receipt.QuoteSHA256 || r.Currency != receipt.Currency || r.TenancyID != receipt.TenancyID || r.BudgetID != receipt.BudgetID || !r.IssuedAt.Equal(receipt.IssuedAt) || !r.LaunchExpiresAt.Equal(receipt.LaunchExpiresAt) {
 		return errors.New("capacity receipt differs from its durable reservation")
 	}
 	tenantID := ""
@@ -320,7 +392,18 @@ func Revalidate(ctx context.Context, reader *globalcontrol.Reader, receipt Reser
 	if hasBudget != found || hasBudget && latest != monthly {
 		return errors.New("tenant spending ceiling changed during reservation revalidation")
 	}
-	return nil
+	// Independent SDK reads can outlast the facts checked before those reads.
+	checkedAt := time.Now()
+	if now.After(checkedAt) {
+		checkedAt = now
+	}
+	if err := currentReservation(r, tenantID, proof, checkedAt); err != nil {
+		return err
+	}
+	if err := snapshot.Validate(proof.Footprint(), checkedAt); err != nil {
+		return err
+	}
+	return quotedCandidate(proof, quote, receipt.Cell, receipt.CompartmentID, receipt.Shape, receipt.OCPUs, receipt.MemoryGB, receipt.BootGB, receipt.MonthlyCents, checkedAt)
 }
 
 func quotedCandidate(proof region.VerifiedInfrastructureSpend, quote capacityinventory.Quote,
@@ -435,6 +518,18 @@ func changeReservations(ctx context.Context, reader *globalcontrol.Reader, write
 			}
 		} else {
 			c = Capacity{Schema: Schema, At: now, State: StateNone, Reason: "infrastructure commitments; tenant budget is unset"}
+		}
+		if admit {
+			limit, err = bootstrapLimit(c, proof, limit)
+			if err != nil {
+				return err
+			}
+		} else {
+			reserved := max(c.BootstrapReservedCents, uint64(proof.BootstrapReservedMinor()))
+			limit -= min(limit, reserved)
+		}
+		if err := retainBootstrap(&c, proof); err != nil {
+			return err
 		}
 		if err := change(&c, monthly, found); err != nil {
 			return err
