@@ -199,7 +199,7 @@ func (controller Controller) issue(reader Reader, proof release.VerifiedFunction
 		}
 		return storedMaterial{}, err
 	}
-	return storedMaterial{Schema: 1, Binding: binding, TenantID: proof.Claim().TenantID, FunctionID: proof.Claim().FunctionID, EnvelopeSHA256: proof.EnvelopeSHA256(), IntentSequence: sequence, AccountSequence: account.Sequence, Generation: reader.Trust.generation.Fingerprint(), ExpiresAt: minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.expiresAt), Files: files}, nil
+	return storedMaterial{Schema: 1, Binding: binding, TenantID: proof.Claim().TenantID, FunctionID: proof.Claim().FunctionID, EnvelopeSHA256: proof.EnvelopeSHA256(), IntentSequence: sequence, AccountSequence: account.Sequence, Generation: reader.Trust.fingerprint, ExpiresAt: minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.expiresAt), Files: files}, nil
 }
 
 func encodeMaterial(material storedMaterial) ([]byte, error) {

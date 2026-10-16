@@ -93,7 +93,7 @@ func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDeli
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	if err := vaultsecret.ValidateDeliveryRefs(strings.ToLower(string(reader.Trust.generation.Generation().Cell)), "function-worker", map[string]vaultsecret.Ref{"FUNCTION_MATERIAL_FILE": ref}, nil); err != nil {
+	if err := vaultsecret.ValidateDeliveryRefs(strings.ToLower(reader.Trust.cell), "function-worker", map[string]vaultsecret.Ref{"FUNCTION_MATERIAL_FILE": ref}, nil); err != nil {
 		return VerifiedDelivery{}, err
 	}
 	current, err := vaultsecret.ReadCurrent(ctx, reader.Bundles, ref)
@@ -147,17 +147,11 @@ func decodeMaterial(wire []byte) (storedMaterial, error) {
 func (reader Reader) verifyMaterial(material storedMaterial, binding Binding, proof release.VerifiedFunction, intentSequence uint64, account brokerauth.Claim) (time.Time, error) {
 	claim := proof.Claim()
 	if material.Binding != binding || material.TenantID != claim.TenantID || material.FunctionID != claim.FunctionID || material.EnvelopeSHA256 != proof.EnvelopeSHA256() ||
-		material.IntentSequence != intentSequence || material.AccountSequence != account.Sequence || material.Generation != reader.Trust.generation.Fingerprint() ||
+		material.IntentSequence != intentSequence || material.AccountSequence != account.Sequence || material.Generation != reader.Trust.fingerprint ||
 		!bytes.Equal(material.Files["broker-ca.pem"], reader.Trust.brokerCA) {
 		return time.Time{}, ErrMaterial
 	}
-	issuerPinned := false
-	for _, secret := range reader.Trust.generation.Generation().Secrets {
-		if secret.TargetFile == "controller-tls-issuer-cert.pem" && sum(material.Files["ingress-ca.pem"]) == secret.SHA256 {
-			issuerPinned = true
-		}
-	}
-	if !issuerPinned {
+	if sum(material.Files["ingress-ca.pem"]) != reader.Trust.issuerSHA256 {
 		return time.Time{}, ErrMaterial
 	}
 	identity, err := functions.VerifyWorkerCredentials(proof, account.Account, account.JWT, material.Files["broker.creds"])
