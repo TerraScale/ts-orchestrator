@@ -2,12 +2,31 @@ package ociclient
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"time"
 )
 
 type authorityKey struct{}
 type admissionKey struct{}
 type wireAttemptKey struct{}
+type admissionDeadlineKey struct{}
+
+type admissionDeadline struct{ until time.Time }
+
+// LimitAdmission carries the earliest authenticated expiry through any remaining
+// admission waits. The dispatcher checks it again immediately before sending.
+func LimitAdmission(ctx context.Context, deadline time.Time) error {
+	if deadline.IsZero() || !time.Now().Before(deadline) {
+		return errors.New("OCI current admission facts expired")
+	}
+	if state, ok := ctx.Value(admissionDeadlineKey{}).(*admissionDeadline); ok {
+		if state.until.IsZero() || deadline.Before(state.until) {
+			state.until = deadline
+		}
+	}
+	return nil
+}
 
 // WithAuthority rechecks a durable operation's write authority for every SDK
 // mutation attempt, including retries after a lost response or provider error.

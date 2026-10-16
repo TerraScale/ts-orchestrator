@@ -81,6 +81,8 @@ func (e *readTransportError) Unwrap() error { return e.err }
 func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 	var finish func(*http.Response, error, bool) error
 	if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
+		deadline := new(admissionDeadline)
+		*request = *request.WithContext(context.WithValue(request.Context(), admissionDeadlineKey{}, deadline))
 		if begin, ok := request.Context().Value(wireAttemptKey{}).(func(*http.Request) (func(*http.Response, error, bool) error, error)); ok {
 			if begin == nil {
 				return nil, errors.New("OCI wire attempt journal is unavailable")
@@ -126,6 +128,12 @@ func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
 				return deny(errors.New("OCI write admission did not fence current authority"))
 			}
 			defer release()
+		}
+		if err := request.Context().Err(); err != nil {
+			return deny(err)
+		}
+		if !deadline.until.IsZero() && !time.Now().Before(deadline.until) {
+			return deny(errors.New("OCI current admission facts expired before dispatch"))
 		}
 	}
 	response, err := d.next.Do(request)

@@ -172,7 +172,7 @@ func TestPoolOriginalCreateRecoveryCrossesSDKAndJournal(t *testing.T) {
 }
 
 func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
-	for _, boundary := range []string{"claim", "admission"} {
+	for _, boundary := range []string{"claim", "admission", "deadline-after-wait"} {
 		t.Run(boundary, func(t *testing.T) {
 			ctx := t.Context()
 			js := capacityJetStream(t)
@@ -208,6 +208,21 @@ func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
 				return nil
 			})
 			ctx = ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
+				if boundary == "deadline-after-wait" {
+					expires = time.Now().Add(25 * time.Millisecond)
+					if err := ociclient.LimitAdmission(ctx, expires); err != nil {
+						return nil, err
+					}
+					// A caller can finish a durable state read after its authority was checked.
+					timer := time.NewTimer(time.Until(expires))
+					defer timer.Stop()
+					select {
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					case <-timer.C:
+					}
+					return func() {}, nil
+				}
 				if err := checkCurrent(ctx); err != nil {
 					return nil, err
 				}
@@ -218,15 +233,17 @@ func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
 				if _, err := kv.Create(request.Context(), "begin", []byte("original-attempt")); err != nil {
 					return nil, err
 				}
-				timer := time.NewTimer(max(time.Until(expires), time.Nanosecond))
-				defer timer.Stop()
-				select {
-				case <-request.Context().Done():
-					return nil, request.Context().Err()
-				case <-timer.C:
+				if boundary != "deadline-after-wait" {
+					timer := time.NewTimer(max(time.Until(expires), time.Nanosecond))
+					defer timer.Stop()
+					select {
+					case <-request.Context().Done():
+						return nil, request.Context().Err()
+					case <-timer.C:
+					}
 				}
 				return func(response *http.Response, dispatchErr error, sent bool) error {
-					if sent || response != nil || !errors.Is(dispatchErr, ErrCapacityPending) {
+					if sent || response != nil || dispatchErr == nil || boundary != "deadline-after-wait" && !errors.Is(dispatchErr, ErrCapacityPending) {
 						t.Errorf("expired authority was not a definite no-send: sent=%v response=%v err=%v", sent, response, dispatchErr)
 					}
 					_, err := kv.Create(request.Context(), "outcome", []byte("not-sent"))
@@ -235,7 +252,7 @@ func TestPoolWireFinalAdmissionRunsAfterDurableBegin(t *testing.T) {
 			})
 			_, err = client.CreateInstancePool(ociclient.RequestContext(ctx), core.CreateInstancePoolRequest{
 				CreateInstancePoolDetails: core.CreateInstancePoolDetails{CompartmentId: new(testCompartment), Size: new(0)}, OpcRetryToken: new("original-token")})
-			if !errors.Is(err, ErrCapacityPending) || dispatched.Load() != 0 {
+			if err == nil || boundary != "deadline-after-wait" && !errors.Is(err, ErrCapacityPending) || dispatched.Load() != 0 {
 				t.Fatalf("expired post-checkpoint authority reached wire: calls=%d err=%v", dispatched.Load(), err)
 			}
 			outcome, err := kv.Get(ctx, "outcome")

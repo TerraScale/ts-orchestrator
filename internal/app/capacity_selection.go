@@ -282,6 +282,13 @@ func (r *capacityReservations) admit(pool *nodescale.OCIPool, store nodescale.Re
 				err = leader.Guard(ctx, snapshot.Epoch)
 			}
 		}
+		if err == nil {
+			deadline := request.Request.FactsExpireAt
+			if record.Reservation.LaunchExpiresAt.Before(deadline) {
+				deadline = record.Reservation.LaunchExpiresAt
+			}
+			err = ociclient.LimitAdmission(ctx, deadline)
+		}
 		if err != nil {
 			release()
 			return nil, err

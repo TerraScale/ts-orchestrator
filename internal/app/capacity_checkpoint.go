@@ -42,7 +42,6 @@ func checkpointCapacityCreate(compartment string, store nodescale.RecordStore, j
 			return request, err
 		}
 		if found {
-			request.StartedAt = prior.StartedAt
 			if request != prior {
 				return request, fmt.Errorf("%w: create request differs from its original durable receipt", nodescale.ErrCapacityPending)
 			}
@@ -71,9 +70,11 @@ func checkpointCapacityGrowth(compartment string, store nodescale.RecordStore, j
 		}
 		started := record.Action.Started.UTC()
 		if found {
+			if request.OpcRetryToken == nil || prior.RetryToken != *request.OpcRetryToken || !prior.StartedAt.Equal(started) {
+				return request, fmt.Errorf("%w: original growth token or first-attempt identity changed", nodescale.ErrCapacityPending)
+			}
 			// An unknown outcome replays the original precondition and token, never a refreshed request.
 			request.IfMatch, request.OpcRetryToken = new(prior.IfMatch), new(prior.RetryToken)
-			started = prior.StartedAt
 		}
 		digest, err := capacityGrowthRequestSHA256(request)
 		if err != nil {
@@ -113,8 +114,10 @@ func checkpointCapacityPoint(compartment string, store nodescale.RecordStore, jo
 		}
 		started := record.Action.Started.UTC()
 		if found {
+			if request.OpcRetryToken == nil || prior.Request.RetryToken != *request.OpcRetryToken || !prior.Request.StartedAt.Equal(started) {
+				return request, fmt.Errorf("%w: original reconfiguration token or first-attempt identity changed", nodescale.ErrCapacityPending)
+			}
 			request.IfMatch, request.OpcRetryToken = new(prior.Request.IfMatch), new(prior.Request.RetryToken)
-			started = prior.Request.StartedAt
 		}
 		digest, err := capacityUpdateRequestSHA256(request)
 		if err != nil {
