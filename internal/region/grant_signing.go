@@ -38,7 +38,7 @@ func SignFoundationDiscovery(ctx context.Context, grant FoundationGrant, anchor 
 		return RetainedFoundation{}, errors.New("foundation signing key is outside the current root lineage")
 	}
 	home := anchor.FoundationScope
-	if home == nil || home.InstallationID != grant.InstallationID || home.TenancyID != grant.TenancyID || anchor.Cell != oci.RegionGRU || anchor.Environment != "production" || home.StorageDomain.HeadBucket != foundationDiscoveryBucket || grant.InfrastructureSpend == nil || grant.InfrastructureSpend.Bootstrap == nil || grant.OCIRIssuance == nil {
+	if home == nil || home.InstallationID != grant.InstallationID || home.TenancyID != grant.TenancyID || anchor.Cell != oci.RegionGRU || anchor.Environment != "production" || home.StorageDomain.HeadBucket != foundationDiscoveryBucket || grant.InfrastructureSpend == nil || grant.InfrastructureSpend.Bootstrap == nil || len(grant.OCIRIssuances) == 0 {
 		return RetainedFoundation{}, errors.New("foundation ceremony requires the complete approved production installation, spending allocation and OCIR scope")
 	}
 	if err := ValidatePreparedFoundation(grant); err != nil {

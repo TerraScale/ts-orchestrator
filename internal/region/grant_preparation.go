@@ -61,10 +61,6 @@ type FoundationPreparationInput struct {
 	SourceVaultTarget               bootstrapmaterial.VaultTarget     `json:"sourceVaultTarget"`
 	TrustedSigners                  jsontext.Value                    `json:"trustedSigners"`
 	ReleaseAuthorities              []ContainerReleaseAuthorityIntent `json:"releaseAuthorities"`
-	OCIRRepositoryName              string                            `json:"ocirRepositoryName"`
-	OCIRPrincipalName               string                            `json:"ocirPrincipalName"`
-	OCIRPrincipalEmail              string                            `json:"ocirPrincipalEmail"`
-	OCIRSecretName                  string                            `json:"ocirSecretName"`
 	GRUController                   FoundationHostApproval            `json:"gruController"`
 	SFOController                   FoundationHostApproval            `json:"sfoController"`
 	FRAController                   FoundationHostApproval            `json:"fraController"`
@@ -267,9 +263,10 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	}
 	grant.Regions[0].NetBirdManager = &manager
 	grant.InfrastructureSpend.Bootstrap.Slots = append(grant.InfrastructureSpend.Bootstrap.Slots, managerSlot)
-	grant.OCIRIssuance = &OCIRIssuerIntent{OCIRegion: foundationHomeRegion, RepositoryCompartmentID: input.SourceVaultTarget.CompartmentOCID, RepositoryName: input.OCIRRepositoryName,
-		RegistryNamespace: input.HomeStorageDomain.Namespace, PrincipalName: input.OCIRPrincipalName, PrincipalEmail: input.OCIRPrincipalEmail, SecretName: input.OCIRSecretName,
-		VaultTarget: vaultsecret.Target{CompartmentID: input.SourceVaultTarget.CompartmentOCID, VaultID: input.SourceVaultTarget.VaultOCID, KeyID: input.SourceVaultTarget.KMSKeyOCID}}
+	grant.OCIRIssuances, err = prepareFoundationOCIRIssuers(grant)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
 	grant.InfrastructureSpend.ScopeSHA256, err = FoundationInfrastructureScopeDigest(grant)
 	if err != nil {
 		return FoundationPreparation{}, err
@@ -278,6 +275,53 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		return FoundationPreparation{}, err
 	}
 	return FoundationPreparation{Grant: grant, Anchor: anchor}, nil
+}
+
+func prepareFoundationOCIRIssuers(grant FoundationGrant) ([]OCIRIssuerIntent, error) {
+	var issuers []OCIRIssuerIntent
+	seen := map[string]bool{}
+	for _, authority := range grant.ReleaseAuthorities {
+		if seen[authority.ImageRepository] {
+			continue
+		}
+		seen[authority.ImageRepository] = true
+		region, namespace, repository, err := parseOCIRRepository(authority.ImageRepository)
+		if err != nil {
+			return nil, err
+		}
+		principal, email, secret, err := OCIRServiceIdentity(grant.InstallationID, authority.ImageRepository)
+		if err != nil {
+			return nil, err
+		}
+		host, _, _ := strings.Cut(authority.ImageRepository, "/")
+		owned := false
+		for _, regional := range grant.Regions {
+			if regional.Plan["region"] != region {
+				continue
+			}
+			cell, _ := regional.Plan["cell"].(string)
+			control, err := preparationResource(regional.Plan, cell, "control_compartment")
+			if err != nil {
+				return nil, err
+			}
+			vault, err := preparationResource(regional.Plan, cell, "vault")
+			if err != nil {
+				return nil, err
+			}
+			key, err := preparationResource(regional.Plan, cell, "key")
+			if err != nil {
+				return nil, err
+			}
+			issuers = append(issuers, OCIRIssuerIntent{OCIRegion: region, RegistryHost: host, RepositoryCompartmentID: control, RepositoryName: repository, RegistryNamespace: namespace,
+				PrincipalName: principal, PrincipalEmail: email, SecretName: secret, VaultTarget: vaultsecret.Target{CompartmentID: control, VaultID: vault, KeyID: key}})
+			owned = true
+			break
+		}
+		if !owned {
+			return nil, errors.New("approved release repository is outside the fixed foundation regions")
+		}
+	}
+	return issuers, nil
 }
 
 func preparationDigest(wire []byte) string {
