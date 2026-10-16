@@ -20,8 +20,29 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 )
+
+type runtimeEffectExpiryRead struct {
+	jetstream.Stream
+	subject string
+	expires time.Time
+}
+
+func (s *runtimeEffectExpiryRead) GetLastMsgForSubject(ctx context.Context, subject string) (*jetstream.RawStreamMsg, error) {
+	entry, err := s.Stream.GetLastMsgForSubject(ctx, subject)
+	if subject == s.subject {
+		timer := time.NewTimer(max(0, time.Until(s.expires.Add(time.Millisecond))))
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return entry, err
+}
 
 func TestRuntimeEffectR3Integration(t *testing.T) {
 	js, _ := newIdentityHostR3(t)
@@ -291,17 +312,18 @@ func TestRuntimeEffectR3Integration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expiryTimer := time.NewTimer(time.Until(expiring.ExpiresAt) + 10*time.Millisecond)
-	defer expiryTimer.Stop()
-	select {
-	case <-ctx.Done():
-		t.Fatal(ctx.Err())
-	case <-expiryTimer.C:
+	readStream := current.readStream
+	current.readStream = &runtimeEffectExpiryRead{Stream: readStream, subject: mutationSubject(config.Scope, MutationTerminalIntent, expiring.Scope.DatabaseID+"."+expiring.Scope.PartitionID), expires: expiring.ExpiresAt}
+	extension := expiring
+	extension.ExpiresAt = expiring.ExpiresAt.Add(time.Second)
+	_, err = current.RenewRuntimeEffect(ctx, epoch, extension, expiringSequence)
+	current.readStream = readStream
+	if !errors.Is(err, ErrFenced) {
+		t.Fatalf("terminal read crossed original grant expiry but renewal committed: %v", err)
 	}
 	if _, err := current.BeginRuntimeEffect(ctx, epoch, expiring); !errors.Is(err, ErrFenced) {
 		t.Fatalf("expired begin replay revived a grant: %v", err)
 	}
-	extension := expiring
 	extension.ExpiresAt = time.Now().UTC().Add(time.Second)
 	if _, err := current.RenewRuntimeEffect(ctx, epoch, extension, expiringSequence); !errors.Is(err, ErrFenced) {
 		t.Fatalf("expired grant renewed: %v", err)
