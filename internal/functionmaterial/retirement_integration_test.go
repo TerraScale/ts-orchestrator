@@ -249,7 +249,7 @@ func (backend *retirementBackend) serve(w http.ResponseWriter, r *http.Request) 
 	}
 	switch {
 	case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/secrets"):
-		if r.URL.Query().Get("compartmentId") != backend.target.CompartmentID || r.URL.Query().Get("vaultId") != backend.target.VaultID || r.URL.Query().Get("limit") != "100" {
+		if r.URL.Query().Get("compartmentId") != backend.target.CompartmentID || r.URL.Query().Get("vaultId") != backend.target.VaultID || r.URL.Query().Get("limit") != "1000" {
 			http.Error(w, "unscoped enumeration", 400)
 			return
 		}
