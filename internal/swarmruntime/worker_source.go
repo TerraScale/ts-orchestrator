@@ -192,7 +192,9 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil {
 		return nil, err
 	}
-	name := vaultsecret.Name(strings.ToLower(authority.identity.Cell)+"-"+strings.ToLower(authority.identity.ClusterID)+"-"+strings.ToLower(registration.ID), "TS_ORCHESTRATOR_SWARM_WORKER")
+	// A replacement instance must not reuse another recipient's immutable secret.
+	recipient := sha256.Sum256([]byte(request.InstanceID))
+	name := vaultsecret.Name(strings.ToLower(authority.identity.Cell)+"-"+strings.ToLower(authority.identity.ClusterID)+"-"+strings.ToLower(registration.ID)+"-"+hex.EncodeToString(recipient[:]), "TS_ORCHESTRATOR_SWARM_WORKER")
 	stored, err := vaultsecret.Ensure(ctx, authority.vault, authority.target, name, "Recipient-bound SwarmKit worker enrollment", func(ctx context.Context) (string, error) {
 		if err := authority.refresh(ctx); err != nil {
 			return "", err
