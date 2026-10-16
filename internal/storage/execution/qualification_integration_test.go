@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -43,9 +44,9 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	qualifierID, _ := trust.KeyID(qualifierPublic)
 	roots := trust.Keyring{rootID: rootPublic, qualifierID: qualifierPublic}
 	now := time.Now().UTC().Truncate(time.Second)
-	target := release.ContainerTarget{Cell: "GRU", Environment: "production", Role: "terrabase", Architecture: "amd64"}
-	data := RetainedData{DatabaseID: entityid.Derive("database", "fixture"), PartitionID: entityid.Derive("partition", "fixture"), VolumeID: "ocid1.volume.fixture", FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64), SourceArtifactSHA256: strings.Repeat("e", 64), SourceTreeSHA256: strings.Repeat("f", 64), SourceArchitecture: "amd64"}
-	cpu := CPUProfile{Architecture: "amd64", FeaturesSHA256: strings.Repeat("c", 64)}
+	target := release.ContainerTarget{Cell: "GRU", Environment: "production", Role: "terrabase", Architecture: runtime.GOARCH}
+	data := RetainedData{DatabaseID: entityid.Derive("database", "fixture"), PartitionID: entityid.Derive("partition", "fixture"), VolumeID: "ocid1.volume.fixture", FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4", DiskFormatSHA256: strings.Repeat("d", 64), SourceArtifactSHA256: strings.Repeat("e", 64), SourceTreeSHA256: strings.Repeat("f", 64), SourceArchitecture: runtime.GOARCH}
+	cpu := CPUProfile{Architecture: runtime.GOARCH, FeaturesSHA256: strings.Repeat("c", 64)}
 	var lock sync.RWMutex
 	blobs := make(map[string][]byte)
 	put := func(wire []byte) string {
@@ -113,7 +114,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-amd64"}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
+	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-" + target.Architecture}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,8 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	}
 	proof := StatefulQualification{Schema: StatefulQualificationSchema, CandidateSourceTreeSHA256: strings.Repeat("b", 64), Data: data, SourceCPU: cpu, TargetCPU: cpu, DiskFormatSHA256: data.DiskFormatSHA256}
 	proof.ResultData = data
-	configWire := []byte(`{"architecture":"amd64","os":"linux","config":{"Entrypoint":["/usr/local/bin/terrabase"],"User":"65532:65532"},"rootfs":{"type":"layers","diff_ids":[]}}`)
+	configWire := []byte(fmt.Sprintf(`{"architecture":"%s","os"
+ "runtime":"linux","config":{"Entrypoint":["/usr/local/bin/terrabase"],"User":"65532:65532"},"rootfs":{"type":"layers","diff_ids":[]}}`, runtime.GOARCH))
 	configSHA := put(configWire)
 	manifestWire := []byte(fmt.Sprintf(`{"schemaVersion":2,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:%s","size":%d},"layers":[]}`, configSHA, len(configWire)))
 	imageDigest := put(manifestWire)
@@ -192,8 +194,12 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		if _, err := VerifyNativeRetainedProvenance(ctx, bundle, roots, target, data, now, now.Add(time.Minute), open); err == nil {
 			t.Fatal("native source bytes omitted")
 		}
-		nativeProof.Data.SourceArchitecture = "arm64"
-		nativeProof.SourceCPU.Architecture = "arm64"
+		otherArchitecture := "arm64"
+		if runtime.GOARCH == "arm64" {
+			otherArchitecture = "amd64"
+		}
+		nativeProof.Data.SourceArchitecture = otherArchitecture
+		nativeProof.SourceCPU.Architecture = otherArchitecture
 		if _, err := VerifyStatefulCurrent(ctx, makeBundle(nativeProof), roots, target, nativeProof.Data, cpu, now, now.Add(time.Minute), open); err == nil {
 			t.Fatal("native ELF machine changed by a signed claim")
 		}

@@ -41,7 +41,7 @@ type Binding struct {
 // identity; a container namespace PID cannot stand in for the host PID.
 // VerifyRemoval additionally requires a retained final survivor drain receipt
 // and independent observation that this task's exact writer process stopped.
-// No production adapter exists yet: leaving Bindings nil deliberately denies it.
+// Source is the concrete worker adapter; absent bindings deliberately deny it.
 type BindingSource interface {
 	VerifyTaskBinding(context.Context, *api.Task) (Binding, error)
 	VerifyRemoval(context.Context, *api.Task, Binding) error
