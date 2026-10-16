@@ -149,6 +149,16 @@ func TestExecutorSafetyIntegration(t *testing.T) {
 	if effects != 2 {
 		t.Fatalf("prepared effects = %d", effects)
 	}
+	if err := hooks.WithTaskEffect(ctx, task, func(held context.Context) error {
+		changed := task.Copy()
+		delete(changed.Annotations.Labels, "terrascale.role")
+		if err := hooks.BeforeStart(held, changed); !errors.Is(err, ErrUnsafe) {
+			t.Fatalf("changed task labels bypassed binding: %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	var expired context.Context
 	if err := hooks.WithTaskEffect(ctx, task, func(held context.Context) error { expired = held; return nil }); err != nil {
 		t.Fatal(err)
