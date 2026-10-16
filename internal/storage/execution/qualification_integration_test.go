@@ -33,6 +33,11 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	signerPublic, signer, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signerID, _ := trust.KeyID(signerPublic)
 	rootID, _ := trust.KeyID(rootPublic)
 	qualifierID, _ := trust.KeyID(qualifierPublic)
 	roots := trust.Keyring{rootID: rootPublic, qualifierID: qualifierPublic}
@@ -91,7 +96,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		}
 		return wire
 	}
-	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "fixture", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: rootID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(rootPublic), Role: target.Role, Environment: target.Environment, SequenceFloor: 100}
+	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "fixture", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: signerID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Role: target.Role, Environment: target.Environment, SequenceFloor: 100}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)})
 	}
@@ -104,6 +109,14 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	migrationSHA, err := trust.Fingerprint(migrationEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: signerID, SubjectPublicKey: base64.RawURLEncoding.EncodeToString(signerPublic), Capabilities: []trust.Capability{{Domain: release.ContainerClaimDomain, DeploymentID: release.ContainerScope(target).DeploymentID, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Slots: []string{"linux-amd64"}, Actions: []string{"sign"}}}}, now, now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grant)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +145,7 @@ func TestStatefulQualificationHTTPIntegration(t *testing.T) {
 		expected := release.ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: imageDigest, QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: release.ProductionRuntime}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: expected, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: put(ha), Bytes: int64(len(ha)), CompletedAt: now}, {Gate: "workload-safety", SHA256: put(wire), Bytes: int64(len(wire)), CompletedAt: now}}}
 		claim.Production.Qualification = sign(qualification, release.ProductionQualificationScope(expected), qualifier)
-		return release.ContainerBundle{Claim: sign(claim, release.ContainerScope(target), root), Migration: migrationWire}
+		return release.ContainerBundle{Claim: sign(claim, release.ContainerScope(target), signer), Migration: migrationWire, Delegation: grantWire}
 	}
 	bundle := makeBundle(proof)
 	verified, err := VerifyStatefulCurrent(ctx, bundle, roots, target, data, cpu, now, now.Add(time.Minute), open)
