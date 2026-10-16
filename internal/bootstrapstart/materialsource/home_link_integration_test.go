@@ -39,7 +39,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
 	homeProtocol := &materialProtocol{directory: t.TempDir(), target: target}
 	objects, homeManagement, homeBundles := publicLinkSDK(t, homeProtocol, "sa-saopaulo-1")
-	spokeTarget := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfo-control", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
+	spokeTarget := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..sfocontrol", VaultOCID: "ocid1.vault.oc1.us-sanjose-1.vault", KMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.key"}
 	spokeProtocol := &materialProtocol{directory: t.TempDir(), target: spokeTarget}
 	_, spokeManagement, spokeBundles := publicLinkSDK(t, spokeProtocol, "us-sanjose-1")
 	cfg := bootstrapmaterial.Config{Environment: "production", Region: "sa-saopaulo-1", Cell: "gru", DeploymentID: anchor.Anchor().DeploymentID, ClusterID: anchor.Anchor().ClusterID, SubnetCIDR: "10.251.0.0/24", ValidityHours: 48, Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.11"}, {Name: "controller-b", PrivateIP: "10.251.0.12"}, {Name: "controller-c", PrivateIP: "10.251.0.13"}}}
@@ -149,7 +149,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	homeBindingWire, _ := json.Marshal([]string{"link", digestWire(inventories[0].MaterialRecord()), digestWire(inventories[0].MaterialRecord()), ""}, json.Deterministic(true))
 	homeBinding := digestWire(homeBindingWire)
 	homeKey := "private/bootstrap/bootstrap/v2/material-source/link-" + digestWire([]byte(grant.InstallationID+"\x00gru\x00link\x00"+homeBinding)) + ".json"
-	homeState := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "link", BindingSHA256: homeBinding, InstallationID: grant.InstallationID, Cell: "gru", Generation: 1, PlanSHA256: templates[0].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.home-link", SHA256: digestWire([]byte("home-link-archive")), MaxBytes: 100}, Journal: homeJournal}
+	homeState := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "link", BindingSHA256: homeBinding, InstallationID: grant.InstallationID, Cell: "gru", Generation: 1, PlanSHA256: templates[0].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.homelink", SHA256: digestWire([]byte("home-link-archive")), MaxBytes: 100}, Journal: homeJournal}
 	publicLinkState(t, homeProtocol, homeKey, homeState)
 	homeEvidence := bootstrap.RegionalLinkEvidence{Actor: inventories[0].OriginalActor(), SourceObjectKey: homeKey, SourceSHA256: homeState.Reference.SHA256, MaterialRecord: homeMetadata, Journal: homeJournal, References: homePublication.LinkGenerationReferences()}
 	if _, err := bootstrap.VerifyStartupLink(t.Context(), templates[0], objects, homeEvidence, now); err != nil {
@@ -169,7 +169,7 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 	}
 	metadata, _ := os.ReadFile(filepath.Join(spokeLinkDir, "material.json"))
 	journal, _ := os.ReadFile(filepath.Join(spokeLinkDir, "publication.json"))
-	state := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "spoke-link-v1", BindingSHA256: recipient.BindingSHA256(), InstallationID: grant.InstallationID, Cell: "sfo", Generation: 1, PlanSHA256: templates[1].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.spoke-link", SHA256: digestWire([]byte("spoke-link-archive")), MaxBytes: 100}, Journal: journal}
+	state := materialSourceState{SchemaVersion: 1, Actor: states[0].Actor, Kind: "spoke-link-v1", BindingSHA256: recipient.BindingSHA256(), InstallationID: grant.InstallationID, Cell: "sfo", Generation: 1, PlanSHA256: templates[1].PlanDigest(), Target: target, Reference: materialSourceReference{SecretOCID: "ocid1.vaultsecret.oc1.sa-saopaulo-1.spokelink", SHA256: digestWire([]byte("spoke-link-archive")), MaxBytes: 100}, Journal: journal}
 	evidence := bootstrap.RegionalLinkEvidence{Actor: inventories[0].OriginalActor(), SourceObjectKey: recipient.LinkObjectKey(), SourceSHA256: state.Reference.SHA256, MaterialRecord: metadata, Journal: journal, References: publication.LinkGenerationReferences()}
 	deliveryPayload, _ := bootstrap.LinkDeliveryPayload(evidence)
 	key, _ := os.ReadFile(filepath.Join(sourceDirs[0], "founder-ledger.key"))
