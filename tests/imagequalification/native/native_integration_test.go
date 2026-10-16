@@ -13,9 +13,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -59,6 +61,9 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 	if _, err := readPrivateKey(link); err == nil {
 		t.Fatal("symlink key accepted")
 	}
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ready") }))
+	defer web.Close()
+	endpoint, _ := url.Parse(web.URL)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -86,13 +91,42 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 		go ssh.DiscardRequests(requests)
 		go func() {
 			for c := range channels {
-				_ = c.Reject(ssh.UnknownChannelType, "fixture has no shell")
+				if c.ChannelType() != "direct-tcpip" {
+					_ = c.Reject(ssh.UnknownChannelType, "fixture has no shell")
+					continue
+				}
+				var target struct {
+					Host       string
+					Port       uint32
+					OriginHost string
+					OriginPort uint32
+				}
+				if err := ssh.Unmarshal(c.ExtraData(), &target); err != nil || net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port))) != endpoint.Host {
+					_ = c.Reject(ssh.Prohibited, "wrong HTTP target")
+					continue
+				}
+				remote, err := net.Dial("tcp", endpoint.Host)
+				if err != nil {
+					_ = c.Reject(ssh.ConnectionFailed, err.Error())
+					continue
+				}
+				channel, requests, err := c.Accept()
+				if err != nil {
+					remote.Close()
+					continue
+				}
+				go ssh.DiscardRequests(requests)
+				go func() { _, _ = io.Copy(channel, remote); channel.Close() }()
+				go func() { _, _ = io.Copy(remote, channel); remote.Close() }()
 			}
 		}()
 		finished <- server.Wait()
 	}()
 	client, err := ssh.Dial("tcp", listener.Addr().String(), &ssh.ClientConfig{User: "fixture", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, HostKeyCallback: ssh.FixedHostKey(signer.PublicKey()), Timeout: time.Second})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := probeHTTP(t.Context(), web.URL+"/readyz", client.DialContext); err != nil {
 		t.Fatal(err)
 	}
 	client.Close()
@@ -172,13 +206,17 @@ func TestContinuousHTTPRecordsProcessWindowAndRejectsOutage(t *testing.T) {
 		}
 		return nil
 	}
-	if err := continuous(ctx, func(ctx context.Context) error { return probeHTTP(ctx, server.URL+"/readyz") }, action, func(error) { samples.Add(1) }); err != nil {
+	if err := continuous(ctx, func(ctx context.Context) error {
+		return probeHTTP(ctx, server.URL+"/readyz", (&net.Dialer{}).DialContext)
+	}, action, func(error) { samples.Add(1) }); err != nil {
 		t.Fatal(err)
 	}
 	if samples.Load() < 3 {
 		t.Fatalf("only %d HTTP samples during child process", samples.Load())
 	}
-	err := continuous(ctx, func(ctx context.Context) error { return probeHTTP(ctx, server.URL+"/readyz") }, func() error {
+	err := continuous(ctx, func(ctx context.Context) error {
+		return probeHTTP(ctx, server.URL+"/readyz", (&net.Dialer{}).DialContext)
+	}, func() error {
 		status.Store(http.StatusServiceUnavailable)
 		return exec.CommandContext(ctx, "sh", "-c", "sleep 0.25").Run()
 	}, func(error) {})

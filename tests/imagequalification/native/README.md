@@ -9,7 +9,10 @@ Build `./tests/imagequalification/native/cmd/native-worker` from the exact sourc
 candidate for the target architecture. The parent supplies its SHA256, the image
 component hashes, the immutable architecture-specific smoke image child manifest,
 and a pinned OCI archive of that workload. The runner transfers only the worker
-and archive over pinned SSH. The archive is imported and unpacked locally; CORE's
+and archive over pinned SSH. Driver continuity probes use direct-tcpip forwarding through
+the same pinned SSH connection to host loopback port 18080; the runner needs
+SSH ingress only. Manager-to-worker readiness probes use the exact peer-only
+ports 18080, 18081, 18082 and 18083. The archive is imported and unpacked locally; CORE's
 cached exact-image execution path requires no registry access. NetBird and
 production units must be inactive. No production secrets or NetBird membership
 are installed. The launch bootstrap must create `/run/ts-native-disposable` with

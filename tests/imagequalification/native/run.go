@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"os"
@@ -353,7 +354,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		return nil
 	}
 	probe := func(ctx context.Context) error {
-		return probeHTTP(ctx, "http://"+req.Hosts[servingIndex].Address+":18080/readyz")
+		return sessions[servingIndex].peer.probeHTTP(ctx)
 	}
 	disruptive := func(name string, action func() error) error {
 		start := time.Now().UTC()
@@ -593,10 +594,10 @@ func wait(ctx context.Context, condition func() (bool, error)) error {
 	}
 }
 
-func probeHTTP(ctx context.Context, url string) error {
+func probeHTTP(ctx context.Context, url string, dial func(context.Context, string, string) (net.Conn, error)) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-	client := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	client := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true, DialContext: dial}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer client.CloseIdleConnections()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

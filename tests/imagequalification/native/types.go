@@ -129,5 +129,6 @@ type response struct {
 
 type peer interface {
 	call(context.Context, command) (response, error)
+	probeHTTP(context.Context) error
 	close() error
 }

@@ -173,3 +173,7 @@ func fileDigest(path string) (string, error) {
 	}
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
+
+func (p *sshPeer) probeHTTP(ctx context.Context) error {
+	return probeHTTP(ctx, "http://127.0.0.1:18080/readyz", p.client.DialContext)
+}
