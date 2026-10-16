@@ -283,18 +283,7 @@ func publicLinkState(t *testing.T, protocol *materialProtocol, key string, state
 
 func publicLinkSDK(t *testing.T, protocol *materialProtocol, ociRegion string) (*objectstorage.ObjectStorageClient, *ocivault.VaultsClient, *ocisecrets.SecretsClient) {
 	t.Helper()
-	endpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		request := r.Clone(r.Context())
-		request.URL = r.URL.Clone()
-		request.URL.Path = strings.ReplaceAll(request.URL.Path, "ocid1.vaultsecret.oc1."+ociRegion+".", "ocid1.vaultsecret.oc1.sa-saopaulo-1.")
-		recorder := httptest.NewRecorder()
-		protocol.ServeHTTP(recorder, request)
-		for name, values := range recorder.Header() {
-			w.Header()[name] = slices.Clone(values)
-		}
-		w.WriteHeader(recorder.Code)
-		w.Write(bytes.ReplaceAll(recorder.Body.Bytes(), []byte("ocid1.vaultsecret.oc1.sa-saopaulo-1."), []byte("ocid1.vaultsecret.oc1."+ociRegion+".")))
-	}))
+	endpoint := httptest.NewServer(protocol)
 	t.Cleanup(endpoint.Close)
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

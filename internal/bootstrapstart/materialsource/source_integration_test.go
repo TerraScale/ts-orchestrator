@@ -695,6 +695,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(replacement.Record(), sources[0].Record()) {
 		t.Fatalf("trusted source repair: %v", err)
 	}
+	if _, err := replacement.Provision(t.Context(), target, &management, &bundles, now); err != nil || protocol.creates != 28 {
+		t.Fatalf("trusted source publication replay: %v", err)
+	}
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
 	}
