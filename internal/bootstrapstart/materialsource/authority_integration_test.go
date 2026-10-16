@@ -6,13 +6,14 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json/v2"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"strings"
-	"testing"
-	"time"
 )
 
 func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyring, now time.Time, config bootstrapmaterial.Config, ids map[string]any, initialIntent []byte) (bootstrap.StartupTemplate, release.ImageReceipt) {
@@ -30,7 +31,7 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 		t.Fatal(err)
 	}
 	digest := strings.Repeat("a", 64)
-	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1." + config.Region + ".BASE", BaseImageRegion: strings.ToUpper(config.Cell), BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1." + config.Region + ".CUSTOM", OCIRegion: strings.ToUpper(config.Cell)}
+	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1." + config.Region + ".base", BaseImageRegion: strings.ToUpper(config.Cell), BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1." + config.Region + ".custom", OCIRegion: strings.ToUpper(config.Cell)}
 	scope := release.ImageScope(receipt, "production")
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {
@@ -62,6 +63,9 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 			body = bytes.Clone(initialIntent)
 		}
 		template.ControllerFiles = append(template.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: body, SHA256: digestWire(body)})
+	}
+	if err := template.Validate(); err != nil {
+		t.Fatal(err)
 	}
 	return template, receipt
 }
