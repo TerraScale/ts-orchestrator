@@ -106,6 +106,7 @@ esac
 			trust := filepath.Join(root, "trust")
 			write(trust, "fixture trust", 0644)
 			providerCalls := 0
+			var progress bytes.Buffer
 			err = Promote(t.Context(), root, PromotionOptions{ImageDir: input, Out: out, Environment: "canary",
 				Delegation: trust, RootKey: trust, BinaryReceipt: trust, ReleaseTool: verifier, Resume: resume,
 				CompartmentID: "compartment", Namespace: "namespace", Bucket: "bucket", DisplayName: "fixture",
@@ -113,9 +114,12 @@ esac
 				Importer: func(string) (imageimport.Importer, error) {
 					providerCalls++
 					return imageimport.Importer{}, fmt.Errorf("OCI must not be reached")
-				}}, new(bytes.Buffer))
+				}}, &progress)
 			if err == nil || !strings.Contains(err.Error(), "final image production qualification") || providerCalls != 0 {
 				t.Fatalf("proof rejection must precede OCI: err=%v providerCalls=%d", err, providerCalls)
+			}
+			if strings.Contains(progress.String(), "reusing completed OCI import") || strings.Contains(progress.String(), "imported image_ocid=") {
+				t.Fatalf("rejected proof reached the completed-import resume block: %s", progress.String())
 			}
 			commands, err := os.ReadFile(commandLog)
 			if err != nil {
