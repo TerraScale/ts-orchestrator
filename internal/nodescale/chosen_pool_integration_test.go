@@ -67,9 +67,31 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if err := restarted.Grow(ctx, 0); err != nil || cloud.updates != updates {
 		t.Fatalf("restart did not recognize observed growth: %v", err)
 	}
+	nextAction := &InFlight{ID: entityid.New(), Kind: Up}
+	revision, err = store.Save(ctx, Record{Recipe: new(chosen), Action: nextAction}, revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
+		t.Fatalf("new operation reused a previous launch admission: %v", err)
+	}
+	if _, err := restarted.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) {
+		t.Fatalf("new configuration was accepted before OCI applied it: %v", err)
+	}
+	cloud.settle()
+	nextState, err := restarted.Ensure(ctx, chosen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextLaunch := cloud.configs[nextState.ConfigurationID].InstanceDetails.(core.ComputeInstanceDetails).LaunchDetails
+	if nextState.ConfigurationID == state.ConfigurationID || nextLaunch.FreeformTags[tagOperationID] != nextAction.ID ||
+		nextLaunch.FreeformTags[tagRecipeSHA256] != chosen.SHA256() {
+		t.Fatalf("new operation retained the previous spending identity: %+v", nextLaunch)
+	}
+	updates = cloud.updates
 	changed := chosen
 	changed.ImageID = "ocid1.image.replacement"
-	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: action}, revision); err != nil {
+	if _, err := store.Save(ctx, Record{Recipe: new(changed), Action: nextAction}, revision); err != nil {
 		t.Fatal(err)
 	}
 	if err := restarted.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) || cloud.updates != updates {
