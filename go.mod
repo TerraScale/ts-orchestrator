@@ -5,11 +5,13 @@ go 1.27.0
 require (
 	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/a-h/templ v0.3.1020
+	github.com/distribution/reference v0.6.0
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats-server/v2 v2.15.0
 	github.com/nats-io/nats.go v1.54.0
 	github.com/nats-io/nkeys v0.4.16
 	github.com/oklog/ulid/v2 v2.1.2
+	github.com/opencontainers/image-spec v1.1.1
 	github.com/oracle/oci-go-sdk/v65 v65.126.0
 	github.com/starfederation/datastar-go v1.2.2
 	github.com/tetratelabs/wazero v1.12.0
@@ -40,6 +42,7 @@ require (
 	github.com/minio/highwayhash v1.0.4 // indirect
 	github.com/natefinch/atomic v1.0.1 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
+	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fastrand v1.1.0 // indirect
