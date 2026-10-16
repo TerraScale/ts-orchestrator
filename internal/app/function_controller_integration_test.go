@@ -265,8 +265,11 @@ func (signer functionPublicationSigner) workerUntil(t *testing.T, target release
 	}
 	evidence := []byte("test worker qualification evidence")
 	digest := sha256.Sum256(evidence)
+	nativeDigest := strings.Repeat("c", 64)
+	index := fmt.Appendf(nil, `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":%q,"size":42,"platform":{"os":"linux","architecture":%q}}]}`, "sha256:"+nativeDigest, target.Architecture)
+	indexDigest := sha256.Sum256(index)
 	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
-		Candidate: release.ProductionExpectation{SourceRevision: strings.Repeat("b", 40), ArtifactSHA256: strings.Repeat("c", 64), QualificationSHA256: strings.Repeat("d", 64),
+		Candidate: release.ProductionExpectation{SourceRevision: strings.Repeat("b", 40), ArtifactSHA256: nativeDigest, QualificationSHA256: hex.EncodeToString(indexDigest[:]),
 			Cell: target.Cell, Environment: target.Environment, Runtime: release.ProductionRuntime, Architecture: target.Architecture, Role: target.Role}}
 	for _, gate := range []string{"runtime-ha", "workload-safety"} {
 		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{Gate: gate, SHA256: hex.EncodeToString(digest[:]), Bytes: int64(len(evidence)), CompletedAt: now})
@@ -316,7 +319,7 @@ func (signer functionPublicationSigner) workerUntil(t *testing.T, target release
 	if err != nil || sequence != claim.ReleaseSequence {
 		t.Fatalf("allocate signed worker sequence: got %d, want %d: %v", sequence, claim.ReleaseSequence, err)
 	}
-	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, expires), Delegation: delegationWire, Migration: migrationWire, Sequence: sequenceWire},
+	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, expires), Delegation: delegationWire, Migration: migrationWire, Sequence: sequenceWire, Index: index},
 		func(context.Context, string) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(evidence)), nil
 		}
