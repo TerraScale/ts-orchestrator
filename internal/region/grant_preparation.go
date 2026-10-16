@@ -89,6 +89,23 @@ func (input FoundationPreparationInput) validate() error {
 		}
 		remaining -= host.MonthlyLimitMinor
 	}
+	return validatePreparedReleaseAuthorities(input.ReleaseAuthorities)
+}
+
+func validatePreparedReleaseAuthorities(authorities []ContainerReleaseAuthorityIntent) error {
+	for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
+		covered := false
+		for _, authority := range authorities {
+			if authority.Role == role && authority.Environment == "production" &&
+				slices.Contains(authority.Cells, "GRU") && slices.Contains(authority.Cells, "SFO") && slices.Contains(authority.Cells, "FRA") &&
+				slices.Contains(authority.Architectures, "arm64") && slices.Contains(authority.Architectures, "amd64") {
+				covered = true
+			}
+		}
+		if !covered {
+			return fmt.Errorf("initial approval lacks the complete explicitly approved %s production release authority", role)
+		}
+	}
 	return nil
 }
 
@@ -424,6 +441,9 @@ func controllerBootstrapSlot(installation, cell string, startup bootstrap.Startu
 // ValidatePreparedFoundation prevents the ceremony from signing spending
 // hashes unrelated to the recipes its launch consumers actually enforce.
 func ValidatePreparedFoundation(grant FoundationGrant) error {
+	if err := validatePreparedReleaseAuthorities(grant.ReleaseAuthorities); err != nil {
+		return err
+	}
 	if err := ValidateBootstrapSpending(grant); err != nil {
 		return err
 	}

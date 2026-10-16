@@ -228,6 +228,22 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	if !grantEnvelope.ExpiresAt.Equal(now.Add(30*time.Minute)) || anchorEnvelope.ExpiresAt.After(grantEnvelope.ExpiresAt) {
 		t.Fatal("root ceremony extended the shortest release delegation or grant authority")
 	}
+	t.Run("missing service authority cannot be signed", func(t *testing.T) {
+		partial := prepared
+		partial.Grant.ReleaseAuthorities = partial.Grant.ReleaseAuthorities[:2]
+		wire, err := protocol.EncodeJSON(partial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, refused := filepath.Join(directory, "partial.json"), filepath.Join(directory, "partial-signature.json")
+		writeFixture(t, path, wire, 0o644)
+		if err := command.signFoundationAt([]string{"--candidate", path, "--root-chain", chainPath, "--root-key", rootPath, "--signing-key", privatePath, "--out", refused}, now); err == nil || !strings.Contains(err.Error(), "function-worker") {
+			t.Fatalf("missing application authority was not rejected: %v", err)
+		}
+		if _, err := os.Stat(refused); !os.IsNotExist(err) {
+			t.Fatalf("rejected authority left signed output: %v", err)
+		}
+	})
 	t.Run("allocation cannot replace the startup recipe", func(t *testing.T) {
 		prepared.Grant.InfrastructureSpend.Bootstrap.Slots[0].ProfileSHA256 = strings.Repeat("0", 64)
 		wire, err := protocol.EncodeJSON(prepared)
@@ -273,7 +289,7 @@ func foundationPreparationReleaseAuthorities(t *testing.T, root ed25519.PrivateK
 		t.Fatal(err)
 	}
 	var authorities []region.ContainerReleaseAuthorityIntent
-	for _, role := range []string{"container", "wasm"} {
+	for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
 		delegation := trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: keyWire}
 		migration := release.SequenceMigration{Namespace: home.Namespace, Bucket: home.HeadBucket, Region: "GRU", Schema: release.SequenceMigrationSchema,
 			SignerKeyID: keyID, SignerPublicKey: keyWire, Role: role, Environment: "production", SequenceFloor: 42}
