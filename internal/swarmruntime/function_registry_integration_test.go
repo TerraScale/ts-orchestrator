@@ -24,7 +24,7 @@ import (
 
 type functionRegistryRollbackExecutor struct{ functionSlotExecutor }
 
-func (functionRegistryRollbackExecutor) Controller(_ context.Context, task *api.Task) (exec.Controller, error) {
+func (functionRegistryRollbackExecutor) Controller(task *api.Task) (exec.Controller, error) {
 	if _, err := DecodeContainer(task); err != nil {
 		return nil, err
 	}
