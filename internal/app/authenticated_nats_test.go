@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
@@ -25,6 +26,34 @@ type authenticatedNATS struct {
 	operatorFile, systemFile, cellFile, systemCredentials string
 	ticketPublicFile, ticketPrivateFile, routePassword    string
 	brokers                                               []string
+}
+
+// controller keeps process admission outside broker boundary scenarios, using
+// the same test seams as the production broker-claim CLI scenario.
+func (a *authenticatedNATS) controller(t *testing.T, cfg *Config) {
+	t.Helper()
+	cfg.NATS = a.config(t, cfg.NATS)
+	cfg.Controller.BrokerTicketKeyFile = a.ticketPrivateFile
+	newAcceptedSpecTrust(t, cfg)
+	previousRuntime, previousMarker := controllerRuntimeProduction, controllerMarkerPresent
+	previousBaked, previousBootstrap := controllerBakedInputsPresent, controllerBootstrapProduction
+	previousFounder, previousClock, previousSeed := controllerFounderProduction, controllerBrokerClockProbe, rolloutSeedSlot
+	controllerMarkerPresent = func() (bool, error) { return false, nil }
+	controllerBakedInputsPresent = func() (bool, error) { return true, nil }
+	controllerBootstrapProduction = func(context.Context, Config) error { return nil }
+	controllerFounderProduction = func(context.Context) error { return nil }
+	controllerRuntimeProduction = func(ctx context.Context, cfg Config, _ func() error) (*natscell.Runtime, error) {
+		return natscell.Start(ctx, cfg.NATS)
+	}
+	clock := &testBrokerClock{}
+	clock.healthy.Store(true)
+	controllerBrokerClockProbe = func() brokerauth.ClockProbe { return clock }
+	rolloutSeedSlot = func(cfg Config) (string, error) { return cfg.NATS.Embedded.BrokerIDs[0], nil }
+	t.Cleanup(func() {
+		controllerRuntimeProduction, controllerMarkerPresent = previousRuntime, previousMarker
+		controllerBakedInputsPresent, controllerBootstrapProduction = previousBaked, previousBootstrap
+		controllerFounderProduction, controllerBrokerClockProbe, rolloutSeedSlot = previousFounder, previousClock, previousSeed
+	})
 }
 
 func newAuthenticatedNATS(t *testing.T, cell string, brokers ...string) *authenticatedNATS {
