@@ -7,6 +7,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/netip"
 	"reflect"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/networkplan"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/foundation"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -60,7 +62,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	name := "gru-1-netbird-manager"
 	vcnDetails := core.CreateVcnDetails{CompartmentId: new(compartment), DisplayName: new(name), CidrBlocks: []string{profile.NetworkCIDR}, DnsLabel: new("netbird")}
 	var dhcp string
-	vcn, err := n.ensure(ctx, "vcn", "vcn", vcnDetails, func(ctx context.Context, token string) (string, error) {
+	vcn, err := n.ensure(ctx, "vcn", "vcn", core.CreateVcnRequest{CreateVcnDetails: vcnDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateVcn(ociclient.RequestContext(ctx), core.CreateVcnRequest{CreateVcnDetails: vcnDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -82,7 +84,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 		return "", "", err
 	}
 	igwDetails := core.CreateInternetGatewayDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name), IsEnabled: new(true)}
-	igw, err := n.ensure(ctx, "internet_gateway", "internetgateway", igwDetails, func(ctx context.Context, token string) (string, error) {
+	igw, err := n.ensure(ctx, "internet_gateway", "internetgateway", core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: igwDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateInternetGateway(ociclient.RequestContext(ctx), core.CreateInternetGatewayRequest{CreateInternetGatewayDetails: igwDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -100,7 +102,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	rules := []core.RouteRule{{Destination: new("0.0.0.0/0"), DestinationType: core.RouteRuleDestinationTypeCidrBlock, NetworkEntityId: new(igw)}}
 	routeDetails := core.CreateRouteTableDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name), RouteRules: rules}
-	route, err := n.ensure(ctx, "route", "routetable", routeDetails, func(ctx context.Context, token string) (string, error) {
+	route, err := n.ensure(ctx, "route", "routetable", core.CreateRouteTableRequest{CreateRouteTableDetails: routeDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateRouteTable(ociclient.RequestContext(ctx), core.CreateRouteTableRequest{CreateRouteTableDetails: routeDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -118,7 +120,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	ingress, egress := netBirdManagerRules()
 	securityDetails := core.CreateSecurityListDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name), IngressSecurityRules: ingress, EgressSecurityRules: egress}
-	security, err := n.ensure(ctx, "security_list", "securitylist", securityDetails, func(ctx context.Context, token string) (string, error) {
+	security, err := n.ensure(ctx, "security_list", "securitylist", core.CreateSecurityListRequest{CreateSecurityListDetails: securityDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateSecurityList(ociclient.RequestContext(ctx), core.CreateSecurityListRequest{CreateSecurityListDetails: securityDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -137,7 +139,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	// The atomic security-list create owns permissions; an empty NSG cannot widen them.
 	nsgDetails := core.CreateNetworkSecurityGroupDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name)}
-	nsg, err := n.ensure(ctx, "nsg", "networksecuritygroup", nsgDetails, func(ctx context.Context, token string) (string, error) {
+	nsg, err := n.ensure(ctx, "nsg", "networksecuritygroup", core.CreateNetworkSecurityGroupRequest{CreateNetworkSecurityGroupDetails: nsgDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateNetworkSecurityGroup(ociclient.RequestContext(ctx), core.CreateNetworkSecurityGroupRequest{CreateNetworkSecurityGroupDetails: nsgDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -162,7 +164,7 @@ func ReconcileNetBirdNetwork(ctx context.Context, factory *ociclient.Factory, pl
 	}
 	subnetDetails := core.CreateSubnetDetails{CompartmentId: new(compartment), VcnId: new(vcn), DisplayName: new(name), CidrBlock: new(profile.NetworkCIDR),
 		DnsLabel: new("manager"), DhcpOptionsId: new(dhcp), RouteTableId: new(route), SecurityListIds: []string{security}, ProhibitPublicIpOnVnic: new(false)}
-	subnet, err := n.ensure(ctx, "subnet", "subnet", subnetDetails, func(ctx context.Context, token string) (string, error) {
+	subnet, err := n.ensure(ctx, "subnet", "subnet", core.CreateSubnetRequest{CreateSubnetDetails: subnetDetails}, func(ctx context.Context, token string) (string, error) {
 		r, err := client.CreateSubnet(ociclient.RequestContext(ctx), core.CreateSubnetRequest{CreateSubnetDetails: subnetDetails, OpcRetryToken: new(token)})
 		return value(r.Id), err
 	}, func(ctx context.Context, id string) error {
@@ -192,20 +194,17 @@ type netBirdNetwork struct {
 	compartment string
 }
 
-func (n *netBirdNetwork) ensure(ctx context.Context, suffix, kind string, details any, create func(context.Context, string) (string, error), observe func(context.Context, string) error) (string, error) {
+func (n *netBirdNetwork) ensure(ctx context.Context, suffix, kind string, request common.OCIRequest, create func(context.Context, string) (string, error), observe func(context.Context, string) error) (string, error) {
 	key := "netbird_manager_" + suffix
 	id := n.ids[key]
 	if id == "" {
-		wire, err := json.Marshal(struct {
-			Operation, Key string
-			Details        any
-		}{n.progress.OperationID, key, details}, json.Deterministic(true))
+		requestDigest, err := netBirdNetworkRequestDigest(request)
 		if err != nil {
 			return "", err
 		}
-		digest := sha256.Sum256(wire)
+		digest := sha256.Sum256([]byte(n.progress.OperationID + "\x00" + key + "\x00" + requestDigest))
 		token := hex.EncodeToString(digest[:])
-		if err := n.progress.PrepareCreate(ctx, foundation.CreateIdentity{Key: key, Region: foundationHomeRegion, RequestDigest: token, RetryToken: token}, false); err != nil {
+		if err := n.progress.PrepareCreate(ctx, foundation.CreateIdentity{Key: key, Region: foundationHomeRegion, RequestDigest: requestDigest, RetryToken: token}, false); err != nil {
 			return "", err
 		}
 		child, release, err := n.progress.BeforeWrite(ctx, false)
@@ -249,6 +248,27 @@ func (n *netBirdNetwork) ensure(ctx context.Context, suffix, kind string, detail
 		return "", fmt.Errorf("observe %s: %w", key, err)
 	}
 	return id, nil
+}
+
+func netBirdNetworkRequestDigest(request common.OCIRequest) (string, error) {
+	httpRequest, err := request.HTTPRequest(http.MethodPost, "/", nil, nil)
+	if err != nil {
+		return "", err
+	}
+	if httpRequest.Body == nil {
+		return "", errors.New("NetBird network SDK request has no body")
+	}
+	defer httpRequest.Body.Close()
+	var body map[string]any
+	if err := json.UnmarshalRead(httpRequest.Body, &body); err != nil {
+		return "", err
+	}
+	wire, err := json.Marshal(body, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(wire)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func (n *netBirdNetwork) verifyDNS(ctx context.Context, vcn, id string) error {

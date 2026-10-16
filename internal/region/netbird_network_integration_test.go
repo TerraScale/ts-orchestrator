@@ -71,6 +71,20 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 			w.WriteHeader(400)
 			return
 		}
+		var body map[string]any
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		wire, err := json.Marshal(body, json.Deterministic(true))
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(400)
+			return
+		}
+		actualDigest := sha256.Sum256(wire)
+
 		posts++
 		token := r.Header.Get("opc-retry-token")
 		record, _, err := store.Load(r.Context(), "GRU")
@@ -81,7 +95,7 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 		}
 		prepared := false
 		for _, pending := range record.PendingCreates {
-			if pending.Request.RetryToken == token && token != "" {
+			if pending.Request.RetryToken == token && token != "" && pending.Request.RequestDigest == hex.EncodeToString(actualDigest[:]) {
 				prepared = true
 			}
 		}
@@ -95,12 +109,6 @@ func TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift(t *testing.T) {
 				t.Error("retry token crossed resource kinds")
 			}
 			json.MarshalWrite(w, live[collection])
-			return
-		}
-		var body map[string]any
-		if err := json.UnmarshalRead(r.Body, &body); err != nil {
-			t.Error(err)
-			w.WriteHeader(400)
 			return
 		}
 		body["id"], body["lifecycleState"] = idFor(ids[collection]), "AVAILABLE"
