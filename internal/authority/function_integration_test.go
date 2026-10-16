@@ -141,21 +141,30 @@ func (stream *functionExpiryRead) GetLastMsgForSubject(ctx context.Context, subj
 }
 
 func TestFunctionProofExpiresInsideFencedCommit(t *testing.T) {
-	fixture := newAuthorityFunctionFixture(t)
-	js := newAuthorityTestJetStream(t)
-	runtime := startFunctionAuthority(t, js)
-	proof := fixture.proof(t, 42, "first", 2*time.Second)
-	key, err := functionIntentKey(fixture.claim.TenantID, fixture.claim.FunctionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	runtime.stream = &functionExpiryRead{Stream: runtime.stream,
-		subject: mutationSubject("gru", MutationFunctionIntent, key), expires: proof.ExpiresAt()}
-	if _, err := runtime.CommitFunctionIntent(t.Context(), runtime.Current().Epoch, entityid.New(), 0, proof); !errors.Is(err, trust.ErrExpired) {
-		t.Fatalf("signature expired during durable state read: %v", err)
-	}
-	if _, err := runtime.ReadFunctionIntent(t.Context(), fixture.claim.TenantID, fixture.claim.FunctionID); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("expired function intent was published: %v", err)
+	for _, stage := range []string{"compare-and-set-read", "verifier-read"} {
+		t.Run(stage, func(t *testing.T) {
+			fixture := newAuthorityFunctionFixture(t)
+			js := newAuthorityTestJetStream(t)
+			runtime := startFunctionAuthority(t, js)
+			proof := fixture.proof(t, 42, "first", 2*time.Second)
+			key, err := functionIntentKey(fixture.claim.TenantID, fixture.claim.FunctionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stage == "compare-and-set-read" {
+				runtime.stream = &functionExpiryRead{Stream: runtime.stream,
+					subject: mutationSubject("gru", MutationFunctionIntent, key), expires: proof.ExpiresAt()}
+			} else {
+				runtime.readStream = &functionExpiryRead{Stream: runtime.readStream,
+					subject: mutationSubject("gru", MutationFunctionIntent, key), expires: proof.ExpiresAt()}
+			}
+			if _, err := runtime.CommitFunctionIntent(t.Context(), runtime.Current().Epoch, entityid.New(), 0, proof); !errors.Is(err, trust.ErrExpired) {
+				t.Fatalf("signature expired during durable state read: %v", err)
+			}
+			if _, err := runtime.ReadFunctionIntent(t.Context(), fixture.claim.TenantID, fixture.claim.FunctionID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("expired function intent was published: %v", err)
+			}
+		})
 	}
 }
 
