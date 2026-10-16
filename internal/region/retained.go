@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -81,4 +85,48 @@ func readCurrentFoundation(ctx context.Context, client foundationDiscoveryObject
 		return RetainedFoundation{}, fmt.Errorf("%w: read current root chain: %w", ErrFoundationDiscoveryPending, err)
 	}
 	return RetainedFoundation{TenancyID: tenancy, Namespace: namespace, RootChainWire: chain, AnchorWire: anchor}, nil
+}
+
+// VerifiedBootstrapIntent is read-only evidence of the signed startup recipe.
+// Logical resources remain unresolved; this type grants no credential creation,
+// OCI resource binding, source installation or founder authority.
+type VerifiedBootstrapIntent struct {
+	intent     BootstrapMaterialIntent
+	generation uint64
+	expires    time.Time
+	image      release.VerifiedImage
+	grantWire  []byte
+}
+
+func (v VerifiedBootstrapIntent) IsVerified() bool            { return v.generation > 0 }
+func (v VerifiedBootstrapIntent) Generation() uint64          { return v.generation }
+func (v VerifiedBootstrapIntent) ExpiresAt() time.Time        { return v.expires }
+func (v VerifiedBootstrapIntent) FoundationGrantWire() []byte { return bytes.Clone(v.grantWire) }
+func (v VerifiedBootstrapIntent) Config() bootstrapmaterial.Config {
+	config := v.intent.Config
+	config.Slots = slices.Clone(config.Slots)
+	return config
+}
+func (v VerifiedBootstrapIntent) Startup() (BootstrapStartupIntent, error) {
+	if !v.IsVerified() || !time.Now().Before(v.expires) || v.intent.Startup == nil || !v.image.IsVerified() {
+		return BootstrapStartupIntent{}, errors.New("signed bootstrap intent is absent or expired")
+	}
+	return v.intent.Startup.Clone(), nil
+}
+func (v VerifiedBootstrapIntent) Image() (release.VerifiedImage, error) {
+	if _, err := v.Startup(); err != nil {
+		return release.VerifiedImage{}, err
+	}
+	return v.image, nil
+}
+
+// BootstrapIntent verifies public release evidence without resolving logical
+// resources or returning the production material/installation authority type.
+func (r FoundationResolver) BootstrapIntent(ctx context.Context, cell string) (VerifiedBootstrapIntent, error) {
+	reader, ok := r.Footprint.(*SignedFootprint)
+	if !ok {
+		return VerifiedBootstrapIntent{}, errors.New("bootstrap intent requires authenticated signed footprint")
+	}
+	intent, _, err := reader.bootstrapIntent(ctx, cell)
+	return intent, err
 }

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 )
 
 func (f *currentDiscoveryScenario) export(t *testing.T) RetainedFoundation {
@@ -37,90 +39,156 @@ func (f *currentDiscoveryScenario) snapshot() RetainedFoundation {
 }
 
 func TestRetainedFoundationHTTPFilesystemOffline(t *testing.T) {
-	f := newCurrentDiscoveryScenario(t)
-	config := bootstrapmaterial.Config{Environment: "production", Region: foundationHomeRegion, Cell: "gru", DeploymentID: f.anchor.DeploymentID, ClusterID: f.anchor.ClusterID,
-		SubnetCIDR: "10.251.0.0/24", ValidityHours: 24, Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.11"}, {Name: "controller-b", PrivateIP: "10.251.0.12"}, {Name: "controller-c", PrivateIP: "10.251.0.13"}}}
-	configWire, err := json.Marshal(config, json.Deterministic(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	digest := sha256.Sum256(configWire)
-	f.anchor.InitialSourceRegistration.PlanSHA256 = hex.EncodeToString(digest[:])
-	registration := f.anchor.InitialSourceRegistration.Clone()
-	startup, _ := foundationImageRecipe(t, f.root, f.genesis, f.now, config)
-	for i, name := range bootstrap.ControllerConfigFileNames {
-		wire := []byte(`{"schemaVersion":1}`)
-		if i == 0 {
-			wire = f.anchor.InitialRegionIntentWire
-		}
-		sum := sha256.Sum256(wire)
-		startup.ControllerFiles = append(startup.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: wire, SHA256: hex.EncodeToString(sum[:])})
-	}
-	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.test", KMSKeyOCID: f.anchor.StorageDomain.HeadKMSKeyOCID}
-	f.grant.Regions[0].BootstrapMaterial = &BootstrapMaterialIntent{InstallationID: f.grant.InstallationID, PlanSHA256: registration.PlanSHA256, Config: config, SourceVaultTarget: target, SourceRegistration: &registration, Startup: &startup}
-	f.grant.Regions[0].Plan["resource_ids"] = map[string]any{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID, "subnet": startup.Profiles[0].SubnetOCID, "network_security_group": startup.Profiles[0].NetworkSecurityGroupOCIDs[0]}
-	f.publish()
-	snapshot := f.export(t)
-	original := f.snapshot()
-	if !bytes.Equal(snapshot.RootChainWire, original.RootChainWire) || !bytes.Equal(snapshot.AnchorWire, original.AnchorWire) || !bytes.Equal(snapshot.GrantWire, original.GrantWire) {
-		t.Fatal("export changed signed object bytes")
-	}
-	path := filepath.Join(t.TempDir(), "foundation-discovery.json")
-	wire, err := json.Marshal(snapshot, json.Deterministic(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, wire, 0600); err != nil {
-		t.Fatal(err)
-	}
-	wire, err = os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var restored RetainedFoundation
-	if err := json.Unmarshal(wire, &restored, json.RejectUnknownMembers(true)); err != nil {
-		t.Fatal(err)
-	}
-	// No source SDK endpoint remains reachable after transport to the candidate.
-	f.client.(*objectstorage.ObjectStorageClient).Host = "http://127.0.0.1:1"
-	resolver, err := verifyRetainedFoundation(t.Context(), restored, f.genesis)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolver.Store != nil {
-		t.Fatal("offline scope acquired a cloud foundation store")
-	}
-	footprint, err := resolver.Footprint.AuthorizedRegions(t.Context())
-	if err != nil || footprint.TenancyID != snapshot.TenancyID {
-		t.Fatalf("offline scope: %+v %v", footprint, err)
-	}
-	material, err := resolver.BootstrapMaterial(t.Context(), "GRU")
-	if err != nil || !material.IsVerified() || material.Generation() != 1 || material.Config().DeploymentID != config.DeploymentID {
-		t.Fatalf("offline bootstrap material: %+v %v", material, err)
-	}
-	if _, err := material.Startup(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := material.Image(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := material.SourceRegistration(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := resolver.BootstrapMaterial(t.Context(), "FRA"); err == nil {
-		t.Fatal("retained scope authorized absent region")
-	}
-	restored.GrantWire[0] ^= 1
-	if _, err := resolver.Footprint.AuthorizedRegions(t.Context()); err != nil {
-		t.Fatalf("caller modified retained reader authority: %v", err)
-	}
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	if _, err := resolver.Footprint.AuthorizedRegions(ctx); !errors.Is(err, context.Canceled) {
-		t.Fatalf("offline read ignored cancellation: %v", err)
-	}
-	if _, err := VerifyRetainedFoundation(t.Context(), snapshot); err == nil {
-		t.Fatal("downloaded fixture signer replaced embedded production genesis")
+	for _, schema := range []int{1, 2} {
+		t.Run(fmt.Sprintf("schema%d", schema), func(t *testing.T) {
+			f := newCurrentDiscoveryScenario(t)
+			f.grant.SchemaVersion = schema
+			config := bootstrapmaterial.Config{Environment: "production", Region: foundationHomeRegion, Cell: "gru", DeploymentID: f.anchor.DeploymentID, ClusterID: f.anchor.ClusterID,
+				SubnetCIDR: "10.251.0.0/24", ValidityHours: 24, Slots: []bootstrapmaterial.Slot{{Name: "controller-a", PrivateIP: "10.251.0.11"}, {Name: "controller-b", PrivateIP: "10.251.0.12"}, {Name: "controller-c", PrivateIP: "10.251.0.13"}}}
+			configWire, err := json.Marshal(config, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(configWire)
+			f.anchor.InitialSourceRegistration.PlanSHA256 = hex.EncodeToString(digest[:])
+			registration := f.anchor.InitialSourceRegistration.Clone()
+			startup, _ := foundationImageRecipe(t, f.root, f.genesis, f.now, config)
+			for i, name := range bootstrap.ControllerConfigFileNames {
+				wire := []byte(`{"schemaVersion":1}`)
+				if i == 0 {
+					wire = f.anchor.InitialRegionIntentWire
+				}
+				sum := sha256.Sum256(wire)
+				startup.ControllerFiles = append(startup.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: wire, SHA256: hex.EncodeToString(sum[:])})
+			}
+			if schema == 2 {
+				ref, err := FoundationResourceReference("GRU", "control_compartment")
+				if err != nil {
+					t.Fatal(err)
+				}
+				for i := range startup.Profiles {
+					startup.Profiles[i].CompartmentOCID = ref
+				}
+				configWire, err := json.Marshal(oci.RegionConfig{Region: oci.RegionGRU, CompartmentID: ref, ImageCompartmentID: ref,
+					SubnetID: startup.Profiles[0].SubnetOCID, NetworkSecurityGroupIDs: startup.Profiles[0].NetworkSecurityGroupOCIDs}, json.Deterministic(true))
+				if err != nil {
+					t.Fatal(err)
+				}
+				digest := sha256.Sum256(configWire)
+				startup.ControllerFiles[1].Bytes = configWire
+				startup.ControllerFiles[1].SHA256 = hex.EncodeToString(digest[:])
+			}
+			target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.test", KMSKeyOCID: f.anchor.StorageDomain.HeadKMSKeyOCID}
+			f.grant.Regions[0].BootstrapMaterial = &BootstrapMaterialIntent{InstallationID: f.grant.InstallationID, PlanSHA256: registration.PlanSHA256, Config: config, SourceVaultTarget: target, SourceRegistration: &registration, Startup: &startup}
+			f.grant.Regions[0].Plan["resource_ids"] = map[string]any{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID, "subnet": startup.Profiles[0].SubnetOCID, "network_security_group": startup.Profiles[0].NetworkSecurityGroupOCIDs[0]}
+			f.publish()
+			snapshot := f.export(t)
+			original := f.snapshot()
+			if !bytes.Equal(snapshot.RootChainWire, original.RootChainWire) || !bytes.Equal(snapshot.AnchorWire, original.AnchorWire) || !bytes.Equal(snapshot.GrantWire, original.GrantWire) {
+				t.Fatal("export changed signed object bytes")
+			}
+			path := filepath.Join(t.TempDir(), "foundation-discovery.json")
+			wire, err := json.Marshal(snapshot, json.Deterministic(true))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, wire, 0600); err != nil {
+				t.Fatal(err)
+			}
+			wire, err = os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var restored RetainedFoundation
+			if err := json.Unmarshal(wire, &restored, json.RejectUnknownMembers(true)); err != nil {
+				t.Fatal(err)
+			}
+			// No source SDK endpoint remains reachable after transport to the candidate.
+			f.client.(*objectstorage.ObjectStorageClient).Host = "http://127.0.0.1:1"
+			resolver, err := verifyRetainedFoundation(t.Context(), restored, f.genesis)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resolver.Store != nil {
+				t.Fatal("offline scope acquired a cloud foundation store")
+			}
+			footprint, err := resolver.Footprint.AuthorizedRegions(t.Context())
+			if err != nil || footprint.TenancyID != snapshot.TenancyID {
+				t.Fatalf("offline scope: %+v %v", footprint, err)
+			}
+			material, err := resolver.BootstrapIntent(t.Context(), "GRU")
+			if err != nil || !material.IsVerified() || material.Generation() != 1 || material.Config().DeploymentID != config.DeploymentID {
+				t.Fatalf("offline bootstrap material: %+v %v", material, err)
+			}
+			logical, err := material.Startup()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if schema == 2 && logical.Profiles[0].CompartmentOCID != startup.Profiles[0].CompartmentOCID {
+				t.Fatal("offline intent projected logical resources")
+			}
+			if !bytes.Equal(material.FoundationGrantWire(), original.GrantWire) {
+				t.Fatal("intent changed original signed grant")
+			}
+			logical.Profiles[0].CompartmentOCID = "changed"
+			again, err := material.Startup()
+			if err != nil || again.Profiles[0].CompartmentOCID != startup.Profiles[0].CompartmentOCID {
+				t.Fatal("intent getter leaked mutable signed recipe")
+			}
+			production, productionErr := resolver.BootstrapMaterial(t.Context(), "GRU")
+			if schema == 2 {
+				if productionErr == nil || production.IsVerified() {
+					t.Fatal("offline logical intent acquired production material authority")
+				}
+			} else {
+				if productionErr != nil {
+					t.Fatal(productionErr)
+				}
+				if _, err := production.SourceRegistration(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := material.Image(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := resolver.BootstrapIntent(t.Context(), "FRA"); err == nil {
+				t.Fatal("retained scope authorized absent region")
+			}
+			restored.GrantWire[0] ^= 1
+			if _, err := resolver.Footprint.AuthorizedRegions(t.Context()); err != nil {
+				t.Fatalf("caller modified retained reader authority: %v", err)
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if _, err := resolver.Footprint.AuthorizedRegions(ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("offline read ignored cancellation: %v", err)
+			}
+			if _, err := VerifyRetainedFoundation(t.Context(), snapshot); err == nil {
+				t.Fatal("downloaded fixture signer replaced embedded production genesis")
+			}
+			if schema == 2 {
+				foreign, err := FoundationResourceReference("FRA", "control_compartment")
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.grant.Regions[0].BootstrapMaterial.Startup.Profiles[0].CompartmentOCID = foreign
+			} else {
+				logical, err := FoundationResourceReference("GRU", "control_compartment")
+				if err != nil {
+					t.Fatal(err)
+				}
+				f.grant.Regions[0].BootstrapMaterial.Startup.Profiles[0].CompartmentOCID = logical
+			}
+			f.publish()
+			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			invalid, err := verifyRetainedFoundation(t.Context(), f.snapshot(), f.genesis)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := invalid.BootstrapIntent(t.Context(), "GRU"); err == nil {
+				t.Fatal("offline intent admitted a foreign role or schema-1 logical reference")
+			}
+		})
 	}
 }
 

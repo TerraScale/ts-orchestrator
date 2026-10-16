@@ -145,13 +145,71 @@ func (v VerifiedBootstrapMaterial) Config() bootstrapmaterial.Config {
 }
 
 func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell string) (VerifiedBootstrapMaterial, error) {
-	grantWire, err := s.readGrant(ctx)
+	proof, plan, err := s.bootstrapIntent(ctx, cell)
 	if err != nil {
 		return VerifiedBootstrapMaterial{}, err
 	}
+	material, grantWire, expires := proof.intent, proof.grantWire, proof.expires
+	config := material.Config
+	var image release.VerifiedImage
+	if material.Startup != nil {
+		startup := material.Startup.Clone()
+		var boundPlan map[string]any
+		startup, boundPlan, err = s.boundStartup(ctx, startup, plan, grantWire)
+		if err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		image, err = s.verifyStartup(startup, config, boundPlan)
+		if err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		material.Startup = &startup
+		if image.ExpiresAt().Before(expires) {
+			expires = image.ExpiresAt()
+		}
+	}
+	config.Slots = slices.Clone(config.Slots)
+	material.Config = config
+	var ledgerPublicKey string
+	if config.Cell == strings.ToLower(string(s.local.Cell)) && len(s.local.LedgerDelegationWire) > 0 {
+		envelope, err := trust.DecodeEnvelope(s.local.LedgerDelegationWire)
+		if err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		if _, err := trust.VerifyDelegationCurrent(envelope, s.roots, time.Now(), bootstrap.BootstrapAnchorTrustPolicy()); err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		var delegation trust.Delegation
+		if err := json.Unmarshal(envelope.Payload, &delegation, json.RejectUnknownMembers(true)); err != nil {
+			return VerifiedBootstrapMaterial{}, err
+		}
+		key, err := base64.RawURLEncoding.Strict().DecodeString(delegation.SubjectPublicKey)
+		if err != nil || len(key) != 32 {
+			return VerifiedBootstrapMaterial{}, errors.New("pinned local ledger signer is invalid")
+		}
+		ledgerPublicKey = base64.StdEncoding.EncodeToString(key)
+	}
+	return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: proof.generation, storage: s.storage, expires: expires, escrow: material.SourceVaultTarget, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
+}
+
+func (s *SignedFootprint) bootstrapIntent(ctx context.Context, cell string) (VerifiedBootstrapIntent, map[string]any, error) {
+	grantWire, err := s.readGrant(ctx)
+	if err != nil {
+		return VerifiedBootstrapIntent{}, nil, err
+	}
 	footprint, expires, err := s.verifyGrant(grantWire)
 	if err != nil {
-		return VerifiedBootstrapMaterial{}, err
+		return VerifiedBootstrapIntent{}, nil, err
+	}
+	envelope, err := trust.DecodeEnvelope(grantWire)
+	if err != nil {
+		return VerifiedBootstrapIntent{}, nil, err
+	}
+	var header struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(envelope.Payload, &header); err != nil {
+		return VerifiedBootstrapIntent{}, nil, err
 	}
 	for _, intent := range footprint.Regions {
 		if intent.Plan["cell"] != cell {
@@ -169,19 +227,19 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			}
 			slices.Sort(slots)
 			if registration.Validate() != nil || registration.InstallationID != material.InstallationID || registration.Generation != intent.Generation || registration.PlanSHA256 != material.PlanSHA256 || registration.DeploymentID != material.Config.DeploymentID || registration.Environment != material.Config.Environment || registration.ClusterID != material.Config.ClusterID || strings.ToLower(string(registration.Cell)) != material.Config.Cell || !slices.Equal(registration.ControllerSlots, slots) {
-				return VerifiedBootstrapMaterial{}, errors.New("initial source registration differs from same signed material scope")
+				return VerifiedBootstrapIntent{}, nil, errors.New("initial source registration differs from same signed material scope")
 			}
 			if material.Startup == nil || registration.SeedSlot != material.Startup.SeedSlot {
-				return VerifiedBootstrapMaterial{}, errors.New("initial source registration lacks exact signed startup seed")
+				return VerifiedBootstrapIntent{}, nil, errors.New("initial source registration lacks exact signed startup seed")
 			}
 			if registration.Cell == s.local.Cell {
 				if s.local.InitialSourceRegistration == nil || len(s.local.LedgerDelegationWire) != 0 {
-					return VerifiedBootstrapMaterial{}, errors.New("new source cannot replace existing pinned ledger authority")
+					return VerifiedBootstrapIntent{}, nil, errors.New("new source cannot replace existing pinned ledger authority")
 				}
 				localWire, _ := json.Marshal(s.local.InitialSourceRegistration, json.Deterministic(true))
 				registrationWire, _ := json.Marshal(registration, json.Deterministic(true))
 				if !bytes.Equal(localWire, registrationWire) {
-					return VerifiedBootstrapMaterial{}, errors.New("new source registration differs from root anchor")
+					return VerifiedBootstrapIntent{}, nil, errors.New("new source registration differs from root anchor")
 				}
 			}
 			material.SourceRegistration = &registration
@@ -193,11 +251,11 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			config.Validate() != nil || config.Cell != strings.ToLower(cell) || config.Region != intent.Plan["region"] ||
 			config.Environment != s.scope.Environment ||
 			(config.Cell == strings.ToLower(string(s.local.Cell)) && (config.DeploymentID != s.local.DeploymentID || config.ClusterID != s.local.ClusterID)) {
-			return VerifiedBootstrapMaterial{}, errors.New("bootstrap material intent differs from authenticated installation, region or digest")
+			return VerifiedBootstrapIntent{}, nil, errors.New("bootstrap material intent differs from authenticated installation, region or digest")
 		}
 		escrow := material.SourceVaultTarget
 		if escrow.Validate("sa-saopaulo-1") != nil || escrow.KMSKeyOCID != s.storage.HeadKMSKeyOCID {
-			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow differs from signed home Vault/KMS target")
+			return VerifiedBootstrapIntent{}, nil, errors.New("bootstrap escrow differs from signed home Vault/KMS target")
 		}
 		owned := false
 		for _, home := range footprint.Regions {
@@ -208,19 +266,17 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			owned = ids["control_compartment"] == escrow.CompartmentOCID && ids["vault"] == escrow.VaultOCID && ids["key"] == escrow.KMSKeyOCID
 		}
 		if !owned {
-			return VerifiedBootstrapMaterial{}, errors.New("bootstrap escrow is outside the signed owned home foundation")
+			return VerifiedBootstrapIntent{}, nil, errors.New("bootstrap escrow is outside the signed owned home foundation")
 		}
 		var image release.VerifiedImage
 		if material.Startup != nil {
 			startup := material.Startup.Clone()
-			var boundPlan map[string]any
-			startup, boundPlan, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
-			if err != nil {
-				return VerifiedBootstrapMaterial{}, err
+			if hasFoundationReference(startup) && header.SchemaVersion != 2 {
+				return VerifiedBootstrapIntent{}, nil, errors.New("logical startup requires schema-2 foundation authority")
 			}
-			image, err = s.verifyStartup(startup, config, boundPlan)
+			image, err = s.verifyStartupIntent(startup, config)
 			if err != nil {
-				return VerifiedBootstrapMaterial{}, err
+				return VerifiedBootstrapIntent{}, nil, err
 			}
 			material.Startup = &startup
 			if image.ExpiresAt().Before(expires) {
@@ -229,28 +285,9 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		}
 		config.Slots = slices.Clone(config.Slots)
 		material.Config = config
-		var ledgerPublicKey string
-		if config.Cell == strings.ToLower(string(s.local.Cell)) && len(s.local.LedgerDelegationWire) > 0 {
-			envelope, err := trust.DecodeEnvelope(s.local.LedgerDelegationWire)
-			if err != nil {
-				return VerifiedBootstrapMaterial{}, err
-			}
-			if _, err := trust.VerifyDelegationCurrent(envelope, s.roots, time.Now(), bootstrap.BootstrapAnchorTrustPolicy()); err != nil {
-				return VerifiedBootstrapMaterial{}, err
-			}
-			var delegation trust.Delegation
-			if err := json.Unmarshal(envelope.Payload, &delegation, json.RejectUnknownMembers(true)); err != nil {
-				return VerifiedBootstrapMaterial{}, err
-			}
-			key, err := base64.RawURLEncoding.Strict().DecodeString(delegation.SubjectPublicKey)
-			if err != nil || len(key) != 32 {
-				return VerifiedBootstrapMaterial{}, errors.New("pinned local ledger signer is invalid")
-			}
-			ledgerPublicKey = base64.StdEncoding.EncodeToString(key)
-		}
-		return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
+		return VerifiedBootstrapIntent{intent: material, generation: intent.Generation, expires: expires, image: image, grantWire: bytes.Clone(grantWire)}, intent.Plan, nil
 	}
-	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
+	return VerifiedBootstrapIntent{}, nil, errors.New("signed foundation scope has no regional bootstrap intent")
 }
 
 func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config bootstrapmaterial.Config, plan map[string]any) (release.VerifiedImage, error) {
@@ -274,6 +311,34 @@ func (s *SignedFootprint) verifyStartup(startup BootstrapStartupIntent, config b
 			return release.VerifiedImage{}, errors.New("startup profile differs from signed owned regional foundation")
 		}
 		seen[profile.Slot] = true
+	}
+	return s.verifyStartupIntent(startup, config)
+}
+
+func (s *SignedFootprint) verifyStartupIntent(startup BootstrapStartupIntent, config bootstrapmaterial.Config) (release.VerifiedImage, error) {
+	var err error
+	if hasFoundationReference(startup) {
+		err = startup.ValidateFoundation(strings.ToUpper(config.Cell))
+	} else {
+		err = startup.Validate()
+	}
+	if err != nil {
+		return release.VerifiedImage{}, err
+	}
+	if config.Cell == strings.ToLower(string(s.local.Cell)) && !bytes.Equal(startup.ControllerFiles[0].Bytes, s.local.InitialRegionIntentWire) {
+		return release.VerifiedImage{}, errors.New("startup sidecar differs from exact root-anchored initial region intent")
+	}
+	slots := map[string]bool{}
+	for _, slot := range config.Slots {
+		slots[slot.Name] = true
+	}
+	if !slots[startup.SeedSlot] || len(startup.Profiles) != len(slots) || len(startup.TrustedSigners) == 0 {
+		return release.VerifiedImage{}, errors.New("startup lacks exact signed slot profiles or operator authority")
+	}
+	for _, profile := range startup.Profiles {
+		if !slots[profile.Slot] {
+			return release.VerifiedImage{}, errors.New("startup profile is outside signed controller slots")
+		}
 	}
 	var signers []struct {
 		Actor        string                    `json:"actor"`
