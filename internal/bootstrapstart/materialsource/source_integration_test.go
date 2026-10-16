@@ -4,10 +4,12 @@ package materialsource
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
@@ -16,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -328,8 +331,22 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
 	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true, loseSourceCreate: true}
-	endpoint := httptest.NewServer(protocol)
+	endpoint := httptest.NewTLSServer(protocol)
 	defer endpoint.Close()
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	originalTransport := http.DefaultTransport
+	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.HasSuffix(host, ".oraclecloud.com") {
+			return nil, fmt.Errorf("unexpected SDK TLS endpoint %s", address)
+		}
+		return (&tls.Dialer{Config: endpoint.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(endpoint.URL, "https://"))
+	}
+	http.DefaultTransport = transport
+	t.Cleanup(func() { http.DefaultTransport = originalTransport; transport.CloseIdleConnections() })
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
