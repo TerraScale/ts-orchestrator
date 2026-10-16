@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -30,6 +29,7 @@ type CurrentImageExpectation struct {
 // A later locator update must never replace these wires in an existing recipe.
 type CurrentImage struct {
 	Image                                          release.VerifiedImage
+	ExpiresAt                                      time.Time
 	ReceiptWire, DelegationWire                    []byte
 	QualificationWire, QualificationDelegationWire []byte
 }
@@ -40,8 +40,8 @@ type imageCurrentLocator struct {
 }
 
 type imageCurrentManifest struct {
-	Receipt    jsontext.Value `json:"receipt"`
-	Delegation jsontext.Value `json:"delegation"`
+	Receipt    []byte `json:"receipt"`
+	Delegation []byte `json:"delegation"`
 }
 
 func imageCurrentRole(role string) string {
@@ -170,6 +170,14 @@ func verifyCurrentImageManifest(ctx context.Context, location Location, manifest
 	if err != nil {
 		return CurrentImage{}, false, err
 	}
+	expires := image.ExpiresAt()
+	delegation, err := trust.DecodeEnvelope(manifest.Delegation)
+	if err != nil {
+		return CurrentImage{}, false, err
+	}
+	if delegation.ExpiresAt.Before(expires) {
+		expires = delegation.ExpiresAt
+	}
 	receipt := image.Receipt()
 	var proof release.ProductionProof
 	if role == "orchestrator" {
@@ -192,14 +200,22 @@ func verifyCurrentImageManifest(ctx context.Context, location Location, manifest
 	if role == "container" || role == "wasm" {
 		baseline := candidate
 		baseline.Role = "orchestrator"
-		if _, err := release.VerifyRetainedProductionCurrent(ctx, *receipt.Production, roots, baseline, open, now); err != nil {
+		deadline, err := release.VerifyRetainedProductionCurrent(ctx, *receipt.Production, roots, baseline, open, now)
+		if err != nil {
 			return CurrentImage{}, false, err
 		}
+		if deadline.Before(expires) {
+			expires = deadline
+		}
 	}
-	if _, err := release.VerifyRetainedProductionCurrent(ctx, proof, roots, candidate, open, now); err != nil {
+	deadline, err := release.VerifyRetainedProductionCurrent(ctx, proof, roots, candidate, open, now)
+	if err != nil {
 		return CurrentImage{}, false, err
 	}
-	return CurrentImage{Image: image, ReceiptWire: bytes.Clone(manifest.Receipt), DelegationWire: bytes.Clone(manifest.Delegation), QualificationWire: bytes.Clone(proof.Qualification), QualificationDelegationWire: bytes.Clone(proof.Delegation)}, true, nil
+	if deadline.Before(expires) {
+		expires = deadline
+	}
+	return CurrentImage{Image: image, ExpiresAt: expires, ReceiptWire: bytes.Clone(manifest.Receipt), DelegationWire: bytes.Clone(manifest.Delegation), QualificationWire: bytes.Clone(proof.Qualification), QualificationDelegationWire: bytes.Clone(proof.Delegation)}, true, nil
 }
 
 // PublishCurrentImage writes immutable signed inputs before replacing discovery.
