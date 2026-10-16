@@ -245,6 +245,10 @@ type memberFixture struct {
 }
 
 func startMemberFixture(t *testing.T) *memberFixture {
+	return startMemberFixtureNamespace(t, 0)
+}
+
+func startMemberFixtureNamespace(t *testing.T, namespaces uintptr) *memberFixture {
 	t.Helper()
 	directory, err := os.MkdirTemp("", "ts-member-")
 	if err != nil {
@@ -298,7 +302,9 @@ func startMemberFixture(t *testing.T) *memberFixture {
 	fixture.process = exec.Command(binary, "-test.run=^$")
 	fixture.process.Env = append(os.Environ(), "TS_MEMBER_PROTOCOL_FIXTURE="+directory)
 	if os.Geteuid() == 0 {
-		fixture.process.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}}
+		fixture.process.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid)}, Cloneflags: namespaces}
+	} else if namespaces != 0 {
+		t.Fatal("real PID/mount namespace fixture requires root")
 	}
 	var logs bytes.Buffer
 	fixture.process.Stderr = &logs
@@ -325,6 +331,9 @@ func startMemberFixture(t *testing.T) *memberFixture {
 	}
 	identity := fixtureIdentity(fixture.process.Process.Pid)
 	observe := func(context.Context) (ProcessObservation, error) {
+		if namespaces != 0 {
+			return ObserveContainerProcess(fixture.process.Process.Pid, fixture.process.Process.Pid)
+		}
 		return observeFixtureProcess(fixture.process.Process.Pid)
 	}
 	fixture.client, err = NewClient(socket, identity.Scope, identity.Authority, observe)
@@ -340,6 +349,55 @@ func startMemberFixture(t *testing.T) *memberFixture {
 		t.Fatal(err)
 	}
 	return fixture
+}
+
+func TestMemberPIDNamespaceIntegration(t *testing.T) {
+	f := startMemberFixtureNamespace(t, syscall.CLONE_NEWPID|syscall.CLONE_NEWNS)
+	observation, err := f.client.observe(t.Context())
+	if err != nil || observation.PID != f.process.Process.Pid || observation.PID < 2 || observation.ProtocolPID() != 1 {
+		t.Fatalf("actual host/namespace identity: %+v, %v", observation, err)
+	}
+	status, err := f.client.Status(t.Context())
+	if err != nil || status.Process.PID != 1 {
+		t.Fatalf("PID1 status through host SO_PEERCRED: %+v, %v", status, err)
+	}
+	proof, err := f.client.ServingProof(t.Context(), status, fixtureSurvivor())
+	if err != nil || proof.Process.PID != 1 {
+		t.Fatalf("PID1 serving proof: %+v, %v", proof, err)
+	}
+	const operation = "0H248H248H248H248H248H248H"
+	envelope, err := f.client.Drain(t.Context(), fixtureSurvivor(), operation, f.store)
+	if err != nil || envelope.Receipt == nil {
+		t.Fatalf("PID1 drain receipt: %+v, %v", envelope, err)
+	}
+	record, found, err := f.store.Load()
+	if err != nil || !found || record.Request.Expected.Process.PID != 1 || envelope.Receipt.RequestedProcess.PID != 1 || envelope.Receipt.DrainedProcess.PID != 1 {
+		t.Fatalf("protocol identities were rewritten: %+v, %v", record, err)
+	}
+	if err := VerifyReportedDrain(envelope, operation, record.Request.Expected, record.Survivor, record.SourceSequence); err != nil {
+		t.Fatal(err)
+	}
+	actualObserver := f.client.observe
+	f.client.observe = func(ctx context.Context) (ProcessObservation, error) {
+		current, err := actualObserver(ctx)
+		current.namespace = processNamespace{}
+		return current, err
+	}
+	if _, err := f.client.Status(t.Context()); !errors.Is(err, ErrStaleBinding) {
+		t.Fatalf("namespace PID without kernel witness: %v", err)
+	}
+	f.client.observe = actualObserver
+	native, err := observeFixtureProcess(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := BindPIDNamespace(native, os.Getpid()); !errors.Is(err, ErrStaleBinding) {
+		t.Fatalf("host process supplied as container namespace: %v", err)
+	}
+	observation.PID = os.Getpid()
+	if _, err := BindPIDNamespace(observation, f.process.Process.Pid); !errors.Is(err, ErrStaleBinding) {
+		t.Fatalf("changed host PID with retained namespace witness: %v", err)
+	}
 }
 func observeFixtureProcess(pid int) (ProcessObservation, error) {
 	path := "/proc/" + strconv.Itoa(pid)
