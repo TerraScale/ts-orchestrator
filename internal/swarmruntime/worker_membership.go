@@ -94,6 +94,9 @@ func (n *Node) ReadWorkerMembership(ctx context.Context, nodeID string) (Verifie
 	if err != nil || revoke || availability != api.NodeAvailabilityActive {
 		return fail(errors.New("worker membership is not independently current"))
 	}
+	if _, err := n.confirmWorkerMembership(ctx, client, node.Node, clusters.Clusters[0], snapshot); err != nil {
+		return fail(err)
+	}
 	verified, err := hostenroll.VerifySwarmMembership(*snapshot.Admission, n.workerAuthority.public)
 	if err != nil {
 		return fail(err)
@@ -184,6 +187,9 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 		cluster = clusters.Clusters[0]
 	}
 	var failures []error
+	if cluster == nil {
+		failures = append(failures, errors.New("worker membership audit lacks one current regional cluster"))
+	}
 	for _, node := range nodes.Nodes {
 		if node.Role == api.NodeRoleManager {
 			continue
@@ -194,6 +200,12 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 			snapshot, err := readCurrentWorkerMembership(ctx, query)
 			if err == nil {
 				availability, revoke, err = n.workerMembershipDisposition(ctx, node, cluster, snapshot)
+				if err == nil {
+					node, err = n.confirmWorkerMembership(ctx, client, node, cluster, snapshot)
+					if err != nil {
+						availability, revoke = api.NodeAvailabilityPause, false
+					}
+				}
 			}
 			if err != nil {
 				failures = append(failures, err)
@@ -204,6 +216,35 @@ func (n *Node) AuditWorkerMembership(ctx context.Context) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func (n *Node) confirmWorkerMembership(ctx context.Context, client api.ControlClient, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot) (*api.Node, error) {
+	confirmed, err := readCurrentWorkerMembership(ctx, WorkerMembershipQuery{NodeID: node.ID, RegistrationID: node.Spec.Annotations.Name, InstanceID: node.Spec.Annotations.Labels[LabelInstanceID]})
+	if err != nil {
+		return node, err
+	}
+	expected, err := json.Marshal(snapshot, json.Deterministic(true))
+	actual, actualErr := json.Marshal(confirmed, json.Deterministic(true))
+	if err != nil || actualErr != nil || !bytes.Equal(expected, actual) {
+		return node, errors.New("worker membership changed during current OCI and Vault reads")
+	}
+	current, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID})
+	if err != nil {
+		return node, err
+	}
+	if current.Node.Role != api.NodeRoleWorker || !bytes.Equal(current.Node.Certificate.Certificate, node.Certificate.Certificate) ||
+		current.Node.Spec.Annotations.Name != node.Spec.Annotations.Name || current.Node.Spec.Annotations.Labels[LabelInstanceID] != node.Spec.Annotations.Labels[LabelInstanceID] ||
+		current.Node.Spec.Availability == api.NodeAvailabilityDrain && node.Spec.Availability != api.NodeAvailabilityDrain {
+		return current.Node, errors.New("actual worker identity or placement changed during membership audit")
+	}
+	clusters, err := client.ListClusters(ctx, &api.ListClustersRequest{})
+	if err != nil || len(clusters.Clusters) != 1 || clusters.Clusters[0].ID != cluster.ID || !bytes.Equal(clusters.Clusters[0].RootCA.CACert, cluster.RootCA.CACert) {
+		return current.Node, errors.New("actual regional worker root changed during membership audit")
+	}
+	if err := n.workerAuthority.refresh(ctx); err != nil {
+		return current.Node, err
+	}
+	return current.Node, nil
 }
 
 func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, cluster *api.Cluster, snapshot WorkerMembershipSnapshot) (api.NodeSpec_Availability, bool, error) {
@@ -311,6 +352,9 @@ func (n *Node) workerMembershipDisposition(ctx context.Context, node *api.Node, 
 }
 
 func updateWorkerMembership(ctx context.Context, client api.ControlClient, node *api.Node, availability api.NodeSpec_Availability, revoke bool) error {
+	if node == nil || node.Role != api.NodeRoleWorker {
+		return errors.New("worker membership cannot update a manager")
+	}
 	spec := node.Spec.Copy()
 	if spec.Availability == api.NodeAvailabilityDrain && !revoke {
 		return nil
