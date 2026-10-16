@@ -47,12 +47,12 @@ func integrationAgent(socket, state, taskPath string) error {
 	if err := task.Unmarshal(data); err != nil {
 		return err
 	}
-	e, err := NewExecutor(socket, state)
+	e, err := newIntegrationExecutor(socket, state)
 	if err != nil {
 		return err
 	}
 	defer e.Close()
-	c, err := e.Controller(task)
+	c, err := integrationContainerController(e, task)
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Minute)
 	defer cancel()
 	state := t.TempDir()
-	e, err := NewExecutor(*integrationSocket, state)
+	e, err := newIntegrationExecutor(*integrationSocket, state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	task := &api.Task{ID: fmt.Sprintf("executor%d", time.Now().UnixNano()), ServiceID: "executorintegration", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
-	c, err := e.Controller(task)
+	c, err := integrationContainerController(e, task)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	if err := c.Update(ctx, mutated); !errors.Is(err, swarmexec.ErrTaskUpdateRejected) {
 		t.Fatalf("immutable task update: %v", err)
 	}
-	conflict, err := e.Controller(mutated)
+	conflict, err := integrationContainerController(e, mutated)
 	if err != nil {
 		t.Fatal(err)
 	}

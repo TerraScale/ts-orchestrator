@@ -173,7 +173,7 @@ func taskFingerprint(t *api.Task) string {
 		for _, key := range slices.Sorted(maps.Keys(t.ServiceAnnotations.Labels)) {
 			fmt.Fprintf(h, "%q=%q\n", key, t.ServiceAnnotations.Labels[key])
 		}
-		h.Write(binary.BigEndian.AppendUint64(nil, t.Spec.ForceUpdate))
 	}
+	h.Write(binary.BigEndian.AppendUint64(nil, t.Spec.ForceUpdate))
 	return fmt.Sprintf("%x", h.Sum(nil))
 }

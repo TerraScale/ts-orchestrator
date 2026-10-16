@@ -80,26 +80,30 @@ func (c *controller) Prepare(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	containerMounts, containerEnv, err := c.containerMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
+	resolver := c.executor.registry
+	if resolver == nil {
+		resolver = publicRegistryResolver
+	}
+	var node *api.Node
+	if c.executor.node != nil {
+		node = c.executor.node.Copy()
+	}
+	resolved, err := resolver(ctx, c.task.Copy(), node)
+	if err != nil {
+		return fmt.Errorf("resolve admitted container registry: %w", err)
+	}
+	if resolved == nil {
+		return errors.New("registry admission returned no resolver")
+	}
 	ctr, err := c.container(ctx)
 	if err != nil && !errdefs.IsNotFound(err) {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
-		resolver := c.executor.registry
-		if resolver == nil {
-			resolver = publicRegistryResolver
-		}
-		var node *api.Node
-		if c.executor.node != nil {
-			node = c.executor.node.Copy()
-		}
-		resolved, err := resolver(ctx, c.task.Copy(), node)
-		if err != nil {
-			return fmt.Errorf("resolve admitted container registry: %w", err)
-		}
-		if resolved == nil {
-			return errors.New("registry admission returned no resolver")
-		}
 		image, err := c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved), containerd.WithPullUnpack, containerd.WithPullSnapshotter("native"))
 		if err != nil {
 			return fmt.Errorf("pull container image: %w", err)
@@ -143,6 +147,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if len(materialMounts) != 0 {
 			opts = append(opts, oci.WithMounts(materialMounts))
 		}
+		if len(containerMounts) != 0 {
+			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
+		}
 		ctr, err = c.executor.client.NewContainer(ctx, c.id,
 			containerd.WithSnapshotter("native"),
 			containerd.WithImage(image), containerd.WithRuntime("io.containerd.runc.v2", nil),
@@ -153,6 +160,9 @@ func (c *controller) Prepare(ctx context.Context) error {
 		}
 	}
 	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
+		return err
+	}
+	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
 		return err
 	}
 	info, err := ctr.Info(ctx)
@@ -196,11 +206,18 @@ func (c *controller) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	containerMounts, containerEnv, err := c.containerMaterialMount(ctx)
+	if err != nil {
+		return err
+	}
 	ctr, err := c.container(ctx)
 	if err != nil {
 		return err
 	}
 	if err := c.verifyFunctionMount(ctx, ctr, materialMounts); err != nil {
+		return err
+	}
+	if err := c.verifyContainerMaterial(ctx, ctr, containerMounts, containerEnv); err != nil {
 		return err
 	}
 	t, err := ctr.Task(ctx, nil)
@@ -340,7 +357,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	ctx = runtimeContext(ctx)
 	ctr, err := c.container(ctx)
 	if errdefs.IsNotFound(err) {
-		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
+		return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 	}
 	if err != nil {
 		return err
@@ -376,7 +393,7 @@ func (c *controller) Remove(ctx context.Context) error {
 	if err := ctr.Delete(ctx, containerd.WithSnapshotCleanup); err != nil {
 		return err
 	}
-	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()))
+	return errors.Join(os.RemoveAll(filepath.Join(c.executor.logRoot, c.id)), os.RemoveAll(c.functionMaterialPath()), os.RemoveAll(c.containerMaterialPath()))
 }
 
 func (c *controller) Close() error { return nil }
