@@ -79,7 +79,7 @@ type BinaryChecker interface {
 }
 
 type MaterialChecker interface {
-	PrepareInitial(context.Context, bootstrap.VerifiedManifest, bootstrap.VerifiedReceipt, map[string]string, CurrentProofVerifier) error
+	PrepareInitial(context.Context, bootstrap.StartupAuthority, bootstrap.VerifiedReceipt, map[string]string, CurrentProofVerifier) error
 	// RestartPins reads the install's adopted material generation, if any,
 	// and returns what its credential directory must hold (TS-568).
 	RestartPins(AcceptedIdentity, trust.Keyring) (MaterialPins, error)
@@ -91,7 +91,7 @@ type MaterialChecker interface {
 type CurrentProofVerifier func(time.Time) error
 
 type LiveCredentialChecker interface {
-	VerifyInitialLiveCredentials(context.Context, MaterialPins, bootstrap.VerifiedManifest) error
+	VerifyInitialLiveCredentials(context.Context, MaterialPins, bootstrap.StartupAuthority) error
 	VerifyLiveCredentials(context.Context, MaterialPins, AcceptedIdentity) error
 }
 

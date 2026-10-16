@@ -136,7 +136,7 @@ func validateHostLaunchInputs(enrollment, ssh []byte, cell, environment string) 
 	return validateOperatorSSHKey(ssh)
 }
 
-func (store bakedStore) measureInitialLaunchMaterial(manifest bootstrap.VerifiedManifest, roots trust.Keyring, now time.Time) (map[string]string, error) {
+func (store bakedStore) measureInitialLaunchMaterial(manifest bootstrap.StartupAuthority, roots trust.Keyring, now time.Time) (map[string]string, error) {
 	if manifest.Digest() == "" {
 		return nil, ErrLaunchMaterial
 	}

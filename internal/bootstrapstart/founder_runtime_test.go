@@ -663,7 +663,7 @@ func (checker *founderAdmissionCredentials) VerifyLiveCredentials(_ context.Cont
 }
 
 func (checker *founderAdmissionCredentials) VerifyInitialLiveCredentials(ctx context.Context, expected MaterialPins,
-	_ bootstrap.VerifiedManifest,
+	_ bootstrap.StartupAuthority,
 ) error {
 	return checker.VerifyLiveCredentials(ctx, expected, AcceptedIdentity{})
 }
