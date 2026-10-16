@@ -28,10 +28,11 @@ import (
 // This scenario traverses the actual OCI clients, HTTP signing and paginated
 // protocol. The local endpoint is a provider simulator, never live acceptance.
 func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
-	for _, mode := range []string{"valid", "late-policy", "late-membership", "late-dynamic-group", "dynamic-rule-overlap", "dynamic-rule-compound", "dynamic-profile-missing", "ambiguous-group", "domain-subject", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
+	for _, mode := range []string{"valid", "home-region", "late-policy", "late-membership", "late-dynamic-group", "dynamic-rule-overlap", "dynamic-rule-compound", "dynamic-profile-missing", "ambiguous-group", "domain-subject", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
 		t.Run(mode, func(t *testing.T) {
 			s := Scope{ApprovalSHA256: strings.Repeat("a", 64), RunID: "exact-run", Tenancy: "ocid1.tenancy.oc1..test", Principal: "ocid1.user.oc1..candidate", Group: "ocid1.group.oc1..candidate", PolicyID: "ocid1.policy.oc1..candidate", Compartment: "ocid1.compartment.oc1..disposable", Subnet: "ocid1.subnet.oc1..disposable", Namespace: "qualification", Bucket: "disposable", Object: "qualification/exact-run/image.qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16", HostNames: []string{"ts-qualification-exact-run-host"}, ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Second), CleanupUntil: time.Now().Add(2 * time.Hour).Truncate(time.Second)}
 			s.PolicyStatements = RequiredStatements(s)
+			s.IAMRegion = "sa-saopaulo-1"
 			s.ProductionDynamicGroups = []ProductionDynamicGroup{{ID: "ocid1.dynamicgroup.oc1..production", Name: "gru-1-controllers", InstanceCompartment: "ocid1.compartment.oc1..production"}}
 			key, err := rsa.GenerateKey(rand.Reader, 2048)
 			if err != nil {
@@ -72,6 +73,12 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 				}
 				page := r.URL.Query().Get("page")
 				switch {
+				case path == "/tenancies/"+s.Tenancy:
+					key := "GRU"
+					if mode == "home-region" {
+						key = "FRA"
+					}
+					write(identity.Tenancy{Id: new(s.Tenancy), HomeRegionKey: new(key)})
 				case path == "/n/" || path == "/n":
 					write(s.Namespace)
 				case path == "/users/"+s.Principal:

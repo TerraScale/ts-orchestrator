@@ -71,6 +71,7 @@ type policyFact struct {
 }
 type facts struct {
 	Principal, Group, Fingerprint, Namespace string
+	IAMRegion                                string
 	Compartments                             []string
 	Policies                                 []policyFact
 	User                                     identity.User
@@ -90,8 +91,8 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if err := s.validate(now); err != nil {
 		return fail(err)
 	}
-	if observer == nil || candidate == nil || observer.Region() != candidate.Region() {
-		return fail(errors.New("explicit matching-region observer and candidate required"))
+	if observer == nil || candidate == nil {
+		return fail(errors.New("explicit observer and candidate required"))
 	}
 	for _, factory := range []*ociclient.Factory{observer, candidate} {
 		tenancy, err := factory.Provider().TenancyOCID()
@@ -146,6 +147,19 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	ociclient.PinHost(&network.BaseClient, endpoint)
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
+	tenancy, err := iam.GetTenancy(ctx, identity.GetTenancyRequest{TenancyId: new(s.Tenancy)})
+	if err != nil {
+		return fail(err)
+	}
+	if text(tenancy.Id) != s.Tenancy {
+		return fail(errors.New("observed tenancy identity differs"))
+	}
+	home, err := ociclient.TenancyHomeRegion(tenancy.HomeRegionKey)
+	if err != nil || home != s.IAMRegion {
+		return fail(errors.New("actual IAM home region differs from independent approval"))
+	}
+	iam.SetRegion(home)
+	ociclient.PinHost(&iam.BaseClient, endpoint)
 	// An authenticated candidate request proves possession of its issued key.
 	namespace, err := objects.GetNamespace(ctx, objectstorage.GetNamespaceRequest{})
 	if err != nil {
@@ -154,7 +168,7 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if namespace.Value == nil || *namespace.Value != s.Namespace {
 		return fail(errors.New("authenticated candidate namespace differs"))
 	}
-	f := facts{Principal: s.Principal, Group: s.Group, Fingerprint: fingerprint, Namespace: *namespace.Value}
+	f := facts{Principal: s.Principal, Group: s.Group, Fingerprint: fingerprint, Namespace: *namespace.Value, IAMRegion: home}
 	user, err := iam.GetUser(ctx, identity.GetUserRequest{UserId: new(s.Principal)})
 	if err != nil {
 		return fail(err)

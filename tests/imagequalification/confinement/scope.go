@@ -14,12 +14,15 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 )
 
 // Scope is copied from the independently signed finite qualification approval.
 // ApprovalSHA256 binds its complete host, byte and spending limits as well.
 type Scope struct {
 	ApprovalSHA256, RunID, Tenancy, Principal, Group, PolicyID string
+	IAMRegion                                                  string
 	Compartment, Subnet, Namespace, Bucket, Object             string
 	RunnerCIDR, PeerCIDR, VCNCIDR                              string
 	HostNames                                                  []string
@@ -43,6 +46,9 @@ func (s Scope) validate(now time.Time) error {
 	digest, err := hex.DecodeString(s.ApprovalSHA256)
 	if err != nil || len(digest) != sha256.Size {
 		return errors.New("confinement requires exact signed approval digest")
+	}
+	if !catalog.IsOCIRegion(s.IAMRegion) {
+		return errors.New("confinement requires the independently approved IAM home region")
 	}
 	for _, value := range []string{s.RunID, s.Tenancy, s.Principal, s.Group, s.PolicyID, s.Compartment, s.Subnet, s.Namespace, s.Bucket, s.Object} {
 		if !identifier.MatchString(value) {
