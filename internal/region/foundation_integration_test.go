@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
@@ -16,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +29,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 )
 
@@ -195,15 +198,66 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	if err != nil || !verified.IsVerified() || verified.PlanDigest() != material.PlanSHA256 || verified.EscrowTarget() != target || !verified.ExpiresAt().Equal(now.Add(time.Hour)) {
 		t.Fatalf("verified=%+v err=%v", verified, err)
 	}
-	for _, scenario := range []string{"wrong scope", "expired", "wrong tenancy", "no budget", "wrong digest", "wrong escrow", "wrong local cluster", "wrong pinned digest"} {
+	if _, err := verified.Startup(); err == nil {
+		t.Fatal("generation-only scope admitted controller startup")
+	}
+	intentWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.local.InitialRegionIntentWire = intentWire
+	startup, imageReceipt := foundationImageRecipe(t, private, roots, now, config)
+	for i, name := range bootstrap.ControllerConfigFileNames {
+		wire := []byte(`{"schemaVersion":1}`)
+		if i == 0 {
+			wire = intentWire
+		}
+		sum := sha256.Sum256(wire)
+		startup.ControllerFiles = append(startup.ControllerFiles, bootstrap.ControllerConfigFile{Name: name, Bytes: wire, SHA256: hex.EncodeToString(sum[:])})
+	}
+	material.Startup = &startup
+	ids := grant.Regions[0].Plan["resource_ids"].(map[string]any)
+	ids["subnet"] = startup.Profiles[0].SubnetOCID
+	ids["network_security_group"] = startup.Profiles[0].NetworkSecurityGroupOCIDs[0]
+	publish(scope, now.Add(time.Hour))
+	verified, err = reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := verified.Image()
+	if err != nil || image.Receipt().ImageSHA256 != imageReceipt.ImageSHA256 {
+		t.Fatalf("image=%+v err=%v", image, err)
+	}
+	template, err := verified.Startup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	template.Profiles[0].NetworkSecurityGroupOCIDs[0] = "changed"
+	again, err := verified.Startup()
+	if err != nil || again.Profiles[0].NetworkSecurityGroupOCIDs[0] == "changed" {
+		t.Fatal("startup getter leaked mutable authority")
+	}
+	grantPin := sha256.Sum256(verified.FoundationGrantWire())
+	if hex.EncodeToString(grantPin[:]) != reader.home.GrantSHA256 {
+		t.Fatal("startup proof did not retain exact signed grant")
+	}
+	for _, scenario := range []string{"wrong scope", "expired", "wrong tenancy", "no budget", "wrong digest", "wrong escrow", "wrong local cluster", "wrong pinned digest", "wrong startup image", "wrong startup profile", "missing startup recipe"} {
 		t.Run(scenario, func(t *testing.T) {
 			changed := grant
 			changed.Regions = append([]FoundationIntent(nil), grant.Regions...)
 			badMaterial := *material
+			copiedStartup := material.Startup.Clone()
+			badMaterial.Startup = &copiedStartup
 			changed.Regions[0].BootstrapMaterial = &badMaterial
 			grant = changed
 			signedScope, expires := scope, now.Add(time.Hour)
 			switch scenario {
+			case "wrong startup image":
+				badMaterial.Startup.ImageOCID = "ocid1.image.oc1.sa-saopaulo-1.FOREIGN"
+			case "wrong startup profile":
+				badMaterial.Startup.Profiles[0].SubnetOCID = "ocid1.subnet.oc1.sa-saopaulo-1.foreign"
+			case "missing startup recipe":
+				badMaterial.Startup.ControllerConfigDerivation = ""
 			case "wrong scope":
 				signedScope.Cell = "FRA"
 			case "expired":
@@ -232,4 +286,48 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 			grant.Regions[0].BootstrapMaterial = material
 		})
 	}
+}
+
+func foundationImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyring, now time.Time, config bootstrapmaterial.Config) (bootstrap.StartupTemplate, release.ImageReceipt) {
+	t.Helper()
+	public, private, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := trust.KeyID(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := trust.EncodeDelegatedPublicKey(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := strings.Repeat("a", 64)
+	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU", BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.CUSTOM", OCIRegion: "GRU"}
+	scope := release.ImageScope(receipt, "production")
+	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := release.SignImageReceipt(receipt, "production", delegation, roots, private, now, 30*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageWire, err := trust.EncodeEnvelope(image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegationWire, err := trust.EncodeEnvelope(delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signers, err := json.Marshal([]map[string]any{{"actor": "ops", "public_key": base64.StdEncoding.EncodeToString(public), "roles": []string{"terrabase"}, "environments": []string{"production"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-amd64", ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1}
+	for _, slot := range config.Slots {
+		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: "ocid1.compartment.oc1..control", AvailabilityDomain: "test:SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: "ocid1.subnet.oc1.sa-saopaulo-1.test", NetworkSecurityGroupOCIDs: []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.test"}, Shape: "VM.Standard.E5.Flex"})
+	}
+	return template, receipt
 }
