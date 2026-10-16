@@ -67,7 +67,7 @@ func TestNativeImageQualification(t *testing.T) {
 	for scanner.Scan() {
 		var command protocol.Command
 		var response protocol.Response
-		if err := json.Unmarshal(scanner.Bytes(), &command); err != nil {
+		if err := json.Unmarshal(scanner.Bytes(), &command, json.RejectUnknownMembers(true)); err != nil {
 			response.Error = "invalid native qualification request"
 		} else {
 			ctx, cancel := context.WithTimeout(t.Context(), 8*time.Minute)
@@ -207,7 +207,7 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 			return response, err
 		}
 	case "backup":
-		if err = json.Unmarshal(c.Private, &w.private); err != nil {
+		if err = json.Unmarshal(c.Private, &w.private, json.RejectUnknownMembers(true)); err != nil {
 			return response, err
 		}
 		targets, err := w.backupTargets()
@@ -250,7 +250,7 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 			response.Observation.BackupCopies = append(response.Observation.BackupCopies, protocol.Copy{Region: target.Region, SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: counter.Bytes})
 		}
 	case "restore":
-		if err = json.Unmarshal(c.Private, &w.private); err != nil {
+		if err = json.Unmarshal(c.Private, &w.private, json.RejectUnknownMembers(true)); err != nil {
 			return response, err
 		}
 		targets, err := w.backupTargets()
