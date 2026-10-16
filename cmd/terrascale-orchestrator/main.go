@@ -9,9 +9,14 @@ import (
 	"syscall"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cli"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--runtime-logger" {
+		swarmruntime.RunRuntimeLogger(os.Args[2])
+		return
+	}
 	ctx, cancel := commandContext(os.Args[1:])
 	defer cancel()
 	err := cli.Run(ctx, os.Args[1:], os.Stdout)
