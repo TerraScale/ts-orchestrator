@@ -300,6 +300,7 @@ type ControllerConfig struct {
 	ManagedMaterialProvider     ManagedMaterialProvider
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
+	RuntimeEffects              RuntimeEffectHandler
 	ControlLog                  jetstream.Stream
 	// TerraBaseCA signs C# TerraBase member certificates; nil refuses them.
 	TerraBaseCA *terrabase.CA
