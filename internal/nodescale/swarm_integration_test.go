@@ -276,7 +276,7 @@ func TestSwarmRetainsProtectedAndUnprovenWorkers(t *testing.T) {
 }
 
 func TestSwarmCordonChecksIdentityAndLeadership(t *testing.T) {
-	for _, kind := range []string{"wrong-instance", "lost-leadership", "missing-node", "manager", "pending-membership", "worker-hostname"} {
+	for _, kind := range []string{"wrong-instance", "empty-instance", "duplicate-instance", "lost-leadership", "missing-node", "manager", "pending-membership", "worker-hostname"} {
 		t.Run(kind, func(t *testing.T) {
 			scaler, hosts, pass := swarmScaler(t)
 			if kind == "lost-leadership" {
@@ -287,6 +287,13 @@ func TestSwarmCordonChecksIdentityAndLeadership(t *testing.T) {
 				switch kind {
 				case "wrong-instance":
 					node.Spec.Annotations.Labels["terrascale.instance-id"] = "other-instance"
+				case "empty-instance":
+					pass.record.Action.InstanceID = ""
+				case "duplicate-instance":
+					duplicate := node.Copy()
+					duplicate.ID = "old-certificate-node"
+					duplicate.Spec.Annotations.Name = "ts-gru-5"
+					return store.CreateNode(tx, duplicate)
 				case "missing-node":
 					return store.DeleteNode(tx, node.ID)
 				case "manager":

@@ -326,10 +326,27 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		t.pool.Pending = "a fresh spending allowance for another node is unavailable"
 		return nil
 	}
-	recipe, err := s.Recipe(ctx)
+	freshRecipe, err := s.Recipe(ctx)
 	if err != nil {
+		if errors.Is(err, ErrCapacityPending) {
+			t.pool.Pending = err.Error()
+			return nil
+		}
 		return fmt.Errorf("read node recipe: %w", err)
 	}
+	if err := freshRecipe.Validate(); err != nil {
+		return fmt.Errorf("validate node recipe: %w", err)
+	}
+	if t.record.Recipe == nil {
+		// Historical actions acquire a durable choice before any provider write.
+		t.record.Recipe = new(freshRecipe)
+		return nil
+	}
+	if freshRecipe.SHA256() != t.record.Recipe.SHA256() {
+		t.pool.Pending = "the durable chosen capacity recipe is no longer currently qualified"
+		return nil
+	}
+	recipe := *t.record.Recipe
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
@@ -423,7 +440,7 @@ func (s *Scaler) expiredSafe(ctx context.Context, t *tick, instance PoolInstance
 			return err
 		}
 		probe := *t
-		probe.record.Action = &InFlight{Node: instance.Name}
+		probe.record.Action = &InFlight{Node: instance.Name, InstanceID: instance.ID}
 		drained, err := s.drained(ctx, &probe)
 		if err != nil {
 			return err
@@ -516,7 +533,7 @@ func (s *Scaler) drain(ctx context.Context, t *tick) error {
 // drained reports whether every task on the node is terminal and no load balancer backend still points at it.
 func (s *Scaler) drained(ctx context.Context, t *tick) (bool, error) {
 	node := t.record.Action.Node
-	n, err := s.worker(ctx, node)
+	n, err := s.worker(ctx, node, t.record.Action.InstanceID)
 	if err != nil {
 		return false, err
 	}
@@ -602,6 +619,19 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 	}
 	switch decision.Action {
 	case Up:
+		recipe, err := s.Recipe(ctx)
+		if err != nil {
+			if !errors.Is(err, ErrCapacityPending) {
+				return decision, fmt.Errorf("choose node recipe: %w", err)
+			}
+			decision.Action, decision.Reason = Hold, err.Error()
+			s.holdOnce(t, decision)
+			return decision, nil
+		}
+		if err := recipe.Validate(); err != nil {
+			return decision, fmt.Errorf("validate chosen node recipe: %w", err)
+		}
+		t.record.Recipe = new(recipe)
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: t.now}
 		t.record.From = t.pool.Size
 		t.record.LastChange = t.now
@@ -708,13 +738,20 @@ func stateful(labels map[string]string) bool {
 }
 
 // worker resolves the manager-owned node name; a missing or ambiguous identity cannot retire capacity.
-func (s *Scaler) worker(ctx context.Context, name string) (*api.Node, error) {
+func (s *Scaler) worker(ctx context.Context, name, instanceID string) (*api.Node, error) {
+	if name == "" || instanceID == "" {
+		return nil, errors.New("worker retirement requires an exact node and OCI instance identity")
+	}
 	nodes, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("find worker %s: %w", name, err)
 	}
 	var found *api.Node
+	instances := 0
 	for _, node := range nodes.Nodes {
+		if node.Spec.Annotations.Labels["terrascale.instance-id"] == instanceID {
+			instances++
+		}
 		if node.Spec.Annotations.Name != name {
 			continue
 		}
@@ -723,14 +760,14 @@ func (s *Scaler) worker(ctx context.Context, name string) (*api.Node, error) {
 		}
 		found = node
 	}
-	if found == nil {
-		return nil, fmt.Errorf("worker %s is not admitted to SwarmKit", name)
+	if found == nil || instances != 1 || found.Spec.Annotations.Labels["terrascale.instance-id"] != instanceID {
+		return nil, fmt.Errorf("worker %s has no unique admitted OCI instance %s", name, instanceID)
 	}
 	return found, nil
 }
 
 func (s *Scaler) setAvailability(ctx context.Context, name, instanceID string, availability api.NodeSpec_Availability, epoch uint64) error {
-	node, err := s.worker(ctx, name)
+	node, err := s.worker(ctx, name, instanceID)
 	if err != nil {
 		return err
 	}
@@ -750,7 +787,7 @@ func (s *Scaler) setAvailability(ctx context.Context, name, instanceID string, a
 }
 
 func (s *Scaler) retireSafe(ctx context.Context, name, instanceID string) (bool, error) {
-	node, err := s.worker(ctx, name)
+	node, err := s.worker(ctx, name, instanceID)
 	if err != nil {
 		return false, err
 	}
