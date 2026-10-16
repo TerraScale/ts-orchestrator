@@ -116,8 +116,19 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	if _, err := location.Allocate(t.Context(), identity, roots, signer); err != ErrSequenceMigrationRequired {
 		t.Fatalf("unsigned initialization: %v", err)
 	}
-	if err := location.ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now); err != nil {
-		t.Fatal(err)
+	var importers sync.WaitGroup
+	importErrors := make(chan error, 8)
+	for range 8 {
+		importers.Go(func() {
+			importErrors <- newLocation().ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now)
+		})
+	}
+	importers.Wait()
+	close(importErrors)
+	for err := range importErrors {
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	first, err := location.Allocate(t.Context(), identity, roots, signer)
 	if err != nil || first != 901 {

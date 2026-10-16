@@ -151,7 +151,23 @@ func (location SequenceLocation) ImportMigration(ctx context.Context, envelope t
 	if _, err := VerifySequenceMigrationCurrent(envelope, roots, role, environment, now); err != nil {
 		return err
 	}
-	return location.write(ctx, role, environment, sequenceHead{Schema: "terrascale.release.sequence.v1", Sequence: migration.SequenceFloor, Migration: envelope}, etag)
+	err = location.write(ctx, role, environment, sequenceHead{Schema: "terrascale.release.sequence.v1", Sequence: migration.SequenceFloor, Migration: envelope}, etag)
+	if !errors.Is(err, ErrSequenceConflict) {
+		return err
+	}
+	// Another producer may initialize the exact same grant concurrently.
+	head, _, found, err = location.read(ctx, role, environment, roots)
+	if err != nil {
+		return err
+	}
+	if found {
+		retained, _ := trust.Fingerprint(head.Migration)
+		incoming, _ := trust.Fingerprint(envelope)
+		if retained == incoming {
+			return nil
+		}
+	}
+	return ErrSequenceConflict
 }
 
 func (location SequenceLocation) read(ctx context.Context, role, environment string, roots trust.Keyring) (sequenceHead, string, bool, error) {
