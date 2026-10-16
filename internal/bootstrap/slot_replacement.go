@@ -114,7 +114,11 @@ func DecodeSlotRetirementCandidate(wire []byte) (RetirementEvidence, error) {
 func (verified VerifiedFounderPlan) ReplacementManagedPeerIntent(slot string, previous SlotState,
 	retirementWire []byte, createdAt time.Time,
 ) (Intent, error) {
-	if !verified.verified || !validFounderNow(createdAt) || len(retirementWire) == 0 {
+	return replacementManagedPeerIntent(verified, slot, previous, retirementWire, createdAt)
+}
+
+func replacementManagedPeerIntent(verified FounderPlanAuthority, slot string, previous SlotState, retirementWire []byte, createdAt time.Time) (Intent, error) {
+	if !verified.IsVerified() || !validFounderNow(createdAt) || len(retirementWire) == 0 {
 		return Intent{}, ErrFounderPeerAuthorization
 	}
 	if previous.Intent.Slot != slot || previous.Head.ResultDigest == "" || previous.Result == nil ||
@@ -132,7 +136,7 @@ func (verified VerifiedFounderPlan) ReplacementManagedPeerIntent(slot string, pr
 	// initial "founder-<slot>-" form would let slot "b" at attempt 2 render
 	// exactly the attempt-one token of a slot named "b-a2" under the same
 	// plan. Read from the right, "-a<attempt>-<digest>" is unambiguous.
-	token := "replace-" + slot + "-a" + strconv.FormatUint(attempt, 10) + "-" + verified.digest[:24]
+	token := "replace-" + slot + "-a" + strconv.FormatUint(attempt, 10) + "-" + verified.Digest()[:24]
 	if !createTokenPattern.MatchString(token) {
 		return Intent{}, fmt.Errorf("%w: replacement create key is unbounded", ErrFounderPeerAuthorization)
 	}
