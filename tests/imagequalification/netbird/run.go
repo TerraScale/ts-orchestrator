@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
+	native "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/netbird/protocol"
 )
 
