@@ -2,7 +2,7 @@
 // OCI Object Storage so that a rebuilt controller set, which starts with an
 // empty JetStream store, recovers them automatically.
 //
-// Each bucket has one object, <prefix>/<cell>/<bucket>.json, holding the
+// Each bucket has one object, kv-snapshot/v1/<cell>/<bucket>.json, holding the
 // latest value of every key. The authority leader rewrites it whenever the
 // bucket's stream changes, with an ETag compare-and-swap; the Object Storage
 // bucket's versioning keeps the history. Values are stored and restored byte
@@ -11,14 +11,12 @@
 package kvsnapshot
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -32,73 +30,19 @@ var Buckets = []string{"TS_SERVICE_SET", "TS_TRUST_ROOTS", "TS_HOST_ENROLLMENT",
 
 const (
 	documentVersion  = 1
-	defaultPrefix    = "kv-snapshot/v1"
-	defaultInterval  = 30 * time.Second
+	snapshotPrefix   = "kv-snapshot/v1"
+	snapshotInterval = 30 * time.Second
 	maxDocumentBytes = 64 << 20
 )
 
 var (
 	namespacePattern = regexp.MustCompile(`^[a-z0-9]{1,64}$`)
-	bucketPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$`)
-	segmentPattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	kvBucketPattern  = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	kvKeyPattern     = regexp.MustCompile(`^[-/_=.a-zA-Z0-9]+$`)
 )
 
-// Config is the controller's kv_snapshot setting. It is off by default; the
-// controller dynamic group needs object read, create and overwrite on
-// <prefix>/* in Bucket before it is enabled.
-type Config struct {
-	Enabled bool `json:"enabled,omitzero"`
-	// Region is the OCI region identifier of Bucket, e.g. sa-saopaulo-1.
-	Region    string `json:"region,omitempty"`
-	Namespace string `json:"namespace,omitempty"`
-	Bucket    string `json:"bucket,omitempty"`
-	// KMSKeyID, when set, encrypts every snapshot with this key instead of
-	// the bucket's default key.
-	KMSKeyID string `json:"kms_key_id,omitempty"`
-	// Prefix defaults to kv-snapshot/v1.
-	Prefix string `json:"prefix,omitempty"`
-	// IntervalSeconds is how often the leader looks for changed buckets
-	// (default 30, 5 to 3600). Only a changed bucket is uploaded.
-	IntervalSeconds int `json:"interval_seconds,omitzero"`
-}
-
-// Validate bounds an enabled config.
-func (config Config) Validate() error {
-	if !config.Enabled {
-		return nil
-	}
-	if !catalog.IsOCIRegion(config.Region) || !namespacePattern.MatchString(config.Namespace) ||
-		!bucketPattern.MatchString(config.Bucket) ||
-		config.KMSKeyID != "" && !strings.HasPrefix(config.KMSKeyID, "ocid1.key.") ||
-		config.IntervalSeconds != 0 && (config.IntervalSeconds < 5 || config.IntervalSeconds > 3600) {
-		return errors.New("kv_snapshot needs an OCI region, namespace and bucket, an optional KMS key OCID and an interval of 5 to 3600 seconds")
-	}
-	if config.Prefix != "" {
-		for segment := range strings.SplitSeq(config.Prefix, "/") {
-			if !segmentPattern.MatchString(segment) {
-				return errors.New("kv_snapshot prefix is not canonical")
-			}
-		}
-	}
-	return nil
-}
-
-// Interval is the leader's change check period.
-func (config Config) Interval() time.Duration {
-	if config.IntervalSeconds == 0 {
-		return defaultInterval
-	}
-	return time.Duration(config.IntervalSeconds) * time.Second
-}
-
-func (config Config) objectName(cell, bucket string) string {
-	prefix := config.Prefix
-	if prefix == "" {
-		prefix = defaultPrefix
-	}
-	return prefix + "/" + cell + "/" + bucket + ".json"
+func objectName(cell, bucket string) string {
+	return snapshotPrefix + "/" + cell + "/" + bucket + ".json"
 }
 
 // Document is one bucket's snapshot. StreamCreated identifies the JetStream

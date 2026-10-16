@@ -21,7 +21,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -728,62 +727,6 @@ func withEnv(profile WorkloadProfile, key, value string) WorkloadProfile {
 	profile.Env = maps.Clone(profile.Env)
 	profile.Env[key] = value
 	return profile
-}
-
-// A kv_snapshot schedule needs the signed snapshot location, and the
-// uploader reads the adopted spec's interval and pause.
-func TestSpecRegistryKVSnapshotSchedule(t *testing.T) {
-	cfg := Config{NATS: natscell.Config{Cell: "gru", Lab: true}}
-	registry, err := newSpecRegistry(cfg, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	set := cellspec.Spec{Schema: cellspec.Schema, Generation: 1, RequiresBinary: 5,
-		KVSnapshot: &cellspec.KVSnapshot{IntervalSeconds: 300}}
-	if err := registry.validate(set); err == nil || !strings.Contains(err.Error(), "kv_snapshot location") {
-		t.Fatalf("schedule without a signed location: %v", err)
-	}
-	cfg.Controller.KVSnapshot = kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}
-	if registry, err = newSpecRegistry(cfg, ""); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.validate(set); err != nil {
-		t.Fatalf("schedule with a signed location: %v", err)
-	}
-	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 30*time.Second || paused {
-		t.Fatalf("generation 0 schedule = %s, %v", interval, paused)
-	}
-	registry.adopt(set, 1)
-	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 5*time.Minute || paused {
-		t.Fatalf("adopted schedule = %s, %v", interval, paused)
-	}
-	set.Generation, set.KVSnapshot = 2, &cellspec.KVSnapshot{Paused: true}
-	registry.adopt(set, 2)
-	if interval, paused := registry.kvSnapshot(30 * time.Second); interval != 30*time.Second || !paused {
-		t.Fatalf("paused schedule = %s, %v", interval, paused)
-	}
-}
-
-func TestSpecRegistryPlansAgainstTheSignedSnapshotSchedule(t *testing.T) {
-	registry, err := newSpecRegistry(Config{NATS: natscell.Config{Cell: "gru", Lab: true},
-		Controller: ControllerConfig{KVSnapshot: kvsnapshot.Config{Enabled: true, Region: "sa-saopaulo-1", Namespace: "ns", Bucket: "kv"}}}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name, test := range map[string]struct {
-		snapshot *cellspec.KVSnapshot
-		change   string
-	}{
-		"empty schedule": {snapshot: new(cellspec.KVSnapshot{})},
-		"pause":          {snapshot: new(cellspec.KVSnapshot{Paused: true}), change: "updated"},
-	} {
-		current := cellspec.Spec{Schema: cellspec.Schema, Generation: 1}
-		next := cellspec.Spec{Schema: cellspec.Schema, Generation: 2, RequiresBinary: 5, KVSnapshot: test.snapshot}
-		plan, err := cellspec.Diff(registry.withSigned(current), registry.withSigned(next), nil)
-		if err != nil || plan.KVSnapshot != test.change {
-			t.Errorf("%s: plan = %+v, %v", name, plan, err)
-		}
-	}
 }
 
 // A cell spec terrabase entry needs the signed member CA, without which no

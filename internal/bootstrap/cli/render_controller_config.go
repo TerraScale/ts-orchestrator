@@ -52,8 +52,6 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 	authProfileSHA := flags.String("ts-auth-profile-sha256", "", "reviewed ts-auth workload profile SHA-256")
 	authServicePath := flags.String("ts-auth-service", "", "reviewed ts-auth service spec JSON; requires pinned profile")
 	authServiceSHA := flags.String("ts-auth-service-sha256", "", "reviewed ts-auth service spec SHA-256")
-	kvSnapshotPath := flags.String("kv-snapshot", "", "optional reviewed KV snapshot location JSON (controller.kv_snapshot)")
-	kvSnapshotSHA := flags.String("kv-snapshot-sha256", "", "reviewed KV snapshot location SHA-256")
 	outputPath := flags.String("out", "", "new canonical controller role JSON")
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -116,23 +114,6 @@ func (c command) renderControllerConfigAt(args []string, now time.Time) error {
 			return errors.New("a TerraBase profile needs the member CA; regenerate the controller material")
 		}
 		cfg.Controller.Workloads = map[string]app.WorkloadProfile{terrabase.Role: profile}
-	}
-	// The snapshot location is boot configuration: restore runs before any
-	// KV bucket exists, so it cannot come from the cell spec.
-	if *kvSnapshotPath != "" || *kvSnapshotSHA != "" {
-		snapshotWire, err := readPinnedControllerFile(*kvSnapshotPath, *kvSnapshotSHA, 4<<10)
-		if err != nil {
-			return fmt.Errorf("read reviewed KV snapshot location: %w", err)
-		}
-		if err := protocol.DecodeStrict(snapshotWire, &cfg.Controller.KVSnapshot, 4<<10); err != nil {
-			return fmt.Errorf("decode reviewed KV snapshot location: %w", err)
-		}
-		if !cfg.Controller.KVSnapshot.Enabled {
-			return errors.New("a reviewed KV snapshot location must be enabled")
-		}
-		if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
-			return fmt.Errorf("reviewed KV snapshot location: %w", err)
-		}
 	}
 	if withTSAuth {
 		profileWire, err := readPinnedControllerFile(*authProfilePath, *authProfileSHA, 64<<10)

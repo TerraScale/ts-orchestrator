@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/kvsnapshot"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
 	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
@@ -86,9 +85,6 @@ type ControllerConfig struct {
 	// topology; global control always starts.
 	Global    *GlobalControlConfig `json:"global,omitempty"`
 	SpecTrust *SpecTrustConfig     `json:"spec_trust,omitempty"`
-	// KVSnapshot keeps the configuration KV buckets in OCI Object Storage
-	// and restores them into a rebuilt cell. Off by default.
-	KVSnapshot kvsnapshot.Config `json:"kv_snapshot,omitzero"`
 	// MachinesAPI serves the Machines REST API (docs/machines-api.md); nil
 	// keeps it off.
 	MachinesAPI *machinesapi.Config `json:"machines_api,omitempty"`
@@ -173,9 +169,6 @@ func LoadConfig(path string) (Config, error) {
 	}
 	if err := cfg.Observability.Validate(); err != nil {
 		return Config{}, fmt.Errorf("observability config: %w", err)
-	}
-	if err := cfg.Controller.KVSnapshot.Validate(); err != nil {
-		return Config{}, err
 	}
 	if api := cfg.Controller.MachinesAPI; api != nil {
 		if err := api.Validate(); err != nil {

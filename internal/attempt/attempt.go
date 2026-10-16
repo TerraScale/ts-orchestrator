@@ -761,11 +761,6 @@ func (a *Attempt) PhaseSign() {
 		a.writeJSON(candidate, Object{"schemaVersion": bootstrap.ManifestSchemaVersion, "deploymentId": a.Deployment, "environment": "canary", "clusterId": a.Deployment, "cell": cell.Cell, "ociRegion": cell.OCIRegion, "intentGeneration": anchorPayload["initialRegionIntentGeneration"], "intentSha256": anchorPayload["initialRegionIntentSha256"], "controllerRole": "controller", "slot": slot, "seedSlot": "controller-a", "controllerSlots": Slots, "profiles": profiles, "imageOcid": a.ImageID(), "imageArchitecture": "linux-arm64", "releaseReceiptSha256": a.sha(receipt), "peerReceiptDelegation": peer, "storageDomain": anchorPayload["storageDomain"], "managedMaterial": domain, "secrets": secrets})
 		if !exists(config) {
 			args := join([]string{"render-controller-config"}, a.pair(candidate, "--candidate"), a.pair(a.Path("controller-material.json"), "--material-record"), a.pair(str(a.Config, "operator_grant"), "--operator-grant"), sidecars)
-			// The snapshot location is boot configuration: a rebuilt cell
-			// restores from it before any cell spec exists.
-			if snapshot := str(a.Config, "kv_snapshot"); snapshot != "" {
-				args = append(args, a.pair(snapshot, "--kv-snapshot")...)
-			}
 			a.RunBootstrap(append(args, "--out", config)...)
 		}
 		a.RunBootstrap(join([]string{"sign-manifest", "--candidate", candidate}, a.pair(config, "--controller-config"), sidecars, []string{"--anchor", anchor, "--image-receipt", receipt, "--release-delegation", delegation, "--root-key", a.trust("root_public"), "--signing-key", a.trust("root_private"), "--out", manifest, "--valid-for", a.validFor()})...)

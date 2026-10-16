@@ -70,9 +70,6 @@ type specRegistry struct {
 	// replaceSigners receives every newly adopted spec's trusted signers,
 	// under the registry lock; the controller's signer policy swaps them in.
 	replaceSigners func([]TrustedSignerConfig) error
-	// snapshots is whether the signed config sets a kv_snapshot location,
-	// which a kv_snapshot schedule needs.
-	snapshots bool
 	// terraBaseCA is whether the signed config holds the TerraBase member
 	// CA, without which no member gets a certificate: a terrabase entry
 	// needs it. A signed TerraBase profile implies it, since signing
@@ -127,7 +124,7 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	r := &specRegistry{cell: cfg.NATS.Cell, fixed: map[string]WorkloadProfile{},
 		signers: slices.SortedFunc(slices.Values(cfg.Controller.TrustedSigners), func(a, b TrustedSignerConfig) int {
 			return strings.Compare(a.Actor, b.Actor)
-		}), snapshots: cfg.Controller.KVSnapshot.Enabled, terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
+		}), terraBaseCA: cfg.Controller.TerraBaseCACertFile != "",
 		signedArtifactStore: cmp.Or(cfg.Controller.ArtifactStoreMaxBytes, delivery.DefaultArtifactStoreMaxBytes)}
 	if cfg.NATS.Embedded != nil {
 		r.artifactStoreLimit = cfg.NATS.Embedded.StoreLimitBytes() - specStoreHeadroomBytes
@@ -461,9 +458,6 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 	if err := r.validateHostGrants(spec.HostGrants, profiles); err != nil {
 		return err
 	}
-	if spec.KVSnapshot != nil && !r.snapshots {
-		return errors.New("a kv_snapshot schedule needs the signed controller config's kv_snapshot location")
-	}
 	if desired := spec.OCIDesired; desired != nil {
 		if !r.ociReconcile || r.ociRegion == nil {
 			return errors.New("desired OCI resources need OCI reconcile and the signed region config (controller.oci_reconcile)")
@@ -613,21 +607,6 @@ func (r *specRegistry) effective() (map[string]WorkloadProfile, []workload.Servi
 	return r.effectiveLocked()
 }
 
-// kvSnapshot is the current spec's snapshot interval, or signed when the
-// spec sets none, and whether a root paused the uploads.
-func (r *specRegistry) kvSnapshot(signed time.Duration) (time.Duration, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	schedule := r.current.KVSnapshot
-	if schedule == nil {
-		return signed, false
-	}
-	if schedule.IntervalSeconds != 0 {
-		signed = time.Duration(schedule.IntervalSeconds) * time.Second
-	}
-	return signed, schedule.Paused
-}
-
 // ociDesired is the current spec's desired OCI resources, or the signed
 // config's when the spec lists none; nil lists none.
 func (r *specRegistry) ociDesired() *cellspec.OCIDesired {
@@ -709,9 +688,6 @@ func (r *specRegistry) withSigned(spec cellspec.Spec) cellspec.Spec {
 		spec.OCIDesired = r.signedDesired
 	}
 	spec.Signers = r.effectiveSigners(spec)
-	if spec.KVSnapshot == nil && r.snapshots {
-		spec.KVSnapshot = &cellspec.KVSnapshot{}
-	}
 	if spec.ArtifactStore == nil {
 		spec.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: r.signedArtifactStore}
 	}

@@ -184,33 +184,35 @@ decision journal (`volume_reattached`, rule
 
 `internal/kvsnapshot` keeps the configuration KV buckets
 (`kvsnapshot.Buckets`: `TS_SERVICE_SET`, `TS_TRUST_ROOTS`, `TS_HOST_ENROLLMENT`,
-`TS_ROLLOUTS`, `TS_OCI_DESIRED`, `TS_APPS`, `TS_VOLUMES`) in OCI Object Storage, so that a controller set rebuilt
+`TS_ROLLOUTS`, `TS_OCI_DESIRED`, `TS_APPS`, `TS_MACHINES`, `TS_VOLUMES`) in OCI Object Storage, so that a controller set rebuilt
 with empty JetStream stores gets them back without any re-signing.
 
-Snapshot location, credentials and schedule must be derived/provisioned
-automatically. OCI Vault delivers credentials; the production cadence has one
-correct setting in code. The current `kv_snapshot` block and explicit signing
-inputs are TS-796 dependencies, not a setup recipe. The snapshot bucket must
-retain version history and its identity must be verified. Grant only read,
-create and overwrite on its owned snapshot prefix.
+The controller's instance principal discovers the tenancy namespace. Its
+catalog region determines the existing regional head bucket, such as
+`gru-1-head`; the snapshot location and cadence have no configuration block.
+Before use, the uploader verifies the returned bucket name and namespace,
+enabled version history, and a managed default KMS key. A missing dependency or
+refused grant is an error. The controller needs namespace discovery and read
+access to that bucket's metadata, plus object read, create and overwrite on
+`kv-snapshot/v1/*`. Snapshot writes use the bucket's default encryption key.
 
-**Snapshots.** Every `interval_seconds` the authority leader reads each
-bucket's stream and, if its last sequence moved, writes the latest value of
-every key to `<prefix>/<cell>/<bucket>.json` with an ETag compare-and-swap.
+**Snapshots.** Every thirty seconds the authority leader reads each bucket's
+stream and, if its last sequence moved, writes the latest value of every key
+to `kv-snapshot/v1/<cell>/<bucket>.json` with an ETag compare-and-swap.
 The object records the stream's creation time and last sequence. A writer
 never replaces a snapshot of a newer stream or a higher sequence of the same
-stream, so a deposed leader or an old cell cannot roll it back. Only a
-changed bucket is uploaded. A change reaches Object Storage within about one
-interval; a change made in that window is lost with every controller. The
-[cell spec](cell-spec.md) still exposes interval/pause fields. Their removal
-is pending TS-796; continuous snapshots have no operator tuning or pause step.
+stream, so a deposed leader or an old cell cannot roll it back. Only a changed
+bucket is uploaded; an unchanged bucket is checked against storage so an
+unreadable or missing copy cannot appear healthy. There is no pause control.
+With healthy dependencies and a short upload, a change reaches Object Storage
+within about thirty seconds; changes made after the latest successful snapshot
+are lost if every controller loses its store.
 
 **Restore.** After the cluster forms and before authority or any store
 opens, the controller reads the plan in `TS_KV_RESTORE`. A complete plan
 means the cell has already restored, so an ordinary restart needs no OCI.
 Without a plan, a cell whose `TS_CONTROL_LOG` already holds records kept its
-JetStream state: it records an empty plan without reading OCI, so enabling
-snapshots on a live cell never blocks its boot. In a new or rebuilt cell,
+JetStream state: it records an empty plan without reading OCI, so a live cell never restores stale snapshots over its retained state. In a new or rebuilt cell,
 the first controller restores each bucket that has a snapshot and whose
 stream is missing or was never written. Every controller
 that boots while the plan runs finishes it first. A value is written only if
