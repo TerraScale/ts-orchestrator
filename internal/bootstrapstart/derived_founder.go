@@ -123,6 +123,16 @@ func ProvisionInitialDerivedFounderFloor(ctx context.Context, baked BakedInputs,
 	if err != nil {
 		return err
 	}
+	return reader.provisionDerivedInitial(ctx, selected, ledger, serviceUID, serviceGID, clockCheck)
+}
+
+func (reader *CurrentFounderAuthorityReader) provisionDerivedInitial(ctx context.Context, selected CurrentFounderAuthority,
+	ledger *bootstrap.Ledger, serviceUID, serviceGID uint32, clockCheck func() error,
+) error {
+	if reader == nil || reader.derived == nil || reader.floor == nil || ledger == nil || clockCheck == nil || serviceUID == 0 || serviceGID == 0 || reader.floor.ownerUID != serviceUID {
+		return ErrFounderProvision
+	}
+	accepted, floor := reader.accepted, reader.floor
 	state, err := ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: accepted.DeploymentID, Cell: accepted.Cell, Slot: accepted.Slot})
 	if err != nil || state.Intent.Mode != bootstrap.IntentModeExternalSeed || state.Head.Attempt != accepted.HeadAttempt || state.Head.Generation != accepted.HeadGeneration ||
 		state.Head.ResultDigest != accepted.ResultSHA256 || state.ResultRecord == nil || state.ResultRecord.SHA256 != accepted.ResultSHA256 ||
