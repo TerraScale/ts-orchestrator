@@ -344,8 +344,9 @@ type FunctionMaterialBinding struct {
 }
 
 type FunctionMaterialFiles struct {
-	Files     map[string][]byte
-	ExpiresAt time.Time
+	Files               map[string][]byte
+	ExpiresAt           time.Time
+	CredentialExpiresAt time.Time
 }
 
 // FunctionMaterialProvider independently resolves the registered host's actual
