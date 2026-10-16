@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -52,7 +53,7 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	t.Cleanup(func() { _ = connection.Close() })
 	signer := newFunctionPublicationSigner(t)
 	bundle, evidence := signer.worker(t, release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "amd64"})
-	config := functionControllerConfig{Authority: runtime, Client: api.NewControlClient(connection), Cell: "gru", Environment: "canary",
+	config := functionControllerConfig{Authority: runtime, Client: api.NewControlClient(connection), Factory: signer.factory, Cell: "gru", Environment: "canary",
 		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Artifacts: artifacts, Roots: func() trust.Keyring { return signer.roots }}},
 		Worker: func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
 			return functionWorkerRelease{Architecture: "amd64", Bundle: bundle}, nil
@@ -68,7 +69,7 @@ func TestFunctionDemandRequiresWorkerQualifiedThroughFunctionExpiry(t *testing.T
 	if _, err := runtime.CommitFunctionIntent(ctx, runtime.Current().Epoch, entityid.New(), 0, proof); err != nil {
 		t.Fatal(err)
 	}
-	if demand, err := observe(ctx); err == nil || demand != nil {
+	if demand, err := observe(ctx); !errors.Is(err, trust.ErrExpired) || demand != nil {
 		t.Fatalf("short-lived qualified worker produced capacity: %+v, %v", demand, err)
 	}
 	wrongScope := config

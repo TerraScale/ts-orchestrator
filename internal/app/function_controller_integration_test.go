@@ -5,11 +5,22 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,12 +29,14 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"google.golang.org/grpc"
 )
 
@@ -122,6 +135,7 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 		}
 		target := release.ContainerTarget{Cell: "GRU", Environment: "canary", Role: swarmruntime.FunctionWorkerRole, Architecture: "arm64"}
 		bundle, evidence := signer.worker(t, target)
+		controller.config.Factory = signer.factory
 		controller.config.Worker = func(context.Context, release.VerifiedFunction) (functionWorkerRelease, error) {
 			return functionWorkerRelease{Architecture: target.Architecture, Bundle: bundle}, nil
 		}
@@ -129,7 +143,11 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 		defer cancel()
 		deadline, _ := ctx.Deadline()
-		if _, err := release.VerifyContainerCurrent(ctx, bundle, signer.roots, target, time.Now(), deadline, evidence); err != nil {
+		allocations, err := currentContainerAllocations(ctx, signer.factory, bundle, signer.roots, target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := release.VerifyContainerCurrent(ctx, bundle, signer.roots, target, time.Now(), deadline, evidence, allocations); err != nil {
 			t.Fatalf("independent worker qualification through request deadline: %v", err)
 		}
 		if _, err := controller.recipient(ctx, registration, binding); !errors.Is(err, trust.ErrExpired) {
@@ -158,12 +176,14 @@ func (manager functionRecipientManager) GetNode(context.Context, *api.GetNodeReq
 }
 
 type functionPublicationSigner struct {
-	claim      release.FunctionClaim
-	module     []byte
-	roots      trust.Keyring
-	root       ed25519.PrivateKey
-	leaf       ed25519.PrivateKey
-	delegation trust.Envelope
+	claim       release.FunctionClaim
+	module      []byte
+	roots       trust.Keyring
+	root        ed25519.PrivateKey
+	leaf        ed25519.PrivateKey
+	delegation  trust.Envelope
+	factory     *ociclient.Factory
+	allocations release.SequenceLocation
 }
 
 func newFunctionPublicationSigner(t *testing.T) functionPublicationSigner {
@@ -206,7 +226,9 @@ func newFunctionPublicationSigner(t *testing.T) functionPublicationSigner {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return functionPublicationSigner{claim: claim, module: module, roots: roots, root: rootPrivate, leaf: leaf, delegation: delegation}
+	factory, allocations := functionAllocationStore(t)
+	return functionPublicationSigner{claim: claim, module: module, roots: roots, root: rootPrivate, leaf: leaf, delegation: delegation,
+		factory: factory, allocations: allocations}
 }
 
 func (signer functionPublicationSigner) proof(t *testing.T, sequence uint64, revision string) release.VerifiedFunction {
@@ -309,8 +331,114 @@ func (signer functionPublicationSigner) workerUntil(t *testing.T, target release
 		Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101,
 		SequenceMigrationSHA256: migrationSHA, QualificationSHA256: qualification.Candidate.QualificationSHA256,
 		Production: release.ProductionProof{Qualification: sign(qualification, release.ProductionQualificationScope(qualification.Candidate), signer.root, now.Add(2*time.Hour))}}
-	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, expires), Delegation: delegationWire, Migration: migrationWire},
+	if err := signer.allocations.ImportMigration(t.Context(), migrationEnvelope, signer.roots, claim.Role, claim.Environment, now); err != nil {
+		t.Fatal(err)
+	}
+	family, err := claim.WorkerFamilyDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequence, sequenceWire, err := signer.allocations.AllocateWithEvidence(t.Context(), release.SequenceIdentity{
+		Role: claim.Role, Environment: claim.Environment, SourceRevision: claim.SourceRevision, ManifestSHA256: family,
+	}, signer.roots, signer.leaf)
+	if err != nil || sequence != claim.ReleaseSequence {
+		t.Fatalf("allocate signed worker sequence: got %d, want %d: %v", sequence, claim.ReleaseSequence, err)
+	}
+	return release.ContainerBundle{Claim: sign(claim, scope, signer.leaf, expires), Delegation: delegationWire, Migration: migrationWire, Sequence: sequenceWire},
 		func(context.Context, string) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader(evidence)), nil
 		}
+}
+
+func functionAllocationStore(t *testing.T) (*ociclient.Factory, release.SequenceLocation) {
+	t.Helper()
+	directory := t.TempDir()
+	var lock sync.Mutex
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Signature ") {
+			http.Error(w, "unsigned OCI request", http.StatusUnauthorized)
+			return
+		}
+		if !strings.HasPrefix(r.URL.Path, "/n/function-controller-test/b/gru-1-head/o/") {
+			http.NotFound(w, r)
+			return
+		}
+		nameSHA := sha256.Sum256([]byte(r.URL.Path))
+		name := filepath.Join(directory, hex.EncodeToString(nameSHA[:]))
+		lock.Lock()
+		defer lock.Unlock()
+		current, err := os.ReadFile(name)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		found := err == nil
+		etag := fmt.Sprintf(`"%x"`, sha256.Sum256(current))
+		switch r.Method {
+		case http.MethodGet:
+			if !found {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("ETag", etag)
+			_, _ = w.Write(current)
+		case http.MethodPut:
+			if r.Header.Get("If-None-Match") == "*" && found || r.Header.Get("If-Match") != "" && (!found || r.Header.Get("If-Match") != etag) {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
+			if r.Header.Get("If-Match") == "" && r.Header.Get("If-None-Match") != "*" {
+				http.Error(w, "missing CAS", http.StatusBadRequest)
+				return
+			}
+			body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64<<10))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := os.WriteFile(name, body, 0600); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	t.Cleanup(server.Close)
+	previous := http.DefaultTransport
+	transport := previous.(*http.Transport).Clone()
+	transport.Proxy = nil
+	tlsDialer := tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig.Clone()}
+	transport.DialTLSContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != "objectstorage.sa-saopaulo-1.oraclecloud.com:443" {
+			return nil, fmt.Errorf("unexpected OCI endpoint %q", address)
+		}
+		return tlsDialer.DialContext(ctx, network, server.Listener.Addr().String())
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("allocation fixture requires its TLS OCI endpoint")
+	}
+	// The SDK must retain the local transport when production creates fresh clients.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	http.DefaultTransport = transport
+	t.Cleanup(func() {
+		http.DefaultTransport = previous
+		transport.CloseIdleConnections()
+	})
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	factory, err := ociclient.New(common.NewRawConfigurationProvider("tenancy", "user", "sa-saopaulo-1", "fingerprint", string(keyPEM), nil),
+		ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := factory.ObjectStorage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return factory, release.SequenceLocation{Client: client, Namespace: "function-controller-test", Bucket: "gru-1-head"}
 }
