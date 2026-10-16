@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -60,8 +61,8 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 		Currency: "USD", MonthlyLimitMinor: 12000, InfrastructureMonthlyLimitMinor: 10000, BootstrapReservedMinor: 4000, CleanupOwner: "scenario",
 		HomeStorageDomain: bootstrap.StorageDomain{Namespace: "ns", HeadBucket: "gru-1-head", LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head", LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"},
 		SourceVaultTarget: bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.home", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"},
-		TrustedSigners:    signers, OCIRRepositoryName: "terrascale/terrabase", OCIRPrincipalName: "terrascale-pull", OCIRPrincipalEmail: "terrascale-pull@terrascale.tech", OCIRSecretName: "gru-orch-ocir-pull",
-		GRUController: host, SFOController: host, FRAController: host, NetBirdManager: host}
+		TrustedSigners:    signers,
+		GRUController:     host, SFOController: host, FRAController: host, NetBirdManager: host}
 	approval.ReleaseAuthorities = foundationPreparationReleaseAuthorities(t, root, leafPublic, approval.HomeStorageDomain, now)
 	objects := map[string][]byte{}
 	var mu sync.Mutex
@@ -179,7 +180,7 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	}
 	writeFixture(t, approvalPath, wire, 0o644)
 	mu.Lock()
-	beforeWrites := writes
+	beforeWrites := writes + conditionalConflicts
 	mu.Unlock()
 	command := command{ctx: t.Context(), output: io.Discard}
 	if err := command.prepareFoundationWith([]string{"--approval", approvalPath, "--out", candidatePath}, factory, roots); err != nil {
@@ -196,8 +197,29 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 	if len(prepared.Grant.Regions) != 3 || len(prepared.Grant.InfrastructureSpend.Bootstrap.Slots) != 4 || len(prepared.Grant.WorkerProfiles) != 12 || prepared.Anchor.FoundationScope.GrantSHA256 != "" {
 		t.Fatal("preparation did not preserve unsigned fixed footprint")
 	}
+	expectedRepositories := make(map[string]bool, len(approval.ReleaseAuthorities))
+	for _, authority := range approval.ReleaseAuthorities {
+		expectedRepositories[authority.ImageRepository] = true
+	}
+	if len(prepared.Grant.OCIRIssuances) != 3 || len(prepared.Grant.OCIRIssuances) != len(expectedRepositories) {
+		t.Fatal("preparation did not derive one OCIR issuance per approved repository")
+	}
+	seenRepositories, seenPrincipals, seenEmails, seenSecrets := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, issuance := range prepared.Grant.OCIRIssuances {
+		repository := issuance.RegistryHost + "/" + issuance.RegistryNamespace + "/" + issuance.RepositoryName
+		principal, email, secret, err := region.OCIRServiceIdentity(prepared.Grant.InstallationID, repository)
+		if err != nil || !expectedRepositories[repository] || seenRepositories[repository] || issuance.RegistryHost != "gru.ocir.io" || issuance.RegistryNamespace != approval.HomeStorageDomain.Namespace ||
+			issuance.PrincipalName != principal || issuance.PrincipalEmail != email || issuance.SecretName != secret || seenPrincipals[principal] || seenEmails[email] || seenSecrets[secret] {
+			t.Fatalf("preparation changed or reused an approved repository identity for %s: %v", repository, err)
+		}
+		if issuance.OCIRegion != "sa-saopaulo-1" || issuance.RepositoryCompartmentID != approval.SourceVaultTarget.CompartmentOCID ||
+			issuance.VaultTarget.CompartmentID != approval.SourceVaultTarget.CompartmentOCID || issuance.VaultTarget.VaultID != approval.SourceVaultTarget.VaultOCID || issuance.VaultTarget.KeyID != approval.SourceVaultTarget.KMSKeyOCID {
+			t.Fatalf("preparation changed the approved OCIR repository compartment or Vault target for %s", repository)
+		}
+		seenRepositories[repository], seenPrincipals[principal], seenEmails[email], seenSecrets[secret] = true, true, true, true
+	}
 	mu.Lock()
-	observedWrites, observedReads := writes, reads
+	observedWrites, observedReads := writes+conditionalConflicts, reads
 	mu.Unlock()
 	if observedWrites != beforeWrites || observedReads == 0 {
 		t.Fatal("preparation mutated OCI or did not read real SDK metadata")
@@ -264,6 +286,53 @@ func TestFoundationPreparationSDKToOfflineCeremony(t *testing.T) {
 				t.Fatalf("foundation publication attempt %d changed exact retained object %s", attempt+1, key)
 			}
 		}
+	}
+	extraPrincipal, extraEmail, extraSecret, err := region.OCIRServiceIdentity(prepared.Grant.InstallationID, "gru.ocir.io/ns/unapproved")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		change func(*region.FoundationPreparation)
+	}{
+		{"missing OCIR issuance", func(value *region.FoundationPreparation) { value.Grant.OCIRIssuances = value.Grant.OCIRIssuances[:2] }},
+		{"reused OCIR principal", func(value *region.FoundationPreparation) {
+			value.Grant.OCIRIssuances[1].PrincipalName = value.Grant.OCIRIssuances[0].PrincipalName
+		}},
+		{"reused OCIR email", func(value *region.FoundationPreparation) {
+			value.Grant.OCIRIssuances[1].PrincipalEmail = value.Grant.OCIRIssuances[0].PrincipalEmail
+		}},
+		{"reused OCIR secret", func(value *region.FoundationPreparation) {
+			value.Grant.OCIRIssuances[1].SecretName = value.Grant.OCIRIssuances[0].SecretName
+		}},
+		{"extra unapproved OCIR repository", func(value *region.FoundationPreparation) {
+			extra := value.Grant.OCIRIssuances[0]
+			extra.RepositoryName = "unapproved"
+			extra.PrincipalName, extra.PrincipalEmail, extra.SecretName = extraPrincipal, extraEmail, extraSecret
+			value.Grant.OCIRIssuances = append(value.Grant.OCIRIssuances, extra)
+		}},
+		{"substituted OCIR host", func(value *region.FoundationPreparation) { value.Grant.OCIRIssuances[0].RegistryHost = "sjc.ocir.io" }},
+		{"substituted OCIR namespace", func(value *region.FoundationPreparation) { value.Grant.OCIRIssuances[0].RegistryNamespace = "other" }},
+		{"substituted OCIR repository", func(value *region.FoundationPreparation) { value.Grant.OCIRIssuances[0].RepositoryName = "unapproved" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			partial := prepared
+			partial.Grant.OCIRIssuances = slices.Clone(prepared.Grant.OCIRIssuances)
+			test.change(&partial)
+			wire, err := protocol.EncodeJSON(partial)
+			if err != nil {
+				t.Fatal(err)
+			}
+			caseDirectory := t.TempDir()
+			path, refused := filepath.Join(caseDirectory, "candidate.json"), filepath.Join(caseDirectory, "signed.json")
+			writeFixture(t, path, wire, 0o644)
+			if err := command.signFoundationAt([]string{"--candidate", path, "--root-chain", chainPath, "--root-key", rootPath, "--signing-key", privatePath, "--out", refused}, now); err == nil {
+				t.Fatal("different OCIR issuance authority was signed")
+			}
+			if _, err := os.Stat(refused); !os.IsNotExist(err) {
+				t.Fatalf("rejected OCIR authority left signed output: %v", err)
+			}
+		})
 	}
 	t.Run("missing service authority cannot be signed", func(t *testing.T) {
 		partial := prepared
