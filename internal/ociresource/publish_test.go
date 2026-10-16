@@ -19,10 +19,10 @@ func (s testSpec) Validate() error {
 }
 
 func TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	ctx := t.Context()
 	now := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
-	entries := []Entry{{Name: "a", Policy: PolicyReport, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{"2"}}}
+	entries := []Entry{{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{"2"}}}
 	result, err := PublishSet(ctx, store, "GRU", "nsg-rules", entries, false, now, time.Hour, nil)
 	if err != nil || result.Published != 2 {
 		t.Fatalf("result=%+v err=%v", result, err)
@@ -31,7 +31,7 @@ func TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked(t *testing.T) {
 	if err != nil || result.Unchanged != 2 || result.Published != 0 {
 		t.Fatalf("idempotent result=%+v err=%v", result, err)
 	}
-	entries[0].Policy = PolicyEnforce
+	entries[0].Spec = testSpec{"changed"}
 	if result, err = PublishSet(ctx, store, "GRU", "nsg-rules", entries, false, now, time.Hour, nil); err != nil || result.Published != 1 {
 		t.Fatalf("policy change result=%+v err=%v", result, err)
 	}
@@ -60,11 +60,11 @@ func TestPublishSetWritesOnlyChangesAndPrunesOnlyWhenAsked(t *testing.T) {
 // Authority is re-checked before every write and every tombstone: losing it
 // mid-set stops the set at once.
 func TestPublishSetFencesEveryWrite(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	ctx := t.Context()
 	now := time.Now()
-	entries := []Entry{{Name: "a", Policy: PolicyReport, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyReport, Spec: testSpec{"2"}},
-		{Name: "c", Policy: PolicyReport, Spec: testSpec{"3"}}}
+	entries := []Entry{{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{"2"}},
+		{Name: "c", Policy: PolicyEnforce, Spec: testSpec{"3"}}}
 	calls := 0
 	loseAfter := func(allowed int) func(context.Context) error {
 		calls = 0
@@ -100,13 +100,13 @@ func TestPublishSetFencesEveryWrite(t *testing.T) {
 }
 
 func TestPublishSetValidatesEverythingBeforeWriting(t *testing.T) {
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	for name, entries := range map[string][]Entry{
-		"invalid spec": {{Name: "a", Policy: PolicyReport, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyReport, Spec: testSpec{}}},
+		"invalid spec": {{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "b", Policy: PolicyEnforce, Spec: testSpec{}}},
 		"bad policy":   {{Name: "a", Policy: "adopt", Spec: testSpec{"1"}}},
-		"bad name":     {{Name: "A_B", Policy: PolicyReport, Spec: testSpec{"1"}}},
-		"duplicate":    {{Name: "a", Policy: PolicyReport, Spec: testSpec{"1"}}, {Name: "a", Policy: PolicyReport, Spec: testSpec{"2"}}},
-		"nil spec":     {{Name: "a", Policy: PolicyReport}},
+		"bad name":     {{Name: "A_B", Policy: PolicyEnforce, Spec: testSpec{"1"}}},
+		"duplicate":    {{Name: "a", Policy: PolicyEnforce, Spec: testSpec{"1"}}, {Name: "a", Policy: PolicyEnforce, Spec: testSpec{"2"}}},
+		"nil spec":     {{Name: "a", Policy: PolicyEnforce}},
 	} {
 		if _, err := PublishSet(t.Context(), store, "GRU", "nsg-rules", entries, true, time.Now(), 0, nil); err == nil {
 			t.Errorf("%s: accepted", name)

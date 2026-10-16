@@ -2,28 +2,26 @@ package sdkcli
 
 import (
 	"encoding/json/v2"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
-
-	"github.com/oracle/oci-go-sdk/v65/networkloadbalancer"
 )
 
 // NLB backend sets and listeners are keyed by user-defined names: those keys
 // stay as written while the schema fields inside are converted, so a
 // listener's default-backend-set-name still resolves (#127 12109).
 func TestRenderKeepsNLBBackendSetAndListenerNames(t *testing.T) {
-	nlb := networkloadbalancer.NetworkLoadBalancer{
-		Id: new("ocid1.networkloadbalancer.oc1..n"),
-		BackendSets: map[string]networkloadbalancer.BackendSet{
-			"TerraBaseHTTPS": {Name: new("TerraBaseHTTPS"), IsPreserveSource: new(true)},
-		},
-		Listeners: map[string]networkloadbalancer.Listener{
-			"TerraBaseListener": {Name: new("TerraBaseListener"), DefaultBackendSetName: new("TerraBaseHTTPS"), Port: new(443)},
-		},
-		FreeformTags: map[string]string{"CostCenter": "infra"},
-	}
-	wire, err := Render(nlb)
-	if err != nil {
-		t.Fatal(err)
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/networkLoadBalancers/n") {
+			t.Errorf("unexpected NLB read: %s %s", r.Method, r.URL)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"n","backendSets":{"TerraBaseHTTPS":{"name":"TerraBaseHTTPS","isPreserveSource":true}},"listeners":{"TerraBaseListener":{"name":"TerraBaseListener","defaultBackendSetName":"TerraBaseHTTPS","port":443}},"freeformTags":{"CostCenter":"infra"}}`)
+	})
+	wire, handled, err := client.Call(t.Context(), []string{"nlb", "network-load-balancer", "get", "--network-load-balancer-id", "n"})
+	if err != nil || !handled {
+		t.Fatalf("NLB read: handled=%v err=%v", handled, err)
 	}
 	var got map[string]any
 	if err := json.Unmarshal(wire, &got); err != nil {

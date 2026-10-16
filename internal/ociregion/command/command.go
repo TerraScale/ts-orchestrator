@@ -1,14 +1,10 @@
-// Package command provides the cancellable OCI CLI boundary used by deployment tools.
+// Package command defines the OCI operation boundary and shared response helpers.
 package command
 
 import (
-	"bytes"
 	"context"
 	"encoding/json/v2"
 	"fmt"
-	"os"
-	"os/exec"
-	"syscall"
 	"time"
 )
 
@@ -16,56 +12,6 @@ import (
 type Client interface {
 	Call(context.Context, ...string) (map[string]any, error)
 	Head(context.Context, ...string) error
-}
-
-type CLI struct{ Region string }
-
-func (c CLI) execute(ctx context.Context, args []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	if c.Region != "" {
-		args = append([]string{"--region", c.Region}, args...)
-	}
-	cmd := exec.CommandContext(ctx, "oci", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		if err == syscall.ESRCH {
-			return os.ErrProcessDone
-		}
-		return err
-	}
-	cmd.WaitDelay = 2 * time.Second
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	output, err := cmd.Output()
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		return nil, fmt.Errorf("oci %v failed: %s: %w", args, stderr.String(), err)
-	}
-	return output, nil
-}
-
-func (c CLI) Call(ctx context.Context, args ...string) (map[string]any, error) {
-	output, err := c.execute(ctx, append(args, "--output", "json"))
-	if err != nil {
-		return nil, err
-	}
-	if len(bytes.TrimSpace(output)) == 0 {
-		return map[string]any{}, nil
-	}
-	var result map[string]any
-	if err := json.Unmarshal(output, &result); err != nil {
-		return nil, fmt.Errorf("decode OCI response: %w", err)
-	}
-	return result, nil
-}
-
-func (c CLI) Head(ctx context.Context, args ...string) error {
-	_, err := c.execute(ctx, args)
-	return err
 }
 
 func Object(v any) (map[string]any, error) {

@@ -657,6 +657,9 @@ func osObjectList(ctx context.Context, c *Client, command Command) (any, error) 
 	return pages(command.All, func(start *string) ([]objectstorage.ObjectSummary, *string, error) {
 		response, err := client.ListObjects(ctx, objectstorage.ListObjectsRequest{NamespaceName: &namespace,
 			BucketName: &bucket, Fields: command.optional("fields"), Start: start})
+		if err == nil && response.Objects == nil {
+			return nil, nil, fmt.Errorf("OCI object list lacks objects")
+		}
 		return response.Objects, response.NextStartWith, err
 	})
 }
@@ -679,6 +682,9 @@ func osObjectVersionList(ctx context.Context, c *Client, command Command) (any, 
 	return pages(command.All, func(page *string) ([]objectstorage.ObjectVersionSummary, *string, error) {
 		response, err := client.ListObjectVersions(ctx, objectstorage.ListObjectVersionsRequest{NamespaceName: &namespace,
 			BucketName: &bucket, Page: page})
+		if err == nil && response.Items == nil {
+			return nil, nil, fmt.Errorf("OCI object version list lacks items")
+		}
 		return response.Items, response.OpcNextPage, err
 	})
 }

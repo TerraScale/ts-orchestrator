@@ -186,14 +186,13 @@ type attachmentDriftOCI struct {
 }
 
 func (f *attachmentDriftOCI) Call(ctx context.Context, args ...string) (map[string]any, error) {
-	result, err := f.fakeOCI.Call(ctx, args...)
 	if len(args) >= 3 && slices.Equal(args[:3], []string{"lb", "load-balancer", "list"}) {
 		f.reads++
 		if f.reads == f.driftAt {
 			f.balancer["network-security-group-ids"] = []any{"nsg", "unreviewed"}
 		}
 	}
-	return result, err
+	return f.fakeOCI.Call(ctx, args...)
 }
 
 func TestProvisionRechecksAttachmentsAfterActivationAndConvergence(t *testing.T) {

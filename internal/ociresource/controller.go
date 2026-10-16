@@ -10,9 +10,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 // Authority is the mutation fence. The authority package's Fencer satisfies it.
@@ -23,6 +25,7 @@ type Authority interface {
 
 // Controller reconciles every desired record of one kind in one region.
 type Controller[S, O any] struct {
+	mu        sync.Mutex
 	Region    string
 	Resource  Resource[S, O]
 	Store     Store
@@ -57,6 +60,8 @@ func (c *Controller[S, O]) validate() error {
 // independently: a failure is recorded in its status and does not stop the
 // other records. Context and fencing errors abort the pass.
 func (c *Controller[S, O]) Reconcile(ctx context.Context, epoch uint64) (Result, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if err := c.validate(); err != nil {
 		return Result{}, err
 	}
@@ -109,6 +114,9 @@ func (c *Controller[S, O]) guard(ctx context.Context, epoch uint64) error {
 func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desired Desired) (Status, error) {
 	status := Status{Key: desired.Key, Generation: desired.Generation, SpecDigest: desired.SpecDigest, ObservedAt: c.now(),
 		Policy: desired.Policy}
+	if desired.Operation != nil {
+		status.OperationID = desired.Operation.ID
+	}
 	if desired.Key.Region != c.Region || desired.Key.Kind != c.Resource.Kind() {
 		return status, errors.New("OCI desired record is outside this controller's scope")
 	}
@@ -118,7 +126,73 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	}
 	target := Target[S]{Key: desired.Key, Generation: desired.Generation, SpecDigest: desired.SpecDigest,
 		Ownership: c.Ownership, Spec: spec, Deleting: desired.Tombstone != nil,
-		Guard: func(ctx context.Context) error { return c.guard(ctx, epoch) }}
+		Guard: func(ctx context.Context) error {
+			if err := c.guard(ctx, epoch); err != nil {
+				return err
+			}
+			var err error
+			desired, err = c.Store.SaveOperation(ctx, desired, epoch, c.now(), false)
+			if err != nil {
+				return err
+			}
+			return c.guard(ctx, epoch)
+		}}
+	bindOperation := func(ctx context.Context) context.Context {
+		target.OperationID = desired.Operation.ID
+		status.OperationID = target.OperationID
+		return context.WithValue(ociclient.WithAuthority(ctx, target.Fence), operationContextKey{}, operationContext{id: target.OperationID,
+			record: func(ctx context.Context, id string) error {
+				if id == "" {
+					return errors.New("OCI mutation returned no work request")
+				}
+				if err := c.guard(ctx, epoch); err != nil {
+					return err
+				}
+				if !slices.Contains(desired.Operation.WorkRequests, id) {
+					operation := *desired.Operation
+					operation.WorkRequests = append(slices.Clone(operation.WorkRequests), id)
+					desired.Operation = &operation
+				}
+				var err error
+				desired, err = c.Store.SaveOperation(ctx, desired, epoch, c.now(), false)
+				return err
+			}})
+	}
+	if desired.Operation != nil && len(desired.Operation.WorkRequests) != 0 {
+		if err := target.Fence(ctx); err != nil {
+			return status, err
+		}
+		recovery, ok := any(c.Resource).(interface {
+			RecoverWorkRequests(context.Context, []string) error
+		})
+		if !ok {
+			return status, errors.New("OCI resource cannot recover its pending work requests")
+		}
+		recoveryErr := recovery.RecoverWorkRequests(bindOperation(ctx), desired.Operation.WorkRequests)
+		if recoveryErr != nil && !errors.Is(recoveryErr, ErrWorkRequestFailed) {
+			return status, fmt.Errorf("recover OCI work request: %w", recoveryErr)
+		}
+		operation := *desired.Operation
+		operation.WorkRequests = nil
+		if recoveryErr != nil {
+			operation.Failure = recoveryErr.Error()
+		}
+		desired.Operation = &operation
+		if recoveryErr != nil {
+			if err := c.guard(ctx, epoch); err != nil {
+				return status, err
+			}
+			var err error
+			desired, err = c.Store.SaveOperation(ctx, desired, epoch, c.now(), true)
+			if err != nil {
+				return status, err
+			}
+			return status, fmt.Errorf("previous OCI operation failed: %w", recoveryErr)
+		}
+		if err := target.Fence(ctx); err != nil {
+			return status, err
+		}
+	}
 	observed, found, err := c.Resource.Observe(ctx, target)
 	if errors.Is(err, ErrForeign) {
 		// Never adopt, mutate, or delete an object this controller cannot prove
@@ -133,23 +207,45 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	status.Found = found
 
 	if desired.Tombstone != nil {
-		return c.deleteOne(ctx, epoch, desired, target, observed, found, status)
+		return c.deleteOne(ctx, epoch, &desired, target, observed, found, status, bindOperation)
 	}
 
 	plan := c.Resource.Diff(target, observed, found)
 	status.Drift = plan.Changes
 	status.InSync = plan.Empty()
-	if plan.Empty() || desired.Policy != PolicyEnforce {
-		if !plan.Empty() {
-			slog.InfoContext(ctx, "OCI resource drift reported", "key", desired.Key.String(), "plan", plan.String())
+	if plan.Empty() && desired.Operation != nil && desired.Operation.CompletedAt.IsZero() {
+		if err := c.guard(ctx, epoch); err != nil {
+			return status, err
 		}
+		status.OperationID = desired.Operation.ID
+		_, err := c.Store.SaveOperation(ctx, desired, epoch, c.now(), true)
+		if err != nil {
+			return status, err
+		}
+	}
+	if plan.Empty() {
 		return status, nil
+	}
+	if desired.Operation != nil && !desired.Operation.AppliedAt.IsZero() {
+		// The previous full apply finished; fresh observed drift needs new
+		// tokens rather than deduplicating against that finished request.
+		desired.Operation = nil
+	}
+	if err := target.Fence(ctx); err != nil {
+		return status, err
+	}
+	ctx = bindOperation(ctx)
+	if err := c.Resource.Apply(ctx, target, observed, found, plan); err != nil {
+		return status, fmt.Errorf("apply: %w", err)
 	}
 	if err := c.guard(ctx, epoch); err != nil {
 		return status, err
 	}
-	if err := c.Resource.Apply(ctx, target, observed, found, plan); err != nil {
-		return status, fmt.Errorf("apply: %w", err)
+	operation := *desired.Operation
+	operation.AppliedAt = c.now()
+	desired.Operation = &operation
+	if _, err := c.Store.SaveOperation(ctx, desired, epoch, c.now(), false); err != nil {
+		return status, err
 	}
 	status.Applied = true
 	slog.InfoContext(ctx, "OCI resource drift corrected", "key", desired.Key.String(), "plan", plan.String())
@@ -159,23 +255,19 @@ func (c *Controller[S, O]) reconcileOne(ctx context.Context, epoch uint64, desir
 	return status, nil
 }
 
-func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired Desired, target Target[S], observed O,
-	found bool, status Status,
+func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired *Desired, target Target[S], observed O,
+	found bool, status Status, bindOperation func(context.Context) context.Context,
 ) (Status, error) {
 	if c.now().Before(desired.Tombstone.NotBefore) {
 		status.Drift = []Change{{Op: "delete", Detail: "waiting for tombstone not-before " + desired.Tombstone.NotBefore.Format(time.RFC3339)}}
 		return status, nil
 	}
-	if found && desired.Policy != PolicyEnforce {
-		// Report mode never mutates the cloud, deletes included: the pending
-		// delete is drift until an operator switches the record to enforce.
-		status.Drift = []Change{{Op: "delete", Detail: "tombstoned; report-only policy withholds the cloud delete"}}
-		slog.InfoContext(ctx, "OCI resource delete reported", "key", desired.Key.String())
-		return status, nil
-	}
-	if err := c.guard(ctx, epoch); err != nil {
+	if err := target.Fence(ctx); err != nil {
 		return status, err
 	}
+	target.OperationID = desired.Operation.ID
+	status.OperationID = target.OperationID
+	ctx = bindOperation(ctx)
 	if found {
 		if err := c.Resource.Delete(ctx, target, observed); err != nil {
 			return status, fmt.Errorf("delete: %w", err)
@@ -184,16 +276,16 @@ func (c *Controller[S, O]) deleteOne(ctx context.Context, epoch uint64, desired 
 		// Re-observe on the next pass before purging, so a delete whose
 		// response was lost is confirmed rather than assumed.
 		status.Drift = []Change{{Op: "delete", Detail: "awaiting confirmation"}}
-		recordDecision(ctx, desired, epoch, decisionlog.KindOCIResourceDeleted,
+		recordDecision(ctx, *desired, epoch, decisionlog.KindOCIResourceDeleted,
 			"Deleted the managed parts of "+desired.Key.String(),
 			"Its desired record was tombstoned and the not-before instant passed.", Plan{})
 		return status, nil
 	}
-	if err := c.Store.Purge(ctx, desired); err != nil {
+	if err := c.Store.Purge(ctx, *desired); err != nil {
 		return status, fmt.Errorf("purge desired record: %w", err)
 	}
 	status.Deleted = true
-	recordDecision(ctx, desired, epoch, decisionlog.KindOCIResourceReleased,
+	recordDecision(ctx, *desired, epoch, decisionlog.KindOCIResourceReleased,
 		"Released "+desired.Key.String()+" from reconcile",
 		"A pass after the tombstone confirmed nothing managed is left.", Plan{})
 	return status, nil

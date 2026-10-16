@@ -29,7 +29,7 @@
   },
   "trust_roots": [
     {
-      "path": "deploy/image/inputs/bootstrap-root-002.pem",
+      "path": "internal/trust/bootstrap-root-002.pem",
       "sha256": "548426817b9ab219720d4a934703b7dfbd5b63633533a9340ec4e19c2fb65e5e"
     }
   ],

@@ -11,12 +11,14 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +33,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // The simulator persists exact Object Storage bytes and conditional-write
@@ -45,6 +48,11 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 		if r.Header.Get("Authorization") == "" {
 			t.Error("unsigned object operation")
 			w.WriteHeader(401)
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/n" {
+			w.Header().Set("content-type", "application/json")
+			io.WriteString(w, `"ns"`)
 			return
 		}
 		key := sha256.Sum256([]byte(r.URL.Path))
@@ -165,7 +173,7 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	digest := sha256.Sum256(configWire)
 	reader.local = bootstrap.BootstrapAnchor{Cell: oci.RegionGRU, DeploymentID: config.DeploymentID, ClusterID: config.ClusterID}
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.test", KMSKeyOCID: reader.storage.HeadKMSKeyOCID}
-	material := &BootstrapMaterialIntent{InstallationID: entityid.New(), PlanSHA256: hex.EncodeToString(digest[:]), Config: config, SourceVaultTarget: target}
+	material := &BootstrapMaterialIntent{InstallationID: reader.home.InstallationID, PlanSHA256: hex.EncodeToString(digest[:]), Config: config, SourceVaultTarget: target}
 	grant := FoundationGrant{InstallationID: reader.home.InstallationID, SchemaVersion: 1, Generation: 1, TenancyID: reader.tenancy, ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "scenario",
 		Regions: []FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": reader.tenancy, "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID}}}}}
 	publish := func(signedScope trust.Scope, expiry time.Time) {
@@ -225,6 +233,22 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 		}
 	}
 	grant.InfrastructureSpend = nil
+	publish(scope, now.Add(time.Hour))
+	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+		t.Fatal("foundation-only scope authorized OCIR IAM and token issuance")
+	}
+	grant.OCIRIssuance = &OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}
+	publish(scope, now.Add(time.Hour))
+	issuer, err := reader.OCIRIssuer(t.Context())
+	if err != nil || !issuer.IsVerified() || issuer.InstallationID() != reader.home.InstallationID || issuer.GrantDigest() != reader.home.GrantSHA256 || issuer.Intent() != *grant.OCIRIssuance {
+		t.Fatalf("issuer=%+v err=%v", issuer, err)
+	}
+	grant.OCIRIssuance.VaultTarget.VaultID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
+	publish(scope, now.Add(time.Hour))
+	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+		t.Fatal("foreign Vault was authorized for OCIR IAM and token issuance")
+	}
+	grant.OCIRIssuance = nil
 	grant.Regions[0].BootstrapMaterial = material
 	publish(scope, now.Add(time.Hour))
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
@@ -273,6 +297,61 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	grantPin := sha256.Sum256(verified.FoundationGrantWire())
 	if hex.EncodeToString(grantPin[:]) != reader.home.GrantSHA256 {
 		t.Fatal("startup proof did not retain exact signed grant")
+	}
+	// An ordinary authenticated caller discovers the exact signed grant from a
+	// fixed home location, without a host anchor, config or installed identity.
+	discoveryClient := client.(foundationDiscoveryObjects)
+	domain := bootstrap.StorageDomain{Namespace: "ns", HeadBucket: foundationDiscoveryBucket, LedgerBucket: "gru-1-ledger", HeadKMSKeyOCID: target.KMSKeyOCID, LedgerKMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.ledger", Prefix: "bootstrap"}
+	discoveryHome := bootstrap.FoundationScope{InstallationID: reader.home.InstallationID, DeploymentID: scope.DeploymentID, ClusterID: scope.Slot, TenancyID: reader.tenancy, OCIRegion: foundationHomeRegion, StorageDomain: domain, GrantGeneration: 1}
+	publicGrant := grant
+	publicGrant.Regions = slices.Clone(grant.Regions)
+	publicGrant.Regions[0].BootstrapMaterial = nil
+	grantPayload, err := trust.EncodePayload(publicGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantEnvelope, err := trust.Sign(grantPayload, scope, now.Add(-time.Minute), now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grantWire, err := trust.EncodeEnvelope(grantEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	discoveryDigest := sha256.Sum256(grantWire)
+	discoveryHome.GrantSHA256 = hex.EncodeToString(discoveryDigest[:])
+	slots := []string{"controller-a", "controller-b", "controller-c"}
+	registration := bootstrap.InitialSourceRegistration{InstallationID: discoveryHome.InstallationID, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: slots[0], ControllerSlots: slots, StorageDomain: domain, LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
+	intentDigest := sha256.Sum256(intentWire)
+	discoveryAnchor := bootstrap.BootstrapAnchor{SchemaVersion: 1, DeploymentID: scope.DeploymentID, Environment: "production", ClusterID: scope.Slot, Cell: oci.RegionGRU, OCIRegion: foundationHomeRegion, StorageDomain: domain, FoundationScope: &discoveryHome, InitialSourceRegistration: &registration, ControllerSlots: slots, InitialRegionIntentGeneration: 1, InitialRegionIntentWire: intentWire, InitialRegionIntentSHA256: hex.EncodeToString(intentDigest[:])}
+	anchorEnvelope, err := bootstrap.SignBootstrapAnchor(discoveryAnchor, now.Add(-time.Minute), now.Add(time.Hour), private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchorWire, err := trust.EncodeEnvelope(anchorEnvelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := publishFoundationDiscovery(t.Context(), discoveryClient, reader.tenancy, roots, anchorWire, grantWire); err != nil {
+			t.Fatal(err)
+		}
+	}
+	resolved, err := discoverFoundation(t.Context(), discoveryClient, reader.tenancy, roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if approved, err := resolved.Footprint.AuthorizedRegions(t.Context()); err != nil || approved.TenancyID != reader.tenancy || len(approved.Regions) != 1 {
+		t.Fatalf("ordinary caller footprint=%+v err=%v", approved, err)
+	}
+	if _, err := discoverFoundation(t.Context(), discoveryClient, reader.tenancy, nil); !errors.Is(err, ErrFoundationDiscoveryPending) {
+		t.Fatalf("missing independent roots: %v", err)
+	}
+	if _, err := discoverFoundation(t.Context(), discoveryClient, "ocid1.tenancy.oc1..foreign", roots); err == nil {
+		t.Fatal("foreign authenticated tenancy discovered signed installation")
+	}
+	if _, err := verifyDiscoveryAnchor(anchorWire, roots, reader.tenancy, "foreign"); err == nil {
+		t.Fatal("foreign authenticated storage namespace discovered signed installation")
 	}
 	for _, scenario := range []string{"wrong scope", "expired", "wrong tenancy", "no budget", "wrong digest", "wrong escrow", "wrong local cluster", "wrong pinned digest", "wrong startup image", "wrong startup profile", "missing startup recipe"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -336,7 +415,7 @@ func foundationImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Ke
 		t.Fatal(err)
 	}
 	digest := strings.Repeat("a", 64)
-	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU", BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.CUSTOM", OCIRegion: "GRU"}
+	receipt := release.ImageReceipt{Schema: release.ImageSchema, SourceRevision: strings.Repeat("a", 40), GoVersion: release.DefaultGoVersion, Architecture: "amd64", BinaryBytes: 13, BinarySHA256: digest, QualificationSHA256: digest, BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: digest, KernelRelease: "6.1.0", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: digest, OCIImageOCID: "ocid1.image.oc1.sa-saopaulo-1.custom", OCIRegion: "GRU"}
 	scope := release.ImageScope(receipt, "production")
 	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded, Capabilities: []trust.Capability{{Domain: scope.Domain, DeploymentID: scope.DeploymentID, Cell: scope.Cell, Environment: scope.Environment, Role: scope.Role, Slots: []string{scope.Slot}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {

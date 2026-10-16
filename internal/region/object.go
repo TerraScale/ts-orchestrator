@@ -154,5 +154,61 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid resource identity")
 		}
 	}
+	if len(r.SourcePolicyIDs) > 64 {
+		return errors.New("source policy reservations exceed their fixed bound")
+	}
+	for key, source := range r.SourcePolicyIDs {
+		if err := source.validate(key); err != nil {
+			return err
+		}
+	}
+	if len(r.AuxiliaryIDs) > 6 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
+		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
+	}
+	for key, id := range r.AuxiliaryIDs {
+		if !validAuxiliaryID(key, id, r.OCIRegion) {
+			return errors.New("foundation record has invalid auxiliary identity")
+		}
+	}
+	for key, pending := range r.PendingCreates {
+		if pending.OperationID != r.OperationID || pending.IntentDigest != r.IntentDigest || pending.Request.Key != key ||
+			pending.Request.Validate() != nil || pending.FirstAttemptAt.IsZero() || pending.FirstAttemptAt.Before(r.StartedAt) || pending.FirstAttemptAt.After(r.UpdatedAt) {
+			return errors.New("foundation record has invalid pending create")
+		}
+	}
 	return nil
+}
+
+func validAuxiliaryID(key, id, region string) bool {
+	kind := ""
+	switch key {
+	case "controller_usage_policy", "netbird_enrollment_policy":
+		kind = "policy"
+		region = ""
+	case "ledger_bucket", "head_bucket", "backup_bucket", "material_bucket":
+		kind = "bucket"
+	default:
+		return false
+	}
+	parts := strings.Split(id, ".")
+	if len(parts) < 5 || parts[0] != "ocid1" || parts[1] != kind || parts[2] != "oc1" || len(id) > 512 {
+		return false
+	}
+	// Phoenix and Ashburn retain the original short OCID region spelling.
+	if parts[3] != region && !(region == "us-phoenix-1" && parts[3] == "phx") && !(region == "us-ashburn-1" && parts[3] == "iad") {
+		return false
+	}
+	for _, part := range parts[4:] {
+		if part == "" {
+			return false
+		}
+		for _, char := range part {
+			if char < 'a' || char > 'z' {
+				if char < '0' || char > '9' {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }

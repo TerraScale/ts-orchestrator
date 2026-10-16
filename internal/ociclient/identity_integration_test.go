@@ -39,6 +39,10 @@ func TestAuthorityFencesSDKMutationRetries(t *testing.T) {
 	if home.Provider() != factory.Provider() {
 		t.Fatal("home region changed authenticated identity")
 	}
+	cached, err := factory.ForRegion("eu-frankfurt-1")
+	if err != nil || cached != home || cached.Limiter(ServiceNetwork) != home.Limiter(ServiceNetwork) {
+		t.Fatal("home-region clients do not share their service limiter")
+	}
 	network, err := home.Network()
 	if err != nil {
 		t.Fatal(err)

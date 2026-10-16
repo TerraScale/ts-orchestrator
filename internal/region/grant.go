@@ -9,12 +9,14 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -27,6 +29,8 @@ import (
 
 const foundationGrantDomain = "terrascale.foundation.scope"
 const foundationGrantObject = "foundation-scope-v1.json"
+
+var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pending")
 
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
@@ -42,6 +46,7 @@ type FoundationGrant struct {
 	CleanupOwner        string                     `json:"cleanupOwner"`
 	Regions             []FoundationIntent         `json:"regions"`
 	InfrastructureSpend *InfrastructureSpendIntent `json:"infrastructureSpend,omitempty"`
+	OCIRIssuance        *OCIRIssuerIntent          `json:"ocirIssuance,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
@@ -159,7 +164,7 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		config := material.Config
 		wire, err := json.Marshal(config, json.Deterministic(true))
 		digest := sha256.Sum256(wire)
-		if err != nil || !entityid.Valid(material.InstallationID) || material.PlanSHA256 != hex.EncodeToString(digest[:]) ||
+		if err != nil || !entityid.Valid(material.InstallationID) || material.InstallationID != s.home.InstallationID || material.PlanSHA256 != hex.EncodeToString(digest[:]) ||
 			config.Validate() != nil || config.Cell != strings.ToLower(cell) || config.Region != intent.Plan["region"] ||
 			config.Environment != s.scope.Environment ||
 			(config.Cell == strings.ToLower(string(s.local.Cell)) && (config.DeploymentID != s.local.DeploymentID || config.ClusterID != s.local.ClusterID)) {
@@ -322,7 +327,10 @@ func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 	defer cancel()
 	response, err := s.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(name)})
 	if err != nil {
-		return nil, errors.New("authenticated foundation scope unavailable; initial tenancy authorization is required")
+		if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
+			return nil, fmt.Errorf("%w: initial tenancy authorization is absent", ErrFoundationGrantPending)
+		}
+		return nil, fmt.Errorf("read authenticated foundation scope: %w", err)
 	}
 	if response.Content == nil {
 		return nil, errors.New("foundation scope object has no content")

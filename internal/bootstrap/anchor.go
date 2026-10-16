@@ -114,7 +114,7 @@ func (anchor BootstrapAnchor) Validate() error {
 	}
 	if anchor.InitialSourceRegistration != nil {
 		registration := anchor.InitialSourceRegistration
-		if len(anchor.LedgerDelegationWire) != 0 || anchor.FoundationScope == nil || registration.Validate() != nil || registration.DeploymentID != anchor.DeploymentID || registration.Environment != anchor.Environment || registration.ClusterID != anchor.ClusterID || registration.Cell != anchor.Cell || registration.Generation != anchor.FoundationScope.GrantGeneration || registration.StorageDomain != anchor.StorageDomain || !slices.Equal(registration.ControllerSlots, anchor.ControllerSlots) {
+		if len(anchor.LedgerDelegationWire) != 0 || anchor.FoundationScope == nil || registration.Validate() != nil || registration.DeploymentID != anchor.DeploymentID || registration.Environment != anchor.Environment || registration.ClusterID != anchor.ClusterID || registration.Cell != anchor.Cell || registration.Generation != anchor.FoundationScope.GrantGeneration || registration.InstallationID != anchor.FoundationScope.InstallationID || registration.StorageDomain != anchor.StorageDomain || !slices.Equal(registration.ControllerSlots, anchor.ControllerSlots) {
 			return fmt.Errorf("%w: source registration differs from exact anchor or replaces pinned ledger signer", ErrBootstrapAnchorInvalid)
 		}
 	} else {

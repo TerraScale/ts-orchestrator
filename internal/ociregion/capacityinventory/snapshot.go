@@ -26,6 +26,7 @@ type Scope struct {
 
 type Resource struct {
 	ID, Cell, CompartmentID, LifecycleState string
+	OperationID, RecipeSHA256               string
 	MonthlyCents                            uint64
 }
 
@@ -47,13 +48,24 @@ func (s Snapshot) digest() [32]byte {
 }
 
 func (s Snapshot) Validate(scope Scope, now time.Time) error {
+	if err := s.ValidateOwned(scope, now); err != nil {
+		return err
+	}
+	if !now.Before(scope.ExpiresAt) || s.ExpiresAt.After(scope.ExpiresAt) {
+		return errors.New("infrastructure spend authority expired")
+	}
+	return nil
+}
+
+// ValidateOwned permits read-only reconciliation after historical authority expires.
+func (s Snapshot) ValidateOwned(scope Scope, now time.Time) error {
 	if s.seal == ([32]byte{}) || s.seal != s.digest() {
 		return errors.New("infrastructure snapshot lacks intact SDK producer evidence")
 	}
 	if s.ScopeSHA256 != scope.SHA256 || s.Currency != scope.Currency || len(s.Pending) != 0 {
 		return errors.New("infrastructure snapshot is incomplete or outside signed scope")
 	}
-	if s.ObservedAt.After(now) || now.Sub(s.ObservedAt) > 2*time.Minute || !now.Before(s.ExpiresAt) || s.ExpiresAt.After(scope.ExpiresAt) {
+	if s.ObservedAt.After(now) || now.Sub(s.ObservedAt) > 2*time.Minute || !now.Before(s.ExpiresAt) {
 		return errors.New("infrastructure snapshot is stale or outside authority validity")
 	}
 	want := []string{}
@@ -72,8 +84,15 @@ func (s Snapshot) Validate(scope Scope, now time.Time) error {
 }
 
 func (s Scope) validate(now time.Time) error {
+	if !now.Before(s.ExpiresAt) {
+		return errors.New("infrastructure spend authority expired")
+	}
+	return s.validateIdentity()
+}
+
+func (s Scope) validateIdentity() error {
 	digest, err := hex.DecodeString(s.SHA256)
-	if err != nil || len(digest) != 32 || s.TenancyID == "" || (s.Currency != "USD" && s.Currency != "BRL") || len(s.Regions) == 0 || !now.Before(s.ExpiresAt) {
+	if err != nil || len(digest) != 32 || s.TenancyID == "" || (s.Currency != "USD" && s.Currency != "BRL") || len(s.Regions) == 0 {
 		return errors.New("verified infrastructure scope is absent, expired or incomplete")
 	}
 	seen := map[string]bool{}

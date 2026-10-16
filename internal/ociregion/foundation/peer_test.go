@@ -77,7 +77,7 @@ func newPair(t *testing.T) *pair {
 		for _, role := range []string{"control", "network", "workload"} {
 			ids[role+"_compartment"] = f.add("compartment", "", Object{"name": name + "-" + role})
 		}
-		foundation := &Foundation{Region: client{f, region}, Apply: true, Out: io.Discard}
+		foundation := &Foundation{Region: client{f, region}, Apply: true, Out: io.Discard, BeforeWrite: allowWrite, Guard: allowGuard}
 		bind := func(key string, r Object) error { ids[key] = r["id"]; return nil }
 		if err := foundation.network(t.Context(), plan, name, text(ids["network_compartment"]), bind, func(key string) string { return text(ids[key]) }); err != nil {
 			t.Fatal(err)
@@ -220,7 +220,7 @@ func (x *pair) run(t *testing.T, apply bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log,
+	p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard,
 		Pause: func(context.Context, time.Duration) error { return nil },
 		Check: func(path string) error { return engine.CheckPrivatePeer(path, x.left, x.right) }}
 	err = p.Run(t.Context(), intent, plans, x.out, apply)
@@ -460,7 +460,7 @@ func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log}
+		p := &Peer{Clients: map[string]command.Client{sfo: client{x.f, sfo}, gru: client{x.f, gru}}, Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
 		if err := p.Drop(t.Context(), intent, plans, port, apply); err != nil {
 			t.Fatalf("drop %d: %v\n%s", port, err, log.String())
 		}
@@ -493,7 +493,7 @@ func TestPeerDropPortRemovesOnlyThatRule(t *testing.T) {
 		t.Fatalf("restore wrote %v, want %v", x.f.writes, want)
 	}
 	var log bytes.Buffer
-	p := &Peer{Out: &log}
+	p := &Peer{Out: &log, BeforeWrite: allowWrite, Guard: allowGuard}
 	if err := p.Drop(t.Context(), intent, nil, 22, true); err == nil {
 		t.Fatal("dropped a port outside the intent")
 	}

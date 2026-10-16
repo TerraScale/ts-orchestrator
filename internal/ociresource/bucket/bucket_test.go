@@ -14,6 +14,8 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 var (
@@ -21,18 +23,22 @@ var (
 	owner = ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 )
 
-type fakeAPI struct {
-	bucket Bucket
-	rules  []Rule
-	calls  []string
-	nextID int
+type providerState struct {
+	bucket       Bucket
+	rules        []Rule
+	calls        []string
+	nextID       int
+	api          API
+	loseResponse bool
 }
 
-func (f *fakeAPI) GetBucket(context.Context, string, string) (Bucket, error) { return f.bucket, nil }
-func (f *fakeAPI) ListRetentionRules(context.Context, string, string) ([]Rule, error) {
+func (f *providerState) GetBucket(context.Context, string, string) (Bucket, error) {
+	return f.bucket, nil
+}
+func (f *providerState) ListRetentionRules(context.Context, string, string) ([]Rule, error) {
 	return slices.Clone(f.rules), nil
 }
-func (f *fakeAPI) UpdateBucket(_ context.Context, _, _, etag, versioning string, tags ociresource.Tags) error {
+func (f *providerState) UpdateBucket(_ context.Context, _, _, etag, versioning string, tags ociresource.Tags) error {
 	if etag != f.bucket.ETag {
 		return errors.New("etag mismatch")
 	}
@@ -46,7 +52,7 @@ func (f *fakeAPI) UpdateBucket(_ context.Context, _, _, etag, versioning string,
 	f.bucket.Tags, f.bucket.ETag = tags, etag+"'"
 	return nil
 }
-func (f *fakeAPI) CreateRetentionRule(_ context.Context, _, _, name string, amount int64, unit string) error {
+func (f *providerState) CreateRetentionRule(_ context.Context, _, _, name string, amount int64, unit string) error {
 	if f.bucket.Versioning == VersioningEnabled {
 		return errors.New("retention refused on a versioned bucket")
 	}
@@ -56,7 +62,7 @@ func (f *fakeAPI) CreateRetentionRule(_ context.Context, _, _, name string, amou
 	f.bucket.ETag += "+"
 	return nil
 }
-func (f *fakeAPI) UpdateRetentionRule(_ context.Context, _, _, id, _ string, amount int64, unit string) error {
+func (f *providerState) UpdateRetentionRule(_ context.Context, _, _, id, _ string, amount int64, unit string) error {
 	f.calls = append(f.calls, "update "+id)
 	for index := range f.rules {
 		if f.rules[index].ID == id {
@@ -68,7 +74,7 @@ func (f *fakeAPI) UpdateRetentionRule(_ context.Context, _, _, id, _ string, amo
 	}
 	return nil
 }
-func (f *fakeAPI) DeleteRetentionRule(_ context.Context, _, _, id, _ string) error {
+func (f *providerState) DeleteRetentionRule(_ context.Context, _, _, id, _ string) error {
 	f.calls = append(f.calls, "delete "+id)
 	f.rules = slices.DeleteFunc(f.rules, func(rule Rule) bool { return rule.ID == id })
 	f.bucket.ETag += "-"
@@ -84,20 +90,21 @@ func ownedBucket() Bucket {
 		Tags: ociresource.Tags{Freeform: map[string]string{"team": "data"}}.Merge(owner.Stamp(key, 0, ""))}
 }
 
-func reconcile(t *testing.T, api API, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy) (ociresource.Result, error) {
+func reconcile(t *testing.T, api *providerState, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy) (ociresource.Result, error) {
 	t.Helper()
+	confirm(t, api, store)
 	if _, err := ociresource.Publish(t.Context(), store, key, policy, spec); err != nil {
 		t.Fatal(err)
 	}
-	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: owner, Authority: allow{}}
 	return controller.Reconcile(t.Context(), 1)
 }
 
 func TestBucketRetentionConvergesAndLeavesOperatorRulesAlone(t *testing.T) {
 	operator := Rule{ID: "op", DisplayName: "legal-hold", Amount: 7, Unit: UnitYears, Locked: true}
-	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{operator}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{bucket: ownedBucket(), rules: []Rule{operator}}
+	store := persistentStore(t)
 	spec := Spec{Namespace: "tenancy", Bucket: "backups", Versioning: VersioningSuspended,
 		Retention: []Retention{{Name: "daily", Days: 30}}}
 	if result, err := reconcile(t, api, store, spec, ociresource.PolicyEnforce); err != nil || result.Applied != 1 {
@@ -125,8 +132,8 @@ func TestBucketRetentionConvergesAndLeavesOperatorRulesAlone(t *testing.T) {
 }
 
 func TestBucketSwitchesFromRetentionToVersioningInASafeOrder(t *testing.T) {
-	api := &fakeAPI{bucket: ownedBucket()}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{bucket: ownedBucket()}
+	store := persistentStore(t)
 	retention := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "daily", Days: 30}}}
 	if _, err := reconcile(t, api, store, retention, ociresource.PolicyEnforce); err != nil {
 		t.Fatal(err)
@@ -142,9 +149,9 @@ func TestBucketSwitchesFromRetentionToVersioningInASafeOrder(t *testing.T) {
 }
 
 func TestBucketLockedManagedRuleBlocksInsteadOfChanging(t *testing.T) {
-	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{{ID: "r9", DisplayName: "terrascale/backups/daily", Amount: 10,
+	api := &providerState{bucket: ownedBucket(), rules: []Rule{{ID: "r9", DisplayName: "terrascale/backups/daily", Amount: 10,
 		Unit: UnitDays, Locked: true}}}
-	store := ociresource.NewMemoryStore()
+	store := persistentStore(t)
 	spec := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "daily", Days: 30}}}
 	result, err := reconcile(t, api, store, spec, ociresource.PolicyEnforce)
 	if err == nil || !strings.Contains(err.Error(), "locked") || result.Failed != 1 || len(api.calls) != 0 {
@@ -161,9 +168,9 @@ func TestBucketLockedManagedRuleBlocksInsteadOfChanging(t *testing.T) {
 // for a switch OCI would refuse.
 func TestBucketUnmanagedRuleBlocksVersioningBeforeAnyMutation(t *testing.T) {
 	operator := Rule{ID: "op", DisplayName: "legal-hold", Amount: 1, Unit: UnitYears}
-	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{operator,
+	api := &providerState{bucket: ownedBucket(), rules: []Rule{operator,
 		{ID: "r1", DisplayName: "terrascale/backups/daily", Amount: 30, Unit: UnitDays}}}
-	store := ociresource.NewMemoryStore()
+	store := persistentStore(t)
 	result, err := reconcile(t, api, store, Spec{Namespace: "tenancy", Bucket: "backups", Versioning: VersioningEnabled},
 		ociresource.PolicyEnforce)
 	if err == nil || result.Failed != 1 || len(api.calls) != 0 || len(api.rules) != 2 {
@@ -176,8 +183,8 @@ func TestBucketUnmanagedRuleBlocksVersioningBeforeAnyMutation(t *testing.T) {
 func TestBucketMarkerIsUnambiguousAcrossKeys(t *testing.T) {
 	other := Rule{ID: "x", DisplayName: "terrascale/backups-prod/daily", Amount: 90, Unit: UnitDays}
 	nested := Rule{ID: "y", DisplayName: "terrascale/backups/prod/daily", Amount: 90, Unit: UnitDays}
-	api := &fakeAPI{bucket: ownedBucket(), rules: []Rule{other, nested}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{bucket: ownedBucket(), rules: []Rule{other, nested}}
+	store := persistentStore(t)
 	spec := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "prod-daily", Days: 7}}}
 	if _, err := reconcile(t, api, store, spec, ociresource.PolicyEnforce); err != nil {
 		t.Fatal(err)
@@ -188,24 +195,25 @@ func TestBucketMarkerIsUnambiguousAcrossKeys(t *testing.T) {
 }
 
 func TestBucketForeignAndTombstoneNeverMutate(t *testing.T) {
-	foreign := &fakeAPI{bucket: Bucket{Namespace: "tenancy", Name: "backups", ETag: "b1"}}
+	foreign := &providerState{bucket: Bucket{Namespace: "tenancy", Name: "backups", ETag: "b1"}}
 	spec := Spec{Namespace: "tenancy", Bucket: "backups", Versioning: VersioningEnabled}
-	if result, err := reconcile(t, foreign, ociresource.NewMemoryStore(), spec, ociresource.PolicyEnforce); err != nil ||
+	if result, err := reconcile(t, foreign, persistentStore(t), spec, ociresource.PolicyEnforce); err != nil ||
 		result.Foreign != 1 || len(foreign.calls) != 0 {
 		t.Fatalf("foreign=%+v err=%v", result, err)
 	}
-	api := &fakeAPI{bucket: ownedBucket()}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{bucket: ownedBucket()}
+	store := persistentStore(t)
 	if _, err := reconcile(t, api, store, Spec{Namespace: "tenancy", Bucket: "backups",
 		Retention: []Retention{{Name: "daily", Days: 30}}}, ociresource.PolicyEnforce); err != nil {
 		t.Fatal(err)
 	}
 	api.calls = nil
+	confirm(t, api, store)
 	now := time.Now()
 	if _, err := store.MarkDeleted(t.Context(), key, now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: owner, Authority: allow{}}
 	if result, err := controller.Reconcile(t.Context(), 1); err != nil || result.Deleted != 1 || len(api.calls) != 0 ||
 		len(api.rules) != 1 {
@@ -214,6 +222,7 @@ func TestBucketForeignAndTombstoneNeverMutate(t *testing.T) {
 }
 
 func TestBucketSpecValidation(t *testing.T) {
+	store := persistentStore(t)
 	valid := Spec{Namespace: "tenancy", Bucket: "backups", Retention: []Retention{{Name: "daily", Days: 30}}}
 	for name, mutate := range map[string]func(*Spec){
 		"namespace":      func(s *Spec) { s.Namespace = "Ten ancy" },
@@ -230,9 +239,13 @@ func TestBucketSpecValidation(t *testing.T) {
 		value := valid
 		value.Retention = slices.Clone(valid.Retention)
 		mutate(&value)
-		if err := value.Validate(); err == nil {
+		if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, value); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	records, err := store.List(t.Context(), "GRU", Kind)
+	if err != nil || len(records) != 0 {
+		t.Fatalf("invalid input changed persistent state: records=%v err=%v", records, err)
 	}
 }
 
@@ -295,5 +308,160 @@ func TestSDKRequestsCarryIfMatchAndNeverLock(t *testing.T) {
 		if !slices.Contains(requests, line) {
 			t.Errorf("missing %q in %v", line, requests)
 		}
+	}
+}
+
+func (f *providerState) client(t *testing.T) API {
+	t.Helper()
+	if f.api != nil {
+		return f.api
+	}
+	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var err error
+		mutation := r.Method != http.MethodGet
+		retention := strings.Contains(r.URL.Path, "/retentionRules")
+		id := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		if mutation {
+			body, readErr := io.ReadAll(r.Body)
+			if readErr != nil {
+				t.Error(readErr)
+				w.WriteHeader(400)
+				return
+			}
+			switch {
+			case !retention && r.Method == http.MethodPost:
+				var details objectstorage.UpdateBucketDetails
+				if err = json.Unmarshal(body, &details); err == nil {
+					err = f.UpdateBucket(r.Context(), "tenancy", "backups", r.Header.Get("if-match"), string(details.Versioning), ociresource.Tags{Freeform: details.FreeformTags, Defined: details.DefinedTags})
+				}
+			case retention && r.Method == http.MethodPost:
+				var details objectstorage.CreateRetentionRuleDetails
+				if err = json.Unmarshal(body, &details); err == nil {
+					if details.TimeRuleLocked != nil {
+						t.Error("controller attempted to lock retention")
+					}
+					if details.Duration == nil {
+						err = errors.New("duration required")
+					} else {
+						err = f.CreateRetentionRule(r.Context(), "tenancy", "backups", deref(details.DisplayName), *details.Duration.TimeAmount, string(details.Duration.TimeUnit))
+					}
+				}
+			case retention && (r.Method == http.MethodPut || r.Method == http.MethodDelete):
+				found := false
+				for _, rule := range f.rules {
+					if rule.ID == id {
+						found = true
+						if rule.ETag != r.Header.Get("if-match") {
+							err = errors.New("etag mismatch")
+						}
+						if rule.Locked {
+							err = errors.New("locked")
+						}
+					}
+				}
+				if !found {
+					err = errors.New("retention rule not found")
+				}
+				if err == nil && r.Method == http.MethodDelete {
+					err = f.DeleteRetentionRule(r.Context(), "tenancy", "backups", id, r.Header.Get("if-match"))
+				} else if err == nil {
+					var details objectstorage.UpdateRetentionRuleDetails
+					if err = json.Unmarshal(body, &details); err == nil {
+						if details.TimeRuleLocked != nil {
+							t.Error("controller attempted to lock retention")
+						}
+						if details.Duration == nil {
+							err = errors.New("duration required")
+						} else {
+							err = f.UpdateRetentionRule(r.Context(), "tenancy", "backups", id, r.Header.Get("if-match"), *details.Duration.TimeAmount, string(details.Duration.TimeUnit))
+						}
+					}
+				}
+			default:
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				w.WriteHeader(405)
+				return
+			}
+			if err != nil {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				body, _ := json.Marshal(map[string]string{"code": "NoEtagMatch", "message": err.Error()})
+				_, _ = w.Write(body)
+				return
+			}
+			if f.loseResponse {
+				f.loseResponse = false
+				connection, _, hijackErr := w.(http.Hijacker).Hijack()
+				if hijackErr != nil {
+					t.Error(hijackErr)
+					return
+				}
+				_ = connection.Close()
+				return
+			}
+		}
+		timestamp := &common.SDKTime{Time: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+		var response any
+		if retention {
+			rules := []objectstorage.RetentionRuleSummary{}
+			for _, rule := range f.rules {
+				item := objectstorage.RetentionRuleSummary{Id: new(rule.ID), DisplayName: new(rule.DisplayName), Etag: new(rule.ETag), Duration: duration(rule.Amount, rule.Unit), TimeCreated: timestamp, TimeModified: timestamp}
+				if rule.Locked {
+					item.TimeRuleLocked = timestamp
+				}
+				rules = append(rules, item)
+			}
+			if r.Method == http.MethodGet {
+				response = map[string]any{"items": rules}
+			} else if len(rules) > 0 {
+				response = rules[len(rules)-1]
+			} else {
+				response = map[string]any{}
+			}
+		} else {
+			w.Header().Set("etag", f.bucket.ETag)
+			response = objectstorage.Bucket{Namespace: new(f.bucket.Namespace), Name: new(f.bucket.Name), Etag: new(f.bucket.ETag), Versioning: objectstorage.BucketVersioningEnum(f.bucket.Versioning), FreeformTags: f.bucket.Tags.Freeform, DefinedTags: f.bucket.Tags.Defined, TimeCreated: timestamp}
+		}
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		body, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			t.Error(marshalErr)
+			w.WriteHeader(500)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+	api, err := newSDKAPI(factory, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.api = api
+	return api
+}
+
+func persistentStore(t *testing.T) *ociresource.KVStore {
+	t.Helper()
+	return ociresourcetest.Store(t)
+}
+
+func confirm(t *testing.T, api *providerState, store ociresource.Store) {
+	t.Helper()
+	current, err := store.Get(t.Context(), key)
+	if errors.Is(err, ociresource.ErrNotFound) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Operation == nil || !current.Operation.CompletedAt.IsZero() {
+		return
+	}
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: allow{}}
+	result, err := controller.Reconcile(t.Context(), 1)
+	if err != nil || result.InSync != 1 {
+		t.Fatalf("confirm=%+v err=%v", result, err)
 	}
 }

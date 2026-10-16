@@ -2,7 +2,11 @@ package nsg
 
 import (
 	"context"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -10,29 +14,34 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/core"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
 )
 
 const nsgID = "ocid1.networksecuritygroup.oc1.sa-saopaulo-1.controller"
 
-type fakeAPI struct {
-	group  Group
-	rules  []ObservedRule
-	nextID int
-	calls  []string
-	gone   bool
+type providerState struct {
+	group        Group
+	rules        []ObservedRule
+	nextID       int
+	calls        []string
+	gone         bool
+	api          API
+	loseResponse bool
+	onRead       func()
 }
 
-func (f *fakeAPI) GetGroup(context.Context, string) (Group, error) {
+func (f *providerState) GetGroup(context.Context, string) (Group, error) {
 	if f.gone {
 		return Group{}, fmt.Errorf("get OCI NSG: %w", ociresource.ErrGone)
 	}
 	return f.group, nil
 }
-func (f *fakeAPI) ListRules(context.Context, string) ([]ObservedRule, error) {
+func (f *providerState) ListRules(context.Context, string) ([]ObservedRule, error) {
 	return slices.Clone(f.rules), nil
 }
-func (f *fakeAPI) AddRules(_ context.Context, _ string, rules []Rule) error {
+func (f *providerState) AddRules(_ context.Context, _ string, rules []Rule) error {
 	f.calls = append(f.calls, fmt.Sprintf("add %d", len(rules)))
 	f.group.ETag += "+" // a rule change advances the NSG's ETag, as OCI does
 	for _, rule := range rules {
@@ -41,13 +50,13 @@ func (f *fakeAPI) AddRules(_ context.Context, _ string, rules []Rule) error {
 	}
 	return nil
 }
-func (f *fakeAPI) RemoveRules(_ context.Context, _ string, ids []string) error {
+func (f *providerState) RemoveRules(_ context.Context, _ string, ids []string) error {
 	f.calls = append(f.calls, fmt.Sprintf("remove %d", len(ids)))
 	f.group.ETag += "-"
 	f.rules = slices.DeleteFunc(f.rules, func(rule ObservedRule) bool { return slices.Contains(ids, rule.ID) })
 	return nil
 }
-func (f *fakeAPI) UpdateTags(_ context.Context, _, etag string, tags ociresource.Tags) error {
+func (f *providerState) UpdateTags(_ context.Context, _, etag string, tags ociresource.Tags) error {
 	if etag != f.group.ETag {
 		return fmt.Errorf("etag mismatch")
 	}
@@ -70,8 +79,9 @@ func https(cidr string) Rule {
 	return Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: cidr, PortMin: 443, PortMax: 443, Description: "public API"}
 }
 
-func run(t *testing.T, api *fakeAPI, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy, generation uint64) ociresource.Result {
+func run(t *testing.T, api *providerState, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy, generation uint64) ociresource.Result {
 	t.Helper()
+	confirm(t, api, store)
 	desired, err := ociresource.NewDesired(key, generation, policy, spec)
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +91,7 @@ func run(t *testing.T, api *fakeAPI, store ociresource.Store, spec Spec, policy 
 			t.Fatal(err)
 		}
 	}
-	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}, Authority: allow{}}
 	result, err := controller.Reconcile(t.Context(), 1)
 	if err != nil {
@@ -93,8 +103,8 @@ func run(t *testing.T, api *fakeAPI, store ociresource.Store, spec Spec, policy 
 func TestNSGRulesConvergeAndLeaveForeignRulesAlone(t *testing.T) {
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 	foreign := ObservedRule{ID: "manual", Rule: Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/8", PortMin: 22, PortMax: 22, Description: "operator ssh"}}
-	api := &fakeAPI{group: owned(owner), rules: []ObservedRule{foreign}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: owned(owner), rules: []ObservedRule{foreign}}
+	store := persistentStore(t)
 	spec := Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0"), {Direction: DirectionEgress, Protocol: ProtocolAll, Peer: "0.0.0.0/0"}}}
 
 	if result := run(t, api, store, spec, ociresource.PolicyEnforce, 1); result.Applied != 1 {
@@ -133,8 +143,8 @@ func TestNSGRulesConvergeAndLeaveForeignRulesAlone(t *testing.T) {
 }
 
 func TestNSGWithoutOwnershipIsNeverChanged(t *testing.T) {
-	api := &fakeAPI{group: Group{ID: nsgID, ETag: "e1"}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: Group{ID: nsgID, ETag: "e1"}}
+	store := persistentStore(t)
 	result := run(t, api, store, Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}, Exclusive: true}, ociresource.PolicyEnforce, 1)
 	if result.Foreign != 1 || len(api.calls) != 0 {
 		t.Fatalf("result=%+v calls=%v", result, api.calls)
@@ -144,10 +154,11 @@ func TestNSGWithoutOwnershipIsNeverChanged(t *testing.T) {
 func TestNSGTombstoneRemovesOnlyMarkedRules(t *testing.T) {
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 	foreign := ObservedRule{ID: "manual", Rule: https("10.0.0.0/8")}
-	api := &fakeAPI{group: owned(owner), rules: []ObservedRule{foreign}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: owned(owner), rules: []ObservedRule{foreign}}
+	store := persistentStore(t)
 	spec := Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}
 	run(t, api, store, spec, ociresource.PolicyEnforce, 1)
+	confirm(t, api, store)
 	now := time.Now()
 	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
 		t.Fatal(err)
@@ -164,15 +175,16 @@ func TestNSGTombstoneRemovesOnlyMarkedRules(t *testing.T) {
 
 func TestNSGTombstonePurgesWhenTheNSGIsGone(t *testing.T) {
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
-	api := &fakeAPI{group: owned(owner)}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: owned(owner)}
+	store := persistentStore(t)
 	spec := Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}
 	run(t, api, store, spec, ociresource.PolicyEnforce, 1)
-	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: owner, Authority: allow{}}
 
 	mutations := len(api.calls)
 	// A missing NSG is an error while the spec is live: nothing is assumed.
+	confirm(t, api, store)
 	api.gone = true
 	if result, err := controller.Reconcile(t.Context(), 1); err == nil || result.Failed != 1 {
 		t.Fatalf("live spec over a missing NSG: result=%+v err=%v", result, err)
@@ -200,46 +212,69 @@ func TestSpecValidationAndBatching(t *testing.T) {
 		{NSGID: nsgID, Rules: []Rule{{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "not-a-cidr", PortMin: 1, PortMax: 2}}},
 		{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0"), https("0.0.0.0/0")}},
 	} {
-		if spec.Validate() == nil {
+		if _, err := ociresource.Publish(t.Context(), persistentStore(t), key, ociresource.PolicyEnforce, spec); err == nil {
 			t.Fatalf("accepted %+v", spec)
 		}
 	}
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
-	api := &fakeAPI{group: owned(owner)}
+	api := &providerState{group: owned(owner)}
 	spec := Spec{NSGID: nsgID}
 	for port := range 30 {
 		spec.Rules = append(spec.Rules, Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/16", PortMin: 1000 + port, PortMax: 1000 + port})
 	}
-	run(t, api, ociresource.NewMemoryStore(), spec, ociresource.PolicyEnforce, 1)
+	run(t, api, persistentStore(t), spec, ociresource.PolicyEnforce, 1)
 	if !slices.Equal(api.calls, []string{"add 25", "add 5", "tags"}) {
 		t.Fatalf("calls=%v", api.calls)
 	}
 }
 
-func TestNormalizeMarksUnsupportedFeatures(t *testing.T) {
-	sourcePorts := core.SecurityRule{Direction: core.SecurityRuleDirectionIngress, Protocol: new("6"), Source: new("0.0.0.0/0"),
-		SourceType: core.SecurityRuleSourceTypeCidrBlock, TcpOptions: &core.TcpOptions{SourcePortRange: &core.PortRange{Min: new(1), Max: new(2)}}}
-	if rule := normalize(sourcePorts); !rule.unsupported {
-		t.Fatal("source port range was modeled")
+func TestSDKPreservesUnsupportedRulesAndEncodesDestinationPorts(t *testing.T) {
+	owner := ociresource.Ownership{Owner: "cell-gru"}
+	sourcePorts := core.SecurityRule{Id: new("source"), Direction: core.SecurityRuleDirectionIngress, Protocol: new("6"), Source: new("0.0.0.0/0"), SourceType: core.SecurityRuleSourceTypeCidrBlock, TcpOptions: &core.TcpOptions{SourcePortRange: &core.PortRange{Min: new(1), Max: new(2)}}}
+	plain := core.SecurityRule{Id: new("plain"), Direction: core.SecurityRuleDirectionIngress, Protocol: new("6"), Source: new("0.0.0.0/0"), SourceType: core.SecurityRuleSourceTypeCidrBlock, TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(443), Max: new(443)}}}
+	var sent core.AddNetworkSecurityGroupSecurityRulesDetails
+	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		var value any
+		switch {
+		case r.Method == http.MethodPost:
+			if err := json.UnmarshalRead(r.Body, &sent); err != nil {
+				t.Error(err)
+			}
+			value = map[string]any{"securityRules": []any{}}
+		case strings.HasSuffix(r.URL.Path, "/securityRules"):
+			value = []core.SecurityRule{sourcePorts, plain}
+		default:
+			value = core.NetworkSecurityGroup{Id: new(nsgID), FreeformTags: owner.Stamp(key, 1, "d").Freeform}
+		}
+		if err := json.MarshalWrite(w, value); err != nil {
+			t.Error(err)
+		}
+	})
+	network, err := factory.Network()
+	if err != nil {
+		t.Fatal(err)
 	}
-	plain := core.SecurityRule{Direction: core.SecurityRuleDirectionIngress, Protocol: new("6"), Source: new("0.0.0.0/0"),
-		SourceType: core.SecurityRuleSourceTypeCidrBlock, TcpOptions: &core.TcpOptions{DestinationPortRange: &core.PortRange{Min: new(443), Max: new(443)}}}
-	got := normalize(plain)
-	want := https("0.0.0.0/0")
-	if got.identity() != want.identity() {
-		t.Fatalf("got %s want %s", got.identity(), want.identity())
+	ociclient.PinHost(&network.BaseClient, endpoint)
+	api := sdkAPI{network: network}
+	target := ociresource.Target[Spec]{Key: key, Generation: 1, SpecDigest: "d", Ownership: owner, Spec: Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}}
+	observed, found, err := (Reconciler{API: api}).Observe(t.Context(), target)
+	if err != nil || !found || len(observed.Rules) != 2 || !observed.Rules[0].Rule.unsupported || observed.Rules[1].Rule.identity() != https("0.0.0.0/0").identity() {
+		t.Fatalf("observed=%+v found=%v err=%v", observed, found, err)
 	}
-	if details := addDetails(want); details.TcpOptions == nil || *details.TcpOptions.DestinationPortRange.Min != 443 ||
-		details.SourceType != core.AddSecurityRuleDetailsSourceTypeCidrBlock {
-		t.Fatalf("details=%+v", details)
+	if err := api.AddRules(t.Context(), nsgID, target.Spec.Rules); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent.SecurityRules) != 1 || sent.SecurityRules[0].TcpOptions == nil || *sent.SecurityRules[0].TcpOptions.DestinationPortRange.Min != 443 || sent.SecurityRules[0].SourceType != core.AddSecurityRuleDetailsSourceTypeCidrBlock {
+		t.Fatalf("sent=%+v", sent)
 	}
 }
 
 func TestExclusiveTombstoneRemovesTheRulesItManaged(t *testing.T) {
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 	kept := ObservedRule{ID: "pre-existing", Rule: https("0.0.0.0/0")}
-	api := &fakeAPI{group: owned(owner), rules: []ObservedRule{kept}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: owned(owner), rules: []ObservedRule{kept}}
+	store := persistentStore(t)
 	spec := Spec{NSGID: nsgID, Exclusive: true, Rules: []Rule{https("0.0.0.0/0")}}
 	run(t, api, store, spec, ociresource.PolicyEnforce, 1)
 	if len(api.rules) != 1 || api.rules[0].ID != "pre-existing" {
@@ -248,6 +283,7 @@ func TestExclusiveTombstoneRemovesTheRulesItManaged(t *testing.T) {
 	// A rule added out of band after enforcement is not part of the spec.
 	later := ObservedRule{ID: "later", Rule: Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/8",
 		PortMin: 22, PortMax: 22}}
+	confirm(t, api, store)
 	api.rules = append(api.rules, later)
 	now := time.Now()
 	if _, err := store.MarkDeleted(t.Context(), key, now, now); err != nil {
@@ -266,26 +302,218 @@ func TestExclusiveTombstoneRemovesTheRulesItManaged(t *testing.T) {
 
 func TestRestampAfterRuleChangesUsesAFreshETag(t *testing.T) {
 	owner := ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
-	api := &fakeAPI{group: owned(owner)}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{group: owned(owner)}
+	store := persistentStore(t)
 	result := run(t, api, store, Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}, ociresource.PolicyEnforce, 1)
 	if result.Failed != 0 || !slices.Equal(api.calls, []string{"add 1", "tags"}) {
 		t.Fatalf("result=%+v calls=%v", result, api.calls)
 	}
 }
 
-func TestSpecBoundsRulesAndRequiresCanonicalCIDRs(t *testing.T) {
+func TestPersistentSpecBoundsRulesAndRequiresCanonicalCIDRs(t *testing.T) {
+	store := persistentStore(t)
 	var rules []Rule
 	for port := range maxRulesPerNSG + 1 {
 		rules = append(rules, Rule{Direction: DirectionIngress, Protocol: ProtocolTCP, Peer: "10.0.0.0/8", PortMin: port + 1, PortMax: port + 1})
 	}
-	if err := (Spec{NSGID: nsgID, Rules: rules}).Validate(); err == nil {
-		t.Fatal("a spec over OCI's per-NSG rule limit validated")
+	for _, spec := range []Spec{{NSGID: nsgID, Rules: rules}, {NSGID: nsgID, Rules: []Rule{https("10.0.0.1/8")}}} {
+		if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec); err == nil {
+			t.Fatal("accepted invalid rule set")
+		}
+		records, err := store.List(t.Context(), "GRU", Kind)
+		if err != nil || len(records) != 0 {
+			t.Fatalf("records=%v err=%v", records, err)
+		}
 	}
-	if err := (Spec{NSGID: nsgID, Rules: rules[:maxRulesPerNSG]}).Validate(); err != nil {
-		t.Fatalf("a spec at the limit failed: %v", err)
+	if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, Spec{NSGID: nsgID, Rules: rules[:maxRulesPerNSG]}); err != nil {
+		t.Fatal(err)
 	}
-	if err := (Spec{NSGID: nsgID, Rules: []Rule{https("10.0.0.1/8")}}).Validate(); err == nil {
-		t.Fatal("a CIDR with host bits set validated")
+	record, err := store.Get(t.Context(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec Spec
+	if err := json.Unmarshal(record.Spec, &spec); err != nil || len(spec.Rules) != maxRulesPerNSG {
+		t.Fatalf("rules=%d err=%v", len(spec.Rules), err)
+	}
+}
+
+func (f *providerState) client(t *testing.T) API {
+	t.Helper()
+	if f.api != nil {
+		return f.api
+	}
+	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && f.onRead != nil {
+			hook := f.onRead
+			f.onRead = nil
+			hook()
+		}
+		if f.gone {
+			w.WriteHeader(404)
+			_, _ = io.WriteString(w, `{"code":"NotAuthorizedOrNotFound","message":"NSG not found"}`)
+			return
+		}
+		var err error
+		if r.Method != http.MethodGet {
+			body, readErr := io.ReadAll(r.Body)
+			if readErr != nil {
+				t.Error(readErr)
+				w.WriteHeader(400)
+				return
+			}
+			switch {
+			case strings.HasSuffix(r.URL.Path, "/actions/addSecurityRules"):
+				var details core.AddNetworkSecurityGroupSecurityRulesDetails
+				if err = json.Unmarshal(body, &details); err == nil {
+					if len(details.SecurityRules) > 25 {
+						t.Error("provider batch limit exceeded")
+					}
+					var rules []Rule
+					for _, rule := range details.SecurityRules {
+						// Both payloads use the same OCI security-rule fields.
+						encoded, marshalErr := json.Marshal(rule)
+						if marshalErr != nil {
+							t.Error(marshalErr)
+							return
+						}
+						var observed core.SecurityRule
+						if decodeErr := json.Unmarshal(encoded, &observed); decodeErr != nil {
+							t.Error(decodeErr)
+							return
+						}
+						rules = append(rules, normalize(observed))
+					}
+					err = f.AddRules(r.Context(), nsgID, rules)
+				}
+			case strings.HasSuffix(r.URL.Path, "/actions/removeSecurityRules"):
+				var details core.RemoveNetworkSecurityGroupSecurityRulesDetails
+				if err = json.Unmarshal(body, &details); err == nil {
+					err = f.RemoveRules(r.Context(), nsgID, details.SecurityRuleIds)
+				}
+			case r.Method == http.MethodPut:
+				var details core.UpdateNetworkSecurityGroupDetails
+				if err = json.Unmarshal(body, &details); err == nil {
+					err = f.UpdateTags(r.Context(), nsgID, r.Header.Get("if-match"), ociresource.Tags{Freeform: details.FreeformTags, Defined: details.DefinedTags})
+				}
+			default:
+				t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+				w.WriteHeader(405)
+				return
+			}
+			if err != nil {
+				w.WriteHeader(412)
+				_, _ = io.WriteString(w, `{"code":"NoEtagMatch","message":"mutation refused"}`)
+				return
+			}
+			if f.loseResponse {
+				f.loseResponse = false
+				connection, _, hijackErr := w.(http.Hijacker).Hijack()
+				if hijackErr != nil {
+					t.Error(hijackErr)
+					return
+				}
+				_ = connection.Close()
+				return
+			}
+		}
+		var response any
+		if strings.HasSuffix(r.URL.Path, "/securityRules") {
+			rules := []core.SecurityRule{}
+			for _, observed := range f.rules {
+				encoded, marshalErr := json.Marshal(addDetails(observed.Rule))
+				if marshalErr != nil {
+					t.Error(marshalErr)
+					return
+				}
+				var rule core.SecurityRule
+				if decodeErr := json.Unmarshal(encoded, &rule); decodeErr != nil {
+					t.Error(decodeErr)
+					return
+				}
+				rule.Id = new(observed.ID)
+				rules = append(rules, rule)
+			}
+			response = rules
+		} else if strings.Contains(r.URL.Path, "/actions/") {
+			response = map[string]any{"securityRules": []any{}}
+		} else {
+			w.Header().Set("etag", f.group.ETag)
+			response = core.NetworkSecurityGroup{Id: new(f.group.ID), FreeformTags: f.group.Tags.Freeform, DefinedTags: f.group.Tags.Defined}
+		}
+		body, marshalErr := json.Marshal(response)
+		if marshalErr != nil {
+			t.Error(marshalErr)
+			w.WriteHeader(500)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+	network, err := factory.Network()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ociclient.PinHost(&network.BaseClient, endpoint)
+	f.api = sdkAPI{network: network}
+	return f.api
+}
+
+func persistentStore(t *testing.T) *ociresource.KVStore {
+	t.Helper()
+	return ociresourcetest.Store(t)
+}
+
+func confirm(t *testing.T, api *providerState, store ociresource.Store) {
+	t.Helper()
+	current, err := store.Get(t.Context(), key)
+	if errors.Is(err, ociresource.ErrNotFound) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Tombstone != nil || current.Operation == nil || !current.Operation.CompletedAt.IsZero() {
+		return
+	}
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}, Authority: allow{}}
+	result, err := controller.Reconcile(t.Context(), 1)
+	if err != nil || result.InSync != 1 {
+		t.Fatalf("confirm=%+v err=%v", result, err)
+	}
+}
+
+func TestTombstoneSupersededDuringSDKObservationCannotDelete(t *testing.T) {
+	owner := ociresource.Ownership{Owner: "cell-gru"}
+	store := persistentStore(t)
+	wanted := Spec{NSGID: nsgID, Rules: []Rule{https("0.0.0.0/0")}}
+	desired, err := ociresource.NewDesired(key, 1, ociresource.PolicyEnforce, wanted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Put(t.Context(), desired); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if _, err = store.MarkDeleted(t.Context(), key, now, now); err != nil {
+		t.Fatal(err)
+	}
+	rule := https("0.0.0.0/0")
+	rule.Description = managedDescription(key, rule)
+	api := &providerState{group: owned(owner), rules: []ObservedRule{{ID: "managed", Rule: rule}}}
+	api.onRead = func() {
+		revived, err := ociresource.NewDesired(key, 2, ociresource.PolicyEnforce, wanted)
+		if err == nil {
+			_, err = store.Put(t.Context(), revived)
+		}
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	controller := &ociresource.Controller[Spec, Observed]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: allow{}}
+	_, err = controller.Reconcile(t.Context(), 1)
+	current, readErr := store.Get(t.Context(), key)
+	if !errors.Is(err, ociresource.ErrConflict) || readErr != nil || current.Generation != 2 || current.Tombstone != nil || len(api.calls) != 0 || len(api.rules) != 1 {
+		t.Fatalf("err=%v readErr=%v current=%+v calls=%v rules=%v", err, readErr, current, api.calls, api.rules)
 	}
 }

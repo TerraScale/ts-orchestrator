@@ -22,10 +22,13 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/command"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 )
 
 const usage = `Usage: ts-orch oci-region foundation --plan PLAN --out BOUND_PLAN [--apply]
@@ -45,6 +48,28 @@ type Foundation struct {
 	// Region serves the plan's OCI region and Home the tenancy's home
 	// region, the only one that accepts IAM writes.
 	Region, Home command.Client
+	// OperationID is stable across retries and ownership transfers.
+	OperationID string
+	// BeforeWrite checks durable authority for every provider mutation. For
+	// home IAM writes it also holds the tenancy-wide serialization lease.
+	// The returned release must remain held until the provider call returns.
+	BeforeWrite func(context.Context, bool) (context.Context, func(), error)
+	// Guard rechecks the claim before each SDK retry as well as each command.
+	Guard func(context.Context) error
+	// Checkpoint durably records each verified OCID before dependent work.
+	Checkpoint func(context.Context, string, string) error
+	// AuxiliaryIDs come from the authenticated regional journal, never tags.
+	AuxiliaryIDs        map[string]string
+	CheckpointAuxiliary func(context.Context, string, string) error
+	// PrepareCreate persists the exact request before its first mutation and
+	// authorizes bounded replay only for an identical pending request.
+	PrepareCreate func(context.Context, CreateIdentity, bool) error
+	ownership     map[string]string
+	expected      map[string]string
+	resourceKeys  map[string]string
+	tenancy       string
+	region        string
+	inspect       func(context.Context, Object) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -52,6 +77,57 @@ type Foundation struct {
 	Apply        bool
 	Out          io.Writer
 	planned      int
+}
+
+// New uses one authenticated provider for the regional and actual home-region
+// clients. It grants no write authority; the caller must supply the guards.
+func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foundation, error) {
+	if factory == nil {
+		return nil, errors.New("foundation requires an authenticated OCI factory")
+	}
+	providerTenancy, err := factory.Provider().TenancyOCID()
+	if err != nil || providerTenancy != tenancy {
+		return nil, errors.New("foundation tenancy differs from authenticated OCI identity")
+	}
+	homeRegion, err := factory.HomeRegion(ctx, tenancy)
+	if err != nil {
+		return nil, err
+	}
+	home, err := factory.ForRegion(homeRegion)
+	if err != nil {
+		return nil, err
+	}
+	inspect := func(ctx context.Context, plan Object) error {
+		engine := &ociregion.Engine{Context: ctx, Dependency: func(name string, args []any, kwargs Object) (any, error) {
+			if name != "oci" {
+				return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
+			}
+			selected := home
+			if region := text(kwargs["region"]); region != "" {
+				var err error
+				selected, err = factory.ForRegion(region)
+				if err != nil {
+					return nil, err
+				}
+			}
+			words := make([]string, len(args))
+			for i, arg := range args {
+				words[i] = fmt.Sprint(arg)
+			}
+			data, _, err := sdkcli.NewClient(selected, "").Call(ctx, words)
+			if err != nil {
+				return nil, err
+			}
+			var value any
+			if err := json.Unmarshal(data, &value); err != nil {
+				return nil, err
+			}
+			return value, nil
+		}}
+		return engine.CheckFoundation(plan)
+	}
+	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard,
+		Check: func(plan Object) error { return inspect(ctx, plan) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
 }
 
 // Run is `ts-orch oci-region foundation`.
@@ -79,7 +155,15 @@ func Run(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	home, err := publicapi.NewClient(catalog.OCIRegion(catalog.Bootstrap))
+	factory, err := ociclient.OperatorConfig(text(plan["region"]))
+	if err != nil {
+		return err
+	}
+	homeRegion, err := factory.HomeRegion(ctx, text(plan["tenancy_id"]))
+	if err != nil {
+		return err
+	}
+	home, err := publicapi.NewClient(homeRegion)
 	if err != nil {
 		return err
 	}
@@ -107,6 +191,39 @@ func (f *Foundation) Run(ctx context.Context, plan Object, out string) error {
 		return fmt.Errorf("the bound foundation fails inspection: %w", err)
 	}
 	return write(out, plan, f.Out)
+}
+
+// Reconcile applies one authorized foundation without a CLI or file handoff.
+// The caller supplies durable authority and OCID checkpoints before NATS exists.
+func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error) {
+	if f.BeforeWrite == nil || f.Guard == nil || f.Checkpoint == nil || f.CheckpointAuxiliary == nil || f.PrepareCreate == nil || f.Check == nil || f.OperationID == "" || len(f.OperationID) > 256 {
+		return nil, errors.New("foundation reconciliation requires an operation ID, durable authority, checkpoints and live inspection")
+	}
+	working := *f
+	working.Apply = true
+	if working.Out == nil {
+		working.Out = io.Discard
+	}
+	bound, err := ociregion.ValidatePlan(plan)
+	if err != nil {
+		return nil, err
+	}
+	if f.tenancy != "" && bound["tenancy_id"] != f.tenancy || f.region != "" && bound["region"] != f.region {
+		return nil, errors.New("foundation plan differs from authenticated tenancy or regional client")
+	}
+	ctx = ociclient.WithAuthority(ociresource.WithOperation(ctx, f.OperationID), f.Guard)
+	if working.inspect != nil {
+		working.Check = func(plan Object) error { return working.inspect(ctx, plan) }
+	}
+	ids, err := working.bind(ctx, bound)
+	if err != nil {
+		return nil, err
+	}
+	bound["resource_ids"] = ids
+	if err := working.Check(bound); err != nil {
+		return nil, fmt.Errorf("the bound foundation fails inspection: %w", err)
+	}
+	return bound, nil
 }
 
 // write creates out, or accepts an identical one; it never replaces a
@@ -137,6 +254,40 @@ func write(out string, plan Object, log io.Writer) error {
 }
 
 func (f *Foundation) call(ctx context.Context, c command.Client, args ...string) (any, error) {
+	var release func()
+	mutation := false
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--") {
+			break
+		}
+		mutation = mutation || slices.Contains([]string{"create", "add", "remove", "update", "connect"}, arg)
+	}
+	if mutation {
+		if f.BeforeWrite == nil || f.Guard == nil {
+			return nil, errors.New("foundation mutation requires durable authority and a retry guard")
+		}
+		var err error
+		ctx, release, err = f.BeforeWrite(ctx, len(args) > 0 && args[0] == "iam")
+		if err != nil {
+			return nil, fmt.Errorf("foundation write authority: %w", err)
+		}
+		if ctx == nil || release == nil {
+			if release != nil {
+				release()
+			}
+			return nil, errors.New("foundation authority returned no lease release")
+		}
+		defer release()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if f.Guard != nil {
+			if err := f.Guard(ctx); err != nil {
+				return nil, err
+			}
+			ctx = ociclient.WithAuthority(ctx, f.Guard)
+		}
+	}
 	r, err := c.Call(ctx, args...)
 	if err != nil {
 		return nil, err
@@ -176,12 +327,56 @@ func (f *Foundation) find(c command.Client, field, name string, args ...string) 
 				found = r
 			}
 		}
-		return found, nil
+		return f.verifyFound(name, found)
 	}
 }
 
+func (f *Foundation) verifyFound(name string, found Object) (Object, error) {
+	if expected := f.expected[name]; expected != "" && (found == nil || found["id"] != expected) {
+		return nil, fmt.Errorf("recorded resource %s (%s) is missing or differs; refusing replacement", name, expected)
+	}
+	if found != nil && len(f.ownership) > 0 && f.expected[name] == "" {
+		return nil, &unrecordedResource{name: name, id: text(found["id"])}
+	}
+	return found, nil
+}
+
 func (f *Foundation) create(c command.Client, args ...string) func(context.Context) (Object, error) {
-	return func(ctx context.Context) (Object, error) { return f.data(ctx, c, args...) }
+	return func(ctx context.Context) (Object, error) {
+		words := slices.Clone(args)
+		if len(f.ownership) > 0 {
+			words = append(words, "--freeform-tags", command.JSON(f.ownership))
+		}
+		if f.PrepareCreate != nil {
+			parsed, err := sdkcli.Parse(words)
+			if err != nil {
+				return nil, err
+			}
+			name := parsed.Flags["display-name"]
+			if name == "" {
+				name = parsed.Flags["name"]
+			}
+			region := f.region
+			if sdk, ok := c.(*publicapi.SDKClient); ok {
+				region = sdk.Region
+			}
+			digest, token, err := publicapi.CreateRetryIdentity(ctx, region, words...)
+			if err != nil {
+				return nil, err
+			}
+			identity := CreateIdentity{Key: f.resourceKeys[name], Region: region, RequestDigest: digest, RetryToken: token}
+			if err := identity.Validate(); err != nil {
+				return nil, err
+			}
+			if recoveringCreate(ctx) && token == "" {
+				return nil, errors.New("OCI create has no retry token; unknown result requires exact provider observation")
+			}
+			if err := f.PrepareCreate(ctx, identity, recoveringCreate(ctx)); err != nil {
+				return nil, fmt.Errorf("prepare durable OCI create: %w", err)
+			}
+		}
+		return f.data(ctx, c, words...)
+	}
 }
 
 // ensure finds a resource or, with Apply, creates it. A dry run reports the
@@ -189,7 +384,17 @@ func (f *Foundation) create(c command.Client, args ...string) func(context.Conte
 func (f *Foundation) ensure(ctx context.Context, what string, find, create func(context.Context) (Object, error), valid func(Object) bool) (Object, error) {
 	r, err := find(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("find %s: %w", what, err)
+		unknown, recoverable := errors.AsType[*unrecordedResource](err)
+		if !recoverable || !f.Apply || f.PrepareCreate == nil || unknown.id == "" {
+			return nil, fmt.Errorf("find %s: %w", what, err)
+		}
+		r, err = create(context.WithValue(ctx, recoveringCreateKey{}, true))
+		if err != nil {
+			return nil, fmt.Errorf("recover %s: %w", what, errors.Join(unknown, err))
+		}
+		if text(r["id"]) != unknown.id {
+			return nil, fmt.Errorf("recovered %s differs from observed resource identity", what)
+		}
 	}
 	if r == nil {
 		if !f.Apply {
@@ -258,6 +463,36 @@ func (f *Foundation) bind(ctx context.Context, plan Object) (Object, error) {
 	}
 	description := "TerraScale " + cell + " foundation (ts-orch oci-region foundation)"
 	ids := maps.Clone(obj(plan["resource_ids"]))
+	if ids == nil {
+		ids = Object{}
+	}
+	f.ownership = map[string]string{"terrascale.owner": "ts-orch", "terrascale.cell": cell}
+	if f.OperationID != "" {
+		f.ownership["terrascale.operation"] = f.OperationID
+	}
+	f.expected = map[string]string{}
+	f.resourceKeys = map[string]string{}
+	remember := func(name, key, expected string) {
+		f.expected[name], f.resourceKeys[name] = expected, key
+	}
+	names := obj(plan["preview_compartment_names"])
+	for _, role := range []string{"control", "network", "workload"} {
+		remember(text(names[role]), role+"_compartment", text(ids[role+"_compartment"]))
+	}
+	for key, suffix := range map[string]string{"vault": "vault", "key": "key", "vcn": "vcn", "service_gateway": "service-gateway", "route_table": "private-routes", "security_list": "private-security", "subnet": "private", "network_security_group": "controllers-nsg", "workload_network_security_group": "databases-nsg"} {
+		remember(cell+"-"+suffix, key, text(ids[key]))
+	}
+	identity := obj(plan["identity"])
+	for key, field := range map[string]string{"controller_dynamic_group": "controller_dynamic_group_name", "host_dynamic_group": "host_dynamic_group_name", "controller_policy": "controller_policy_name", "objectstorage_key_policy": "objectstorage_key_policy_name"} {
+		remember(text(identity[field]), key, text(ids[key]))
+	}
+	for key, name := range map[string]string{"controller_usage_policy": cell + "-controller-usage", "netbird_enrollment_policy": cell + "-netbird-enrollment"} {
+		remember(name, key, f.AuxiliaryIDs[key])
+	}
+	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		key := role + "_bucket"
+		remember(text(obj(plan["foundation_buckets"])[role]), key, f.AuxiliaryIDs[key])
+	}
 	bind := func(key string, r Object) error {
 		if r == nil {
 			return nil
@@ -265,11 +500,23 @@ func (f *Foundation) bind(ctx context.Context, plan Object) (Object, error) {
 		if old := text(ids[key]); old != "" && old != r["id"] {
 			return fmt.Errorf("plan binds %s %s, but its live resource is %v", key, old, r["id"])
 		}
-		ids[key] = r["id"]
+		resourceID, err := command.ID(r)
+		if err != nil {
+			return err
+		}
+		if f.Apply {
+			if f.Checkpoint == nil {
+				return errors.New("foundation binding requires durable checkpoints")
+			}
+			if err := f.Checkpoint(ctx, key, resourceID); err != nil {
+				return fmt.Errorf("checkpoint %s: %w", key, err)
+			}
+		}
+		ids[key] = resourceID
 		return nil
 	}
 	id := func(key string) string { return text(ids[key]) }
-	names, parent, tenancy := obj(plan["preview_compartment_names"]), text(plan["parent_compartment_id"]), text(plan["tenancy_id"])
+	parent, tenancy := text(plan["parent_compartment_id"]), text(plan["tenancy_id"])
 
 	for _, role := range []string{"control", "network", "workload"} {
 		name := text(names[role])
@@ -318,7 +565,9 @@ func (f *Foundation) bind(ctx context.Context, plan Object) (Object, error) {
 	key, err := f.ensure(ctx, "HSM key "+cell+"-key", f.find(f.Region, "display-name", cell+"-key", "kms", "management", "key", "list", "--compartment-id", control, "--endpoint", endpoint, "--all"),
 		f.create(f.Region, "kms", "management", "key", "create", "--compartment-id", control, "--display-name", cell+"-key",
 			"--key-shape", `{"algorithm":"AES","length":32}`, "--protection-mode", "HSM", "--endpoint", endpoint),
-		func(r Object) bool { return r["protection-mode"] == "HSM" && r["vault-id"] == id("vault") })
+		func(r Object) bool {
+			return r["compartment-id"] == control && r["protection-mode"] == "HSM" && r["vault-id"] == id("vault")
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -456,7 +705,7 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		rule := fmt.Sprintf("ALL {instance.compartment.id = '%s'}", text(ids[g.compartment]))
 		r, err := f.ensure(ctx, "dynamic group "+name, f.find(f.Home, "name", name, "iam", "dynamic-group", "list", "--compartment-id", tenancy, "--all"),
 			f.create(f.Home, "iam", "dynamic-group", "create", "--compartment-id", tenancy, "--name", name, "--description", description, "--matching-rule", rule),
-			func(r Object) bool { return r["matching-rule"] == rule })
+			func(r Object) bool { return r["compartment-id"] == tenancy && r["matching-rule"] == rule })
 		if err != nil {
 			return err
 		}
@@ -477,7 +726,7 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		{"controller_policy", text(identity["controller_policy_name"]), parent, controller},
 		// Usage API statements must name the tenancy, so this one sits in
 		// the root compartment; the controller policy's parent is not it.
-		{"", cell + "-controller-usage", tenancy, []string{fmt.Sprintf("Allow dynamic-group %s to read usage-report in tenancy", text(identity["controller_dynamic_group_name"]))}}}
+		{"controller_usage_policy", cell + "-controller-usage", tenancy, []string{fmt.Sprintf("Allow dynamic-group %s to read usage-report in tenancy", text(identity["controller_dynamic_group_name"]))}}}
 	if plan["netbird"] == nil {
 		// Without a plan-bound NetBird secret, both dynamic groups may read
 		// the setup key by its static name once it is stored. No resource ID
@@ -486,17 +735,22 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		for _, g := range []string{"controller_dynamic_group_name", "host_dynamic_group_name"} {
 			statements = append(statements, fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment id %s where target.secret.name = '%s-netbird-setup-key'", text(identity[g]), control, cell))
 		}
-		policies = append(policies, policy{"", cell + "-netbird-enrollment", control, statements})
+		policies = append(policies, policy{"netbird_enrollment_policy", cell + "-netbird-enrollment", control, statements})
 	}
 	for _, p := range policies {
 		name := p.name
 		r, err := f.ensure(ctx, "policy "+name, f.find(f.Home, "name", name, "iam", "policy", "list", "--compartment-id", p.compartment, "--all"),
 			f.create(f.Home, "iam", "policy", "create", "--compartment-id", p.compartment, "--name", name, "--description", description, "--statements", command.JSON(p.statements)),
-			func(r Object) bool { return command.JSON(r["statements"]) == command.JSON(p.statements) })
+			func(r Object) bool {
+				return r["compartment-id"] == p.compartment && command.JSON(r["statements"]) == command.JSON(p.statements)
+			})
 		if err != nil {
 			return err
 		}
-		if p.key == "" {
+		if p.key == "controller_usage_policy" || p.key == "netbird_enrollment_policy" {
+			if err := f.bindAuxiliary(ctx, p.key, r); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := bind(p.key, r); err != nil {
@@ -524,18 +778,42 @@ func (f *Foundation) buckets(ctx context.Context, plan Object, control, key stri
 		if role == "head" || role == "material" {
 			versioning = "Enabled"
 		}
-		list := f.find(f.Region, "name", name, "os", "bucket", "list", "--compartment-id", control, "--all")
 		bucket, err := f.ensure(ctx, "bucket "+name, func(ctx context.Context) (Object, error) {
-			// A summary lacks the encryption and versioning to check.
-			r, err := list(ctx)
-			if r == nil || err != nil {
-				return r, err
+			if control == "" {
+				return nil, nil
 			}
-			return f.data(ctx, f.Region, "os", "bucket", "get", "--namespace-name", namespace, "--bucket-name", name)
+			v, err := f.call(ctx, f.Region, "os", "bucket", "list", "--compartment-id", control, "--all")
+			if err != nil {
+				return nil, err
+			}
+			rows, err := command.Rows(v)
+			if err != nil {
+				return nil, err
+			}
+			var found Object
+			for _, row := range rows {
+				if row["name"] != name {
+					continue
+				}
+				if found != nil {
+					return nil, fmt.Errorf("more than one live bucket is named %s", name)
+				}
+				// A summary omits the bucket OCID, encryption and versioning.
+				found, err = f.data(ctx, f.Region, "os", "bucket", "get", "--namespace-name", namespace, "--bucket-name", name)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return f.verifyFound(name, found)
 		}, f.create(f.Region, "os", "bucket", "create", "--namespace-name", namespace, "--compartment-id", control, "--name", name, "--kms-key-id", key,
 			"--versioning", versioning, "--public-access-type", "NoPublicAccess", "--storage-tier", "Standard"),
-			func(r Object) bool { return r["kms-key-id"] == key && r["versioning"] == versioning })
+			func(r Object) bool {
+				return r["compartment-id"] == control && r["public-access-type"] == "NoPublicAccess" && r["kms-key-id"] == key && r["versioning"] == versioning
+			})
 		if err != nil {
+			return err
+		}
+		if err := f.bindAuxiliary(ctx, role+"_bucket", bucket); err != nil {
 			return err
 		}
 		if versioning == "Enabled" {

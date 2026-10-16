@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 func requireLiveID(v any, id any, label string) Object {
@@ -406,18 +407,29 @@ func storageStatements(plan, ids Object, prefix string) []string {
 	identity, names, buckets := obj(plan["identity"]), obj(plan["preview_compartment_names"]), obj(plan["foundation_buckets"])
 	dg, control := str(identity["controller_dynamic_group_name"]), str(names["control"])
 	prefix = canonicalPrefix(prefix)
-	r := []string{}
+	r := []string{fmt.Sprintf("Allow dynamic-group %s to read objectstorage-namespaces in tenancy", dg)}
+	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		r = append(r, fmt.Sprintf("Allow dynamic-group %s to read buckets in compartment %s where target.bucket.name='%s'", dg, control, str(buckets[role])))
+	}
 	for _, role := range []string{"ledger", "head"} {
-		permissions := "request.permission='OBJECT_READ', request.permission='OBJECT_CREATE'"
+		permissions := "request.permission='OBJECT_CREATE'"
 		if role == "head" {
 			permissions += ", request.permission='OBJECT_OVERWRITE'"
 		}
 		for _, version := range []string{"v1", "v2"} {
 			name := "bootstrap/" + version + "/*"
+			reserved := "bootstrap/v2/material-source/*"
 			if prefix != "" {
 				name = prefix + "/" + name
+				reserved = prefix + "/" + reserved
 			}
-			r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='%s', any {%s}}", dg, control, str(buckets[role]), name, permissions))
+			exclusion := ""
+			if version == "v2" {
+				exclusion = fmt.Sprintf("target.object.name != /%s/, ", reserved)
+			}
+			r = append(r,
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, request.permission='OBJECT_READ'}", dg, control, str(buckets[role]), name),
+				fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name=/%s/, %sany {%s}}", dg, control, str(buckets[role]), name, exclusion, permissions))
 		}
 	}
 	// The leader keeps the configuration KV buckets in the versioned head
@@ -439,13 +451,39 @@ func controllerStatements(plan, ids Object, prefix string) []string {
 	dg := str(obj(plan["identity"])["controller_dynamic_group_name"])
 	names := obj(plan["preview_compartment_names"])
 	r := []string{}
-	for _, row := range [][3]string{{"manage", "instance-family", "control"}, {"manage", "instance-family", "workload"}, {"read", "instance-images", "control"}, {"use", "virtual-network-family", "network"}, {"use", "load-balancers", "network"}, {"manage", "volume-family", "control"}, {"manage", "volume-family", "workload"}, {"read", "secret-bundles", "control"}} {
+	for _, row := range [][3]string{{"manage", "instance-family", "control"}, {"manage", "instance-family", "workload"}, {"read", "instance-images", "control"}, {"use", "virtual-network-family", "network"}, {"use", "load-balancers", "network"}, {"manage", "volume-family", "control"}, {"manage", "volume-family", "workload"}} {
 		r = append(r, fmt.Sprintf("Allow dynamic-group %s to %s %s in compartment %s", dg, row[0], row[1], str(names[row[2]])))
 	}
+	r = append(r, fmt.Sprintf("Allow dynamic-group %s to read secret-bundles in compartment %s where target.secret.name != /ts-bootstrap-source-*/", dg, str(names["control"])))
 	return append(r, storageStatements(plan, ids, prefix)...)
 }
 func RequiredControllerStatements(plan, ids Object, prefix string) ([]string, error) {
 	return capture(func() []string { return controllerStatements(plan, ids, prefix) })
+}
+
+// BootstrapSourceStatements scopes a create-once source archive to one founder.
+// The caller must prove this exact founder through the accepted root seed and
+// current signed ledger, and obtain target from the same signed GRU foundation.
+// Constructing these statements grants no authority and applies no IAM policy.
+func BootstrapSourceStatements(founderInstanceID, secretName string, target vaultsecret.Target) ([]string, error) {
+	return capture(func() []string {
+		requireOCID(founderInstanceID, "instance", "")
+		requireOCID(target.CompartmentID, "compartment", "")
+		requireOCID(target.VaultID, "vault", "sa-saopaulo-1")
+		requireOCID(target.KeyID, "key", "sa-saopaulo-1")
+		if !safeMatch(`ts-bootstrap-source-(?:link-)?[a-f0-9]{32}`, secretName) {
+			fail("bootstrap source IAM requires an exact stable source secret name")
+		}
+		principal := fmt.Sprintf("request.principal.type='instance', request.principal.id='%s'", founderInstanceID)
+		secret := fmt.Sprintf("%s, target.secret.name='%s', target.vault.id='%s'", principal, secretName, target.VaultID)
+		return []string{
+			fmt.Sprintf("Allow any-user to read secret-bundles in compartment id %s where all {%s, request.permission='SECRET_BUNDLE_READ'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to read secrets in compartment id %s where all {%s, request.permission='SECRET_READ'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to manage secrets in compartment id %s where all {%s, request.permission='SECRET_CREATE'}", target.CompartmentID, secret),
+			fmt.Sprintf("Allow any-user to use vaults in compartment id %s where all {%s, target.vault.id='%s', request.permission='VAULT_CREATE_SECRET'}", target.CompartmentID, principal, target.VaultID),
+			fmt.Sprintf("Allow any-user to use keys in compartment id %s where all {%s, target.key.id='%s', any {request.permission='KEY_ENCRYPT', request.permission='KEY_DECRYPT'}}", target.CompartmentID, principal, target.KeyID),
+		}
+	})
 }
 
 // ObjectStorageKeyStatement is the Object Storage key policy's one statement:
