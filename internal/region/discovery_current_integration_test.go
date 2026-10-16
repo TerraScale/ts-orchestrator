@@ -182,7 +182,7 @@ func (f *currentDiscoveryScenario) rotate() {
 	if err != nil {
 		f.test.Fatal(err)
 	}
-	identity := foundationChainIdentity(f.anchor.DeploymentID)
+	identity := trust.ChainIdentity{DeploymentID: f.anchor.DeploymentID, Cell: "gru", Environment: "production"}
 	verified, err := trust.VerifyRootChain(f.genesis, identity, f.chain)
 	if err != nil {
 		f.test.Fatal(err)

@@ -167,7 +167,7 @@ func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryOb
 }
 
 func foundationChainIdentity(deployment string) trust.ChainIdentity {
-	return trust.ChainIdentity{DeploymentID: deployment, Cell: "GRU", Environment: "production"}
+	return trust.ChainIdentity{DeploymentID: deployment, Cell: "gru", Environment: "production"}
 }
 
 // Every path component is opened relative to its held parent; a renamed path
