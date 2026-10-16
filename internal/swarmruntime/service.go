@@ -20,6 +20,7 @@ import (
 
 const (
 	LabelIntentID           = "terrascale.intent-id"
+	LabelOperationID        = "terrascale.operation-id"
 	LabelRole               = "terrascale.role"
 	LabelRegion             = "terrascale.region"
 	LabelEnvironment        = "terrascale.environment"
@@ -35,17 +36,17 @@ var intentName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 // ServiceIntent is admitted product intent, not a task placement request.
 // Replicas initializes a new service; subsequent releases preserve autoscaling.
 type ServiceIntent struct {
-	ID, Role, Region, Environment, Architecture string
-	Replicas                                    uint64
-	Container                                   *api.ContainerSpec
-	Resources                                   *api.ResourceRequirements
-	Ports                                       []*api.PortConfig
-	releaseSequence                             uint64
-	releaseFingerprint                          string
+	ID, OperationID, Role, Region, Environment, Architecture string
+	Replicas                                                 uint64
+	Container                                                *api.ContainerSpec
+	Resources                                                *api.ResourceRequirements
+	Ports                                                    []*api.PortConfig
+	releaseSequence                                          uint64
+	releaseFingerprint                                       string
 }
 
 func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
-	if !entityid.Valid(i.ID) {
+	if !entityid.Valid(i.ID) || i.OperationID != "" && !entityid.Valid(i.OperationID) {
 		return nil, errors.New("service intent requires a canonical entity ID")
 	}
 	if i.Replicas > autoscale.MaxReplicas {
@@ -100,6 +101,9 @@ func (i ServiceIntent) serviceSpec() (*api.ServiceSpec, error) {
 		Mode:     &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: i.Replicas}},
 		Update:   &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_ROLLBACK, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_START_FIRST},
 		Rollback: &api.UpdateConfig{Parallelism: 1, Delay: 5 * time.Second, FailureAction: api.UpdateConfig_PAUSE, Monitor: types.DurationProto(30 * time.Second), Order: api.UpdateConfig_STOP_FIRST},
+	}
+	if i.OperationID != "" {
+		spec.Annotations.Labels[LabelOperationID] = i.OperationID
 	}
 	if i.releaseSequence != 0 {
 		spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(i.releaseSequence, 10)
