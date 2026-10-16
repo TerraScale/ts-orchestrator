@@ -344,11 +344,17 @@ That direct authority fixture does not qualify the complete signed app producer.
 Generated startup issuer JWT/mTLS checks passed at `16c601be` (0.186 seconds).
 The genuine sealed actor scenario at `6281eb0c` measured a 16,403-byte escrow
 against the unchanged 25,600-byte Vault limit, then failed at external-seed
-ledger publication because retry-clock metadata was inconsistent. It has no
-completed sealed-startup pass. The concrete automatic startup helper and exact
-task-retained material selection (`05e42ddf`, `8c493857`, `3184f213`) await coherent
-app compilation and caller checks. Recipient authorization now rechecks the live
-sealed source before and after verifying the retained task's worker authority.
+ledger publication because retry-clock metadata was inconsistent. The corrected
+`8b76daad` run verified derived founder authority, then failed at external-seed
+OCI observation; the sealed issuer and public-trust constructors were not reached.
+The next frozen source `f4e3a1b7` includes deterministic OCI observation ETags and
+awaits its QA run. There is no completed genuine sealed-startup pass.
+The concrete automatic startup helper and exact task-retained material selection
+(`05e42ddf`, `8c493857`, `3184f213`) await coherent app caller checks.
+Recipient authorization rechecks the live sealed source before and after
+verifying the retained task's worker authority. `8e3de807` additionally fences the
+entire material preparation and Vault waits to the initial authority epoch and
+root head; this source change has not yet passed the combined runtime scenario.
 Positive WASM worker enrollment also requires
 the original authenticated pool creation lineage; a static descriptor cannot
 replace that authority.
@@ -359,6 +365,15 @@ The actual manager's automatic rollback image-pull scenario passed at `486da504`
 worker and stale function proof were refused. Material for that older worker
 remained denied by the advanced current floor. This proves image-pull recovery,
 not a complete running rollback.
+
+The dedicated current-task material verifier `e9fd32b2` subsequently passed
+security source review. It admits an older worker only for the actual manager's
+current rollback recipe, with current independent qualification and allocation,
+an unchanged same-migration floor, and exact task/service rereads. It never
+authorizes a PreviousSpec-only task. The app caller `1f274dac` retains its sealed
+source, current recipient, root and epoch checks, including a final node
+admission reread. Caller source review and actual-manager material regressions
+remain pending; this is not evidence of a running rollback.
 
 The FUNCTIONS gate remains open until its applicable checks pass for the exact
 admitted worker on each architecture. No paid capacity, secret or wider IAM
