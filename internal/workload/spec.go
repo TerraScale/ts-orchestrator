@@ -64,8 +64,7 @@ const (
 	RetainVolume VolumeRetention = "retain"
 )
 
-// StatefulPolicy constrains topology changes of data-owning members. Today it
-// only gates TerraBase scale-in; see StatefulScaleDown.
+// StatefulPolicy constrains topology changes of data-owning members.
 type StatefulPolicy struct {
 	QuorumFloorPerRegion int             `json:"quorum_floor_per_region"`
 	MaxConcurrentChanges int             `json:"max_concurrent_changes"`
