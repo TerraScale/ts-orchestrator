@@ -127,7 +127,7 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	}}
-	scaler, err = NewAutoscaler(client, manager.ID(), tracing, []ScalePolicy{policy})
+	scaler, err = NewAutoscaler(client, manager.ID(), racing, []ScalePolicy{policy})
 	if err != nil {
 		t.Fatal(err)
 	}
