@@ -116,7 +116,7 @@ func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObser
 	if r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) || r.CompletedAt.After(p.expires) || now.Before(r.CompletedAt) || now.After(a.CleanupUntil) {
 		return errors.New("native run or cleanup is outside finite authority")
 	}
-	if j.RunID != a.RunID || j.ApprovalSHA256 != p.approvalSHA256 || !j.ImageDeleted || !j.ObjectDeleted || len(j.Hosts) != len(a.Hosts) || len(j.Terminated) != len(a.Hosts) || len(r.Hosts) != len(a.Hosts) || len(cloudHosts) != len(a.Hosts) {
+	if j.RunID != a.RunID || j.ApprovalSHA256 != p.approvalSHA256 || j.CapabilityID == "" || j.CapabilityVersion == "" || !j.CapabilityDeleted || !j.ImageDeleted || !j.ObjectDeleted || len(j.Hosts) != len(a.Hosts) || len(j.Terminated) != len(a.Hosts) || len(r.Hosts) != len(a.Hosts) || len(cloudHosts) != len(a.Hosts) {
 		return errors.New("native qualification requires complete exact-resource cleanup")
 	}
 	peer, _ := netip.ParsePrefix(a.PeerCIDR)

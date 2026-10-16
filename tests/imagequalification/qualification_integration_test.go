@@ -145,6 +145,11 @@ func TestSignedRunRejectsChangedDiskSourceAndProductionAuthority(t *testing.T) {
 type cloudFixture struct {
 	mu                         sync.Mutex
 	image                      map[string]any
+	capability                 map[string]any
+	shape                      map[string]any
+	capabilityToken            string
+	failCapabilityResponse     bool
+	capabilityCreates          int
 	hosts                      map[string]map[string]any
 	tokens                     map[string]string
 	object                     []byte
@@ -211,6 +216,66 @@ func (f *cloudFixture) serve(w http.ResponseWriter, r *http.Request) {
 		reply(200, f.image)
 		return
 	}
+	if r.URL.Path == "/20160918/computeGlobalImageCapabilitySchemas" {
+		reply(200, []map[string]string{{"id": "ocid1.computeglobalimgcapschema.oc1..fixture", "currentVersionName": "fixture-version"}})
+		return
+	}
+	if r.URL.Path == "/20160918/computeImageCapabilitySchemas" {
+		if r.Method == "POST" {
+			token := r.Header.Get("opc-retry-token")
+			if token == "" || f.capabilityToken != "" && f.capabilityToken != token {
+				reply(409, map[string]string{"code": "TokenChanged"})
+				return
+			}
+			if f.capability == nil {
+				if err := json.UnmarshalRead(r.Body, &f.capability); err != nil {
+					reply(400, map[string]string{"message": err.Error()})
+					return
+				}
+				f.capability["id"] = "ocid1.computeimgcapschema.oc1..fixture"
+				f.capabilityToken = token
+				f.capabilityCreates++
+			}
+			if f.failCapabilityResponse {
+				f.failCapabilityResponse = false
+				reply(503, map[string]string{"code": "ServiceUnavailable"})
+				return
+			}
+			reply(200, f.capability)
+		} else if f.capability == nil {
+			reply(200, []any{})
+		} else {
+			reply(200, []any{f.capability})
+		}
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/20160918/computeImageCapabilitySchemas/") {
+		if f.capability == nil {
+			reply(404, map[string]string{"code": "NotAuthorizedOrNotFound"})
+		} else if r.Method == "DELETE" {
+			f.capability = nil
+			f.deletes++
+			w.WriteHeader(204)
+		} else {
+			reply(200, f.capability)
+		}
+		return
+	}
+	if strings.Contains(r.URL.Path, "/shapes") {
+		if r.Method == "PUT" {
+			if err := json.UnmarshalRead(r.Body, &f.shape); err != nil {
+				reply(400, map[string]string{"message": err.Error()})
+				return
+			}
+			f.shape["shape"], f.shape["imageId"] = "VM.Standard.A1.Flex", "ocid1.image.oc1..native"
+			reply(200, f.shape)
+		} else if f.shape == nil {
+			reply(200, []any{})
+		} else {
+			reply(200, []any{f.shape})
+		}
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/20160918/images/") {
 		if f.image == nil {
 			reply(404, map[string]string{"code": "NotAuthorizedOrNotFound"})
@@ -226,6 +291,10 @@ func (f *cloudFixture) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/20160918/instances" && r.Method == "POST" {
+		if f.capability == nil || f.shape == nil {
+			reply(412, map[string]string{"code": "NativeBootNotConfigured"})
+			return
+		}
 		var input map[string]any
 		if err := json.UnmarshalRead(r.Body, &input); err != nil {
 			reply(400, map[string]string{"message": err.Error()})
@@ -349,13 +418,13 @@ func TestSDKQualificationResumesExactResourcesAndCleansOnlyOwnedHosts(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !retained.ImageDeleted || !retained.ObjectDeleted || len(retained.Terminated) != 4 || remote.object != nil {
+	if !retained.ImageDeleted || !retained.ObjectDeleted || !retained.CapabilityDeleted || len(retained.Terminated) != 4 || remote.object != nil || remote.capability != nil {
 		t.Fatalf("cleanup incomplete: %+v", retained)
 	}
 	if err := client.cleanup(t.Context(), path); err != nil {
 		t.Fatal(err)
 	}
-	if remote.deletes != 6 {
+	if remote.deletes != 7 {
 		t.Fatalf("cleanup replay deleted %d objects", remote.deletes)
 	}
 	for _, request := range remote.requests {

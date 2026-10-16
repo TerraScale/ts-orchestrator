@@ -19,6 +19,9 @@ func (j journal) resolved(operation string) bool {
 	if operation == "image" {
 		return j.ImageID != ""
 	}
+	if operation == "capability" {
+		return j.CapabilityID != ""
+	}
 	if strings.HasPrefix(operation, "console/") {
 		return j.ConsoleHistories[operation] != ""
 	}

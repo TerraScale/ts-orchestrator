@@ -289,7 +289,7 @@ func TestPublicConfinementSealsActualSDKAndRejectsResourceDrift(t *testing.T) {
 	fixtureMu.Lock()
 	deletes = remote.deletes
 	fixtureMu.Unlock()
-	if !cleaned.ImageDeleted || !cleaned.ObjectDeleted || len(cleaned.Terminated) != 4 || deletes != 6 {
+	if !cleaned.ImageDeleted || !cleaned.ObjectDeleted || !cleaned.CapabilityDeleted || len(cleaned.Terminated) != 4 || deletes != 7 {
 		t.Fatalf("sealed consumer cleanup incomplete: %+v deletes=%d", cleaned, deletes)
 	}
 }

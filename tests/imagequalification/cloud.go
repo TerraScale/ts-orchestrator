@@ -35,7 +35,7 @@ type cloud struct {
 	objects  objectstorage.ObjectStorageClient
 	network  core.VirtualNetworkClient
 	block    core.BlockstorageClient
-	uploader imageimport.ObjectUploader
+	uploader imageimport.API
 	now      func() time.Time
 }
 
@@ -44,6 +44,9 @@ type journal struct {
 	ApprovalSHA256     string               `json:"approval_sha256"`
 	Object             string               `json:"object"`
 	ImageID            string               `json:"image_id"`
+	CapabilityID       string               `json:"capability_id"`
+	CapabilityVersion  string               `json:"capability_version"`
+	CapabilityDeleted  bool                 `json:"capability_deleted"`
 	Hosts              map[string]string    `json:"hosts"`
 	Terminated         map[string]bool      `json:"terminated"`
 	ImageDeleted       bool                 `json:"image_deleted"`
@@ -306,6 +309,9 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 	if err := c.waitImage(ctx, j.ImageID); err != nil {
 		return j, err
 	}
+	if err := c.configureNativeBoot(ctx, path, &j); err != nil {
+		return j, err
+	}
 	for _, host := range a.Hosts {
 		if j.Hosts[host.Name] != "" {
 			continue
@@ -490,6 +496,9 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 	}
 	if unresolved {
 		return errors.New("unresolved create intent: known hosts terminated; retain journal, image and object until authenticated resource recovery")
+	}
+	if err := c.cleanupCapability(ctx, path, &j); err != nil {
+		return err
 	}
 	if j.ImageID != "" && !j.ImageDeleted {
 		_, err := c.image(ctx, j.ImageID)

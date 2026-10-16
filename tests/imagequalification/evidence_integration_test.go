@@ -20,6 +20,7 @@ func reportFixture(t *testing.T, f qualificationFixture) (host.Report, journal, 
 	start := f.now.Add(time.Minute)
 	r := host.Report{RunID: a.RunID, Candidate: a.Candidate, ImageOCID: "ocid1.image.oc1..fixture", WorkloadImage: a.WorkloadImage, WorkloadArchiveSHA256: a.WorkloadArchiveSHA256, StartedAt: start, CompletedAt: start.Add(time.Minute)}
 	j := journal{RunID: a.RunID, ApprovalSHA256: f.prepared.approvalSHA256, ImageID: r.ImageOCID, Hosts: map[string]string{}, Terminated: map[string]bool{}, ImageDeleted: true, ObjectDeleted: true, Intents: map[string]time.Time{"image": start}}
+	j.CapabilityID, j.CapabilityVersion, j.CapabilityDeleted, j.Intents["capability"] = "ocid1.computeimgcapschema.oc1..fixture", "fixture-version", true, start
 	j.ConsoleHistories, j.ConsoleDeleted, j.HostKeys, j.ConsoleDigests, j.HostConsoleHistory = map[string]string{}, map[string]bool{}, map[string]string{}, map[string]string{}, map[string]string{}
 	var cloud []hostObservation
 	var ids []string
