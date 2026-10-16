@@ -234,16 +234,11 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		response = ocivault.Secret{Id: new(secret.ID)}
-	case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/secrets"):
-		body, err := os.ReadFile(server.objectPath("name-" + r.URL.Query().Get("name")))
-		items := []ocivault.SecretSummary{}
-		if err == nil {
-			var secret materialProtocolSecret
-			json.Unmarshal(body, &secret)
-			items = append(items, ocivault.SecretSummary{Id: new(secret.ID), SecretName: new(secret.Name), CompartmentId: new(server.target.CompartmentOCID), VaultId: new(server.target.VaultOCID), LifecycleState: ocivault.SecretSummaryLifecycleStateActive})
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName"):
+		if r.URL.Query().Get("vaultId") != server.target.VaultOCID || r.URL.Query().Get("versionNumber") != "1" {
+			w.WriteHeader(400)
+			return
 		}
-		response = items
-	case strings.HasSuffix(r.URL.Path, "/secretbundles"):
 		if strings.HasPrefix(r.URL.Query().Get("secretName"), "ts-bootstrap-source-") && server.hiddenSourceReads > 0 {
 			server.hiddenSourceReads--
 			w.WriteHeader(404)
