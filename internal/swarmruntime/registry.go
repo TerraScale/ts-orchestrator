@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -47,6 +48,9 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 			return nil, errors.New("registry release admission unavailable")
 		}
 		if admitted == nil {
+			if host, _, _ := strings.Cut(spec.Image, "/"); strings.HasSuffix(host, ".ocir.io") {
+				return nil, errors.New("private OCI registry release admission is unavailable")
+			}
 			return publicRegistryResolver(ctx, task, node)
 		}
 		if node == nil || node.ID == "" || task.NodeID != node.ID || admitted.ServiceID != task.ServiceID ||
@@ -76,7 +80,7 @@ func publicRegistryResolver(_ context.Context, task *api.Task, _ *api.Node) (rem
 
 func privateRegistryResolver(image, host string, credentials func(string) (string, string, error), transport http.RoundTripper) remotes.Resolver {
 	if transport == nil {
-		transport = (&http.Transport{}).Clone()
+		transport = &http.Transport{DisableKeepAlives: true, TLSHandshakeTimeout: 10 * time.Second}
 	}
 	client := &http.Client{Transport: registryTransport{host: host, base: transport}, Timeout: 30 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
