@@ -54,7 +54,29 @@ func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, templa
 	if err != nil {
 		return VerifiedSourceFounder{}, err
 	}
-	proof := VerifiedSourceFounder{template: template, factory: factory, imds: NewIMDSClient(), observer: observer, tenancy: tenancy}
+	return verifySourceFounderWithSources(ctx, factory, template, NewIMDSClient(), observer)
+}
+
+func verifySourceFounderWithSources(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate, imds DescriptorSource, observer InstanceObserver) (VerifiedSourceFounder, error) {
+	if factory == nil || imds == nil || observer == nil || template.VerifyCurrent(time.Now().UTC()) != nil {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
+	if err != nil || factory.Region() != manifest.OCIRegion {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	var grant struct {
+		TenancyID string `json:"tenancyId"`
+	}
+	envelope, err := trust.DecodeEnvelope(template.GrantWire())
+	if err != nil || json.Unmarshal(envelope.Payload, &grant) != nil || grant.TenancyID == "" {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	tenancy, err := factory.Provider().TenancyOCID()
+	if err != nil || tenancy != grant.TenancyID {
+		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	proof := VerifiedSourceFounder{template: template, factory: factory, imds: imds, observer: observer, tenancy: tenancy}
 	observed, err := proof.observe(ctx)
 	if err != nil {
 		return VerifiedSourceFounder{}, err
