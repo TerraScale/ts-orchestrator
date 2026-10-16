@@ -102,13 +102,14 @@ type SourceLineage struct {
 // BinaryUpdateReceipt binds one qualified binary to a cell and to the exact
 // delegation that authorized its automatic signature.
 type BinaryUpdateReceipt struct {
-	ReleaseSequence         uint64        `json:"release_sequence,omitzero"`
-	SequenceMigrationSHA256 string        `json:"sequence_migration_sha256,omitempty"`
-	Schema                  string        `json:"schema"`
-	Binary                  BinaryReceipt `json:"binary"`
-	Cell                    string        `json:"cell"`
-	Lineage                 SourceLineage `json:"lineage"`
-	DelegationSHA256        string        `json:"delegation_sha256"`
+	Production              *ProductionProof `json:"production,omitempty"`
+	ReleaseSequence         uint64           `json:"release_sequence,omitzero"`
+	SequenceMigrationSHA256 string           `json:"sequence_migration_sha256,omitempty"`
+	Schema                  string           `json:"schema"`
+	Binary                  BinaryReceipt    `json:"binary"`
+	Cell                    string           `json:"cell"`
+	Lineage                 SourceLineage    `json:"lineage"`
+	DelegationSHA256        string           `json:"delegation_sha256"`
 }
 
 // UpdateExpectation names the consumer's own environment, cell and
