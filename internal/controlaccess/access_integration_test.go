@@ -128,12 +128,13 @@ func TestReadAccessCrossesSignedObjectFoundationAndCurrentVault(t *testing.T) {
 			w.WriteHeader(401)
 			return
 		}
-		if r.Method != http.MethodGet {
+		secretRead := strings.HasSuffix(r.URL.Path, "/secretbundles/actions/getByName") && r.Method == http.MethodPost
+		if r.Method != http.MethodGet && !secretRead {
 			writes.Add(1)
 			w.WriteHeader(405)
 			return
 		}
-		if strings.Contains(r.URL.Path, "secretbundles") {
+		if secretRead {
 			reads.Add(1)
 			if r.URL.Query().Get("stage") != "CURRENT" || r.URL.Query().Get("vaultId") != vault || r.URL.Query().Get("secretName") != "usage-token" {
 				t.Error("Vault request differed from exact signed CURRENT reference")
