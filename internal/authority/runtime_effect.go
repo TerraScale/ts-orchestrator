@@ -258,6 +258,13 @@ func (r *Runtime) SettleRuntimeEffect(ctx context.Context, epoch uint64, scope W
 // ListUnresolvedRuntimeEffects includes every held or closing effect across epochs.
 // Unreadable or malformed retained records fail closed, including settled history.
 func (r *Runtime) ListUnresolvedRuntimeEffects(ctx context.Context, scope WorkloadScope) ([]RuntimeEffect, error) {
+	effects, err := r.ListRuntimeEffectHistory(ctx, scope)
+	return slices.DeleteFunc(effects, func(effect RuntimeEffect) bool { return effect.Phase == RuntimeEffectSettled }), err
+}
+
+// ListRuntimeEffectHistory returns each effect's latest retained record,
+// including settled material needed to recover prior possible writers.
+func (r *Runtime) ListRuntimeEffectHistory(ctx context.Context, scope WorkloadScope) ([]RuntimeEffect, error) {
 	if _, err := placementIntentSubjectKey(scope.DatabaseID, scope.PartitionID); err != nil {
 		return nil, err
 	}
@@ -267,7 +274,8 @@ func (r *Runtime) ListUnresolvedRuntimeEffects(ctx context.Context, scope Worklo
 // ListAllUnresolvedRuntimeEffects recovers holds even after their host's
 // registration has retired or disappeared from the live host inventory.
 func (r *Runtime) ListAllUnresolvedRuntimeEffects(ctx context.Context) ([]RuntimeEffect, error) {
-	return r.listRuntimeEffects(ctx, "")
+	effects, err := r.listRuntimeEffects(ctx, "")
+	return slices.DeleteFunc(effects, func(effect RuntimeEffect) bool { return effect.Phase == RuntimeEffectSettled }), err
 }
 
 func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([]RuntimeEffect, error) {
@@ -293,7 +301,7 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 		keys = append(keys, key)
 	}
 	slices.Sort(keys)
-	var unresolved []RuntimeEffect
+	var effects []RuntimeEffect
 	for _, key := range keys {
 		parts := strings.Split(key, ".")
 		scope := WorkloadScope{DatabaseID: parts[0], PartitionID: parts[1]}
@@ -305,11 +313,9 @@ func (r *Runtime) listRuntimeEffects(ctx context.Context, scopeFilter string) ([
 		if err != nil {
 			return nil, err
 		}
-		if effect.Phase != RuntimeEffectSettled {
-			unresolved = append(unresolved, effect)
-		}
+		effects = append(effects, effect)
 	}
-	return unresolved, nil
+	return effects, nil
 }
 
 func (r *Runtime) requireNoRuntimeEffects(ctx context.Context, scope WorkloadScope) error {
