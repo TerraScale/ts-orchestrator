@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
@@ -41,6 +42,14 @@ func ResolveLinkSource(ctx context.Context, regional, home *ColdStartMaterial, h
 	}
 	if homeLink != nil {
 		inputs.homeLinkDigest = digestWire(homeLink.source.archive.Files["material.json"])
+	}
+	for _, parent := range []*ColdStartMaterial{regional, home} {
+		if overlappingSourceDirectories(directory, parent.directory) {
+			return nil, ErrMaterialSource
+		}
+	}
+	if homeLink != nil && overlappingSourceDirectories(directory, homeLink.source.directory) {
+		return nil, ErrMaterialSource
 	}
 	if err := inputs.verify(ctx); err != nil {
 		return nil, err
@@ -196,4 +205,8 @@ func (verified VerifiedLinkMaterial) Grant() region.VerifiedBootstrapMaterial {
 }
 func (verified VerifiedLinkMaterial) VerifyCurrent(ctx context.Context) error {
 	return verified.material.VerifyCurrent(ctx)
+}
+
+func overlappingSourceDirectories(first, second string) bool {
+	return first == second || strings.HasPrefix(first, second+string(filepath.Separator)) || strings.HasPrefix(second, first+string(filepath.Separator))
 }
