@@ -1147,11 +1147,33 @@ func waitSessionConflict(ctx context.Context, attempt int) error {
 	}
 }
 
-func (c *Controller) handleAuthorized(ctx context.Context, req request) (any, error) {
+func (c *Controller) handleAuthorized(ctx context.Context, req request) (payload any, resultErr error) {
 	r, s, err := c.authorize(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	epoch := c.authorityEpoch()
+	if err := c.guard(ctx, epoch); err != nil {
+		return nil, err
+	}
+	requireActive := req.Operation == "material" || req.Operation == "container-material" || req.Operation == "registry-admission" || req.Operation == "function-material"
+	if req.Operation == "runtime-effect" {
+		var operation struct {
+			Action string `json:"action"`
+		}
+		if err := json.Unmarshal(req.Payload, &operation); err != nil {
+			return nil, err
+		}
+		requireActive = operation.Action != "close"
+	}
+	defer func() {
+		if resultErr != nil {
+			return
+		}
+		if err := c.recheckReplyAuthority(ctx, epoch, req, r, requireActive); err != nil {
+			payload, resultErr = nil, err
+		}
+	}()
 	switch req.Operation {
 	case "desired":
 		registration, registrationRevision, exists, err := c.readRegistration(ctx, req.Node)
