@@ -72,7 +72,7 @@ func ppNew(t *testing.T) *ppFixture {
 		p["subnet_cidr"] = subnet
 		p["controller_replicas"] = 1
 		p["database_members"] = 0
-		p["hosts"] = []any{ppObject{"slot": "controller-a", "shape": "VM.Standard.A1.Flex", "ocpus": 1, "memory_gb": 6, "boot_gb": 50, "data_gb": 0, "private_ip": fmt.Sprintf("10.%d.0.10", 251+i)}}
+		p["hosts"] = []any{ppObject{"slot": "controller-a", "shape": "VM.Standard.A1.Flex", "architecture": "arm64", "ocpus": 1, "memory_gb": 6, "boot_gb": 50, "data_gb": 0, "private_ip": fmt.Sprintf("10.%d.0.10", 251+i)}}
 		ids := ppMap(p["resource_ids"])
 		for _, role := range []string{"control", "network", "workload"} {
 			ids[role+"_compartment"] = "ocid1.compartment.oc1.." + lower + role
