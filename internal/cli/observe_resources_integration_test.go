@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 func TestObserveRegionalResourceAPIs(t *testing.T) {
@@ -17,9 +18,11 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 	f.server.HandleAuthenticated("/v1/regions", handler)
 	f.server.HandleAuthenticated("/v1/regions/", handler)
 	rollup := globalview.Rollup{Version: globalview.Version, Cell: "gru", ObservedAt: now,
-		Health:  globalview.Health{Status: globalview.Healthy},
-		Nodes:   []globalview.Node{{Name: "host-a", Health: globalview.NodeOK, ReportedAt: now, CPUCores: 8, MemoryBytes: (1 << 60) + 1, Services: []globalview.Service{{Role: "api", State: "running", Digest: "sha256:abc"}}}},
-		Volumes: []globalview.Volume{{ID: "volume-a", Node: "host-a", State: "attached"}},
+		ServicesObservedAt: now,
+		Services:           []swarmruntime.ServiceObservation{{ServiceID: "managed-a", Role: "web", RequestedReplicas: 3, RunningReplicas: 1, Readiness: "unknown", RequestedDigest: "sha256:requested", ObservedAt: now}},
+		Health:             globalview.Health{Status: globalview.Healthy},
+		Nodes:              []globalview.Node{{Name: "host-a", Health: globalview.NodeOK, ReportedAt: now, CPUCores: 8, MemoryBytes: (1 << 60) + 1, Services: []globalview.Service{{Role: "api", State: "running", Digest: "sha256:abc"}}}},
+		Volumes:            []globalview.Volume{{ID: "volume-a", Node: "host-a", State: "attached"}},
 	}
 	if !view.Accept(rollup) {
 		t.Fatal("regional producer rejected fixture")
@@ -35,6 +38,9 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 		{"nodes", nil, "host-a", false},
 		{"node", []string{"--node", "host-a"}, "host-a", false},
 		{"services", []string{"--node", "host-a"}, "sha256:abc", false},
+		{"services", nil, "managed-a", false},
+		{"service", []string{"--service", "managed-a"}, "sha256:requested", false},
+		{"service", []string{"--service", "unplaced-missing"}, "not_found", true},
 		{"service", []string{"--node", "host-a", "--service", "api"}, "sha256:abc", false},
 		{"volumes", nil, "volume-a", false},
 		{"volume", []string{"--volume", "volume-a"}, "attached", false},
@@ -66,6 +72,10 @@ func TestObserveRegionalResourceAPIs(t *testing.T) {
 	output, err = f.run(t, "nodes")
 	if err != nil || !strings.Contains(output, "CPU CORES") || !strings.Contains(output, "1152921504606846977") {
 		t.Fatalf("node table missing source columns: %s %v", output, err)
+	}
+	output, err = f.run(t, "services")
+	if err != nil || !strings.Contains(output, "unknown") || !strings.Contains(output, "REQUESTED DIGEST") {
+		t.Fatalf("managed service table lost unknown readiness: %s %v", output, err)
 	}
 	// A retained known node is stale; an omitted node remains unknown with HTTP 503.
 	now = now.Add(globalview.StaleAfter + time.Second)

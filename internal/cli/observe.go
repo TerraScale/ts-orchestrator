@@ -28,8 +28,8 @@ const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|ev
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --region REGION        Select an admitted region; authenticated discovery supplies endpoints
   --cell CELL            Resource region; defaults to the authenticated endpoint's local region
-  --node NAME            Node selector for node/service observations
-  --service ROLE         Service selector for one node service
+  --node NAME            Node selector; omit for regional SwarmKit services
+  --service ID           Managed service ID; node-local role when --node is given
   --volume ID            Managed volume selector
   --format table|json    Readable output or versioned JSON
   --search TEXT          Filter the metric catalog by name, description or source

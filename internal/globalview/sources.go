@@ -9,6 +9,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/regionview"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
 )
 
@@ -21,6 +22,7 @@ type Sources struct {
 	Grants    func(context.Context) []regionview.Node
 	Reports   func() []hostload.NodeLoad
 	Volumes   insights.VolumeProvider
+	Services  func(context.Context) ([]swarmruntime.ServiceObservation, error)
 	Links     func() []regionview.LinkProbe
 	Autoscale func() map[string]workload.Result
 	Events    func(limit int) []observability.Event
@@ -37,11 +39,13 @@ type Inputs struct {
 	Now  time.Time
 	// Cluster is the cell-wide controller snapshot; ClusterOK is false
 	// when it could not be collected.
-	Cluster   observability.ClusterSnapshot
-	ClusterOK bool
-	Grants    []regionview.Node
-	Reports   []hostload.NodeLoad
-	Volumes   []insights.Volume
+	Cluster            observability.ClusterSnapshot
+	ClusterOK          bool
+	Grants             []regionview.Node
+	Reports            []hostload.NodeLoad
+	Volumes            []insights.Volume
+	Services           []swarmruntime.ServiceObservation
+	ServicesObservedAt time.Time
 	// VolumesUnavailable is true when the volume source failed, so an empty
 	// list is not mistaken for a region without volumes.
 	VolumesUnavailable bool

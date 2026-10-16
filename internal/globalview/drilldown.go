@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"slices"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 // ResourceView retains the observation metadata alongside a node, service or
@@ -35,7 +37,7 @@ func (region Region) ResourceState(found bool) string {
 }
 
 func mountDrilldowns(mux *http.ServeMux, view *View) {
-	for _, resource := range []string{"nodes", "nodes/{node}", "nodes/{node}/services", "nodes/{node}/services/{service}", "volumes", "volumes/{volume}"} {
+	for _, resource := range []string{"nodes", "nodes/{node}", "nodes/{node}/services", "nodes/{node}/services/{service}", "volumes", "volumes/{volume}", "services", "services/{service}"} {
 		mux.HandleFunc("GET /v1/regions/{region}/"+resource, func(writer http.ResponseWriter, request *http.Request) {
 			region, listed := view.Region(request.PathValue("region"))
 			result := ResourceView{Version: 1, Cell: region.Cell, State: "not_found"}
@@ -51,6 +53,21 @@ func mountDrilldowns(mux *http.ServeMux, view *View) {
 			result.ObservedAt, result.Truncated = region.Rollup.ObservedAt, region.Rollup.Truncated
 			data, found := drilldownData(region.Rollup, resource, request)
 			result.State, result.Data = region.ResourceState(found), data
+			if resource == "services" || resource == "services/{service}" {
+				observed := region.Rollup.ServicesObservedAt
+				for _, service := range region.Rollup.Services {
+					if resource == "services" || service.ServiceID == request.PathValue("service") {
+						if service.ObservedAt.IsZero() || service.ObservedAt.Before(observed) {
+							observed = service.ObservedAt
+						}
+					}
+				}
+				result.State = region.ManagedServiceState(found, observed)
+				result.ObservedAt = observed
+				if result.State == "unavailable" {
+					result.Data, found = nil, false
+				}
+			}
 			if (resource == "volumes" || resource == "volumes/{volume}") && region.Rollup.VolumesUnavailable {
 				result.State, result.Data = "unavailable", nil
 				found = false
@@ -69,6 +86,14 @@ func mountDrilldowns(mux *http.ServeMux, view *View) {
 
 func drilldownData(rollup *Rollup, resource string, request *http.Request) (any, bool) {
 	switch resource {
+	case "services":
+		return slices.Clone(rollup.Services), true
+	case "services/{service}":
+		if index := slices.IndexFunc(rollup.Services, func(service swarmruntime.ServiceObservation) bool {
+			return service.ServiceID == request.PathValue("service")
+		}); index >= 0 {
+			return rollup.Services[index], true
+		}
 	case "nodes":
 		return append([]Node{}, rollup.Nodes...), true
 	case "volumes":

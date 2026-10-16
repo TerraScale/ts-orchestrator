@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/TerraScale/ts-orchestrator/internal/globalview"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 )
 
 func isObserveResource(view string) bool {
@@ -28,11 +29,11 @@ func observeResourcePath(view, cell, node, service, volume string) (string, erro
 	if view == "regions" {
 		return "/v1/regions", nil
 	}
-	if (view == "node" || view == "services" || view == "service") && node == "" {
+	if view == "node" && node == "" {
 		return "", errors.New("this observation requires --node NAME")
 	}
 	if view == "service" && service == "" {
-		return "", errors.New("observe service requires --service ROLE")
+		return "", errors.New("observe service requires --service ID (or ROLE with --node)")
 	}
 	if view == "volume" && volume == "" {
 		return "", errors.New("observe volume requires --volume ID")
@@ -44,9 +45,15 @@ func observeResourcePath(view, cell, node, service, volume string) (string, erro
 	case "node":
 		path += "/nodes/" + node
 	case "services":
-		path += "/nodes/" + node + "/services"
+		if node != "" {
+			path += "/nodes/" + node
+		}
+		path += "/services"
 	case "service":
-		path += "/nodes/" + node + "/services/" + service
+		if node != "" {
+			path += "/nodes/" + node
+		}
+		path += "/services/" + service
 	case "volumes":
 		path += "/volumes"
 	case "volume":
@@ -141,6 +148,21 @@ func writeObserveResource(out io.Writer, view, format string, data []byte) (any,
 					fmt.Fprintf(out, "%s\t%s\t%s\t%d\t%d\t%s\n", node.Name, node.Health, node.ReportedAt.Format(time.RFC3339), node.CPUCores, node.MemoryBytes, strings.Join(roles, ","))
 				}
 			case "services":
+				var managed []swarmruntime.ServiceObservation
+				if err := json.Unmarshal(raw.Data, &managed); err != nil {
+					return nil, false, err
+				}
+				if len(managed) > 0 && managed[0].ServiceID != "" {
+					fmt.Fprintln(out, "SERVICE\tROLE\tREQUESTED\tRUNNING\tREADY\tREQUESTED DIGEST\tUPDATE\tOBSERVED")
+					for _, service := range managed {
+						ready := "unknown"
+						if service.Readiness == "observed" {
+							ready = fmt.Sprint(service.ReadyReplicas)
+						}
+						fmt.Fprintf(out, "%s\t%s\t%d\t%d\t%s\t%s\t%s\t%s\n", service.ServiceID, service.Role, service.RequestedReplicas, service.RunningReplicas, ready, service.RequestedDigest, service.UpdateState, service.ObservedAt.Format(time.RFC3339))
+					}
+					break
+				}
 				var services []globalview.Service
 				if err := json.Unmarshal(raw.Data, &services); err != nil {
 					return nil, false, err
