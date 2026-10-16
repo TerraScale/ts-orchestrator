@@ -113,6 +113,51 @@ func TestInspectContainerImageLayout(t *testing.T) {
 	}
 }
 
+func TestInspectContainerImageLayoutStandardRootIndex(t *testing.T) {
+	arm := newContainerLayoutFixture(t, "arm64")
+	amd := newContainerLayoutFixture(t, "amd64")
+	_, armChild, _ := arm.publish(t, false)
+	_, amdChild, _ := amd.publish(t, false)
+	files, err := os.ReadDir(filepath.Join(amd.directory, "blobs/sha256"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		wire, err := os.ReadFile(filepath.Join(amd.directory, "blobs/sha256", file.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		arm.write(t, "blobs/sha256/"+file.Name(), wire)
+	}
+	index, err := json.Marshal(ocispec.Index{SchemaVersion: 2, MediaType: ocispec.MediaTypeImageIndex,
+		Manifests: []ocispec.Descriptor{armChild, amdChild}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	arm.write(t, "index.json", index)
+	root := digest.FromBytes(index)
+	if _, err := os.Stat(filepath.Join(arm.directory, "blobs/sha256", root.Encoded())); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("fixture unexpectedly has a duplicate root blob: %v", err)
+	}
+	for _, child := range []ocispec.Descriptor{armChild, amdChild} {
+		t.Run(child.Platform.Architecture, func(t *testing.T) {
+			result, err := InspectContainerImageLayout(t.Context(), arm.directory,
+				"registry.example/terrascale/service@"+root.String(), child.Platform.Architecture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.ManifestSHA256 != child.Digest.Encoded() || result.IndexSHA256 != root.Encoded() || result.Image != "registry.example/terrascale/service@"+child.Digest.String() {
+				t.Fatalf("standard root index selected the wrong child: %+v", result)
+			}
+		})
+	}
+	arm.write(t, "index.json", append(index, '\n'))
+	if _, err := InspectContainerImageLayout(t.Context(), arm.directory,
+		"registry.example/terrascale/service@"+root.String(), "arm64"); err == nil {
+		t.Fatal("changed root index bytes retained the pinned digest")
+	}
+}
+
 type containerLayoutFixture struct {
 	directory  string
 	config     ocispec.Image

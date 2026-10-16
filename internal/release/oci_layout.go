@@ -69,12 +69,17 @@ func InspectContainerImageLayout(ctx context.Context, directory, pinnedImage, ar
 		return ContainerImage{}, errors.New("invalid OCI image layout index")
 	}
 	var descriptor ocispec.Descriptor
-	for _, candidate := range index.Manifests {
-		if candidate.Digest == canonical.Digest() {
-			if descriptor.Digest != "" {
-				return ContainerImage{}, errors.New("OCI layout repeats the pinned image")
+	rootIsIndex := fmt.Sprintf("%x", sha256.Sum256(wire)) == canonical.Digest().Encoded()
+	if rootIsIndex {
+		descriptor = ocispec.Descriptor{MediaType: ocispec.MediaTypeImageIndex, Digest: canonical.Digest(), Size: int64(len(wire))}
+	} else {
+		for _, candidate := range index.Manifests {
+			if candidate.Digest == canonical.Digest() {
+				if descriptor.Digest != "" {
+					return ContainerImage{}, errors.New("OCI layout repeats the pinned image")
+				}
+				descriptor = candidate
 			}
-			descriptor = candidate
 		}
 	}
 	if descriptor.Digest == "" {
@@ -82,9 +87,11 @@ func InspectContainerImageLayout(ctx context.Context, directory, pinnedImage, ar
 	}
 	result := ContainerImage{Architecture: architecture}
 	if descriptor.MediaType == ocispec.MediaTypeImageIndex || descriptor.MediaType == "application/vnd.docker.distribution.manifest.list.v2+json" {
-		wire, err = layout.blob(descriptor, maxContainerMetadataBytes, true)
-		if err != nil {
-			return ContainerImage{}, err
+		if !rootIsIndex {
+			wire, err = layout.blob(descriptor, maxContainerMetadataBytes, true)
+			if err != nil {
+				return ContainerImage{}, err
+			}
 		}
 		var platforms ocispec.Index
 		if err := json.Unmarshal(wire, &platforms); err != nil || platforms.SchemaVersion != 2 || platforms.MediaType != "" && platforms.MediaType != descriptor.MediaType || len(platforms.Manifests) == 0 || len(platforms.Manifests) > maxContainerLayers || platforms.ArtifactType != "" || platforms.Subject != nil {
