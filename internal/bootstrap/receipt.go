@@ -76,11 +76,11 @@ func (verified VerifiedReceipt) Slot() string { return verified.receipt.Slot }
 // NewReceipt constructs a receipt only when launch, manifest, and observed
 // instance facts agree exactly. The observed profile must include the exact
 // network attachments observed from OCI, not only launch-request fields.
-func NewReceipt(manifest VerifiedManifest, facts InstanceFacts) (Receipt, error) {
-	if err := validateVerifiedManifest(manifest); err != nil {
+func NewReceipt(manifest StartupAuthority, facts InstanceFacts) (Receipt, error) {
+	if err := validateStartupAuthority(manifest); err != nil {
 		return Receipt{}, err
 	}
-	return receiptForManifest(manifest.manifest, manifest.digest, facts)
+	return receiptForManifest(manifest.Manifest(), manifest.Digest(), facts)
 }
 
 // SignSeedReceipt creates a root-signed receipt for the exact seed instance.
