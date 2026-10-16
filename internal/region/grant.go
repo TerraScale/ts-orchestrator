@@ -31,16 +31,17 @@ const foundationGrantObject = "foundation-scope-v1.json"
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
-	InstallationID      string             `json:"installationId"`
-	SchemaVersion       int                `json:"schemaVersion"`
-	Generation          uint64             `json:"generation"`
-	TenancyID           string             `json:"tenancyId"`
-	ParentCompartmentID string             `json:"parentCompartmentId"`
-	SharedCompartmentID string             `json:"sharedCompartmentId"`
-	Currency            string             `json:"currency"`
-	MonthlyLimitMinor   int64              `json:"monthlyLimitMinor"`
-	CleanupOwner        string             `json:"cleanupOwner"`
-	Regions             []FoundationIntent `json:"regions"`
+	InstallationID      string                     `json:"installationId"`
+	SchemaVersion       int                        `json:"schemaVersion"`
+	Generation          uint64                     `json:"generation"`
+	TenancyID           string                     `json:"tenancyId"`
+	ParentCompartmentID string                     `json:"parentCompartmentId"`
+	SharedCompartmentID string                     `json:"sharedCompartmentId"`
+	Currency            string                     `json:"currency"`
+	MonthlyLimitMinor   int64                      `json:"monthlyLimitMinor"`
+	CleanupOwner        string                     `json:"cleanupOwner"`
+	Regions             []FoundationIntent         `json:"regions"`
+	InfrastructureSpend *InfrastructureSpendIntent `json:"infrastructureSpend,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
@@ -58,13 +59,14 @@ type BootstrapMaterialIntent struct {
 type BootstrapStartupIntent = bootstrap.StartupTemplate
 
 type VerifiedBootstrapMaterial struct {
-	intent     BootstrapMaterialIntent
-	generation uint64
-	storage    bootstrap.StorageDomain
-	expires    time.Time
-	escrow     bootstrapmaterial.VaultTarget
-	image      release.VerifiedImage
-	grantWire  []byte
+	intent          BootstrapMaterialIntent
+	generation      uint64
+	storage         bootstrap.StorageDomain
+	expires         time.Time
+	escrow          bootstrapmaterial.VaultTarget
+	image           release.VerifiedImage
+	grantWire       []byte
+	ledgerPublicKey string
 }
 
 func (v VerifiedBootstrapMaterial) SourceRegistration() (bootstrap.InitialSourceRegistration, error) {
@@ -72,6 +74,15 @@ func (v VerifiedBootstrapMaterial) SourceRegistration() (bootstrap.InitialSource
 		return bootstrap.InitialSourceRegistration{}, errors.New("same signed grant has no current initial source registration authority")
 	}
 	return v.intent.SourceRegistration.Clone(), nil
+}
+
+// PinnedLedgerSignerPublicKey returns only an existing local anchor's verified
+// ledger key. A new registration conveys no replacement authority.
+func (v VerifiedBootstrapMaterial) PinnedLedgerSignerPublicKey() (string, error) {
+	if !v.IsVerified() || !time.Now().Before(v.expires) || v.ledgerPublicKey == "" {
+		return "", errors.New("same signed scope has no current pinned local ledger signer")
+	}
+	return v.ledgerPublicKey, nil
 }
 
 func (v VerifiedBootstrapMaterial) FoundationGrantWire() []byte { return bytes.Clone(v.grantWire) }
@@ -183,7 +194,26 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		}
 		config.Slots = slices.Clone(config.Slots)
 		material.Config = config
-		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire)}, nil
+		var ledgerPublicKey string
+		if config.Cell == strings.ToLower(string(s.local.Cell)) && len(s.local.LedgerDelegationWire) > 0 {
+			envelope, err := trust.DecodeEnvelope(s.local.LedgerDelegationWire)
+			if err != nil {
+				return VerifiedBootstrapMaterial{}, err
+			}
+			if _, err := trust.VerifyDelegationCurrent(envelope, s.roots, time.Now(), bootstrap.BootstrapAnchorTrustPolicy()); err != nil {
+				return VerifiedBootstrapMaterial{}, err
+			}
+			var delegation trust.Delegation
+			if err := json.Unmarshal(envelope.Payload, &delegation, json.RejectUnknownMembers(true)); err != nil {
+				return VerifiedBootstrapMaterial{}, err
+			}
+			key, err := base64.RawURLEncoding.Strict().DecodeString(delegation.SubjectPublicKey)
+			if err != nil || len(key) != 32 {
+				return VerifiedBootstrapMaterial{}, errors.New("pinned local ledger signer is invalid")
+			}
+			ledgerPublicKey = base64.StdEncoding.EncodeToString(key)
+		}
+		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
 }
