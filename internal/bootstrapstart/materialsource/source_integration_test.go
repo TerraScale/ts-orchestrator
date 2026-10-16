@@ -163,6 +163,15 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/n/") {
+		bucketKMS := "ocid1.key.oc1.sa-saopaulo-1.head"
+		switch {
+		case strings.Contains(r.URL.Path, "/b/ledger-bucket/o/"):
+			bucketKMS = "ocid1.key.oc1.sa-saopaulo-1.ledger"
+		case strings.Contains(r.URL.Path, "/b/sfo-ledger/o/"):
+			bucketKMS = "ocid1.key.oc1.us-sanjose-1.ledger"
+		case strings.Contains(r.URL.Path, "/b/sfo-1-head/o/"):
+			bucketKMS = "ocid1.key.oc1.us-sanjose-1.head"
+		}
 		old, err := os.ReadFile(server.objectPath(r.URL.Path))
 		etag := digestWire(old)
 		if r.Method == http.MethodGet {
@@ -171,8 +180,14 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 				io.WriteString(w, `{"code":"ObjectNotFound","message":"absent"}`)
 				return
 			}
+			info, err := os.Stat(server.objectPath(r.URL.Path))
+			if err != nil {
+				w.WriteHeader(500)
+				return
+			}
 			w.Header().Set("etag", etag)
-			w.Header().Set("opc-sse-kms-key-id", "ocid1.key.oc1.sa-saopaulo-1.head")
+			w.Header().Set("Last-Modified", info.ModTime().UTC().Format(http.TimeFormat))
+			w.Header().Set("opc-sse-kms-key-id", bucketKMS)
 			w.Write(old)
 			return
 		}
@@ -187,7 +202,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		explicitKMS := strings.Contains(r.URL.Path, "/bootstrap/v2/material-source/") || strings.HasSuffix(r.URL.Path, "/iam-lease.json")
 		kms := r.Header.Get("opc-sse-kms-key-id")
-		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || explicitKMS && kms != "ocid1.key.oc1.sa-saopaulo-1.head" || kms != "" && kms != "ocid1.key.oc1.sa-saopaulo-1.head" {
+		if r.Header.Get("if-none-match") == "" && r.Header.Get("if-match") == "" || explicitKMS && kms != bucketKMS || kms != "" && kms != bucketKMS {
 			w.WriteHeader(400)
 			return
 		}
