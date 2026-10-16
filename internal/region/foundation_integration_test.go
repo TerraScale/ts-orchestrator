@@ -33,6 +33,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
 
 // The simulator persists exact Object Storage bytes and conditional-write
@@ -232,6 +233,22 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 		}
 	}
 	grant.InfrastructureSpend = nil
+	publish(scope, now.Add(time.Hour))
+	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+		t.Fatal("foundation-only scope authorized OCIR IAM and token issuance")
+	}
+	grant.OCIRIssuance = &OCIRIssuerIntent{OCIRegion: "sa-saopaulo-1", RepositoryCompartmentID: target.CompartmentOCID, RepositoryName: "terrabase", RegistryNamespace: "ns", PrincipalName: "ts-pull", PrincipalEmail: "ocir-pull@terrascale.tech", VaultTarget: vaultsecret.Target{CompartmentID: target.CompartmentOCID, VaultID: target.VaultOCID, KeyID: target.KMSKeyOCID}, SecretName: "ts-pull-credential"}
+	publish(scope, now.Add(time.Hour))
+	issuer, err := reader.OCIRIssuer(t.Context())
+	if err != nil || !issuer.IsVerified() || issuer.InstallationID() != reader.home.InstallationID || issuer.GrantDigest() != reader.home.GrantSHA256 || issuer.Intent() != *grant.OCIRIssuance {
+		t.Fatalf("issuer=%+v err=%v", issuer, err)
+	}
+	grant.OCIRIssuance.VaultTarget.VaultID = "ocid1.vault.oc1.sa-saopaulo-1.foreign"
+	publish(scope, now.Add(time.Hour))
+	if _, err := reader.OCIRIssuer(t.Context()); err == nil {
+		t.Fatal("foreign Vault was authorized for OCIR IAM and token issuance")
+	}
+	grant.OCIRIssuance = nil
 	grant.Regions[0].BootstrapMaterial = material
 	publish(scope, now.Add(time.Hour))
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
