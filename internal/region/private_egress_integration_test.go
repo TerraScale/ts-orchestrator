@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -31,13 +32,16 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/publicapi"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // Private controllers remain private while their real signed SDK requests and
 // conditional Object Storage journal recover an accepted NAT create and upgrade
 // the existing Service-Gateway-only network with ETag-guarded full-list writes.
 func TestPrivateEgressSDKDurableRecoveryAndExactUpgrade(t *testing.T) {
-	store, _, _ := foundationProtocolStore(t)
+	store, objects, _ := foundationProtocolStore(t)
+	objectClient := objects.(*objectstorage.ObjectStorageClient)
+	objectClient.HTTPClient = netBirdFixtureDispatcher(t, objectClient.Host, nil)
 	wire, err := os.ReadFile(filepath.Join("..", "..", "deploy", "oci-region", "sfo-1-plan.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -193,8 +197,27 @@ func TestPrivateEgressSDKDurableRecoveryAndExactUpgrade(t *testing.T) {
 	t.Cleanup(server.Close)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	original := http.DefaultTransport
+	// The pinned SDK otherwise overwrites the confined proxy and dial handlers.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	transport.Proxy = func(request *http.Request) (*url.URL, error) {
+		if request.Response != nil {
+			return nil, errors.New("private egress fixture rejects redirects")
+		}
+		return nil, nil
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("private egress fixture rejects unhandled network dials")
+	}
+	loopback := server.Listener.Addr().String()
+	loopbackHost, _, err := net.SplitHostPort(loopback)
+	if err != nil || net.ParseIP(loopbackHost) == nil || !net.ParseIP(loopbackHost).IsLoopback() {
+		t.Fatalf("TLS fixture is not a literal loopback listener: %s", loopback)
+	}
 	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(server.URL, "https://"))
+		if network != "tcp" {
+			return nil, errors.New("private egress fixture permits only TCP to its literal loopback listener")
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, loopback)
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
