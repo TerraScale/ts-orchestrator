@@ -4,7 +4,10 @@ package execution
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/TerraScale/ts-orchestrator/internal/storage/hostvolume"
@@ -18,10 +21,11 @@ func TestRuntimeSpecRefusesAdmissionDrift(t *testing.T) {
 		Resources: runtimespec.LinuxResources{Memory: &runtimespec.LinuxMemory{Limit: new(int64(64 << 20))}},
 		Mounts:    []runtimespec.Mount{{Source: "/run/retained/volume", Destination: "/retained", Type: "bind", Options: []string{"rbind", "nosuid", "nodev", "noexec", "noatime"}}},
 		Volume:    hostvolume.MountPins{MountPath: "/run/retained/volume"}, VolumeDestination: "/retained",
+		Namespaces: []runtimespec.LinuxNamespace{{Type: runtimespec.PIDNamespace}, {Type: runtimespec.MountNamespace}},
 	}
 	makeSpec := func() *runtimespec.Spec {
 		return &runtimespec.Spec{Root: &runtimespec.Root{Readonly: true}, Process: &pins.Process, Mounts: pins.Mounts,
-			Linux: &runtimespec.Linux{CgroupsPath: "/terrascale/ts-member", Resources: &pins.Resources, Namespaces: []runtimespec.LinuxNamespace{{Type: runtimespec.PIDNamespace}, {Type: runtimespec.MountNamespace}}}}
+			Linux: &runtimespec.Linux{CgroupsPath: "/terrascale/ts-member", Resources: &pins.Resources, Namespaces: slices.Clone(pins.Namespaces)}}
 	}
 	if err := verifyRuntimeSpec(makeSpec(), pins, "ts-member"); err != nil {
 		t.Fatal(err)
@@ -45,6 +49,9 @@ func TestRuntimeSpecRefusesAdmissionDrift(t *testing.T) {
 		"user namespace": func(spec *runtimespec.Spec) {
 			spec.Linux.Namespaces = append(spec.Linux.Namespaces, runtimespec.LinuxNamespace{Type: runtimespec.UserNamespace})
 		},
+		"private network namespace": func(spec *runtimespec.Spec) {
+			spec.Linux.Namespaces = append(spec.Linux.Namespaces, runtimespec.LinuxNamespace{Type: runtimespec.NetworkNamespace})
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			spec := makeSpec()
@@ -64,5 +71,26 @@ func TestRuntimeObserverRequiresConcreteClient(t *testing.T) {
 		if _, err := (RuntimeObserver{}).Observe(ctx, RuntimePins{}); err == nil {
 			t.Fatal("missing concrete runtime client accepted")
 		}
+	}
+}
+
+func TestRuntimeObserverHostNetworkNamespaceIntegration(t *testing.T) {
+	if os.Getenv("TS_RUNTIME_NETWORK_FIXTURE") == "private" {
+		parent := os.Getppid()
+		if err := verifyHostNetworkNamespace(parent); err == nil {
+			t.Fatal("a process in another network namespace accepted as host networking")
+		}
+		return
+	}
+	if err := verifyHostNetworkNamespace(os.Getpid()); err != nil {
+		t.Fatal(err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	command := exec.CommandContext(t.Context(), "sudo", "-n", "env", "TS_RUNTIME_NETWORK_FIXTURE=private", "nice", "-n", "19", "unshare", "--net", executable, "-test.run=^TestRuntimeObserverHostNetworkNamespaceIntegration$", "-test.v")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("kernel network namespace refusal: %v\n%s", err, output)
 	}
 }
