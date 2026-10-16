@@ -34,7 +34,7 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	fixture, vaultClient, bundles := bootstrapVaultServer(t)
 	target := vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..control", VaultID: "ocid1.vault.oc1.sa-saopaulo-1.control", KeyID: "ocid1.key.oc1.sa-saopaulo-1.control"}
 	identity := bootstrapstart.RuntimeIdentity{DeploymentID: "0000000000F9PR1WNVDTEXS31Z", ClusterID: "0000000000RMSAJ9B0JFV7ESHN",
-		Environment: "production", Cell: "GRU", Slot: "controller-a", SeedSlot: "controller-a",
+		Environment: "production", Cell: "GRU", OCIRegion: "sa-saopaulo-1", Slot: "controller-a", SeedSlot: "controller-a",
 		InstanceID: "ocid1.instance.oc1.sa-saopaulo-1.founder", PrivateIP: "127.0.0.1", SeedPrivateIP: "127.0.0.1"}
 	founderDir := t.TempDir()
 	refresh := func(context.Context) error { return nil }
@@ -60,7 +60,7 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		spec := registered.Node.Spec
-		if spec.Annotations.Name != binding.Slot || spec.Annotations.Labels[LabelRegion] != strings.ToLower(binding.Cell) ||
+		if spec.Annotations.Name != binding.Slot || spec.Annotations.Labels[LabelRegion] != binding.OCIRegion ||
 			spec.Annotations.Labels[LabelInstanceID] != binding.InstanceID || spec.Annotations.Labels[LabelHostRole] != "manager" ||
 			spec.Annotations.Labels[LabelExecutionScope] != "platform" {
 			t.Fatal("manager returned without its trusted placement identity")

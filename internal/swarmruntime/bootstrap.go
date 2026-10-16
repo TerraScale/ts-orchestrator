@@ -16,6 +16,7 @@ import (
 	"github.com/moby/swarmkit/v2/ca"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
+	"github.com/TerraScale/ts-orchestrator/internal/hostenroll"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 )
@@ -24,7 +25,7 @@ const swarmStateDirectory = "/var/lib/terrascale-orchestrator-host/swarm"
 const swarmManagerPort = "2377"
 
 type bootstrapScope struct {
-	DeploymentID, ClusterID, Environment, Cell, SeedSlot string
+	DeploymentID, ClusterID, Environment, Cell, OCIRegion, SeedSlot string
 }
 
 type bootstrapJoinMaterial struct {
@@ -81,7 +82,28 @@ func StartAcceptedNode(ctx context.Context, reader *bootstrapstart.CurrentFounde
 		}
 		return nil
 	}
-	return startAcceptedNodeAt(ctx, swarmStateDirectory, identity, target, vault, bundles, executor, refresh)
+	launch, err := bootstrapstart.LoadAcceptedHostLaunchMaterial(accepted)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := hostenroll.ParsePublicBundle(launch.HostEnrollment)
+	if err != nil {
+		return nil, err
+	}
+	public, err := bundle.ResponsePublicKey()
+	if err != nil {
+		return nil, err
+	}
+	observer, err := reader.RuntimeInstanceObserver(ctx, accepted)
+	if err != nil {
+		return nil, err
+	}
+	n, err := startAcceptedNodeAt(ctx, swarmStateDirectory, identity, target, vault, bundles, executor, refresh)
+	if err != nil {
+		return nil, err
+	}
+	n.workerAuthority = &workerAuthority{identity: identity, public: public, target: target, vault: vault, bundles: bundles, observer: observer, refresh: refresh}
+	return n, nil
 }
 
 func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstrapstart.RuntimeIdentity,
@@ -104,7 +126,7 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 		return nil, err
 	}
 	scope := bootstrapScope{DeploymentID: identity.DeploymentID, ClusterID: identity.ClusterID,
-		Environment: identity.Environment, Cell: identity.Cell, SeedSlot: identity.SeedSlot}
+		Environment: identity.Environment, Cell: identity.Cell, OCIRegion: identity.OCIRegion, SeedSlot: identity.SeedSlot}
 	name := vaultsecret.Name(strings.ToLower(identity.Cell)+"-"+strings.ToLower(identity.ClusterID), "TS_ORCHESTRATOR_SWARM_JOIN")
 	wire, readErr := vaultsecret.Read(ctx, bundles, target.VaultID, name)
 	var published bootstrapJoinMaterial
@@ -122,7 +144,7 @@ func startAcceptedNodeAt(ctx context.Context, stateDir string, identity bootstra
 	} else if !vaultsecret.Absent(readErr) {
 		return nil, readErr
 	}
-	admission := Admission{Region: strings.ToLower(identity.Cell), HostID: identity.Slot,
+	admission := Admission{Region: identity.OCIRegion, HostID: identity.Slot,
 		InstanceID: identity.InstanceID, FounderID: identity.SeedSlot, Role: "manager"}
 	nodeDir := filepath.Join(stateDir, "node")
 	if identity.Slot == identity.SeedSlot {

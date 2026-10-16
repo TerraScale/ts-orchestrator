@@ -146,6 +146,7 @@ type Response struct {
 	RequestSHA256       string       `json:"request_sha256"`
 	Nonce               string       `json:"nonce"`
 	RegistrationReceipt host.Receipt `json:"registration_receipt"`
+	Swarm               *SwarmWorker `json:"swarm,omitempty"`
 	// Roles are the granted roles of a host enrolled by a cell spec host
 	// grant; TerraBase and managed hosts omit them.
 	Roles []string `json:"roles,omitempty"`

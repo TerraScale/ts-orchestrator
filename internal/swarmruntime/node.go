@@ -43,11 +43,13 @@ type NodeConfig struct {
 
 // Node owns the upstream manager, agent, certificates and persistent task store.
 type Node struct {
-	upstream *swarmnode.Node
-	cancel   context.CancelFunc
-	done     chan struct{}
-	err      error
-	role     string
+	upstream        *swarmnode.Node
+	cancel          context.CancelFunc
+	done            chan struct{}
+	err             error
+	role            string
+	stateDir        string
+	workerAuthority *workerAuthority
 }
 
 type admittedIdentity struct {
@@ -226,7 +228,7 @@ func StartNode(ctx context.Context, cfg NodeConfig, executor exec.Executor) (*No
 		cancel()
 		return nil, err
 	}
-	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role}
+	n = &Node{upstream: upstream, cancel: cancel, done: make(chan struct{}), role: a.Role, stateDir: cfg.StateDir}
 	go func() {
 		n.err = errors.Join(upstream.Err(context.Background()), lock.Unlock())
 		close(n.done)

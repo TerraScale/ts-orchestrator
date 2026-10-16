@@ -6,14 +6,17 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // RuntimeIdentity binds a previously admitted controller to current signed
 // regional identity. It carries no permission to create or replace OCI hosts.
 type RuntimeIdentity struct {
 	DeploymentID, ClusterID, Environment, Cell string
+	OCIRegion                                  string
 	Slot, SeedSlot, InstanceID                 string
 	PrivateIP, SeedPrivateIP                   string
 }
@@ -89,7 +92,52 @@ func (reader *CurrentFounderAuthorityReader) ReadRuntimeAuthority(ctx context.Co
 	return RuntimeAuthority{identity: RuntimeIdentity{
 		DeploymentID: accepted.DeploymentID, ClusterID: accepted.ClusterID,
 		Environment: accepted.Environment, Cell: accepted.Cell,
-		Slot: accepted.Slot, SeedSlot: accepted.SeedSlot, InstanceID: accepted.InstanceOCID,
+		OCIRegion: anchor.Anchor().OCIRegion,
+		Slot:      accepted.Slot, SeedSlot: accepted.SeedSlot, InstanceID: accepted.InstanceOCID,
 		PrivateIP: privateIP, SeedPrivateIP: plan.SeedPrivateIP,
 	}, anchor: anchor, expires: expires}, nil
+}
+
+// RuntimeInstanceObserver shares the admission transport and accepted root scope.
+func (reader *CurrentFounderAuthorityReader) RuntimeInstanceObserver(ctx context.Context, accepted AcceptedIdentity) (*OCIInstanceObserver, error) {
+	authority, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	config, err := currentLedgerConfig(authority.Anchor(), reader.baked.Roots)
+	if err != nil {
+		return nil, err
+	}
+	provider, err := newOCIAdmissionProvider(config)
+	if err != nil {
+		return nil, err
+	}
+	return NewOCIInstanceObserver(config.Cell, provider)
+}
+
+// ObserveWorkerArchitecture checks the exact observed OCI shape and image in its AD.
+func (observer *OCIInstanceObserver) ObserveWorkerArchitecture(ctx context.Context, observed InstanceObservation) (string, error) {
+	reader, ok := observer.compute.(interface {
+		ListShapes(context.Context, core.ListShapesRequest) (core.ListShapesResponse, error)
+	})
+	if !ok {
+		return "", errors.New("OCI observer cannot verify worker processor architecture")
+	}
+	var page *string
+	for range 20 {
+		response, err := reader.ListShapes(ctx, core.ListShapesRequest{CompartmentId: new(observed.CompartmentOCID), AvailabilityDomain: new(observed.AvailabilityDomain), ImageId: new(observed.ImageOCID), Page: page})
+		if err != nil {
+			return "", err
+		}
+		for _, shape := range response.Items {
+			if shape.Shape != nil && *shape.Shape == observed.Shape && shape.ProcessorDescription != nil {
+				return catalog.ShapeArchitecture(*shape.ProcessorDescription)
+			}
+		}
+		if response.OpcNextPage == nil || *response.OpcNextPage == "" {
+			break
+		}
+		page = response.OpcNextPage
+	}
+	return "", errors.New("worker shape is not compatible with its observed image and placement")
 }
