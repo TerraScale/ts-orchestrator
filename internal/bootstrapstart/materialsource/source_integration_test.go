@@ -7,6 +7,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
@@ -111,12 +112,14 @@ func materialSourceAnchor(t *testing.T) (bootstrap.VerifiedBootstrapAnchor, boot
 
 type materialProtocolSecret struct{ ID, Name, Content, Token string }
 type materialProtocol struct {
-	mu            sync.Mutex
-	directory     string
-	target        bootstrapmaterial.VaultTarget
-	creates       int
-	loseCreate    bool
-	sourceCreates int
+	mu                sync.Mutex
+	directory         string
+	target            bootstrapmaterial.VaultTarget
+	creates           int
+	loseCreate        bool
+	loseSourceCreate  bool
+	hiddenSourceReads int
+	sourceCreates     int
 }
 
 func (server *materialProtocol) objectPath(key string) string {
@@ -192,6 +195,11 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			w.WriteHeader(400)
 			return
 		}
+		if strings.Contains(r.Header.Get("Authorization"), "ocid1.user.oc1..peer") && strings.HasPrefix(details.Name, "ts-bootstrap-source-") {
+			w.WriteHeader(403)
+			io.WriteString(w, `{"code":"NotAuthorized","message":"founder source create denied"}`)
+			return
+		}
 		if body, err := os.ReadFile(server.objectPath("token-" + r.Header.Get("opc-retry-token"))); err == nil {
 			var secret materialProtocolSecret
 			json.Unmarshal(body, &secret)
@@ -208,6 +216,13 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		wire, _ := json.Marshal(secret)
 		if server.put("secret-"+secret.ID, wire) != nil || server.put("name-"+secret.Name, wire) != nil || server.put("token-"+secret.Token, wire) != nil {
 			w.WriteHeader(500)
+			return
+		}
+		if server.loseSourceCreate && strings.HasPrefix(secret.Name, "ts-bootstrap-source-") {
+			server.loseSourceCreate = false
+			server.hiddenSourceReads = 2
+			w.WriteHeader(500)
+			io.WriteString(w, `{"code":"InternalError","message":"committed source response lost"}`)
 			return
 		}
 		if server.loseCreate && !strings.HasPrefix(secret.Name, "ts-bootstrap-source-") {
@@ -227,6 +242,12 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 		}
 		response = items
 	case strings.HasSuffix(r.URL.Path, "/secretbundles"):
+		if strings.HasPrefix(r.URL.Query().Get("secretName"), "ts-bootstrap-source-") && server.hiddenSourceReads > 0 {
+			server.hiddenSourceReads--
+			w.WriteHeader(404)
+			io.WriteString(w, `{"code":"SecretNotFound","message":"not visible yet"}`)
+			return
+		}
 		body, err := os.ReadFile(server.objectPath("name-" + r.URL.Query().Get("secretName")))
 		if err != nil {
 			w.WriteHeader(404)
@@ -277,7 +298,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
 	target := bootstrapmaterial.VaultTarget{CompartmentOCID: "ocid1.compartment.oc1..control", VaultOCID: "ocid1.vault.oc1.sa-saopaulo-1.vault", KMSKeyOCID: "ocid1.key.oc1.sa-saopaulo-1.head"}
-	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true}
+	protocol := &materialProtocol{directory: t.TempDir(), target: target, loseCreate: true, loseSourceCreate: true}
 	endpoint := httptest.NewServer(protocol)
 	defer endpoint.Close()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -355,6 +376,14 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for range 2 {
+		if _, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, filepath.Join(t.TempDir(), "lost-source"), now); err == nil {
+			t.Fatal("uncertain source response or competing candidate unexpectedly succeeded")
+		}
+	}
+	if protocol.creates != 1 {
+		t.Fatalf("uncertain source retry duplicated escrow: creates=%d", protocol.creates)
+	}
 	sources := make([]*ColdStartMaterial, 2)
 	errs := make([]error, 2)
 	var workers sync.WaitGroup
@@ -373,6 +402,22 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	committedWire, err := os.ReadFile(protocol.objectPath("secret-" + sources[0].state.Reference.SecretOCID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var committed materialProtocolSecret
+	if err := json.Unmarshal(committedWire, &committed); err != nil {
+		t.Fatal(err)
+	}
+	if committed.Token != sources[0].state.RetryToken {
+		t.Fatal("source recovery changed original retry identity")
+	}
+	committedBody, err := base64.StdEncoding.DecodeString(committed.Content)
+	if err != nil || digestWire(committedBody) != sources[0].state.Reference.SHA256 {
+		t.Fatal("source recovery changed original committed source")
+	}
+	clear(committedBody)
 	t.Logf("founder source escrow compressed bytes=%d (Vault limit=%d)", sources[0].state.Reference.MaxBytes, materialSourceSecretLimit)
 	if !reflect.DeepEqual(sources[0].Record(), sources[1].Record()) || protocol.sourceCreates != 1 {
 		t.Fatal("concurrent boots selected different signing roots")
@@ -437,6 +482,16 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal("ordinary peer read founder escrow")
 	} else if service, ok := common.IsServiceError(err); !ok || service.GetHTTPStatusCode() != 403 {
 		t.Fatalf("peer denial: %v", err)
+	}
+	peerManagement, err := ocivault.NewVaultsClientWithConfigurationProvider(peerProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerManagement.Host, peerManagement.HTTPClient = endpoint.URL, endpoint.Client()
+	peerManagement.Configuration.RetryPolicy = &noRetry
+	_, err = peerManagement.CreateSecret(t.Context(), ocivault.CreateSecretRequest{CreateSecretDetails: ocivault.CreateSecretDetails{CompartmentId: new(target.CompartmentOCID), VaultId: new(target.VaultOCID), KeyId: new(target.KMSKeyOCID), SecretName: new(replacement.state.SecretName), SecretContent: ocivault.Base64SecretContentDetails{Content: new("eA==")}}, OpcRetryToken: new("ordinary-peer-create")})
+	if service, ok := common.IsServiceError(err); !ok || service.GetHTTPStatusCode() != 403 {
+		t.Fatalf("ordinary peer escrow create denial: %v", err)
 	}
 	if _, err := peer.GetSecretBundle(t.Context(), ocisecrets.GetSecretBundleRequest{SecretId: new(publication.References[0].Reference.SecretOCID), VersionNumber: new(int64(1))}); err != nil {
 		t.Fatalf("normal host material unreadable: %v", err)
