@@ -56,7 +56,7 @@ type SourceFounder struct {
 }
 
 func NewSourceFounder(ctx context.Context, resolver FoundationResolver, authority *HomeIAMAuthority) (*SourceFounder, error) {
-	if authority == nil || resolver.Footprint == nil || resolver.Store == nil {
+	if authority == nil || !authority.proof.IsVerified() || resolver.Footprint == nil || resolver.Store == nil {
 		return nil, bootstrapstart.ErrSourceFounder
 	}
 	if err := authority.Guard(ctx, 0); err != nil {
@@ -101,7 +101,7 @@ func (actor *SourceFounder) InstanceID() string     { return actor.Founder().Ins
 func (actor *SourceFounder) GrantDigest() string    { return actor.Founder().GrantDigest() }
 func (actor *SourceFounder) TemplateDigest() string { return actor.Founder().TemplateDigest() }
 func (actor *SourceFounder) Guard(ctx context.Context) error {
-	if actor == nil || actor.authority == nil {
+	if actor == nil || actor.authority == nil || !actor.authority.proof.IsVerified() {
 		return bootstrapstart.ErrSourceFounder
 	}
 	if err := actor.authority.Guard(ctx, 0); err != nil {

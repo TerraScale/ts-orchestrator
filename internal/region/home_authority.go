@@ -46,6 +46,13 @@ type homeIAMRecord struct {
 // the same protected, conditional home object before NATS exists.
 type HomeIAMAuthority struct {
 	proof             bootstrapstart.VerifiedSourceFounder
+	runtime           bootstrapstart.VerifiedRuntimeIAM
+	instanceID        string
+	tenancyID         string
+	installationID    string
+	grantDigest       string
+	grantGeneration   uint64
+	planDigest        string
 	resolver          FoundationResolver
 	factory           *ociclient.Factory
 	objects           *objectstorage.ObjectStorageClient
@@ -64,7 +71,35 @@ func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 }
 
 func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver, objects *objectstorage.ObjectStorageClient, genesis trust.Keyring) (*HomeIAMAuthority, error) {
+	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, currentGenesis: genesis,
+		instanceID: proof.InstanceID(), tenancyID: proof.TenancyID(), installationID: proof.InstallationID(),
+		grantDigest: proof.GrantDigest(), grantGeneration: proof.Generation(), planDigest: proof.PlanDigest()}
 	factory, guarded, err := proof.GuardedFactory(ctx)
+	return authority.initialize(ctx, factory, guarded, objects, err)
+}
+
+// NewRuntimeHomeIAMAuthority admits an installed controller using its current
+// signed selection and its own independently observed instance principal.
+func NewRuntimeHomeIAMAuthority(ctx context.Context, reader *bootstrapstart.CurrentFounderAuthorityReader, accepted bootstrapstart.AcceptedIdentity, resolver FoundationResolver) (*HomeIAMAuthority, error) {
+	proof, err := bootstrapstart.VerifyRuntimeIAM(ctx, reader, accepted)
+	if err != nil {
+		return nil, err
+	}
+	genesis, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return nil, err
+	}
+	scope := proof.FoundationScope()
+	authority := &HomeIAMAuthority{runtime: proof, resolver: resolver, currentGenesis: genesis,
+		instanceID: proof.InstanceID(), tenancyID: scope.TenancyID, installationID: scope.InstallationID,
+		grantDigest: scope.GrantSHA256, grantGeneration: scope.GrantGeneration}
+	factory, guarded, err := proof.GuardedFactory(ctx)
+	return authority.initialize(ctx, factory, guarded, nil, err)
+}
+
+func (authority *HomeIAMAuthority) initialize(ctx context.Context, factory *ociclient.Factory, guarded context.Context, objects *objectstorage.ObjectStorageClient, principalErr error) (*HomeIAMAuthority, error) {
+	resolver := authority.resolver
+	err := principalErr
 	if err != nil || resolver.Footprint == nil || resolver.Store == nil {
 		return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
 	}
@@ -73,10 +108,18 @@ func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 		return nil, bootstrapstart.ErrSourceFounder
 	}
 	grant, err := resolver.BootstrapMaterial(ctx, entry.Cell)
-	if err != nil || !grant.IsVerified() || homeGrantDigest(grant.FoundationGrantWire()) != proof.GrantDigest() || grant.InstallationID() != proof.InstallationID() || grant.Generation() != proof.Generation() {
+	if err != nil || !grant.IsVerified() || homeGrantDigest(grant.FoundationGrantWire()) != authority.grantDigest || grant.InstallationID() != authority.installationID || grant.Generation() != authority.grantGeneration {
 		return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
 	}
 	domain := grant.StorageDomain()
+	if authority.runtime.IsVerified() {
+		if domain != authority.runtime.FoundationScope().StorageDomain {
+			return nil, bootstrapstart.ErrSourceFounder
+		}
+		authority.planDigest = grant.PlanDigest()
+	} else if !authority.proof.IsVerified() || grant.PlanDigest() != authority.planDigest {
+		return nil, bootstrapstart.ErrSourceFounder
+	}
 	parts := strings.Split(domain.HeadKMSKeyOCID, ".")
 	if domain.Validate() != nil || len(parts) < 5 || !catalog.IsOCIRegion(parts[3]) {
 		return nil, errors.New("home IAM requires the signed regional storage key")
@@ -101,7 +144,8 @@ func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 		bucket.KmsKeyId == nil || *bucket.KmsKeyId != domain.HeadKMSKeyOCID || bucket.CompartmentId == nil || !strings.HasPrefix(*bucket.CompartmentId, "ocid1.compartment.oc1..") || bucket.Id == nil || !validAuxiliaryID("head_bucket", *bucket.Id, parts[3]) {
 		return nil, errors.New("actual home bucket differs from signed encrypted storage")
 	}
-	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, factory: factory, objects: objects, currentGenesis: genesis, domain: domain, ownerID: entityid.New(), bucketCompartment: *bucket.CompartmentId}
+	authority.factory, authority.objects, authority.domain = factory, objects, domain
+	authority.ownerID, authority.bucketCompartment = entityid.New(), *bucket.CompartmentId
 	if err := authority.guardScope(ctx); err != nil {
 		return nil, err
 	}
@@ -112,7 +156,11 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if authority == nil || authority.objects == nil || authority.resolver.Footprint == nil || authority.resolver.Store == nil {
 		return bootstrapstart.ErrSourceFounder
 	}
-	if err := authority.proof.VerifyCurrent(ctx); err != nil {
+	if authority.proof.IsVerified() {
+		if err := authority.proof.VerifyCurrent(ctx); err != nil {
+			return err
+		}
+	} else if err := authority.runtime.VerifyCurrent(ctx); err != nil {
 		return err
 	}
 	entry, ok := catalog.CellForOCIRegion(authority.factory.Region())
@@ -121,7 +169,7 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	}
 	// The production constructor pins the independent embedded genesis. Every
 	// guard rereads the full remote lineage and the durable anti-rollback floor.
-	current, err := discoverCurrentFoundation(ctx, authority.objects, authority.proof.TenancyID(), authority.currentGenesis)
+	current, err := discoverCurrentFoundation(ctx, authority.objects, authority.tenancyID, authority.currentGenesis)
 	if err != nil {
 		return err
 	}
@@ -130,8 +178,8 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 		return err
 	}
 	digest := sha256.Sum256(grant.FoundationGrantWire())
-	if !grant.IsVerified() || hex.EncodeToString(digest[:]) != authority.proof.GrantDigest() || grant.Generation() != authority.proof.Generation() ||
-		grant.InstallationID() != authority.proof.InstallationID() || grant.PlanDigest() != authority.proof.PlanDigest() || grant.StorageDomain() != authority.domain {
+	if !grant.IsVerified() || hex.EncodeToString(digest[:]) != authority.grantDigest || grant.Generation() != authority.grantGeneration ||
+		grant.InstallationID() != authority.installationID || grant.PlanDigest() != authority.planDigest || grant.StorageDomain() != authority.domain {
 		return errors.New("source founder differs from the current signed foundation grant")
 	}
 	return nil
@@ -176,8 +224,8 @@ func (authority *HomeIAMAuthority) HomeWrite(ctx context.Context, epoch uint64) 
 	if previous.Generation == math.MaxUint64 {
 		return ctx, nil, errors.New("home IAM lease generation exhausted")
 	}
-	record := homeIAMRecord{SchemaVersion: 1, TenancyID: authority.proof.TenancyID(), InstallationID: authority.proof.InstallationID(),
-		InstanceID: authority.proof.InstanceID(), GrantDigest: authority.proof.GrantDigest(), GrantGeneration: authority.proof.Generation(),
+	record := homeIAMRecord{SchemaVersion: 1, TenancyID: authority.tenancyID, InstallationID: authority.installationID,
+		InstanceID: authority.instanceID, GrantDigest: authority.grantDigest, GrantGeneration: authority.grantGeneration,
 		Generation: previous.Generation + 1, OwnerID: authority.ownerID, OperationID: entityid.New(), LeaseID: entityid.New(),
 		AcquiredAt: now, UpdatedAt: now, ExpiresAt: now.Add(foundationLease)}
 	etag, err = authority.put(ctx, record, etag)
@@ -225,7 +273,7 @@ func (authority *HomeIAMAuthority) load(ctx context.Context) (homeIAMRecord, str
 
 func (authority *HomeIAMAuthority) validate(record homeIAMRecord) error {
 	digest, err := hex.DecodeString(record.GrantDigest)
-	if record.SchemaVersion != 1 || record.TenancyID != authority.proof.TenancyID() || record.InstallationID != authority.proof.InstallationID() ||
+	if record.SchemaVersion != 1 || record.TenancyID != authority.tenancyID || record.InstallationID != authority.installationID ||
 		!strings.HasPrefix(record.InstanceID, "ocid1.instance.oc1.") || len(record.InstanceID) > 512 || err != nil || len(digest) != 32 ||
 		record.Generation == 0 || record.GrantGeneration == 0 || !entityid.Valid(record.OwnerID) || !entityid.Valid(record.OperationID) || !entityid.Valid(record.LeaseID) ||
 		record.AcquiredAt.IsZero() || record.UpdatedAt.Before(record.AcquiredAt) || record.ExpiresAt.Before(record.UpdatedAt) || record.ExpiresAt.After(record.UpdatedAt.Add(foundationLease)) ||
