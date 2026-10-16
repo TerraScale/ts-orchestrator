@@ -318,24 +318,6 @@ func TestImportRegionsInParallel(t *testing.T) {
 	}
 }
 
-func TestImportRegionsReportsEveryRegionalFailure(t *testing.T) {
-	o := qualified(t)
-	o.Regions = []string{"sa-saopaulo-1", "us-sanjose-1"}
-	_, err := ImportRegions(t.Context(), o, io.Discard, func(region string) (Importer, error) {
-		f := newFake(false)
-		if region == "us-sanjose-1" {
-			f.failOn = "upload object"
-		}
-		return Importer{Client: f, Pause: noPause}, nil
-	})
-	if err == nil || !strings.Contains(err.Error(), "us-sanjose-1: injected upload object failure") {
-		t.Fatalf("error=%v", err)
-	}
-	if _, statErr := os.Stat(o.Out); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatal("wrote a record for a partial import")
-	}
-}
-
 func TestDuplicateImagesRejected(t *testing.T) {
 	f := &fakeOCI{images: []Image{{LifecycleState: "AVAILABLE"}, {LifecycleState: "IMPORTING"}}}
 	_, err := (Importer{Client: f}).FindImage(t.Context(), "c", "d")

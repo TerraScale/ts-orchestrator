@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -460,7 +461,8 @@ func verifyDigest(path, want string) error {
 // ImportRegions verifies the QCOW2 digest once, before any cloud effect, then
 // imports into every region concurrently. A single region writes the
 // terrascale.oci.image-import.v1 record unchanged; several regions write a
-// terrascale.oci.image-import-set.v1 record keyed by region.
+// terrascale.oci.image-import-set.v1 record keyed by region. Progress is
+// checkpointed as regions finish, including successful imports on fleet failure.
 func ImportRegions(ctx context.Context, o Options, out io.Writer, importer func(region string) (Importer, error)) (map[string]any, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
@@ -472,59 +474,117 @@ func ImportRegions(ctx context.Context, o Options, out io.Writer, importer func(
 		return nil, err
 	}
 	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		records = make(map[string]map[string]any, len(o.Regions))
-		errs    = make([]error, len(o.Regions))
+		mu          sync.Mutex
+		wg          sync.WaitGroup
+		records     = make(map[string]map[string]any, len(o.Regions))
+		errs        = make([]error, len(o.Regions))
+		done        = make([]bool, len(o.Regions))
+		checkpoints []error
 	)
+	result := func() map[string]any {
+		if len(o.Regions) == 1 && records[o.Regions[0]] != nil {
+			return records[o.Regions[0]]
+		}
+		regions := make(map[string]any, len(records))
+		for region, record := range records {
+			regions[region] = record
+		}
+		r := map[string]any{"schema": "terrascale.oci.image-import-set.v1", "qcow2_sha256": o.SHA256, "display_name": o.DisplayName, "regions": regions}
+		failures := map[string]string{}
+		var pending []string
+		for index, region := range o.Regions {
+			if !done[index] {
+				pending = append(pending, region)
+			}
+			if errs[index] != nil {
+				failures[region] = errs[index].Error()
+			}
+		}
+		if len(failures) > 0 {
+			r["errors"] = failures
+		}
+		if len(pending) > 0 {
+			r["pending"] = pending
+		}
+		return r
+	}
+	if err := writeImportCheckpoint(o.Out, result()); err != nil {
+		return nil, err
+	}
 	logf := func(format string, args ...any) {
 		mu.Lock()
 		defer mu.Unlock()
 		_, _ = fmt.Fprintf(out, format, args...)
 	}
+	semaphore := make(chan struct{}, 3)
 	for index, region := range o.Regions {
+		semaphore <- struct{}{}
 		wg.Go(func() {
+			defer func() { <-semaphore }()
+			var record map[string]any
 			regional, err := importer(region)
-			if err != nil {
-				errs[index] = fmt.Errorf("%s: %w", region, err)
-				return
-			}
-			record, err := regional.importVerified(ctx, o, func(format string, args ...any) {
-				if len(o.Regions) > 1 {
-					format = region + ": " + format
-				}
-				logf(format, args...)
-			})
-			if err != nil {
-				errs[index] = fmt.Errorf("%s: %w", region, err)
-				return
+			if err == nil {
+				record, err = regional.importVerified(ctx, o, func(format string, args ...any) {
+					if len(o.Regions) > 1 {
+						format = region + ": " + format
+					}
+					logf(format, args...)
+				})
 			}
 			mu.Lock()
-			records[region] = record
-			mu.Unlock()
+			defer mu.Unlock()
+			done[index] = true
+			if err != nil {
+				errs[index] = fmt.Errorf("%s: %w", region, err)
+			} else {
+				records[region] = record
+			}
+			if err := writeImportCheckpoint(o.Out, result()); err != nil {
+				checkpoints = append(checkpoints, fmt.Errorf("checkpoint %s: %w", region, err))
+			}
 		})
 	}
 	wg.Wait()
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
-	}
-	result := records[o.Regions[0]]
-	if len(o.Regions) > 1 {
-		regions := make(map[string]any, len(records))
-		for region, record := range records {
-			regions[region] = record
-		}
-		result = map[string]any{"schema": "terrascale.oci.image-import-set.v1", "qcow2_sha256": o.SHA256, "display_name": o.DisplayName, "regions": regions}
-	}
-	b, err := json.Marshal(result, json.Deterministic(true))
+	final := result()
+	b, err := json.Marshal(final, json.Deterministic(true))
 	if err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(o.Out, append(b, '\n'), 0644); err != nil {
-		return nil, err
+		return final, errors.Join(errors.Join(errs...), errors.Join(checkpoints...), err)
 	}
 	_, err = fmt.Fprintln(out, string(b))
-	return result, err
+	return final, errors.Join(errors.Join(errs...), errors.Join(checkpoints...), err)
+}
+
+func writeImportCheckpoint(path string, record map[string]any) error {
+	b, err := json.Marshal(record, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), ".image-import-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(append(b, '\n')); err == nil {
+		err = f.Sync()
+	}
+	if err == nil {
+		err = f.Chmod(0644)
+	}
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(f.Name(), path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 // Import imports into this importer's single region.
