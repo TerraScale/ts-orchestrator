@@ -51,7 +51,7 @@ func newControllerRecipientFixture(t *testing.T) *controllerRecipientFixture {
 
 func newControllerRecipientFixtureWithSetup(t *testing.T, setup func(*founderSignerFixture)) *controllerRecipientFixture {
 	t.Helper()
-	founder, caller, objects, _ := newFounderRuntimeFixtureWithReservation(t,
+	founder, caller, objects, cloud := newFounderRuntimeFixtureWithReservation(t,
 		func(f *founderSignerFixture) {
 			founderFixtureWithAdmissibleRelease(t, f)
 			if setup != nil {
@@ -98,7 +98,9 @@ func newControllerRecipientFixtureWithSetup(t *testing.T, setup func(*founderSig
 	caller.openLedger = func(context.Context, CurrentFounderAuthority, trust.Keyring) (*bootstrap.Ledger, error) {
 		return ledger, nil
 	}
+	caller.now = time.Now
 	for _, row := range founder.plan.Peers {
+		cloud.now = time.Now().UTC().Truncate(time.Second)
 		if err := caller.runPeer(t.Context(), row.Slot); err != nil {
 			t.Fatal(err)
 		}
@@ -129,6 +131,17 @@ func newControllerRecipientFixtureWithSetup(t *testing.T, setup func(*founderSig
 	gate, _, _ := newFounderPeerGateForInstance(t, founder, &founderAdmissionLedger{ledger: ledger},
 		row, f.states[row.Slot].Result.InstanceOCID)
 	gate.Instances = f.sources.observer
+	gate.Now = time.Now
+	gate.InitialPeerFloor = func(ctx context.Context, marker AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
+		reader, err := NewCurrentFounderAuthorityReader(founder.baked, marker, &storage, founder.peerFloor)
+		if err != nil {
+			return err
+		}
+		uid, gid := testFounderServiceIdentity()
+		continuation := FounderPeerContinuation{reader: reader, floor: founder.peerFloor,
+			serviceUID: uid, serviceGID: gid, now: time.Now}
+		return continuation.Initialize(ctx, marker, state, now)
+	}
 	marker, err := gate.AdmitInitial(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -147,6 +160,7 @@ func newControllerRecipientFixtureWithSetup(t *testing.T, setup func(*founderSig
 func (f *controllerRecipientFixture) completeSeed(t *testing.T) {
 	t.Helper()
 	founder, ledger := f.founder, f.sources.ledger
+	now := time.Now().UTC().Truncate(time.Second)
 	slot := founder.plan.SeedSlot
 	envelope, err := trust.DecodeEnvelope(founder.manifests[slot])
 	if err != nil {
@@ -156,7 +170,7 @@ func (f *controllerRecipientFixture) completeSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := bootstrap.VerifyManifest(envelope, founder.baked.Roots, expected, founder.now, bootstrap.ManifestTrustPolicy())
+	manifest, err := bootstrap.VerifyManifest(envelope, founder.baked.Roots, expected, now, bootstrap.ManifestTrustPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +181,7 @@ func (f *controllerRecipientFixture) completeSeed(t *testing.T) {
 	reservation, err := BuildExternalSeedReservation(ExternalSeedReservationRequest{
 		Identity: founder.baked.Identity, Anchor: founder.current.Anchor, Manifest: manifest,
 		ReviewedPlanSHA256: digestWire(founder.planWire), CreateIdentity: "recipient-seed-create",
-		LedgerPrivate: founder.ledgerKey, Now: founder.now, ExpiresAt: founder.now.Add(time.Hour)})
+		LedgerPrivate: founder.ledgerKey, Now: now, ExpiresAt: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +205,8 @@ func (f *controllerRecipientFixture) completeSeed(t *testing.T) {
 	}
 	completion, err := BuildExternalSeedCompletion(ExternalSeedCompletionRequest{Identity: founder.baked.Identity,
 		Anchor: founder.current.Anchor, Manifest: manifest, Roots: founder.baked.Roots, State: state,
-		Observation: observed, ObservedAt: founder.now, ExpectedPrivateIP: founder.plan.SeedPrivateIP,
-		RootPrivate: founder.root, LedgerPrivate: founder.ledgerKey, Now: founder.now, ExpiresAt: founder.now.Add(time.Hour)})
+		Observation: observed, ObservedAt: now, ExpectedPrivateIP: founder.plan.SeedPrivateIP,
+		RootPrivate: founder.root, LedgerPrivate: founder.ledgerKey, Now: now, ExpiresAt: now.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
