@@ -115,6 +115,9 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil || verified.Claim().Image != claim.Image || verified.Fingerprint() == "" {
 		t.Fatalf("qualified child image admission: %+v %v", verified, err)
 	}
+	if !verified.Valid(now) || !verified.ExpiresAt().Equal(now.Add(time.Minute)) || verified.Valid(now.Add(time.Minute)) || (VerifiedContainer{}).Valid(now) {
+		t.Fatal("cached container proof escaped its admitted operation deadline")
+	}
 	renewed := claim
 	qualificationEnvelope, err = trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now.Add(-time.Second), now.Add(time.Hour), root)
 	if err != nil {
