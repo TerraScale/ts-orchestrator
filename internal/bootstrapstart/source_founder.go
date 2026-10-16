@@ -2,6 +2,7 @@ package bootstrapstart
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json/v2"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/common"
 )
 
 var ErrSourceFounder = errors.New("bootstrap source founder is not currently authorized")
@@ -107,6 +109,9 @@ func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObserva
 	if err != nil || !instanceIDRE.MatchString(instance) || proof.instance != "" && instance != proof.instance {
 		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
 	}
+	if err := proof.verifyPrincipal(instance); err != nil {
+		return InstanceObservation{}, err
+	}
 	descriptor, err := proof.imds.FetchDescriptor(ctx)
 	if err != nil || descriptor.SchemaVersion != 1 || descriptor.Slot != proof.SeedSlot() {
 		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
@@ -146,4 +151,37 @@ func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObserva
 		return observed, nil
 	}
 	return InstanceObservation{}, fmt.Errorf("%w: signed seed profile is absent", ErrSourceFounder)
+}
+
+func (proof VerifiedSourceFounder) verifyPrincipal(instance string) error {
+	provider := proof.factory.Provider()
+	// The SDK reports an unsupported-method error with its valid auth kind.
+	kind, _ := provider.AuthType()
+	if kind.AuthType != common.InstancePrincipal {
+		return ErrSourceFounder
+	}
+	key, err := provider.KeyID()
+	if err != nil || len(key) > 64<<10 || !strings.HasPrefix(key, "ST$") {
+		return ErrSourceFounder
+	}
+	parts := strings.Split(strings.TrimPrefix(key, "ST$"), ".")
+	if len(parts) != 3 {
+		return ErrSourceFounder
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ErrSourceFounder
+	}
+	var claims struct {
+		Subject  string `json:"sub"`
+		Instance string `json:"opc-instance"`
+		Type     string `json:"ptype"`
+		Tenancy  string `json:"tenant"`
+		Expiry   int64  `json:"exp"`
+	}
+	// OCI authenticates this same SDK token on the independent observation.
+	if json.Unmarshal(payload, &claims) != nil || claims.Subject != instance || claims.Instance != instance || claims.Type != "instance" || claims.Tenancy != proof.tenancy || time.Now().Unix() >= claims.Expiry {
+		return ErrSourceFounder
+	}
+	return nil
 }
