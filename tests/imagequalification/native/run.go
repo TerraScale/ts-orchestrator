@@ -6,11 +6,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"io"
-	"net"
-	"net/http"
 	"net/netip"
-	"os"
 	"regexp"
 	"strings"
 	"sync"
@@ -39,14 +35,6 @@ func Run(ctx context.Context, req Request) (Report, error) {
 	if err := validate(req); err != nil {
 		return report, err
 	}
-	signer, err := readPrivateKey(req.PrivateKeyPath)
-	if err != nil {
-		return report, err
-	}
-	worker, err := os.ReadFile(req.WorkerPath)
-	if err != nil {
-		return report, err
-	}
 	archiveHash, err := fileDigest(req.WorkloadArchivePath)
 	if err != nil {
 		return report, err
@@ -54,10 +42,7 @@ func Run(ctx context.Context, req Request) (Report, error) {
 	if archiveHash != req.WorkloadArchiveSHA256 {
 		return report, errors.New("workload archive digest mismatch")
 	}
-	if digest(worker) != req.WorkerSHA256 {
-		return report, errors.New("local native worker digest mismatch")
-	}
-	return run(ctx, req, report, func(ctx context.Context, h Host) (peer, error) { return connect(ctx, req, h, worker, signer) })
+	return run(ctx, req, report, func(ctx context.Context, h Host) (peer, error) { return connect(ctx, req, h) })
 }
 
 func validate(req Request) error {
@@ -606,30 +591,6 @@ func wait(ctx context.Context, condition func() (bool, error)) error {
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-}
-
-func probeHTTP(ctx context.Context, url string, dial func(context.Context, string, string) (net.Conn, error)) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	client := &http.Client{Transport: &http.Transport{Proxy: nil, DisableKeepAlives: true, DialContext: dial}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	defer client.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	response, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, 33))
-	if err != nil {
-		return err
-	}
-	if response.StatusCode != http.StatusOK || string(body) != "ready" {
-		return fmt.Errorf("native HTTP continuity: status=%d body=%q", response.StatusCode, body)
-	}
-	return nil
 }
 
 func continuous(ctx context.Context, probe func(context.Context) error, action func() error, record func(error)) error {
