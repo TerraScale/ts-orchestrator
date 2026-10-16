@@ -19,6 +19,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 
+	"github.com/TerraScale/ts-orchestrator/internal/commandio"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
@@ -163,7 +164,9 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 		sequence   uint64
 	}
 	credentials := sync.OnceValues(func() (signingInputs, error) {
-		delegation, err := bundleDelegation(c.ctx, *delegationPath, *delegationSecret, *vaultID, env)
+		signerCtx, cancel := context.WithTimeout(c.ctx, rollout.QualificationBudget)
+		defer cancel()
+		delegation, err := bundleDelegation(signerCtx, *delegationPath, *delegationSecret, *vaultID, env)
 		if err != nil {
 			return signingInputs{}, err
 		}
@@ -175,7 +178,7 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 			private, err = readDelegatedPrivateKey(*keyPath)
 		} else {
 			var data []byte
-			data, err = env.secret(c.ctx, *vaultID, *keySecret)
+			data, err = env.secret(signerCtx, *vaultID, *keySecret)
 			if err == nil {
 				private, err = parseDelegatedPrivateKey(data)
 			}
@@ -189,10 +192,10 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 			return signingInputs{}, err
 		}
 		location := release.SequenceLocation{Client: client, Namespace: migration.Namespace, Bucket: migration.Bucket}
-		if err := location.ImportMigration(c.ctx, migrationEnvelope, roots, "orchestrator", *environment, time.Now().UTC()); err != nil {
+		if err := location.ImportMigration(signerCtx, migrationEnvelope, roots, "orchestrator", *environment, time.Now().UTC()); err != nil {
 			return signingInputs{}, err
 		}
-		sequence, err := location.Allocate(c.ctx, release.SequenceIdentity{Role: "orchestrator", Environment: *environment,
+		sequence, err := location.Allocate(signerCtx, release.SequenceIdentity{Role: "orchestrator", Environment: *environment,
 			SourceRevision: *revision, ManifestSHA256: digest}, roots, private)
 		return signingInputs{delegation, wire, sequence}, err
 	})
@@ -201,10 +204,18 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 	failures := make([]error, len(cells))
 	completed := make([]bool, len(cells))
 	var snapshot sync.Mutex
+	budget := rollout.ObservationBudget
+	if env.timeout > 0 {
+		budget = min(budget, env.timeout)
+	}
 	var regions errgroup.Group
 	regions.SetLimit(4)
 	for index, cell := range cells {
 		regions.Go(func() error {
+			ctx, cancel := context.WithTimeout(c.ctx, budget)
+			defer cancel()
+			regional := c
+			regional.ctx = ctx
 			produce := func() error {
 				targetArchitectures := []string(architectures)
 				if len(targetArchitectures) == 0 {
@@ -212,7 +223,7 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 					if err != nil {
 						return err
 					}
-					scope, err := deploymentScope(c.ctx, location, cell)
+					scope, err := deploymentScope(ctx, location, cell)
 					if err != nil {
 						return err
 					}
@@ -231,13 +242,13 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 				}
 				// Snapshot only authenticated evidence, then admit the exact retained copy.
 				snapshot.Lock()
-				err := c.snapshotBundleProduction(*evidenceDir, filepath.Join(stage, "production"), roots, cell, *environment, targetBinaries)
+				err := regional.snapshotBundleProduction(*evidenceDir, filepath.Join(stage, "production"), roots, cell, *environment, targetBinaries)
 				snapshot.Unlock()
 				if err != nil {
 					return err
 				}
 				deadline := time.Now().UTC().Add(rollout.ObservationBudget)
-				if err := c.verifyProductionArtifacts(filepath.Join(stage, "production"), roots, cell, *environment, targetBinaries, deadline); err != nil {
+				if err := regional.verifyProductionArtifacts(filepath.Join(stage, "production"), roots, cell, *environment, targetBinaries, deadline); err != nil {
 					return err
 				}
 				inputs, err := credentials()
@@ -279,7 +290,7 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 				if err := os.Mkdir(filepath.Join(stage, cell), 0o700); err != nil {
 					return err
 				}
-				if err := c.writeNew(filepath.Join(stage, cell, "channel.json"), wire, 0o600); err != nil {
+				if err := regional.writeNew(filepath.Join(stage, cell, "channel.json"), wire, 0o600); err != nil {
 					return err
 				}
 				completed[index] = true
@@ -341,7 +352,7 @@ func (c command) copyBundleArtifact(source, destination, digest string, size, ma
 	}
 	defer output.Close()
 	hash := sha256.New()
-	count, err := io.Copy(io.MultiWriter(output, hash), io.LimitReader(input, size+1))
+	count, err := io.Copy(io.MultiWriter(output, hash), commandio.Reader(c.ctx, io.LimitReader(input, size+1)))
 	if err != nil {
 		return err
 	}
@@ -351,7 +362,10 @@ func (c command) copyBundleArtifact(source, destination, digest string, size, ma
 	if err := c.ctx.Err(); err != nil {
 		return err
 	}
-	return output.Sync()
+	if err := output.Sync(); err != nil {
+		return err
+	}
+	return output.Close()
 }
 
 func (c command) snapshotBundleProduction(source, destination string, roots trust.Keyring, cell, environment string, binaries map[string]binaryReceipt) error {
