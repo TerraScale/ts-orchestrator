@@ -216,6 +216,8 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 		first := hosts[0].(map[string]any)
 		first["ocpus"], first["memory_gb"], first["boot_gb"] = host.OCPUs, host.MemoryGB, host.BootGB
 		plan["hosts"] = []any{first}
+		ids["instances"] = map[string]any{"controller-a": nil}
+		ids["boot_volumes"] = map[string]any{"controller-a": nil}
 		plan["budget"].(map[string]any)["currency"] = input.Currency
 		plan["budget"].(map[string]any)["monthly_limit"] = float64(input.MonthlyLimitMinor) / 100
 		regional := FoundationIntent{Generation: 1, Plan: plan, BootstrapMaterial: &material}
@@ -334,8 +336,16 @@ func preparationResource(plan map[string]any, cell, key string) (string, error) 
 }
 
 func validatePreparationImage(image releasechannel.CurrentImage, cell string) error {
+	envelope, err := trust.DecodeEnvelope(image.ReceiptWire)
+	if err != nil {
+		return err
+	}
+	fingerprint, err := trust.Fingerprint(envelope)
+	if err != nil {
+		return err
+	}
 	if !image.Image.IsVerified() || !time.Now().Before(image.ExpiresAt) || image.ExpiresAt.After(image.Image.ExpiresAt()) || image.Image.Receipt().OCIRegion != cell || image.Image.Receipt().Architecture != "arm64" ||
-		image.Image.EnvelopeSHA256() != preparationDigest(image.ReceiptWire) || len(image.DelegationWire) == 0 {
+		image.Image.EnvelopeSHA256() != fingerprint || len(image.DelegationWire) == 0 {
 		return errors.New("foundation image source is absent, expired or differs from its exact verified regional ARM receipt")
 	}
 	return nil
