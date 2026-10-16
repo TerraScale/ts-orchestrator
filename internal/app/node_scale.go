@@ -7,13 +7,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/moby/swarmkit/v2/api"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
@@ -25,17 +25,18 @@ const allowanceTimeout = 5 * time.Second
 // nodeScaling is what the node scaler runs on: the cell's pool and the host,
 // load and global state it reads, and the leader it acts under.
 type nodeScaling struct {
-	cell     string
-	js       jetstream.JetStream
-	replicas int
-	ready    func() bool
-	pool     *nodescale.OCIPool
-	factory  *ociclient.Factory
-	hosts    *host.Controller
-	load     *hostTelemetry
-	global   *globalControl
-	fencer   authority.Fencer
-	fences   *releaseFence
+	cell      string
+	js        jetstream.JetStream
+	replicas  int
+	ready     func() bool
+	pool      *nodescale.OCIPool
+	factory   *ociclient.Factory
+	control   api.ControlClient
+	canRetire func(context.Context, string, string) error
+	load      *hostTelemetry
+	global    *globalControl
+	fencer    authority.Fencer
+	fences    *releaseFence
 	// enrollment revokes a removed node's grant; nil when the region admits no pool nodes.
 	enrollment *managedHostEnrollment
 	// scaler publishes the running scaler to the release fence's spec.
@@ -54,14 +55,28 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	if err != nil {
 		return nil, err
 	}
+	pool, err := nodescale.NewChosenPool(in.pool, store)
+	if err != nil {
+		return nil, err
+	}
 	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
 		return nodeRecipe(ctx, in.factory, in.cell)
 	}
-	scaler := &nodescale.Scaler{Cell: in.cell, Pool: in.pool, Hosts: in.hosts, Store: store, Leader: in.fencer,
+	pricedRecipe := func(ctx context.Context) (nodescale.Recipe, error) {
+		record, _, err := store.Load(ctx)
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		if record.Recipe != nil {
+			return *record.Recipe, nil
+		}
+		return recipe(ctx)
+	}
+	scaler := &nodescale.Scaler{Cell: in.cell, Pool: pool, Control: in.control, CanRetire: in.canRetire, Store: store, Leader: in.fencer,
 		Now:    time.Now,
 		Recipe: recipe,
-		Cost:   in.costViews.nodeCost(recipe, time.Now),
+		Cost:   in.costViews.nodeCost(pricedRecipe, time.Now),
 		Loads:  func() []nodescale.NodeLoad { return nodeLoads(in.load) },
 		Allowance: func(now time.Time) (int, bool) {
 			return allowance(in.global, in.cell, now)

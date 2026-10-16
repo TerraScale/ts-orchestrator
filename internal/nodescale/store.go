@@ -28,6 +28,7 @@ type Record struct {
 	LastChange time.Time `json:"last_change,omitzero"`
 	Action     *InFlight `json:"action,omitempty"` // the action in flight, nil when idle
 	From       int       `json:"from,omitzero"`    // pool size before a scale-up
+	Recipe     *Recipe   `json:"recipe,omitempty"` // chosen launch identity; persisted before OCI mutations
 	Status     Status    `json:"status"`           // last published status
 }
 

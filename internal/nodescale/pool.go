@@ -60,7 +60,10 @@ func (r Recipe) Validate() error {
 
 // Digest is the first 12 hex characters of a SHA-256 over the canonical recipe and the launch constants.
 // NSG order does not matter; availability domain order does, because it is the placement order.
-func (r Recipe) Digest() string { return r.digest(r.Capacity.Shape, BootVolumeGB) }
+func (r Recipe) Digest() string { return r.SHA256()[:12] }
+
+// SHA256 binds durable choices and spending reservations to the full recipe.
+func (r Recipe) SHA256() string { return r.digest(r.Capacity.Shape, BootVolumeGB) }
 
 // digest hashes the recipe as launched with the given shape and boot volume size.
 func (r Recipe) digest(shape string, bootVolumeGB int) string {
@@ -93,7 +96,7 @@ func (r Recipe) digest(shape string, bootVolumeGB int) string {
 	}
 	encoded, _ := json.Marshal(canonical, json.Deterministic(true)) // strings, ints and slices only: cannot fail
 	digest := sha256.Sum256(encoded)
-	return hex.EncodeToString(digest[:])[:12]
+	return hex.EncodeToString(digest[:])
 }
 
 // PoolName separates pools by isolation role, native architecture and OCI shape.
