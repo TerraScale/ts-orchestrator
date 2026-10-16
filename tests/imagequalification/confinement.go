@@ -10,6 +10,7 @@ import (
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/imageimport"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 )
@@ -83,9 +84,11 @@ func newConfinedCloud(ctx context.Context, p Prepared, verified confinement.Veri
 			}
 			return verified.Revalidate(request.Context(), p.confinementScope(j))
 		}
+		ociclient.ConfigureRequestCancellation(base)
 	}
 	guard(&c.compute.BaseClient)
 	guard(&c.objects.BaseClient)
+	guard(&c.network.BaseClient)
 	work, err := verified.Factory().WorkRequests()
 	if err != nil {
 		return nil, err

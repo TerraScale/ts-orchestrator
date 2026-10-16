@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
 // HostObservation comes from authenticated Compute/VNIC observations before SSH.
@@ -27,24 +27,24 @@ type hostObservation struct {
 }
 
 type gateRecord struct {
-	Schema             string              `json:"schema"`
-	ApprovalEnvelope   jsontext.Value      `json:"approval_envelope"`
-	ApprovalDelegation jsontext.Value      `json:"approval_delegation,omitempty"`
-	ApprovalSHA256     string              `json:"approval_sha256"`
-	ConfinementSHA256  string              `json:"confinement_sha256"`
-	Confinement        jsontext.Value      `json:"confinement"`
-	Approval           Approval            `json:"approval"`
-	ImageID            string              `json:"image_id"`
-	Hosts              []native.HostReport `json:"hosts"`
-	CloudHosts         []hostObservation   `json:"cloud_hosts"`
-	Scenarios          []native.Scenario   `json:"scenarios"`
-	Resources          journal             `json:"resources"`
-	CompletedAt        time.Time           `json:"completed_at"`
+	Schema             string            `json:"schema"`
+	ApprovalEnvelope   jsontext.Value    `json:"approval_envelope"`
+	ApprovalDelegation jsontext.Value    `json:"approval_delegation,omitempty"`
+	ApprovalSHA256     string            `json:"approval_sha256"`
+	ConfinementSHA256  string            `json:"confinement_sha256"`
+	Confinement        jsontext.Value    `json:"confinement"`
+	Approval           Approval          `json:"approval"`
+	ImageID            string            `json:"image_id"`
+	Hosts              []host.HostReport `json:"hosts"`
+	CloudHosts         []hostObservation `json:"cloud_hosts"`
+	Scenarios          []host.Scenario   `json:"scenarios"`
+	Resources          journal           `json:"resources"`
+	CompletedAt        time.Time         `json:"completed_at"`
 }
 
 // retainProof writes an unsigned payload for an independent existing qualifier.
 // No report, file or SDK observation grants production signing authority.
-func retainProof(p Prepared, report native.Report, resources journal, hosts []hostObservation, confinement []byte, directory string, now time.Time) (release.ProductionQualification, error) {
+func retainProof(p Prepared, report host.Report, resources journal, hosts []hostObservation, confinement []byte, directory string, now time.Time) (release.ProductionQualification, error) {
 	var result release.ProductionQualification
 	if hashBytes(p.approvalWire) != p.approvalSHA256 || !jsontext.Value(p.approvalWire).IsValid() {
 		return result, errors.New("sealed signed approval bytes are absent or changed")
@@ -107,7 +107,7 @@ func retainBytes(path string, wire []byte) error {
 	return errors.Join(err, file.Close())
 }
 
-func validateReport(p Prepared, r native.Report, j journal, cloudHosts []hostObservation, now time.Time) error {
+func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObservation, now time.Time) error {
 	a := p.approval
 	if a.Candidate.Role != "orchestrator" || a.Candidate.Runtime != release.ProductionRuntime || r.RunID != a.RunID || r.Candidate != a.Candidate || r.ImageOCID == "" || r.ImageOCID != j.ImageID || r.WorkloadImage != a.WorkloadImage || r.WorkloadArchiveSHA256 != a.WorkloadArchiveSHA256 {
 		return errors.New("native report candidate or immutable artifacts differ")
@@ -153,7 +153,7 @@ func validateReport(p Prepared, r native.Report, j journal, cloudHosts []hostObs
 		seen[scenario.Name] = true
 	}
 	for operation := range j.Intents {
-		if operation == "image" && j.ImageID == "" || operation != "image" && j.Hosts[operation] == "" {
+		if !j.resolved(operation) {
 			return errors.New("unresolved create intent cannot produce qualification")
 		}
 	}

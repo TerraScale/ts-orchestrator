@@ -33,20 +33,25 @@ type cloud struct {
 	prepared Prepared
 	compute  core.ComputeClient
 	objects  objectstorage.ObjectStorageClient
+	network  core.VirtualNetworkClient
 	uploader imageimport.ObjectUploader
 	now      func() time.Time
 }
 
 type journal struct {
-	RunID          string               `json:"run_id"`
-	ApprovalSHA256 string               `json:"approval_sha256"`
-	Object         string               `json:"object"`
-	ImageID        string               `json:"image_id"`
-	Hosts          map[string]string    `json:"hosts"`
-	Terminated     map[string]bool      `json:"terminated"`
-	ImageDeleted   bool                 `json:"image_deleted"`
-	ObjectDeleted  bool                 `json:"object_deleted"`
-	Intents        map[string]time.Time `json:"intents"`
+	RunID            string               `json:"run_id"`
+	ApprovalSHA256   string               `json:"approval_sha256"`
+	Object           string               `json:"object"`
+	ImageID          string               `json:"image_id"`
+	Hosts            map[string]string    `json:"hosts"`
+	Terminated       map[string]bool      `json:"terminated"`
+	ImageDeleted     bool                 `json:"image_deleted"`
+	ObjectDeleted    bool                 `json:"object_deleted"`
+	ConsoleHistories map[string]string    `json:"console_histories"`
+	ConsoleDeleted   map[string]bool      `json:"console_deleted"`
+	HostKeys         map[string]string    `json:"host_keys"`
+	ConsoleDigests   map[string]string    `json:"console_digests"`
+	Intents          map[string]time.Time `json:"intents"`
 }
 
 func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*cloud, error) {
@@ -76,13 +81,23 @@ func newCloud(prepared Prepared, factory *ociclient.Factory, endpoint string) (*
 	if err != nil {
 		return nil, err
 	}
-	uploader, err := imageimport.NewClient(factory, endpoint)
+	network, err := factory.Network()
 	if err != nil {
 		return nil, err
 	}
+	work, err := factory.WorkRequests()
+	if err != nil {
+		return nil, err
+	}
+	ociclient.PinHost(&work.BaseClient, endpoint)
+	ociclient.ConfigureRequestCancellation(&work.BaseClient)
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
-	return &cloud{prepared: prepared, compute: compute, objects: objects, uploader: uploader, now: time.Now}, nil
+	ociclient.PinHost(&network.BaseClient, endpoint)
+	ociclient.ConfigureRequestCancellation(&compute.BaseClient)
+	ociclient.ConfigureRequestCancellation(&objects.BaseClient)
+	ociclient.ConfigureRequestCancellation(&network.BaseClient)
+	return &cloud{prepared: prepared, compute: compute, objects: objects, network: network, uploader: imageimport.NewClientFromSDK(compute, objects, work), now: time.Now}, nil
 }
 
 func (c *cloud) check(ctx context.Context, cleanup bool) error {
@@ -120,8 +135,9 @@ func (c *cloud) name(host string) string {
 func (c *cloud) load(path string) (journal, error) {
 	a := c.prepared.approval
 	j := journal{RunID: a.RunID, ApprovalSHA256: c.prepared.approvalSHA256,
-		Object: "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2",
-		Hosts:  map[string]string{}, Terminated: map[string]bool{}, Intents: map[string]time.Time{}}
+		Object:           "qualification/" + a.RunID + "/" + a.Candidate.ArtifactSHA256 + ".qcow2",
+		ConsoleHistories: map[string]string{}, ConsoleDeleted: map[string]bool{}, HostKeys: map[string]string{}, ConsoleDigests: map[string]string{},
+		Hosts: map[string]string{}, Terminated: map[string]bool{}, Intents: map[string]time.Time{}}
 	wire, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return j, nil
@@ -146,6 +162,18 @@ func (c *cloud) load(path string) (journal, error) {
 		if !found {
 			return j, errors.New("cleanup journal contains an unapproved host")
 		}
+	}
+	if restored.ConsoleHistories == nil {
+		restored.ConsoleHistories = map[string]string{}
+	}
+	if restored.ConsoleDeleted == nil {
+		restored.ConsoleDeleted = map[string]bool{}
+	}
+	if restored.HostKeys == nil {
+		restored.HostKeys = map[string]string{}
+	}
+	if restored.ConsoleDigests == nil {
+		restored.ConsoleDigests = map[string]string{}
 	}
 	return restored, nil
 }
@@ -247,7 +275,7 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 		if err := c.intent(path, &j, "image"); err != nil {
 			return j, err
 		}
-		response, err := c.compute.CreateImage(ctx, core.CreateImageRequest{CreateImageDetails: core.CreateImageDetails{
+		response, err := c.compute.CreateImage(ociclient.RequestContext(ctx), core.CreateImageRequest{CreateImageDetails: core.CreateImageDetails{
 			CompartmentId: new(a.Compartment), DisplayName: new(c.name("image")), FreeformTags: c.tags(),
 			LaunchMode: core.CreateImageDetailsLaunchModeParavirtualized,
 			ImageSourceDetails: core.ImageSourceViaObjectStorageTupleDetails{NamespaceName: new(a.Namespace), BucketName: new(a.Bucket),
@@ -277,7 +305,7 @@ func (c *cloud) prepareResources(ctx context.Context, path, publicKey string) (j
 		if err := c.intent(path, &j, host.Name); err != nil {
 			return j, err
 		}
-		response, err := c.compute.LaunchInstance(ctx, core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
+		response, err := c.compute.LaunchInstance(ociclient.RequestContext(ctx), core.LaunchInstanceRequest{LaunchInstanceDetails: core.LaunchInstanceDetails{
 			AvailabilityDomain: new(host.AvailabilityDomain), FaultDomain: new(host.FaultDomain), CompartmentId: new(a.Compartment),
 			DisplayName: new(c.name(host.Name)), Shape: new(host.Shape), FreeformTags: c.tags(),
 			ShapeConfig:       &core.LaunchInstanceShapeConfigDetails{Ocpus: new(host.OCPUs), MemoryInGBs: new(host.MemoryGB)},
@@ -318,9 +346,11 @@ if [ -n "$units" ]; then systemctl stop $units; fi`
 
 func (c *cloud) launchMetadata(publicKey string) (map[string]string, error) {
 	script := isolatedBoot + "\nprintf '%s\\n' '" + c.prepared.approval.RunID + "' > /run/ts-native-disposable\nchmod 600 /run/ts-native-disposable\n"
+	marker := fmt.Sprintf(`ssh-keygen -A; printf 'TSQUAL_HOSTKEY %%s %%s\n' '%s' "$(awk '{print $1 " " $2}' /etc/ssh/ssh_host_ed25519_key.pub)" > /dev/console`, c.prepared.approval.RunID)
 	config := map[string]any{"disable_root": false, "ssh_pwauth": false,
 		"users":       []any{"default", map[string]any{"name": "root", "ssh_authorized_keys": []string{publicKey}}},
 		"bootcmd":     [][]string{{"sh", "-eu", "-c", script}},
+		"runcmd":      [][]string{{"sh", "-eu", "-c", marker}},
 		"write_files": []map[string]string{{"path": "/etc/ssh/sshd_config.d/00-ts-qualification.conf", "permissions": "0600", "content": "PermitRootLogin prohibit-password\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n"}}}
 	wire, err := json.Marshal(config, json.Deterministic(true))
 	if err != nil {
@@ -330,7 +360,7 @@ func (c *cloud) launchMetadata(publicKey string) (map[string]string, error) {
 }
 
 func (c *cloud) image(ctx context.Context, id string) (core.Image, error) {
-	r, err := c.compute.GetImage(ctx, core.GetImageRequest{ImageId: new(id)})
+	r, err := c.compute.GetImage(ociclient.RequestContext(ctx), core.GetImageRequest{ImageId: new(id)})
 	if err != nil {
 		return core.Image{}, err
 	}
@@ -380,9 +410,12 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 	a := c.prepared.approval
 	unresolved := false
 	for operation := range j.Intents {
-		if operation == "image" && j.ImageID == "" || operation != "image" && j.Hosts[operation] == "" {
+		if !j.resolved(operation) {
 			unresolved = true
 		}
+	}
+	if err := c.cleanupConsole(ctx, path, &j); err != nil {
+		return err
 	}
 	var pending []HostSpec
 	for _, host := range a.Hosts {
@@ -390,7 +423,7 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 		if id == "" || j.Terminated[host.Name] {
 			continue
 		}
-		response, err := c.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(id)})
+		response, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(id)})
 		if err != nil && !isNotFound(err) {
 			return err
 		}
@@ -403,7 +436,7 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 				if err := c.check(ctx, true); err != nil {
 					return err
 				}
-				_, err = c.compute.TerminateInstance(ctx, core.TerminateInstanceRequest{InstanceId: new(id), PreserveBootVolume: new(false)})
+				_, err = c.compute.TerminateInstance(ociclient.RequestContext(ctx), core.TerminateInstanceRequest{InstanceId: new(id), PreserveBootVolume: new(false)})
 				if err != nil && !isNotFound(err) {
 					return err
 				}
@@ -422,7 +455,7 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 		}
 		var next []HostSpec
 		for _, host := range pending {
-			r, err := c.compute.GetInstance(ctx, core.GetInstanceRequest{InstanceId: new(j.Hosts[host.Name])})
+			r, err := c.compute.GetInstance(ociclient.RequestContext(ctx), core.GetInstanceRequest{InstanceId: new(j.Hosts[host.Name])})
 			if err != nil && !isNotFound(err) {
 				return err
 			}
@@ -456,7 +489,7 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 			if err := c.check(ctx, true); err != nil {
 				return err
 			}
-			if _, err := c.compute.DeleteImage(ctx, core.DeleteImageRequest{ImageId: new(j.ImageID)}); err != nil && !isNotFound(err) {
+			if _, err := c.compute.DeleteImage(ociclient.RequestContext(ctx), core.DeleteImageRequest{ImageId: new(j.ImageID)}); err != nil && !isNotFound(err) {
 				return err
 			}
 			for {
