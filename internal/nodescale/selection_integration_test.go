@@ -34,6 +34,7 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 		a1Exhausted              bool
 		quotaExhausted           bool
 		unknownPrice             bool
+		insufficientSpend        bool
 		unknownSpend             bool
 		unsupportedReport        bool
 		wrongReportConfig        bool
@@ -47,6 +48,7 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 		{name: "quota exhaustion is pending", quotaExhausted: true, pending: "effective limit/quota"},
 		{name: "expired authority is pending", expiredFacts: true, pending: "expired or have unknown validity"},
 		{name: "unknown price is pending", unknownPrice: true, pending: "price is unknown"},
+		{name: "spending ceiling is enforced", insufficientSpend: true, pending: "exceeds authorized headroom"},
 		{name: "unknown spending authority is pending", unknownSpend: true, pending: "spending headroom is unknown"},
 		{name: "unsupported report is pending", unsupportedReport: true, pending: "capacity report unavailable"},
 		{name: "capacity for another configuration is pending", wrongReportConfig: true, pending: "no current host capacity"},
@@ -161,6 +163,9 @@ func TestCapacityDiscoveryOCIProtocol(t *testing.T) {
 					{SKU: "B97384", PerUnit: 0.01}, {SKU: "B97385", PerUnit: 0.001}, {SKU: "B91961", PerUnit: 0.025}, {SKU: "B91962", PerUnit: 0.0015}}}
 			if scenario.expiredFacts {
 				request.FactsExpireAt = time.Now().Add(-time.Second)
+			}
+			if scenario.insufficientSpend {
+				request.MonthlyHeadroomCents = new(uint64(1))
 			}
 			if scenario.unknownSpend {
 				request.MonthlyHeadroomCents = nil
