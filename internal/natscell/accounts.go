@@ -28,6 +28,8 @@ type accountResolver struct {
 	contract    *InterRegionContract
 	interregion string
 	links       int
+	// linkCell pins the simplified link boundary across cell claim updates.
+	linkCell string
 }
 
 // admitInterRegion is called once during server option construction, before
@@ -62,6 +64,12 @@ func (r *accountResolver) Store(name, raw string) error {
 		return errors.New("replacement broker account JWT is invalid")
 	}
 	r.mu.Lock()
+	if r.linkCell != "" {
+		if err := verifyLinkAccount(claim, r.linkCell); err != nil {
+			r.mu.Unlock()
+			return fmt.Errorf("replacement cell account JWT widens the link contract: %w", err)
+		}
+	}
 	if r.contract != nil {
 		system, systemErr := jwt.DecodeAccountClaims(r.claims[r.system])
 		interregion, interregionErr := jwt.DecodeAccountClaims(r.claims[r.interregion])
