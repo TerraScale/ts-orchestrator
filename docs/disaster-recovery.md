@@ -199,9 +199,10 @@ restore, or a health check is not a full-cell drill.
 3. Compare restored data at the selected point through SDKs against the
    retained source checksums. Verify all expected identities, ts-auth token
    issuance and sfo's serving endpoints. Stop the RTO timer only then.
-4. Persist the report in TerraBase and post its record ID and measured
-   numbers on Ku TS-641. RTO is admission-to-verified-serving duration. RPO
-   is the gap between the last acknowledged source write at the simulated
+4. Persist the report in TerraBase and retain its record ID and measured
+   numbers in the repository's recovery evidence. RTO is
+   admission-to-verified-serving duration. RPO is the gap between the last
+   acknowledged source write at the simulated
    loss boundary and the last recovered write; report actual missing
    writes separately. Never label OCI policy lag as measured data RPO.
 5. Restore sfo's prior state and verify serving. Once this passes, schedule
@@ -210,7 +211,7 @@ restore, or a health check is not a full-cell drill.
    path on failure, missing result, checksum mismatch or missed schedule.
 
 No live full-cell drill has run, and no measured full-cell RTO/RPO exists.
-Record the first result here and on TS-641 before claiming this outcome.
+Record the first result here with its retained report before claiming this outcome.
 
 The [2026-10-07 live preparation record](evidence/ts-641-replication-20261007.md)
 tracks the scoped IAM changes, retained backup mirror/seed and policy IDs,

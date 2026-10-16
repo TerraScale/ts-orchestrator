@@ -128,7 +128,7 @@ Before live rollout, verify GRU2 recovery and its drain quorum, an
 independent SSH path for every target, and authenticated peer/service/NATS
 mesh health. The managed reconciler must retain its fail-closed preflight.
 After an authorized rollout actually completes, append each node's observed
-after version, checks and rollback outcome here and to Ku TS-674. No
+after version, checks and rollback outcome in this retained record. No
 `0.80.0` live-upgrade acceptance is claimed by this record.
 
 ## Read-only refresh, 22:08–22:09 UTC

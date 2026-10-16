@@ -24,6 +24,7 @@ runtime, measured savings, production readiness, or deployment authorization.
 | First regional milestone | A small, working GRU / San Francisco Bay Area / FRA deployment, communicating through orchestrator-managed NetBird. |
 | NetBird control plane | One dedicated A1 Flex VM in GRU, owned and recovered by `ts-orch`. |
 | Human and AI interface | `ts-orch` is the complete cluster CLI for operators and AI agents; CLI and dashboard share authenticated cluster APIs and operation semantics. |
+| Operational dependencies | No KU service, CLI, API, credential, task state or reporting requirement. Cluster operation and release admission use orchestrator state and retained evidence. |
 | Dashboard and visibility | Extend the existing Go `templ` + Datastar + Apache ECharts dashboard, embedded in the binary, with one stylesheet and complete metric discovery, history and cluster drilldowns. |
 | Build and deployment boundary | GitHub-hosted Actions is the current build producer. Deployment consumes signed, digest-addressed artifacts through the orchestrator and object storage; it requires no particular source repository or live CI API. No Forgejo server, runner, token, CLI, or package-fetch requirement. |
 
@@ -105,6 +106,21 @@ migration. Missing historical service repositories block those old qualification
 and E2E inputs; they are not prerequisites of applying already admitted releases.
 Never replace signature verification with a webhook shared secret or a successful
 CI status, and never relabel historical provider evidence.
+
+### Remove KU from the operational contract
+
+KU is not a prerequisite for building, testing, qualifying, provisioning,
+joining, deploying, observing or recovering the cluster. Do not query a KU task
+or require a KU comment/status to authorize or complete an operation. Record
+operation results through `ts-orch`, signed release evidence and the repository's
+runbooks/evidence; GitHub issues/PRs may reference them without becoming runtime
+dependencies. Preserve the actual safety, authorization and health gates.
+
+The repository inventory found KU references in documentation, not a Go module,
+runtime, build or CI integration. Remove active KU links/reporting instructions.
+Historical evidence and exact external host/bridge names remain audit facts and
+network exclusions, not services to deploy or resources to adopt. No KU server,
+network or unrelated workload is changed or deleted by this cleanup.
 
 ## One cluster CLI and complete dashboard visibility (user decision)
 

@@ -111,9 +111,10 @@ identity before any operation. Fifteen additional Tailscale clients are visible
 but were not OS-audited; three were offline. Manager inventories cannot prove
 their LANs, routes, DNS or installed software.
 
-The audit table is posted on Ku TS-675 (comment
-`1219f465-ad8b-425c-a0f6-46292064ce36`). Audit documents retain their original
-timestamps; later DNS/deployment changes need a new check result.
+The audit table is retained in the linked repository evidence above. Audit
+documents retain their original timestamps; later DNS/deployment changes need
+a new check result. Historical external host/bridge names are inventory and
+collision exclusions, not cluster dependencies or workloads to deploy.
 
 ## Config validation and coexistence check
 

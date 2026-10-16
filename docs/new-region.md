@@ -100,7 +100,7 @@ in both regions' signed controller configs (TS-643).
 
 ## Wall time
 
-sfo-1 by hand, 2026-10-07, from the TS-640 and TS-662 Ku timestamps:
+sfo-1 by hand, 2026-10-07, from the retained TS-640 and TS-662 timestamps:
 
 | Phase | From | To | Wall time |
 | --- | --- | --- | --- |

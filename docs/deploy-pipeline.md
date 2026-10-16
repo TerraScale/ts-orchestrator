@@ -1,6 +1,7 @@
 # ts-orchestrator deployment pipeline
 
-Part of [TS-768](https://ku.mariogk.com/terrascale/issue/TS-768).
+Deployment provenance is retained in the repository and signed release artifacts;
+no external issue tracker is required. See [release boundaries](releases.md).
 
 ## Green main to every server
 
