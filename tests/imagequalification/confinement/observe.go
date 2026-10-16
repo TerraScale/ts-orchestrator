@@ -155,6 +155,9 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	ociclient.PinHost(&network.BaseClient, endpoint)
 	ociclient.PinHost(&compute.BaseClient, endpoint)
 	ociclient.PinHost(&objects.BaseClient, endpoint)
+	for _, client := range []*common.BaseClient{&iam.BaseClient, &network.BaseClient, &compute.BaseClient, &objects.BaseClient} {
+		ociclient.ConfigureRequestCancellation(client)
+	}
 	tenancy, err := iam.GetTenancy(ociclient.RequestContext(ctx), identity.GetTenancyRequest{TenancyId: new(s.Tenancy)})
 	if err != nil {
 		return fail(err)

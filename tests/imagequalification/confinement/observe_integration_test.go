@@ -56,11 +56,6 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 			var drift atomic.Bool
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
-				if mode == "cancel-read" {
-					cancel()
-					<-r.Context().Done()
-					return
-				}
 				if r.Method != http.MethodGet {
 					writes.Add(1)
 					http.Error(w, "read-only observer", http.StatusForbidden)
@@ -68,6 +63,11 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 				}
 				if !validSignature(r, &key.PublicKey, s.Tenancy+"/") {
 					http.Error(w, "invalid SDK signature", http.StatusUnauthorized)
+					return
+				}
+				if mode == "cancel-read" {
+					cancel()
+					<-r.Context().Done()
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
