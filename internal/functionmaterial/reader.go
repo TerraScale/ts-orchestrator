@@ -64,8 +64,11 @@ func (reader Reader) CurrentFunction(ctx context.Context, tenant, function strin
 // Current reads only the exact grant of this independently admitted recipient.
 // The caller's task fields select records; the durable grant supplies authority.
 func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDelivery, error) {
-	if reader.Authority == nil || reader.Bundles == nil || reader.Recipient != (Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}) {
+	if reader.Authority == nil || reader.Bundles == nil || reader.AuthorizeRecipient == nil || reader.Recipient != (Recipient{NodeID: binding.NodeID, InstanceID: binding.InstanceID, Region: binding.Region, HostID: binding.HostID}) {
 		return VerifiedDelivery{}, ErrMaterial
+	}
+	if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
+		return VerifiedDelivery{}, err
 	}
 	entry, err := reader.Authority.ReadFunctionGrant(ctx, binding.TaskID)
 	if err != nil {
@@ -121,6 +124,9 @@ func (reader Reader) Current(ctx context.Context, binding Binding) (VerifiedDeli
 	after, err := reader.currentAccount(ctx, proof)
 	if err != nil || after.Sequence != account.Sequence || after.Hash != account.Hash {
 		return VerifiedDelivery{}, ErrMaterial
+	}
+	if err := reader.AuthorizeRecipient(ctx, binding); err != nil {
+		return VerifiedDelivery{}, err
 	}
 	return VerifiedDelivery{binding: binding, function: proof, minimum: proof.Claim().Sequence, expires: expires, files: files}, nil
 }
