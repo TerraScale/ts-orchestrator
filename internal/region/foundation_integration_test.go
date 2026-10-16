@@ -192,6 +192,39 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	if _, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU"); err == nil {
 		t.Fatal("foundation-only scope authorized root generation")
 	}
+	if _, err := reader.InfrastructureSpend(t.Context()); err == nil {
+		t.Fatal("foundation-only scope authorized fleet growth")
+	}
+	ownedCompartments := grant.Regions[0].Plan["resource_ids"].(map[string]any)
+	ownedCompartments["network_compartment"] = "ocid1.compartment.oc1..network"
+	ownedCompartments["workload_compartment"] = "ocid1.compartment.oc1..workload"
+	spendDigest, err := FoundationInfrastructureScopeDigest(grant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant.InfrastructureSpend = &InfrastructureSpendIntent{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: spendDigest}
+	publish(scope, now.Add(time.Hour))
+	spend, err := reader.InfrastructureSpend(t.Context())
+	if err != nil || !spend.ValidAt(now) || spend.ScopeDigest() != spendDigest || spend.MonthlyLimitMinor() != 9000 || spend.GrantDigest() != reader.home.GrantSHA256 || len(spend.Footprint().Regions[0].CompartmentIDs) != 5 {
+		t.Fatalf("spend=%+v err=%v", spend, err)
+	}
+	copyScope := spend.Footprint()
+	copyScope.Regions[0].CompartmentIDs[0] = "foreign"
+	if spend.Footprint().Regions[0].CompartmentIDs[0] == "foreign" {
+		t.Fatal("fleet spend getter leaked mutable scope")
+	}
+	for _, wrong := range []InfrastructureSpendIntent{
+		{BudgetID: entityid.New(), Currency: "BRL", MonthlyLimitMinor: 9000, ScopeSHA256: spendDigest},
+		{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 11000, ScopeSHA256: spendDigest},
+		{BudgetID: entityid.New(), Currency: "USD", MonthlyLimitMinor: 9000, ScopeSHA256: strings.Repeat("0", 64)},
+	} {
+		grant.InfrastructureSpend = &wrong
+		publish(scope, now.Add(time.Hour))
+		if _, err := reader.InfrastructureSpend(t.Context()); err == nil {
+			t.Fatal("unbound or excessive fleet authority admitted")
+		}
+	}
+	grant.InfrastructureSpend = nil
 	grant.Regions[0].BootstrapMaterial = material
 	publish(scope, now.Add(time.Hour))
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
