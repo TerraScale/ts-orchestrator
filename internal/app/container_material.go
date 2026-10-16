@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +13,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
@@ -44,22 +41,6 @@ type containerMaterialRecipient struct {
 	Expected     swarmruntime.ServiceIntent
 	SpecRevision uint64
 	proof        containermaterial.Profile
-}
-
-type containerSecretVersion struct {
-	ID        string    `json:"id"`
-	Version   int64     `json:"version"`
-	ExpiresAt time.Time `json:"expires_at,omitzero"`
-}
-
-// This service-owned Raft config records only credential versions and the
-// upstream ForceUpdate generation; secret values never enter manager state.
-type containerSecretSnapshot struct {
-	OperationID  string                            `json:"operation_id"`
-	ServiceID    string                            `json:"service_id"`
-	ConfigDigest string                            `json:"config_digest"`
-	Generation   uint64                            `json:"generation"`
-	Versions     map[string]containerSecretVersion `json:"versions"`
 }
 
 func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
@@ -190,7 +171,7 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 		return result, nil
 	}
 	for key := range recipient.Profile.Secrets {
-		if !vaultsecret.FileKey(key) {
+		if !vaultsecret.FileKey(key) || len(key) > 128 || key != strings.ToUpper(key) || key[0] < 'A' || key[0] > 'Z' {
 			return result, fmt.Errorf("%w: service requires supported signed _FILE secret keys", containermaterial.ErrPending)
 		}
 	}
@@ -199,7 +180,7 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 		return result, fmt.Errorf("%w: OCI Vault secret observation unavailable", containermaterial.ErrPending)
 	}
 	snapshot := containerSnapshot(recipient, values)
-	if err := controller.syncSnapshot(ctx, recipient, snapshot); err != nil {
+	if err := syncContainerSnapshot(ctx, controller.config.Client, controller.config.Authority, recipient.Service, snapshot); err != nil {
 		return result, err
 	}
 	for key, value := range values {
@@ -217,7 +198,7 @@ func (controller *containerMaterialController) material(ctx context.Context, reg
 	if err != nil || confirmed.SpecRevision != recipient.SpecRevision {
 		return result, containermaterial.ErrPending
 	}
-	if err := controller.checkSnapshot(ctx, snapshot); err != nil {
+	if err := checkContainerSnapshot(ctx, controller.config.Client, snapshot); err != nil {
 		return result, err
 	}
 	return result, nil
@@ -229,137 +210,6 @@ func containerSnapshot(recipient containerMaterialRecipient, values map[string]v
 		versions[key] = containerSecretVersion{ID: value.ID, Version: value.Version, ExpiresAt: value.ExpiresAt}
 	}
 	return containerSecretSnapshot{OperationID: recipient.Intent.OperationID, ServiceID: recipient.Service.ID, ConfigDigest: recipient.Intent.ConfigDigest, Generation: recipient.Service.Spec.Task.ForceUpdate, Versions: versions}
-}
-
-func containerSnapshotName(serviceID string) string {
-	digest := sha256.Sum256([]byte(serviceID))
-	return "ts-container-material-" + hex.EncodeToString(digest[:16])
-}
-
-func (controller *containerMaterialController) snapshotConfig(ctx context.Context, serviceID string) (*api.Config, error) {
-	name := containerSnapshotName(serviceID)
-	listed, err := controller.config.Client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
-	if err != nil {
-		return nil, err
-	}
-	if len(listed.Configs) == 0 {
-		return nil, nil
-	}
-	if len(listed.Configs) != 1 || listed.Configs[0] == nil || listed.Configs[0].Spec.Annotations.Name != name {
-		return nil, containermaterial.ErrPending
-	}
-	return listed.Configs[0], nil
-}
-
-func (controller *containerMaterialController) checkSnapshot(ctx context.Context, wanted containerSecretSnapshot) error {
-	config, err := controller.snapshotConfig(ctx, wanted.ServiceID)
-	if err != nil {
-		return err
-	}
-	if config == nil {
-		return containermaterial.ErrPending
-	}
-	wire, err := protocol.EncodeJSON(wanted)
-	if err != nil {
-		return err
-	}
-	if string(config.Spec.Data) != string(wire) {
-		return containermaterial.ErrPending
-	}
-	return nil
-}
-
-// syncSnapshot writes version metadata before advancing the upstream counter.
-// A lost response resumes from that config; there is no parallel task lifecycle.
-func (controller *containerMaterialController) syncSnapshot(ctx context.Context, recipient containerMaterialRecipient, next containerSecretSnapshot) error {
-	config, err := controller.snapshotConfig(ctx, next.ServiceID)
-	if err != nil {
-		return err
-	}
-	epoch := controller.config.Authority.Current().Epoch
-	if config == nil {
-		wire, err := protocol.EncodeJSON(next)
-		if err != nil {
-			return err
-		}
-		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
-			return err
-		}
-		_, err = controller.config.Client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: containerSnapshotName(next.ServiceID)}, Data: wire}})
-		return err
-	}
-	var previous containerSecretSnapshot
-	if err := protocol.DecodeStrict(config.Spec.Data, &previous, 32<<10); err != nil {
-		return err
-	}
-	if previous.ServiceID != next.ServiceID {
-		return containermaterial.ErrPending
-	}
-	changed := previous.ConfigDigest != next.ConfigDigest
-	newOperation := previous.OperationID != next.OperationID
-	for key, value := range next.Versions {
-		old, exists := previous.Versions[key]
-		if exists && old.ID == value.ID && value.Version < old.Version {
-			return containermaterial.ErrPending
-		}
-		if !exists || old != value {
-			changed = true
-		}
-	}
-	if len(previous.Versions) != len(next.Versions) {
-		changed = true
-	}
-	if newOperation {
-		wire, err := protocol.EncodeJSON(next)
-		if err != nil {
-			return err
-		}
-		spec := config.Spec.Copy()
-		spec.Data = wire
-		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
-			return err
-		}
-		_, err = controller.config.Client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.ID, ConfigVersion: &config.Meta.Version, Spec: spec})
-		return err
-	}
-	if previous.Generation > next.Generation {
-		if previous.Generation != next.Generation+1 || changed {
-			return containermaterial.ErrPending
-		}
-		next = previous
-	} else if changed {
-		if previous.Generation != next.Generation || next.Generation == ^uint64(0) {
-			return containermaterial.ErrPending
-		}
-		next.Generation++
-		wire, err := protocol.EncodeJSON(next)
-		if err != nil {
-			return err
-		}
-		spec := config.Spec.Copy()
-		spec.Data = wire
-		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
-			return err
-		}
-		if _, err := controller.config.Client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.ID, ConfigVersion: &config.Meta.Version, Spec: spec}); err != nil {
-			return err
-		}
-	} else if previous.Generation != next.Generation {
-		return containermaterial.ErrPending
-	}
-	if next.Generation == recipient.Service.Spec.Task.ForceUpdate {
-		return nil
-	}
-	service := recipient.Service
-	spec := service.Spec.Copy()
-	spec.Task.ForceUpdate = next.Generation
-	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
-		return err
-	}
-	if _, err := controller.config.Client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &service.Meta.Version, Spec: spec}); err != nil {
-		return err
-	}
-	return fmt.Errorf("%w: OCI Vault versions replaced upstream task generation", containermaterial.ErrPending)
 }
 
 func (controller *containerMaterialController) run(ctx context.Context) error {
