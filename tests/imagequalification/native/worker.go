@@ -114,7 +114,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 			return response{}, err
 		}
 		w.root = root
-		w.cfg = swarmruntime.NodeConfig{StateDir: filepath.Join(root, "node"), ListenAddress: "0.0.0.0:" + managerPort, AdvertiseAddress: c.Host.Address + ":" + managerPort, Admission: swarmruntime.Admission{Region: c.Region, HostID: "native-" + c.RunID + "-" + strings.ReplaceAll(c.Host.Address, ".", "-"), InstanceID: c.Host.OCID, Role: "manager"}}
+		w.cfg = swarmruntime.NodeConfig{StateDir: filepath.Join(root, "node"), ListenAddress: "0.0.0.0:" + managerPort, AdvertiseAddress: c.Host.Address + ":" + managerPort, Admission: swarmruntime.Admission{Region: c.Region, HostID: "native-" + c.RunID + "-" + strings.ReplaceAll(c.Host.Address, ".", "-"), InstanceID: c.Host.OCID, Role: c.Mode}}
 		w.executor, err = swarmruntime.NewExecutor(runtimeSocket, root)
 		if err != nil {
 			return response{}, err
@@ -124,7 +124,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 			return response{}, err
 		}
 		w.services = map[string]bool{}
-		return response{Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
+		return response{Role: w.cfg.Admission.Role, Identity: identity, WorkerSHA256: workerHash, WorkerSourceRevision: source}, nil
 	}
 	if w.root == "" {
 		return response{}, errors.New("identity must be verified before runtime operations")
@@ -243,11 +243,12 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		if len(clusters.Clusters) != 1 {
 			return response{}, errors.New("expected one regional cluster")
 		}
-		return response{Token: clusters.Clusters[0].RootCA.JoinTokens.Manager}, nil
+		return response{Token: clusters.Clusters[0].RootCA.JoinTokens.Manager, WorkerToken: clusters.Clusters[0].RootCA.JoinTokens.Worker}, nil
 	case "admit":
 		admission := w.cfg.Admission
 		admission.HostID = "native-" + c.RunID + "-" + strings.ReplaceAll(c.Host.Address, ".", "-")
 		admission.InstanceID = c.Host.OCID
+		admission.Role = c.Mode
 		_, err := swarmruntime.AdmitNode(ctx, client, c.NodeID, admission)
 		return response{}, err
 	case "cluster":

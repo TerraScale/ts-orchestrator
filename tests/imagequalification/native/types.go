@@ -49,6 +49,7 @@ type Request struct {
 }
 
 type HostReport struct {
+	Role                 string   `json:"role"`
 	WorkerSourceRevision string   `json:"worker_source_revision"`
 	OCID                 string   `json:"ocid"`
 	Address              string   `json:"address"`
@@ -109,6 +110,8 @@ type taskState struct {
 }
 
 type response struct {
+	Role                 string      `json:"role,omitempty"`
+	WorkerToken          string      `json:"worker_token,omitempty"`
 	WorkerSHA256         string      `json:"worker_sha256,omitempty"`
 	WorkerSourceRevision string      `json:"worker_source_revision,omitempty"`
 	Error                string      `json:"error,omitempty"`

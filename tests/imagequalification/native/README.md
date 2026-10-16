@@ -1,6 +1,6 @@
 This directory is **test infrastructure**, not an admission authority or a live
-execution authorization. `Run` requires three to five different disposable OCI
-Compute instances, one exact imported image, private IPv4 addresses, trusted SSH
+execution authorization. `Run` requires four different disposable OCI
+Compute instances (three managers and a separate container agent), one exact imported image, private IPv4 addresses, trusted SSH
 host-key pins, and an owner-only ephemeral SSH key. The parent must authenticate
 actual OCI confinement and host ownership before calling it. A `/run` marker is
 an additional accident guard, not cloud authorization.
@@ -16,7 +16,7 @@ are installed. The launch bootstrap must create `/run/ts-native-disposable` with
 the exact run ID. All test state lives under `/run/ts-native-<run-id>`.
 
 The scenarios use real CORE managers/agents and containerd tasks on distinct
-hosts, real HTTP, actual iptables manager-port partitions, durable node restart,
+hosts, real HTTP, actual iptables manager-IP-only partitions that preserve the separate worker Dispatcher connection, durable node restart,
 cross-host container identity/PID checks, real readiness failure and upstream
 rollback. Evidence includes exact component and IMDS instance/boot-image identity,
 per-scenario transcripts and hashes. The parent independently maps the observed
@@ -24,7 +24,7 @@ image ID to its QCOW2 digest and retains CI/source qualification and policy proo
 Join tokens and SSH private keys are excluded from reports.
 
 Required scenario names are `manager-loss`, `manager-partition`, `agent-restart`
-(`runtime-ha`) and `readiness-rejection`, `rollback`, `container-isolation`
+(`runtime-ha`), `unavailable-agent-replacement` (also `runtime-ha`), and `readiness-rejection`, `rollback`, `container-isolation`
 (`workload-safety`). Formation and cleanup have their own additional transcripts.
 `container-isolation` measures the actual platform container process contract:
 non-root identity, readonly root filesystem, no privileges/capabilities and

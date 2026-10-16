@@ -63,8 +63,8 @@ func validate(req Request) error {
 	if err := validateRunID(req.RunID); err != nil {
 		return err
 	}
-	if len(req.Hosts) < 3 || len(req.Hosts) > 5 {
-		return errors.New("native qualification requires 3..5 distinct Compute hosts")
+	if len(req.Hosts) != 4 {
+		return errors.New("native qualification requires three managers and one separate agent on four distinct Compute hosts")
 	}
 	c := req.Candidate
 	if !release.ValidSourceRevision(c.SourceRevision) || !shaPattern.MatchString(c.ArtifactSHA256) || !shaPattern.MatchString(c.QualificationSHA256) || !release.ValidRegion(c.Cell) || !release.ValidEnvironment(c.Environment) || c.Runtime != release.ProductionRuntime || c.Role == "" {
@@ -112,6 +112,7 @@ type recorder struct {
 
 func (r *recorder) event(host string, c command, result response, err error) {
 	c.Token = ""
+	result.WorkerToken = ""
 	result.Token = ""
 	event := struct {
 		At      time.Time `json:"at"`
@@ -212,22 +213,26 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	}()
 	start := time.Now().UTC()
 	for i, h := range req.Hosts {
+		role := "manager"
+		if i == 3 {
+			role = "container"
+		}
 		p, err := dial(ctx, h)
 		if err != nil {
 			return report, err
 		}
 		sessions[i] = session{host: h, peer: p}
-		observed, err := call(ctx, i, command{Operation: "identity", SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, Region: catalog.OCIRegion(req.Candidate.Cell), ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
+		observed, err := call(ctx, i, command{Operation: "identity", Mode: role, SourceRevision: req.Candidate.SourceRevision, RunID: req.RunID, Host: h, Region: catalog.OCIRegion(req.Candidate.Cell), ContainerdPath: req.ContainerdPath, RuncPath: req.RuncPath})
 		if err != nil {
 			return report, err
 		}
 		if _, err := call(ctx, i, command{Operation: "import", Image: req.WorkloadImage, ArchiveSHA256: req.WorkloadArchiveSHA256}); err != nil {
 			return report, err
 		}
-		if observed.Identity != h.ExpectedIdentity || observed.WorkerSHA256 != req.WorkerSHA256 || observed.WorkerSourceRevision != req.Candidate.SourceRevision {
+		if observed.Role != role || observed.Identity != h.ExpectedIdentity || observed.WorkerSHA256 != req.WorkerSHA256 || observed.WorkerSourceRevision != req.Candidate.SourceRevision {
 			return report, errors.New("observed native identity mismatch")
 		}
-		report.Hosts = append(report.Hosts, HostReport{OCID: h.OCID, Address: h.Address, Observed: observed.Identity, WorkerSHA256: observed.WorkerSHA256, WorkerSourceRevision: observed.WorkerSourceRevision})
+		report.Hosts = append(report.Hosts, HostReport{Role: observed.Role, OCID: h.OCID, Address: h.Address, Observed: observed.Identity, WorkerSHA256: observed.WorkerSHA256, WorkerSourceRevision: observed.WorkerSourceRevision})
 	}
 	first, err := call(ctx, 0, command{Operation: "start"})
 	if err != nil {
@@ -240,8 +245,14 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	}
 	founder := "native-" + req.RunID + "-" + strings.ReplaceAll(req.Hosts[0].Address, ".", "-")
 	for i := range sessions {
+		role := "manager"
+		token := material.Token
+		if i == 3 {
+			role = "container"
+			token = material.WorkerToken
+		}
 		if i != 0 {
-			joined, err := call(ctx, i, command{Operation: "start", Founder: founder, JoinAddress: req.Hosts[0].Address + ":" + managerPort, Token: material.Token})
+			joined, err := call(ctx, i, command{Operation: "start", Founder: founder, JoinAddress: req.Hosts[0].Address + ":" + managerPort, Token: token})
 			if err != nil {
 				return report, err
 			}
@@ -250,7 +261,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		if sessions[i].node == "" {
 			return report, errors.New("native manager omitted certificate identity")
 		}
-		if _, err := call(ctx, 0, command{Operation: "admit", RunID: req.RunID, Host: req.Hosts[i], NodeID: sessions[i].node}); err != nil {
+		if _, err := call(ctx, 0, command{Operation: "admit", Mode: role, RunID: req.RunID, Host: req.Hosts[i], NodeID: sessions[i].node}); err != nil {
 			return report, err
 		}
 		report.Hosts[i].NodeID = sessions[i].node
@@ -259,7 +270,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	if err := wait(ctx, func() (bool, error) {
 		state, err := call(ctx, 0, command{Operation: "cluster"})
 		leader = state.Leader
-		return state.Managers == len(sessions) && leader != "", err
+		return state.Managers == 3 && leader != "", err
 	}); err != nil {
 		return report, err
 	}
@@ -276,8 +287,10 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	if leaderIndex < 0 {
 		return report, errors.New("leader absent from native inventory")
 	}
-	if _, err := call(ctx, 0, command{Operation: "pause", NodeID: leader}); err != nil {
-		return report, err
+	for i := range 3 {
+		if _, err := call(ctx, 0, command{Operation: "pause", NodeID: sessions[i].node}); err != nil {
+			return report, err
+		}
 	}
 	addresses := map[string]string{}
 	for _, s := range sessions {
@@ -387,7 +400,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	if err := wait(ctx, func() (bool, error) {
 		r, err := call(ctx, survivor, command{Operation: "cluster"})
 		leader = r.Leader
-		return r.Managers == len(sessions) && leader != "", err
+		return r.Managers == 3 && leader != "", err
 	}); err != nil {
 		return report, err
 	}
@@ -404,7 +417,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	}
 	var peers []string
 	for i, h := range req.Hosts {
-		if i != partitioned {
+		if i < 3 && i != partitioned {
 			peers = append(peers, h.Address)
 		}
 	}
@@ -430,7 +443,7 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 		}
 		return wait(ctx, func() (bool, error) {
 			r, err := call(ctx, survivor, command{Operation: "cluster"})
-			return r.Managers == len(sessions), err
+			return r.Managers == 3, err
 		})
 	}); err != nil {
 		return report, err
