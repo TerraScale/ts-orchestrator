@@ -1220,6 +1220,10 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 		want = 2
 	case MutationNetBirdState:
 		want = 1
+	case MutationFunctionIntent:
+		want = 2
+	case MutationFunctionGrant:
+		want = 1
 	default:
 		return errors.New("host mutation kind is not allowed")
 	}
@@ -1235,6 +1239,9 @@ func validateMutationKey(kind HostMutationKind, subjectKey string) error {
 }
 
 func mutationSubject(scope string, kind HostMutationKind, subjectKey string) string {
+	if kind == MutationFunctionIntent || kind == MutationFunctionGrant {
+		return fmt.Sprintf("%s.%s.function.%s.%s", controlSubjectRoot, scope, kind, subjectKey)
+	}
 	if kind == MutationNetBirdState {
 		return fmt.Sprintf("%s.%s.netbird.%s", controlSubjectRoot, scope, subjectKey)
 	}
