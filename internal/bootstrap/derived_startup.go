@@ -60,6 +60,20 @@ func (authority DerivedStartupAuthority) GrantWire() []byte    { return authorit
 func (authority DerivedStartupAuthority) MaterialRecord() []byte {
 	return bytes.Clone(authority.binding.MaterialRecord)
 }
+
+// MaterialSHA256 identifies the same checked public inventory on every slot.
+func (authority DerivedStartupAuthority) MaterialSHA256() string {
+	if !authority.IsVerified() {
+		return ""
+	}
+	return digestBytes(authority.binding.MaterialRecord)
+}
+func (authority DerivedStartupAuthority) SourceSHA256() string {
+	if !authority.IsVerified() {
+		return ""
+	}
+	return authority.binding.SourceSHA256
+}
 func (authority DerivedStartupAuthority) TrustedSigners() jsontext.Value {
 	return bytes.Clone(authority.template.template.TrustedSigners)
 }
@@ -105,7 +119,7 @@ func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTe
 	if client == nil || template.VerifyCurrent(now) != nil || !slices.Contains(template.startupIdentity().ControllerSlots, slot) {
 		return DerivedStartupAuthority{}, ErrManifestInvalid
 	}
-	domain := template.startupIdentity().StorageDomain
+	domain := template.startupSourceDomain()
 	key := startupSourceKey(template)
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(key)})
 	if err != nil {
@@ -128,7 +142,12 @@ func LoadDerivedStartupAuthority(ctx context.Context, template VerifiedStartupTe
 func startupSourceKey(template VerifiedStartupTemplate) string {
 	anchor := template.startupIdentity()
 	scopeHash := digestBytes([]byte(template.InstallationID() + "\x00" + strings.ToLower(string(anchor.Cell))))
-	return anchor.StorageDomain.Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
+	return template.startupSourceDomain().Prefix + "/bootstrap/v2/material-source/" + scopeHash + ".json"
+}
+
+func (template VerifiedStartupTemplate) startupSourceDomain() StorageDomain {
+	home, _ := template.anchor.FoundationScope()
+	return home.StorageDomain
 }
 
 // VerifyDerivedStartupAuthority derives the object locator from signed identity;
@@ -189,7 +208,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if _, err := trust.VerifyCurrent(envelope, DerivedStartupScope(manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil || envelope.IssuedAt.Before(template.IssuedAt()) || envelope.IssuedAt.Before(record.IssuedAt) || envelope.ExpiresAt.After(template.ExpiresAt()) || envelope.ExpiresAt.After(record.ExpiresAt) {
 		return deny("source signature")
 	}
-	domain := anchor.StorageDomain
+	domain := template.startupSourceDomain()
 	key := startupSourceKey(template)
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(key)})
 	if err != nil {
@@ -369,7 +388,20 @@ func (authority DerivedStartupAuthority) OpenLedger(ctx context.Context, roots t
 	if err != nil {
 		return nil, err
 	}
-	return NewLedger(authority.client, config)
+	return NewInstancePrincipalLedger(config.Cell, config)
+}
+
+// OpenLedgerWithClient keeps regional ledger traffic separate from the home
+// source-CAS reader. Production passes the founder's guarded regional factory.
+func (authority DerivedStartupAuthority) OpenLedgerWithClient(ctx context.Context, roots trust.Keyring, client ObjectStorageClient) (*Ledger, error) {
+	if err := authority.VerifyCurrent(ctx, time.Now()); err != nil {
+		return nil, err
+	}
+	config, err := authority.LedgerConfig(roots)
+	if err != nil {
+		return nil, err
+	}
+	return NewLedger(client, config)
 }
 
 func (authority DerivedStartupAuthority) VerifyLedgerKey(key ed25519.PublicKey) error {

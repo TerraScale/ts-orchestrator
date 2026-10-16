@@ -475,7 +475,9 @@ func (secret SecretReference) validate(manifest Manifest) error {
 	}
 	hostIssuerFiles := []string{"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
 		"terrabase-member-ca.pem", "terrabase-member-ca.key"}
+	controllerIssuerFiles := []string{"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed"}
 	if slices.Contains(hostIssuerFiles, secret.TargetFile) && secret.Purpose != SecretHostIssuer ||
+		slices.Contains(controllerIssuerFiles, secret.TargetFile) && secret.Purpose != SecretControllerIssuer ||
 		slices.Contains([]string{"issuer-operator.seed", "issuer-system.seed", "issuer-cell.seed", "issuer-ca.key",
 			"operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem"}, secret.TargetFile) {
 		return fmt.Errorf("%w: offline or issuer material has the wrong publication role", ErrManifestInvalid)
@@ -488,6 +490,10 @@ func (secret SecretReference) validate(manifest Manifest) error {
 	case SecretHostIssuer:
 		if secret.Slot != "" || !slices.Contains(hostIssuerFiles, secret.TargetFile) {
 			return fmt.Errorf("%w: host issuer secret must name one exact regional issuer", ErrManifestInvalid)
+		}
+	case SecretControllerIssuer:
+		if secret.Slot != "" || !slices.Contains(controllerIssuerFiles, secret.TargetFile) {
+			return fmt.Errorf("%w: controller issuer secret must name one exact regional issuer", ErrManifestInvalid)
 		}
 	case SecretSeedFounder:
 		if secret.Slot != manifest.SeedSlot {
