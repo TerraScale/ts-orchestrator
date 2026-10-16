@@ -44,6 +44,21 @@ func TestContainerdStatefulMissingAdmissionDeniesAllClaims(t *testing.T) {
 	if err := executor.BindStateful(nil); !errors.Is(err, execution.ErrUnsafe) {
 		t.Fatalf("nil source: %v", err)
 	}
+	if err := executor.BindStateful(new(execution.Source)); err != nil {
+		t.Fatal(err)
+	}
+	denied, err := executor.Controller(task)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, effect := range map[string]func(context.Context) error{
+		"prepare": denied.Prepare, "start": denied.Start, "shutdown": denied.Shutdown,
+		"terminate": denied.Terminate, "remove": denied.Remove,
+	} {
+		if err := effect(ctx); !errors.Is(err, execution.ErrUnsafe) {
+			t.Fatalf("uninitialized source %s: %v", name, err)
+		}
+	}
 	containers, err := executor.client.Containers(runtimeContext(ctx), "id==ts-"+task.ID)
 	if err != nil || len(containers) != 0 {
 		t.Fatalf("denied task mutated actual runtime: containers=%d err=%v", len(containers), err)
