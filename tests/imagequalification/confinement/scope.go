@@ -109,7 +109,7 @@ func clone(s Scope) Scope {
 func immutableScope(s Scope) Scope { s.ExistingHosts = nil; return s }
 
 func hash(value any) string {
-	wire, _ := json.Marshal(value)
+	wire, _ := json.Marshal(value, json.Deterministic(true))
 	digest := sha256.Sum256(wire)
 	return hex.EncodeToString(digest[:])
 }

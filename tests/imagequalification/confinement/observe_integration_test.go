@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -166,6 +167,11 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 				}
 				if verified.EvidenceSHA256() == "" || verified.Factory() == candidate {
 					t.Fatal("missing observations or mutable original provider retained")
+				}
+				evidence := verified.Evidence()
+				digest := sha256.Sum256(evidence)
+				if len(evidence) == 0 || fmt.Sprintf("%x", digest) != verified.EvidenceSHA256() {
+					t.Fatal("retained observation facts differ from evidence digest")
 				}
 				if err := verified.Revalidate(t.Context(), s); err != nil {
 					t.Fatal(err)

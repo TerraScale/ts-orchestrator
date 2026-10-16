@@ -1,8 +1,10 @@
 package confinement
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
+	"encoding/json/v2"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -24,13 +26,21 @@ type Verified struct {
 	scope               Scope
 	observer, candidate *ociclient.Factory
 	evidence            string
+	evidenceWire        []byte
 	boundary            string
 	endpoint            string
 }
 
-func (v Verified) Scope() Scope                { return clone(v.scope) }
-func (v Verified) EvidenceSHA256() string      { return v.evidence }
+func (v Verified) Scope() Scope           { return clone(v.scope) }
+func (v Verified) EvidenceSHA256() string { return v.evidence }
+
+// Factory is for the host-side harness, which must independently verify its
+// signed finite approval. Never deliver this credential to the candidate VM.
 func (v Verified) Factory() *ociclient.Factory { return v.candidate }
+
+// Evidence retains observed facts without signing keys or instance metadata.
+// It is observation evidence, never execution authorization.
+func (v Verified) Evidence() []byte { return bytes.Clone(v.evidenceWire) }
 
 // Revalidate observes the complete boundary again, including before cleanup.
 // The caller separately enforces the earlier creation deadline in its approval.
@@ -50,6 +60,7 @@ func (v Verified) Revalidate(ctx context.Context, scope Scope) error {
 
 // Observe requires an explicit inventory reader, never ambient operator config.
 // No credential is created, persisted or printed by this observer.
+// Its result proves observations, not a signed approval to execute a run.
 func Observe(ctx context.Context, observer, candidate *ociclient.Factory, scope Scope) (Verified, error) {
 	return observe(ctx, observer, candidate, scope, "", time.Now())
 }
@@ -62,6 +73,8 @@ type facts struct {
 	Principal, Group, Fingerprint, Namespace string
 	Compartments                             []string
 	Policies                                 []policyFact
+	User                                     identity.User
+	Memberships                              []identity.UserGroupMembership
 	Subnet                                   core.Subnet
 	VCN                                      core.Vcn
 	Route                                    core.RouteTable
@@ -171,6 +184,8 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if len(memberships) != 1 || text(memberships[0].UserId) != s.Principal || text(memberships[0].GroupId) != s.Group || memberships[0].LifecycleState != identity.UserGroupMembershipLifecycleStateActive {
 		return fail(errors.New("candidate memberships are not exactly the approved disposable group"))
 	}
+	f.User = identity.User{Id: user.Id, CompartmentId: user.CompartmentId, Name: user.Name, LifecycleState: user.LifecycleState}
+	f.Memberships = memberships
 	dynamic, err := pages(func(page *string) ([]identity.DynamicGroup, *string, error) {
 		r, e := iam.ListDynamicGroups(ctx, identity.ListDynamicGroupsRequest{CompartmentId: new(s.Tenancy), Page: page})
 		return r.Items, r.OpcNextPage, e
@@ -245,7 +260,17 @@ func observe(ctx context.Context, observer, candidate *ociclient.Factory, s Scop
 	if err := observeHosts(ctx, network, compute, s, &f); err != nil {
 		return fail(err)
 	}
-	return Verified{scope: clone(s), observer: observer, candidate: candidate, evidence: hash(f), boundary: boundary, endpoint: endpoint}, nil
+	evidence := struct {
+		Schema     string
+		ObservedAt time.Time
+		Scope      Scope
+		Facts      facts
+	}{"terrascale.test.oci-confinement.v1", now, clone(s), f}
+	wire, err := json.Marshal(evidence, json.Deterministic(true))
+	if err != nil {
+		return fail(err)
+	}
+	return Verified{scope: clone(s), observer: observer, candidate: candidate, evidence: hash(evidence), evidenceWire: wire, boundary: boundary, endpoint: endpoint}, nil
 }
 
 var unrelatedPolicy = regexp.MustCompile(`^Allow group id (ocid1\.group\.[a-zA-Z0-9.]+) to (inspect|read|use|manage) [a-z-]+ in (tenancy|compartment id ocid1\.compartment\.[a-zA-Z0-9.]+)$`)

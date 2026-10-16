@@ -132,7 +132,7 @@ func observeHosts(ctx context.Context, network core.VirtualNetworkClient, comput
 		if text(instance.Id) != instanceID || text(instance.CompartmentId) != s.Compartment || text(instance.DisplayName) != name || instance.FreeformTags["terrascale-qualification-approval"] != s.ApprovalSHA256 {
 			return errors.New("journal host differs from authenticated OCI instance")
 		}
-		f.Hosts = append(f.Hosts, instance.Instance)
+		f.Hosts = append(f.Hosts, core.Instance{Id: instance.Id, CompartmentId: instance.CompartmentId, DisplayName: instance.DisplayName, Shape: instance.Shape, ShapeConfig: instance.ShapeConfig, ImageId: instance.ImageId, LifecycleState: instance.LifecycleState, AvailabilityDomain: instance.AvailabilityDomain, FaultDomain: instance.FaultDomain})
 		f.VNICs = append(f.VNICs, vnic.Vnic)
 	}
 	return nil
