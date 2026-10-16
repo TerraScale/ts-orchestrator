@@ -28,6 +28,7 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
+	CapacityRequest    CapacityRequest          `json:"capacity_request,omitzero"`
 	VolumeTermination  volumeTermination        `json:"volume_termination,omitzero"`
 	FormatPermit       VolumeFormatPermitRecord `json:"format_permit,omitzero"`
 	MountPermit        VolumeMountPermitRecord  `json:"mount_permit,omitzero"`

@@ -184,6 +184,17 @@ func TestRegionalInventoryAndCurrentTariffsThroughRealProtocols(t *testing.T) {
 				if err := quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50, time.Now()); err != nil {
 					t.Fatal(err)
 				}
+				digest := quote.SHA256()
+				if len(digest) != 64 || (Quote{}).SHA256() != "" {
+					t.Fatalf("quote identity is absent or unminted identity exists: %q", digest)
+				}
+				if quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50, quote.ExpiresAt()) == nil || quote.SHA256() != digest {
+					t.Fatal("expiry renewed or erased the original sealed quote identity")
+				}
+				refreshed, err := reader.Quote(t.Context(), scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 2, 4, 50)
+				if err != nil || refreshed.MonthlyCents() != quote.MonthlyCents() || refreshed.SHA256() == digest {
+					t.Fatalf("fresh equal-cost quote reused original identity: %+v err=%v", refreshed, err)
+				}
 				if quote.Validate(scope, "GRU", "ocid1.compartment.oc1..gru", "VM.Standard.A1.Flex", 20, 40, 500, time.Now()) == nil {
 					t.Fatal("cheap quote admitted a larger candidate")
 				}
