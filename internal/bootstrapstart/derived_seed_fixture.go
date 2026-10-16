@@ -236,7 +236,7 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 	}
 	keys.Close()
 	restarted, err := gate.AdmitRestart(ctx)
-	if err != nil || restarted.ManifestSHA256 != seed.Digest() || restarted.InstanceOCID != accepted.InstanceOCID {
+	if err != nil || restarted.InstanceOCID != accepted.InstanceOCID || restarted.Slot != payload.Slot || restarted.ConfigSHA256[payload.Slot] != payload.ControllerConfigSHA256 {
 		t.Fatalf("accepted derived seed reboot: %v", err)
 	}
 }
