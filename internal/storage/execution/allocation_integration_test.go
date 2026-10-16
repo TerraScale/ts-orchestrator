@@ -80,8 +80,19 @@ func statefulSequenceLocation(t *testing.T) release.SequenceLocation {
 		t.Fatal(err)
 	}
 	client.Host = server.URL
-	client.HTTPClient = server.Client()
+	client.HTTPClient = statefulAllocationHTTPClient{server: server}
 	policy := common.NoRetryPolicy()
 	client.SetCustomClientConfiguration(common.CustomClientConfiguration{RetryPolicy: &policy})
 	return release.SequenceLocation{Client: client, Namespace: "fixture", Bucket: "gru-1-head"}
+}
+
+type statefulAllocationHTTPClient struct{ server *httptest.Server }
+
+func (client statefulAllocationHTTPClient) Do(request *http.Request) (*http.Response, error) {
+	cloned := request.Clone(request.Context())
+	address := *request.URL
+	cloned.URL = &address
+	cloned.URL.Scheme = "http"
+	cloned.URL.Host = strings.TrimPrefix(client.server.URL, "http://")
+	return client.server.Client().Do(cloned)
 }
