@@ -53,10 +53,15 @@ func TestFunctionControllerIngestsSignedChannelIntoDurableIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	signer := newFunctionPublicationSigner(t)
+	roots, err := newRootRegistry(signer.roots, trust.ChainIdentity{DeploymentID: entityid.Derive("deployment", "function-controller-test"),
+		Cell: "gru", Environment: "canary"}, trust.RootChain{Version: 1}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	bucket := newChannelBucket()
 	location := releasechannel.Location{Client: bucket, Namespace: "ns", Bucket: "gru-1-head"}
-	controller := functionController{config: functionControllerConfig{Authority: runtime,
-		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: runtime, Artifacts: artifacts, Roots: func() trust.Keyring { return signer.roots }}},
+	controller := functionController{config: functionControllerConfig{Authority: runtime, Roots: roots,
+		Material: functionmaterial.Controller{Reader: functionmaterial.Reader{Authority: runtime, Artifacts: artifacts, Roots: roots.current}},
 		Channel:  &channelSource{location: &location}, Cell: "gru", Environment: "canary"}}
 	epoch := runtime.Current().Epoch
 	first := signer.proof(t, 42, "first")
