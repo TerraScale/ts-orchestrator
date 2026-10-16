@@ -32,17 +32,14 @@ func (o *OCIPool) poolWireContext(ctx context.Context, recipe Recipe, kind strin
 		if o.Journal == nil {
 			return nil, errors.New("pool wire attempt requires durable journal")
 		}
-		body, ok := request.Body.(io.ReadSeeker)
-		if !ok {
-			return nil, errors.New("pool SDK payload cannot be checked without preserving retry bytes")
+		if request.Body == nil {
+			return nil, errors.New("pool SDK payload is unavailable")
 		}
-		position, err := body.Seek(0, io.SeekCurrent)
-		if err != nil {
-			return nil, err
-		}
+		body := request.Body
 		wire, readErr := io.ReadAll(body)
-		_, seekErr := body.Seek(position, io.SeekStart)
-		if err := errors.Join(readErr, seekErr); err != nil {
+		// The SDK hides seeking after signing; preserve current bytes and its original GetBody.
+		request.Body = io.NopCloser(bytes.NewReader(wire))
+		if err := errors.Join(readErr, body.Close()); err != nil {
 			return nil, err
 		}
 		canonical := request.Clone(request.Context())
