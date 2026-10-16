@@ -21,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/nats-io/nats.go/jetstream"
@@ -104,11 +105,40 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 		registration.Generation != response.RegistrationReceipt.Generation || snapshot.Sequence != response.RegistrationReceipt.Revision || registration.Environment != accepted.Environment {
 		return errors.New("worker query differs from current registered recipient")
 	}
+	managed, err := loadManagedControllerConfig(cfg)
+	if err != nil || managed == nil {
+		return errors.New("worker source requires the current admitted managed controller")
+	}
+	local, err := foundationDiscovery(ctx)
+	if err != nil {
+		return err
+	}
+	members, err := placement.OpenMemberPinReader(ctx, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas)
+	if err != nil {
+		return err
+	}
+	journal, err := oci.OpenJournalReader(ctx, runtime.JetStream(), cfg.NATS.Replicas)
+	if err != nil {
+		return err
+	}
+	services, _, err := runtimeRegistryPolicy(ctx, cfg, runtime.JetStream())
+	if err != nil {
+		return err
+	}
+	fleet, err := oci.NewFleetObserver(managed.region, managed.intent, local.factory, journal,
+		managedImageVerifierFor(cfg.Controller, services.hostImageSnapshot, services.holdLaunch))
+	if err != nil {
+		return err
+	}
+	verifier, err := newManagedRegistrationVerifier(cfg.NATS.Cell, managed.region.Region, managed.region.Owner,
+		managed.region.Generation, mutations, members, fleet)
+	if err != nil {
+		return err
+	}
+	if err := verifier.VerifyManagedRegistration(ctx, registration); err != nil {
+		return err
+	}
 	if query.Swarm != nil {
-		local, err := foundationDiscovery(ctx)
-		if err != nil {
-			return err
-		}
 		initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
 		if err != nil {
 			return err
@@ -166,6 +196,9 @@ func runRuntimeWorkerAdmissionSource(ctx context.Context, args []string, input i
 	confirmed, err := currentWorkerRegistration(ctx, mutations, reader, runtime.JetStream(), query, request.InstanceID, descriptor.Node, cfg.NATS.Cell)
 	if err != nil || confirmed.Sequence != snapshot.Sequence || confirmed.Retired || confirmed.RequestSHA256 != snapshot.RequestSHA256 {
 		return errors.New("worker registration changed during source observation")
+	}
+	if err := verifier.VerifyManagedRegistration(ctx, confirmed.Registration); err != nil {
+		return err
 	}
 	wire, err = protocol.EncodeJSON(snapshot)
 	if err != nil || len(wire) > 128<<10 {

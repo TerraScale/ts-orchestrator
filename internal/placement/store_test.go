@@ -3,6 +3,7 @@ package placement
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -10,10 +11,63 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/nats.go/jetstream"
 )
+
+func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
+	runtime, err := natscell.Start(t.Context(), natscell.Config{Cell: "gru", Instance: "member-reader", Replicas: 1, Lab: true,
+		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "nats")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	js := runtime.JetStream()
+	if _, err := OpenMemberPinReader(t.Context(), js, "gru", 1); err == nil {
+		t.Fatal("member reader opened an absent bucket")
+	}
+	if _, err := js.KeyValue(t.Context(), stateBucketName); err == nil {
+		t.Fatal("member reader created an absent bucket")
+	}
+	kv, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{Bucket: stateBucketName, History: 2,
+		MaxValueSize: maxStateBytes, Storage: jetstream.FileStorage, Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := validMemberStateForPins(t)
+	wire, err := protocol.EncodeJSON(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := kv.Put(t.Context(), memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID), wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := OpenMemberPinReader(t.Context(), js, "gru", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := reader.(Store); ok {
+		t.Fatal("member pin reader exposes placement mutations")
+	}
+	member, err := reader.ReadMember(t.Context(), state.DatabaseID, state.PartitionID, state.MemberID)
+	if err != nil || member.Revision != revision || !reflect.DeepEqual(member.State, state) {
+		t.Fatalf("read existing durable member = %+v, %v", member, err)
+	}
+	before, err := kv.Status(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenMemberPinReader(t.Context(), js, "gru", 2); err == nil {
+		t.Fatal("member reader accepted weaker regional replicas")
+	}
+	after, err := kv.Status(t.Context())
+	if err != nil || !reflect.DeepEqual(before.Config(), after.Config()) || before.Values() != after.Values() {
+		t.Fatalf("member reader changed bucket configuration or values: %v", err)
+	}
+}
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
 	first := memberStateKey("0000000000JJVVW9EMWY1PE1VX", "0000000000Z3WK359G2W66CVT8", "000000000082AXF7GZQT1D126Y")

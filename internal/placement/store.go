@@ -109,6 +109,35 @@ type jetStreamStore struct {
 	intents AdmittedIntentReader
 }
 
+type memberPinReader struct{ state jetstream.KeyValue }
+
+// OpenMemberPinReader reads existing placement seats without creating or
+// changing the member-state bucket.
+func OpenMemberPinReader(ctx context.Context, js jetstream.JetStream, cell string, replicas int) (MemberPinReader, error) {
+	if !validToken(cell) || js == nil || replicas < 1 || replicas > 5 {
+		return nil, errors.New("placement member reader requires cell, JetStream and valid replica count")
+	}
+	kv, err := js.KeyValue(ctx, stateBucketName)
+	if err != nil {
+		return nil, fmt.Errorf("open existing placement member state: %w", err)
+	}
+	status, err := kv.Status(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("inspect placement member state: %w", err)
+	}
+	config := status.Config()
+	if kv.Bucket() != stateBucketName || status.Bucket() != stateBucketName || config.Bucket != stateBucketName ||
+		config.Replicas != replicas || config.Storage != jetstream.FileStorage || config.TTL != 0 || config.History < 2 ||
+		config.MaxValueSize <= 0 || config.MaxValueSize > maxStateBytes {
+		return nil, errors.New("existing placement member state has incompatible identity or durability limits")
+	}
+	return memberPinReader{state: kv}, nil
+}
+
+func (reader memberPinReader) ReadMember(ctx context.Context, databaseID, partitionID, seatID string) (VersionedMemberState, error) {
+	return (&jetStreamStore{state: reader.state}).ReadMember(ctx, databaseID, partitionID, seatID)
+}
+
 // NewJetStreamStore opens the durable member-state bucket for one regional
 // control plane and fails if its existing replica count is weaker than the
 // configured R3 quorum. Placement intents are supplied by an admitted reader.
