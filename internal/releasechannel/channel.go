@@ -42,7 +42,7 @@ const (
 
 	// ChannelObject, StatusObject and BinaryPrefix live in the region's
 	// head bucket. Bootstrap every cell with these paths before publishing;
-	// discard retired release state (docs/continuous-delivery.md).
+	// retain ordering state across publisher and signer migrations.
 	ChannelObject = "releases/orchestrator/channel.json"
 	StatusObject  = "releases/orchestrator/status.json"
 	BinaryPrefix  = "releases/orchestrator/binaries/"
@@ -74,7 +74,7 @@ var (
 	ErrInvalid = errors.New("invalid release channel")
 	// ErrConflict reports a conditional write that lost to another writer.
 	ErrConflict = errors.New("release channel changed concurrently")
-	// ErrStale refuses to replace a newer run in a channel.
+	// ErrStale refuses to replace a newer release in a channel.
 	ErrStale = errors.New("release channel already holds a newer run")
 	// ErrFailed reports a region that rolled the release back.
 	ErrFailed = errors.New("region did not complete the release")
@@ -88,7 +88,7 @@ type Channel struct {
 	Cell              string         `json:"cell"`
 	Environment       string         `json:"environment"`
 	SourceRevision    string         `json:"source_revision"`
-	// RunNumber is the qualifying ci.yml run; a channel only moves forward.
+	// RunNumber preserves CI provenance; ReleaseSequence orders migrated channels.
 	RunNumber int64 `json:"run_number"`
 	// Delegation is the root-signed binary update delegation of the leaf
 	// that signed Receipts, one binary update receipt per architecture.
@@ -243,10 +243,9 @@ type Location struct {
 	Bucket    string
 }
 
-// Publish replaces the region's channel with channel by compare-and-swap. A
-// newer run is never replaced, and a run is only ever replaced by the same
-// revision (a repeated deployment renews its receipts). A channel that does
-// not decode stops publication until an operator inspects it.
+// Publish CAS-publishes an already verified channel. Migrated channels use
+// signer-owned sequence order; legacy channels retain their historical run floor.
+// A malformed current channel stops publication for inspection.
 func Publish(ctx context.Context, location Location, channel Channel) error {
 	wire, err := json.Marshal(channel, json.Deterministic(true))
 	if err != nil {

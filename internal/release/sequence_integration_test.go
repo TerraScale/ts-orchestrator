@@ -161,6 +161,14 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	if err := location.ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now); err != nil {
 		t.Fatal(err)
 	}
+	if err := location.ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now.Add(2*MaxSequenceMigrationLifetime)); err != nil {
+		t.Fatalf("durable imported migration expired: %v", err)
+	}
+	alternate := location
+	alternate.Namespace = "other"
+	if err := alternate.ImportMigration(t.Context(), envelope, roots, identity.Role, identity.Environment, now); err == nil {
+		t.Fatal("migration initialized a second allocator location")
+	}
 	candidate := identity
 	candidate.ManifestSHA256 = strings.Repeat("d", 64)
 	if sequence, err := newLocation().Allocate(t.Context(), candidate, roots, signer); err != nil || sequence != 910 {
@@ -196,6 +204,12 @@ func TestSequenceSignerHTTPDurableMigrationAndConcurrentProducers(t *testing.T) 
 	}
 	if _, err := location.Allocate(t.Context(), candidate, roots, signer); err == nil {
 		t.Fatal("unsigned head mutation accepted")
+	}
+	rootAsSigner := migration
+	rootAsSigner.SignerKeyID, _ = trust.KeyID(rootPublic)
+	rootAsSigner.SignerPublicKey, _ = trust.EncodeDelegatedPublicKey(rootPublic)
+	if _, err := SignSequenceMigration(rootAsSigner, now, root); err == nil {
+		t.Fatal("offline root became online sequence signer")
 	}
 	incomplete := migration
 	incomplete.Regions = incomplete.Regions[:2]
