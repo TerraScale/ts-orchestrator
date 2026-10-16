@@ -10,15 +10,11 @@ const (
 	bootVPUs            = 10 // a boot volume's balanced performance units per GB
 )
 
-// NodeMonthlyCents prices one node for a month from the region's unit
-// prices: its billing OCPUs and memory every hour and its boot volume's storage and
-// performance. known is false while a SKU the node uses has no usage in the
-// region yet, the shape is unknown, or an input is invalid. Guest schedulable
-// CPUs must not be passed as OCPUs. Always Free usage prices at zero.
-func NodeMonthlyCents(prices []Price, shape string, ocpus, memoryGB, bootGB float64) (uint64, bool) {
+// ComputeSKUs identifies the per-OCPU and per-GB-hour products for a known shape.
+// Storage is priced separately so retained volumes are not counted twice.
+func ComputeSKUs(shape string) (ocpuSKU, memorySKU string, known bool) {
 	// SKU identities: Oracle's public product catalog, checked 2026-10-16.
 	// https://apexapps.oracle.com/pls/apex/cetools/api/v1/products/
-	var ocpuSKU, memorySKU string
 	switch shape {
 	case "VM.Standard.A1.Flex":
 		ocpuSKU, memorySKU = skuA1OCPU, skuA1Memory
@@ -37,6 +33,19 @@ func NodeMonthlyCents(prices []Price, shape string, ocpus, memoryGB, bootGB floa
 	case "VM.Standard3.Flex":
 		ocpuSKU, memorySKU = "B94176", "B94177"
 	default:
+		return "", "", false
+	}
+	return ocpuSKU, memorySKU, true
+}
+
+// NodeMonthlyCents prices one node for a month from the region's unit
+// prices: its billing OCPUs and memory every hour and its boot volume's storage and
+// performance. known is false while a SKU the node uses has no usage in the
+// region yet, the shape is unknown, or an input is invalid. Guest schedulable
+// CPUs must not be passed as OCPUs. Always Free usage prices at zero.
+func NodeMonthlyCents(prices []Price, shape string, ocpus, memoryGB, bootGB float64) (uint64, bool) {
+	ocpuSKU, memorySKU, known := ComputeSKUs(shape)
+	if !known {
 		return 0, false
 	}
 	if !(ocpus > 0 && memoryGB > 0 && bootGB > 0) {
