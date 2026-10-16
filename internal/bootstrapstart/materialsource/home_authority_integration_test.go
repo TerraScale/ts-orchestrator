@@ -66,8 +66,11 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if err != nil {
 		t.Fatalf("home startup config binding: %v", err)
 	}
+	t.Log("home startup configs bound; checking derived founder authority")
 	assertDerivedFounderAuthority(t, source, bound, roots, now)
+	t.Log("derived founder authority verified; publishing genuine seed ledger")
 	assertDerivedSeedAdmission(t, source, bound, home, roots, server, now)
+	t.Log("genuine seed ledger, Gate admission, durable floor and restart verified")
 	var grant region.FoundationGrant
 	grantEnvelope, err := trust.DecodeEnvelope(grantWire)
 	if err != nil || json.Unmarshal(grantEnvelope.Payload, &grant) != nil {
@@ -152,6 +155,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	if _, err := functionmaterial.NewStartupPublicTrust(t.Context(), authority, operatorJWT, brokerCA, brokerURL); err != nil {
 		t.Fatalf("genuine sealed startup function trust: %v", err)
 	}
+	t.Log("genuine sealed startup issuer and function public trust loaded")
 	certPEM, keyPEM, err := issuer.RenewTLS(bootstrapmaterial.ControllerLeafIdentity("gru", template.Template().SeedSlot, "10.251.0.11"), now)
 	if err != nil {
 		t.Fatal(err)
