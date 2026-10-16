@@ -335,7 +335,7 @@ func ReconcileHomeLinks(ctx context.Context, home *ColdStartMaterial, homeLink *
 			continue
 		}
 		issue := func() error {
-			template, err := bootstrap.VerifyRegionalStartupTemplate(home.grant.FoundationGrantWire(), roots, anchor, oci.Region(cell), now)
+			template, err := bootstrap.VerifyBoundRegionalStartupTemplate(ctx, factory, home.grant.FoundationGrantWire(), roots, anchor, oci.Region(cell), now)
 			if err != nil {
 				return err
 			}

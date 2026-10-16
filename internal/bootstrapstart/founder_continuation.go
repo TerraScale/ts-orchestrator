@@ -39,6 +39,25 @@ func NewOCIFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
 		serviceUID: serviceUID, serviceGID: serviceGID, now: time.Now}, nil
 }
 
+// NewDerivedFounderPeerContinuation keeps source-derived peer evidence on the
+// same durable floor and completed-ledger checks as the original peer path.
+func NewDerivedFounderPeerContinuation(baked BakedInputs, accepted AcceptedInstall,
+	authority bootstrap.DerivedStartupAuthority, serviceUID, serviceGID uint32,
+) (*FounderPeerContinuation, error) {
+	if serviceUID == 0 || serviceGID == 0 || accepted.Slot == accepted.SeedSlot {
+		return nil, ErrFounderPeerContinuation
+	}
+	floor, err := NewServiceFounderSelectionFloorStore(serviceUID)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := NewDerivedCurrentFounderAuthorityReader(baked, accepted, authority, floor)
+	if err != nil {
+		return nil, err
+	}
+	return &FounderPeerContinuation{reader: reader, floor: floor, serviceUID: serviceUID, serviceGID: serviceGID, now: time.Now}, nil
+}
+
 // Initialize is called only after first-install Gate checks, before its
 // accepted marker is published. A crash can replay or advance the floor, but
 // a missing or rolled-back current selector cannot create a marker.
@@ -80,7 +99,7 @@ func (checker *FounderPeerContinuation) checkBindings(marker AcceptedInstall, st
 		checker.reader.accepted.SeedSlot != marker.SeedSlot ||
 		checker.reader.accepted.AnchorSHA256 != marker.AnchorSHA256 ||
 		checker.reader.accepted.ManifestSHA256 != marker.ManifestSHA256 ||
-		!selected.Anchor.IsVerified() || !selected.Plan.IsVerified() ||
+		!selected.Anchor.IsVerified() || selected.Plan == nil || !selected.Plan.IsVerified() ||
 		selected.Anchor.Digest() != marker.AnchorSHA256 ||
 		selected.Plan.Digest() != state.Intent.FounderPlanSHA256 ||
 		state.Intent.SchemaVersion != 1 || state.Intent.Mode != bootstrap.IntentModeManaged ||
