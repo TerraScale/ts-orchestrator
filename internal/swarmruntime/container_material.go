@@ -64,6 +64,9 @@ func (c *controller) containerMaterialPath() string {
 
 func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.Mount, []string, error) {
 	e := c.executor
+	if c.stateful != nil {
+		return nil, nil, nil // The held stateful Source owns its exact process and material mounts.
+	}
 	if c.task.ServiceAnnotations.Labels[LabelRole] == "function-worker" {
 		return nil, nil, nil // The dedicated function verifier owns this task's material.
 	}
@@ -130,6 +133,9 @@ func (c *controller) containerMaterialMount(ctx context.Context) ([]runtimespec.
 }
 
 func (c *controller) verifyContainerMaterial(ctx context.Context, ctr containerd.Container, mounts []runtimespec.Mount, environment []string) error {
+	if c.stateful != nil {
+		return nil // Its independently qualified full spec is verified by the stateful route.
+	}
 	if err := verifyTaskMaterialMount(ctx, ctr, ContainerMaterialDirectory, mounts); err != nil {
 		return err
 	}
