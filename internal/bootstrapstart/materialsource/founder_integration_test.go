@@ -231,13 +231,16 @@ func sourceFoundationRecords(t *testing.T, protocol *materialProtocol, grant reg
 	defer protocol.mu.Unlock()
 	for _, intent := range grant.Regions {
 		cell := intent.Plan["cell"].(string)
-		plan, _ := json.Marshal(intent.Plan, json.Deterministic(true))
+		intentDigest, err := region.FoundationIntentDigest(intent)
+		if err != nil {
+			t.Fatal(err)
+		}
 		ids := map[string]string{}
 		for k, v := range intent.Plan["resource_ids"].(map[string]any) {
 			ids[k] = v.(string)
 		}
 		path := "/n/namespace-a/b/gru-1-head/o/orchestrator/regions/v1/" + cell + ".json"
-		record := region.FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: intent.Plan["region"].(string), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: intent.Generation, IntentDigest: digestWire(plan), OperationID: entityid.New(), Epoch: 1, Stage: "reconciled", StartedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), CompletedAt: time.Now().UTC(), ResourceIDs: ids}
+		record := region.FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: intent.Plan["region"].(string), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID, Generation: intent.Generation, IntentDigest: intentDigest, OperationID: entityid.New(), Epoch: 1, Stage: "reconciled", StartedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(), CompletedAt: time.Now().UTC(), ResourceIDs: ids}
 		if previous, err := os.ReadFile(protocol.objectPath(path)); err == nil {
 			var old region.FoundationRecord
 			if json.Unmarshal(previous, &old) == nil {
