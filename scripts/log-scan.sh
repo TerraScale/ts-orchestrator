@@ -17,13 +17,10 @@ nodes=${TS_LOG_SCAN_NODES:-}
 # Only ts-dashboard runs on Fly; ts-atlas and ts-status are Cloudflare Workers.
 apps=${TS_LOG_SCAN_FLY_APPS-ts-dashboard}
 
-# The NetBird client: NixOS dev VMs (netbird-wt0), the operator automation
-# container (deploy/netbird/README.md), else netbird on PATH.
+# Use the operator's authenticated native NetBird client.
 if [[ -z ${NB:-} ]]; then
 	if sudo -n netbird-wt0 status >/dev/null 2>&1; then
 		NB='sudo -n netbird-wt0'
-	elif pid=$(sudo -n podman inspect -f '{{.State.Pid}}' ts-netbird-ops 2>/dev/null); then
-		NB="sudo -n env -u SUDO_USER -u SUDO_UID nsenter -t $pid -m /usr/local/bin/netbird"
 	else
 		NB=netbird
 	fi

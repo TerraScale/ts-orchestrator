@@ -99,10 +99,10 @@ NB='sudo -n netbird-wt0' scripts/netbird-control-plane-audit.sh \
 
 Use current NetBird peer names if a rename is incomplete. Without `--node`,
 the CLI discovers all server peers from the operator's NetBird status; an
-empty selection fails. On hosts using `ts-netbird-ops`, set `NB` to the
-existing `nsenter` client command described in
-[the NetBird runbook](../../deploy/netbird/README.md#operator-automation-peer).
-Do not use `podman exec` for NetBird SSH.
+empty selection fails. Set `NB` to the connected native NetBird client,
+using `sudo -n netbird-wt0` on NixOS dev VMs. Authenticate through the
+operator identity provider first; the CLI opens SSH login through that client
+when required.
 
 Exit 0 means every **selected** peer answered NetBird SSH, management and
 signal are connected to the common HTTPS name, a secure WebSocket relay is available,

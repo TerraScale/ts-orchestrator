@@ -77,8 +77,9 @@ mariogk-dev. Use plain HTTP over NetBird for acceptance; if remote access to
 an allowed operator host is needed, use `netbird ssh --no-browser`.
 
 Use `NB='sudo -n netbird-wt0'` on a NixOS dev VM or set `NB` to the connected
-client command and `TS_ORCH` to an existing binary. For the host-network
-automation container, use `NB='sudo -n podman exec -i ts-netbird-ops netbird'`.
+client command and `TS_ORCH` to an existing binary. Authenticate the native
+NetBird client through the operator identity provider before running checks;
+`ts-orch` opens SSH login through that client when required.
 A failed DNS curl (exit status 6) needs NetBird DNS enabled for that peer; a
 failed TCP curl (7 or 28) needs the listener, operator policy and `wt0`
 firewall inspected before changing anything. An HTTP 401 needs the current
