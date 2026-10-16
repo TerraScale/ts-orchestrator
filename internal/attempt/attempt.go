@@ -646,6 +646,17 @@ func (a *Attempt) PhaseImage() {
 		a.execute(Command{Args: args, Dir: a.Path("source")})
 	}
 	digest := a.sha(qcow2)
+	qualification := filepath.Join(release, "qualification.json")
+	production := filepath.Join(release, "image-production")
+	if !exists(filepath.Join(production, cell.Cell, "arm64", "production.json")) {
+		tag := "ci-" + revision + "-run-" + text(orch["ci_run_id"])
+		a.execute(Command{Args: []string{"bash", a.Path("source", "scripts/ci/fetch-image-production-evidence.sh"), tag, digest, cell.Cell, "arm64", production}, Dir: a.Path("source")})
+	}
+	// Recheck the exact final disk and retained proof before any import, including resumed attempts.
+	a.release("verify-image-production", "--image-file", qcow2, "--qualification", qualification, "--root-key", a.trust("root_public"), "--cell", cell.Cell, "--environment", "canary", "--arch", "arm64", "--production-evidence-dir", production)
+	if a.err != nil {
+		return
+	}
 	imported := a.Path("image", "import.json")
 	if !exists(imported) {
 		plan := a.read(a.Plan())
@@ -671,7 +682,7 @@ func (a *Attempt) PhaseImage() {
 		a.release(join([]string{"image-candidate"}, common, []string{"--base-image-ocid", str(image, "base_image_ocid"), "--base-image-region", baseRegion, "--kernel-release", str(image, "kernel_release"), "--image-ocid", imageID, "--region", cell.Cell, "--out", candidate})...)
 	}
 	if !exists(receipt) {
-		a.release(join([]string{"sign-image", "--candidate", candidate}, common, []string{"--signing-key", a.trust("release_leaf_private"), "--out", receipt})...)
+		a.release(join([]string{"sign-image", "--candidate", candidate}, common, []string{"--production-evidence-dir", production, "--signing-key", a.trust("release_leaf_private"), "--out", receipt})...)
 	}
 	a.release("verify-image", "--receipt", receipt, "--delegation", delegation, "--root-key", a.trust("root_public"), "--image-file", qcow2, "--base-image-file", str(image, "base_qcow2"), "--kernel-file", a.Kernel(), "--region", cell.Cell, "--environment", "canary")
 }
@@ -1239,6 +1250,7 @@ func (a *Attempt) PhaseMembers() {
 			}
 			details, e := LaunchDetails(wire)
 			a.fail(e)
+			a.release("verify-image-production", "--image-file", a.Path("image", "terrascale-arm64.qcow2"), "--qualification", a.Path("release", "qualification.json"), "--root-key", a.trust("root_public"), "--cell", a.Cell().Cell, "--environment", "canary", "--arch", "arm64", "--production-evidence-dir", a.Path("release", "image-production"), "--image-receipt", a.ImageReceipt(), "--delegation", a.Path("image", "image-delegation.signed.json"), "--image-ocid", a.ImageID())
 			if a.requireAdmission(admission); a.err != nil {
 				return
 			}

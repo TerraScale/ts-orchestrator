@@ -82,7 +82,11 @@ fi
 jq -e --arg tag "$tag" '.tagName == $tag and .isDraft == false and .isPrerelease == true and
     (.assets | all(.name == "terrascale-orchestrator-linux-amd64" or
       .name == "terrascale-orchestrator-linux-arm64" or .name == "terrascale-d15-qualify" or
-      .name == "terrascale-d15-probe.json" or .name == "qualification.json"))' "$work/view.json" >/dev/null || {
+      .name == "terrascale-d15-probe.json" or .name == "qualification.json" or
+      (.name | test("^production-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
+      (.name | test("^production-evidence-[0-9a-f]{64}$")) or
+      (.name | test("^image-production-[0-9a-f]{64}-[A-Z]{3}-(amd64|arm64)(-delegation)?\\.json$")) or
+      (.name | test("^image-production-evidence-[0-9a-f]{64}$"))))' "$work/view.json" >/dev/null || {
     echo 'retained release has an unexpected tag, state or asset' >&2; exit 1;
 }
 [[ $(gh api "repos/$repository/commits/$tag" --jq .sha) == "$GITHUB_SHA" ]] || {

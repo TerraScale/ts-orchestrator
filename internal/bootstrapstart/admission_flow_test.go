@@ -236,6 +236,30 @@ type admissionFlowFixture struct {
 	bakedBinary string
 }
 
+// qualifiedImageFixture signs test-only qualification independently of the image publisher.
+func qualifiedImageFixture(t *testing.T, image release.ImageReceipt, environment string, root ed25519.PrivateKey, at time.Time) release.ImageReceipt {
+	t.Helper()
+	record := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+			QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: environment,
+			Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " image evidence")
+		record.Evidence = append(record.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digest(evidence), Bytes: int64(len(evidence)), CompletedAt: at.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(record.Candidate), at, at.Add(time.Hour), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image.Production = &release.ProductionProof{Qualification: envelopeWire(t, proof)}
+	return image
+}
+
 func newAdmissionFlowFixture(t *testing.T) admissionFlowFixture {
 	return newAdmissionFlowFixtureForRole(t, false)
 }
@@ -312,6 +336,7 @@ func newAdmissionFlowFixtureForRole(t *testing.T, peer bool) admissionFlowFixtur
 		BaseImageSHA256: strings.Repeat("b", 64), KernelRelease: "6.1.0-test+1",
 		KernelSHA256: strings.Repeat("c", 64), ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: strings.Repeat("d", 64), OCIImageOCID: imageID, OCIRegion: "GRU"}
+	imageReceipt = qualifiedImageFixture(t, imageReceipt, "production", rootPrivate, now.Add(-time.Minute))
 	signedImage, err := release.SignImageReceipt(imageReceipt, "production", releaseGrant, roots,
 		releasePrivate, now.Add(-time.Minute), time.Hour)
 	if err != nil {

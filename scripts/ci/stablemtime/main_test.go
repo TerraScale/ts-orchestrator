@@ -126,14 +126,27 @@ func TestStampRefusesModifiedTrackedFiles(t *testing.T) {
 	}
 }
 
-func TestTimeRejectsMalformedObjectIDs(t *testing.T) {
+func TestStampObjectIDBoundsOnDisk(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tracked")
+	const contents = "unchanged\n"
+	writeFile(t, path, contents)
+	before := modTime(t, path)
 	for _, object := range []string{"", "abc", "zz00000000000000", strings.Repeat("0", 14)} {
-		if _, err := Time(object); err == nil {
-			t.Errorf("accepted object id %q", object)
+		if err := stamp(path, object); err == nil || !strings.Contains(err.Error(), "invalid git object id") {
+			t.Errorf("stamp object id %q: %v, want invalid object id", object, err)
+		}
+		if got := modTime(t, path); !got.Equal(before) {
+			t.Errorf("rejected object id %q changed the file timestamp to %v", object, got)
 		}
 	}
-	at, err := Time(strings.Repeat("f", 40))
-	if err != nil || at.After(time.Date(2014, 2, 1, 0, 0, 0, 0, time.UTC)) || at.Nanosecond() >= 1e9 {
-		t.Fatalf("largest object id stamps %v, %v", at, err)
+	if err := stamp(path, strings.Repeat("f", 40)); err != nil {
+		t.Fatal(err)
+	}
+	at := modTime(t, path)
+	if at.Before(time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)) || at.After(time.Date(2014, 2, 1, 0, 0, 0, 0, time.UTC)) || at.Nanosecond() >= 1e9 {
+		t.Fatalf("largest object id stamps file %v outside the window", at)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != contents {
+		t.Fatalf("stamping changed file contents: %q, %v", data, err)
 	}
 }

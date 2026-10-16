@@ -1,10 +1,12 @@
-package artifact
+package artifact_test
 
 import (
 	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/artifact"
 
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
@@ -14,7 +16,7 @@ import (
 // A deletion is a compare-and-set on the metadata it read: a touch since
 // refuses it, and a touch after it finds the object gone. A deletion purges
 // the object's chunks.
-func TestTouchAndDeleteIfUnchanged(t *testing.T) {
+func TestTouchAndDeleteIfUnchangedIntegration(t *testing.T) {
 	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
@@ -55,19 +57,19 @@ func TestTouchAndDeleteIfUnchanged(t *testing.T) {
 		return meta
 	}
 	chosen := read()
-	if err := Touch(t.Context(), legacy, "ARTIFACTS", "object"); err != nil {
+	if err := artifact.Touch(t.Context(), legacy, "ARTIFACTS", "object"); err != nil {
 		t.Fatal(err)
 	}
-	if err := DeleteIfUnchanged(t.Context(), legacy, "ARTIFACTS", chosen); !errors.Is(err, ErrChanged) {
-		t.Fatalf("delete with metadata older than a touch = %v, want ErrChanged", err)
+	if err := artifact.DeleteIfUnchanged(t.Context(), legacy, "ARTIFACTS", chosen); !errors.Is(err, artifact.ErrChanged) {
+		t.Fatalf("delete with metadata older than a touch = %v, want artifact.ErrChanged", err)
 	}
-	if err := DeleteIfUnchanged(t.Context(), legacy, "ARTIFACTS", read()); err != nil {
+	if err := artifact.DeleteIfUnchanged(t.Context(), legacy, "ARTIFACTS", read()); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.GetInfo(t.Context(), "object"); !errors.Is(err, jetstream.ErrObjectNotFound) {
 		t.Fatalf("object after deletion: %v", err)
 	}
-	if err := Touch(t.Context(), legacy, "ARTIFACTS", "object"); !errors.Is(err, jetstream.ErrObjectNotFound) {
+	if err := artifact.Touch(t.Context(), legacy, "ARTIFACTS", "object"); !errors.Is(err, jetstream.ErrObjectNotFound) {
 		t.Fatalf("touch after deletion = %v, want ErrObjectNotFound", err)
 	}
 	stream, err := js.Stream(t.Context(), "OBJ_ARTIFACTS")

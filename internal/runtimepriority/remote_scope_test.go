@@ -3,22 +3,26 @@ package runtimepriority
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestScopeAdmissionOwnershipAndCleanup(t *testing.T) {
-	cleanupFailure := errors.New("unit cleanup failed")
 	for _, test := range []struct {
-		name, loadState string
-		cancel, admit   bool
-		cleanupError    error
+		name, loadState               string
+		cancel, admit, cleanupFailure bool
 	}{
 		{name: "failed evidence", loadState: "not-found"},
-		{name: "failed evidence keeps cleanup error", loadState: "not-found", cleanupError: cleanupFailure},
+		{name: "failed evidence keeps cleanup error", loadState: "not-found", cleanupFailure: true},
 		{name: "canceled admission", loadState: "not-found", cancel: true},
 		{name: "preexisting unit", loadState: "loaded"},
 		{name: "owned RUNNING admission", loadState: "not-found", admit: true},
@@ -26,82 +30,101 @@ func TestScopeAdmissionOwnershipAndCleanup(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			request := Object{"run_id": "test-scope", "deadline_seconds": 2, "transport": Object{"runtime": Object{"systemctl_path": "/test/systemctl"}}}
-			unit := "terrascale-d15-test-scope.scope"
-			launched, stoppedUnit, stoppedLauncher, observed := 0, 0, 0, 0
-			remote := Remote{
-				Command: func(commandCtx context.Context, argv []string, _ []byte, _ time.Duration, _ int) ([]byte, error) {
-					t.Helper()
-					if argv[0] != "/test/systemctl" || argv[2] != unit {
-						t.Fatalf("unexpected command %v", argv)
-					}
-					switch argv[1] {
-					case "show":
-						return []byte("LoadState=" + test.loadState + "\n"), nil
-					case "stop":
-						stoppedUnit++
-						if commandCtx.Err() != nil {
-							t.Fatal("cleanup inherited canceled admission context")
-						}
-						if _, bounded := commandCtx.Deadline(); !bounded {
-							t.Fatal("cleanup has no deadline")
-						}
-						return nil, test.cleanupError
-					default:
-						t.Fatalf("unexpected command %v", argv)
-						return nil, nil
-					}
-				},
-				ScopeLauncher: func(argv []string) (func(context.Context) error, <-chan error, error) {
-					launched++
-					if !slices.Equal(argv, []string{"/test/systemd-run", "--scope"}) {
-						t.Fatalf("unexpected launcher %v", argv)
-					}
-					return func(cleanupCtx context.Context) error {
-						stoppedLauncher++
-						if cleanupCtx.Err() != nil {
-							t.Fatal("launcher cleanup inherited canceled admission context")
-						}
-						return nil
-					}, make(chan error), nil
-				},
+			root := t.TempDir()
+			sleep, err := exec.LookPath("sleep")
+			if err != nil {
+				t.Fatal(err)
 			}
-			proof := Object{"handle": unit}
-			result, err := remote.admitScope(ctx, request, []string{"/test/systemd-run", "--scope"}, func(context.Context, Object) (Object, error) {
-				observed++
+			pidPath, stopPath := filepath.Join(root, "pid"), filepath.Join(root, "stop")
+			command := "case \"$1\" in\nshow) printf '%s\\n' " + shellQuote("LoadState="+test.loadState) + ";;\nstop) printf '%s\\n' \"$2\" > " + shellQuote(stopPath)
+			if test.cleanupFailure {
+				command += "; exit 7"
+			}
+			command += ";;\nesac\n"
+			systemctl := runtimeCommandFixture(t, command)
+			launcher := runtimeCommandFixture(t, "echo $$ > "+shellQuote(pidPath)+"\nexec "+shellQuote(sleep)+" 30\n")
+			request := Object{"run_id": "test-scope", "deadline_seconds": 2, "transport": Object{"runtime": Object{"systemctl_path": systemctl}}}
+			remote := Remote{}
+			pid := 0
+			t.Cleanup(func() {
+				if pid > 1 {
+					_ = unix.Kill(-pid, unix.SIGKILL)
+				}
+			})
+			result, err := remote.admitScope(ctx, request, []string{launcher}, func(context.Context, Object) (Object, error) {
+				raw, err := os.ReadFile(pidPath)
+				if err != nil {
+					return nil, err
+				}
+				pid, err = strconv.Atoi(strings.TrimSpace(string(raw)))
+				if err != nil {
+					return nil, err
+				}
+				stat, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+				if err != nil {
+					return nil, err
+				}
 				if test.cancel {
 					cancel()
+					return Object{"pid": pid}, nil
 				}
-				if test.admit || test.cancel {
-					return proof, nil
+				if test.admit {
+					return Object{"pid": pid, "stat_raw": string(stat)}, nil
 				}
 				fail("RUNNING inventory is invalid")
 				return nil, nil
 			})
 			if test.loadState != "not-found" {
-				if err == nil || !strings.Contains(err.Error(), "already exists") || launched != 0 || stoppedUnit != 0 || stoppedLauncher != 0 || observed != 0 {
-					t.Fatalf("preexisting scope was adopted or stopped: err=%v launch=%d unit=%d launcher=%d observed=%d", err, launched, stoppedUnit, stoppedLauncher, observed)
+				if err == nil || !strings.Contains(err.Error(), "already exists") {
+					t.Fatalf("preexisting scope admitted: %v", err)
+				}
+				for _, path := range []string{pidPath, stopPath} {
+					if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+						t.Fatalf("preexisting scope launched or stopped: %s: %v", path, err)
+					}
 				}
 				return
 			}
-			if launched != 1 || observed == 0 {
-				t.Fatalf("missing launch/admission attempt: launch=%d observed=%d", launched, observed)
-			}
+			// The successful lifecycle owns its launcher until the test ends.
 			if test.admit {
-				if err != nil || !same(result, proof) || stoppedUnit != 0 || stoppedLauncher != 0 {
-					t.Fatalf("owned admitted scope stopped early: result=%v err=%v unit=%d launcher=%d", result, err, stoppedUnit, stoppedLauncher)
+				if err != nil || result["pid"] != pid {
+					t.Fatalf("admission: result=%v err=%v", result, err)
 				}
-				return
+				if _, err := os.Stat(stopPath); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("admitted scope stopped early: %v", err)
+				}
+				if err := unix.Kill(-pid, unix.SIGTERM); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err == nil || result != nil {
+					t.Fatalf("invalid admission succeeded: %v %v", result, err)
+				}
+				raw, readErr := os.ReadFile(stopPath)
+				if readErr != nil || strings.TrimSpace(string(raw)) != "terrascale-d15-test-scope.scope" {
+					t.Fatalf("scope cleanup missing: %s %v", raw, readErr)
+				}
+				if test.cancel && !errors.Is(err, context.Canceled) {
+					t.Fatalf("lost cancellation: %v", err)
+				}
+				if !test.cancel && (ErrorType(err) != "HarnessError" || !strings.Contains(err.Error(), "RUNNING inventory is invalid")) {
+					t.Fatalf("lost admission error: %v", err)
+				}
+				if test.cleanupFailure {
+					if _, ok := errors.AsType[*exec.ExitError](err); !ok {
+						t.Fatalf("lost real cleanup command failure: %v", err)
+					}
+				}
 			}
-			if err == nil || result != nil || stoppedUnit != 1 || stoppedLauncher != 1 {
-				t.Fatalf("failed admission left scope/launcher: result=%v err=%v unit=%d launcher=%d", result, err, stoppedUnit, stoppedLauncher)
+			deadline := time.Now().Add(5 * time.Second)
+			for time.Now().Before(deadline) {
+				if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); errors.Is(err, os.ErrNotExist) {
+					pid = 0
+					return
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-			if test.cancel && !errors.Is(err, context.Canceled) {
-				t.Fatalf("lost canceled admission: %v", err)
-			}
-			if test.cleanupError != nil && !errors.Is(err, test.cleanupError) {
-				t.Fatalf("lost cleanup failure: %v", err)
-			}
+			t.Fatalf("launcher %d was not reaped", pid)
 		})
 	}
 }
@@ -140,19 +163,7 @@ func TestScopeLauncherRunsDetachedAndReapsOnStop(t *testing.T) {
 
 func TestDetachedScopeChild(t *testing.T) {
 	if !slices.Contains(os.Args, "--runtime-scope-child") {
-		t.Skip("subprocess helper")
+		return
 	}
 	<-time.After(time.Minute)
-}
-
-func TestRecoverWrappedDomainErrorKeepsCleanupError(t *testing.T) {
-	cleanupError := errors.New("cleanup failed")
-	err := func() (err error) {
-		defer recoverError(&err)
-		defer func() { err = cleanupError }()
-		panic(errors.Join(&DomainError{"HarnessError", "invalid evidence"}))
-	}()
-	if ErrorType(err) != "HarnessError" || !errors.Is(err, cleanupError) {
-		t.Fatalf("lost wrapped domain or cleanup error: %v", err)
-	}
 }

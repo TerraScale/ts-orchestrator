@@ -17,7 +17,7 @@ const testLineageBase = "89abcdef0123456789abcdef0123456789abcdef"
 
 func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	fixture := newDelegationFixture(t)
-	c := command{ctx: context.Background(), output: os.Stdout}
+	c := command{ctx: t.Context(), output: os.Stdout}
 	delegationPath := filepath.Join(fixture.directory, "update-delegation.json")
 	delegationArgs := []string{"--subject-public-key", fixture.leafPath, "--root-key", fixture.rootPath,
 		"--signing-key", fixture.privatePath, "--environment", "canary", "--lineage-base", testLineageBase,
@@ -44,6 +44,16 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	writeFixtureFile(t, candidatePath, candidate, 0o600)
 	qualificationPath := filepath.Join(fixture.directory, "qualification.json")
 	writeFixtureFile(t, qualificationPath, testQualificationWire(t), 0o600)
+	evidenceDir := filepath.Join(fixture.directory, "production")
+	expected := productionCandidate(testBinaryReceipt(), "GRU")
+	expected.Environment = "canary"
+	record := writeProductionEvidence(t, evidenceDir, expected)
+	root, err := readDelegatedPrivateKey(fixture.privatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProductionRecord(t, filepath.Join(evidenceDir, "GRU", "amd64", "production.json"), record, root,
+		fixture.now.Add(-time.Minute), fixture.now.Add(time.Hour))
 	binaryPath := filepath.Join(fixture.directory, "binary")
 	writeFixtureFile(t, binaryPath, []byte("static binary"), 0o600)
 	signedPath := filepath.Join(fixture.directory, "update-receipt.json")
@@ -81,7 +91,7 @@ func TestSignUpdateDelegationThenAutoSignBinaryUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verified, err := release.VerifyBinaryUpdateCurrent(receiptWire, delegationWire, roots,
+	verified, err := release.VerifyQualifiedBinaryUpdateCurrent(receiptWire, delegationWire, roots,
 		release.UpdateExpectation{Environment: "canary", Cell: "GRU", Architecture: "amd64"}, time.Now().UTC())
 	if err != nil || verified.Receipt() != testBinaryReceipt() {
 		t.Fatalf("auto-signed receipt does not verify: %v", err)

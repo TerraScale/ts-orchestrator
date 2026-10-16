@@ -593,7 +593,19 @@ func WritePressureWorkerState(path string, state Object) (wire, hash string, err
 		fail("pressure worker status record exceeds its fixed evidence bound")
 	}
 	tmp := path + ".tmp"
-	if e := writeJSON(tmp, state, false); e != nil {
+	fd, e := unix.Open(tmp, unix.O_WRONLY|unix.O_CREAT|unix.O_TRUNC|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
+	if e != nil {
+		return "", "", e
+	}
+	file := os.NewFile(uintptr(fd), tmp)
+	defer file.Close()
+	if _, e := file.Write(b); e != nil {
+		return "", "", e
+	}
+	if e := file.Sync(); e != nil {
+		return "", "", e
+	}
+	if e := file.Close(); e != nil {
 		return "", "", e
 	}
 	if e := os.Rename(tmp, path); e != nil {

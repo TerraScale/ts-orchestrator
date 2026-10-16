@@ -21,6 +21,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"net/http"
 	"slices"
@@ -128,7 +129,7 @@ func (channel Channel) Verify(roots trust.Keyring, cell, environment string, now
 		if _, seen := verified[architecture]; seen {
 			return nil, fmt.Errorf("%w: two receipts for %s", ErrInvalid, architecture)
 		}
-		binary, err := release.VerifyBinaryUpdateCurrent(wire, channel.Delegation, roots,
+		binary, err := release.VerifyQualifiedBinaryUpdateCurrent(wire, channel.Delegation, roots,
 			release.UpdateExpectation{Environment: environment, Cell: cell, Architecture: architecture}, now)
 		if err != nil {
 			return nil, err
@@ -296,7 +297,7 @@ func (location Location) write(ctx context.Context, name string, wire []byte) er
 // receipt verifies.
 func ReadBinary(ctx context.Context, location Location, digest string, dst io.Writer) error {
 	name := BinaryObject(digest)
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 	})
 	if err != nil {
@@ -382,7 +383,7 @@ func (location Location) read(ctx context.Context, name string, limit int64, val
 }
 
 func (location Location) get(ctx context.Context, name string, limit int64) ([]byte, string, bool, error) {
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{
 		NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name,
 	})
 	if httpStatus(err) == http.StatusNotFound {

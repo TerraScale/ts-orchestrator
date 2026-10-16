@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
@@ -687,6 +689,7 @@ func (f fixture) hostImage(t *testing.T, imageID, environment string, root ed255
 		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024,
 		ImageSHA256: digest, OCIImageOCID: imageID, OCIRegion: "GRU",
 	}
+	payload = qualifyHostImageFixture(t, payload, environment, root, testNow, lifetime)
 	receipt, err := release.SignImageReceipt(payload, environment, delegation, f.roots, f.leafPrivate, testNow, lifetime)
 	if err != nil && root.Equal(f.rootPrivate) {
 		t.Fatal(err)
@@ -1349,4 +1352,29 @@ func TestInstallMaterialGrantLevel(t *testing.T) {
 	if spec.RequiresBinary = 18; !errors.Is(spec.Validate(), ErrInvalid) {
 		t.Fatal("can_install_material accepted below level 19")
 	}
+}
+
+// qualifyHostImageFixture signs test-only disk qualification independently of the image publisher.
+func qualifyHostImageFixture(t *testing.T, image release.ImageReceipt, environment string, root ed25519.PrivateKey, at time.Time, lifetime time.Duration) release.ImageReceipt {
+	t.Helper()
+	record := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+			QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: environment,
+			Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " image evidence")
+		evidenceDigest := sha256.Sum256(evidence)
+		record.Evidence = append(record.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: hex.EncodeToString(evidenceDigest[:]), Bytes: int64(len(evidence)), CompletedAt: at.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(record.Candidate), at, at.Add(lifetime), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image.Production = &release.ProductionProof{Qualification: encodeEnvelope(t, proof)}
+	return image
 }

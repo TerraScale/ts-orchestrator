@@ -540,3 +540,152 @@ TerraBase [CI #1018 readback](../../../.qualification/terrabase-ci1018-470d1f8/q
 `/tmp/ts-d10-go-catchup-rerun-handoff-20260929.md`. The older ledger rows
 below retain their dates and requirements; use this section for current
 operational state.
+
+
+## Delegated refactor integration — 2026-10-16
+
+This roster supersedes the earlier owner assignments without changing their
+historical evidence. `/root` coordinates only. `/root/qa_integrator` is the sole
+shared-file and main integrator; all workers use `gpt-6.1-sol`, high reasoning.
+QA source baseline: `7a7abb41`; isolated tree `/tmp/ts-refactor-qa`, branch
+`refactor/qa`. No live refactor gate is qualified by these source assignments.
+
+Preserved original-worktree changes at START-OWN: modified `REFACTOR.md`,
+`docs/apps-machines.md`, `docs/evidence/shared-goal-acceptance-20260926.md`,
+`docs/generic-workloads.md`; deleted `internal/machines/schedule.go` and
+`schedule_test.go`; untracked local binary `terrascale-orchestrator`. QA does
+not overwrite, stage or remove these pre-existing changes. The plan and
+`AGENTS.md` remain human-owned.
+
+| Owner / item | State; ETA | Isolated tree; exact claim / boundary | Evidence / remaining blocker |
+| --- | --- | --- | --- |
+| `/root/qa_integrator` / START-OWN and shared integration | active; initial inventory 15 min | `/tmp/ts-refactor-qa`; this ledger append, `go.mod`, `go.sum`, `.github/workflows/{ci.yml,deploy.yml}`, `Makefile`; named app/entrypoint handoffs only | Serialize exact-candidate integration and publication. Runtime main push awaits mandatory production-admission enforcement. |
+| `/root/core` / CORE and START-EXEC | active; first slice 60 min | `/tmp/ts-orchestrator-core`; new `internal/swarmruntime/` production and integration files, `docs/evidence/core-runtime-contract.md` | SwarmKit/containerd lifecycle and restart identity; local runtime qualification only, no cloud authority inferred. |
+| `/root/oci` / OCI and START-SCOPE | active; ETA retained by owner | `/tmp/ts-orchestrator-oci`; OCI feature files claimed by owner, excluding CAP seed/image-import files | Foundation and durable resource lifecycle; paid mutation remains blocked on exact footprint/budget authority. |
+| `/root/net` / NET | active; ETA retained by owner | `/home/mariogk/Projects/TerraScale/ts-orchestrator-net`; `internal/netbird/manager/setupkey.go`, enrollment integration, new `internal/netbird/foundation/`, `deploy/netbird/manager/` | Vault-backed enrollment/bootstrap; live OCI foundation and approved recovery fixtures pending. |
+| `/root/cap` / CAP | active; first contracts 20 min | `/tmp/ts-orch-cap`; `internal/nodescale/{pool.go,pool_oci.go,capacity.go}`, `internal/image/{inputs.go,guest.go,run.go,offline.go,promote.go}`, `internal/ocicost/node.go`, named seed/image-import handoffs | Role/architecture/shape pool identity and coherent pricing/image contracts; shared app callers integrate through QA. |
+| `/root/rel` / REL and START-DEPLOY | active; ETA retained by owner | `/tmp/ts-refactor-rel`; release feature files and `scripts/ci/{deploy-fleet.sh,publish-qualification.sh}` with child-owned gate helper | Credential-free per-region exact candidate production admission, then admitted-cell deployment; live evidence unavailable remains refusal. |
+| `/root/mesh` / MESH | active; 35–60 min | `/tmp/ts-orchestrator-mesh`; named `internal/natscell/{link.go,interregion.go,leaftopology.go,reconnect.go,accounts.go}`, membership feature, `globalcontrol/heartbeat.go`; explicit app handoff `region_registry.go`, `region_registry_test.go` | Admitted membership separate from heartbeat health, durable formation and loop-free leaf topology. |
+| `/root/obs` / OBS | active; first slice 30 min | `/tmp/ts-orchestrator-obs` and isolated children; named catalog/history, dashboard metrics and CLI observe feature files | Real metric registry/history; shared app observations/journal wiring reserved to QA. |
+| `/root/wasm`, `/root/data` / WASM and DATA | active; owner claims pending | Separate owner worktrees; no QA overlap claims | Function isolation and database fence/drain/restore contracts qualify independently; production cutover unqualified. |
+| `/root/qa_integrator/test_inventory` / test conversion ledger + sdnotify | active; 12–20 min | `/tmp/ts-refactor-qa-sdnotify`; `internal/sdnotify/{sdnotify_test.go,extend_review_test.go}` | Complete tracked/vendor inventory plus real unixgram coverage before deleting isolated cases. |
+| `/root/qa_integrator/capacity_tests` / CAP test migration | active; 25–40 min | `/tmp/ts-refactor-qa-capacity`; `internal/nodescale/{pool_oci_test.go,decide_test.go,rtt_test.go,scaler_test.go,store_test.go,signals_test.go}`, `internal/ocicost/node_test.go`, new named integration files | Real OCI HTTP/JetStream boundaries; consume CAP contracts, preserve invalid/missing capacity/price safety. |
+| `/root/qa_integrator/artifact_tests` / retained artifact test migration | active; 20–30 min | `/tmp/ts-refactor-qa-artifact`; `internal/artifact/{touch_test.go,read_test.go,read_authoritative_test.go}`, new integration files | Real filesystem/HTTP boundaries before removing unit-only cases. |
+| `/root/qa_integrator/runtimepriority_tests` / retained host priority migration | active; 20 min | `/tmp/ts-refactor-qa-runtimepriority`; `internal/runtimepriority/*_test.go`, new integration files | Real isolated subprocess/syscall behavior; no host-wide privileged mutations. |
+| `/root/qa_integrator/storage_compare` / START-STORE | active; 20 min | `/tmp/ts-refactor-qa-storage`; new `docs/refactor-storage-comparison.md` only | Official prices plus actual OCI placement/copy/restore assumptions; no backend change or cheaper-provider claim. |
+| `/root/qa_integrator/completion_audit` / independent requirements audit | active; 20 min | Read-only current plan/source/evidence inspection | Exhaustive requirement-to-owner/evidence matrix, unattended independent tasks and unresolved live gates. |
+
+Publication boundary: the actual `ci.yml` main-push path dispatches `deploy.yml`
+after retention. Missing configured repository credentials does not establish
+production protection, because inherited secrets/OCI authority remain unknown.
+Only documentation-only safe publication or runtime candidates admitted through
+the mandatory exact-source/region/runtime/architecture gates may proceed. No
+new paid capacity, IAM permissions, credential installation, production cutover,
+or destructive recovery is authorized by this roster.
+
+
+### Refactor handoff state — 2026-10-16, 20:05 UTC
+
+All owners below remain on `gpt-6.1-sol`, high reasoning. This is a source and
+local-scenario ledger, not live acceptance. CONNECT, RUNTIME, FUNCTIONS,
+STATEFUL and COMPLETE remain open. No package-wide conversion, cloud capacity,
+production restore, full-repository green run or spending authority is claimed.
+
+**Integrated in QA candidate `02360dca`**, not yet published to main:
+
+| Slice | Integrated QA commits; producer provenance | Evidence and limits |
+| --- | --- | --- |
+| Credential-free release admission and independent consumer qualification | `943a8ac3`, `8b3eaa9f`, `ff17fa4d`, `54e7c758`, `01ad811a`, `62173b01`, `bb886c9b` | Fleet workflow qualifies before credential-bearing deployment; signed exact source/artifact/build/region/environment/runtime/architecture proof requires runtime-HA and workload safety. Image/first-boot gap below is still open. |
+| Concrete OCI read cancellation and retained mutation outcomes | `a5877de1`, `25529a7f`, `780a700a`, `02360dca`; originals `66fb8150`, `3c9b20d9`, `987f7ed8`, `2b0211b9` | REL original `987f7ed8`: full race CLI 23.382s, channel 3.372s, OCI client 3.547s. SDK original `2b0211b9`: focused signed-HTTP read/mutation race 2.285s. Arbitrary non-SDK object clients retain their original cancellable context. |
+| Release fixture closure | `1e579b18`, `35d88a05`; originals `3485441f`, selected fixture hunks from `b9c71b18` | Selfupdate, selfupdate CLI and bootstrapstart passed at original `3485441f` (1.236s, 5.875s, 57.525s). Broad REL sequence branch was not replayed into the gate candidate. |
+| Retained-feature migrations and inventories | sdnotify `97dc1a4f`, artifact `c5d1300d`, runtimepriority `5e9b620e`, recovery inventory `0cfb83cc`, storage comparison `26f8b548` | These are bounded slices. Full integration-only inventory remains open; unmatched security coverage is preserved until a real boundary replacement exists. |
+
+The existing dirty main tree remains at `7a7abb41`; the latest read-only remote
+main readback was `4ad1acf5`. Its human-owned dirty files and untracked binary
+remain untouched. A reversible byte-verified dirty-tree preservation step is
+required before any eventual main fast-forward. No push has occurred here.
+
+**Ready/source-only handoffs; do not confuse copied helpers with implementation:**
+
+| Owner / source | Actual implementation | Consumer/evidence status |
+| --- | --- | --- |
+| CAP | Pricing `92ed6f62`; catalog `7b91950b`; pools `54c0de0e` + `02f85128`; seed `dd43f068` + `36317ca8`; selection `fb2b3c2a` + `64a90a1b`; image `75df8fbc` + `baf79837` | `b0572378` and `ffcd45bc` were copied dependency/helper aggregates, not actual image/selection implementations. Actual image seven SDK scenarios passed 0.478s; selection twelve SDK scenarios passed 0.469s. Neither qualifies AMD64 boot or production runtime. |
+| OBS and shared app | App integration branch `da1637f7`, with original OBS `c7997d16`, `e3c4b9d4`, `f96eff93`, `e5027185` and shared routes/callers | `0a810`/`9d1` copied catalog work did not establish complete OBS implementation. Focused actual HTTP catalog/CLI/dashboard checks at `da1637f7` passed 0.061s/0.187s/0.133s. Later `67dcd970` + `1e3b0cee` remain separate handoffs. Shared app is not yet in QA main candidate. |
+| NET | Protected backup `0cb7a019`; enrollment escrow `70f11a18`; management fencing `a2ebbcc4`; DNS/GRU policy `c694e8f2` | `f651`/`289` were helper-only copies. Full NET checks and subsequent no-retry epoch-loss write fixes remain pending; no live restore or production bootstrap claim. |
+| CORE dependencies and runtime | Shared module union `61968b3b` on `refactor/qa-modules`; actual node `27719b8f` + `e59a1eaa`, executor `c272bbed`, mapper `c08ec295`, deletion `960e8de5` | The old `01348c66` prototype must not be replayed. Modules are separately serialized, not in gate candidate. Actual corrected local manager/containerd/runc recovery passed 4.87s; no ARM/HA/cloud qualification. Actual app engine cutover still requires verified admission consumers. |
+| QA imageimport and logs conversion | Imageimport `00f400f6`, depends actual CAP image source; logs worker has six test-only files pending final race check/commit | Imageimport full package passed 3.706s; logs plain package passed 4.074s. Neither source has been integrated into QA gate candidate yet. Capacity conversion recovery is owned by app integrator's capacity caller worker. |
+
+**Current trust-sensitive source scopes:**
+
+1. Cold bootstrap: immutable signed source and bootstrap-scoped OCI grant →
+   private Vault escrow → typed sealed installation → managed-image prestart.
+   Shared app owner requires the same verified grant through all steps;
+   foundation-only authority cannot create a regional founder, and workers
+   cannot found a cluster. Nonhome pre-config trust discovery and actual signed
+   manifest/config startup consumption remain open. No fake entrypoint closes it.
+2. Functions: admitted service → trusted controller `ProvisionQueue` →
+   consume-only worker JWT → conditional Vault delivery → admitted Swarm Wasm
+   task mount. Workers cannot create streams/consumers or receive controller
+   credentials. CORE mount admission and actual qualified task producer remain
+   open; helper-only provision/material code does not close FUNCTIONS.
+3. Image boot: the effective selfupdate drop-in invokes `Prepare`/`Seed`, which
+   seeds baked bytes without channel qualification; initial bootstrap currently
+   uses signature-only `VerifyImageCurrent`. REL owns the narrow image receipt
+   and sign-image independent production-proof closure; QA owns affected
+   bootstrap/selfupdate fixtures. Weekly/manual image builds and promotion are
+   separate consumers, so release-channel checks alone do not close START-DEPLOY.
+
+**Retained local evidence** (not live qualification): SDK log
+`/tmp/oci-sdk-race-2b0211b9.log`, SHA-256
+`a8bebccd5aa1d987986ebb9ece17f9f2d1d712d98b26cc2567bee7915900634c`;
+selfupdate closure `/tmp/ts-orch-gate-evidence/3485441f-selfupdate-closure.log`,
+SHA-256 `13ddb21187b552197ee82b3fabdd43f333e831dbdfde457d9723475d4e30cb61`;
+WASM race/ARM64-crossbuild/AMD64-build log `/tmp/ts-wasm-qualification.log`,
+SHA-256 `88dc21d4fd2161693f839aaed47c5427dd8ec626a19e7d9220227ae2e2e0dfa6`.
+Earlier failing `bb886c9b-release-closure.log` remains retained rather than
+relabeled as success. Exact integrated candidate build is running separately;
+no result is assumed before exit. START-SCOPE read-only inventory is retained
+under `/tmp/ts-refactor-start-scope-20261016/`; approved paid provisioning,
+new authority and destructive cloud operations remain unavailable.
+
+
+### Image admission closure in progress — 2026-10-16
+
+QA integrated source now `9feb2a59` (before this evidence-only append).
+The following are source/local checks, not live qualification or publication:
+
+| Boundary | Integrated provenance | Actual check |
+| --- | --- | --- |
+| Final-image receipt/current verifier and signer | Original `00e18a1c` → QA `9c7f7970`; original `5a4e7776`/`e38b295e` → QA `f28e06c1`/`ae70a249` | Focused receipt/historical/final-image race: release 1.139s, CLI 2.278s. Independent proof binds final QCOW2 digest, not just embedded binary. |
+| Signed prelaunch OCI identity | Original `29e3fdc8` → QA `88313464` | Focused real retained-file/crypto/process race PASS 2.489s; wrong retained OCI image ID refused. |
+| Image publication and interrupted evidence retrieval | Original `d8c20c8b`/`84bbaac9` → QA `fc7e7a69`/`801029a2`; publisher allowlist QA `7874afef` | Pipeline process scenario PASS 1.980s after atomic proof-last transport fix. Exact final-image proof is required after unsigned-byte retention and before release publication. |
+| Initial controller/bootstrap fixtures | Original `75103b35` → QA `e82d952f` | Equivalent input candidate `473199ab`: bootstrapstart 61.009s, selfupdate 1.314s, selfupdate CLI 5.951s. |
+| Fixed ARM promotion and other image fixtures | Original narrow `89e1281b` → QA `9feb2a59`; original `818c2c8c` → QA `1821c0e7` | Narrow promotion check pending. Bootstrap CLI 3.181s and cellspec 0.076s pass; fixturegen has three source-count failures because actual complete inventory exceeds its old 256-pin bound. Bounded cap correction and real signed-packet scenario are assigned. |
+
+Five small raw logs and hashes are retained in
+[`refactor-checks-20261016/`](refactor-checks-20261016/SHA256SUMS), rather than
+requiring ephemeral `/tmp` logs to survive continuation. The separate original
+`02360dca` binary build passed; SHA-256
+`b4736db7c04fe64a08b074ef83a821b34f9bca24f5f92c307f65195aae655ac7`.
+It predates image closure and is not the final publication build.
+
+Two real prelaunch gaps remain assigned: founder peer refresh/SDK effects
+must verify current selected image proof and clamp operation lifetime to that
+proof; direct attempt `PhaseMembers` must verify the retained signed image,
+final disk, exact OCI identity and current scope immediately before launch.
+Positive and zero-mutation rejection scenarios are being checked. Normal
+controller installation already precedes controller `Prepare`/`Seed`; no
+impossible pre-execution self-trust ceremony is required. Promotion alone does
+not close retained old-manifest launches. Main publication remains held.
+
+Additional independent integration conversions: logs original `ce5fafe7` → QA
+`87bde6be` (plain 4.074s, race 6.423s; 30 behavior cases mapped into 29 integrated
+cases); stablemtime original `aa5959a5` → QA `b6fa9bca` (four real filesystem/Git
+behavior groups, PASS 0.212s). These do not close the repository-wide unit ledger.
+
+Current shared-app dependency remains explicit: OCI verified identity/foundation
+must deliver admitted management endpoint and token authority to OBS's automatic
+CLI resolver. Names and `RecordFromPlan` cannot infer that authority. Shared app
+`c5958f9a` observability package passed 57.952s; CLI/dashboard compile was blocked
+by missing release `ProductionProof` dependency, now routed to app integration.
+No unchanged successful observability rerun is required for that compile fix.

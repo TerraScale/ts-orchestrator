@@ -286,6 +286,26 @@ func TestPacketRejectsEmptyOrOversizedSimulatorInventory(t *testing.T) {
 	}
 }
 
+func TestPacketBoundsSignedSourceInventory(t *testing.T) {
+	root, manifest, key, roots := packetFixture(t)
+	for index := len(manifest.SourcePins); index < maxSourcePins; index++ {
+		manifest.SourcePins = append(manifest.SourcePins, SourcePin{
+			Path: fmt.Sprintf("internal/app/source-%03d.go", index), SHA256: strings.Repeat("a", 64),
+		})
+	}
+	slices.SortFunc(manifest.SourcePins, func(a, b SourcePin) int { return strings.Compare(a.Path, b.Path) })
+	writeManifest(t, root, manifest, key)
+	if _, err := ValidatePacket(root, roots, manifest.FixtureNow); err != nil {
+		t.Fatalf("signed packet at source inventory limit rejected: %v", err)
+	}
+	manifest.SourcePins = append(manifest.SourcePins, SourcePin{Path: "internal/app/source-overflow.go", SHA256: strings.Repeat("a", 64)})
+	slices.SortFunc(manifest.SourcePins, func(a, b SourcePin) int { return strings.Compare(a.Path, b.Path) })
+	writeManifest(t, root, manifest, key)
+	if _, err := ValidatePacket(root, roots, manifest.FixtureNow); err == nil || !strings.Contains(err.Error(), "inventory bound") {
+		t.Fatalf("oversized signed source inventory: %v", err)
+	}
+}
+
 func TestPacketRejectsPathIdentityAndSignatureConfusion(t *testing.T) {
 	root, manifest, key, roots := packetFixture(t)
 	mutations := []struct {

@@ -216,22 +216,55 @@ func signAcceptedSuccessor(t *testing.T, data []byte, now time.Time, root ed2551
 		t.Fatal(err)
 	}
 	source := strings.Repeat("e", 40)
-	delegation, err := trust.SignDelegation(trust.Delegation{SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encoded,
-		Capabilities: []trust.Capability{{Domain: release.BinaryDomain, DeploymentID: entityid.Derive("build", source), Cell: "BUILD", Environment: "canary", Role: "artifact", Slots: []string{"linux-" + runtime.GOARCH}, Actions: []string{"sign"}}}}, now.Add(-time.Minute), now.Add(time.Hour), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receipt, err := release.SignBinaryReceipt(release.BinaryReceipt{Schema: release.BinarySchema, SourceRevision: source, GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: runtime.GOARCH,
-		ELFMachine: map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}[runtime.GOARCH], Static: true, Bytes: int64(len(data)), SHA256: acceptedDigest(data), QualificationSHA256: acceptedDigest([]byte("qualification"))},
-		"canary", delegation, roots, leaf, now, 30*time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
-	receiptWire, err := trust.EncodeEnvelope(receipt)
+	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
+		Schema: release.UpdateDelegationSchema, SubjectKeyID: keyID, SubjectPublicKey: encoded,
+		Environment: "canary", Architectures: []string{runtime.GOARCH}, Repository: release.QualificationRepository,
+		Workflow: release.QualificationWorkflow, Ref: release.LineageRef, LineageBase: source,
+	}, now.Add(-time.Minute), now.Add(time.Hour), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	delegationWire, err := trust.EncodeEnvelope(delegation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binary := release.BinaryReceipt{Schema: release.BinarySchema, SourceRevision: source, GoVersion: release.DefaultGoVersion, GOOS: "linux", GOARCH: runtime.GOARCH,
+		ELFMachine: map[string]string{"amd64": "Advanced Micro Devices X86-64", "arm64": "AArch64"}[runtime.GOARCH], Static: true,
+		Bytes: int64(len(data)), SHA256: acceptedDigest(data), QualificationSHA256: acceptedDigest([]byte("qualification"))}
+	qualified := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: source, ArtifactSHA256: binary.SHA256,
+			QualificationSHA256: binary.QualificationSHA256, Cell: "GRU", Environment: "canary",
+			Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " evidence")
+		qualified.Evidence = append(qualified.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: acceptedDigest(evidence), Bytes: int64(len(evidence)), CompletedAt: now.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualified)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualified.Candidate), now, now.Add(30*time.Minute), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	update := release.BinaryUpdateReceipt{Schema: release.UpdateReceiptSchema, Binary: binary, Cell: "GRU",
+		DelegationSHA256: acceptedDigest(delegationWire), Production: &release.ProductionProof{Qualification: proofWire},
+		Lineage: release.SourceLineage{Repository: release.QualificationRepository, Workflow: release.QualificationWorkflow,
+			Ref: release.LineageRef, LineageBase: source, QualificationRunID: 10, QualificationRunNum: 5}}
+	payload, err = trust.EncodePayload(update)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := trust.Sign(payload, release.UpdateReceiptScope(update, "canary"), now, now.Add(30*time.Minute), leaf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptWire, err := trust.EncodeEnvelope(receipt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +318,7 @@ func TestAcceptedControllerAllowsSuccessorAndRefusesIncompatibleRollback(t *test
 	now := time.Now().UTC()
 	target := []byte("legitimate signed successor")
 	receipt, delegation := signAcceptedSuccessor(t, target, now, private, roots)
-	next, err := selfupdate.Stage(layout, bytes.NewReader(target), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Architecture: runtime.GOARCH}, now)
+	next, err := selfupdate.Stage(layout, bytes.NewReader(target), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +407,7 @@ func TestIdentityRekeyBinariesRequireEverySelectedReleaseToReadProposedRecord(t 
 	now := time.Now().UTC()
 	successor := []byte("signed successor")
 	receipt, delegation := signAcceptedSuccessor(t, successor, now, private, roots)
-	next, err := selfupdate.Stage(layout, bytes.NewReader(successor), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Architecture: runtime.GOARCH}, now)
+	next, err := selfupdate.Stage(layout, bytes.NewReader(successor), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +472,7 @@ func TestControllerRecoveryPreservesHostOwnedActivation(t *testing.T) {
 			host := []byte("host release without accepted identity decoder")
 			receipt, delegation := signAcceptedSuccessor(t, host, now, private, roots)
 			target, err := selfupdate.Stage(layout, bytes.NewReader(host), receipt, delegation,
-				selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Architecture: runtime.GOARCH}, now)
+				selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -533,7 +566,7 @@ func TestControllerRecoveryRollsBackDamageOnlyAfterTrustedCompletion(t *testing.
 					now := time.Now().UTC()
 					targetBytes := []byte("qualified successor")
 					receipt, delegation := signAcceptedSuccessor(t, targetBytes, now, private, roots)
-					target, err := selfupdate.Stage(layout, bytes.NewReader(targetBytes), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Architecture: runtime.GOARCH}, now)
+					target, err := selfupdate.Stage(layout, bytes.NewReader(targetBytes), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -728,7 +761,7 @@ func TestControllerFinishesRecordedRestoreOnlyAfterTrustedCompletion(t *testing.
 				now := time.Now().UTC()
 				stage := func(data []byte) string {
 					receipt, delegation := signAcceptedSuccessor(t, data, now, private, roots)
-					digest, err := selfupdate.Stage(layout, bytes.NewReader(data), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Architecture: runtime.GOARCH}, now)
+					digest, err := selfupdate.Stage(layout, bytes.NewReader(data), receipt, delegation, selfupdate.ReceiptPolicy{Roots: roots, Environment: accepted.Environment, Cell: accepted.Cell, Architecture: runtime.GOARCH}, now)
 					if err != nil {
 						t.Fatal(err)
 					}

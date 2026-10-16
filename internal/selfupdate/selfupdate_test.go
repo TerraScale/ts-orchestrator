@@ -94,8 +94,8 @@ func (f *fixture) leafIdentity() (string, string) {
 	return keyID, encoded
 }
 
-// signed returns a per-source receipt and its root delegation.
-func (f *fixture) signed(data []byte) ([]byte, []byte) {
+// legacySigned returns a per-source receipt that runtime admission must refuse.
+func (f *fixture) legacySigned(data []byte) ([]byte, []byte) {
 	f.t.Helper()
 	keyID, encoded := f.leafIdentity()
 	delegation, err := trust.SignDelegation(trust.Delegation{
@@ -118,8 +118,8 @@ type anyLineage struct{}
 
 func (anyLineage) CheckLineage(string, string, string) error { return nil }
 
-// autoSigned returns an update receipt signed under a scoped delegation.
-func (f *fixture) autoSigned(data []byte) ([]byte, []byte) {
+// signed returns a regional update receipt with independent root qualification.
+func (f *fixture) signed(data []byte) ([]byte, []byte) {
 	f.t.Helper()
 	keyID, encoded := f.leafIdentity()
 	delegation, err := release.SignUpdateDelegation(release.BinaryUpdateDelegation{
@@ -146,6 +146,29 @@ func (f *fixture) autoSigned(data []byte) ([]byte, []byte) {
 	qualificationDigest := digestOf([]byte("qualification"))
 	receipt, err := release.SignBinaryUpdateReceipt(binaryReceipt(data, qualificationDigest), qualification, qualificationDigest,
 		"GRU", "canary", anyLineage{}, delegation, f.roots, f.leafPrivate, f.now, 30*time.Minute)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	qualified := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: testSource, ArtifactSHA256: digest,
+			QualificationSHA256: qualificationDigest, Cell: "GRU", Environment: "canary",
+			Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " evidence")
+		qualified.Evidence = append(qualified.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: digestOf(evidence), Bytes: int64(len(evidence)), CompletedAt: f.now.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualified)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualified.Candidate), f.now, f.now.Add(30*time.Minute), f.rootPrivate)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	receipt, err = release.AttachProductionQualification(receipt, release.ProductionProof{Qualification: f.encode(proof)},
+		f.encode(delegation), f.roots, f.leafPrivate,
+		release.UpdateExpectation{Environment: "canary", Cell: "GRU", Architecture: runtime.GOARCH}, f.now)
 	if err != nil {
 		f.t.Fatal(err)
 	}
@@ -328,6 +351,13 @@ func TestTamperedTargetRollsBackImmediately(t *testing.T) {
 func TestStageRejectsMismatchedBytesAndUnauthorizedReceipts(t *testing.T) {
 	f := newFixture(t)
 	data := []byte("signed bytes")
+	legacy, legacyDelegation := f.legacySigned(data)
+	if _, err := Stage(f.layout, bytes.NewReader(data), legacy, legacyDelegation, f.policy(), f.now); !errors.Is(err, release.ErrProductionQualification) {
+		t.Fatalf("per-source receipt staged: %v", err)
+	}
+	if _, err := os.Stat(f.layout.Root); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("per-source rejection created the release root: %v", err)
+	}
 	receipt, delegation := f.signed(data)
 	if _, err := Stage(f.layout, bytes.NewReader([]byte("other bytes!")), receipt, delegation, f.policy(), f.now); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("mismatched bytes staged: %v", err)
@@ -347,13 +377,13 @@ func TestStageRejectsMismatchedBytesAndUnauthorizedReceipts(t *testing.T) {
 		t.Fatal("expired receipt staged")
 	}
 
-	auto, autoDelegation := f.autoSigned(data)
+	auto, autoDelegation := f.signed(data)
 	if digest, err := Stage(f.layout, bytes.NewReader(data), auto, autoDelegation, f.policy(), f.now); err != nil || digest != digestOf(data) {
 		t.Fatalf("scoped automatic receipt: %s %v", digest, err)
 	}
 	otherCell := f.policy()
 	otherCell.Cell = "FRA"
-	if _, err := otherCell.Verify(auto, autoDelegation, f.now); err == nil {
+	if _, err := Stage(f.layout, bytes.NewReader(data), auto, autoDelegation, otherCell, f.now); err == nil {
 		t.Fatal("auto-signed receipt accepted outside its cell")
 	}
 }

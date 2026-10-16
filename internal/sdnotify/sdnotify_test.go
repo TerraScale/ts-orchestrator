@@ -2,8 +2,12 @@ package sdnotify
 
 import (
 	"context"
+	"errors"
 	"net"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -63,35 +67,93 @@ func TestNotifierSupportsAbstractSockets(t *testing.T) {
 	}
 }
 
-func TestNotifierIsANoOpOutsideSystemd(t *testing.T) {
-	for _, socket := range []string{"", "relative/path", "tcp://host"} {
-		notifier := New(socket, "1000000", "", 1)
-		if notifier.Enabled() || notifier.WatchdogInterval() != 0 {
-			t.Fatalf("socket %q enabled notifications", socket)
+func TestNotifierEnvironmentAndWatchdogProcess(t *testing.T) {
+	if os.Getenv("TS_SDNOTIFY_TEST_CHILD") == "1" {
+		if os.Getenv("WATCHDOG_PID") == "self" {
+			t.Setenv("WATCHDOG_PID", strconv.Itoa(os.Getpid()))
 		}
-		if err := notifier.Ready("x"); err != nil {
+		notifier := FromEnvironment()
+		for _, name := range []string{"NOTIFY_SOCKET", "WATCHDOG_USEC", "WATCHDOG_PID"} {
+			if _, exists := os.LookupEnv(name); exists {
+				t.Fatalf("notification environment %s would leak to workloads", name)
+			}
+		}
+		var absent *Notifier
+		if err := absent.Notify("READY=1"); err != nil {
 			t.Fatal(err)
 		}
+		absent.RunWatchdog(t.Context(), nil)
+		absent.KeepStarting(t.Context(), time.Millisecond, time.Minute)()
+		if err := notifier.Ready("child ready"); err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		notifier.RunWatchdog(ctx, nil)
+		if err := notifier.Stopping(); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
-	var nilNotifier *Notifier
-	if nilNotifier.Enabled() || nilNotifier.Notify("READY=1") != nil {
-		t.Fatal("nil notifier is not a no-op")
-	}
-}
 
-func TestWatchdogIntervalHonorsOwnerPID(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "notify")
-	if got := New(path, "4000000", "", 7).WatchdogInterval(); got != 2*time.Second {
-		t.Fatalf("interval = %s", got)
-	}
-	if got := New(path, "4000000", "7", 7).WatchdogInterval(); got != 2*time.Second {
-		t.Fatalf("owned interval = %s", got)
-	}
-	if got := New(path, "4000000", "8", 7).WatchdogInterval(); got != 0 {
-		t.Fatalf("another process's watchdog applied: %s", got)
-	}
-	if got := New(path, "junk", "", 7).WatchdogInterval(); got != 0 {
-		t.Fatalf("invalid watchdog applied: %s", got)
+	for _, tc := range []struct {
+		name, socket, usec, pid string
+		watchdog                bool
+	}{
+		{name: "owner-unspecified", usec: "40000", watchdog: true},
+		{name: "owner-matches", usec: "40000", pid: "self", watchdog: true},
+		{name: "another-owner", usec: "40000", pid: "0"},
+		{name: "invalid-owner", usec: "40000", pid: "invalid"},
+		{name: "invalid-interval", usec: "invalid"},
+		{name: "zero-interval", usec: "0"},
+		{name: "missing-socket", socket: "missing", usec: "40000"},
+		{name: "relative-socket", socket: "relative/path", usec: "40000"},
+		{name: "unsupported-socket", socket: "tcp://host", usec: "40000"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "notify")
+			conn := listen(t, path)
+			socket := tc.socket
+			if socket == "" {
+				socket = path
+			} else if socket == "missing" {
+				socket = ""
+			}
+			executable, err := os.Executable()
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, executable, "-test.run=^TestNotifierEnvironmentAndWatchdogProcess$")
+			cmd.Env = append(os.Environ(), "TS_SDNOTIFY_TEST_CHILD=1", "NOTIFY_SOCKET="+socket,
+				"WATCHDOG_USEC="+tc.usec, "WATCHDOG_PID="+tc.pid, "GORACE=atexit_sleep_ms=0")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("notifier process: %v\n%s", err, output)
+			}
+			if socket != path {
+				_ = conn.SetReadDeadline(time.Now().Add(20 * time.Millisecond))
+				if _, err := conn.Read(make([]byte, 4096)); err == nil {
+					t.Fatal("notification sent without a valid systemd socket")
+				} else if timeout, ok := errors.AsType[net.Error](err); !ok || !timeout.Timeout() {
+					t.Fatal(err)
+				}
+				return
+			}
+			if got := receive(t, conn); got != "READY=1\nSTATUS=child ready" {
+				t.Fatalf("ready = %q", got)
+			}
+			pings := 0
+			for state := receive(t, conn); state != "STOPPING=1"; state = receive(t, conn) {
+				if state != "WATCHDOG=1" || !tc.watchdog {
+					t.Fatalf("unexpected notification %q", state)
+				}
+				pings++
+			}
+			if tc.watchdog && pings == 0 {
+				t.Fatal("healthy owner sent no watchdog notification")
+			}
+		})
 	}
 }
 

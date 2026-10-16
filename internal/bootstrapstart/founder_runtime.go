@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"golang.org/x/sys/unix"
 )
@@ -345,12 +347,19 @@ func (caller founderCaller) fresh(ctx context.Context, slot string) (founderSnap
 func (caller founderCaller) peerRefresh(slot string) FounderPeerRefresh {
 	return func(ctx context.Context) (bootstrap.VerifiedFounderPeer, time.Time, time.Time, error) {
 		snapshot, err := caller.fresh(ctx, slot)
+		if err != nil {
+			return bootstrap.VerifiedFounderPeer{}, time.Time{}, time.Time{}, err
+		}
+		payload := snapshot.peer.Manifest()
+		image, err := release.VerifyImageCurrent(payload.ReleaseImageReceiptWire, payload.ReleaseDelegationWire,
+			caller.roots, release.ImageExpectation{Environment: payload.Environment, LogicalRegion: string(payload.Cell),
+				OCIImageOCID: payload.ImageOCID, Architecture: strings.TrimPrefix(payload.ImageArchitecture, "linux-")}, snapshot.now)
 		if err == nil {
 			// The OCI adapter refreshes right before its effect; the
 			// caller fence is rechecked at that same point.
 			err = caller.checkFence(ctx)
 		}
-		return snapshot.peer, snapshot.now, snapshot.selected.SelectionExpiresAt, err
+		return snapshot.peer, snapshot.now, earliestFounderTime(snapshot.selected.SelectionExpiresAt, image.ExpiresAt()), err
 	}
 }
 

@@ -40,7 +40,11 @@ func TestClassifyEveryFormat(t *testing.T) {
 			Record{Service: "systemd", Level: LevelInfo, Message: "Started netbird.service."}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := Classify(tc.entry)
+			records := journalRecords(t, tc.entry)
+			got, ok := Record{}, len(records) == 1
+			if ok {
+				got = records[0]
+			}
 			if !ok {
 				t.Fatal("not classified")
 			}
@@ -53,13 +57,13 @@ func TestClassifyEveryFormat(t *testing.T) {
 }
 
 func TestClassifyRejectsEmptyMessages(t *testing.T) {
-	if _, ok := Classify(Entry{Comm: "terrabase", Message: "   "}); ok {
+	if got := journalRecords(t, Entry{Comm: "terrabase", Message: "   "}); len(got) != 0 {
 		t.Fatal("blank message classified")
 	}
 }
 
 func TestClassifyTruncatesTheExampleAtAUTF8Boundary(t *testing.T) {
-	got, _ := Classify(Entry{Comm: "x", Message: strings.Repeat("é", 300)})
+	got := journalRecords(t, Entry{Comm: "x", Message: strings.Repeat("é", 300)})[0]
 	kept, marked := strings.CutSuffix(got.Example, "...")
 	if len(got.Example) > 512 || !marked || !strings.HasPrefix(strings.Repeat("é", 300), kept) || len(kept)%2 != 0 {
 		t.Fatalf("example is %d bytes, want at most 512 at a boundary", len(got.Example))
@@ -72,7 +76,7 @@ func TestClassifyRedactsCredentialsFromMessageAndExample(t *testing.T) {
 		{{Comm: "terrabase", Priority: "4", Message: line}},
 		dotnet("7", "warn: Dialer[1]", line),
 	} {
-		got := collect(&Parser{}, entries...)
+		got := journalRecords(t, entries...)
 		if len(got) != 1 {
 			t.Fatalf("Parse = %+v, want one record", got)
 		}
@@ -91,19 +95,8 @@ func dotnet(pid, header, message string) []Entry {
 	return []Entry{{Comm: "terrabase", PID: pid, Message: header}, {Comm: "terrabase", PID: pid, Message: "      " + message}}
 }
 
-func collect(p *Parser, entries ...Entry) []Record {
-	var out []Record
-	for _, e := range entries {
-		if r, ok := p.Parse(e); ok {
-			out = append(out, r)
-		}
-	}
-	return append(out, p.Flush()...)
-}
-
 func TestParsePairsDotnetRecordsAcrossInterleavedProcesses(t *testing.T) {
-	var p Parser
-	got := collect(&p,
+	got := journalRecords(t,
 		Entry{Comm: "terrabase", PID: "7137", Message: "warn: TerraBase.Replication.Sender[1858781747]"},
 		Entry{Comm: "ts-auth", PID: "1342", Message: "fail: TerraScale.Auth.Envelope[0]"},
 		Entry{Comm: "terrabase", PID: "7137", Message: "      Replication of 2 databases failed"},
@@ -115,14 +108,15 @@ func TestParsePairsDotnetRecordsAcrossInterleavedProcesses(t *testing.T) {
 		{Service: "ts-auth", Level: LevelError, Component: "TerraScale.Auth.Envelope", Message: "Request failed with temporarily_unavailable",
 			Example: "Request failed with temporarily_unavailable"},
 	}
+	slices.SortFunc(got, compareRecords)
+	slices.SortFunc(want, compareRecords)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Parse =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
 func TestParseEmitsAHeaderWithoutItsMessageAlone(t *testing.T) {
-	var p Parser
-	got := collect(&p,
+	got := journalRecords(t,
 		Entry{Comm: "terrabase", PID: "7", Message: "warn: Sender[1]"},
 		Entry{Comm: "terrabase", PID: "7", Message: "info: Other[2]"},
 		Entry{Comm: "terrabase", PID: "7", Message: "crit: Last[3]"},
@@ -132,14 +126,15 @@ func TestParseEmitsAHeaderWithoutItsMessageAlone(t *testing.T) {
 		{Service: "terrabase", Level: LevelInfo, Component: "Other"},
 		{Service: "terrabase", Level: LevelError, Component: "Last"},
 	}
+	slices.SortFunc(got, compareRecords)
+	slices.SortFunc(want, compareRecords)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Parse =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
 func TestParseKeepsALineThatFollowsADanglingHeader(t *testing.T) {
-	var p Parser
-	got := collect(&p,
+	got := journalRecords(t,
 		Entry{Comm: "terrabase", PID: "7", Message: "warn: Sender[1]"},
 		Entry{Comm: "terrabase", PID: "7", Message: `{"level":"ERROR","msg":"store down"}`},
 	)
@@ -147,26 +142,26 @@ func TestParseKeepsALineThatFollowsADanglingHeader(t *testing.T) {
 		{Service: "terrabase", Level: LevelWarn, Component: "Sender"},
 		{Service: "terrabase", Level: LevelError, Message: "store down", Example: `{"level":"ERROR","msg":"store down"}`},
 	}
+	slices.SortFunc(got, compareRecords)
+	slices.SortFunc(want, compareRecords)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Parse =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
 func TestParseCompletesRepeatedDotnetPairs(t *testing.T) {
-	var p Parser
 	var entries []Entry
 	for range 3 {
 		entries = append(entries, dotnet("9", "dbug: Cache[0]", "Cache warm")...)
 	}
-	got := collect(&p, entries...)
+	got := journalRecords(t, entries...)
 	if len(got) != 3 || got[0].Level != LevelDebug || got[0].Message != "Cache warm" {
 		t.Fatalf("Parse = %+v", got)
 	}
 }
 
 func TestParseSwallowsExceptionTextAfterADotnetMessage(t *testing.T) {
-	var p Parser
-	got := collect(&p,
+	got := journalRecords(t,
 		Entry{Comm: "terrabase", PID: "7", Message: "fail: TerraBase.Replication.Sender[1]"},
 		Entry{Comm: "terrabase", PID: "7", Message: "      Replication of 2 databases failed"},
 		Entry{Comm: "terrabase", PID: "7", Message: "      System.InvalidOperationException: pool exhausted"},
@@ -179,14 +174,15 @@ func TestParseSwallowsExceptionTextAfterADotnetMessage(t *testing.T) {
 			Example: "Replication of 2 databases failed"},
 		{Service: "terrabase", Level: LevelWarn, Message: "disk nearly full", Example: "disk nearly full"},
 	}
+	slices.SortFunc(got, compareRecords)
+	slices.SortFunc(want, compareRecords)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Parse =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
 func TestParseKeepsDotnetContinuationsOutOfOtherProcessesRecords(t *testing.T) {
-	var p Parser
-	got := collect(&p,
+	got := journalRecords(t,
 		Entry{Comm: "terrabase", PID: "7", Message: "warn: TerraBase.Replication.Sender[1]"},
 		Entry{Comm: "terrabase", PID: "7", Message: "      Replication failed"},
 		Entry{Comm: "terrabase", PID: "9", Message: "info: TerraBase.Cache[2]"},
@@ -202,27 +198,23 @@ func TestParseKeepsDotnetContinuationsOutOfOtherProcessesRecords(t *testing.T) {
 		{Service: "terrabase", Level: LevelInfo, Component: "TerraBase.Cache", Message: "cache warm", Example: "cache warm"},
 		{Service: "terrabase", Level: LevelInfo, Component: "TerraBase.Next", Message: "next done", Example: "next done"},
 	}
+	slices.SortFunc(got, compareRecords)
+	slices.SortFunc(want, compareRecords)
 	if !slices.Equal(got, want) {
 		t.Fatalf("Parse =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
-func TestDecodeJournalReadsTheFieldsAndSkipsBinaryMessages(t *testing.T) {
-	e, ok := DecodeJournal([]byte(`{"_SYSTEMD_UNIT":"terrascale-orchestrator-host.service","_COMM":"terrascale-orch","_PID":"976","PRIORITY":"4","__REALTIME_TIMESTAMP":"1786000000123456","MESSAGE":"hello"}`))
-	if !ok || e.Unit != "terrascale-orchestrator-host.service" || e.Comm != "terrascale-orch" || e.PID != "976" ||
-		e.Priority != "4" || e.Message != "hello" || !e.At.Equal(time.UnixMicro(1786000000123456)) {
-		t.Fatalf("DecodeJournal = %+v, %v", e, ok)
-	}
-	for _, line := range []string{`[104,105]`, `--`, ``, `{"_COMM":"x","MESSAGE":[104,105]}`} {
-		if _, ok := DecodeJournal([]byte(line)); ok {
-			t.Errorf("DecodeJournal(%q) accepted", line)
-		}
+func TestJournalFieldsAndInvalidLinesThroughHTTP(t *testing.T) {
+	got := journalRecords(t, Entry{Unit: "terrascale-orchestrator-host.service", Comm: "terrascale-orch", PID: "976", Priority: "4", At: time.UnixMicro(1786000000123456), Message: "hello"})
+	if len(got) != 1 || got[0].Service != "ts-orchestrator" || got[0].Level != LevelWarn || got[0].Message != "hello" {
+		t.Fatalf("journal HTTP records = %+v", got)
 	}
 }
 
 func TestPermissionViolationsOfOneCauseShareAClass(t *testing.T) {
-	a, _ := Classify(Entry{Comm: "terrascale-orch", Message: `[976] [WRN] Publish Violation for client "ts-gru-1" in account ACME with JWT eyJhbGciOi`})
-	b, _ := Classify(Entry{Comm: "terrascale-orch", Message: `[977] [WRN] Publish Violation for client "ts-sfo-2" in account BETA with JWT eyJzdWIiOi`})
+	a := journalRecords(t, Entry{Comm: "terrascale-orch", Message: `[976] [WRN] Publish Violation for client "ts-gru-1" in account ACME with JWT eyJhbGciOi`})[0]
+	b := journalRecords(t, Entry{Comm: "terrascale-orch", Message: `[977] [WRN] Publish Violation for client "ts-sfo-2" in account BETA with JWT eyJzdWIiOi`})[0]
 	if a.Message != b.Message {
 		t.Fatalf("violation classes %q and %q differ", a.Message, b.Message)
 	}

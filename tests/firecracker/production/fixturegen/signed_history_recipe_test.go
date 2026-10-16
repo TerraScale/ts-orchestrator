@@ -154,6 +154,7 @@ func signedHistoryRecipeWithMaterialsAndReceipt(t *testing.T, now time.Time, bin
 		// bound; two hours leaves a further hour inside the delegation cap.
 		receiptValidity = 2 * time.Hour
 	}
+	receipt = qualifyHistoryImageFixture(t, receipt, "production", rootPrivate, now, receiptValidity)
 	imageEnvelope, err := release.SignImageReceipt(receipt, "production", releaseGrant, roots,
 		releasePrivate, now, receiptValidity)
 	if err != nil {
@@ -380,4 +381,28 @@ func historyTestTLSSecrets(slot string) []bootstrap.SecretReference {
 			TargetFile: slot + "-" + name + ".pem"})
 	}
 	return secrets
+}
+
+// qualifyHistoryImageFixture signs test-only disk qualification independently of the image publisher.
+func qualifyHistoryImageFixture(t *testing.T, image release.ImageReceipt, environment string, root ed25519.PrivateKey, at time.Time, lifetime time.Duration) release.ImageReceipt {
+	t.Helper()
+	record := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+			QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: environment,
+			Runtime: release.ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " image evidence")
+		record.Evidence = append(record.Evidence, release.ProductionGateEvidence{Gate: gate,
+			SHA256: historyDigest(evidence), Bytes: int64(len(evidence)), CompletedAt: at.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(record.Candidate), at, at.Add(lifetime), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image.Production = &release.ProductionProof{Qualification: historyTestEnvelope(t, proof)}
+	return image
 }
