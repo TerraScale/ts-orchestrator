@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 )
 
 type containerSource = delivery.ArtifactSource
