@@ -136,6 +136,18 @@ func TestFinalImageProductionAdmissionBoundary(t *testing.T) {
 			if signErr != nil || consumerErr != nil || !verified.ExpiresAt().Equal(expires) {
 				t.Fatalf("qualified image: signing=%v consumer=%v expiry=%s", signErr, consumerErr, verified.ExpiresAt())
 			}
+			receiptPath, grantPath := filepath.Join(directory, "image.json"), filepath.Join(directory, "image-delegation.json")
+			writeFixtureFile(t, receiptPath, wire, 0o600)
+			writeFixtureFile(t, grantPath, grantWire, 0o600)
+			for _, pinnedOCID := range []string{image.OCIImageOCID, "ocid1.image.oc1.sa-saopaulo-1.WRONG"} {
+				err := Run(t.Context(), []string{"verify-image-production", "--image-file", imageFile,
+					"--qualification", filepath.Join(f.releaseDir, "qualification.json"), "--root-key", f.rootPath,
+					"--cell", image.OCIRegion, "--arch", image.Architecture, "--production-evidence-dir", directory,
+					"--image-receipt", receiptPath, "--delegation", grantPath, "--image-ocid", pinnedOCID}, io.Discard)
+				if (err != nil) != (pinnedOCID != image.OCIImageOCID) {
+					t.Fatalf("pre-launch exact image %s: %v", pinnedOCID, err)
+				}
+			}
 			copy := verified.Receipt()
 			copy.Production.Qualification[0] = 'x'
 			if verified.Receipt().Production.Qualification[0] == 'x' {
