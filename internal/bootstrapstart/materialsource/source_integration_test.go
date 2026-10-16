@@ -477,6 +477,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		startup, _ := sourceImageRecipe(t, private, roots, now, material.Config, ids, anchor.Anchor().InitialRegionIntentWire)
 		material.Startup = &startup
 		material.SourceRegistration = &bootstrap.InitialSourceRegistration{InstallationID: material.InstallationID, DeploymentID: material.Config.DeploymentID, Environment: material.Config.Environment, ClusterID: material.Config.ClusterID, Cell: oci.Region(strings.ToUpper(material.Config.Cell)), Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: startup.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}, StorageDomain: anchor.StorageDomain(), LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
+		if index == 1 {
+			material.SourceRegistration.StorageDomain = bootstrap.StorageDomain{Namespace: "namespace-a", LedgerBucket: "sfo-ledger", LedgerKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.ledger", HeadBucket: "sfo-1-head", HeadKMSKeyOCID: "ocid1.key.oc1.us-sanjose-1.head", Prefix: "private/sfo"}
+		}
 	}
 	publish()
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
@@ -716,6 +719,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	spokeActor := sourceFounderFixture(t, spokeGrant, anchor, roots, &objects, protocol, reader, "ocid1.instance.oc1.us-sanjose-1.founder")
+	if spokeActor.SourceStorageDomain() != anchor.StorageDomain() || spokeActor.Founder().StorageDomain() == spokeActor.SourceStorageDomain() {
+		t.Fatal("spoke founder confused its regional ledger with home source storage")
+	}
 	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, spokeActor, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
 	if err != nil {
 		t.Fatal(err)
@@ -777,6 +783,25 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	if !reflect.DeepEqual(publicRecovered.Record(), recoveredSpoke.Record()) {
 		t.Fatal("public recovery changed home-issued Link")
+	}
+	spokeProjection, err := NewStartupProjection(spokeTemplate, regionalMaterial, spokeTemplate.Template().SeedSlot)
+	if err != nil {
+		t.Fatalf("spoke startup projection: %v", err)
+	}
+	spokeProjection, err = spokeProjection.WithStartupLink(t.Context(), publicRecovered.Proof(), now)
+	if err != nil {
+		t.Fatalf("spoke startup Link attachment: %v", err)
+	}
+	spokeConfigs := make(map[string][]byte)
+	for _, slot := range spokeProjection.Manifest().ControllerSlots {
+		spokeConfigs[slot], err = json.Marshal(map[string]any{"nats": map[string]any{}, "controller": map[string]string{"cell": "sfo", "slot": slot}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	spokeAuthority, err := spokeProjection.BindConfigs(t.Context(), spokeConfigs)
+	if err != nil || spokeAuthority.StorageDomain() != spokeActor.Founder().StorageDomain() || spokeAuthority.VerifyCurrent(t.Context(), time.Now()) != nil {
+		t.Fatalf("spoke startup proof with separate regional ledger: %v", err)
 	}
 	wantCreates := protocol.creates
 	protocol.target = target
