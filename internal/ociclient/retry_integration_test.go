@@ -55,6 +55,8 @@ func TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline(t *testing.T) {
 			}
 			client.Host = server.URL
 			ConfigureReadCancellation(&client.BaseClient)
+			client.HTTPClient = Instrument(client.HTTPClient, string(ServiceObjectStorage))
+			ConfigureReadCancellation(&client.BaseClient)
 			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 			defer cancel()
 			started := time.Now()
