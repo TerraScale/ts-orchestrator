@@ -223,7 +223,7 @@ func filesFor(proof release.VerifiedFunction, minimum uint64, roots trust.Keyrin
 	if len(root) != 32 {
 		return nil, ErrMaterial
 	}
-	deployment, err := json.Marshal(functions.ProcessDeployment{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: minimum, BrokerURL: brokerURL})
+	deployment, err := json.Marshal(functions.ProcessDeployment{Environment: claim.Environment, Cell: claim.Cell, TenantID: claim.TenantID, FunctionID: claim.FunctionID, Revision: claim.Revision, Digest: claim.Digest, MinimumSequence: minimum, BrokerURL: brokerURL, ExpiresAt: material.ExpiresAt})
 	if err != nil {
 		return nil, err
 	}
