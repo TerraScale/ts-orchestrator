@@ -23,12 +23,13 @@ const derivedStartupDomain = "terrascale.bootstrap.derived-startup"
 // DerivedStartupBinding is public evidence stored write-once in the original
 // source CAS. MaterialRecord contains public inventory, never source key bytes.
 type DerivedStartupBinding struct {
-	SchemaVersion  int      `json:"schemaVersion"`
-	GrantSHA256    string   `json:"grantSha256"`
-	TemplateSHA256 string   `json:"templateSha256"`
-	SourceSHA256   string   `json:"sourceSha256"`
-	MaterialRecord []byte   `json:"materialRecord"`
-	Manifest       Manifest `json:"manifest"`
+	SchemaVersion  int                   `json:"schemaVersion"`
+	GrantSHA256    string                `json:"grantSha256"`
+	TemplateSHA256 string                `json:"templateSha256"`
+	SourceSHA256   string                `json:"sourceSha256"`
+	MaterialRecord []byte                `json:"materialRecord"`
+	Manifest       Manifest              `json:"manifest"`
+	Link           *RegionalLinkEvidence `json:"link,omitempty"`
 }
 
 // DerivedStartupAuthority retains distinct provenance: the original signed
@@ -73,6 +74,12 @@ func (authority DerivedStartupAuthority) SourceSHA256() string {
 		return ""
 	}
 	return authority.binding.SourceSHA256
+}
+func (authority DerivedStartupAuthority) LinkMaterialRecord() []byte {
+	if !authority.IsVerified() || authority.binding.Link == nil {
+		return nil
+	}
+	return bytes.Clone(authority.binding.Link.MaterialRecord)
 }
 func (authority DerivedStartupAuthority) TrustedSigners() jsontext.Value {
 	return bytes.Clone(authority.template.template.TrustedSigners)
@@ -171,6 +178,21 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if err := template.ValidateProjection(manifest); err != nil {
 		return deny("template projection")
 	}
+	linkRefs := map[string]SecretReference{}
+	if binding.Link != nil {
+		link, err := VerifyStartupLink(ctx, template, client, *binding.Link, now)
+		if err != nil {
+			return deny("Link provenance")
+		}
+		evidence := link.Evidence()
+		binding.Link = &evidence
+		for _, ref := range link.References() {
+			if linkRefs[ref.TargetFile].TargetFile != "" || !slices.Contains(manifest.Secrets, ref) {
+				return deny("Link reference")
+			}
+			linkRefs[ref.TargetFile] = ref
+		}
+	}
 	var record struct {
 		Config    jsontext.Value `json:"config"`
 		IssuedAt  time.Time      `json:"issuedAt"`
@@ -252,7 +274,9 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 		}
 		refs, _ := json.Marshal(sibling.Manifest.Secrets, json.Deterministic(true))
 		ownRefs, _ := json.Marshal(manifest.Secrets, json.Deterministic(true))
-		if !bytes.Equal(refs, ownRefs) || !siblingEnvelope.IssuedAt.Equal(envelope.IssuedAt) || !siblingEnvelope.ExpiresAt.Equal(envelope.ExpiresAt) {
+		linkWire, _ := json.Marshal(binding.Link, json.Deterministic(true))
+		siblingLinkWire, _ := json.Marshal(sibling.Link, json.Deterministic(true))
+		if !bytes.Equal(refs, ownRefs) || !bytes.Equal(linkWire, siblingLinkWire) || !siblingEnvelope.IssuedAt.Equal(envelope.IssuedAt) || !siblingEnvelope.ExpiresAt.Equal(envelope.ExpiresAt) {
 			return deny("sibling material")
 		}
 		if _, err := trust.VerifyCurrent(siblingEnvelope, DerivedStartupScope(sibling.Manifest), trust.Keyring{keyID: ledgerKey}, now, ManifestTrustPolicy()); err != nil {
@@ -277,7 +301,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 	if json.Unmarshal(state.Journal, &journal) != nil || journal.SchemaVersion != 1 || journal.MaterialSHA256 != digestBytes(binding.MaterialRecord) || journal.Target.CompartmentOCID != target.CompartmentOCID || journal.Target.VaultOCID != target.VaultOCID || journal.Target.KMSKeyOCID != target.KMSKeyOCID {
 		return deny("publication target")
 	}
-	count := 0
+	count, overrides := 0, 0
 	for _, file := range record.Files {
 		if file.Purpose == "owner-only" {
 			continue
@@ -288,6 +312,22 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 			return deny("publication reference")
 		}
 		ref := manifest.Secrets[index]
+		if replacement, ok := linkRefs[file.Name]; ok {
+			if file.Name != "cell.jwt" || manifest.Cell != "GRU" || ref != replacement {
+				return deny("Link override")
+			}
+			overrides++
+			if !slices.ContainsFunc(journal.Entries, func(entry struct {
+				FileName   string `json:"fileName"`
+				SecretOCID string `json:"secretOcid"`
+				Verified   bool   `json:"verified"`
+			}) bool {
+				return entry.FileName == file.Name && entry.Verified && isOCID(entry.SecretOCID, "vaultsecret")
+			}) {
+				return deny("regional publication override")
+			}
+			continue
+		}
 		entry := slices.IndexFunc(journal.Entries, func(entry struct {
 			FileName   string `json:"fileName"`
 			SecretOCID string `json:"secretOcid"`
@@ -299,7 +339,7 @@ func VerifyDerivedStartupAuthority(ctx context.Context, template VerifiedStartup
 			return deny("publication contents")
 		}
 	}
-	if count != len(manifest.Secrets) || count != len(journal.Entries) {
+	if count+len(linkRefs)-overrides != len(manifest.Secrets) || count != len(journal.Entries) {
 		return deny("publication completeness")
 	}
 	return DerivedStartupAuthority{template: template, binding: binding, client: client, wire: bytes.Clone(wire), digest: digestBytes(wire), envelope: envelope, ledgerKey: bytes.Clone(ledgerKey), peerKey: bytes.Clone(peerKey)}, nil
