@@ -1,6 +1,7 @@
 package bootstrapstart
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -178,8 +179,15 @@ func (adapter *FounderOCI) beforeEffect(ctx context.Context, attempt FounderOCIA
 }
 
 func sameFounderAttempt(attempt FounderOCIAttempt, current bootstrap.FounderPeerLaunchRequest, deadline, now time.Time) bool {
+	previous := attempt.request
+	for _, request := range []bootstrap.FounderPeerLaunchRequest{previous, current} {
+		if request.StartupAuthority != nil && request.StartupAuthority.Digest() != request.ManifestSHA256 {
+			return false
+		}
+	}
+	previous.StartupAuthority, current.StartupAuthority = nil, nil
 	return attempt.valid && !attempt.deadline.IsZero() && !deadline.After(attempt.deadline) &&
-		now.Location() == time.UTC && now.Before(attempt.deadline) && reflect.DeepEqual(current, attempt.request)
+		now.Location() == time.UTC && now.Before(attempt.deadline) && reflect.DeepEqual(current, previous)
 }
 
 func noFounderSDKRetry() common.RequestMetadata {
@@ -250,7 +258,13 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 	manifestHash := sha256.Sum256(request.ManifestWire)
 	manifestEnvelope, manifestErr := trust.DecodeEnvelope(request.ManifestWire)
 	var manifest bootstrap.Manifest
-	if manifestErr == nil {
+	derived, isDerived := request.StartupAuthority.(bootstrap.DerivedStartupAuthority)
+	if isDerived {
+		if !derived.IsVerified() || derived.Digest() != request.ManifestSHA256 || !bytes.Equal(derived.Wire(), request.ManifestWire) {
+			return core.LaunchInstanceRequest{}, ErrFounderOCI
+		}
+		manifest, manifestErr = derived.Manifest(), nil
+	} else if manifestErr == nil {
 		manifest, manifestErr = bootstrap.ManifestPayload(manifestEnvelope.Payload)
 	}
 	vpus, ok := row.BootVolumeTier.VPUsPerGB()
@@ -258,7 +272,7 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 		row.MemoryInGB == 0 || row.BootVolumeGB < founderMinBootVolumeGB ||
 		row.BootVolumeGB > founderMaxBootVolumeGB || request.RetryToken == "" ||
 		row.WholeOCPUs > 1<<24 || row.MemoryInGB > 1<<24 ||
-		len(request.ManifestWire) == 0 || len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
+		len(request.ManifestWire) == 0 || len(request.ManifestWire) > bootstrap.MaxManifestBytes || !isDerived && len(request.ManifestWire) > MaxControllerManifestMetadataBytes ||
 		hex.EncodeToString(manifestHash[:]) != request.ManifestSHA256 || manifestErr != nil ||
 		manifest.Slot != request.Slot || manifest.DeploymentID != request.DeploymentID ||
 		manifest.Cell != request.Cell || manifest.Environment != request.Environment ||
@@ -279,7 +293,9 @@ func founderLaunchSDKRequest(request bootstrap.FounderPeerLaunchRequest, materia
 	}
 	metadata := material.ControllerMetadata()
 	metadata["terrascale-bootstrap"] = string(descriptor)
-	metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
+	if !isDerived {
+		metadata["terrascale-controller-manifest-v1"] = string(request.ManifestWire)
+	}
 	return core.LaunchInstanceRequest{
 		OpcRetryToken: new(request.RetryToken), RequestMetadata: noFounderSDKRetry(),
 		LaunchInstanceDetails: core.LaunchInstanceDetails{
