@@ -18,6 +18,8 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -207,7 +209,9 @@ func New(t testing.TB, privateIP string, hostEnrollment []byte, material generat
 	client, err := objectstorage.NewObjectStorageClientWithConfigurationProvider(provider)
 	require(t, err)
 	client.Host, client.HTTPClient = server.URL, server.Client()
-	floor, err := bootstrapstart.NewFounderSelectionFloorStoreFixture(t.TempDir())
+	floorDirectory := filepath.Join(t.TempDir(), "floor")
+	require(t, os.Mkdir(floorDirectory, 0o700))
+	floor, err := bootstrapstart.NewFounderSelectionFloorStoreFixture(floorDirectory)
 	require(t, err)
 	require(t, floor.Initialize(1, digest(selectionWire)))
 	accepted := acceptedIdentity(t, privateIP, material, hostEnrollment, now)
