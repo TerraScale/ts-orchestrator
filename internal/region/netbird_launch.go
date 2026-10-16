@@ -43,6 +43,9 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 	if err := validateNetBirdAllocation(allocation, intent, compartment); err != nil {
 		return err
 	}
+	if err := allocation.Revalidate(ctx); err != nil {
+		return err
+	}
 	if existing := progress.NetBirdManager; existing != nil && existing.InstanceID != "" {
 		if existing.SlotID != slotID || existing.OperationID != allocation.OperationID() || existing.ProfileSHA256 != intent.profileDigest || existing.RecipeSHA256 != intent.recipeDigest {
 			return errors.New("dedicated manager singleton differs from current signed allocation")
@@ -52,6 +55,12 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		readOnly := progress
 		readOnly.BeforeWrite = func(ctx context.Context, _ bool) (context.Context, func(), error) {
 			return ctx, nil, errors.New("existing manager network cannot be recreated")
+		}
+		readOnly.PrepareCreate = func(context.Context, foundation.CreateIdentity, bool) error {
+			return errors.New("existing manager cannot reserve network repairs")
+		}
+		readOnly.CheckpointAuxiliary = func(context.Context, string, string) error {
+			return errors.New("existing manager cannot adopt network resources")
 		}
 		if _, _, err := ReconcileNetBirdNetwork(ctx, factory, plan, intent.intent.Profile, readOnly); err != nil {
 			return err
@@ -74,7 +83,7 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		return err
 	}
 	launch := NetBirdManagerLaunch{SlotID: slotID, OperationID: allocation.OperationID(), ProfileSHA256: intent.profileDigest,
-		RecipeSHA256: intent.recipeDigest, StartedAt: time.Now().UTC(), StoreState: "empty"}
+		RecipeSHA256: intent.recipeDigest, StartedAt: time.Now().UTC(), StoreState: "empty", OriginGrantSHA256: allocation.GrantDigest(), OriginBindingSHA256: allocation.BindingDigest(), OriginalScopeSHA256: allocation.ScopeDigest(), PhysicalScopeSHA256: allocation.PhysicalScopeDigest()}
 	if progress.NetBirdManager != nil {
 		launch = *progress.NetBirdManager
 		if launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.ProfileSHA256 != intent.profileDigest || launch.RecipeSHA256 != intent.recipeDigest {
@@ -106,8 +115,12 @@ func reconcileNetBirdManager(ctx context.Context, factory *ociclient.Factory, pl
 		if err != nil {
 			return ctx, nil, err
 		}
-		if nextAllocation.GrantDigest() != allocation.GrantDigest() {
+		if nextAllocation.GrantDigest() != allocation.GrantDigest() || nextAllocation.BindingDigest() != allocation.BindingDigest() ||
+			nextAllocation.ScopeDigest() != allocation.ScopeDigest() || nextAllocation.PhysicalScopeDigest() != allocation.PhysicalScopeDigest() {
 			return ctx, nil, ErrFoundationFenced
+		}
+		if err := nextAllocation.Revalidate(ctx); err != nil {
+			return ctx, nil, err
 		}
 		if err := nextAllocation.Validate(request(preflightDigest, preflightToken), quote, time.Now()); err != nil {
 			return ctx, nil, err

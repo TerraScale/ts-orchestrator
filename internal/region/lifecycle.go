@@ -370,7 +370,8 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			<-renewed
 			return attempt.finish(ctx, errors.New("NetBird manager requires the same signed GRU foundation grant"))
 		}
-		progress.ManagerAuthority, progress.ManagerAllocation = reader.authorizedNetBirdManager, reader.BootstrapAllocation
+		resolver := FoundationResolver{Footprint: c.Footprint, Store: c.Store}
+		progress.ManagerAuthority, progress.ManagerAllocation = reader.authorizedNetBirdManager, resolver.BootstrapAllocation
 		progress.NetBirdManager, progress.CheckpointManager = current.NetBirdManager, attempt.checkpointManager
 	}
 	bound, providerErr := c.Foundations.ReconcileFoundation(workCtx, plan, progress)

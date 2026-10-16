@@ -59,16 +59,20 @@ type NetBirdManagerIntent struct {
 // NetBirdManagerLaunch is an immutable singleton reservation in the existing
 // foundation journal. New grant generations cannot reset a pending launch.
 type NetBirdManagerLaunch struct {
-	SlotID        string    `json:"slotId"`
-	OperationID   string    `json:"operationId"`
-	ProfileSHA256 string    `json:"profileSha256"`
-	RecipeSHA256  string    `json:"recipeSha256"`
-	RequestDigest string    `json:"requestDigest"`
-	RetryToken    string    `json:"retryToken"`
-	StartedAt     time.Time `json:"startedAt"`
-	InstanceID    string    `json:"instanceId,omitempty"`
-	BootVolumeID  string    `json:"bootVolumeId,omitempty"`
-	StoreState    string    `json:"storeState"`
+	SlotID              string    `json:"slotId"`
+	OperationID         string    `json:"operationId"`
+	ProfileSHA256       string    `json:"profileSha256"`
+	RecipeSHA256        string    `json:"recipeSha256"`
+	RequestDigest       string    `json:"requestDigest"`
+	RetryToken          string    `json:"retryToken"`
+	StartedAt           time.Time `json:"startedAt"`
+	InstanceID          string    `json:"instanceId,omitempty"`
+	BootVolumeID        string    `json:"bootVolumeId,omitempty"`
+	StoreState          string    `json:"storeState"`
+	OriginGrantSHA256   string    `json:"originGrantSha256"`
+	OriginBindingSHA256 string    `json:"originBindingSha256,omitempty"`
+	OriginalScopeSHA256 string    `json:"originalScopeSha256"`
+	PhysicalScopeSHA256 string    `json:"physicalScopeSha256"`
 }
 
 type verifiedNetBirdIntent struct {
@@ -231,6 +235,9 @@ func admitNetBirdManager(ctx context.Context, resolver FoundationResolver, reade
 		if err := validateNetBirdAllocation(allocation, intent, record.ResourceIDs["control_compartment"]); err != nil {
 			return vaultsecret.Target{}, "", err
 		}
+		if err := allocation.Revalidate(ctx); err != nil {
+			return vaultsecret.Target{}, "", err
+		}
 		if launch == nil || launch.SlotID != slotID || launch.OperationID != allocation.OperationID() || launch.InstanceID != instanceID || launch.RecipeSHA256 != intent.recipeDigest || launch.ProfileSHA256 != intent.profileDigest {
 			return vaultsecret.Target{}, "", errors.New("dedicated manager instance has no exact immutable foundation checkpoint")
 		}
@@ -367,11 +374,14 @@ func (l NetBirdManagerLaunch) validate() error {
 	if !slices.Contains([]string{"empty", "initializing", "ready"}, l.StoreState) || l.StoreState != "empty" && l.InstanceID == "" {
 		return errors.New("NetBird manager checkpoint has invalid durable store state")
 	}
-	for _, value := range []string{l.ProfileSHA256, l.RecipeSHA256, l.RequestDigest, l.RetryToken} {
+	for _, value := range []string{l.ProfileSHA256, l.RecipeSHA256, l.RequestDigest, l.RetryToken, l.OriginGrantSHA256, l.OriginalScopeSHA256, l.PhysicalScopeSHA256} {
 		b, err := hex.DecodeString(value)
 		if err != nil || len(b) != sha256.Size || hex.EncodeToString(b) != value {
 			return errors.New("NetBird manager checkpoint has invalid recipe or request digest")
 		}
+	}
+	if l.OriginBindingSHA256 != "" && !bootstrapSHA256.MatchString(l.OriginBindingSHA256) {
+		return errors.New("NetBird manager original binding digest is invalid")
 	}
 	if l.InstanceID != "" && !strings.HasPrefix(l.InstanceID, "ocid1.instance.oc1.sa-saopaulo-1.") ||
 		l.BootVolumeID != "" && !strings.HasPrefix(l.BootVolumeID, "ocid1.bootvolume.oc1.sa-saopaulo-1.") {
