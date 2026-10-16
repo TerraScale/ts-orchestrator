@@ -119,8 +119,8 @@ func (c *cloud) check(ctx context.Context, cleanup bool) error {
 	if cleanup {
 		expires = c.prepared.approval.CleanupUntil
 	}
-	if !c.now().Before(expires) {
-		return errors.New("disposable operation authority expired")
+	if c.now().Before(c.prepared.issuedAt) || !c.now().Before(expires) {
+		return errors.New("disposable operation is outside signed authority interval")
 	}
 	return nil
 }

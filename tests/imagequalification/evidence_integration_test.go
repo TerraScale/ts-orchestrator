@@ -10,6 +10,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
@@ -50,12 +51,27 @@ func reportFixture(t *testing.T, f qualificationFixture) (host.Report, journal, 
 	return r, j, cloud
 }
 
-func TestRetainedUnsignedProofBindsObjectsAndExistingQualifier(t *testing.T) {
-	f := fixture(t)
+// Native reports and console pins here are constructed consumer inputs, not
+// evidence of guest execution. Confinement comes from actual public SDK calls.
+func assertRetainedUnsignedProof(t *testing.T, f qualificationFixture, verified confinement.Verified, actual journal) {
+	t.Helper()
 	r, j, hosts := reportFixture(t, f)
+	r.ImageOCID, j.ImageID = actual.ImageID, actual.ImageID
+	j.CapabilityID, j.CapabilityVersion, j.CapabilityDeleted = actual.CapabilityID, actual.CapabilityVersion, actual.CapabilityDeleted
+	var ids []string
+	for index, spec := range f.prepared.approval.Hosts {
+		id := actual.Hosts[spec.Name]
+		j.Hosts[spec.Name], j.Terminated[spec.Name] = id, actual.Terminated[spec.Name]
+		r.Hosts[index].OCID, r.Hosts[index].Observed.InstanceID, r.Hosts[index].Observed.ImageOCID = id, id, actual.ImageID
+		hosts[index].InstanceID, hosts[index].ImageID = id, actual.ImageID
+		ids = append(ids, id)
+	}
+	for index := range r.Scenarios {
+		r.Scenarios[index].HostIDs = ids
+	}
 	directory := t.TempDir()
 	now := r.CompletedAt.Add(time.Second)
-	proof, err := retainProof(f.prepared, r, j, hosts, []byte("{ \n \"observations\": \"controlled SDK fixture\" }"), directory, now)
+	proof, err := retainProof(t.Context(), f.prepared, r, j, hosts, verified, directory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,12 +108,27 @@ func TestRetainedUnsignedProofBindsObjectsAndExistingQualifier(t *testing.T) {
 	}
 }
 
+func TestUnsignedProofRejectsUnsealedConfinement(t *testing.T) {
+	f := fixture(t)
+	r, j, hosts := reportFixture(t, f)
+	directory := t.TempDir()
+	if _, err := retainProof(t.Context(), f.prepared, r, j, hosts, confinement.Verified{}, directory, r.CompletedAt); err == nil {
+		t.Fatal("unsealed confinement produced unsigned proof")
+	}
+	if _, err := os.Stat(filepath.Join(directory, "production.unsigned.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed proof retention created a payload: %v", err)
+	}
+}
+
 func TestReportRejectsChangedIdentityMissingScenariosAndIncompleteCleanup(t *testing.T) {
 	f := fixture(t)
 	cases := []struct {
 		name   string
 		change func(*host.Report, *journal, []hostObservation)
 	}{
+		{"before-approval", func(r *host.Report, _ *journal, _ []hostObservation) {
+			r.StartedAt = f.prepared.issuedAt.Add(-time.Second)
+		}},
 		{"component", func(r *host.Report, _ *journal, _ []hostObservation) {
 			r.Hosts[0].Observed.ContainerdSHA256 = hashBytes([]byte("other"))
 		}},

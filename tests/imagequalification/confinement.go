@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
 
@@ -44,6 +45,40 @@ func (p Prepared) confinementScope(j journal) confinement.Scope {
 		}
 	}
 	return s
+}
+
+// validatedConfinement preserves actual sealed observation bytes and permits
+// only journaled host creation to refine the independently approved scope.
+func validatedConfinement(ctx context.Context, p Prepared, j journal, verified confinement.Verified) ([]byte, error) {
+	if p.approvalSHA256 == "" || hashBytes(p.approvalWire) != p.approvalSHA256 {
+		return nil, errors.New("sealed signed approval is absent or changed")
+	}
+	expected, observed := p.confinementScope(j), verified.Scope()
+	for id, name := range observed.ExistingHosts {
+		if expected.ExistingHosts[id] != name {
+			return nil, errors.New("observed confinement host differs from exact run journal")
+		}
+	}
+	observed.ExistingHosts = expected.ExistingHosts
+	want, err := json.Marshal(expected, json.Deterministic(true))
+	if err != nil {
+		return nil, err
+	}
+	got, err := json.Marshal(observed, json.Deterministic(true))
+	if err != nil || !bytes.Equal(want, got) {
+		return nil, errors.New("sealed confinement scope differs from exact approved run")
+	}
+	wire := verified.Evidence()
+	if len(wire) == 0 || hashBytes(wire) != verified.EvidenceSHA256() {
+		return nil, errors.New("sealed confinement evidence is absent or changed")
+	}
+	if err := verified.Revalidate(ctx, expected); err != nil {
+		return nil, err
+	}
+	if now := time.Now(); now.Before(p.issuedAt) || !now.Before(p.approval.CleanupUntil) {
+		return nil, errors.New("confinement evidence retention is outside signed authority interval")
+	}
+	return wire, nil
 }
 
 func newConfinedCloud(ctx context.Context, p Prepared, verified confinement.Verified, path string) (*cloud, error) {

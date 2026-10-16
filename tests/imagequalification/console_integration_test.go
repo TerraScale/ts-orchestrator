@@ -93,6 +93,17 @@ func TestConsoleSDKPinsOneRunKeyAndDeletesExactHistories(t *testing.T) {
 	if _, _, err := client.consoleKey(t.Context(), path, spec); err != nil || captures != 1 {
 		t.Fatalf("console restart replay: captures=%d err=%v", captures, err)
 	}
+	foreign = true
+	if _, _, err := client.consoleKey(t.Context(), path, spec); err == nil {
+		t.Fatal("cached console pin accepted a foreign instance history")
+	}
+	foreign = false
+	originalKey := key
+	key = publicSSHKey(t)
+	if _, _, err := client.consoleKey(t.Context(), path, spec); err == nil {
+		t.Fatal("cached console pin accepted changed authenticated console content")
+	}
+	key = originalKey
 	wire, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

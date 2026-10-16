@@ -112,6 +112,7 @@ func ApprovalScope(runID string, candidate release.ProductionExpectation) trust.
 // effective credential-policy confinement; an approval alone is insufficient.
 type Prepared struct {
 	approval       Approval
+	issuedAt       time.Time
 	expires        time.Time
 	approvalSHA256 string
 	approvalWire   []byte
@@ -190,9 +191,12 @@ func Prepare(approvalWire, delegationWire []byte, roots trust.Keyring, expected 
 	if err := verifyDisk(diskPath, approval); err != nil {
 		return result, err
 	}
-	result = Prepared{approval: approval, expires: envelope.ExpiresAt, approvalSHA256: hashBytes(approvalWire), approvalWire: bytes.Clone(approvalWire), delegationWire: bytes.Clone(delegationWire), diskPath: diskPath}
+	result = Prepared{approval: approval, issuedAt: envelope.IssuedAt, expires: envelope.ExpiresAt, approvalSHA256: hashBytes(approvalWire), approvalWire: bytes.Clone(approvalWire), delegationWire: bytes.Clone(delegationWire), diskPath: diskPath}
 	if len(delegationWire) > 0 {
 		delegation, _ := trust.DecodeEnvelope(delegationWire)
+		if delegation.IssuedAt.After(result.issuedAt) {
+			result.issuedAt = delegation.IssuedAt
+		}
 		if delegation.ExpiresAt.Before(result.expires) {
 			result.expires = delegation.ExpiresAt
 		}

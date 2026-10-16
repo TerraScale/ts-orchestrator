@@ -1,6 +1,7 @@
 package imagequalification
 
 import (
+	"context"
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
@@ -45,7 +47,7 @@ type gateRecord struct {
 
 // retainProof writes an unsigned payload for an independent existing qualifier.
 // No report, file or SDK observation grants production signing authority.
-func retainProof(p Prepared, report host.Report, resources journal, hosts []hostObservation, confinement []byte, directory string, now time.Time) (release.ProductionQualification, error) {
+func retainProof(ctx context.Context, p Prepared, report host.Report, resources journal, hosts []hostObservation, verified confinement.Verified, directory string, now time.Time) (release.ProductionQualification, error) {
 	var result release.ProductionQualification
 	if hashBytes(p.approvalWire) != p.approvalSHA256 || !jsontext.Value(p.approvalWire).IsValid() {
 		return result, errors.New("sealed signed approval bytes are absent or changed")
@@ -53,8 +55,9 @@ func retainProof(p Prepared, report host.Report, resources journal, hosts []host
 	if err := validateReport(p, report, resources, hosts, now); err != nil {
 		return result, err
 	}
-	if !jsontext.Value(confinement).IsValid() {
-		return result, errors.New("retained confinement observations are absent or invalid")
+	confinement, err := validatedConfinement(ctx, p, resources, verified)
+	if err != nil {
+		return result, err
 	}
 	result = release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: p.approval.Candidate}
 	if err := os.MkdirAll(filepath.Join(directory, "objects"), 0700); err != nil {
@@ -113,7 +116,7 @@ func validateReport(p Prepared, r host.Report, j journal, cloudHosts []hostObser
 	if a.Candidate.Role != "orchestrator" || a.Candidate.Runtime != release.ProductionRuntime || r.RunID != a.RunID || r.Candidate != a.Candidate || r.ImageOCID == "" || r.ImageOCID != j.ImageID || r.WorkloadImage != a.WorkloadImage || r.WorkloadArchiveSHA256 != a.WorkloadArchiveSHA256 {
 		return errors.New("native report candidate or immutable artifacts differ")
 	}
-	if r.StartedAt.IsZero() || r.CompletedAt.Before(r.StartedAt) || r.CompletedAt.After(p.expires) || now.Before(r.CompletedAt) || now.After(a.CleanupUntil) {
+	if r.StartedAt.IsZero() || r.StartedAt.Before(p.issuedAt) || r.CompletedAt.Before(r.StartedAt) || r.CompletedAt.After(p.expires) || now.Before(r.CompletedAt) || now.After(a.CleanupUntil) {
 		return errors.New("native run or cleanup is outside finite authority")
 	}
 	if j.RunID != a.RunID || j.ApprovalSHA256 != p.approvalSHA256 || j.CapabilityID == "" || j.CapabilityVersion == "" || !j.CapabilityDeleted || !j.ImageDeleted || !j.ObjectDeleted || len(j.Hosts) != len(a.Hosts) || len(j.Terminated) != len(a.Hosts) || len(r.Hosts) != len(a.Hosts) || len(cloudHosts) != len(a.Hosts) {

@@ -126,9 +126,31 @@ func (c *cloud) consoleKey(ctx context.Context, path string, spec HostSpec) (hos
 	if key := j.HostKeys[spec.Name]; key != "" {
 		host.HostKeySHA256, host.ConsoleSHA256 = hashBytes([]byte(key)), j.ConsoleDigests[spec.Name]
 		host.ConsoleHistoryID = j.HostConsoleHistory[spec.Name]
-		parsed, digest, parseErr := parseConsoleKey(c.prepared.approval.RunID, "TSQUAL_HOSTKEY "+c.prepared.approval.RunID+" "+key+"\n")
-		if parseErr != nil || parsed != key || digest != host.ConsoleSHA256 || !validHash(host.ConsoleSHA256) || host.ConsoleHistoryID == "" {
-			return host, "", errors.New("retained console key lacks evidence digest")
+		operation := ""
+		for candidate, id := range j.ConsoleHistories {
+			if id == host.ConsoleHistoryID && strings.HasPrefix(candidate, "console/"+spec.Name+"/") {
+				if operation != "" {
+					return host, "", errors.New("retained console history has ambiguous capture ownership")
+				}
+				operation = candidate
+			}
+		}
+		if operation == "" || j.ConsoleDeleted[operation] {
+			return host, "", errors.New("retained console key lacks exact active capture intent")
+		}
+		history, err := c.consoleMetadata(ctx, j, spec, operation)
+		if err != nil {
+			return host, "", err
+		}
+		if history.LifecycleState != core.ConsoleHistoryLifecycleStateSucceeded {
+			return host, "", errors.New("retained console capture is not successful")
+		}
+		parsed, digest, err := c.consoleContentKey(ctx, host.ConsoleHistoryID)
+		if err != nil {
+			return host, "", err
+		}
+		if parsed != key || digest != host.ConsoleSHA256 || !validHash(host.ConsoleSHA256) {
+			return host, "", errors.New("retained console key differs from authenticated captured content")
 		}
 		return host, key, nil
 	}
@@ -171,14 +193,7 @@ func (c *cloud) consoleKey(ctx context.Context, path string, spec HostSpec) (hos
 				return host, "", err
 			}
 		}
-		r, err := c.compute.GetConsoleHistoryContent(ociclient.RequestContext(ctx), core.GetConsoleHistoryContentRequest{InstanceConsoleHistoryId: new(j.ConsoleHistories[operation]), Length: new(maxConsoleBytes)})
-		if err != nil {
-			return host, "", err
-		}
-		if r.Value == nil || len(*r.Value) > maxConsoleBytes || r.OpcBytesRemaining != nil && *r.OpcBytesRemaining != 0 {
-			return host, "", errors.New("console snapshot exceeds bounded complete content")
-		}
-		key, digest, err := parseConsoleKey(c.prepared.approval.RunID, *r.Value)
+		key, digest, err := c.consoleContentKey(ctx, j.ConsoleHistories[operation])
 		if err != nil {
 			return host, "", err
 		}
@@ -202,6 +217,17 @@ func (c *cloud) consoleKey(ctx context.Context, path string, spec HostSpec) (hos
 		}
 	}
 	return host, "", errors.New("bounded console captures did not expose the approved run host key")
+}
+
+func (c *cloud) consoleContentKey(ctx context.Context, id string) (string, string, error) {
+	r, err := c.compute.GetConsoleHistoryContent(ociclient.RequestContext(ctx), core.GetConsoleHistoryContentRequest{InstanceConsoleHistoryId: new(id), Length: new(maxConsoleBytes)})
+	if err != nil {
+		return "", "", err
+	}
+	if r.Value == nil || len(*r.Value) > maxConsoleBytes || r.OpcBytesRemaining != nil && *r.OpcBytesRemaining != 0 {
+		return "", "", errors.New("console snapshot exceeds bounded complete content")
+	}
+	return parseConsoleKey(c.prepared.approval.RunID, *r.Value)
 }
 
 func parseConsoleKey(runID, content string) (string, string, error) {

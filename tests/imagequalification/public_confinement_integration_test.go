@@ -74,6 +74,14 @@ func authenticatedFixtureRequest(r *http.Request, key *rsa.PublicKey, tenancy st
 
 func TestPublicConfinementSealsActualSDKAndRejectsResourceDrift(t *testing.T) {
 	f := fixture(t)
+	exercisePublicConfinement(t, f, func(p Prepared, verified confinement.Verified, j journal) {
+		f.prepared = p
+		assertRetainedUnsignedProof(t, f, verified, j)
+	})
+}
+
+func exercisePublicConfinement(t *testing.T, f qualificationFixture, afterCleanup func(Prepared, confinement.Verified, journal)) {
+	t.Helper()
 	a := f.prepared.Approval()
 	path := filepath.Join(t.TempDir(), "resources.json")
 	initial, err := f.prepared.ConfinementScope(path)
@@ -246,7 +254,7 @@ func TestPublicConfinementSealsActualSDKAndRejectsResourceDrift(t *testing.T) {
 	fixtureMu.Lock()
 	launches := remote.launches
 	fixtureMu.Unlock()
-	if len(j.Hosts) != 4 || launches != 4 {
+	if len(j.Hosts) != len(a.Hosts) || launches != len(a.Hosts) {
 		t.Fatal("sealed positive consumer did not launch the exact finite hosts")
 	}
 	first := j.Hosts[a.Hosts[0].Name]
@@ -289,7 +297,10 @@ func TestPublicConfinementSealsActualSDKAndRejectsResourceDrift(t *testing.T) {
 	fixtureMu.Lock()
 	deletes = remote.deletes
 	fixtureMu.Unlock()
-	if !cleaned.ImageDeleted || !cleaned.ObjectDeleted || !cleaned.CapabilityDeleted || len(cleaned.Terminated) != 4 || deletes != 7 {
+	if !cleaned.ImageDeleted || !cleaned.ObjectDeleted || !cleaned.CapabilityDeleted || len(cleaned.Terminated) != len(a.Hosts) || deletes != len(a.Hosts)+3 {
 		t.Fatalf("sealed consumer cleanup incomplete: %+v deletes=%d", cleaned, deletes)
+	}
+	if afterCleanup != nil {
+		afterCleanup(prepared, verified, cleaned)
 	}
 }
