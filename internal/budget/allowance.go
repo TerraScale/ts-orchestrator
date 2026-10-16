@@ -1,6 +1,7 @@
 package budget
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -62,15 +63,17 @@ type RegionAllowance struct {
 
 // Capacity is the global capacity document the home region's leader writes.
 type Capacity struct {
-	Schema         int               `json:"schema"`
-	At             time.Time         `json:"at"`
-	CapCents       uint64            `json:"cap_cents,omitzero"`
-	Currency       string            `json:"currency,omitempty"`
-	ProjectedCents uint64            `json:"projected_cents"`
-	Ratio          float64           `json:"ratio"`
-	State          State             `json:"state"`
-	Reason         string            `json:"reason"`  // one sentence: why growth is held, or what was granted
-	Regions        []RegionAllowance `json:"regions"` // sorted by Cell
+	Schema         int                     `json:"schema"`
+	At             time.Time               `json:"at"`
+	CapCents       uint64                  `json:"cap_cents,omitzero"`
+	Currency       string                  `json:"currency,omitempty"`
+	ProjectedCents uint64                  `json:"projected_cents"`
+	Ratio          float64                 `json:"ratio"`
+	State          State                   `json:"state"`
+	Reason         string                  `json:"reason"`  // one sentence: why growth is held, or what was granted
+	Regions        []RegionAllowance       `json:"regions"` // sorted by Cell
+	Spending       *InfrastructureSpending `json:"infrastructure_spending,omitempty"`
+	Reservations   []Reservation           `json:"reservations,omitempty"`
 }
 
 // Allocate projects the month from every region's own forecast and grants one
@@ -85,6 +88,10 @@ func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) 
 	sorted := slices.Clone(regions)
 	slices.SortFunc(sorted, func(a, b Region) int { return strings.Compare(a.Cell, b.Cell) })
 	capacity := Capacity{Schema: Schema, At: now, Regions: make([]RegionAllowance, len(sorted))}
+	if prior != nil {
+		capacity.Spending = prior.Spending
+		capacity.Reservations = slices.Clone(prior.Reservations)
+	}
 	for index, region := range sorted {
 		capacity.Regions[index] = RegionAllowance{
 			Cell: region.Cell, Nodes: region.Nodes, Want: region.Want, Allowance: region.Nodes, Pressure: region.Pressure,
@@ -125,6 +132,9 @@ func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) 
 			capacity.Regions[index].GrantedAt = granted
 			projected = saturatingAdd(projected, region.NodeMonthlyCents)
 		}
+	}
+	if capacity.Spending != nil {
+		projected = max(projected, capacity.Spending.ProjectedCents)
 	}
 	capacity.ProjectedCents = projected
 	capacity.Ratio = float64(projected) / float64(budget.MonthlyCapCents)
@@ -174,6 +184,13 @@ func Allocate(budget *Budget, regions []Region, prior *Capacity, now time.Time) 
 		capacity.Reason = "no region wants more nodes"
 	default:
 		capacity.Reason = "no more nodes fit under the cap, or their price is unknown"
+	}
+	capacity.ProjectedCents = projected
+	capacity.Ratio = float64(projected) / float64(budget.MonthlyCapCents)
+	if projected >= budget.MonthlyCapCents {
+		capacity.State = StateOver
+	} else if capacity.Ratio >= WarnRatio {
+		capacity.State = StateWarn
 	}
 	return capacity
 }
@@ -235,7 +252,7 @@ func (c Capacity) Validate() error {
 			return fmt.Errorf("capacity grant time for %q must be set exactly when it allows one more node", region.Cell)
 		}
 	}
-	return nil
+	return validateReservations(c)
 }
 
 // DecodeCapacity strictly decodes and validates a stored capacity document.
@@ -282,12 +299,61 @@ func ReadCapacity(ctx context.Context, reader *globalcontrol.Reader) (Capacity, 
 // WriteCapacity stores c as the next capacity generation. Only the home
 // region's global leader calls it.
 func WriteCapacity(ctx context.Context, writer *globalcontrol.Writer, epoch uint64, c Capacity) error {
-	payload, err := c.Encode()
-	if err != nil {
+	if writer == nil {
+		return errors.New("capacity requires the home writer")
+	}
+	for range 8 {
+		prior, found, err := ReadCapacity(ctx, &writer.Reader)
+		if err != nil {
+			return err
+		}
+		if found {
+			c.Spending, c.Reservations = prior.Spending, prior.Reservations
+			if c.Spending != nil && c.State != StateNone {
+				c.ProjectedCents = max(c.ProjectedCents, c.Spending.ProjectedCents)
+				c.Ratio = float64(c.ProjectedCents) / float64(c.CapCents)
+				if c.ProjectedCents >= c.CapCents {
+					c.State = StateOver
+				} else if c.State == StateOK && c.Ratio >= WarnRatio {
+					c.State = StateWarn
+				}
+			}
+		}
+		payload, err := c.Encode()
+		if err != nil {
+			return err
+		}
+		var expected []byte
+		if found {
+			expected, err = prior.Encode()
+			if err != nil {
+				return err
+			}
+		}
+		_, err = writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, payload, func(stored []byte) error {
+			if !sameCapacity(stored, expected) {
+				return globalcontrol.ErrConflict
+			}
+			return nil
+		})
+		if errors.Is(err, globalcontrol.ErrConflict) {
+			continue
+		}
 		return err
 	}
-	_, err = writer.PutDocument(ctx, epoch, globalcontrol.KindCapacity, protocol.GlobalScope, payload, nil)
-	return err
+	return globalcontrol.ErrConflict
+}
+
+func sameCapacity(stored, expected []byte) bool {
+	if len(stored) == 0 || len(expected) == 0 {
+		return bytes.Equal(stored, expected)
+	}
+	current, err := DecodeCapacity(stored)
+	if err != nil {
+		return false
+	}
+	canonical, err := current.Encode()
+	return err == nil && bytes.Equal(canonical, expected)
 }
 
 // AllowanceFor is the most nodes cell may have per c, and false when c is not
