@@ -87,16 +87,23 @@ func TestSignedApplyRegionalHTTPRecovery(t *testing.T) {
 }
 
 type applyHTTPFixture struct {
-	mu            sync.Mutex
-	failure       string
-	objects       map[string]map[string][]byte
-	channelWrites map[string]int
-	binaryCreates map[string]int
-	inspections   atomic.Int64
-	binaryPath    string
-	args          []string
-	env           deployEnv
-	roots         trust.Keyring
+	mu             sync.Mutex
+	failure        string
+	objects        map[string]map[string][]byte
+	channelWrites  map[string]int
+	binaryCreates  map[string]int
+	inspections    atomic.Int64
+	binaryPath     string
+	releaseDir     string
+	rootPath       string
+	rootPrivate    ed25519.PrivateKey
+	leafPath       string
+	delegationPath string
+	sourceDir      string
+	binary         binaryReceipt
+	args           []string
+	env            deployEnv
+	roots          trust.Keyring
 }
 
 func (f *applyHTTPFixture) reset(failure string) {
@@ -158,6 +165,22 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 		t.Fatal(err)
 	}
 	binary.QualificationSHA256 = digest
+	retainedDir := t.TempDir()
+	for _, artifact := range []struct{ name, path string }{
+		{"terrascale-orchestrator-linux-amd64", binaryPath},
+		{"terrascale-orchestrator-linux-arm64", armPath},
+	} {
+		data, err := os.ReadFile(artifact.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(retainedDir, artifact.name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(retainedDir, "qualification.json"), wire, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +205,9 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 		t.Fatal(err)
 	}
 	delegationWire, _ := trust.EncodeEnvelope(delegation)
+	write("update-delegation.json", delegationWire)
+	leafDER, _ := x509.MarshalPKCS8PrivateKey(leafPrivate)
+	write("leaf.key", pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: leafDER}))
 	bundle := t.TempDir()
 	if err := os.Mkdir(filepath.Join(bundle, "binaries"), 0o700); err != nil {
 		t.Fatal(err)
@@ -216,7 +242,10 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 	}
 	rootDER, _ := x509.MarshalPKIXPublicKey(rootPublic)
 	write("root.pub", pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: rootDER}))
-	f := &applyHTTPFixture{binaryPath: binaryPath, roots: roots,
+	f := &applyHTTPFixture{binaryPath: binaryPath, roots: roots, releaseDir: retainedDir,
+		rootPath: filepath.Join(dir, "root.pub"), rootPrivate: rootPrivate,
+		leafPath: filepath.Join(dir, "leaf.key"), delegationPath: filepath.Join(dir, "update-delegation.json"),
+		sourceDir: dir, binary: binary,
 		args: []string{"--dir", bundle, "--root-key", filepath.Join(dir, "root.pub"), "--namespace", "ns"}}
 	f.reset("")
 	server := httptest.NewServer(http.HandlerFunc(f.serve))
