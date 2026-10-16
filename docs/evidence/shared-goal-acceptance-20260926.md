@@ -540,3 +540,45 @@ TerraBase [CI #1018 readback](../../../.qualification/terrabase-ci1018-470d1f8/q
 `/tmp/ts-d10-go-catchup-rerun-handoff-20260929.md`. The older ledger rows
 below retain their dates and requirements; use this section for current
 operational state.
+
+
+## Delegated refactor integration — 2026-10-16
+
+This roster supersedes the earlier owner assignments without changing their
+historical evidence. `/root` coordinates only. `/root/qa_integrator` is the sole
+shared-file and main integrator; all workers use `gpt-6.1-sol`, high reasoning.
+QA source baseline: `7a7abb41`; isolated tree `/tmp/ts-refactor-qa`, branch
+`refactor/qa`. No live refactor gate is qualified by these source assignments.
+
+Preserved original-worktree changes at START-OWN: modified `REFACTOR.md`,
+`docs/apps-machines.md`, `docs/evidence/shared-goal-acceptance-20260926.md`,
+`docs/generic-workloads.md`; deleted `internal/machines/schedule.go` and
+`schedule_test.go`; untracked local binary `terrascale-orchestrator`. QA does
+not overwrite, stage or remove these pre-existing changes. The plan and
+`AGENTS.md` remain human-owned.
+
+| Owner / item | State; ETA | Isolated tree; exact claim / boundary | Evidence / remaining blocker |
+| --- | --- | --- | --- |
+| `/root/qa_integrator` / START-OWN and shared integration | active; initial inventory 15 min | `/tmp/ts-refactor-qa`; this ledger append, `go.mod`, `go.sum`, `.github/workflows/{ci.yml,deploy.yml}`, `Makefile`; named app/entrypoint handoffs only | Serialize exact-candidate integration and publication. Runtime main push awaits mandatory production-admission enforcement. |
+| `/root/core` / CORE and START-EXEC | active; first slice 60 min | `/tmp/ts-orchestrator-core`; new `internal/swarmruntime/` production and integration files, `docs/evidence/core-runtime-contract.md` | SwarmKit/containerd lifecycle and restart identity; local runtime qualification only, no cloud authority inferred. |
+| `/root/oci` / OCI and START-SCOPE | active; ETA retained by owner | `/tmp/ts-orchestrator-oci`; OCI feature files claimed by owner, excluding CAP seed/image-import files | Foundation and durable resource lifecycle; paid mutation remains blocked on exact footprint/budget authority. |
+| `/root/net` / NET | active; ETA retained by owner | `/home/mariogk/Projects/TerraScale/ts-orchestrator-net`; `internal/netbird/manager/setupkey.go`, enrollment integration, new `internal/netbird/foundation/`, `deploy/netbird/manager/` | Vault-backed enrollment/bootstrap; live OCI foundation and approved recovery fixtures pending. |
+| `/root/cap` / CAP | active; first contracts 20 min | `/tmp/ts-orch-cap`; `internal/nodescale/{pool.go,pool_oci.go,capacity.go}`, `internal/image/{inputs.go,guest.go,run.go,offline.go,promote.go}`, `internal/ocicost/node.go`, named seed/image-import handoffs | Role/architecture/shape pool identity and coherent pricing/image contracts; shared app callers integrate through QA. |
+| `/root/rel` / REL and START-DEPLOY | active; ETA retained by owner | `/tmp/ts-refactor-rel`; release feature files and `scripts/ci/{deploy-fleet.sh,publish-qualification.sh}` with child-owned gate helper | Credential-free per-region exact candidate production admission, then admitted-cell deployment; live evidence unavailable remains refusal. |
+| `/root/mesh` / MESH | active; 35–60 min | `/tmp/ts-orchestrator-mesh`; named `internal/natscell/{link.go,interregion.go,leaftopology.go,reconnect.go,accounts.go}`, membership feature, `globalcontrol/heartbeat.go`; explicit app handoff `region_registry.go`, `region_registry_test.go` | Admitted membership separate from heartbeat health, durable formation and loop-free leaf topology. |
+| `/root/obs` / OBS | active; first slice 30 min | `/tmp/ts-orchestrator-obs` and isolated children; named catalog/history, dashboard metrics and CLI observe feature files | Real metric registry/history; shared app observations/journal wiring reserved to QA. |
+| `/root/wasm`, `/root/data` / WASM and DATA | active; owner claims pending | Separate owner worktrees; no QA overlap claims | Function isolation and database fence/drain/restore contracts qualify independently; production cutover unqualified. |
+| `/root/qa_integrator/test_inventory` / test conversion ledger + sdnotify | active; 12–20 min | `/tmp/ts-refactor-qa-sdnotify`; `internal/sdnotify/{sdnotify_test.go,extend_review_test.go}` | Complete tracked/vendor inventory plus real unixgram coverage before deleting isolated cases. |
+| `/root/qa_integrator/capacity_tests` / CAP test migration | active; 25–40 min | `/tmp/ts-refactor-qa-capacity`; `internal/nodescale/{pool_oci_test.go,decide_test.go,rtt_test.go,scaler_test.go,store_test.go,signals_test.go}`, `internal/ocicost/node_test.go`, new named integration files | Real OCI HTTP/JetStream boundaries; consume CAP contracts, preserve invalid/missing capacity/price safety. |
+| `/root/qa_integrator/artifact_tests` / retained artifact test migration | active; 20–30 min | `/tmp/ts-refactor-qa-artifact`; `internal/artifact/{touch_test.go,read_test.go,read_authoritative_test.go}`, new integration files | Real filesystem/HTTP boundaries before removing unit-only cases. |
+| `/root/qa_integrator/runtimepriority_tests` / retained host priority migration | active; 20 min | `/tmp/ts-refactor-qa-runtimepriority`; `internal/runtimepriority/*_test.go`, new integration files | Real isolated subprocess/syscall behavior; no host-wide privileged mutations. |
+| `/root/qa_integrator/storage_compare` / START-STORE | active; 20 min | `/tmp/ts-refactor-qa-storage`; new `docs/refactor-storage-comparison.md` only | Official prices plus actual OCI placement/copy/restore assumptions; no backend change or cheaper-provider claim. |
+| `/root/qa_integrator/completion_audit` / independent requirements audit | active; 20 min | Read-only current plan/source/evidence inspection | Exhaustive requirement-to-owner/evidence matrix, unattended independent tasks and unresolved live gates. |
+
+Publication boundary: the actual `ci.yml` main-push path dispatches `deploy.yml`
+after retention. Missing configured repository credentials does not establish
+production protection, because inherited secrets/OCI authority remain unknown.
+Only documentation-only safe publication or runtime candidates admitted through
+the mandatory exact-source/region/runtime/architecture gates may proceed. No
+new paid capacity, IAM permissions, credential installation, production cutover,
+or destructive recovery is authorized by this roster.
