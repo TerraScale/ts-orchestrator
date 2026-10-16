@@ -27,6 +27,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/functions"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -197,6 +198,17 @@ func TestControllerRecoversVaultPublicationBeforeImmutableRecipientGrant(t *test
 	other.NodeID = strings.Repeat("d", 25)
 	if _, err := reader.Current(t.Context(), other); err == nil {
 		t.Fatal("foreign recipient read material")
+	}
+	credential, err := functions.VerifyWorkerCredentials(proof, material.CellID, strings.TrimSpace(string(material.Files["cell.jwt"])), delivery.Files()["broker.creds"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	tlsExpiry, err := verifyTLS(delivery.Files(), proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !delivery.CredentialExpiresAt().Equal(minTime(credential.ExpiresAt, tlsExpiry)) {
+		t.Fatal("delivery credential expiry differs from verified broker and TLS credentials")
 	}
 	verifyMaterialTLSConnection(t, delivery.Files(), proof)
 	backend.mu.Lock()

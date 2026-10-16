@@ -61,11 +61,12 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 	if err := f.conn.FlushWithContext(flushCtx); err != nil {
 		t.Fatal(err)
 	}
-	files, expires, err := agent.CurrentFunctionFiles(t.Context(), f.binding)
+	material, err := agent.CurrentFunctionMaterial(t.Context(), f.binding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !expires.Equal(f.expires) || len(files) != len(f.files) {
+	files := material.Files
+	if !material.ExpiresAt.Equal(f.expires) || !material.CredentialExpiresAt.Equal(f.credentialExpires) || material.ExpiresAt.Equal(material.CredentialExpiresAt) || len(files) != len(f.files) {
 		t.Fatal("transport changed the material expiry or inventory")
 	}
 	for name, expected := range f.files {
@@ -80,6 +81,9 @@ func TestFunctionMaterialSignedHostSessionDeliversExactDurableTaskGrant(t *testi
 	for range calls.Load() {
 		select {
 		case chunk := <-observed:
+			if !chunk.CredentialExpiresAt.Equal(f.credentialExpires) {
+				t.Fatal("credential expiry changed in signed chunk")
+			}
 			if len(chunk.Ciphertext) > functionMaterialChunkSize(chunk.File)+16 {
 				t.Fatal("encrypted NATS chunk exceeded its file-specific bound")
 			}
@@ -183,6 +187,22 @@ func TestFunctionMaterialRejectsInventoryChangeBetweenChunks(t *testing.T) {
 	}
 }
 
+func TestFunctionMaterialRejectsCredentialExpiryChangeBetweenChunks(t *testing.T) {
+	f := newFunctionMaterialTransport(t)
+	var calls atomic.Int64
+	f.controller.functionMaterial = func(ctx context.Context, registration Registration, binding FunctionMaterialBinding) (FunctionMaterialFiles, error) {
+		material, err := f.current(ctx, registration, binding)
+		if err == nil && calls.Add(1) > 2 {
+			material.CredentialExpiresAt = material.CredentialExpiresAt.Add(time.Second)
+		}
+		return material, err
+	}
+	agent := f.start(t)
+	if material, err := agent.CurrentFunctionMaterial(t.Context(), f.binding); err == nil || len(material.Files) != 0 {
+		t.Fatalf("mixed credential lifetimes accepted: %v", err)
+	}
+}
+
 func TestFunctionMaterialProviderIsRequired(t *testing.T) {
 	f := newFunctionMaterialTransport(t)
 	agent := f.start(t)
@@ -192,16 +212,17 @@ func TestFunctionMaterialProviderIsRequired(t *testing.T) {
 }
 
 type functionMaterialTransport struct {
-	controller  *Controller
-	conn        *nats.Conn
-	authority   *authority.Runtime
-	proof       release.VerifiedFunction
-	binding     FunctionMaterialBinding
-	grant       authority.FunctionBinding
-	files       map[string][]byte
-	expires     time.Time
-	hostKey     ed25519.PrivateKey
-	responseKey ed25519.PrivateKey
+	controller        *Controller
+	conn              *nats.Conn
+	authority         *authority.Runtime
+	proof             release.VerifiedFunction
+	binding           FunctionMaterialBinding
+	grant             authority.FunctionBinding
+	files             map[string][]byte
+	expires           time.Time
+	credentialExpires time.Time
+	hostKey           ed25519.PrivateKey
+	responseKey       ed25519.PrivateKey
 }
 
 func (f *functionMaterialTransport) current(ctx context.Context, registration Registration, binding FunctionMaterialBinding) (FunctionMaterialFiles, error) {
@@ -218,7 +239,7 @@ func (f *functionMaterialTransport) current(ctx context.Context, registration Re
 	for name, content := range files {
 		files[name] = bytes.Clone(content)
 	}
-	return FunctionMaterialFiles{Files: files, ExpiresAt: f.expires}, nil
+	return FunctionMaterialFiles{Files: files, ExpiresAt: f.expires, CredentialExpiresAt: f.credentialExpires}, nil
 }
 
 func (f *functionMaterialTransport) start(t *testing.T) *Agent {
@@ -307,7 +328,8 @@ func newFunctionMaterialTransport(t *testing.T) *functionMaterialTransport {
 	}
 	files["root.pub"], files["module.wasm"], files["receipt.json"], files["delegation.json"] = rootPublic, proof.Module(), proof.Envelope(), proof.Delegation()
 	expires := proof.ExpiresAt()
-	manifest, err := functionMaterialDigest(files, expires)
+	credentialExpires := expires.Add(30 * time.Minute)
+	manifest, err := functionMaterialDigest(files, expires, credentialExpires)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +340,7 @@ func newFunctionMaterialTransport(t *testing.T) *functionMaterialTransport {
 		t.Fatal(err)
 	}
 	return &functionMaterialTransport{controller: controller, conn: conn, authority: runtime, proof: proof,
-		binding: binding, grant: grant, files: files, expires: expires, hostKey: hostKey, responseKey: responseKey}
+		binding: binding, grant: grant, files: files, expires: expires, credentialExpires: credentialExpires, hostKey: hostKey, responseKey: responseKey}
 }
 
 func functionTransportProof(t *testing.T) (release.VerifiedFunction, ed25519.PublicKey) {

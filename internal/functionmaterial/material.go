@@ -148,17 +148,19 @@ type storedMaterial struct {
 // VerifiedDelivery is constructed only after current intent, recipient grant,
 // exact Vault readback and narrow credential checks all agree.
 type VerifiedDelivery struct {
-	binding  Binding
-	function release.VerifiedFunction
-	minimum  uint64
-	expires  time.Time
-	files    map[string][]byte
+	binding           Binding
+	function          release.VerifiedFunction
+	minimum           uint64
+	expires           time.Time
+	credentialExpires time.Time
+	files             map[string][]byte
 }
 
 func (delivery VerifiedDelivery) Binding() Binding                   { return delivery.binding }
 func (delivery VerifiedDelivery) Function() release.VerifiedFunction { return delivery.function }
 func (delivery VerifiedDelivery) MinimumSequence() uint64            { return delivery.minimum }
 func (delivery VerifiedDelivery) ExpiresAt() time.Time               { return delivery.expires }
+func (delivery VerifiedDelivery) CredentialExpiresAt() time.Time     { return delivery.credentialExpires }
 func (delivery VerifiedDelivery) Valid() bool {
 	return delivery.function.Valid() && time.Now().Before(delivery.expires) && len(delivery.files) == 10
 }
