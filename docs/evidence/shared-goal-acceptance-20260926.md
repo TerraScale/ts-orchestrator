@@ -1,5 +1,29 @@
 # Shared goal acceptance ledger — 2026-09-26
 
+## SwarmKit refactor work ledger — 2026-10-16
+
+Scope: every requirement in [REFACTOR.md](../../REFACTOR.md). The older product
+gates below remain historical acceptance records, not refactor qualification.
+Integrator: `/root`, sole publisher and owner of shared module, app, entrypoint,
+workflow and evidence changes. All owners use GPT 6.1 Sol, high reasoning.
+Starting source: `98422b69`; no refactor gate is qualified.
+
+| Item / accountable owner | State; ETA | Worktree and exact initial file claim | Output / integration evidence / blocker |
+| --- | --- | --- | --- |
+| START-OWN / `/root` (QA) | active; 5 minutes | main worktree; this ledger | Three isolated worktrees assigned below; shared files serialize through integrator. |
+| CORE, CAP, DATA, WASM; START-EXEC / `/root/core_cap` | active; 45–60 minutes | `/tmp/ts-refactor-core`, `refactor/core`; new `internal/swarmruntime/{executor.go,controller.go,executor_integration_test.go}`, `docs/swarm-runtime.md`; worktree-only module changes | Narrow upstream executor and pinned runtime contract; real local containerd lifecycle/restart scenario. Containerd/runc absent initially; local prototype feasibility under investigation. Cloud qualification and stateful cutover remain unqualified. |
+| NET, MESH / `/root/net_mesh` | active; 30–45 minutes | `/tmp/ts-refactor-net`, `refactor/net`; `internal/netbird/manager/{api.go,loop.go,sync.go,authority_integration_test.go}` | Per-write authority/cancellation and HTTP interrupted-write recovery. Inventory setup-key/backup/topology dependencies. Existing leadership boolean does not establish a durable authority epoch. |
+| REL; START-DEPLOY / `/root/release_qa` | active; 35 minutes | `/tmp/ts-refactor-rel`, `refactor/rel`; `internal/release/cli/{apply.go,apply_integration_test.go}`, `docs/refactor-start-deploy.md` | Independent regional apply through real protocol boundaries; deployment-path audit. Main CI dispatches fleet deployment without runtime/HA qualification; runtime-affecting main publication awaits a concrete production gate. |
+| OCI, OBS, QA; START-SCOPE, START-STORE / `/root` | active; first slice 30 minutes | main worktree; `internal/ociregion/imageimport/{import.go,sdk_standin_test.go}`, `internal/dashboard/{assets.go,layout.templ,layout_templ.go,dashboard_test.go,overview_test.go,lists_test.go}`, `internal/dashboard/assets/{dashboard.css,pico.min.css,VENDOR.md}`, `docs/cluster-visibility.md`; shared CI changes claimed before implementation | Preserve partial imports through restart with SDK/HTTP/file integration; consolidate embedded CSS; inventory resource authority and test migration. No current four-VM budget, live capacity authorization, or provider comparison evidence established. |
+
+Live boundaries: no new paid resources, IAM permissions, credentials, secret
+installation, production cutover or destructive cleanup are authorized by the
+plan. Pending authority blocks only those live actions. Source implementation,
+local isolated integration and metadata research continue independently.
+START-STORE compares existing OCI semantics with Tigris before any backend
+change; no cost advantage is claimed. CONNECT, RUNTIME, FUNCTIONS, STATEFUL and
+COMPLETE remain open; package tests cannot qualify their live requirements.
+
 **Overall: IN PROGRESS.** No milestone is complete. This ledger records the
 workspace goal against the current shared worktrees; it does not qualify a
 deployed candidate. Historical reports and component tests retain only their
