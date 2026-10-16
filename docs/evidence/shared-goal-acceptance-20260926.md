@@ -582,3 +582,68 @@ Only documentation-only safe publication or runtime candidates admitted through
 the mandatory exact-source/region/runtime/architecture gates may proceed. No
 new paid capacity, IAM permissions, credential installation, production cutover,
 or destructive recovery is authorized by this roster.
+
+
+### Refactor handoff state — 2026-10-16, 20:05 UTC
+
+All owners below remain on `gpt-6.1-sol`, high reasoning. This is a source and
+local-scenario ledger, not live acceptance. CONNECT, RUNTIME, FUNCTIONS,
+STATEFUL and COMPLETE remain open. No package-wide conversion, cloud capacity,
+production restore, full-repository green run or spending authority is claimed.
+
+**Integrated in QA candidate `02360dca`**, not yet published to main:
+
+| Slice | Integrated QA commits; producer provenance | Evidence and limits |
+| --- | --- | --- |
+| Credential-free release admission and independent consumer qualification | `943a8ac3`, `8b3eaa9f`, `ff17fa4d`, `54e7c758`, `01ad811a`, `62173b01`, `bb886c9b` | Fleet workflow qualifies before credential-bearing deployment; signed exact source/artifact/build/region/environment/runtime/architecture proof requires runtime-HA and workload safety. Image/first-boot gap below is still open. |
+| Concrete OCI read cancellation and retained mutation outcomes | `a5877de1`, `25529a7f`, `780a700a`, `02360dca`; originals `66fb8150`, `3c9b20d9`, `987f7ed8`, `2b0211b9` | REL original `987f7ed8`: full race CLI 23.382s, channel 3.372s, OCI client 3.547s. SDK original `2b0211b9`: focused signed-HTTP read/mutation race 2.285s. Arbitrary non-SDK object clients retain their original cancellable context. |
+| Release fixture closure | `1e579b18`, `35d88a05`; originals `3485441f`, selected fixture hunks from `b9c71b18` | Selfupdate, selfupdate CLI and bootstrapstart passed at original `3485441f` (1.236s, 5.875s, 57.525s). Broad REL sequence branch was not replayed into the gate candidate. |
+| Retained-feature migrations and inventories | sdnotify `97dc1a4f`, artifact `c5d1300d`, runtimepriority `5e9b620e`, recovery inventory `0cfb83cc`, storage comparison `26f8b548` | These are bounded slices. Full integration-only inventory remains open; unmatched security coverage is preserved until a real boundary replacement exists. |
+
+The existing dirty main tree remains at `7a7abb41`; the latest read-only remote
+main readback was `4ad1acf5`. Its human-owned dirty files and untracked binary
+remain untouched. A reversible byte-verified dirty-tree preservation step is
+required before any eventual main fast-forward. No push has occurred here.
+
+**Ready/source-only handoffs; do not confuse copied helpers with implementation:**
+
+| Owner / source | Actual implementation | Consumer/evidence status |
+| --- | --- | --- |
+| CAP | Pricing `92ed6f62`; catalog `7b91950b`; pools `54c0de0e` + `02f85128`; seed `dd43f068` + `36317ca8`; selection `fb2b3c2a` + `64a90a1b`; image `75df8fbc` + `baf79837` | `b0572378` and `ffcd45bc` were copied dependency/helper aggregates, not actual image/selection implementations. Actual image seven SDK scenarios passed 0.478s; selection twelve SDK scenarios passed 0.469s. Neither qualifies AMD64 boot or production runtime. |
+| OBS and shared app | App integration branch `da1637f7`, with original OBS `c7997d16`, `e3c4b9d4`, `f96eff93`, `e5027185` and shared routes/callers | `0a810`/`9d1` copied catalog work did not establish complete OBS implementation. Focused actual HTTP catalog/CLI/dashboard checks at `da1637f7` passed 0.061s/0.187s/0.133s. Later `67dcd970` + `1e3b0cee` remain separate handoffs. Shared app is not yet in QA main candidate. |
+| NET | Protected backup `0cb7a019`; enrollment escrow `70f11a18`; management fencing `a2ebbcc4`; DNS/GRU policy `c694e8f2` | `f651`/`289` were helper-only copies. Full NET checks and subsequent no-retry epoch-loss write fixes remain pending; no live restore or production bootstrap claim. |
+| CORE dependencies and runtime | Shared module union `61968b3b` on `refactor/qa-modules`; actual node `27719b8f` + `e59a1eaa`, executor `c272bbed`, mapper `c08ec295`, deletion `960e8de5` | The old `01348c66` prototype must not be replayed. Modules are separately serialized, not in gate candidate. Actual corrected local manager/containerd/runc recovery passed 4.87s; no ARM/HA/cloud qualification. Actual app engine cutover still requires verified admission consumers. |
+| QA imageimport and logs conversion | Imageimport `00f400f6`, depends actual CAP image source; logs worker has six test-only files pending final race check/commit | Imageimport full package passed 3.706s; logs plain package passed 4.074s. Neither source has been integrated into QA gate candidate yet. Capacity conversion recovery is owned by app integrator's capacity caller worker. |
+
+**Current trust-sensitive source scopes:**
+
+1. Cold bootstrap: immutable signed source and bootstrap-scoped OCI grant →
+   private Vault escrow → typed sealed installation → managed-image prestart.
+   Shared app owner requires the same verified grant through all steps;
+   foundation-only authority cannot create a regional founder, and workers
+   cannot found a cluster. Nonhome pre-config trust discovery and actual signed
+   manifest/config startup consumption remain open. No fake entrypoint closes it.
+2. Functions: admitted service → trusted controller `ProvisionQueue` →
+   consume-only worker JWT → conditional Vault delivery → admitted Swarm Wasm
+   task mount. Workers cannot create streams/consumers or receive controller
+   credentials. CORE mount admission and actual qualified task producer remain
+   open; helper-only provision/material code does not close FUNCTIONS.
+3. Image boot: the effective selfupdate drop-in invokes `Prepare`/`Seed`, which
+   seeds baked bytes without channel qualification; initial bootstrap currently
+   uses signature-only `VerifyImageCurrent`. REL owns the narrow image receipt
+   and sign-image independent production-proof closure; QA owns affected
+   bootstrap/selfupdate fixtures. Weekly/manual image builds and promotion are
+   separate consumers, so release-channel checks alone do not close START-DEPLOY.
+
+**Retained local evidence** (not live qualification): SDK log
+`/tmp/oci-sdk-race-2b0211b9.log`, SHA-256
+`a8bebccd5aa1d987986ebb9ece17f9f2d1d712d98b26cc2567bee7915900634c`;
+selfupdate closure `/tmp/ts-orch-gate-evidence/3485441f-selfupdate-closure.log`,
+SHA-256 `13ddb21187b552197ee82b3fabdd43f333e831dbdfde457d9723475d4e30cb61`;
+WASM race/ARM64-crossbuild/AMD64-build log `/tmp/ts-wasm-qualification.log`,
+SHA-256 `88dc21d4fd2161693f839aaed47c5427dd8ec626a19e7d9220227ae2e2e0dfa6`.
+Earlier failing `bb886c9b-release-closure.log` remains retained rather than
+relabeled as success. Exact integrated candidate build is running separately;
+no result is assumed before exit. START-SCOPE read-only inventory is retained
+under `/tmp/ts-refactor-start-scope-20261016/`; approved paid provisioning,
+new authority and destructive cloud operations remain unavailable.
