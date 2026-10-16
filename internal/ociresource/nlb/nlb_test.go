@@ -27,6 +27,7 @@ type providerState struct {
 	api              API
 	loseResponse     bool
 	holdWorkRequests bool
+	beforeWrite      func(http.ResponseWriter, *http.Request)
 	retries          map[string]string
 	balancer         LoadBalancer
 	backends         []Backend
@@ -433,6 +434,10 @@ func (f *providerState) client(t *testing.T) API {
 			}
 			return
 		}
+		if f.beforeWrite != nil {
+			f.beforeWrite(w, r)
+			return
+		}
 		token := r.Header.Get("opc-retry-token")
 		if token != "" && f.retries[token] != "" {
 			w.Header().Set("opc-work-request-id", f.retries[token])
@@ -612,5 +617,40 @@ func TestDurableWorkRequestRecoversAfterNATSAndControllerRestart(t *testing.T) {
 	stale.Authority = staleAuthority
 	if _, err := stale.Reconcile(ctx, firstEpoch); !errors.Is(err, ociresource.ErrFenced) || len(api.calls) != 2 {
 		t.Fatalf("stale writer err=%v calls=%v", err, api.calls)
+	}
+	// A rejected write must recheck the original authority before its retry.
+	attempts := 0
+	api.beforeWrite = func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if err := leader.Close(); err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"code":"TooManyRequests","message":"retry after authority handoff"}`)
+	}
+	if _, err := reconciler.Reconcile(ctx, leader.Current().Epoch); !errors.Is(err, ociresource.ErrFenced) || attempts != 1 || len(api.calls) != 2 {
+		t.Fatalf("retry after authority loss: err=%v attempts=%d calls=%v", err, attempts, api.calls)
+	}
+
+	leader = openAuthority()
+	reconciler.Authority = leader
+	requestCtx, cancelRequest := context.WithCancel(ctx)
+	defer cancelRequest()
+	api.beforeWrite = func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		cancelRequest()
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = io.WriteString(w, `{"code":"TooManyRequests","message":"caller canceled"}`)
+	}
+	if _, err := reconciler.Reconcile(requestCtx, leader.Current().Epoch); !errors.Is(err, context.Canceled) || attempts != 2 || len(api.calls) != 2 {
+		t.Fatalf("canceled write: err=%v attempts=%d calls=%v", err, attempts, api.calls)
+	}
+	persisted, err := store.Get(ctx, key)
+	if err != nil || persisted.Operation == nil || persisted.Operation.Epoch != leader.Current().Epoch || !persisted.Operation.CompletedAt.IsZero() {
+		t.Fatalf("canceled operation checkpoint: desired=%+v err=%v", persisted, err)
+	}
+	api.beforeWrite = nil
+	if _, err := reconciler.Reconcile(ctx, leader.Current().Epoch); err != nil || len(api.calls) != 3 {
+		t.Fatalf("resume after cancellation: err=%v calls=%v", err, api.calls)
 	}
 }
