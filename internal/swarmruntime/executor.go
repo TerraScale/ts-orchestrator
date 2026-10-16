@@ -17,6 +17,7 @@ import (
 	"github.com/containerd/containerd/v2/pkg/namespaces"
 	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 	"golang.org/x/sys/unix"
 )
 
@@ -80,10 +81,16 @@ func (e *Executor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	if err := unix.Sysinfo(&info); err != nil {
 		return nil, err
 	}
+	resources := &api.Resources{NanoCPUs: int64(max(runtime.NumCPU()-1, 0)) * 1_000_000_000, MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)}
+	e.mu.Lock()
+	if e.functionMaterial != nil {
+		resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+	}
+	e.mu.Unlock()
 	return &api.NodeDescription{
 		Hostname:  host,
 		Platform:  &api.Platform{OS: runtime.GOOS, Architecture: runtime.GOARCH},
-		Resources: &api.Resources{NanoCPUs: int64(max(runtime.NumCPU()-1, 0)) * 1_000_000_000, MemoryBytes: max(int64(info.Totalram)*int64(info.Unit)-(256<<20), 0)},
+		Resources: resources,
 		Engine:    &api.EngineDescription{EngineVersion: v.Version, Plugins: []api.PluginDescription{{Type: "Runtime", Name: ContainerKind}}},
 	}, nil
 }
