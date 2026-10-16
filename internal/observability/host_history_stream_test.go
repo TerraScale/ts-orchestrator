@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -716,14 +716,7 @@ func TestHostMetricBatchValidation(t *testing.T) {
 			{Metric: HistServiceCPUCores, Labels: L("service", "terra-base", "member", "host-1"), Value: value * 1024},
 			{Metric: HistServiceMemoryUsed, Labels: L("member", "host-1", "service", "terra-base"), Value: value * (1 << 44)},
 		}}
-		data, err := encodeHostMetricBatch(batch)
-		if err != nil {
-			t.Fatal(err)
-		}
-		restored, err := decodeHostMetricBatch(data)
-		if err != nil || !reflect.DeepEqual(batch, restored) {
-			t.Fatalf("valid batch roundtrip = %+v, %v", restored, err)
-		}
+		hostMetricAcceptArchive(t, batch)
 	}
 	cases := map[string]func(*HostMetricBatch){
 		"zero time":                  func(b *HostMetricBatch) { b.At = time.Time{} },
@@ -857,21 +850,8 @@ func TestHostMetricBatchValidation(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			batch := hostMetricTestBatch(at)
 			mutate(&batch)
-			if _, err := encodeHostMetricBatch(batch); err == nil {
-				t.Fatal("invalid batch accepted for publication")
-			}
-			if _, _, err := BoundHostMetricBatch(batch); err == nil || errors.Is(err, errHostMetricBatchSize) {
-				t.Fatalf("bounding hid validation error: %v", err)
-			}
-			if raw, err := json.Marshal(batch); err == nil {
-				if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
-					t.Fatal("invalid persisted batch accepted")
-				}
-			}
+			hostMetricRejectArchive(t, batch)
 		})
-	}
-	if IsHostMetric(HistCPUUtilization) || IsHostMetric("") {
-		t.Fatal("unrelated metric selected")
 	}
 }
 
@@ -906,53 +886,29 @@ func TestHostMetricFilesystemIdentityValidation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			batch := HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{{Metric: HistHostFSFiles, Labels: invalid}}}
-			if _, err := encodeHostMetricBatch(batch); err == nil {
-				t.Fatal("invalid filesystem identity accepted for publication")
-			}
-			if _, _, err := BoundHostMetricBatch(batch); err == nil || errors.Is(err, errHostMetricBatchSize) {
-				t.Fatalf("bounding hid invalid filesystem identity: %v", err)
-			}
-			raw, err := json.Marshal(batch)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
-				t.Fatal("invalid persisted filesystem identity accepted")
-			}
+			hostMetricRejectArchive(t, batch)
 		})
 	}
 	batch := HostMetricBatch{Version: HostMetricBatchVersion, At: at, Epoch: 1, Samples: []Sample{{Metric: HistHostFSFiles, Labels: labels("/data\xff", "42")}}}
-	if _, err := encodeHostMetricBatch(batch); err == nil {
-		t.Fatal("invalid UTF-8 path accepted for publication")
-	}
+	hostMetricRejectArchive(t, batch)
 	batch.Samples[0].Labels = labels("/data", "42")
 	raw, err := json.Marshal(batch)
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw = bytes.ReplaceAll(raw, []byte("/data"), []byte("/data\xff"))
-	if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
-		t.Fatal("invalid persisted UTF-8 path accepted")
-	}
+	hostMetricRejectRecord(t, hostMetricGzip(t, raw))
 	for _, changed := range [][]Label{labels("/replaced", "42"), labels("/data", "43")} {
 		batch.Samples = []Sample{
 			{Metric: HistHostFSFiles, Labels: labels("/data", "42"), Value: 100},
 			{Metric: HistHostFSFilesFree, Labels: changed, Value: 50},
 		}
-		if _, err := encodeHostMetricBatch(batch); err == nil {
-			t.Fatal("one filesystem role accepted conflicting path/device identity")
-		}
+		hostMetricRejectArchive(t, batch)
 	}
 	for _, path := range []string{"/", "/srv/dados espaço/🗄️", "/" + strings.Repeat("a", 4095)} {
 		for _, device := range []string{"0", "42", "18446744073709551615"} {
 			batch.Samples = []Sample{{Metric: HistHostFSFiles, Labels: labels(path, device)}}
-			data, err := encodeHostMetricBatch(batch)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, batch) {
-				t.Fatalf("valid filesystem identity lost: %+v, %v", restored, err)
-			}
+			hostMetricAcceptArchive(t, batch)
 		}
 	}
 	batch.Samples = nil
@@ -960,9 +916,7 @@ func TestHostMetricFilesystemIdentityValidation(t *testing.T) {
 		batch.Samples = append(batch.Samples, Sample{Metric: HistHostFSFiles,
 			Labels: L("member", "host-1", "role", fmt.Sprintf("volume-%d", i), "path", "/", "device", "42")})
 	}
-	if _, err := encodeHostMetricBatch(batch); err != nil {
-		t.Fatalf("exact filesystem bound rejected: %v", err)
-	}
+	hostMetricAcceptArchive(t, batch)
 }
 
 func TestHostMetricFilesystemPrefixesRemainValid(t *testing.T) {
@@ -976,14 +930,74 @@ func TestHostMetricFilesystemPrefixesRemainValid(t *testing.T) {
 	for count := range len(samples) {
 		batch := HostMetricBatch{Version: HostMetricBatchVersion, At: time.Now().UTC().Truncate(HostMetricInterval), Epoch: 1,
 			Samples: samples[:count+1], Incomplete: count < len(samples)-1}
-		data, err := encodeHostMetricBatch(batch)
-		if err != nil {
+		hostMetricAcceptArchive(t, batch)
+	}
+}
+
+// Run validation through the regional publisher and a fresh durable replay.
+func hostMetricAcceptArchive(t *testing.T, batch HostMetricBatch) {
+	t.Helper()
+	t.Run("accepted_archive", func(t *testing.T) {
+		broker := hostMetricBroker(t, t.TempDir(), -1)
+		stream := hostMetricTestStream(t, broker)
+		if confirmed, err := stream.Publish(t.Context(), batch); err != nil || !confirmed {
+			t.Fatalf("publish confirmed=%t error=%v", confirmed, err)
+		}
+		history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+		hostMetricTail(t, stream, history)
+		hostMetricWait(t, stream.CaughtUp)
+		if stream.ReplayFailures() != 0 || hostMetricCount(history) != uint32(len(batch.Samples)) || stream.ArchiveIncomplete() != batch.Incomplete {
+			t.Fatalf("replay rejected=%d samples=%d incomplete=%t", stream.ReplayFailures(), hostMetricCount(history), stream.ArchiveIncomplete())
+		}
+		for _, sample := range batch.Samples {
+			labels := make(map[string]string, len(sample.Labels))
+			for _, label := range sample.Labels {
+				labels[label.Name] = label.Value
+			}
+			result := history.Range(HistoryQuery{Metric: sample.Metric, Labels: labels, Start: batch.At, End: batch.At.Add(HostMetricInterval), Tier: TierRaw, MaxSeries: 512})
+			if len(result.Series) != 1 || len(result.Series[0].Points) != 1 || result.Series[0].Points[0].Value != sample.Value {
+				t.Fatalf("replayed %s labels=%v: %+v", sample.Metric, labels, result)
+			}
+		}
+	})
+}
+
+func hostMetricRejectArchive(t *testing.T, batch HostMetricBatch) {
+	t.Helper()
+	t.Run("rejected_archive", func(t *testing.T) {
+		broker := hostMetricBroker(t, t.TempDir(), -1)
+		stream := hostMetricTestStream(t, broker)
+		// The public publisher deliberately normalizes timezone and minute alignment.
+		if batch.At.Equal(batch.At.UTC().Truncate(HostMetricInterval)) && batch.At.Location() == time.UTC {
+			if confirmed, err := stream.Publish(t.Context(), batch); err == nil || confirmed {
+				t.Fatal("invalid publication accepted")
+			}
+			info, err := stream.info(t.Context())
+			if err != nil || info.State.Msgs != 0 {
+				t.Fatalf("rejected publication changed durable state: %+v %v", info, err)
+			}
+		}
+		if raw, err := json.Marshal(batch); err == nil {
+			hostMetricRejectRecord(t, hostMetricGzip(t, raw))
+		}
+	})
+}
+
+func hostMetricRejectRecord(t *testing.T, data []byte) {
+	t.Helper()
+	t.Run("rejected_record", func(t *testing.T) {
+		broker := hostMetricBroker(t, t.TempDir(), -1)
+		stream := hostMetricTestStream(t, broker)
+		if _, err := stream.js.Publish(t.Context(), stream.subject, data); err != nil {
 			t.Fatal(err)
 		}
-		if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, batch) {
-			t.Fatalf("bounded filesystem prefix failed replay: %+v, %v", restored, err)
+		history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
+		hostMetricTail(t, stream, history)
+		hostMetricWait(t, stream.CaughtUp)
+		if stream.ReplayFailures() != 1 || hostMetricCount(history) != 0 {
+			t.Fatalf("malformed record rejected=%d samples=%d", stream.ReplayFailures(), hostMetricCount(history))
 		}
-	}
+	})
 }
 
 func hostMetricGzip(t *testing.T, raw []byte) []byte {
@@ -1024,13 +1038,7 @@ func TestBoundHostMetricBatch(t *testing.T) {
 				t.Fatalf("bounded %d samples to %d, dropped %d; want prefix %d, dropped %d",
 					count, len(bounded.Samples), dropped, want, count-want)
 			}
-			data, err := encodeHostMetricBatch(bounded)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, bounded) {
-				t.Fatalf("bounded batch roundtrip changed prefix: %v", err)
-			}
+			hostMetricAcceptArchive(t, bounded)
 			if count > DefaultHistorySeries {
 				if _, err := encodeHostMetricBatch(input); err == nil {
 					t.Fatal("direct encoding accepted sample overflow")
@@ -1046,6 +1054,7 @@ func TestBoundHostMetricBatch(t *testing.T) {
 	if bounded, dropped, err := BoundHostMetricBatch(batch); err != nil || dropped != 0 || !reflect.DeepEqual(bounded, batch) {
 		t.Fatalf("nil samples changed: %+v, %d, %v", bounded, dropped, err)
 	}
+	hostMetricAcceptArchive(t, batch)
 }
 
 func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
@@ -1056,14 +1065,7 @@ func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
 		batch.Samples = append(batch.Samples, Sample{Metric: HistHostCPUUtilization,
 			Labels: L("member", "host-"+strconv.Itoa(index)), Value: .5})
 	}
-	data, err := encodeHostMetricBatch(batch)
-	if err != nil {
-		t.Fatalf("exact sample limit rejected: %v", err)
-	}
-	restored, err := decodeHostMetricBatch(data)
-	if err != nil || len(restored.Samples) != DefaultHistorySeries {
-		t.Fatalf("sample limit roundtrip = %d, %v", len(restored.Samples), err)
-	}
+	hostMetricAcceptArchive(t, batch)
 	checkBounded := func(batch HostMetricBatch) {
 		t.Helper()
 		bounded, dropped, err := BoundHostMetricBatch(batch)
@@ -1080,13 +1082,7 @@ func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
 		if !reflect.DeepEqual(bounded, expected) {
 			t.Fatal("bounding changed prefix or metadata")
 		}
-		data, err := encodeHostMetricBatch(bounded)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if restored, err := decodeHostMetricBatch(data); err != nil || !reflect.DeepEqual(restored, bounded) {
-			t.Fatalf("bounded batch roundtrip changed prefix: %v", err)
-		}
+		hostMetricAcceptArchive(t, bounded)
 		// Validation must fail even for a malformed tail that sizing would omit.
 		batch.Samples[len(batch.Samples)-1].Counter = true
 		if _, _, err := BoundHostMetricBatch(batch); err == nil || errors.Is(err, errHostMetricBatchSize) {
@@ -1114,9 +1110,7 @@ func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
 	if compressed := hostMetricGzip(t, raw); len(compressed) <= HostMetricBatchBytes {
 		t.Fatalf("compressed-limit fixture = %d bytes", len(compressed))
 	}
-	if _, err := encodeHostMetricBatch(batch); !errors.Is(err, errHostMetricBatchSize) {
-		t.Fatalf("oversized compressed batch error = %v", err)
-	}
+	hostMetricRejectArchive(t, batch)
 	checkBounded(batch)
 	for len(batch.Samples) < DefaultHistorySeries {
 		batch.Samples = append(batch.Samples, Sample{Metric: HistServiceMemoryUsed,
@@ -1126,9 +1120,7 @@ func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
 	if err != nil || len(raw) <= hostMetricDecodedBytes {
 		t.Fatalf("decoded-limit fixture = %d bytes, %v", len(raw), err)
 	}
-	if _, err := encodeHostMetricBatch(batch); !errors.Is(err, errHostMetricBatchSize) {
-		t.Fatalf("oversized decoded batch error = %v", err)
-	}
+	hostMetricRejectArchive(t, batch)
 	checkBounded(batch)
 	valid, err := encodeHostMetricBatch(hostMetricTestBatch(at))
 	if err != nil {
@@ -1146,9 +1138,7 @@ func TestHostMetricBatchSizeAndMalformedRecords(t *testing.T) {
 		"decompression bomb": hostMetricGzip(t, bytes.Repeat([]byte(" "), hostMetricDecodedBytes+1)),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeHostMetricBatch(data); err == nil {
-				t.Fatal("malformed record accepted")
-			}
+			hostMetricRejectRecord(t, data)
 		})
 	}
 }

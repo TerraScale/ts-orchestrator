@@ -1,7 +1,6 @@
 package observability
 
 import (
-	"encoding/json/v2"
 	"fmt"
 	"math"
 	"slices"
@@ -29,9 +28,7 @@ func hostMetricWANBatch(at time.Time) HostMetricBatch {
 func TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness(t *testing.T) {
 	at := time.Now().UTC().Truncate(HostMetricInterval)
 	valid := hostMetricWANBatch(at)
-	if _, err := encodeHostMetricBatch(valid); err != nil {
-		t.Fatal(err)
-	}
+	hostMetricAcceptArchive(t, valid)
 	for name, change := range map[string]func(*HostMetricBatch){
 		"NaN":                func(b *HostMetricBatch) { b.Samples[2].Value = math.NaN() },
 		"infinity":           func(b *HostMetricBatch) { b.Samples[3].Value = math.Inf(1) },
@@ -78,22 +75,13 @@ func TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			batch := hostMetricWANBatch(at)
 			change(&batch)
-			if _, err := encodeHostMetricBatch(batch); err == nil {
-				t.Fatal("invalid WAN archive accepted")
-			}
-			if raw, err := json.Marshal(batch); err == nil {
-				if _, err := decodeHostMetricBatch(hostMetricGzip(t, raw)); err == nil {
-					t.Fatal("invalid persisted WAN archive accepted")
-				}
-			}
+			hostMetricRejectArchive(t, batch)
 		})
 	}
 	// Zero members and missing optional counter remain honest failure/unknown data.
 	valid.Samples[4].Value = 0
 	valid.Samples = valid.Samples[:7]
-	if _, err := encodeHostMetricBatch(valid); err != nil {
-		t.Fatal(err)
-	}
+	hostMetricAcceptArchive(t, valid)
 }
 
 func TestHostMetricWANPublishesAndReplaysOriginalScrapeBatches(t *testing.T) {
