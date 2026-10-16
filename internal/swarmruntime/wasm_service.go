@@ -102,13 +102,13 @@ func (i FunctionServiceIntent) VerifyTask(task *api.Task, service *api.Service, 
 // VerifyWorkerFloor denies material for an image superseded by the durable
 // regional role floor. The caller first verifies live worker qualification.
 func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api.ControlClient, worker release.VerifiedContainer) error {
-	region, known := catalog.CellForOCIRegion(i.Region)
 	claim := worker.Claim()
-	if !known || !worker.Valid(time.Now().UTC()) || claim.Cell != region.Cell || claim.Environment != i.Environment || claim.Role != FunctionWorkerRole || claim.Architecture != i.Architecture {
-		return errors.New("worker release differs from admitted function target")
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", i.Environment, i.Region), Role: FunctionWorkerRole, Region: i.Region, Environment: i.Environment, Architecture: i.Architecture}
+	name, err := releaseFloorName(workerIntent, worker)
+	if err != nil {
+		return err
 	}
-	identity := sha256.Sum256([]byte(i.Environment + "/" + i.Region + "/" + FunctionWorkerRole))
-	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{fmt.Sprintf("ts-release-%x", identity[:16])}}})
+	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api
 		return errors.New("qualified worker has no unique durable release floor")
 	}
 	floor := listed.Configs[0]
-	for key, value := range map[string]string{LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region), LabelRole: FunctionWorkerRole, LabelRegion: i.Region, LabelEnvironment: i.Environment} {
+	for key, value := range map[string]string{LabelIntentID: workerIntent.ID, LabelRole: FunctionWorkerRole, LabelRegion: i.Region, LabelEnvironment: i.Environment, labelReleaseArchitecture: i.Architecture} {
 		if floor.Spec.Annotations.Labels[key] != value {
 			return errors.New("worker release floor ownership or target mismatch")
 		}
@@ -212,7 +212,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if err := checkIntent(); err != nil {
 		return nil, err
 	}
-	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
 	_, err = reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
 		return nil, err
