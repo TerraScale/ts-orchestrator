@@ -306,6 +306,9 @@ func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) e
 	for _, subject := range ControllerSubscriptions(cell) {
 		allowedSubscriptions[subject] = true
 	}
+	for _, subject := range GlobalControllerRequests() {
+		allowedSubscriptions[subject] = true
+	}
 	// Optional read-only member telemetry (observability snapshots). The
 	// issuer does not grant it today; it is accepted, not required.
 	allowedSubscriptions[protocol.ObservabilityGrant(cell)] = true
