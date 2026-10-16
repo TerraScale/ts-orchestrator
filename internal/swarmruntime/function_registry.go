@@ -125,19 +125,19 @@ func (admission *FunctionRegistryTaskAdmission) VerifyCurrent(ctx context.Contex
 	if service == nil || !proto.Equal(service.Service, admission.service) {
 		return errors.New("function registry service changed during admission")
 	}
-	node, err := admission.client.GetNode(ctx, &api.GetNodeRequest{NodeID: admission.node.ID})
-	if err != nil {
-		return err
-	}
-	if node == nil || !proto.Equal(node.Node, admission.node) {
-		return errors.New("function registry recipient changed during admission")
-	}
 	task, err := admission.client.GetTask(ctx, &api.GetTaskRequest{TaskID: admission.task.ID})
 	if err != nil {
 		return err
 	}
 	if task == nil || !proto.Equal(task.Task, admission.task) {
 		return errors.New("function registry task changed during admission")
+	}
+	node, err := admission.client.GetNode(ctx, &api.GetNodeRequest{NodeID: admission.node.ID})
+	if err != nil {
+		return err
+	}
+	if node == nil || !proto.Equal(node.Node, admission.node) {
+		return errors.New("function registry recipient changed during admission")
 	}
 	if err := verifyFunctionRegistryRecipient(node.Node, admission.intent); err != nil {
 		return err
