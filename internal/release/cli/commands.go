@@ -91,6 +91,16 @@ func (c command) run(args []string) error {
 		return c.signRootRotation(args[1:])
 	case "verify-production":
 		return c.verifyProduction(args[1:])
+	case "bundle":
+		return c.bundle(args[1:])
+	case "service-bundle":
+		return c.serviceBundle(args[1:])
+	case "service-apply":
+		return c.serviceApply(args[1:])
+	case "sign-sequence-migration":
+		return c.signSequenceMigration(args[1:])
+	case "allocate-sequence":
+		return c.allocateSequence(args[1:])
 	case "apply":
 		return c.apply(args[1:])
 	case "deploy":
@@ -103,7 +113,7 @@ func (c command) run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|apply|deploy|fleet-status> [flags]")
+	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|bundle|service-bundle|service-apply|sign-sequence-migration|allocate-sequence|apply|deploy|fleet-status> [flags]")
 }
 
 func (c command) publish(args []string) error {

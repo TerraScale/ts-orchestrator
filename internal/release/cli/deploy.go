@@ -390,7 +390,7 @@ func (c command) fleetStatusWith(args []string, env deployEnv) error {
 				return err
 			}
 			if found {
-				out.Channel = &channelSummary{SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber}
+				out.Channel = &channelSummary{SourceRevision: channel.SourceRevision, RunNumber: channel.RunNumber, ReleaseSequence: channel.ReleaseSequence}
 			}
 			status, found, err := releasechannel.ReadStatus(c.ctx, location)
 			if found {
@@ -422,8 +422,9 @@ func (c command) fleetStatusWith(args []string, env deployEnv) error {
 }
 
 type channelSummary struct {
-	SourceRevision string `json:"source_revision"`
-	RunNumber      int64  `json:"run_number"`
+	ReleaseSequence uint64 `json:"release_sequence,omitzero"`
+	SourceRevision  string `json:"source_revision"`
+	RunNumber       int64  `json:"run_number"`
 }
 
 func operatorObjectStorage(cell string) (releasechannel.ObjectClient, error) {
