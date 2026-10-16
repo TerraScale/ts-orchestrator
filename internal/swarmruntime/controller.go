@@ -31,12 +31,13 @@ import (
 )
 
 type controller struct {
-	executor    *Executor
-	task        *api.Task
-	spec        *api.ContainerSpec
-	id          string
-	fingerprint string
-	stateful    *statefulController
+	executor            *Executor
+	task                *api.Task
+	spec                *api.ContainerSpec
+	id                  string
+	fingerprint         string
+	credentialExpiresAt time.Time
+	stateful            *statefulController
 }
 
 var _ exec.Controller = (*controller)(nil)
@@ -177,7 +178,7 @@ func (c *controller) Prepare(ctx context.Context) error {
 		if len(containerMounts) != 0 {
 			opts = append(opts, oci.WithMounts(containerMounts), oci.WithEnv(containerEnv))
 		}
-		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports}
+		labels := map[string]string{"terrascale.task": c.task.ID, "terrascale.service": c.task.ServiceID, "terrascale.spec": c.fingerprint, portsLabel: ports, credentialExpiryLabel: c.credentialExpiryLabel()}
 		if c.stateful != nil {
 			qualified, err := c.stateful.specOption(ctx)
 			if err != nil {
@@ -268,7 +269,11 @@ func (c *controller) Start(ctx context.Context) error {
 	}
 	t, err := ctr.Task(ctx, nil)
 	if errdefs.IsNotFound(err) {
-		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": c.executor.logRoot})
+		loggerArgument, err := c.runtimeLoggerArgument(ctx)
+		if err != nil {
+			return err
+		}
+		uri, uriErr := cio.LogURIGenerator("binary-v2", c.executor.executable, map[string]string{"--runtime-logger": loggerArgument})
 		if uriErr != nil {
 			return uriErr
 		}
@@ -290,6 +295,12 @@ func (c *controller) Start(ctx context.Context) error {
 	case containerd.Running:
 		return exec.ErrTaskStarted
 	case containerd.Created:
+		if err := c.waitRuntimeCredentialGuard(ctx, ctr, t.Pid()); err != nil {
+			return err
+		}
+		if !c.credentialExpiresAt.IsZero() && !c.credentialExpiresAt.After(time.Now()) {
+			return ErrContainerMaterialPending
+		}
 		if err := t.Start(ctx); err != nil {
 			return err
 		}

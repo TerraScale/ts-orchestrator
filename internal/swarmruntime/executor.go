@@ -167,8 +167,15 @@ func (e *Executor) Controller(t *api.Task) (exec.Controller, error) {
 func (e *Executor) Close() error { return e.client.Close() }
 
 // RunRuntimeLogger is the containerd shim callback dispatched by the same binary.
-func RunRuntimeLogger(root string) {
+func RunRuntimeLogger(argument string) {
 	logging.Run(func(ctx context.Context, cfg *logging.Config, ready func() error) error {
+		root, guard, err := parseRuntimeLoggerInvocation(argument)
+		if err != nil {
+			return err
+		}
+		if guard != nil && (cfg.Namespace != runtimeNamespace || cfg.ID != guard.TaskID) {
+			return errors.New("runtime credential guard recipient differs from logger")
+		}
 		platformTask := cfg.Namespace == runtimeNamespace && strings.HasPrefix(cfg.ID, "ts-")
 		foundation := cfg.Namespace == "terrascale-netbird" && slices.Contains([]string{"netbird-server", "netbird-dashboard", "netbird-ingress"}, cfg.ID)
 		if !filepath.IsAbs(root) || (!platformTask && !foundation) || strings.ContainsAny(cfg.ID, "/\\") {
@@ -191,15 +198,31 @@ func RunRuntimeLogger(root string) {
 		if err := ready(); err != nil {
 			return err
 		}
+		guardCtx, cancelGuard := context.WithCancel(ctx)
+		defer cancelGuard()
+		var guarded chan error
+		if guard != nil {
+			guarded = make(chan error, 1)
+			guardResult := guarded
+			go func() { guardResult <- guardRuntimeCredential(guardCtx, *guard) }()
+		}
 		result := make(chan error, 2)
 		go func() { result <- copyBoundedLog(out, cfg.Stdout) }()
 		go func() { result <- copyBoundedLog(stderr, cfg.Stderr) }()
 		var errs []error
-		for range 2 {
+		for remaining := 2; remaining != 0 || guarded != nil; {
 			select {
 			case err := <-result:
+				remaining--
+				errs = append(errs, err)
+			case err := <-guarded:
+				guarded = nil
 				errs = append(errs, err)
 			case <-ctx.Done():
+				cancelGuard()
+				if guarded != nil {
+					<-guarded
+				}
 				return ctx.Err()
 			}
 		}
