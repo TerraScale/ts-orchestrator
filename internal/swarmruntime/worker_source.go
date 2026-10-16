@@ -303,7 +303,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if _, _, _, _, _, err := authority.currentInPhase(ctx, currentQuery, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
-	if err := n.authorizeWorkerVaultRead(ctx, verified, currentQuery); err != nil {
+	if err := n.authorizeWorkerVaultRead(ctx, verified, currentQuery, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
 	return signed.Response, nil
