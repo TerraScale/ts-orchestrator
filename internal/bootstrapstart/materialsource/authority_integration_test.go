@@ -61,7 +61,7 @@ func sourceImageRecipe(t *testing.T, root ed25519.PrivateKey, roots trust.Keyrin
 	}
 	template := bootstrap.StartupTemplate{SeedSlot: config.Slots[0].Name, ImageOCID: receipt.OCIImageOCID, ImageArchitecture: "linux-" + runtime.GOARCH, ReleaseImageReceiptWire: imageWire, ReleaseDelegationWire: delegationWire, TrustedSigners: signers, ControllerConfigDerivation: bootstrap.ControllerConfigDerivationV1}
 	for _, slot := range config.Slots {
-		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: ids["control_compartment"].(string), AvailabilityDomain: "test:SA-SAOPAULO-1-AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: ids["subnet"].(string), NetworkSecurityGroupOCIDs: []string{ids["network_security_group"].(string)}, Shape: "VM.Standard.E5.Flex"})
+		template.Profiles = append(template.Profiles, bootstrap.LaunchProfile{Slot: slot.Name, CompartmentOCID: ids["control_compartment"].(string), AvailabilityDomain: "test:" + strings.ToUpper(config.Region) + "-AD-1", FaultDomain: "FAULT-DOMAIN-1", SubnetOCID: ids["subnet"].(string), NetworkSecurityGroupOCIDs: []string{ids["network_security_group"].(string)}, Shape: "VM.Standard.E5.Flex"})
 	}
 	for index, name := range bootstrap.ControllerConfigFileNames {
 		body := []byte(`{}`)

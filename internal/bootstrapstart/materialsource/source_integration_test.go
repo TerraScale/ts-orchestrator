@@ -126,6 +126,8 @@ type materialProtocol struct {
 	hiddenSourceReads int
 	sourceCreates     int
 	policies          map[string]identity.Policy
+	interceptObject   func(http.ResponseWriter, *http.Request) bool
+	interceptIAM      func(http.ResponseWriter, *http.Request) bool
 }
 
 func (server *materialProtocol) objectPath(key string) string {
@@ -136,6 +138,9 @@ func (server *materialProtocol) put(key string, body []byte) error {
 	return os.WriteFile(server.objectPath(key), body, 0o600)
 }
 func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if server.interceptObject != nil && server.interceptObject(w, r) {
+		return
+	}
 	server.mu.Lock()
 	defer server.mu.Unlock()
 	w.Header().Set("Content-Type", "application/json")
@@ -358,7 +363,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	spokeIntent := &region.BootstrapMaterialIntent{InstallationID: intent.InstallationID, PlanSHA256: digestWire(spokeWire), Config: spokeConfig, SourceVaultTarget: target}
 	spokePlan := maps.Clone(grant.Regions[0].Plan)
 	spokePlan["cell"], spokePlan["region"] = "SFO", "us-sanjose-1"
-	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfo-control", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
+	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfocontrol", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
 	grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: spokePlan})
 	pinnedLedgerWire := bytes.Clone(anchor.Anchor().LedgerDelegationWire)
 	pinnedSlots := slices.Clone(anchor.Anchor().ControllerSlots)

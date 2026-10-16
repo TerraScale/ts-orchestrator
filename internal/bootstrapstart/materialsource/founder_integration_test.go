@@ -78,6 +78,12 @@ func (m sourceMetadataHTTP) FetchDescriptor(ctx context.Context) (bootstrapstart
 // verifies the actual test binary, signed roots, instance token and SDK observations.
 func sourceFounderFixture(t *testing.T, grant region.VerifiedBootstrapMaterial, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, objects *objectstorage.ObjectStorageClient, protocol *materialProtocol, reader *region.SignedFootprint, instanceID string) *region.SourceFounder {
 	t.Helper()
+	actor, _ := sourceFounderFixtureWithAuthority(t, grant, anchor, roots, objects, protocol, reader, instanceID)
+	return actor
+}
+
+func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootstrapMaterial, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, objects *objectstorage.ObjectStorageClient, protocol *materialProtocol, reader *region.SignedFootprint, instanceID string) (*region.SourceFounder, *region.HomeIAMAuthority) {
+	t.Helper()
 	template, err := bootstrap.VerifyRegionalStartupTemplate(grant.FoundationGrantWire(), roots, anchor, oci.Region(strings.ToUpper(grant.Config().Cell)), time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +115,9 @@ func sourceFounderFixture(t *testing.T, grant region.VerifiedBootstrapMaterial, 
 	protocol.mu.Unlock()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if protocol.interceptIAM != nil && protocol.interceptIAM(w, r) {
+			return
+		}
 		if r.URL.Path == "/id" {
 			io.WriteString(w, instanceID)
 			return
@@ -185,7 +194,7 @@ func sourceFounderFixture(t *testing.T, grant region.VerifiedBootstrapMaterial, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	iam, err := identity.NewIdentityClientWithConfigurationProvider(provider)
+	iam, err := factory.Identity()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +222,7 @@ func sourceFounderFixture(t *testing.T, grant region.VerifiedBootstrapMaterial, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	return actor
+	return actor, authority
 }
 
 func sourceFoundationRecords(t *testing.T, protocol *materialProtocol, grant region.FoundationGrant) {
