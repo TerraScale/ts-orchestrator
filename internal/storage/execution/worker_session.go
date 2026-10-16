@@ -182,7 +182,7 @@ func (s *WorkerSession) request(ctx context.Context, task *api.Task, action, eff
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}
 	if payload.Identity != identity || payload.TaskID != task.ID || payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.EffectID != effectID ||
-		payload.Nonce != query.Nonce || payload.Epoch == 0 || payload.Epoch > response.Epoch || action != "close" && payload.Epoch != response.Epoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
+		payload.Nonce != query.Nonce || payload.Epoch == 0 || payload.LeaderEpoch == 0 || payload.Epoch > payload.LeaderEpoch || action != "close" && payload.Epoch != payload.LeaderEpoch || payload.Revision == 0 || payload.IssuedAt.IsZero() || payload.IssuedAt.After(now.Add(2*time.Second)) ||
 		payload.Deadline.IsZero() || action != "close" && (!payload.Deadline.After(now.Add(workerStopReserve)) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime) {
 		return VerifiedWorkerGrant{}, ErrUnsafe
 	}

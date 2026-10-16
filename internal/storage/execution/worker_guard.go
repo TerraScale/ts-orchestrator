@@ -31,6 +31,7 @@ type WorkerGuard struct {
 	EffectID            string         `json:"effect_id"`
 	Revision            uint64         `json:"revision"`
 	Deadline            time.Time      `json:"deadline"`
+	HostEpoch           uint64         `json:"host_epoch"`
 	Epoch               uint64         `json:"epoch"`
 }
 
@@ -84,7 +85,7 @@ func (s *WorkerSession) RuntimeGuard(ctx context.Context, task *api.Task) (Worke
 	}
 	guard := WorkerGuard{CachePath: filepath.Join(root, grant.TaskSHA256()+".json"), Identity: s.identity,
 		ControllerPublicKey: slices.Clone(s.controller), TaskSHA256: grant.TaskSHA256(), AdmissionSHA256: grant.AdmissionSHA256(),
-		EffectID: grant.EffectID(), Epoch: grant.Epoch(), Revision: grant.Revision(), Deadline: grant.Deadline()}
+		EffectID: grant.EffectID(), Epoch: grant.Epoch(), HostEpoch: grant.envelope.Epoch, Revision: grant.Revision(), Deadline: grant.Deadline()}
 	if _, _, err := VerifyWorkerGuard(guard, grant.Revision(), grant.Deadline()); err != nil {
 		return WorkerGuard{}, err
 	}
@@ -113,7 +114,7 @@ func (s *WorkerSession) persistGrant(grant VerifiedWorkerGrant) error {
 func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time.Time) (time.Time, uint64, error) {
 	if !filepath.IsAbs(guard.CachePath) || filepath.Clean(guard.CachePath) != guard.CachePath ||
 		filepath.Base(guard.CachePath) != guard.TaskSHA256+".json" || len(guard.ControllerPublicKey) != ed25519.PublicKeySize ||
-		guard.TaskSHA256 == "" || guard.AdmissionSHA256 == "" || guard.Revision == 0 || guard.Deadline.IsZero() || guard.Epoch == 0 || !entityid.Valid(guard.EffectID) {
+		guard.TaskSHA256 == "" || guard.AdmissionSHA256 == "" || guard.Revision == 0 || guard.Deadline.IsZero() || guard.Epoch == 0 || guard.HostEpoch == 0 || !entityid.Valid(guard.EffectID) {
 		return time.Time{}, 0, ErrUnsafe
 	}
 	data, err := readProtectedRuntimeFile(guard.CachePath)
@@ -137,11 +138,11 @@ func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time
 	if err := protocol.DecodeStrict(envelope.Payload, &response, 512<<10); err != nil {
 		return time.Time{}, 0, err
 	}
-	if response.Node != guard.Identity.HostNode || response.SessionID != guard.Identity.HostSessionID || response.Epoch != guard.Epoch ||
+	if response.Node != guard.Identity.HostNode || response.SessionID != guard.Identity.HostSessionID || response.Epoch != guard.HostEpoch ||
 		response.Operation != "runtime-effect" || response.Error != "" || len(response.Nonce) != 32 || envelope.IssuedAt.After(time.Now().Add(2*time.Second)) {
 		return time.Time{}, 0, ErrUnsafe
 	}
-	scope := protocol.EnvelopeScope{Region: guard.Identity.Cell, Kind: "host.response.runtime-effect", Actor: "controller", OperationID: entityid.Derive("host-request", response.Nonce), Epoch: guard.Epoch}
+	scope := protocol.EnvelopeScope{Region: guard.Identity.Cell, Kind: "host.response.runtime-effect", Actor: "controller", OperationID: entityid.Derive("host-request", response.Nonce), Epoch: guard.HostEpoch}
 	if err := protocol.VerifyEnvelope(envelope, scope, ed25519.PublicKey(guard.ControllerPublicKey), envelope.IssuedAt, protocol.VerifyPolicy{MaxLifetime: 10 * time.Second}); err != nil {
 		return time.Time{}, 0, err
 	}
@@ -153,7 +154,7 @@ func VerifyWorkerGuard(guard WorkerGuard, lastRevision uint64, lastDeadline time
 	if err != nil {
 		return time.Time{}, 0, err
 	}
-	if payload.Identity != guard.Identity || payload.TaskSHA256 != guard.TaskSHA256 || payload.EffectID != guard.EffectID || payload.Epoch != guard.Epoch ||
+	if payload.Identity != guard.Identity || payload.TaskSHA256 != guard.TaskSHA256 || payload.EffectID != guard.EffectID || payload.Epoch != guard.Epoch || payload.LeaderEpoch != payload.Epoch ||
 		admission != guard.AdmissionSHA256 || payload.Phase != "held" || payload.StopChallenge != "" || payload.IssuedAt.IsZero() || payload.Revision == 0 || payload.Revision < lastRevision || payload.Revision < guard.Revision || payload.Deadline.Before(guard.Deadline) ||
 		payload.Deadline.Before(lastDeadline) || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime ||
 		payload.IssuedAt.After(time.Now().Add(2*time.Second)) || !time.Now().Before(payload.Deadline) {

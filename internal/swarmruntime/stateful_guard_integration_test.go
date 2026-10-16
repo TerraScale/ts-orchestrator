@@ -103,7 +103,7 @@ func writeStatefulGuardFixture(t *testing.T, guard StatefulRuntimeGuard, private
 	t.Helper()
 	now := time.Now().UTC()
 	payload := executionwire.WorkerGrantPayload{Identity: guard.Identity, TaskID: guard.EffectID, ServiceID: "statefulguard",
-		TaskSHA256: guard.TaskSHA256, EffectID: guard.EffectID, Nonce: strings.Repeat("a", 32), Epoch: guard.Epoch, Revision: revision, IssuedAt: now, Deadline: deadline, Phase: "held"}
+		TaskSHA256: guard.TaskSHA256, EffectID: guard.EffectID, Nonce: strings.Repeat("a", 32), Epoch: guard.Epoch, LeaderEpoch: guard.Epoch, Revision: revision, IssuedAt: now, Deadline: deadline, Phase: "held"}
 	material, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestContainerdStatefulGuardSurvivesAgentExit(t *testing.T) {
 				t.Fatal(err)
 			}
 			deadline := time.Now().UTC().Add(10 * time.Second)
-			guard := StatefulRuntimeGuard{CachePath: filepath.Join(root, hash+".json"), Identity: identity, ControllerPublicKey: public, TaskSHA256: hash, AdmissionSHA256: admission, EffectID: payload.EffectID, Epoch: 1, Revision: 2, Deadline: deadline}
+			guard := StatefulRuntimeGuard{CachePath: filepath.Join(root, hash+".json"), Identity: identity, ControllerPublicKey: public, TaskSHA256: hash, AdmissionSHA256: admission, EffectID: payload.EffectID, Epoch: 1, HostEpoch: 1, Revision: 2, Deadline: deadline}
 			writeStatefulGuardFixture(t, guard, private, 2, deadline)
 			fixture := statefulGuardFixture{Socket: *integrationSocket, Logs: filepath.Join(root, "logs"), ContainerID: "ts-" + payload.TaskID, Guard: guard}
 			data, err := json.Marshal(fixture)

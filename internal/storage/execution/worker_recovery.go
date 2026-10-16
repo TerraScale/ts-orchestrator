@@ -106,7 +106,7 @@ func (s *WorkerSession) recoverRuntime(ctx context.Context, task *api.Task, hash
 		return nil, err
 	}
 	if payload.Identity.Cell != s.identity.Cell || payload.Identity.HostNode != s.identity.HostNode || payload.Identity.InstanceID != s.identity.InstanceID || payload.Identity.NodeID != s.identity.NodeID || payload.Identity.RegistrationGeneration == 0 || !entityid.Valid(payload.Identity.HostSessionID) || response.SessionID != payload.Identity.HostSessionID || payload.TaskID != task.ID ||
-		payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.Epoch != response.Epoch || payload.Phase != "held" || payload.StopChallenge != "" ||
+		payload.ServiceID != task.ServiceID || payload.TaskSHA256 != hash || payload.Epoch == 0 || payload.LeaderEpoch != payload.Epoch || payload.Phase != "held" || payload.StopChallenge != "" ||
 		payload.Revision == 0 || payload.IssuedAt.IsZero() || !payload.Deadline.After(payload.IssuedAt) || payload.Deadline.Sub(payload.IssuedAt) > workerGrantLifetime ||
 		payload.EffectID != entityid.Derive("runtime-effect", payload.Identity.HostSessionID, hash) {
 		return nil, ErrUnsafe
