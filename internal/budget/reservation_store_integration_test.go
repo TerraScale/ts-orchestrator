@@ -187,6 +187,10 @@ func TestSignedSpendingAuthorityDeniesCanceledObservation(t *testing.T) {
 	if err == nil || held.Regions[0].Allowance != 1 || len(held.Reservations) != 0 {
 		t.Fatalf("tenant budget bypassed incomplete infrastructure evidence: %+v err=%v", held, err)
 	}
+	held, err = AllocateInfrastructure(ctx, &writer.Reader, region.VerifiedInfrastructureSpend{}, capacityinventory.Snapshot{}, demand, &persisted, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "signed infrastructure") || held.State != StateNone || held.Regions[0].Allowance != 1 {
+		t.Fatalf("tenant budget replaced missing signed spending authority: %+v err=%v", held, err)
+	}
 }
 
 // This exercises persisted commitments, not spending admission: no fixture can
