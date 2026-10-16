@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/autoscale"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -179,6 +180,15 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 	if replicated == nil || replicated.Replicas > autoscale.MaxReplicas {
 		return result, errors.New("autoscaling requires a replicated service within the product replica limit")
 	}
+	result.Replicas, result.Target = int(replicated.Replicas), int(replicated.Replicas)
+	if service.UpdateStatus != nil && service.UpdateStatus.State != api.UpdateStatus_COMPLETED &&
+		service.UpdateStatus.State != api.UpdateStatus_ROLLBACK_COMPLETED ||
+		service.UpdateStatus == nil && service.PreviousSpec != nil && !proto.Equal(&service.PreviousSpec.Task, &service.Spec.Task) {
+		// Every UpdateService overwrites PreviousSpec, even replica-only changes;
+		// preserve upstream rollback history until the release has completed.
+		result.Reason = "release-in-progress"
+		return result, nil
+	}
 	memory, exists := a.history[policy.Target]
 	history := memory.history
 	if !exists || memory.serviceID != service.ID {
@@ -187,10 +197,7 @@ func (a *Autoscaler) scale(ctx context.Context, policy ScalePolicy, now time.Tim
 	var signalPolicy autoscale.Policy
 	if policy.Policy != nil {
 		signalPolicy = *policy.Policy
-		if service.UpdateStatus == nil || service.UpdateStatus.State == api.UpdateStatus_COMPLETED ||
-			service.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED {
-			result.Readings = autoscale.Collect(ctx, a.source, policy.Target, signalPolicy, now)
-		}
+		result.Readings = autoscale.Collect(ctx, a.source, policy.Target, signalPolicy, now)
 	}
 	decision := autoscale.Decide(signalPolicy, autoscale.Input{Current: int(replicated.Replicas), Bounds: policy.Bounds,
 		Readings: result.Readings, Now: now}, history)

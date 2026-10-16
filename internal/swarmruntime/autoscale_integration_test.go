@@ -82,6 +82,21 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertReplicas(2)
+	// Bounds-only policy drains through the same upstream replica field.
+	if err := scaler.SetPolicies([]ScalePolicy{{Target: target, Bounds: autoscale.Bounds{}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertReplicas(0)
+	if err := scaler.SetPolicies([]ScalePolicy{policy}); err != nil {
+		t.Fatal(err)
+	}
+	if err := scaler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertReplicas(2)
 	before := service().Spec.Copy()
 	source.Record(target, autoscale.SignalCPUUtilization, autoscale.Sample{At: time.Now(), Value: 1})
 	if err := scaler.Tick(ctx); err != nil {
@@ -166,13 +181,17 @@ func TestAutoscaleManagerIntegration(t *testing.T) {
 		t.Fatal("worker published leader autoscaling observations")
 	}
 
-	// Replica bounds are enforced without signals; a later policy amendment
-	// drains the service through the same upstream replicated-count field.
+	// Bounds changes must also preserve the in-flight release's rollback spec.
 	if err := scaler.SetPolicies([]ScalePolicy{{Target: target, Bounds: autoscale.Bounds{}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := scaler.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertReplicas(0)
+	assertReplicas(2)
+	current := service()
+	if got := scaler.Last()[target].Reason; got != "release-in-progress" || current.PreviousSpec == nil ||
+		!strings.Contains(current.PreviousSpec.Task.GetContainer().Image, strings.Repeat("a", 64)) {
+		t.Fatalf("in-flight release lost rollback history: reason=%s, service=%+v", got, current)
+	}
 }
