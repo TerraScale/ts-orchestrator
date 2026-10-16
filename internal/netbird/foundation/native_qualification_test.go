@@ -125,6 +125,9 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 	if err != nil {
 		return response, err
 	}
+	if identity != c.Host.ExpectedIdentity || identity.InstanceID != c.Host.OCID {
+		return response, errors.New("native host identity differs")
+	}
 	response.Observation.Identity = identity
 	response.Observation.WorkerSHA256, response.Observation.WorkerSourceRevision, err = nativeBuildIdentity()
 	if err != nil {
@@ -135,6 +138,18 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 	}
 	switch c.Operation {
 	case "identity":
+		client, err := containerd.New("/run/containerd/containerd.sock")
+		if err != nil {
+			return response, err
+		}
+		containers, err := client.Containers(foundationContext(ctx))
+		closeErr := client.Close()
+		if err = errors.Join(err, closeErr); err != nil {
+			return response, err
+		}
+		if len(containers) != 0 {
+			return response, errors.New("native foundation namespace is not dormant")
+		}
 		return response, nil
 	case "backup-store":
 		err = w.startStore(c.Host.Address)
@@ -225,6 +240,15 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 		response.Observation.BackupSHA256 = strings.TrimSuffix(filepath.Base(record.Object), ".tar")
 		response.Observation.BackupBytes = record.Bytes
 		response.Observation.BackupRegions = []string{targets[0].Region, targets[1].Region}
+		response.Observation.BackupStorage = "signed-sdk-fixture"
+		for _, target := range targets {
+			hash := sha256.New()
+			counter := &nativeCountWriter{Writer: hash}
+			if err = target.download(ctx, record.Object, counter); err != nil {
+				return response, err
+			}
+			response.Observation.BackupCopies = append(response.Observation.BackupCopies, protocol.Copy{Region: target.Region, SHA256: hex.EncodeToString(hash.Sum(nil)), Bytes: counter.Bytes})
+		}
 	case "restore":
 		if err = json.Unmarshal(c.Private, &w.private); err != nil {
 			return response, err
@@ -263,8 +287,7 @@ func (w *nativeQualification) execute(ctx context.Context, c protocol.Command) (
 		}
 		response.Observation.RestoredSHA256 = strings.TrimSuffix(filepath.Base(w.private.Object), ".tar")
 	case "retire", "cleanup":
-		w.close()
-		return response, nil
+		return response, w.shutdown(ctx)
 	default:
 		return response, errors.New("unknown native operation")
 	}
@@ -682,14 +705,20 @@ func (w *nativeQualification) backupTargets() ([2]BackupTarget, error) {
 }
 
 func (w *nativeQualification) close() {
-	_ = w.stopPeer()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if err := w.shutdown(ctx); err != nil {
+		w.t.Error("native fixture cleanup failed")
+	}
+}
+
+func (w *nativeQualification) shutdown(ctx context.Context) error {
+	err := w.stopPeer()
 	if w.runtime != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		defer cancel()
 		for _, id := range []string{"netbird-ingress", "netbird-server", "netbird-dashboard"} {
-			_ = w.runtime.stop(ctx, id, func() error { return nil })
+			err = errors.Join(err, w.runtime.stop(ctx, id, func() error { return nil }))
 		}
-		_ = w.runtime.client.Close()
+		err = errors.Join(err, w.runtime.client.Close())
 		w.runtime = nil
 	}
 	if w.store != nil {
@@ -699,6 +728,7 @@ func (w *nativeQualification) close() {
 	if w.client != nil {
 		w.client.http.CloseIdleConnections()
 	}
+	return err
 }
 
 func nativeFileDigest(name string) (string, error) {
@@ -834,4 +864,15 @@ func (w *nativeQualification) stopPeer() error {
 		<-done
 		return errors.New("native peer failed graceful stop")
 	}
+}
+
+type nativeCountWriter struct {
+	io.Writer
+	Bytes int64
+}
+
+func (w *nativeCountWriter) Write(wire []byte) (int, error) {
+	count, err := w.Writer.Write(wire)
+	w.Bytes += int64(count)
+	return count, err
 }
