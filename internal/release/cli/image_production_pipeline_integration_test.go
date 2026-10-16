@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,4 +160,36 @@ chmod 0700 "$output"
 		t.Fatal(err)
 	}
 	run(false)
+	// Interrupted provider retrieval cannot expose a completion marker, and a
+	// retry repairs a partial object rather than keeping the candidate blocked.
+	record.Candidate.ArtifactSHA256 = digest
+	writeProductionRecord(t, recordPath, record, f.rootPrivate, time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	objectName := "image-production-evidence-" + record.Evidence[0].SHA256
+	retainedObject := filepath.Join(store, objectName)
+	if err := os.Remove(retainedObject); err != nil {
+		t.Fatal(err)
+	}
+	resumed := t.TempDir()
+	fetch := func(wantComplete bool) {
+		t.Helper()
+		command := exec.CommandContext(t.Context(), "bash", "scripts/ci/fetch-image-production-evidence.sh",
+			"ci-"+qualification.SourceRevision+"-run-"+fmt.Sprint(qualification.Verification.RunID), digest, "GRU", "arm64", resumed)
+		command.Dir = f.sourceDir
+		logs, err := command.CombinedOutput()
+		if (err == nil) != wantComplete {
+			t.Fatalf("resumed transport complete=%v: %v\n%s", wantComplete, err, logs)
+		}
+		_, markerErr := os.Stat(filepath.Join(resumed, "GRU", "arm64", "production.json"))
+		if (markerErr == nil) != wantComplete {
+			t.Fatalf("incorrect transport completion marker: %v", markerErr)
+		}
+	}
+	fetch(false)
+	object, err := os.ReadFile(filepath.Join(evidenceDir, "objects", record.Evidence[0].SHA256))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFixtureFile(t, retainedObject, object, 0o600)
+	writeFixtureFile(t, filepath.Join(resumed, "objects", record.Evidence[0].SHA256), []byte("interrupted bytes"), 0o600)
+	fetch(true)
 }
