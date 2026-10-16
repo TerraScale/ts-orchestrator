@@ -16,7 +16,6 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -52,96 +51,104 @@ type foundationFloor struct {
 }
 
 func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring) (FoundationResolver, error) {
+	resolver, _, err := resolveCurrentFoundation(ctx, client, tenancy, genesis, nil)
+	return resolver, err
+}
+
+func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObjects, tenancy string, genesis trust.Keyring, retained *RetainedFoundation) (FoundationResolver, RetainedFoundation, error) {
 	if len(genesis) == 0 || tenancy == "" {
-		return FoundationResolver{}, errors.New("current foundation requires independent genesis and authenticated tenancy")
+		return FoundationResolver{}, RetainedFoundation{}, errors.New("current foundation requires independent genesis and authenticated tenancy")
 	}
 	directory, err := openFoundationFloorDirectory()
 	if err != nil {
-		return FoundationResolver{}, fmt.Errorf("open foundation trust floor: %w", err)
+		return FoundationResolver{}, RetainedFoundation{}, fmt.Errorf("open foundation trust floor: %w", err)
 	}
 	defer directory.Close()
 	digest := sha256.Sum256([]byte(tenancy))
 	name := hex.EncodeToString(digest[:]) + ".json"
 	lock, err := openFoundationFloorFile(int(directory.Fd()), name+".lock", unix.O_RDWR|unix.O_CREAT)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	defer lock.Close()
 	for {
 		if err := ctx.Err(); err != nil {
-			return FoundationResolver{}, err
+			return FoundationResolver{}, RetainedFoundation{}, err
 		}
 		err = unix.Flock(int(lock.Fd()), unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
 			break
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EINTR) {
-			return FoundationResolver{}, err
+			return FoundationResolver{}, RetainedFoundation{}, err
 		}
 		select {
 		case <-ctx.Done():
-			return FoundationResolver{}, ctx.Err()
+			return FoundationResolver{}, RetainedFoundation{}, ctx.Err()
 		case <-time.After(20 * time.Millisecond):
 		}
 	}
 	defer unix.Flock(int(lock.Fd()), unix.LOCK_UN)
 	previous, found, err := readFoundationFloor(int(directory.Fd()), name, tenancy, genesis)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
-	namespace, err := discoveryNamespace(ctx, client, tenancy)
-	if err != nil {
-		return FoundationResolver{}, errors.Join(err, ctx.Err())
+	var snapshot RetainedFoundation
+	if retained == nil {
+		snapshot, err = readCurrentFoundation(ctx, client, tenancy)
+		if err != nil {
+			return FoundationResolver{}, RetainedFoundation{}, err
+		}
+	} else {
+		snapshot = retained.clone()
 	}
-	anchorWire, err := readDiscoveryObject(ctx, client, namespace, foundationDiscoveryObject, bootstrap.MaxBootstrapAnchorBytes)
-	if err != nil {
-		return FoundationResolver{}, fmt.Errorf("%w: read current home anchor: %w", ErrFoundationDiscoveryPending, err)
-	}
+	namespace, anchorWire, chainWire := snapshot.Namespace, snapshot.AnchorWire, snapshot.RootChainWire
 	envelope, err := trust.DecodeEnvelope(anchorWire)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
-	// The unverified deployment selects only the cryptographic scope. Every
-	// identity and location is checked after verification with current roots.
+	// Untrusted deployment selects only scope; signatures bind every identity.
 	identity := foundationChainIdentity(envelope.Scope.DeploymentID)
-	chainWire, err := readDiscoveryObject(ctx, client, namespace, foundationRootChainObject, trust.MaxRootChainBytes)
-	if err != nil {
-		return FoundationResolver{}, fmt.Errorf("%w: read current root chain: %w", ErrFoundationDiscoveryPending, err)
-	}
 	chain, err := trust.DecodeRootChain(chainWire)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	verified, err := trust.VerifyRootChain(genesis, identity, chain)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	adopted := trust.RootChain{Version: 1}
 	if found {
 		adopted, err = trust.DecodeRootChain(previous.ChainWire)
 		if err != nil {
-			return FoundationResolver{}, err
+			return FoundationResolver{}, RetainedFoundation{}, err
 		}
 		if identity.DeploymentID != previous.DeploymentID || !chain.Extends(adopted) {
-			return FoundationResolver{}, errors.New("current foundation root chain forks or rolls back adopted deployment")
+			return FoundationResolver{}, RetainedFoundation{}, errors.New("current foundation root chain forks or rolls back adopted deployment")
 		}
 	}
 	// Historical transitions remain valid for an offline or fresh client;
 	// current authority must be signed by the terminal roots below.
 	anchor, err := verifyDiscoveryAnchor(anchorWire, verified.Current, tenancy, namespace)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
-	reader, err := NewSignedFootprint(client, anchor, verified.Current, tenancy)
+	reader, err := newSignedFootprint(client, anchor, verified.Current, tenancy)
 	if err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
-	grantWire, err := reader.readGrant(ctx)
-	if err != nil {
-		return FoundationResolver{}, err
+	grantWire := snapshot.GrantWire
+	if retained == nil {
+		grantWire, err = reader.readGrant(ctx)
+		if err != nil {
+			return FoundationResolver{}, RetainedFoundation{}, err
+		}
+		snapshot.GrantWire = grantWire
+	} else {
+		reader.retainedGrant = grantWire
 	}
 	if _, _, err := reader.verifyGrant(grantWire); err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	home := reader.home
 	grantDigest := sha256.Sum256(grantWire)
@@ -151,19 +158,22 @@ func discoverCurrentFoundation(ctx context.Context, client foundationDiscoveryOb
 	if found && (next.InstallationID != previous.InstallationID || next.DeploymentID != previous.DeploymentID || next.ClusterID != previous.ClusterID ||
 		next.Generation < previous.Generation || next.Generation == previous.Generation && (next.GrantSHA256 != previous.GrantSHA256 ||
 		len(chain.Rotations) == len(adopted.Rotations) && next.AnchorSHA256 != previous.AnchorSHA256)) {
-		return FoundationResolver{}, errors.New("current foundation switches identity, rolls back grant or changes an adopted generation")
+		return FoundationResolver{}, RetainedFoundation{}, errors.New("current foundation switches identity, rolls back grant or changes an adopted generation")
 	}
-	store, err := NewObjectFoundationStore(client, namespace, foundationDiscoveryBucket)
-	if err != nil {
-		return FoundationResolver{}, err
+	var store FoundationStore
+	if retained == nil {
+		store, err = NewObjectFoundationStore(client, namespace, foundationDiscoveryBucket)
+		if err != nil {
+			return FoundationResolver{}, RetainedFoundation{}, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
-		return FoundationResolver{}, err
+		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	if err := writeFoundationFloor(directory, name, next); err != nil {
-		return FoundationResolver{}, fmt.Errorf("persist foundation trust floor: %w", err)
+		return FoundationResolver{}, RetainedFoundation{}, fmt.Errorf("persist foundation trust floor: %w", err)
 	}
-	return FoundationResolver{Footprint: reader, Store: store}, nil
+	return FoundationResolver{Footprint: reader, Store: store}, snapshot, nil
 }
 
 func foundationChainIdentity(deployment string) trust.ChainIdentity {
