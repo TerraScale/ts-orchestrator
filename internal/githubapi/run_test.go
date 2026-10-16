@@ -1,10 +1,14 @@
 package githubapi
 
 import (
+	"context"
 	"encoding/json/v2"
-	"reflect"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunDetail(t *testing.T) {
@@ -37,19 +41,43 @@ func TestRunDetail(t *testing.T) {
 		{"oversized jobs", runJSON, strings.Repeat(" ", 4<<20) + jobsJSON, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for name, content := range map[string]string{"run.json": tc.run, "jobs.json": tc.jobs} {
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			gh := filepath.Join(dir, "gh")
+			if err := os.WriteFile(gh, []byte(`#!/bin/sh
+printf '%s\0' "$@" > "$TS_GITHUBAPI_FIXTURE/argv"
+case "$4" in
+  --paginate) exec cat "$TS_GITHUBAPI_FIXTURE/jobs.json" ;;
+  *) exec cat "$TS_GITHUBAPI_FIXTURE/run.json" ;;
+esac
+`), 0o700); err != nil {
+				t.Fatal(err)
+			}
 			calls := 0
 			wire, err := RunDetail("TerraScale/terrabase", 42, func(args ...string) ([]byte, error) {
 				calls++
-				if calls == 1 {
-					if !reflect.DeepEqual(args, []string{"api", "--hostname", "github.com", "repos/TerraScale/terrabase/actions/runs/42"}) {
-						t.Fatalf("run args: %v", args)
-					}
-					return []byte(tc.run), nil
+				ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, gh, args...)
+				cmd.Env = append(os.Environ(), "TS_GITHUBAPI_FIXTURE="+dir)
+				cmd.WaitDelay = time.Second
+				out, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("gh fixture: %v\n%s", err, out)
 				}
-				if !reflect.DeepEqual(args, []string{"api", "--hostname", "github.com", "--paginate", "--slurp", "repos/TerraScale/terrabase/actions/runs/42/attempts/2/jobs?per_page=100"}) {
-					t.Fatalf("jobs args: %v", args)
+				want := []string{"api", "--hostname", "github.com", "repos/TerraScale/terrabase/actions/runs/42"}
+				if calls != 1 {
+					want = []string{"api", "--hostname", "github.com", "--paginate", "--slurp", "repos/TerraScale/terrabase/actions/runs/42/attempts/2/jobs?per_page=100"}
 				}
-				return []byte(tc.jobs), nil
+				argv, err := os.ReadFile(filepath.Join(dir, "argv"))
+				if err != nil || string(argv) != strings.Join(want, "\x00")+"\x00" {
+					t.Fatalf("gh call %d argv: %q, error %v; want %q", calls, argv, err, want)
+				}
+				return out, nil
 			})
 			if (err != nil) != tc.wantError {
 				t.Fatalf("error = %v; wantError = %v", err, tc.wantError)
