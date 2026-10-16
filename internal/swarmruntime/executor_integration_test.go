@@ -111,6 +111,18 @@ func TestContainerdLifecycleAgentRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := c.Prepare(ctx); err != nil {
+		t.Fatal(err)
+	}
+	failingLogger, err := exec.LookPath("false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.executable = failingLogger
+	if err := c.Start(ctx); err == nil {
+		t.Fatal("workload started without a ready log collector")
+	}
+	e.executable = executable
 	agent := func() string {
 		t.Helper()
 		command := exec.CommandContext(ctx, executable, "runtime-agent-fixture", *integrationSocket, state, taskPath)
