@@ -30,6 +30,8 @@ type API struct {
 	base  string
 	token string
 	http  *http.Client
+	// beforeWrite fences every mutation, including multiple writes in one step.
+	beforeWrite func() error
 }
 
 // ValidateManagementURL accepts an https origin, or an http origin on a
@@ -108,13 +110,18 @@ func (api *API) do(ctx context.Context, method, path string, in, out any) error 
 	if in != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	if method != http.MethodGet && api.beforeWrite != nil {
+		if err := api.beforeWrite(); err != nil {
+			return err
+		}
+	}
 	response, err := api.http.Do(request)
 	if err != nil {
 		// A *url.Error carries only the method, the URL (validated origin
 		// without userinfo plus an API path) and the transport cause; the
 		// Authorization header never appears in it.
 		if ctx.Err() != nil {
-			return fmt.Errorf("NetBird API %s %s: %w", method, path, ctx.Err())
+			return fmt.Errorf("NetBird API %s %s: %w", method, path, context.Cause(ctx))
 		}
 		return fmt.Errorf("NetBird API %s %s: %w", method, path, err)
 	}
@@ -128,6 +135,9 @@ func (api *API) do(ctx context.Context, method, path string, in, out any) error 
 	}
 	wire, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil || len(wire) > maxResponseBytes {
+		if ctx.Err() != nil {
+			return fmt.Errorf("NetBird API %s %s: %w", method, path, context.Cause(ctx))
+		}
 		return fmt.Errorf("NetBird API %s %s: response unreadable or too large", method, path)
 	}
 	if out == nil || len(bytes.TrimSpace(wire)) == 0 {

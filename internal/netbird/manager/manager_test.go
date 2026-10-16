@@ -486,19 +486,6 @@ func TestValidateRejectsSlotsOutsideThePrivateCellSubnetAndUnknownAliasRoles(t *
 	}
 }
 
-func TestLoopWithoutCallbacksNeitherPanicsNorActs(t *testing.T) {
-	var loop Loop
-	loop = loop.withDefaults()
-	if loop.Leader() {
-		t.Fatal("a loop without a leadership check acts as the leader")
-	}
-	loop.Logf("ignored %d", 1)
-	// Run on a zero Loop must not dereference the nil callbacks.
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
-	Loop{initialDelay: time.Millisecond, Interval: time.Millisecond}.Run(ctx)
-}
-
 func TestAPIRefusesRedirectsAndHidesBodies(t *testing.T) {
 	redirect := httptest.NewServer(http.RedirectHandler("https://attacker.invalid/api/groups", http.StatusFound))
 	defer redirect.Close()

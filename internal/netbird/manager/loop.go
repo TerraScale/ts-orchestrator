@@ -29,11 +29,14 @@ type Loop struct {
 }
 
 const (
-	defaultLoopInterval = 5 * time.Minute
-	firstRetry          = 30 * time.Second
-	maxRetry            = 30 * time.Minute
-	cycleTimeout        = 3 * time.Minute
+	defaultLoopInterval    = 5 * time.Minute
+	firstRetry             = 30 * time.Second
+	maxRetry               = 30 * time.Minute
+	cycleTimeout           = 3 * time.Minute
+	authorityCheckInterval = 100 * time.Millisecond
 )
+
+var errAuthorityLost = errors.New("NetBird management authority lost")
 
 func (l Loop) withDefaults() Loop {
 	if l.Interval <= 0 {
@@ -100,6 +103,42 @@ func (l Loop) cycle(parent context.Context, warned map[string]bool) (err error) 
 	}()
 	ctx, cancel := context.WithTimeout(parent, cycleTimeout)
 	defer cancel()
+	ctx, cancelAuthority := context.WithCancelCause(ctx)
+	checkAuthority := func() error {
+		if !l.Leader() {
+			cancelAuthority(errAuthorityLost)
+		}
+		return context.Cause(ctx)
+	}
+	if err := checkAuthority(); err != nil {
+		cancelAuthority(nil)
+		return err
+	}
+	watchDone := make(chan struct{})
+	go func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				cancelAuthority(fmt.Errorf("NetBird management panicked: %v", recovered))
+			}
+			close(watchDone)
+		}()
+		// shortcut: boolean authority cannot expose intervening terms; use a term-bound cancellation signal when available.
+		ticks := time.Tick(authorityCheckInterval)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticks:
+				if checkAuthority() != nil {
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		cancelAuthority(nil)
+		<-watchDone
+	}()
 	token, err := l.Token(ctx)
 	if err != nil {
 		return err
@@ -110,13 +149,14 @@ func (l Loop) cycle(parent context.Context, warned map[string]bool) (err error) 
 		return err
 	}
 	defer api.Close()
+	api.beforeWrite = checkAuthority
 	report, syncErr := Sync(ctx, api, l.Desired, true)
 	l.log("sync", report, warned)
 	// Peer hygiene only needs the servers group, so a sync refusal (for
 	// example a routing-peer mismatch) must not freeze it. Leadership may
 	// have moved during sync.
-	if !l.Leader() {
-		return syncErr
+	if err := checkAuthority(); err != nil {
+		return errors.Join(syncErr, err)
 	}
 	report, pruneErr := Prune(ctx, api, l.Desired, PruneOptions{OfflineFor: l.OfflineFor}, true)
 	l.log("peer hygiene", report, warned)

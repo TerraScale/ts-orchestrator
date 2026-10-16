@@ -100,6 +100,9 @@ func (p *plan) run(ctx context.Context, apply bool, only []string) (Report, erro
 			continue
 		}
 		if apply {
+			if err := context.Cause(ctx); err != nil {
+				return report, err
+			}
 			if err := s.apply(ctx, &p.refs); err != nil {
 				return report, fmt.Errorf("%s: %w", s.change, err)
 			}
