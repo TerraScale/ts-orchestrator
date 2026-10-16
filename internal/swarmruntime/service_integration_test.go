@@ -75,7 +75,7 @@ func serviceConfig(t *testing.T, host, role string) NodeConfig {
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
-	return NodeConfig{StateDir: t.TempDir(), ListenAddress: addr, AdvertiseAddress: addr, Admission: Admission{Region: "gru", HostID: host, InstanceID: "ocid1.instance.integration." + host, FounderID: "ts-gru-1", Role: role}}
+	return NodeConfig{StateDir: t.TempDir(), ListenAddress: addr, AdvertiseAddress: addr, Admission: Admission{Region: "sa-saopaulo-1", HostID: host, InstanceID: "ocid1.instance.integration." + host, FounderID: "ts-gru-1", Role: role}}
 }
 func serviceStart(t *testing.T, ctx context.Context, cfg NodeConfig) *Node {
 	t.Helper()
@@ -118,7 +118,7 @@ func serviceCluster(t *testing.T, ctx context.Context) (api.ControlClient, NodeC
 	return client, workerCfg, worker
 }
 func serviceIntent() ServiceIntent {
-	return ServiceIntent{ID: entityid.Derive("service", "production", "gru", "ts-auth"), Role: "ts-auth", Region: "gru", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
+	return ServiceIntent{ID: entityid.Derive("service", "production", "sa-saopaulo-1", "ts-auth"), Role: "ts-auth", Region: "sa-saopaulo-1", Environment: "production", Architecture: runtime.GOARCH, Replicas: 1, Container: &api.ContainerSpec{Image: "example.invalid/fixture@sha256:" + strings.Repeat("a", 64), User: "65532:65532"}, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 64 << 20}}}
 }
 func serviceEventually(t *testing.T, ctx context.Context, check func() bool) {
 	t.Helper()

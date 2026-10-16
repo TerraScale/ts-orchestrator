@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
@@ -117,7 +118,11 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if _, err := intent.serviceSpec(); err != nil {
 		return nil, err
 	}
-	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Region), Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
+	region, ok := catalog.CellForOCIRegion(intent.Region)
+	if !ok {
+		return nil, errors.New("signed service requires canonical OCI region")
+	}
+	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
 	verified, err := release.VerifyContainerCurrent(operation, bundle, roots, target, time.Now().UTC(), deadline, evidence)
 	if err != nil {
 		return nil, err
@@ -145,12 +150,18 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 		return nil, err
 	}
 	guard := func(ctx context.Context) error {
+		if !verified.Valid(time.Now().UTC()) {
+			return errors.New("signed container authorization expired before service mutation")
+		}
 		current, err := client.GetConfig(ctx, &api.GetConfigRequest{ConfigID: floor.ID})
 		if err != nil {
 			return err
 		}
 		if current.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || current.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != verified.ReleaseIdentity() {
 			return errors.New("a newer signed release superseded this operation")
+		}
+		if !verified.Valid(time.Now().UTC()) {
+			return errors.New("signed container authorization expired before service mutation")
 		}
 		return nil
 	}
@@ -184,7 +195,7 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 			return nil, err
 		}
 		_, digestErr := hex.DecodeString(retained.EvidenceSHA256)
-		if retained.Cell != strings.ToUpper(intent.Region) || retained.RunNumber < 0 || retained.RunNumber == 0 && retained.IssuedAt.IsZero() || len(retained.EvidenceSHA256) != 64 || strings.ToLower(retained.EvidenceSHA256) != retained.EvidenceSHA256 || digestErr != nil || !migration.AdmitsLegacyFloor(retained.Cell, retained.RunNumber, retained.IssuedAt) {
+		if retained.Cell != claim.Cell || retained.RunNumber < 0 || retained.RunNumber == 0 && retained.IssuedAt.IsZero() || len(retained.EvidenceSHA256) != 64 || strings.ToLower(retained.EvidenceSHA256) != retained.EvidenceSHA256 || digestErr != nil || !migration.AdmitsLegacyFloor(retained.Cell, retained.RunNumber, retained.IssuedAt) {
 			return nil, errors.New("signed migration does not cover retained local legacy release floor")
 		}
 		wire, err := trust.EncodeEnvelope(verified.MigrationEnvelope())
@@ -192,6 +203,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 			return nil, err
 		}
 		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: intent.Role, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseFingerprint: verified.ReleaseIdentity(), labelReleaseBaseline: strconv.FormatUint(baseline, 10), "terrascale.legacy-run": strconv.FormatInt(retained.RunNumber, 10), "terrascale.legacy-issued": retained.IssuedAt.UTC().Format(time.RFC3339Nano), "terrascale.legacy-evidence": retained.EvidenceSHA256}
+		if !verified.Valid(time.Now().UTC()) {
+			return nil, errors.New("signed container authorization expired before floor reservation")
+		}
 		created, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: name, Labels: labels}, Data: wire}})
 		if err != nil {
 			return nil, err
@@ -235,6 +249,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	spec.Annotations.Labels[labelReleaseSequence] = strconv.FormatUint(claim.ReleaseSequence, 10)
 	spec.Annotations.Labels[labelReleaseFingerprint] = verified.ReleaseIdentity()
 	spec.Annotations.Labels[labelReleaseBaseline] = strconv.FormatUint(baseline, 10)
+	if !verified.Valid(time.Now().UTC()) {
+		return nil, errors.New("signed container authorization expired before floor reservation")
+	}
 	updated, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: current.ID, ConfigVersion: &current.Meta.Version, Spec: spec})
 	if err != nil {
 		return nil, err

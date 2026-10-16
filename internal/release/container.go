@@ -27,19 +27,20 @@ type ContainerTarget struct{ Cell, Environment, Role, Architecture string }
 // ContainerClaim identifies an OCI child manifest, distinct from native binary
 // and tarball artifacts. Its independent qualifier binds this exact candidate.
 type ContainerClaim struct {
-	Schema                  string          `json:"schema"`
-	Image                   string          `json:"image"`
-	SourceRepository        string          `json:"source_repository"`
-	SourceRevision          string          `json:"source_revision"`
-	SourceTreeSHA256        string          `json:"source_tree_sha256"`
-	Cell                    string          `json:"cell"`
-	Environment             string          `json:"environment"`
-	Role                    string          `json:"role"`
-	Architecture            string          `json:"architecture"`
-	ReleaseSequence         uint64          `json:"release_sequence"`
-	SequenceMigrationSHA256 string          `json:"sequence_migration_sha256"`
-	QualificationSHA256     string          `json:"qualification_sha256"`
-	Production              ProductionProof `json:"production"`
+	Schema                  string `json:"schema"`
+	Image                   string `json:"image"`
+	SourceRepository        string `json:"source_repository"`
+	SourceRevision          string `json:"source_revision"`
+	SourceTreeSHA256        string `json:"source_tree_sha256"`
+	Cell                    string `json:"cell"`
+	Environment             string `json:"environment"`
+	Role                    string `json:"role"`
+	Architecture            string `json:"architecture"`
+	ReleaseSequence         uint64 `json:"release_sequence"`
+	SequenceMigrationSHA256 string `json:"sequence_migration_sha256"`
+	// QualificationSHA256 pins retained OCI root/index bytes (or a directly pinned manifest).
+	QualificationSHA256 string          `json:"qualification_sha256"`
+	Production          ProductionProof `json:"production"`
 }
 
 type ContainerBundle struct {
@@ -55,6 +56,8 @@ type VerifiedContainer struct {
 	migrationEnvelope trust.Envelope
 	fingerprint       string
 	identity          string
+	issuedAt          time.Time
+	expiresAt         time.Time
 }
 
 func (c VerifiedContainer) Claim() ContainerClaim {
@@ -65,6 +68,10 @@ func (c VerifiedContainer) Claim() ContainerClaim {
 }
 func (c VerifiedContainer) Fingerprint() string     { return c.fingerprint }
 func (c VerifiedContainer) ReleaseIdentity() string { return c.identity }
+func (c VerifiedContainer) ExpiresAt() time.Time    { return c.expiresAt }
+func (c VerifiedContainer) Valid(now time.Time) bool {
+	return !now.IsZero() && c.fingerprint != "" && !now.Before(c.issuedAt) && now.Before(c.expiresAt)
+}
 
 // ContentManifestDigest remains stable when independent qualification is renewed.
 func (claim ContainerClaim) ContentManifestDigest() (string, error) {
@@ -178,6 +185,20 @@ func VerifyContainerCurrent(ctx context.Context, bundle ContainerBundle, roots t
 		}
 		if n != retained.Bytes || fmt.Sprintf("%x", hash.Sum(nil)) != retained.SHA256 {
 			return VerifiedContainer{}, errors.New("container qualification evidence bytes differ from signed proof")
+		}
+	}
+	qualificationEnvelope, err := trust.DecodeEnvelope(claim.Production.Qualification)
+	if err != nil {
+		return VerifiedContainer{}, err
+	}
+	verified.issuedAt = envelope.IssuedAt
+	if qualificationEnvelope.IssuedAt.After(verified.issuedAt) {
+		verified.issuedAt = qualificationEnvelope.IssuedAt
+	}
+	verified.expiresAt = validUntil
+	for _, expires := range []time.Time{envelope.ExpiresAt, qualificationEnvelope.ExpiresAt} {
+		if expires.Before(verified.expiresAt) {
+			verified.expiresAt = expires
 		}
 	}
 	return verified, nil
