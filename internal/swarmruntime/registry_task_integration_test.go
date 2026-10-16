@@ -83,6 +83,8 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	}
 	migrationWire, _ := trust.EncodeEnvelope(migrationEnvelope)
 	migrationSHA, _ := trust.Fingerprint(migrationEnvelope)
+	allocations := serviceAllocationStore(t, migration.Namespace, migration.Bucket)
+	reservations := map[uint64][]byte{}
 	intent := serviceIntent()
 	intent.OperationID = entityid.Derive("registry-operation", "first")
 	evidence := []byte("retained exact candidate integration evidence")
@@ -101,6 +103,9 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 		}
 		proofWire, _ := trust.EncodeEnvelope(proof)
 		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: intent.Container.Image, SourceRepository: "https://github.com/TerraScale/ts-auth", SourceRevision: source, SourceTreeSHA256: strings.Repeat("e", 64), Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture, ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
+		if reservations[sequence] == nil {
+			reservations[sequence] = serviceSequenceEvidence(t, ctx, allocations, migrationEnvelope, claim, roots, key)
+		}
 		payload, _ = trust.EncodePayload(claim)
 		signed, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}), now, now.Add(time.Hour), key)
 		if err != nil {
@@ -115,13 +120,13 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		delegationWire, _ := trust.EncodeEnvelope(grant)
-		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Delegation: delegationWire}
+		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Delegation: delegationWire, Sequence: reservations[sequence]}
 	}
 
 	target := release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
 	verify := func(b release.ContainerBundle) release.VerifiedContainer {
 		t.Helper()
-		proof, err := release.VerifyContainerCurrent(ctx, b, roots, target, time.Now().UTC(), time.Now().UTC().Add(45*time.Second), readEvidence)
+		proof, err := release.VerifyContainerCurrent(ctx, b, roots, target, time.Now().UTC(), time.Now().UTC().Add(45*time.Second), readEvidence, allocations)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -130,7 +135,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	first := bundle(101, strings.Repeat("c", 40))
 	proof := verify(first)
 	legacy := release.SequenceFloor{Cell: "GRU", RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)}
-	created, err := applySignedService(ctx, client, intent, first, roots, legacy, readEvidence)
+	created, err := applySignedService(ctx, client, intent, first, roots, legacy, readEvidence, allocations)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +190,7 @@ func TestRegistryTaskAssignmentIntegration(t *testing.T) {
 	changed.Container = intent.Container.Copy()
 	changed.Container.Args = []string{"pending"}
 	changed.OperationID = entityid.Derive("registry-operation", "next")
-	if _, err := applySignedService(ctx, client, changed, next, roots, legacy, readEvidence); err != nil {
+	if _, err := applySignedService(ctx, client, changed, next, roots, legacy, readEvidence, allocations); err != nil {
 		t.Fatal(err)
 	}
 	if err := VerifyRegistryTask(ctx, client, task, intent, proof, roots); err != nil {
