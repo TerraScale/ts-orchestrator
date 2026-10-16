@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
@@ -12,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functions"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/nats-io/nats.go"
@@ -33,7 +35,7 @@ type Controller struct {
 // Prepare recovers publication before committing the immutable task grant.
 // Existing Vault material retains its worker key, including after a lost reply.
 func (controller Controller) Prepare(ctx context.Context, tenant, function string, binding Binding) (VerifiedDelivery, error) {
-	if controller.Authority == nil || controller.Conn == nil || controller.Issuer == nil || controller.Vault == nil || controller.Versions == nil || controller.AuthorizeRecipient == nil || controller.Target.VaultID != controller.Reader.VaultID {
+	if controller.Authority == nil || controller.Conn == nil || controller.Issuer == nil || controller.Vault == nil || controller.Versions == nil || controller.AuthorizeRecipient == nil || controller.Reader.Bundles == nil || controller.Target.VaultID != controller.Reader.VaultID {
 		return VerifiedDelivery{}, ErrMaterial
 	}
 	if err := controller.AuthorizeRecipient(ctx, binding); err != nil {
@@ -49,6 +51,12 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	}
 	proof, sequence, err := reader.currentFunction(ctx, tenant, function)
 	if err != nil {
+		return VerifiedDelivery{}, err
+	}
+	if catalog.OCIRegion(proof.Claim().Cell) != binding.Region {
+		return VerifiedDelivery{}, ErrMaterial
+	}
+	if err := vaultsecret.ValidateDeliveryRefs(strings.ToLower(proof.Claim().Cell), "function-worker", map[string]vaultsecret.Ref{"FUNCTION_MATERIAL_FILE": ref}, nil); err != nil {
 		return VerifiedDelivery{}, err
 	}
 	account, err := reader.currentAccount(ctx, proof)
