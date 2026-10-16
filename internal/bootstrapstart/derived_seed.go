@@ -22,7 +22,7 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	if journal == nil || !founder.IsVerified() || !authority.IsVerified() || authority.AnchorDigest() != anchor.Digest() || founder.GrantDigest() != digest(authority.GrantWire()) || founder.TemplateDigest() != authority.TemplateDigest() || founder.SeedSlot() != manifest.SeedSlot || manifest.Slot != manifest.SeedSlot || authority.VerifyLedgerKey(ledgerPrivatePublic(ledgerPrivate)) != nil {
 		return bootstrap.SlotState{}, ErrSourceFounder
 	}
-	_, guarded, err := founder.GuardedFactory(ctx)
+	factory, guarded, err := founder.GuardedFactory(ctx)
 	if err != nil {
 		return bootstrap.SlotState{}, err
 	}
@@ -34,7 +34,11 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	if observed.BootstrapCreateKey == "" {
 		return bootstrap.SlotState{}, ErrExternalSeedObservation
 	}
-	ledger, err := authority.OpenLedger(ctx, roots)
+	objects, err := factory.ObjectStorage()
+	if err != nil {
+		return bootstrap.SlotState{}, err
+	}
+	ledger, err := authority.OpenLedgerWithClient(ctx, roots, &objects)
 	if err != nil {
 		return bootstrap.SlotState{}, err
 	}
