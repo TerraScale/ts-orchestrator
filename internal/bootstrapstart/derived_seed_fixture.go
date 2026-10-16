@@ -14,10 +14,13 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -30,6 +33,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/oracle/oci-go-sdk/v65/core"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -39,6 +43,25 @@ import (
 func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAuthority,
 	founder VerifiedSourceFounder, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, sourceDirectory string,
 ) {
+	installation := exerciseDerivedInstallation(t, seed, founder, anchor, roots, sourceDirectory, founder.imds, founder.observer, nil)
+	exerciseDerivedFounderPeers(t, installation, seed, founder, anchor, roots, sourceDirectory)
+}
+
+type derivedAdmissionInstallation struct {
+	accepted AcceptedInstall
+	baked    BakedInputs
+	floor    *FounderSelectionFloorStore
+	ledger   *bootstrap.Ledger
+	reader   *CurrentFounderAuthorityReader
+	selected CurrentFounderAuthority
+	signers  FounderSignerStore
+	launch   LaunchMaterial
+}
+
+func exerciseDerivedInstallation(t *testing.T, seed bootstrap.DerivedStartupAuthority,
+	founder VerifiedSourceFounder, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, sourceDirectory string,
+	descriptor DescriptorSource, observer InstanceObserver, forwarded *LaunchMaterial,
+) derivedAdmissionInstallation {
 	t.Helper()
 	if os.Geteuid() != 0 {
 		t.Fatal("derived seed admission requires root for the real service-user install and child")
@@ -135,6 +158,15 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 	write(OperatorSSHKeyFilename, bytes.TrimSpace(ssh.MarshalAuthorizedKey(sshPublic)))
 	write(ManagedHostImageReceiptFilename, payload.ReleaseImageReceiptWire)
 	write(ManagedHostImageDelegationFilename, payload.ReleaseDelegationWire)
+	if forwarded != nil {
+		for index, name := range launchMaterialNames {
+			write(name, forwarded.wires()[index])
+		}
+	}
+	launch, err := trustStore.loadLaunchMaterial()
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := func(name string) string { return filepath.Join(installed, name) }
 	slotIP := ""
 	var routes []string
@@ -190,7 +222,7 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 	material := MaterialStore{vault: vault, installedDirectory: installed, stagingDirectory: staging, serviceUID: serviceUID, serviceGID: serviceGID, allowUnsafeAncestors: true, chainCopy: filepath.Join(root, "material-generations.json")}
 	clockCheck := func() error { _, err := brokerauth.MeasureHealthyClock(brokerauth.KernelClockProbe{}); return err }
 	gate := Gate{Roots: roots, AnchorWire: anchor.Wire(), Expected: identity.AnchorExpectation(), LoadedControllerConfigSHA256: payload.ControllerConfigSHA256,
-		Descriptor: founder.imds, Instances: founder.observer, Ledgers: derivedSeedFixtureLedger{seed: seed, roots: roots, ledger: ledger},
+		Descriptor: descriptor, Instances: observer, Ledgers: derivedSeedFixtureLedger{seed: seed, roots: roots, ledger: ledger},
 		Material: material, Credentials: credentials, Markers: markers, ClockCheck: clockCheck, trustStore: &trustStore}
 	gate.InitialIdentity = func(bootstrap.Manifest) (identityrekey.BrokerIdentity, identityrekey.StoreIdentity, error) {
 		observed, err := natscell.PrepareInitialInstallationIdentity(cfg, serviceUID, serviceGID)
@@ -213,6 +245,15 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 		}
 		return reader.provisionDerivedInitial(ctx, selected, ledger, serviceUID, serviceGID, clockCheck)
 	}
+	gate.InitialPeerFloor = func(ctx context.Context, accepted AcceptedInstall, state bootstrap.SlotState, now time.Time) error {
+		checker, err := NewDerivedFounderPeerContinuation(baked, accepted, seed, serviceUID, serviceGID)
+		if err != nil {
+			return err
+		}
+		// Keep the constructor's genuine reader; relocate only its filesystem store.
+		checker.floor, checker.reader.floor = floor, floor
+		return checker.Initialize(ctx, accepted, state, now)
+	}
 	gate, err = gate.WithDerivedStartupAuthority(seed)
 	if err != nil {
 		t.Fatal(err)
@@ -230,21 +271,322 @@ func ExerciseDerivedSeedAdmission(t *testing.T, seed bootstrap.DerivedStartupAut
 		t.Fatalf("same durable derived founder floor: %v", err)
 	}
 	signers := FounderSignerStore{directory: installed, uid: serviceUID, gid: serviceGID, allowUnsafeAncestors: true}
-	keys, err := signers.LoadContext(ctx, selected, accepted, roots, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("installed source-bound founder signers: %v", err)
+	if payload.Slot == payload.SeedSlot {
+		keys, err := signers.LoadContext(ctx, selected, accepted, roots, time.Now().UTC())
+		if err != nil {
+			t.Fatalf("installed source-bound founder signers: %v", err)
+		}
+		keys.Close()
 	}
-	keys.Close()
 	restarted, err := gate.AdmitRestart(ctx)
 	if err != nil || restarted.InstanceOCID != accepted.InstanceOCID || restarted.Slot != payload.Slot || restarted.ConfigSHA256["controller.json"] != payload.ControllerConfigSHA256 {
 		t.Fatalf("accepted derived seed reboot: %v", err)
 	}
+	return derivedAdmissionInstallation{accepted: accepted, baked: baked, floor: floor, ledger: ledger, reader: reader, selected: selected, signers: signers, launch: launch}
 }
 
 type derivedSeedFixtureLedger struct {
 	seed   bootstrap.DerivedStartupAuthority
 	roots  trust.Keyring
 	ledger *bootstrap.Ledger
+}
+
+func exerciseDerivedFounderPeers(t *testing.T, seedInstall derivedAdmissionInstallation, seed bootstrap.DerivedStartupAuthority,
+	founder VerifiedSourceFounder, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, sourceDirectory string,
+) {
+	t.Helper()
+	factory, ctx, err := founder.GuardedFactory(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	protocol := &derivedPeerProtocol{plan: seedInstall.selected.Plan.Plan(), region: seed.Manifest().OCIRegion, instances: map[string]derivedPeerInstance{}, retries: map[string]string{}}
+	server := httptest.NewTLSServer(protocol)
+	t.Cleanup(server.Close)
+	adapter, err := NewFounderOCI(seed.Manifest().Cell, factory.Provider(), seedInstall.launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute := adapter.compute.(*core.ComputeClient)
+	network := adapter.network.(*core.VirtualNetworkClient)
+	volume := adapter.volume.(*core.BlockstorageClient)
+	compute.Host, compute.HTTPClient = server.URL, server.Client()
+	network.Host, network.HTTPClient = server.URL, server.Client()
+	volume.Host, volume.HTTPClient = server.URL, server.Client()
+	caller := founderCaller{reader: seedInstall.reader, roots: roots, accepted: seedInstall.accepted, signers: seedInstall.signers, adapter: adapter,
+		placement: func(ctx context.Context) (bootstrap.ControllerPlacement, error) {
+			observed, err := founder.ObserveCurrent(ctx)
+			return bootstrap.ControllerPlacement{AvailabilityDomain: observed.AvailabilityDomain, FaultDomain: observed.FaultDomain}, err
+		},
+		openLedger: func(ctx context.Context, selected CurrentFounderAuthority, roots trust.Keyring) (*bootstrap.Ledger, error) {
+			objects, err := factory.ObjectStorage()
+			if err != nil {
+				return nil, err
+			}
+			return selected.Derived.SeedAuthority().OpenLedgerWithClient(ctx, roots, &objects)
+		}}
+	completed := make(map[string]bootstrap.SlotState, 2)
+	for _, row := range seedInstall.selected.Plan.Plan().Peers {
+		t.Logf("derived peer %s: actual SDK launch and durable completion", row.Slot)
+		if err := caller.runPeer(ctx, row.Slot); err != nil {
+			t.Fatalf("actual derived founder peer %s: %v", row.Slot, err)
+		}
+		state, err := seedInstall.ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: seedInstall.accepted.DeploymentID, Cell: seedInstall.accepted.Cell, Slot: row.Slot})
+		if err != nil || state.ResultRecord == nil || state.PeerReceiptRecord == nil || state.CandidateRecord == nil || state.ManifestRecord == nil || state.Result == nil || state.Candidate == nil || state.Head.Attempt != 1 || state.Head.Generation != 1 || state.Head.ResultDigest != state.ResultRecord.SHA256 || state.Head.CandidateDigest != state.CandidateRecord.SHA256 || state.Result.InstanceOCID != state.Candidate.InstanceOCID || state.ManifestRecord.SHA256 != row.ManifestSHA256 {
+			t.Fatalf("exact derived peer %s durable completion: %v", row.Slot, err)
+		}
+		completed[row.Slot] = state
+		metadata := derivedPeerMetadata{client: server.Client(), endpoint: server.URL, instanceID: state.Result.InstanceOCID}
+		forwarded := metadata.launchMaterial(t)
+		if !maps.Equal(forwarded.ControllerMetadata(), seedInstall.launch.ControllerMetadata()) {
+			t.Fatal("actual peer launch changed public deployment material")
+		}
+		authority, ok := seedInstall.selected.Derived.Authority(row.Slot)
+		if !ok {
+			t.Fatal("selected derived peer authority missing")
+		}
+		observer, err := NewOCIInstanceObserverWithClients(authority.Manifest().Cell, factory.Provider(), compute, network)
+		if err != nil {
+			t.Fatal(err)
+		}
+		peer := exerciseDerivedInstallation(t, authority, founder, anchor, roots, sourceDirectory, metadata, observer, &forwarded)
+		if peer.accepted.ResultSHA256 != state.ResultRecord.SHA256 || peer.accepted.ReceiptSHA256 != state.PeerReceiptRecord.SHA256 || peer.accepted.InstanceOCID != state.Result.InstanceOCID || peer.floor.Check(seedInstall.selected.SelectionGeneration, seedInstall.selected.SelectionSHA256) != nil {
+			t.Fatal("peer Gate or floor changed the source-signed completed history")
+		}
+	}
+	protocol.mu.Lock()
+	launches, attempts, lost := len(protocol.instances), protocol.launchAttempts, protocol.lostResponse
+	protocol.mu.Unlock()
+	if launches != 2 || attempts != 3 || !lost {
+		t.Fatalf("lost-response SDK retry duplicated a peer: instances=%d attempts=%d lost=%v", launches, attempts, lost)
+	}
+	for _, row := range seedInstall.selected.Plan.Plan().Peers {
+		if err := caller.runPeer(ctx, row.Slot); err != nil {
+			t.Fatalf("completed derived founder retry %s: %v", row.Slot, err)
+		}
+		state, err := seedInstall.ledger.ReadSlot(ctx, bootstrap.BootstrapScope{DeploymentID: seedInstall.accepted.DeploymentID, Cell: seedInstall.accepted.Cell, Slot: row.Slot})
+		prior := completed[row.Slot]
+		if err != nil || state.ResultRecord == nil || state.PeerReceiptRecord == nil || !bytes.Equal(state.HeadRecord.Bytes, prior.HeadRecord.Bytes) || !bytes.Equal(state.ResultRecord.Bytes, prior.ResultRecord.Bytes) || !bytes.Equal(state.PeerReceiptRecord.Bytes, prior.PeerReceiptRecord.Bytes) {
+			t.Fatalf("completed derived founder retry changed exact proof history %s: %v", row.Slot, err)
+		}
+	}
+	protocol.mu.Lock()
+	defer protocol.mu.Unlock()
+	if protocol.launchAttempts != attempts || len(protocol.instances) != launches {
+		t.Fatal("completed founder retry issued another SDK launch")
+	}
+}
+
+type derivedPeerLaunchDetails struct {
+	AvailabilityDomain string            `json:"availabilityDomain"`
+	CompartmentID      string            `json:"compartmentId"`
+	FaultDomain        string            `json:"faultDomain"`
+	Shape              string            `json:"shape"`
+	Metadata           map[string]string `json:"metadata"`
+	ShapeConfig        struct {
+		OCPUs  float32 `json:"ocpus"`
+		Memory float32 `json:"memoryInGBs"`
+	} `json:"shapeConfig"`
+	Source struct {
+		ImageID string `json:"imageId"`
+		BootGB  int64  `json:"bootVolumeSizeInGBs"`
+		VPUs    int64  `json:"bootVolumeVpusPerGB"`
+	} `json:"sourceDetails"`
+	VNIC struct {
+		SubnetID  string   `json:"subnetId"`
+		NSGs      []string `json:"nsgIds"`
+		PrivateIP string   `json:"privateIp"`
+	} `json:"createVnicDetails"`
+}
+
+type derivedPeerInstance struct {
+	id      string
+	wire    []byte
+	details derivedPeerLaunchDetails
+}
+
+// This protocol simulator stores real signed SDK launch bodies. It exposes no
+// ledger writes or verified capabilities; all completion uses production code.
+type derivedPeerProtocol struct {
+	mu             sync.Mutex
+	plan           bootstrap.FounderPlan
+	region         string
+	instances      map[string]derivedPeerInstance
+	retries        map[string]string
+	launchAttempts int
+	lostResponse   bool
+}
+
+func (server *derivedPeerProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if strings.HasPrefix(r.URL.Path, "/metadata/") {
+		parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/metadata/"), "/", 2)
+		if len(parts) != 2 {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		instance, ok := server.instances[parts[0]]
+		if !ok || r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer Oracle" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		if parts[1] == "id" {
+			io.WriteString(w, instance.id)
+		} else {
+			io.WriteString(w, instance.details.Metadata[parts[1]])
+		}
+		return
+	}
+	if r.Header.Get("Authorization") == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if r.Method == http.MethodPost && r.URL.Path == "/20160918/instances" {
+		wire, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		var details derivedPeerLaunchDetails
+		if err != nil || json.Unmarshal(wire, &details) != nil || r.Header.Get("opc-retry-token") == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		descriptor, err := ParseDescriptor([]byte(details.Metadata["terrascale-bootstrap"]))
+		if err != nil || details.Metadata["terrascale-controller-manifest-v1"] != "" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		server.launchAttempts++
+		id := "ocid1.instance.oc1." + server.region + "." + descriptor.Slot
+		if retryID, ok := server.retries[r.Header.Get("opc-retry-token")]; ok {
+			if retryID != id || !bytes.Equal(server.instances[id].wire, wire) {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+		} else {
+			if _, exists := server.instances[id]; exists {
+				w.WriteHeader(http.StatusConflict)
+				return
+			}
+			server.instances[id] = derivedPeerInstance{id: id, wire: wire, details: details}
+			server.retries[r.Header.Get("opc-retry-token")] = id
+			if !server.lostResponse {
+				server.lostResponse = true
+				w.WriteHeader(http.StatusInternalServerError)
+				io.WriteString(w, `{"code":"InternalError","message":"launch committed, response lost"}`)
+				return
+			}
+		}
+		json.MarshalWrite(w, server.instance(server.instances[id]))
+		return
+	}
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/20160918/images/") {
+		row := server.plan.Peers[0]
+		if strings.TrimPrefix(r.URL.Path, "/20160918/images/") != row.ImageOCID {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		json.MarshalWrite(w, core.Image{Id: new(row.ImageOCID), CompartmentId: new(row.ImageCompartmentOCID), LifecycleState: core.ImageLifecycleStateAvailable})
+		return
+	}
+	for _, instance := range server.instances {
+		details := instance.details
+		region := regionalOCID(instance.id, "instance")
+		_, suffix, _ := strings.CutLast(instance.id, ".")
+		vnicID := "ocid1.vnic.oc1." + region + "." + suffix
+		bootID := "ocid1.bootvolume.oc1." + region + "." + suffix
+		switch {
+		case r.URL.Path == "/20160918/instances/"+instance.id:
+			w.Header().Set("etag", digest(instance.wire))
+			json.MarshalWrite(w, server.instance(instance))
+		case r.URL.Path == "/20160918/vnicAttachments" && r.URL.Query().Get("instanceId") == instance.id:
+			json.MarshalWrite(w, []core.VnicAttachment{{InstanceId: new(instance.id), CompartmentId: new(details.CompartmentID), SubnetId: new(details.VNIC.SubnetID), VnicId: new(vnicID), LifecycleState: core.VnicAttachmentLifecycleStateAttached}})
+		case r.URL.Path == "/20160918/vnics/"+vnicID:
+			json.MarshalWrite(w, core.Vnic{Id: new(vnicID), CompartmentId: new(details.CompartmentID), AvailabilityDomain: new(details.AvailabilityDomain), SubnetId: new(details.VNIC.SubnetID), PrivateIp: new(details.VNIC.PrivateIP), NsgIds: details.VNIC.NSGs, IsPrimary: new(true), LifecycleState: core.VnicLifecycleStateAvailable})
+		case r.URL.Path == "/20160918/subnets/"+details.VNIC.SubnetID:
+			json.MarshalWrite(w, core.Subnet{Id: new(details.VNIC.SubnetID), CompartmentId: new(details.CompartmentID), VcnId: new("ocid1.vcn.oc1." + region + ".peers"), LifecycleState: core.SubnetLifecycleStateAvailable})
+		case r.URL.Path == "/20160918/bootVolumeAttachments" && r.URL.Query().Get("instanceId") == instance.id:
+			json.MarshalWrite(w, []core.BootVolumeAttachment{{InstanceId: new(instance.id), CompartmentId: new(details.CompartmentID), AvailabilityDomain: new(details.AvailabilityDomain), BootVolumeId: new(bootID), LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached}})
+		case r.URL.Path == "/20160918/bootVolumes/"+bootID:
+			json.MarshalWrite(w, core.BootVolume{Id: new(bootID), CompartmentId: new(details.CompartmentID), AvailabilityDomain: new(details.AvailabilityDomain), ImageId: new(details.Source.ImageID), SizeInGBs: new(details.Source.BootGB), VpusPerGB: new(details.Source.VPUs), LifecycleState: core.BootVolumeLifecycleStateAvailable})
+		default:
+			continue
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNotFound)
+}
+
+func (server *derivedPeerProtocol) instance(instance derivedPeerInstance) core.Instance {
+	details := instance.details
+	return core.Instance{Id: new(instance.id), CompartmentId: new(details.CompartmentID), ImageId: new(details.Source.ImageID), AvailabilityDomain: new(details.AvailabilityDomain), FaultDomain: new(details.FaultDomain), Shape: new(details.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(details.ShapeConfig.OCPUs), MemoryInGBs: new(details.ShapeConfig.Memory)}, Metadata: maps.Clone(details.Metadata), LifecycleState: core.InstanceLifecycleStateRunning}
+}
+
+type derivedPeerMetadata struct {
+	client     *http.Client
+	endpoint   string
+	instanceID string
+}
+
+func (metadata derivedPeerMetadata) fetch(ctx context.Context, name string) ([]byte, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, metadata.endpoint+"/metadata/"+metadata.instanceID+"/"+name, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Authorization", "Bearer Oracle")
+	response, err := metadata.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, ErrInvalidDescriptor
+	}
+	return io.ReadAll(io.LimitReader(response.Body, trust.MaxEnvelopeBytes))
+}
+
+func (metadata derivedPeerMetadata) FetchDescriptor(ctx context.Context) (Descriptor, error) {
+	wire, err := metadata.fetch(ctx, "terrascale-bootstrap")
+	if err != nil {
+		return Descriptor{}, err
+	}
+	return ParseDescriptor(wire)
+}
+
+func (metadata derivedPeerMetadata) FetchInstanceID(ctx context.Context) (string, error) {
+	wire, err := metadata.fetch(ctx, "id")
+	if err != nil || !instanceIDRE.Match(wire) {
+		return "", ErrInvalidDescriptor
+	}
+	return string(wire), nil
+}
+
+func (metadata derivedPeerMetadata) launchMaterial(t *testing.T) LaunchMaterial {
+	t.Helper()
+	var material LaunchMaterial
+	for name := range material.ControllerMetadata() {
+		wire, err := metadata.fetch(t.Context(), name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch name {
+		case IdentityMetadataKey:
+			material.Identity = wire
+		case AnchorMetadataKey:
+			material.Anchor = wire
+		case OperatorSSHKeyMetadataKey:
+			material.OperatorSSHKey = wire
+		case ManagedHostImageReceiptMetadataKey:
+			material.ManagedHostImageReceipt = wire
+		case ManagedHostImageDelegationMetadataKey:
+			material.ManagedHostImageDelegation = wire
+		default:
+			material.HostEnrollment = wire
+		}
+	}
+	return material
 }
 
 func (opener derivedSeedFixtureLedger) OpenCurrentLedger(ctx context.Context, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring) (AdmissionLedger, error) {
