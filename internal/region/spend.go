@@ -18,18 +18,21 @@ import (
 // InfrastructureSpendIntent authorizes fleet capacity explicitly inside the
 // same root grant. Foundation creation's budget alone never authorizes growth.
 type InfrastructureSpendIntent struct {
-	BudgetID          string `json:"budgetId"`
-	Currency          string `json:"currency"`
-	MonthlyLimitMinor int64  `json:"monthlyLimitMinor"`
-	ScopeSHA256       string `json:"scopeSha256"`
+	BudgetID          string                   `json:"budgetId"`
+	Currency          string                   `json:"currency"`
+	MonthlyLimitMinor int64                    `json:"monthlyLimitMinor"`
+	ScopeSHA256       string                   `json:"scopeSha256"`
+	Bootstrap         *BootstrapSpendingIntent `json:"bootstrap,omitempty"`
 }
 
 // VerifiedInfrastructureSpend cannot be manufactured from an observed OCI
 // resource, a foundation record, or a tenant budget.
 type VerifiedInfrastructureSpend struct {
-	intent      InfrastructureSpendIntent
-	footprint   capacityinventory.Scope
-	grantDigest string
+	intent       InfrastructureSpendIntent
+	footprint    capacityinventory.Scope
+	grantDigest  string
+	installation string
+	generation   uint64
 }
 
 func (v VerifiedInfrastructureSpend) BudgetID() string         { return v.intent.BudgetID }
@@ -39,6 +42,20 @@ func (v VerifiedInfrastructureSpend) MonthlyLimitMinor() int64 { return v.intent
 func (v VerifiedInfrastructureSpend) ExpiresAt() time.Time     { return v.footprint.ExpiresAt }
 func (v VerifiedInfrastructureSpend) GrantDigest() string      { return v.grantDigest }
 func (v VerifiedInfrastructureSpend) IsVerified() bool         { return v.grantDigest != "" }
+func (v VerifiedInfrastructureSpend) BootstrapReservedMinor() int64 {
+	if v.intent.Bootstrap == nil {
+		return 0
+	}
+	return v.intent.Bootstrap.ReservedMinor
+}
+func (v VerifiedInfrastructureSpend) BootstrapDigest() string {
+	if v.intent.Bootstrap == nil {
+		return ""
+	}
+	wire, _ := json.Marshal(v.intent.Bootstrap, json.Deterministic(true))
+	digest := sha256.Sum256(wire)
+	return hex.EncodeToString(digest[:])
+}
 func (v VerifiedInfrastructureSpend) ValidAt(now time.Time) bool {
 	return v.IsVerified() && now.Before(v.ExpiresAt())
 }
@@ -126,9 +143,12 @@ func (s *SignedFootprint) InfrastructureSpend(ctx context.Context) (VerifiedInfr
 	if intent.ScopeSHA256 != scope.SHA256 {
 		return VerifiedInfrastructureSpend{}, errors.New("fleet spend authority differs from exact signed regional footprint")
 	}
+	if err := validateBootstrapSpending(grant, scope); err != nil {
+		return VerifiedInfrastructureSpend{}, err
+	}
 	scope.ExpiresAt = expires
 	digest := sha256.Sum256(wire)
-	return VerifiedInfrastructureSpend{intent: *intent, footprint: scope, grantDigest: hex.EncodeToString(digest[:])}, nil
+	return VerifiedInfrastructureSpend{intent: *intent, footprint: scope, grantDigest: hex.EncodeToString(digest[:]), installation: grant.InstallationID, generation: grant.Generation}, nil
 }
 
 func (r FoundationResolver) InfrastructureSpend(ctx context.Context) (VerifiedInfrastructureSpend, error) {
