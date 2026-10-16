@@ -134,10 +134,12 @@ func (s releaseSigner) channel(t *testing.T, cell string, run int64, binary []by
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Qualification is already current while release issuance may exercise clock skew.
+		qualifiedAt := s.now.Add(-2 * time.Minute)
 		proof := testProductionProof(t, release.ProductionExpectation{SourceRevision: revision,
 			ArtifactSHA256: digestOf(binaries[architecture]), QualificationSHA256: qualificationDigest,
 			Cell: cell, Environment: "production", Runtime: release.ProductionRuntime,
-			Architecture: architecture, Role: "orchestrator"}, s.root, s.now, s.now.Add(24*time.Hour))
+			Architecture: architecture, Role: "orchestrator"}, s.root, qualifiedAt, qualifiedAt.Add(24*time.Hour))
 		receipt, err = release.AttachProductionQualification(receipt, *proof, delegationWire, s.roots, s.leaf,
 			release.UpdateExpectation{Cell: cell, Environment: "production", Architecture: architecture}, s.now)
 		if err != nil {
