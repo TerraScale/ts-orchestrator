@@ -124,7 +124,7 @@ func (actor *SourceFounder) AuthorizeSourceObject(ctx context.Context, key strin
 	}
 	scope := digestSource([]byte(actor.Founder().InstallationID() + "\x00" + strings.ToLower(actor.cell)))
 	if key != actor.authority.domain.Prefix+"/bootstrap/v2/material-source/"+scope+".json" {
-		return bootstrapstart.ErrSourceFounder
+		return actor.authorizeHomeLink(ctx, key)
 	}
 	return actor.authorize(ctx, key, "ts-bootstrap-source-"+scope[:32], nil)
 }
@@ -304,7 +304,7 @@ func (actor *SourceFounder) verifyPolicy(ctx context.Context, pending SourcePoli
 	return nil
 }
 
-var sourceObjectPattern = regexp.MustCompile(`^(?:[a-zA-Z0-9][a-zA-Z0-9/_.-]*/)?bootstrap/v2/material-source/(?:spoke-link-)?[a-f0-9]{64}\.json$`)
+var sourceObjectPattern = regexp.MustCompile(`^(?:[a-zA-Z0-9][a-zA-Z0-9/_.-]*/)?bootstrap/v2/material-source/(?:(?:spoke-)?link-)?[a-f0-9]{64}\.json$`)
 var sourceInstancePattern = regexp.MustCompile(`^ocid1\.instance\.oc1\.[a-z0-9-]+\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 var sourceCompartmentPattern = regexp.MustCompile(`^ocid1\.compartment\.oc1\.\.[a-z0-9]+(?:\.[a-z0-9]+)*$`)
 var sourceStoragePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,254}$`)
@@ -323,8 +323,8 @@ func (pending SourcePolicyRecord) validate(key string) error {
 	}
 	_, name, _ := strings.CutLast(pending.Object, "/")
 	scope := strings.TrimSuffix(name, ".json")
-	link := strings.HasPrefix(scope, "spoke-link-")
-	scope = strings.TrimPrefix(scope, "spoke-link-")
+	link := strings.HasPrefix(scope, "spoke-link-") || strings.HasPrefix(scope, "link-")
+	scope = strings.TrimPrefix(strings.TrimPrefix(scope, "spoke-link-"), "link-")
 	secret := "ts-bootstrap-source-"
 	if link {
 		secret += "link-"
@@ -436,4 +436,60 @@ func (actor *SourceFounder) requireSourceAbsent(ctx context.Context, key string)
 		return err
 	}
 	return errors.New("source object predates its exact-principal protection journal; refusing adoption")
+}
+
+func (actor *SourceFounder) currentPublicSource(ctx context.Context) (bootstrap.VerifiedRegionalSource, error) {
+	scope := digestSource([]byte(actor.Founder().InstallationID() + "\x00" + strings.ToLower(actor.cell)))
+	domain := actor.authority.domain
+	object := domain.Prefix + "/bootstrap/v2/material-source/" + scope + ".json"
+	record, _, err := actor.resolver.Store.Load(ctx, actor.cell)
+	if err != nil {
+		return bootstrap.VerifiedRegionalSource{}, err
+	}
+	pending, ok := record.SourcePolicyIDs[sourcePolicyKey(domain.Namespace, domain.HeadBucket, object)]
+	if !ok || pending.PolicyID == "" || pending.InstanceID != actor.InstanceID() || pending.InstallationID != actor.Founder().InstallationID() {
+		return bootstrap.VerifiedRegionalSource{}, bootstrapstart.ErrSourceFounder
+	}
+	if err := actor.verifyPolicy(ctx, pending); err != nil {
+		return bootstrap.VerifiedRegionalSource{}, err
+	}
+	source, err := actor.Founder().PublicSource(ctx)
+	if err != nil {
+		return bootstrap.VerifiedRegionalSource{}, err
+	}
+	original := source.OriginalActor()
+	if original.InstanceID != pending.InstanceID || original.GrantDigest != pending.GrantDigest || original.TemplateDigest != pending.TemplateDigest {
+		return bootstrap.VerifiedRegionalSource{}, bootstrapstart.ErrSourceFounder
+	}
+	return source, nil
+}
+
+func (actor *SourceFounder) authorizeHomeLink(ctx context.Context, key string) error {
+	if actor.cell != "GRU" {
+		return bootstrapstart.ErrSourceFounder
+	}
+	source, err := actor.currentPublicSource(ctx)
+	if err != nil {
+		return err
+	}
+	metadata := digestSource(source.MaterialRecord())
+	bindingWire, err := json.Marshal([]string{"link", metadata, metadata, ""}, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	scope := digestSource([]byte(actor.Founder().InstallationID() + "\x00gru\x00link\x00" + digestSource(bindingWire)))
+	if key != actor.authority.domain.Prefix+"/bootstrap/v2/material-source/link-"+scope+".json" {
+		return bootstrapstart.ErrSourceFounder
+	}
+	verify := func(ctx context.Context) error {
+		current, err := actor.currentPublicSource(ctx)
+		if err != nil {
+			return err
+		}
+		if digestSource(current.MaterialRecord()) != metadata {
+			return bootstrapstart.ErrSourceFounder
+		}
+		return nil
+	}
+	return actor.authorize(ctx, key, "ts-bootstrap-source-link-"+scope[:32], verify)
 }
