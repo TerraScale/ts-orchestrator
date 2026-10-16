@@ -18,8 +18,8 @@ import (
 
 // InitializeStateful binds only after StartAcceptedWorker returns its actual
 // joined identity. Earlier DATA assignments fail closed and need replacement.
-func (e *Executor) InitializeStateful(ctx context.Context, agent *host.Agent, instanceID string, node *Node, roots trust.Keyring, evidence releasechannel.Location, stateRoot string) error {
-	if e == nil || ctx == nil || ctx.Err() != nil || agent == nil || node == nil || node.upstream == nil || node.role != "container" ||
+func (e *Executor) InitializeStateful(ctx context.Context, agent *host.Agent, instanceID string, node *Node, roots trust.Keyring, evidence releasechannel.Location, stateRoot string, allocations execution.ContainerAllocationResolver) error {
+	if e == nil || ctx == nil || ctx.Err() != nil || allocations == nil || agent == nil || node == nil || node.upstream == nil || node.role != "container" ||
 		node.workerDirectory == "" || stateRoot != filepath.Join(node.workerDirectory, "execution") || os.Geteuid() != 0 {
 		return execution.ErrUnsafe
 	}
@@ -78,7 +78,7 @@ func (e *Executor) InitializeStateful(ctx context.Context, agent *host.Agent, in
 	if err := session.BindRuntimeStopSigner(node); err != nil {
 		return err
 	}
-	source, err := execution.NewSource(session, execution.RuntimeObserver{Client: e.client}, roots, evidence, stateRoot)
+	source, err := execution.NewSource(session, execution.RuntimeObserver{Client: e.client}, roots, evidence, stateRoot, allocations)
 	if err != nil {
 		return err
 	}
