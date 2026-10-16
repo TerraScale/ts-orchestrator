@@ -1,10 +1,13 @@
 package region
 
 import (
+	"context"
+	"crypto/tls"
 	"encoding/json/v2"
+	"errors"
 	"maps"
+	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -13,25 +16,43 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
-type netBirdTeardownTransport struct {
-	next     http.RoundTripper
+type netBirdFixtureHTTP struct {
+	client   *http.Client
 	endpoint *url.URL
 }
 
-func (p netBirdTeardownTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	path := r.URL.Path
-	if strings.HasPrefix(path, "/20160918/instances/") || path == "/20160918/vnicAttachments" || path == "/20160918/privateIps" ||
-		strings.HasPrefix(path, "/20160918/networkSecurityGroups/") && strings.HasSuffix(path, "/vnics") {
-		copy := r.Clone(r.Context())
-		copy.URL.Scheme, copy.URL.Host = p.endpoint.Scheme, p.endpoint.Host
-		return p.next.RoundTrip(copy)
+func netBirdFixtureDispatcher(t *testing.T, address string, config *tls.Config) netBirdFixtureHTTP {
+	t.Helper()
+	endpoint, err := url.Parse(address)
+	if err != nil || net.ParseIP(endpoint.Hostname()) == nil || !net.ParseIP(endpoint.Hostname()).IsLoopback() || endpoint.Port() == "" {
+		t.Fatalf("fixture endpoint is not a literal loopback listener: %s", address)
 	}
-	return p.next.RoundTrip(r)
+	transport := &http.Transport{TLSClientConfig: config, DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+		if network != "tcp" || address != endpoint.Host {
+			t.Errorf("forbidden NetBird fixture dial: %s %s", network, address)
+			return nil, errors.New("NetBird fixture permits only its literal loopback listener")
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, address)
+	}}
+	t.Cleanup(transport.CloseIdleConnections)
+	return netBirdFixtureHTTP{endpoint: endpoint, client: &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return errors.New("NetBird fixture rejects redirects")
+	}}}
+}
+
+func (p netBirdFixtureHTTP) Do(r *http.Request) (*http.Response, error) {
+	if r.Response != nil {
+		return nil, errors.New("NetBird fixture rejects redirected requests")
+	}
+	copy := r.Clone(r.Context())
+	copy.Host = r.URL.Host
+	copy.URL.Scheme, copy.URL.Host = p.endpoint.Scheme, p.endpoint.Host
+	return p.client.Do(copy)
 }
 
 // Called by the signed manager protocol scenario after its real SDK launch and
 // store recovery, preserving that scenario's actual signed grant and journal.
-func testNetBirdNetworkTeardown(t *testing.T, factory *ociclient.Factory, resolver FoundationResolver) {
+func testNetBirdNetworkTeardown(t *testing.T, factory *ociclient.Factory, resolver FoundationResolver, install func(http.Handler)) {
 	t.Helper()
 	t.Run("owned-network-teardown-inventory", func(t *testing.T) {
 		reader := resolver.Footprint.(*SignedFootprint)
@@ -54,7 +75,7 @@ func testNetBirdNetworkTeardown(t *testing.T, factory *ociclient.Factory, resolv
 		var privateIPs any = []any{}
 		var nsgVnics any = []any{}
 		status := http.StatusOK
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		install(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			mu.Lock()
 			defer mu.Unlock()
 			if r.Method != http.MethodGet || r.Header.Get("Authorization") == "" {
@@ -81,14 +102,7 @@ func testNetBirdNetworkTeardown(t *testing.T, factory *ociclient.Factory, resolv
 				json.MarshalWrite(w, nsgVnics)
 			}
 		}))
-		t.Cleanup(server.Close)
-		endpoint, err := url.Parse(server.URL)
-		if err != nil {
-			t.Fatal(err)
-		}
-		original := http.DefaultTransport
-		http.DefaultTransport = netBirdTeardownTransport{next: original, endpoint: endpoint}
-		t.Cleanup(func() { http.DefaultTransport = original })
+		t.Cleanup(func() { install(nil) })
 		observed, err := ObserveNetBirdNetworkTeardown(t.Context(), factory, resolver)
 		if err != nil {
 			t.Fatal(err)

@@ -18,6 +18,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
+	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
 
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
@@ -40,6 +42,8 @@ import (
 func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	store, objects, write := foundationProtocolStoreBucket(t, foundationDiscoveryBucket)
+	objectClient := objects.(*objectstorage.ObjectStorageClient)
+	objectClient.HTTPClient = netBirdFixtureDispatcher(t, objectClient.Host, nil)
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -156,6 +160,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	observedImage := manager.ImageOCID
 	idFor := func(kind string) string { return "ocid1." + kind + ".oc1.sa-saopaulo-1.manager" }
 	kinds := map[string]string{"vcns": "vcn", "internetGateways": "internetgateway", "routeTables": "routetable", "securityLists": "securitylist", "networkSecurityGroups": "networksecuritygroup", "subnets": "subnet"}
+	var teardownHandler http.Handler
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -182,7 +187,13 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			w.WriteHeader(401)
 			return
 		}
-		path := strings.TrimPrefix(r.URL.Path, "/20160918/")
+		path := r.URL.Path
+		if teardownHandler != nil && (strings.HasPrefix(path, "/20160918/instances/") || path == "/20160918/vnicAttachments" || path == "/20160918/privateIps" ||
+			strings.HasPrefix(path, "/20160918/networkSecurityGroups/") && strings.HasSuffix(path, "/vnics")) {
+			teardownHandler.ServeHTTP(w, r)
+			return
+		}
+		path = strings.TrimPrefix(r.URL.Path, "/20160918/")
 		parts := strings.Split(path, "/")
 		collection := parts[0]
 		if r.Method == http.MethodPost && collection == "instances" {
@@ -315,8 +326,27 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	t.Cleanup(server.Close)
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	original := http.DefaultTransport
+	// The pinned SDK otherwise overwrites the confined proxy and dial handlers.
+	t.Setenv(common.UsingExpectHeaderEnvVar, "false")
+	transport.Proxy = func(request *http.Request) (*url.URL, error) {
+		if request.Response != nil {
+			return nil, errors.New("NetBird fixture rejects redirects")
+		}
+		return nil, nil
+	}
+	transport.DialContext = func(context.Context, string, string) (net.Conn, error) {
+		return nil, errors.New("NetBird fixture rejects unhandled network dials")
+	}
+	loopback := server.Listener.Addr().String()
+	loopbackHost, _, err := net.SplitHostPort(loopback)
+	if err != nil || net.ParseIP(loopbackHost) == nil || !net.ParseIP(loopbackHost).IsLoopback() {
+		t.Fatalf("TLS fixture is not a literal loopback listener: %s", loopback)
+	}
 	transport.DialTLSContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
-		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, strings.TrimPrefix(server.URL, "https://"))
+		if network != "tcp" {
+			return nil, errors.New("NetBird fixture permits only TCP to its literal loopback listener")
+		}
+		return (&tls.Dialer{Config: server.Client().Transport.(*http.Transport).TLSClientConfig}).DialContext(ctx, network, loopback)
 	}
 	http.DefaultTransport = transport
 	t.Cleanup(func() { http.DefaultTransport = original; transport.CloseIdleConnections() })
@@ -426,7 +456,11 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
 	}
-	testNetBirdNetworkTeardown(t, factory, FoundationResolver{Store: store, Footprint: reader})
+	testNetBirdNetworkTeardown(t, factory, FoundationResolver{Store: store, Footprint: reader}, func(handler http.Handler) {
+		mu.Lock()
+		defer mu.Unlock()
+		teardownHandler = handler
+	})
 	retired := maps.Clone(ceremony.objects)
 	ceremony.rotate()
 	grant.Generation++
