@@ -83,6 +83,28 @@ func accountInfoOverHTTP(t *testing.T, s *Server, account string) *Accountz {
 	return &accounts
 }
 
+func accountResponseCountOverHTTP(t *testing.T, s *Server, account string) int {
+	t.Helper()
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,
+		"http://"+s.MonitorAddr().String()+"/accountz?acc="+url.QueryEscape(account), nil)
+	require_NoError(t, err)
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(request)
+	require_NoError(t, err)
+	defer response.Body.Close()
+	require_Equal(t, response.StatusCode, http.StatusOK)
+	var snapshot struct {
+		Account *struct {
+			Name      string                     `json:"account_name"`
+			Responses map[string]json.RawMessage `json:"responses"`
+		} `json:"account_detail"`
+	}
+	require_NoError(t, json.NewDecoder(response.Body).Decode(&snapshot))
+	require_NotNil(t, snapshot.Account)
+	require_Equal(t, snapshot.Account.Name, account)
+	return len(snapshot.Account.Responses)
+}
+
 func sendAccountProtocol(t *testing.T, nc net.Conn, protocol string) {
 	t.Helper()
 	require_NoError(t, nc.SetWriteDeadline(time.Now().Add(2*time.Second)))
@@ -515,13 +537,13 @@ func TestAccountServiceMappingsOverTCP(t *testing.T) {
 			require_Equal(t, request.Subject, destination)
 			require_Equal(t, string(request.Data), "help")
 			require_True(t, strings.HasPrefix(request.Reply, "_R_."))
-			require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+			require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), 1)
 			natsPub(t, responder, request.Reply, []byte("22"))
 			response := natsNexMsg(t, replies, 2*time.Second)
 			require_Equal(t, response.Subject, "reply")
 			require_Equal(t, string(response.Data), "22")
 			require_Equal(t, response.Reply, "")
-			require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 0)
+			require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), 0)
 		})
 	}
 }
@@ -669,10 +691,10 @@ func TestAccountServiceResponseCleanupOverTCP(t *testing.T) {
 		require_Equal(t, response.Subject, "bar")
 		require_Equal(t, string(response.Data), strconv.Itoa(i))
 	}
-	require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+	require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), 1)
 	client.Close()
 	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
-		if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+		if pending := accountResponseCountOverHTTP(t, s, "foo"); pending != 0 {
 			return fmt.Errorf("stream response remained after requester close: %d", pending)
 		}
 		return nil
@@ -685,7 +707,7 @@ func TestAccountServiceResponseCleanupOverTCP(t *testing.T) {
 	natsPub(t, responder, request.Reply, []byte("discarded"))
 	require_NoError(t, responder.FlushTimeout(2*time.Second))
 	checkFor(t, 2*time.Second, 10*time.Millisecond, func() error {
-		if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+		if pending := accountResponseCountOverHTTP(t, s, "foo"); pending != 0 {
 			return fmt.Errorf("response with no reply interest remained: %d", pending)
 		}
 		return nil
@@ -718,7 +740,7 @@ func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
 					require_Equal(t, string(request.Data), strconv.Itoa(i))
 					stale = append(stale, request)
 				}
-				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), count)
+				require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), count)
 				switch removal {
 				case "unsubscribe":
 					require_NoError(t, replies.Unsubscribe())
@@ -731,7 +753,7 @@ func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
 					wait = 7 * time.Second
 				}
 				checkFor(t, wait, 10*time.Millisecond, func() error {
-					if pending := len(accountInfoOverHTTP(t, s, "foo").Account.Responses); pending != 0 {
+					if pending := accountResponseCountOverHTTP(t, s, "foo"); pending != 0 {
 						return fmt.Errorf("%s left %d of %d responses", removal, pending, count)
 					}
 					return nil
@@ -747,7 +769,7 @@ func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
 				natsPubReq(t, client, "test", "my.inbox", []byte("current"))
 				current := natsNexMsg(t, requests, 2*time.Second)
 				require_Equal(t, string(current.Data), "current")
-				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 1)
+				require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), 1)
 				for _, request := range stale {
 					natsPub(t, responder, request.Reply, []byte("stale"))
 				}
@@ -756,7 +778,7 @@ func TestAccountSharedReplyCleanupOverTCP(t *testing.T) {
 				require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "current reply")
 				natsPub(t, client, "my.inbox", []byte("local marker"))
 				require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "local marker")
-				require_Equal(t, len(accountInfoOverHTTP(t, s, "foo").Account.Responses), 0)
+				require_Equal(t, accountResponseCountOverHTTP(t, s, "foo"), 0)
 			})
 		}
 	}
@@ -1117,6 +1139,10 @@ func TestAccountServiceImportMultiplicityOverTCP(t *testing.T) {
 			account := string(natsNexMsg(t, replies, 2*time.Second).Data)
 			require_True(t, slices.Contains(active, account) && !seen[account])
 			seen[account] = true
+		}
+		if len(active) == 0 {
+			_, err := replies.NextMsg(2 * time.Second)
+			require_True(t, errors.Is(err, nats.ErrNoResponders))
 		}
 		natsPub(t, client, "reply", []byte("reply marker"))
 		require_Equal(t, string(natsNexMsg(t, replies, 2*time.Second).Data), "reply marker")
