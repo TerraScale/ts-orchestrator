@@ -89,8 +89,12 @@ func Decide(request Request, fenced bool, attachments []Attachment, mounted bool
 		return Step{Kind: StepProveFence, Reason: "old writer is not proven fenced"}
 	}
 	var replacement *Attachment
+	var oldStep *Step
 	for index := range attachments {
 		attachment := attachments[index]
+		if attachment.ID == "" || attachment.InstanceID == "" {
+			return Step{Kind: StepHold, Attachment: attachment, Reason: "attachment listing returned an incomplete identity"}
+		}
 		if attachment.VolumeID != request.VolumeID {
 			return Step{Kind: StepHold, Attachment: attachment, Reason: "attachment listing returned another volume"}
 		}
@@ -99,15 +103,22 @@ func Decide(request Request, fenced bool, attachments []Attachment, mounted bool
 			switch attachment.State {
 			case "DETACHED":
 			case "DETACHING":
-				return Step{Kind: StepWaitDetached, Attachment: attachment}
+				if oldStep == nil {
+					oldStep = new(Step{Kind: StepWaitDetached, Attachment: attachment})
+				}
 			case "ATTACHED", "ATTACHING":
-				return Step{Kind: StepDetach, Attachment: attachment}
+				if oldStep == nil {
+					oldStep = new(Step{Kind: StepDetach, Attachment: attachment})
+				}
 			default:
 				return Step{Kind: StepHold, Attachment: attachment, Reason: "old attachment is in unknown state " + attachment.State}
 			}
 		case request.ReplacementInstanceID:
 			if attachment.State == "DETACHED" {
 				continue
+			}
+			if attachment.State != "ATTACHED" && attachment.State != "ATTACHING" {
+				return Step{Kind: StepHold, Attachment: attachment, Reason: "replacement attachment is " + attachment.State}
 			}
 			if replacement != nil {
 				return Step{Kind: StepHold, Attachment: attachment, Reason: "replacement has more than one live attachment"}
@@ -119,6 +130,10 @@ func Decide(request Request, fenced bool, attachments []Attachment, mounted bool
 				return Step{Kind: StepHold, Attachment: attachment, Reason: "volume is attached to an unrelated instance"}
 			}
 		}
+	}
+	// Validate the whole listing before mutating any attachment.
+	if oldStep != nil {
+		return *oldStep
 	}
 	if replacement == nil {
 		return Step{Kind: StepAttach}
