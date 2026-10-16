@@ -2,7 +2,7 @@
 
 The published baseline `847b55fca6c53f8b4f406a0636158a4e8596fe17` failed CI run [38965408843](https://github.com/TerraScale/ts-orchestrator/actions/runs/38965408843) in nine packages. This repair preserves their admission and isolation assertions and updates the stale fixtures/contracts. Only the network-namespace identity comparison changes production code.
 
-The final code candidate is `6aeed6fbd2bb3c6687e3177c11cfbb67dc23bc49`. `checked-source-files.json` proves that all 13 repaired Go files are byte-identical to the exact source used by their passing checks. The final preview fixture is byte-identical to original `d532b936`, which derives the three changed seed identities from the migrated plans using the production formula.
+The final code candidate is `6aeed6fbd2bb3c6687e3177c11cfbb67dc23bc49`. `checked-source-files.json` proves that all 14 repaired Go files are byte-identical to the exact source used by their passing checks. The final preview fixture is byte-identical to original `d532b936`, which derives the three changed seed identities from the migrated plans using the production formula.
 
 | Package or check | Source checked | Actual result | Retained log |
 | --- | --- | --- | --- |
