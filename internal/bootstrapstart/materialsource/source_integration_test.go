@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -331,6 +332,17 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	wire, _ := json.Marshal(cfg, json.Deterministic(true))
 	intent := &region.BootstrapMaterialIntent{InstallationID: "0000000000YTR4D9RJ6W8NG1HC", PlanSHA256: digestWire(wire), Config: cfg, SourceVaultTarget: target}
 	grant := region.FoundationGrant{InstallationID: intent.InstallationID, SchemaVersion: 1, Generation: 1, TenancyID: "ocid1.tenancy.oc1..test", ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared", Currency: "USD", MonthlyLimitMinor: 10000, CleanupOwner: "integration", Regions: []region.FoundationIntent{{Generation: 1, Plan: map[string]any{"cell": "GRU", "region": "sa-saopaulo-1", "tenancy_id": "ocid1.tenancy.oc1..test", "parent_compartment_id": "ocid1.compartment.oc1..parent", "shared_compartment_id": "ocid1.compartment.oc1..shared", "resource_ids": map[string]any{"control": target.CompartmentOCID, "control_compartment": target.CompartmentOCID, "vault": target.VaultOCID, "key": target.KMSKeyOCID}}}}}
+	spokeConfig := cfg
+	spokeConfig.Cell, spokeConfig.Region, spokeConfig.ClusterID = "sfo", "us-sanjose-1", "0000000000F9PR1WNVDTEXS31Z"
+	spokeWire, err := json.Marshal(spokeConfig, json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeIntent := &region.BootstrapMaterialIntent{InstallationID: intent.InstallationID, PlanSHA256: digestWire(spokeWire), Config: spokeConfig, SourceVaultTarget: target}
+	spokePlan := maps.Clone(grant.Regions[0].Plan)
+	spokePlan["cell"], spokePlan["region"] = "SFO", "us-sanjose-1"
+	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfo-control", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
+	grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: spokePlan})
 	publish := func() {
 		t.Helper()
 		payload, err := trust.EncodePayload(grant)
@@ -373,6 +385,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 		t.Fatal("empty grant minted source")
 	}
 	grant.Regions[0].BootstrapMaterial = intent
+	grant.Regions[1].BootstrapMaterial = spokeIntent
 	publish()
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -538,8 +551,36 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := ResolveLinkSource(t.Context(), replacement, replacement, new(LinkSource), &objects, &management, &bundles, filepath.Join(t.TempDir(), "invalid-link"), now); err == nil {
 		t.Fatal("empty home Link proof admitted")
 	}
+	spokeGrant, err := reader.AuthorizedBootstrapMaterial(t.Context(), "SFO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spokeSource, err := ResolveColdStartMaterial(t.Context(), spokeGrant, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-source"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveLinkSource(t.Context(), spokeSource, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "unproven-spoke-link"), now); err == nil {
+		t.Fatal("spoke minted Link without recovered home signer")
+	}
+	spokeLink, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "spoke-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveredSpoke, err := ResolveLinkSource(t.Context(), spokeSource, replacement, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "recovered-spoke-link"), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protocol.creates != 39 || !reflect.DeepEqual(spokeLink.Record(), recoveredSpoke.Record()) || spokeLink.Record().Signer != recoveredLink.Record().Signer || spokeLink.Record().HomeLinkSHA256 != linkPublication.MaterialSHA256 {
+		t.Fatalf("spoke changed home Link authority: creates=%d", protocol.creates)
+	}
+	for _, file := range spokeLink.Record().Files {
+		if file.Purpose == "owner-only" {
+			t.Fatal("spoke source contains home signer")
+		}
+	}
 	grant.Generation = 2
 	grant.Regions[0].Generation = 2
+	grant.Regions[1].Generation = 2
 	publish()
 	verified, err = reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -548,6 +589,9 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	restarted, err := ResolveColdStartMaterial(t.Context(), verified, &objects, &management, &bundles, replacement.directory, now)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := ResolveLinkSource(t.Context(), spokeSource, restarted, recoveredLink, &objects, &management, &bundles, filepath.Join(t.TempDir(), "mixed-generation-link"), now); err == nil {
+		t.Fatal("Link mixed grant generations")
 	}
 	if !reflect.DeepEqual(restarted.Record(), replacement.Record()) {
 		t.Fatal("grant renewal rotated immutable source")
