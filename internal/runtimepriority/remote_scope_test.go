@@ -156,7 +156,7 @@ func TestScopeLauncherRunsDetachedAndReapsOnStop(t *testing.T) {
 	}
 	select {
 	case <-done:
-	default:
+	case <-cleanupCtx.Done():
 		t.Fatal("stopped launcher was not reaped")
 	}
 }
