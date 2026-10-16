@@ -131,6 +131,35 @@ func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
+	if err := verifyCurrentAuthority(ctx, client, task, expected, verified, roots, proof, registration, binding); err != nil {
+		return err
+	}
+	return verifyCurrentRecipient(ctx, client, task, expected, verified, proof, registration, binding, controller)
+}
+
+// VerifyCurrentMaterialTask additionally requires the current service revision
+// before the final task and node reads. It never repeats OCI verification.
+func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+	controller *bootstrapstart.ControllerHostRecipient,
+) error {
+	if err := verifyCurrentAuthority(ctx, client, task, expected, verified, roots, proof, registration, binding); err != nil {
+		return err
+	}
+	service, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: binding.ServiceID})
+	if err != nil {
+		return err
+	}
+	if service == nil || service.Service == nil || service.Service.ID != binding.ServiceID || service.Service.PendingDelete ||
+		!proto.Equal(&service.Service.Spec.Task, &task.Spec) || !proto.Equal(&service.Service.Spec.Annotations, &task.ServiceAnnotations) {
+		return ErrPending
+	}
+	return verifyCurrentRecipient(ctx, client, task, expected, verified, proof, registration, binding, controller)
+}
+
+func verifyCurrentAuthority(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+) error {
 	if client == nil || verifyExpected(proof, expected, verified) != nil || registration.Cell != proof.identity.Cell || registration.Environment != proof.identity.Environment ||
 		binding.Region != expected.Region || !slices.Contains(registration.Roles, proof.role) {
 		return ErrPending
@@ -138,10 +167,14 @@ func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.
 	if err := verifyTaskAssignment(task, binding); err != nil {
 		return err
 	}
-	if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
-		return err
-	}
-	// OCI verification can outlast an assignment or node admission change.
+	return swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots)
+}
+
+func verifyCurrentRecipient(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+	verified release.VerifiedContainer, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+	controller *bootstrapstart.ControllerHostRecipient,
+) error {
+	// Source reads can outlast an assignment or node admission change.
 	currentTask, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
 	if err != nil {
 		return err
