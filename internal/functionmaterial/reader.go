@@ -168,7 +168,7 @@ func (reader Reader) verifyMaterial(material storedMaterial, binding Binding, pr
 	if err != nil {
 		return time.Time{}, err
 	}
-	expires := minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.generation.ExpiresAt())
+	expires := minTime(proof.ExpiresAt(), identity.ExpiresAt, tlsExpiry, reader.Trust.expiresAt)
 	if material.ExpiresAt.After(expires) || !time.Now().Before(material.ExpiresAt) {
 		return time.Time{}, ErrMaterial
 	}
