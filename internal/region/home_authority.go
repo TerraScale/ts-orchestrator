@@ -18,6 +18,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 )
@@ -47,13 +48,22 @@ type HomeIAMAuthority struct {
 	proof             bootstrapstart.VerifiedSourceFounder
 	resolver          FoundationResolver
 	factory           *ociclient.Factory
-	objects           FoundationObjects
+	objects           *objectstorage.ObjectStorageClient
+	currentGenesis    trust.Keyring
 	domain            bootstrap.StorageDomain
 	ownerID           string
 	bucketCompartment string
 }
 
 func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver) (*HomeIAMAuthority, error) {
+	genesis, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return nil, err
+	}
+	return newHomeIAMAuthority(ctx, proof, resolver, nil, genesis)
+}
+
+func newHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourceFounder, resolver FoundationResolver, objects *objectstorage.ObjectStorageClient, genesis trust.Keyring) (*HomeIAMAuthority, error) {
 	factory, guarded, err := proof.GuardedFactory(ctx)
 	if err != nil || resolver.Footprint == nil || resolver.Store == nil {
 		return nil, errors.Join(bootstrapstart.ErrSourceFounder, err)
@@ -75,9 +85,12 @@ func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 	if err != nil {
 		return nil, err
 	}
-	objects, err := storage.ObjectStorage()
-	if err != nil {
-		return nil, err
+	if objects == nil {
+		client, err := storage.ObjectStorage()
+		if err != nil {
+			return nil, err
+		}
+		objects = &client
 	}
 	namespace, err := objects.GetNamespace(ociclient.RequestContext(guarded), objectstorage.GetNamespaceRequest{})
 	if err != nil || namespace.Value == nil || *namespace.Value != domain.Namespace {
@@ -88,7 +101,7 @@ func NewHomeIAMAuthority(ctx context.Context, proof bootstrapstart.VerifiedSourc
 		bucket.KmsKeyId == nil || *bucket.KmsKeyId != domain.HeadKMSKeyOCID || bucket.CompartmentId == nil || !strings.HasPrefix(*bucket.CompartmentId, "ocid1.compartment.oc1..") || bucket.Id == nil || !validAuxiliaryID("head_bucket", *bucket.Id, parts[3]) {
 		return nil, errors.New("actual home bucket differs from signed encrypted storage")
 	}
-	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, factory: factory, objects: &objects, domain: domain, ownerID: entityid.New(), bucketCompartment: *bucket.CompartmentId}
+	authority := &HomeIAMAuthority{proof: proof, resolver: resolver, factory: factory, objects: objects, currentGenesis: genesis, domain: domain, ownerID: entityid.New(), bucketCompartment: *bucket.CompartmentId}
 	if err := authority.guardScope(ctx); err != nil {
 		return nil, err
 	}
@@ -106,7 +119,9 @@ func (authority *HomeIAMAuthority) guardScope(ctx context.Context) error {
 	if !ok {
 		return bootstrapstart.ErrSourceFounder
 	}
-	current, err := DiscoverCurrentFoundation(ctx, authority.factory)
+	// The production constructor pins the independent embedded genesis. Every
+	// guard rereads the full remote lineage and the durable anti-rollback floor.
+	current, err := discoverCurrentFoundation(ctx, authority.objects, authority.proof.TenancyID(), authority.currentGenesis)
 	if err != nil {
 		return err
 	}
