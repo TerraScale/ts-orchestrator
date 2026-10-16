@@ -97,7 +97,9 @@ func TestBootstrapPinnedUpstreamAndLostVaultPublication(t *testing.T) {
 	store := newVaultHTTP(t)
 	target := store.clients(t)
 	// Fail the first PAT publication after NetBird has minted it; the owner password is already durable.
+	store.mu.Lock()
 	store.failPAT = true
+	store.mu.Unlock()
 	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), target); err == nil || !strings.Contains(err.Error(), "service credential publication failed") {
 		t.Fatalf("expected injected Vault publication failure, got %v", err)
 	}
@@ -161,6 +163,36 @@ func TestBootstrapPinnedUpstreamAndLostVaultPublication(t *testing.T) {
 	// Seed an actually issued one-day PAT, then lose the SDK response after Vault commits renewal.
 	jwt, err := client.login(ctx, owner)
 	if err != nil {
+		t.Fatal(err)
+	}
+	var currentOwner apiUser
+	if err := client.api(ctx, "GET", "/users/current", "Bearer "+jwt, nil, &currentOwner); err != nil {
+		t.Fatal(err)
+	}
+	var ownerToken struct {
+		Plain    string   `json:"plain_token"`
+		Metadata apiToken `json:"personal_access_token"`
+	}
+	ownerTokensPath := "/users/" + currentOwner.ID + "/tokens"
+	if err := client.api(ctx, "POST", ownerTokensPath, "Bearer "+jwt, map[string]any{"name": "fixture-owner", "expires_in": 365}, &ownerToken); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.values[ManagementSecretName] = ownerToken.Plain
+	store.mu.Unlock()
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), target); err == nil || !strings.Contains(err.Error(), "does not belong") {
+		t.Fatalf("owner PAT was accepted as service credential: %v", err)
+	}
+	if err := client.api(ctx, "GET", "/users/current", "Token "+ownerToken.Plain, nil, new(apiUser)); err != nil {
+		t.Fatal("refusing the wrong credential revoked its owner's PAT")
+	}
+	store.mu.Lock()
+	store.values[ManagementSecretName] = pat
+	store.mu.Unlock()
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.api(ctx, "DELETE", ownerTokensPath+"/"+ownerToken.Metadata.ID, "Bearer "+jwt, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	var users []apiUser

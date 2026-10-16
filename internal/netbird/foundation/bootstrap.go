@@ -191,8 +191,17 @@ func Bootstrap(ctx context.Context, origin, identityDirectory string, vault Boot
 			if err = client.verifyIdentity(ctx, vault, users, identity, identityDirectory, escrow); err != nil {
 				return result, err
 			}
+			subject, err := serviceSubject(users, "")
+			if err != nil {
+				return result, err
+			}
 			for _, user := range users {
-				if user.Name == serviceName && user.Service && user.Role == "admin" && user.ID != "" && !strings.ContainsAny(user.ID, "/?#%") {
+				if user.Name == serviceName && user.ID != subject.ID {
+					return result, errors.New("NetBird service identity is ambiguous")
+				}
+			}
+			for _, user := range users {
+				if user.ID == subject.ID {
 					var tokens []apiToken
 					if err = client.api(ctx, "GET", "/users/"+user.ID+"/tokens", "Token "+current.Value, nil, &tokens); err != nil {
 						return result, err
@@ -279,7 +288,11 @@ func Bootstrap(ctx context.Context, origin, identityDirectory string, vault Boot
 	if err != nil || saved != token.Plain {
 		return result, errors.New("NetBird service credential publication is not verified")
 	}
-	if err = client.api(ctx, "GET", "/users", "Token "+saved, nil, new([]apiUser)); err != nil {
+	var publishedUsers []apiUser
+	if err = client.api(ctx, "GET", "/users", "Token "+saved, nil, &publishedUsers); err != nil {
+		return result, err
+	}
+	if _, err = serviceSubject(publishedUsers, userID); err != nil {
 		return result, err
 	}
 	// Keep the old CURRENT usable until its replacement is stored and authenticated.
@@ -303,11 +316,31 @@ type apiToken struct {
 }
 
 type apiUser struct {
+	Current *bool  `json:"is_current"`
 	ID      string `json:"id"`
 	Email   string `json:"email"`
 	Name    string `json:"name"`
 	Role    string `json:"role"`
 	Service bool   `json:"is_service_user"`
+}
+
+// NetBird's /users/current rejects service users; /users marks the authenticated subject.
+func serviceSubject(users []apiUser, expected string) (apiUser, error) {
+	var subject apiUser
+	count := 0
+	for _, user := range users {
+		if user.Current != nil && *user.Current {
+			count++
+			if count > 1 {
+				return apiUser{}, errors.New("NetBird authenticated credential subject is ambiguous")
+			}
+			subject = user
+		}
+	}
+	if subject.Name != serviceName || !subject.Service || subject.Role != "admin" || subject.ID == "" || strings.ContainsAny(subject.ID, "/?#%") || expected != "" && subject.ID != expected {
+		return apiUser{}, errors.New("NetBird Vault credential does not belong to its admin service user")
+	}
+	return subject, nil
 }
 
 func (c *bootstrapClient) verifyIdentity(ctx context.Context, vault BootstrapVault, users []apiUser, expected, identityDirectory string, escrow ownerEscrow) error {
