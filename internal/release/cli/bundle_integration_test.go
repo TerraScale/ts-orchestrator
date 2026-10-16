@@ -27,6 +27,17 @@ func TestBundleRetainsQualifiedSignedReleaseWithoutSource(t *testing.T) {
 	migrationPath := writeBundleMigration(t, f)
 	env := bundleFixtureEnv(t, f)
 	checks := atomic.Int64{}
+	var interruptedDirectory atomic.Bool
+	inspect := env.inspect
+	env.inspect = func(path, version, revision string) (binaryReceipt, error) {
+		// Leave an actual interrupted regional write in the staging filesystem.
+		if interruptedDirectory.CompareAndSwap(false, true) {
+			if err := os.Mkdir(filepath.Join(filepath.Dir(filepath.Dir(path)), "SFO"), 0o700); err != nil {
+				return binaryReceipt{}, err
+			}
+		}
+		return inspect(path, version, revision)
+	}
 	check := env.check
 	env.check = func(q release.Qualification, digest string) error {
 		checks.Add(1)
@@ -68,7 +79,7 @@ func TestBundleRetainsQualifiedSignedReleaseWithoutSource(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(out, "SFO", "channel.json")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(out, "SFO")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("refused region has an apply input: %v", err)
 	}
 	f.mu.Lock()

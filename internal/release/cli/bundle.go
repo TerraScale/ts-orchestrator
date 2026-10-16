@@ -305,6 +305,15 @@ func (c command) bundleWith(args []string, env deployEnv) error {
 		})
 	}
 	_ = regions.Wait()
+	// Apply discovers regions by directory name, so failed writes must not
+	// leave an empty regional directory in an otherwise usable bundle.
+	for index, cell := range cells {
+		if !completed[index] {
+			if err := os.RemoveAll(filepath.Join(stage, cell)); err != nil {
+				return errors.Join(append(failures, err)...)
+			}
+		}
+	}
 	if !slices.Contains(completed, true) {
 		return errors.Join(failures...)
 	}
