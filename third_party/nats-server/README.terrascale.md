@@ -75,9 +75,21 @@ compiled successfully; nine additional selected boundary tests passed in 1.428
 seconds with no skips. Central integration qualification remains pending.
 
 `TestMain` moved without changing its body from `server/sublist_test.go` to
-`server/integration_bootstrap_test.go`. Every other original declaration in the
-claimed files remains while additive candidates are qualified. This migration
-is incomplete; the eight source removals do not qualify the remaining inventory.
+`server/integration_bootstrap_test.go`.
+
+Auth source `319b113a07dd1a25880a717f0c83d7a2fcdb51b3` separately removes
+`TestUserUnknownAllowedConnectionType`, `TestDNSAltNameMatching` and the three
+`TestProcessUserPermissionsTemplate*` originals. The corresponding real listener
+type, 36-row TLS DNS and signed scoped-template cases passed; both original
+DNS/type cases also passed in `cb868ebc`, and the original three template cases
+passed in `3a9f09da`. All other retained function bodies are unchanged. These five
+additional removals await compilation in their combined final source. All five
+clone originals, the concurrent proxy original and twelve existing auth
+integrations remain. The strengthened directional clone replacement is unrun.
+
+Every original outside these thirteen approved removals remains while additive
+candidates are qualified. This migration is incomplete; these source removals
+do not qualify the remaining inventory.
 
 The deterministic real-TCP regression
 `TestJWTSystemAccountRefreshKeepsInflightReplyOverTCP` currently fails after a
