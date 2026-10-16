@@ -62,13 +62,13 @@ type materialReply struct {
 	Ciphertext         []byte `json:"ciphertext"`
 }
 
-func materialAAD(req request, query materialQuery) ([]byte, error) {
+func materialAAD(req request, query any) ([]byte, error) {
 	return protocol.EncodeJSON(struct {
-		Node      string        `json:"node"`
-		SessionID string        `json:"session_id"`
-		Epoch     uint64        `json:"epoch"`
-		Nonce     string        `json:"nonce"`
-		Query     materialQuery `json:"query"`
+		Node      string `json:"node"`
+		SessionID string `json:"session_id"`
+		Epoch     uint64 `json:"epoch"`
+		Nonce     string `json:"nonce"`
+		Query     any    `json:"query"`
 	}{req.Node, req.SessionID, req.Epoch, req.Nonce, query})
 }
 
@@ -180,7 +180,15 @@ func managedHostFilesFor(desired Desired) []string {
 }
 
 func encryptMaterialChunk(req request, query materialQuery, chunk []byte, total int, whole []byte) (materialReply, error) {
-	public, err := ecdh.X25519().NewPublicKey(query.EphemeralPublicKey)
+	aad, err := materialAAD(req, query)
+	if err != nil {
+		return materialReply{}, err
+	}
+	return encryptHostMaterialChunk(aad, query.EphemeralPublicKey, query.File, query.Offset, chunk, total, whole)
+}
+
+func encryptHostMaterialChunk(aad, peerPublic []byte, file string, offset int, chunk []byte, total int, whole []byte) (materialReply, error) {
+	public, err := ecdh.X25519().NewPublicKey(peerPublic)
 	if err != nil {
 		return materialReply{}, err
 	}
@@ -193,10 +201,6 @@ func encryptMaterialChunk(req request, query materialQuery, chunk []byte, total 
 		return materialReply{}, err
 	}
 	defer clear(shared)
-	aad, err := materialAAD(req, query)
-	if err != nil {
-		return materialReply{}, err
-	}
 	aead, err := materialAEAD(shared, aad)
 	if err != nil {
 		return materialReply{}, err
@@ -206,7 +210,7 @@ func encryptMaterialChunk(req request, query materialQuery, chunk []byte, total 
 		return materialReply{}, err
 	}
 	sum := sha256.Sum256(whole)
-	return materialReply{File: query.File, Offset: query.Offset, Total: total,
+	return materialReply{File: file, Offset: offset, Total: total,
 		SHA256: hex.EncodeToString(sum[:]), EphemeralPublicKey: private.PublicKey().Bytes(),
 		Nonce: nonce, Ciphertext: aead.Seal(nil, nonce, chunk, aad)}, nil
 }
