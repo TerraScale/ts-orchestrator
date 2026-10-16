@@ -20,6 +20,37 @@ type StartupProjection struct {
 	template bootstrap.VerifiedStartupTemplate
 	material VerifiedColdStartMaterial
 	manifest bootstrap.Manifest
+	link     *bootstrap.VerifiedStartupLink
+}
+
+// WithStartupLink attaches independently checked home or spoke delivery before
+// the house renderer binds all three final initial configurations.
+func (projection StartupProjection) WithStartupLink(ctx context.Context, link bootstrap.VerifiedStartupLink, now time.Time) (StartupProjection, error) {
+	if !projection.material.IsVerified() || !link.IsVerified() {
+		return StartupProjection{}, ErrMaterialSource
+	}
+	verified, err := bootstrap.VerifyStartupLink(ctx, projection.template, projection.material.source.objects, link.Evidence(), now)
+	if err != nil {
+		return StartupProjection{}, err
+	}
+	refs := slices.Clone(projection.manifest.Secrets)
+	for _, ref := range verified.References() {
+		index := slices.IndexFunc(refs, func(existing bootstrap.SecretReference) bool { return existing.TargetFile == ref.TargetFile })
+		if index < 0 {
+			refs = append(refs, ref)
+		} else {
+			if ref.TargetFile != "cell.jwt" || projection.manifest.Cell != "GRU" {
+				return StartupProjection{}, ErrMaterialSource
+			}
+			refs[index] = ref
+		}
+	}
+	manifest, err := projection.template.ManifestFor(projection.manifest.Slot, refs)
+	if err != nil {
+		return StartupProjection{}, err
+	}
+	projection.manifest, projection.link = manifest, new(verified)
+	return projection, nil
 }
 
 func NewStartupProjection(template bootstrap.VerifiedStartupTemplate, material VerifiedColdStartMaterial, slot string) (StartupProjection, error) {
@@ -96,6 +127,12 @@ func (projection StartupProjection) BindConfigs(ctx context.Context, configs map
 			return bootstrap.DerivedStartupAuthority{}, err
 		}
 		binding := bootstrap.DerivedStartupBinding{SchemaVersion: 1, GrantSHA256: projection.template.GrantDigest(), TemplateSHA256: projection.template.TemplateDigest(), SourceSHA256: source.state.Reference.SHA256, MaterialRecord: metadata, Manifest: manifest}
+		if projection.link != nil {
+			if err := projection.link.VerifyCurrent(ctx, time.Now()); err != nil {
+				return bootstrap.DerivedStartupAuthority{}, err
+			}
+			binding.Link = new(projection.link.Evidence())
+		}
 		payload, err := trust.EncodePayload(binding)
 		if err != nil {
 			return bootstrap.DerivedStartupAuthority{}, err

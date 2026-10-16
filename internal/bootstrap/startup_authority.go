@@ -240,6 +240,9 @@ func verifyStartupTemplateForIdentity(wire []byte, roots trust.Keyring, anchor V
 		if imageErr != nil {
 			return VerifiedStartupTemplate{}, fmt.Errorf("verify startup image: %w", imageErr)
 		}
+		if template.FounderResources != nil && (template.FounderResources.LaunchDeadline.After(envelope.ExpiresAt) || template.FounderResources.LaunchDeadline.After(image.ExpiresAt())) {
+			return VerifiedStartupTemplate{}, ErrFounderPlanInvalid
+		}
 		templateWire, err := json.Marshal(template, json.Deterministic(true))
 		if err != nil {
 			return VerifiedStartupTemplate{}, err
