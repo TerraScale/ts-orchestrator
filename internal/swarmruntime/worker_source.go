@@ -208,6 +208,10 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil || readback != string(wire) {
 		return nil, errors.New("recipient worker Vault material differs from current upstream cluster")
 	}
+	version, err := vaultsecret.ReadVersioned(ctx, authority.bundles, authority.target.VaultID, name)
+	if err != nil || version.SecretID != stored.ID || version.Value != string(wire) {
+		return nil, errors.New("recipient worker Vault version differs from current upstream cluster")
+	}
 	if _, _, _, _, _, err := authority.current(ctx, query); err != nil {
 		return nil, err
 	}
@@ -217,7 +221,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	worker := hostenroll.SwarmWorker{Version: 1, DeploymentID: material.DeploymentID, ClusterID: material.ClusterID, Environment: material.Environment, Cell: registration.Cell, Region: material.Region,
 		OCIRegion: authority.identity.OCIRegion, FounderID: material.FounderID, RegistrationID: registration.ID, Generation: registration.Generation, Revision: response.RegistrationReceipt.Revision,
 		InstanceID: request.InstanceID, PrivateIP: observed.PrimaryPrivateIP, Architecture: architecture, Role: role, ManagerAddress: material.ManagerAddress, SwarmID: material.SwarmID, CAPEM: material.CAPEM,
-		SecretID: stored.ID, SecretVersion: 1, SecretSHA256: hex.EncodeToString(digest[:]), IssuedAt: now, ExpiresAt: expires}
+		SecretID: stored.ID, SecretVersion: version.Number, SecretSHA256: hex.EncodeToString(digest[:]), IssuedAt: now, ExpiresAt: expires}
 	if err := worker.Validate(now); err != nil {
 		return nil, err
 	}
