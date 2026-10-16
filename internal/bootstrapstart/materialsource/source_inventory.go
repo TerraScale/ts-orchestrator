@@ -18,7 +18,7 @@ func (source *ColdStartMaterial) signInventory(ctx context.Context) ([]byte, err
 	if _, err := source.grant.SourceRegistration(); err != nil {
 		return bytes.Clone(source.state.Inventory), nil
 	}
-	binding := bootstrap.RegionalSourceInventory{SchemaVersion: 1, GrantSHA256: digestWire(source.grant.FoundationGrantWire()), PlanSHA256: source.grant.PlanDigest(), SourceSHA256: source.state.Reference.SHA256, MaterialRecord: bytes.Clone(source.archive.Files["material.json"])}
+	binding := bootstrap.RegionalSourceInventory{Actor: bootstrap.SourceInventoryActor{InstanceID: source.state.Actor.InstanceID, GrantDigest: source.state.Actor.GrantDigest, TemplateDigest: source.state.Actor.TemplateDigest}, SchemaVersion: 1, GrantSHA256: digestWire(source.grant.FoundationGrantWire()), PlanSHA256: source.grant.PlanDigest(), SourceSHA256: source.state.Reference.SHA256, MaterialRecord: bytes.Clone(source.archive.Files["material.json"])}
 	payload, err := trust.EncodePayload(binding)
 	if err != nil {
 		return nil, err

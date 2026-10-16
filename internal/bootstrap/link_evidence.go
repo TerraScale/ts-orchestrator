@@ -124,14 +124,15 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		return deny()
 	}
 	var state struct {
-		SchemaVersion  int                `json:"schemaVersion"`
-		Kind           string             `json:"kind"`
-		BindingSHA256  string             `json:"bindingSha256"`
-		InstallationID string             `json:"installationId"`
-		Cell           string             `json:"cell"`
-		Generation     uint64             `json:"generation"`
-		PlanSHA256     string             `json:"planSha256"`
-		Target         StartupVaultTarget `json:"target"`
+		Actor          SourceInventoryActor `json:"actor"`
+		SchemaVersion  int                  `json:"schemaVersion"`
+		Kind           string               `json:"kind"`
+		BindingSHA256  string               `json:"bindingSha256"`
+		InstallationID string               `json:"installationId"`
+		Cell           string               `json:"cell"`
+		Generation     uint64               `json:"generation"`
+		PlanSHA256     string               `json:"planSha256"`
+		Target         StartupVaultTarget   `json:"target"`
 		Reference      struct {
 			SecretOCID string `json:"secretOcid"`
 			SHA256     string `json:"sha256"`
@@ -140,7 +141,7 @@ func VerifyStartupLink(ctx context.Context, template VerifiedStartupTemplate, cl
 		Journal  []byte `json:"journal"`
 		Delivery []byte `json:"delivery"`
 	}
-	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
+	if json.Unmarshal(stateWire, &state) != nil || state.SchemaVersion != 1 || state.Actor != home.OriginalActor() || state.Kind != kind || state.BindingSHA256 != binding || state.InstallationID != template.InstallationID() || state.Cell != strings.ToLower(string(template.startupIdentity().Cell)) || state.Generation == 0 || state.Generation > template.Generation() || state.PlanSHA256 != template.PlanDigest() || state.Target != template.escrow || !isOCID(state.Reference.SecretOCID, "vaultsecret") || state.Reference.SHA256 != evidence.SourceSHA256 || state.Reference.MaxBytes <= 0 || state.Reference.MaxBytes > 25<<10 || !bytes.Equal(state.Journal, evidence.Journal) || !bytes.Equal(state.Delivery, evidence.Delivery) {
 		return deny()
 	}
 	var record struct {
