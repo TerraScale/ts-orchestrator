@@ -37,6 +37,7 @@ func TestCapacityReservationPersistsBeforeOCIWrite(t *testing.T) {
 		admissions++
 		return func() {}, nil
 	}
+	configureProtocolJournal(t, observed, store)
 	pool, err := NewChosenPool(observed, store)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +95,7 @@ func TestChosenFallbackKeepsExistingCapacityPools(t *testing.T) {
 	cloud.instances[old].CompartmentId = new(testCompartment)
 	chosen := base
 	chosen.Capacity.Shape = "VM.Standard.A2.Flex"
-	action := &InFlight{ID: entityid.New(), Kind: Up}
+	action := &InFlight{ID: entityid.New(), Kind: Up, Started: time.Now().UTC()}
 	store, err := OpenStore(ctx, capacityJetStream(t), 1)
 	if err != nil {
 		t.Fatal(err)
@@ -102,34 +103,34 @@ func TestChosenFallbackKeepsExistingCapacityPools(t *testing.T) {
 	if _, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action, From: 1, TargetFrom: new(0)}, 0); err != nil {
 		t.Fatal(err)
 	}
+	configureProtocolJournal(t, observed, store)
 	pool, err := NewChosenPool(observed, store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Ensure(ctx, chosen); err != nil {
-		t.Fatal(err)
-	}
-	if err := pool.Grow(ctx, 1); err != nil {
-		t.Fatalf("fallback used aggregate size for empty target pool: %v", err)
+	if _, err := pool.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) {
+		t.Fatalf("fallback adopted an older pool without protected original lineage: %v", err)
 	}
 	updates := cloud.updates
-	if err := pool.Grow(ctx, 1); err != nil || cloud.updates != updates {
-		t.Fatalf("fallback retry duplicated growth: %v", err)
+	for range 2 {
+		if err := pool.Grow(ctx, 1); !errors.Is(err, ErrCapacityPending) && !errors.Is(err, ErrPoolChanged) || cloud.updates != updates {
+			t.Fatalf("fallback retry changed unproven regional capacity: %v", err)
+		}
 	}
 	state, err := pool.Observe(ctx)
-	if err != nil || state.Pending != "" || state.Size != 2 || len(state.Instances) != 1 || state.Instances[0].ID != old || deref(cloud.pools[initial.PoolID].Size) != 1 {
-		t.Fatalf("fallback hid or changed existing capacity: %+v, %v", state, err)
+	if err != nil || state.Pending == "" || state.Size != 1 || len(state.Instances) != 1 || state.Instances[0].ID != old || deref(cloud.pools[initial.PoolID].Size) != 1 || len(cloud.pools) != 2 {
+		t.Fatalf("pending fallback hid or changed existing capacity: %+v err=%v", state, err)
 	}
-	if err := pool.Name(ctx, old, "ts-gru-5"); err != nil || deref(cloud.instances[old].DisplayName) != "ts-gru-5" {
-		t.Fatalf("old capacity instance was routed to the new pool: %v", err)
+	if err := pool.Name(ctx, old, "ts-gru-5"); !errors.Is(err, ErrCapacityPending) || deref(cloud.instances[old].DisplayName) != "ts-gru-4" {
+		t.Fatalf("current membership authorized naming an old child: %v", err)
 	}
 	cloud.instances[old].FreeformTags[tagCapacityRole] = RoleWasm
 	if err := pool.Remove(ctx, old); !errors.Is(err, ErrNotPoolInstance) || len(cloud.detaches) != 0 {
 		t.Fatalf("different isolation role was detached: %v", err)
 	}
 	cloud.instances[old].FreeformTags[tagCapacityRole] = RoleContainer
-	if err := pool.Remove(ctx, old); err != nil || len(cloud.detaches) != 1 || deref(cloud.detaches[0].InstanceId) != old || deref(cloud.pools[initial.PoolID].Size) != 0 {
-		t.Fatalf("old capacity retirement did not use its positively owned pool: %v", err)
+	if err := pool.Remove(ctx, old); !errors.Is(err, ErrCapacityPending) || len(cloud.detaches) != 0 || deref(cloud.pools[initial.PoolID].Size) != 1 {
+		t.Fatalf("tags minted old child retirement authority: %v", err)
 	}
 }
 
@@ -143,6 +144,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	cloud := newCapacityCloud()
 	cloud.shapeRows = []core.Shape{capacityShape("VM.Standard.A2.Flex", "Ampere")}
 	observed := protocolPool(t, cloud, capacityRecipe().Capacity)
+	configureProtocolJournal(t, observed, store)
 	pool, err := NewChosenPool(observed, store)
 	if err != nil {
 		t.Fatal(err)
@@ -154,7 +156,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if _, err := pool.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) || len(cloud.configs) != 0 || len(cloud.pools) != 0 {
 		t.Fatalf("uncommitted choice changed OCI: %v", err)
 	}
-	action := &InFlight{ID: entityid.New(), Kind: Up}
+	action := &InFlight{ID: entityid.New(), Kind: Up, Started: time.Now().UTC()}
 	revision, err := store.Save(ctx, Record{Recipe: new(chosen), Action: action, TargetFrom: new(0)}, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +194,7 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 	if err := restarted.Grow(ctx, 0); err != nil || cloud.updates != updates {
 		t.Fatalf("restart did not recognize observed growth: %v", err)
 	}
-	nextAction := &InFlight{ID: entityid.New(), Kind: Up}
+	nextAction := &InFlight{ID: entityid.New(), Kind: Up, Started: time.Now().UTC()}
 	revision, err = store.Save(ctx, Record{Recipe: new(chosen), Action: nextAction, From: 1, TargetFrom: new(1)}, revision)
 	if err != nil {
 		t.Fatal(err)
@@ -204,14 +206,8 @@ func TestChosenCapacitySurvivesRestartAndFencesOCIChanges(t *testing.T) {
 		t.Fatalf("new configuration was accepted before OCI applied it: %v", err)
 	}
 	cloud.settle()
-	nextState, err := restarted.Ensure(ctx, chosen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	nextLaunch := cloud.configs[nextState.ConfigurationID].InstanceDetails.(core.ComputeInstanceDetails).LaunchDetails
-	if nextState.ConfigurationID == state.ConfigurationID || nextLaunch.FreeformTags[tagOperationID] != nextAction.ID ||
-		nextLaunch.FreeformTags[tagRecipeSHA256] != chosen.SHA256() {
-		t.Fatalf("new operation retained the previous spending identity: %+v", nextLaunch)
+	if _, err := restarted.Ensure(ctx, chosen); !errors.Is(err, ErrCapacityPending) || len(cloud.configs) != 1 || cloud.configs[state.ConfigurationID] == nil || cloud.updates != updates {
+		t.Fatalf("settled observations minted new-operation authority: %v", err)
 	}
 	updates = cloud.updates
 	changed := chosen

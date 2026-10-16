@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
@@ -334,6 +335,9 @@ func (capacitySigner) Sign(*http.Request) error { return nil }
 
 func (f *capacityCloud) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.Header().Set("opc-request-id", "capacity-sdk-response")
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/20160918")
 	parts := strings.Split(strings.Trim(path, "/"), "/")
 	id := ""
@@ -493,11 +497,85 @@ func protocolPool(t *testing.T, cloud *capacityCloud, capacity Capacity) *OCIPoo
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureProtocolJournal(t, pool, nil)
 	pool.Admit = func(context.Context, Recipe) (func(), error) { return func() {}, nil }
-	pool.CheckpointGrowth = func(_ context.Context, _ Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
-		return request, nil
-	}
 	return pool
+}
+
+// This fixture qualifies SDK/journal consistency; its receipt fields do not mint signed home or child authority.
+func configureProtocolJournal(t *testing.T, pool *OCIPool, records RecordStore) {
+	t.Helper()
+	journal := pool.Journal
+	if journal == nil {
+		var err error
+		journal, err = oci.OpenJournal(t.Context(), capacityJetStream(t), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pool.Journal = journal
+	}
+	if pool.operationID == "" {
+		pool.operationID = entityid.New()
+	}
+	started := time.Now().UTC()
+	originalAction := func(ctx context.Context, recipe Recipe) (string, time.Time, error) {
+		if records == nil {
+			return pool.operationID, started, nil
+		}
+		record, _, err := records.Load(ctx)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		if record.Action == nil || record.Action.Kind != Up || !entityid.Valid(record.Action.ID) || record.Action.Started.IsZero() || record.Recipe == nil || record.Recipe.SHA256() != recipe.SHA256() ||
+			record.Reservation != nil && (record.Reservation.OperationID != record.Action.ID || record.Reservation.RecipeSHA256 != recipe.SHA256()) {
+			return "", time.Time{}, ErrCapacityPending
+		}
+		return record.Action.ID, record.Action.Started.UTC(), nil
+	}
+	pool.CheckpointCreate = func(ctx context.Context, recipe Recipe, request oci.PoolCreateRequest) (oci.PoolCreateRequest, error) {
+		operationID, started, err := originalAction(ctx, recipe)
+		if err != nil {
+			return request, err
+		}
+		request.OperationID, request.RecipeSHA256 = operationID, recipe.SHA256()
+		request.LogicalScopeSHA256, request.ResolvedScopeSHA256 = strings.Repeat("1", 64), strings.Repeat("1", 64)
+		request.GrantSHA256, request.GrantGeneration = strings.Repeat("2", 64), 7
+		request.TenancyID, request.Region, request.CompartmentID = "ocid1.tenancy.oc1..fixture", oci.RegionGRU, testCompartment
+		request.Role, request.Architecture, request.Shape = recipe.Capacity.Role, recipe.Capacity.Architecture, recipe.Capacity.Shape
+		request.Currency, request.ReservedMonthlyCents, request.QuoteSHA256 = "USD", 2147, strings.Repeat("3", 64)
+		request.StartedAt = started
+		return request, journal.RecordPoolCreateRequest(ctx, request)
+	}
+	pool.CheckpointGrowth = func(ctx context.Context, recipe Recipe, request core.UpdateInstancePoolRequest) (core.UpdateInstancePoolRequest, error) {
+		operationID, started, err := originalAction(ctx, recipe)
+		if err != nil {
+			return request, err
+		}
+		original, found, err := journal.GetCapacityRequest(ctx, operationID)
+		if err != nil {
+			return request, err
+		}
+		if found {
+			if deref(request.OpcRetryToken) != original.RetryToken {
+				return request, ErrCapacityPending
+			}
+			request.IfMatch, request.OpcRetryToken = new(original.IfMatch), new(original.RetryToken)
+		}
+		raw, err := request.HTTPRequest(http.MethodPut, "/instancePools/{instancePoolId}", nil, nil)
+		if err != nil {
+			return request, err
+		}
+		digest, err := poolCreateRequestSHA256(&raw)
+		if err != nil {
+			return request, err
+		}
+		checkpoint := oci.CapacityRequest{OperationID: operationID, RecipeSHA256: recipe.SHA256(),
+			LogicalScopeSHA256: strings.Repeat("1", 64), ResolvedScopeSHA256: strings.Repeat("1", 64), GrantSHA256: strings.Repeat("2", 64), GrantGeneration: 7,
+			TenancyID: "ocid1.tenancy.oc1..fixture", Region: oci.RegionGRU, CompartmentID: testCompartment, PoolID: deref(request.InstancePoolId),
+			RequestSHA256: digest, RetryToken: deref(request.OpcRetryToken), IfMatch: deref(request.IfMatch), Currency: "USD", ReservedMonthlyCents: 2147,
+			QuoteSHA256: strings.Repeat("3", 64), TargetSize: uint32(deref(request.Size)), StartedAt: started}
+		return request, journal.RecordCapacityRequest(ctx, checkpoint)
+	}
 }
 
 func capacityShape(shape, processor string) core.Shape {
@@ -567,40 +645,31 @@ func TestCapacityPoolProtocolLifecycle(t *testing.T) {
 	if err != nil || len(observed.Instances) != 3 || observed.Instances[2].PrivateIP == "" {
 		t.Fatalf("paginated observation: %+v err=%v", observed, err)
 	}
-	if err := pool.Name(ctx, ids[0], "ts-gru-4"); err != nil {
-		t.Fatal(err)
+	for _, err := range []error{pool.Name(ctx, ids[0], "ts-gru-4"), pool.Remove(ctx, ids[0])} {
+		if !errors.Is(err, ErrCapacityPending) {
+			t.Fatalf("pool membership minted child authority: %v", err)
+		}
 	}
-	if cloud.instances[ids[0]].FreeformTags["preserve"] != "tag" {
-		t.Fatal("naming discarded existing tags")
+	if deref(cloud.instances[ids[0]].DisplayName) != "instance-0" || cloud.instances[ids[0]].FreeformTags["preserve"] != "tag" || len(cloud.detaches) != 0 || cloud.shrinks != 0 {
+		t.Fatal("unproven child was renamed, retagged or removed")
 	}
 	outsider := cloud.launch("outsider", "", "10.0.0.99", core.InstanceLifecycleStateRunning, nil)
 	if err := pool.Remove(ctx, outsider); !errors.Is(err, ErrNotPoolInstance) {
 		t.Fatalf("outsider removal: %v", err)
 	}
-	if err := pool.Remove(ctx, ids[0]); err != nil {
-		t.Fatal(err)
-	}
-	if len(cloud.detaches) != 1 || !deref(cloud.detaches[0].IsAutoTerminate) || !deref(cloud.detaches[0].IsDecrementSize) || cloud.shrinks != 0 {
-		t.Fatalf("unsafe pool removal: detach=%+v shrinking=%d", cloud.detaches, cloud.shrinks)
-	}
-	if err := pool.Remove(ctx, ids[0]); err != nil || len(cloud.detaches) != 1 {
-		t.Fatalf("removal replay: %v", err)
-	}
 	oldConfig := first.ConfigurationID
 	recipe.ImageID = "ocid1.image.v2"
 	if _, err := pool.Ensure(ctx, recipe); err == nil {
-		t.Fatal("asynchronous configuration change was admitted before application")
+		t.Fatal("changed recipe reused immutable original create authority")
 	}
-	if cloud.configs[oldConfig] == nil {
-		t.Fatal("deleted configuration still referenced during OCI asynchronous repoint")
+	if cloud.configs[oldConfig] == nil || len(cloud.configs) != 1 || len(cloud.applying) != 0 {
+		t.Fatal("changed recipe repointed or deleted the existing configuration")
 	}
 	cloud.settle()
-	if _, err := pool.Ensure(ctx, recipe); err != nil {
-		t.Fatal(err)
+	if _, err := pool.Ensure(ctx, recipe); err == nil || cloud.configs[oldConfig] == nil {
+		t.Fatal("asynchronous readback minted replacement or pruning authority")
 	}
-	if cloud.configs[oldConfig] != nil {
-		t.Fatal("old configuration not pruned after OCI repoint completed")
-	}
+
 }
 
 type capacityLeader struct{ snapshot authority.Snapshot }
@@ -617,7 +686,7 @@ func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
 		recipe := base
 		recipe.Capacity = capacity
 		pool := protocolPool(t, cloud, capacity)
-		if _, err := pool.Ensure(ctx, recipe); err != nil {
+		if _, err := pool.Ensure(ctx, recipe); err != nil && !errors.Is(err, ErrCapacityPending) {
 			t.Fatal(err)
 		}
 	}
@@ -645,7 +714,8 @@ func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
 	if _, err := pool.Ensure(ctx, base); err == nil {
 		t.Fatal("empty image-compatible shape list accepted")
 	}
-	cloud.shapeRows = nil
+	cloud = newCapacityCloud()
+	pool = protocolPool(t, cloud, base.Capacity)
 	if _, err := pool.Ensure(ctx, base); err != nil {
 		t.Fatal(err)
 	}
@@ -663,8 +733,8 @@ func TestCapacityPoolProtocolIsolationAndValidation(t *testing.T) {
 	if err != nil || state.Size != 0 {
 		t.Fatalf("stale etag changed size: %+v %v", state, err)
 	}
-	if err := pool.Grow(ctx, 0); err != nil {
-		t.Fatalf("capacity recovery failed: %v", err)
+	if err := pool.Grow(ctx, 0); err == nil || cloud.updates != 0 {
+		t.Fatalf("412 refreshed immutable original growth request: updates=%d err=%v", cloud.updates, err)
 	}
 	target, _, err := pool.pool(ctx)
 	if err != nil {
@@ -749,7 +819,7 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 			stale := false
 			var revoked []string
 			var entries []decisionlog.Decision
-			scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Leader: leader, Control: hosts.control, CanRetire: func(context.Context, string, string) error { return nil },
+			scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Leader: leader, Control: hosts.control, CanRetire: func(context.Context, string, string) error { return oci.ErrPoolCreationLineagePending },
 				Recipe: func(context.Context) (Recipe, error) { return recipe, nil }, Now: func() time.Time { return now },
 				Allowance: func(time.Time) (int, bool) { return MaxNodes, scenario != "missing allowance" },
 				Loads: func() []NodeLoad {
@@ -833,29 +903,14 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 					}
 					return
 				}
-				backendCount = 1
-				for range 3 {
-					record = tick()
-					now = now.Add(Interval)
-				}
-				if record.Action == nil || record.Action.InstanceID != id || record.Action.Step != stepDrain {
-					t.Fatalf("drain not persisted: %+v", record.Action)
-				}
-				if scenario == "drain and revoke" {
-					backendCount = 0
-					for range 3 {
-						record = tick()
-						now = now.Add(Interval)
-					}
-					if record.Action != nil || len(cloud.detaches) != 1 || !slices.Equal(revoked, []string{id}) {
-						t.Fatalf("drain/revoke failed: action=%+v detach=%v revoked=%v", record.Action, cloud.detaches, revoked)
-					}
-					return
-				}
+				// Original child lineage is unavailable, so refusal precedes drain and its timeout.
 				now = now.Add(DrainTimeout)
 				record = tick()
-				if record.Action != nil || len(hosts.unretired) != 1 || len(cloud.detaches) != 0 || !record.LastChange.Equal(now) {
-					t.Fatal("drain timeout terminated a node with a backend or lost cooldown")
+				if record.Action != nil || len(hosts.cordoned) != 0 || len(hosts.unretired) != 0 || len(cloud.detaches) != 0 || len(revoked) != 0 || scaler.Status().Action != Hold {
+					t.Fatalf("unproven child entered drain or retirement: action=%+v cordoned=%v detach=%v revoked=%v", record.Action, hosts.cordoned, cloud.detaches, revoked)
+				}
+				if deref(cloud.instances[id].DisplayName) != "ts-gru-4" || deref(cloud.pools[state.PoolID].Size) != 1 {
+					t.Fatal("retirement refusal changed live capacity")
 				}
 				return
 			}
@@ -893,23 +948,17 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				Recipe: scaler.Recipe, Now: scaler.Now, Allowance: scaler.Allowance, Loads: scaler.Loads, Backends: scaler.Backends, Revoke: scaler.Revoke, Journal: scaler.Journal}
 			id := cloud.launch("new-instance", state.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
 			cloud.instances[id].TimeCreated = &common.SDKTime{Time: now}
-			// Pool summaries need their real creation timestamp for launch-expiry ownership.
 			if scenario == "launch timeout" {
 				now = now.Add(LaunchTimeout)
-				record = tick()
-				if record.Action != nil || len(cloud.detaches) != 1 {
-					t.Fatalf("launch timeout did not reclaim unenrolled node: %+v", record.Action)
-				}
-			} else {
-				tick()
-				hosts.live["ts-gru-4"] = true
-				record = tick()
-				if record.Action != nil || cloud.updates != updates || len(revoked) != 0 {
-					t.Fatal("new leader repeated growth or failed to complete enrollment")
-				}
-				if !slices.ContainsFunc(entries, func(d decisionlog.Decision) bool { return d.Kind == decisionlog.KindHostLaunched }) {
-					t.Fatal("recovered enrollment was not journaled")
-				}
+			}
+			// Even after a restart/timeout, current membership cannot authorize naming or deleting this child.
+			err = scaler.Tick(ctx)
+			retained, _, loadErr := store.Load(ctx)
+			if !errors.Is(err, ErrCapacityPending) || loadErr != nil || retained.Action == nil || retained.Action.ID != record.Action.ID || retained.Action.Step != stepEnroll || cloud.updates != updates || len(cloud.detaches) != 0 || len(revoked) != 0 {
+				t.Fatalf("unproven recovered child lost its pending original action: action=%+v updates=%d err=%v loadErr=%v", retained.Action, cloud.updates, err, loadErr)
+			}
+			if deref(cloud.instances[id].DisplayName) != "new-instance" || slices.ContainsFunc(entries, func(d decisionlog.Decision) bool { return d.Kind == decisionlog.KindHostLaunched }) {
+				t.Fatal("membership observation minted enrollment or naming authority")
 			}
 		})
 	}
@@ -1041,6 +1090,9 @@ func TestCapacityPruningRechecksAdmissionOverOCI(t *testing.T) {
 	staleID := "ocid1.instanceconfiguration.oc1..stale"
 	cloud.configs[staleID] = &core.InstanceConfiguration{Id: new(staleID), CompartmentId: new(testCompartment),
 		DisplayName: new(configPrefix("gru", recipe.Capacity) + "stale"), FreeformTags: poolTags("gru", recipe.Capacity, roleNodeConfig)}
+	if _, err := pool.Ensure(ctx, recipe); !errors.Is(err, ErrCapacityPending) || cloud.configs[staleID] == nil || len(cloud.configs) != 2 || len(cloud.pools) != 1 {
+		t.Fatalf("matching ownership tags authorized pruning without original creation provenance: configs=%d err=%v", len(cloud.configs), err)
+	}
 	calls := 0
 	pool.Admit = func(context.Context, Recipe) (func(), error) {
 		calls++

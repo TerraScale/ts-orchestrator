@@ -29,6 +29,7 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	configureProtocolJournal(t, observed, records)
 	pool, err := NewChosenPool(observed, records)
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +40,7 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 	scaler := &Scaler{Cell: "gru", Pool: pool, Store: records, Control: hosts.control,
 		Leader: &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: now.Add(time.Hour)}},
 		Now:    func() time.Time { return now }, Recipe: func(context.Context) (Recipe, error) { return base, nil },
-		// The fixture supplies the authenticated producer result; slot occupancy still crosses the manager API.
+		// Demand is supplied here; signed producer qualification is separate from the real manager/OCI slot observations.
 		FunctionDemand: func(context.Context) ([]CapacityDemand, error) {
 			if !pending {
 				return nil, demandErr
@@ -86,6 +87,14 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 	}
 	instance := cloud.launch("ts-gru-4", poolID, "10.0.0.4", core.InstanceLifecycleStateRunning, launchTags(*launched.Recipe, roleNode, chosen.Action.ID))
 	cloud.instances[instance].CompartmentId = new(testCompartment)
+	for _, err := range []error{pool.Name(ctx, instance, "ts-gru-5"), pool.Remove(ctx, instance)} {
+		if !errors.Is(err, ErrCapacityPending) {
+			t.Fatalf("slot observation minted child mutation authority: %v", err)
+		}
+	}
+	if deref(cloud.instances[instance].DisplayName) != "ts-gru-4" || len(cloud.detaches) != 0 {
+		t.Fatal("unproven function child was renamed or removed")
+	}
 	hosts.live["ts-gru-4"], hosts.instanceIDs["ts-gru-4"] = true, instance
 	hosts.sync(t)
 	if err := hosts.store.Update(func(tx store.Tx) error {
@@ -99,7 +108,7 @@ func TestFunctionCapacityTracksManagerAndActualPoolSlots(t *testing.T) {
 		t.Fatal(err)
 	}
 	if current := tick(); current.Action != nil {
-		t.Fatal("existing admitted free worker slot caused duplicate host growth")
+		t.Fatal("observed free manager slot caused duplicate host growth")
 	}
 	if err := hosts.store.Update(func(tx store.Tx) error {
 		return store.CreateTask(tx, &api.Task{ID: "occupied-worker", NodeID: "ts-gru-4", DesiredState: api.TaskStateRunning, Status: api.TaskStatus{State: api.TaskStateRunning}})
