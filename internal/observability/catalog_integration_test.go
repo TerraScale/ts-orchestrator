@@ -151,7 +151,7 @@ func TestMetricCatalogHTTPRegistryAndHistoryIntegration(t *testing.T) {
 	if err != nil || stale.State != "stale" {
 		t.Fatalf("stale retained history %+v: %v", stale, err)
 	}
-	missing, err := shared.History(t.Context(), HistoryQuery{Metric: "retained_metric", Start: now.Add(-time.Hour), End: now.Add(-time.Minute)})
+	missing, err := shared.History(t.Context(), HistoryQuery{Metric: "retained_metric", Start: now.Add(-time.Hour), End: now.Add(-time.Minute), Tier: TierRaw})
 	if err != nil || missing.State != "missing" {
 		t.Fatalf("missing range %+v: %v", missing, err)
 	}

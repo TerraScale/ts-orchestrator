@@ -45,9 +45,8 @@ func TestServerValidatesPrivateListenersAndTokenFiles(t *testing.T) {
 		}
 	}
 	for _, config := range []Config{{ListenAddress: "10.0.0.4:9464"}, {TLSCertFile: "/cert"}, {LogFormat: "xml"}, {LogLevel: "trace"}} {
-		if _, err := service.Start(t.Context(), config); err == nil {
-			service.Close()
-			t.Fatalf("Start accepted %+v", config)
+		if _, err := NewServer(config, deps); err == nil {
+			t.Fatalf("NewServer accepted %+v", config)
 		}
 	}
 }

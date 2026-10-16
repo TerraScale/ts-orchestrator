@@ -989,7 +989,15 @@ func hostMetricRejectRecord(t *testing.T, data []byte) {
 		broker := hostMetricBroker(t, t.TempDir(), -1)
 		stream := hostMetricTestStream(t, broker)
 		if _, err := stream.js.Publish(t.Context(), stream.subject, data); err != nil {
-			t.Fatal(err)
+			var apiError *jetstream.APIError
+			if len(data) <= HostMetricBatchBytes || !errors.As(err, &apiError) || apiError.ErrorCode != 10054 {
+				t.Fatal(err)
+			}
+			info, infoErr := stream.info(t.Context())
+			if infoErr != nil || info.State.Msgs != 0 {
+				t.Fatalf("oversized rejection changed durable state: %+v %v", info, infoErr)
+			}
+			return
 		}
 		history := NewHistory(HistoryConfig{Interval: HostMetricInterval})
 		hostMetricTail(t, stream, history)
