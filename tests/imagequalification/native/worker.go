@@ -64,6 +64,7 @@ type worker struct {
 	cfg       swarmruntime.NodeConfig
 	executor  *swarmruntime.Executor
 	node      *swarmruntime.Node
+ nodeID string
 	runtime   *containerd.Client
 	partition []string
 	services  map[string]bool
@@ -195,13 +196,15 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 			return response{}, err
 		}
 		w.node = n
+ w.nodeID=n.ID()
 		return response{NodeID: n.ID()}, nil
 	case "stop":
 		if w.node == nil {
 			return response{}, errors.New("node already stopped")
 		}
 		err := w.node.Stop(ctx)
-		w.node = nil
+		w.node = n
+ w.nodeID=n.ID()il
 		return response{}, err
 	case "partition":
 		if len(w.partition) != 0 {
@@ -263,13 +266,14 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 			}
 		}
 		return result, nil
-	case "pause":
+	case "pause", "activate":
 		found, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: c.NodeID})
 		if err != nil {
 			return response{}, err
 		}
 		spec := found.Node.Spec.Copy()
 		spec.Availability = api.NodeAvailabilityPause
+ if c.Operation=="activate"{spec.Availability=api.NodeAvailabilityActive}
 		_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: c.NodeID, NodeVersion: &found.Node.Meta.Version, Spec: spec})
 		return response{}, err
 	case "create":
@@ -296,7 +300,7 @@ func (w *worker) execute(ctx context.Context, c command) (response, error) {
 		}
 		result := response{Running: view.RunningReplicas, Ready: view.ReadyReplicas, UpdateState: view.UpdateState}
 		for _, t := range view.Tasks {
-			if t.State == "RUNNING" {
+			if t.State == "RUNNING" && t.Ready {
 				status, err := os.ReadFile(fmt.Sprintf("/proc/%d/status", t.Pid()))
 				if err != nil {
 					return result, err
@@ -428,7 +432,7 @@ func (w *worker) inventory(ctx context.Context, service string) (response, error
 		}
 		actual := string(status)
 		secure = secure && strings.Contains(actual, "Uid:\t65532\t65532\t65532\t65532") && strings.Contains(actual, "Gid:\t65532\t65532\t65532\t65532") && strings.Contains(actual, "NoNewPrivs:\t1") && strings.Contains(actual, "Seccomp:\t2") && strings.Contains(actual, "CapEff:\t0000000000000000")
-		result.Tasks = append(result.Tasks, taskState{ID: strings.TrimPrefix(container.ID(), "ts-"), PID: t.Pid(), Containers: len(containers), Secure: secure})
+		result.Tasks = append(result.Tasks, taskState{ID: strings.TrimPrefix(container.ID(), "ts-"), NodeID:w.nodeID, PID: t.Pid(), Containers: len(containers), Secure: secure})
 	}
 	return result, nil
 }

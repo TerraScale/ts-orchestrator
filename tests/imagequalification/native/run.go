@@ -456,6 +456,80 @@ func run(ctx context.Context, req Request, initial Report, dial func(context.Con
 	}); err != nil {
 		return report, err
 	}
+
+	start = time.Now().UTC()
+	// An unavailable agent is a different failure from a quick restart: let the
+	// majority replace its task, then require stale-container removal on rejoin.
+	control := 0
+	for control == servingIndex {
+		control++
+	}
+	for i := range sessions {
+		if i != servingIndex {
+			if _, err := call(ctx, control, command{Operation: "activate", NodeID: sessions[i].node}); err != nil {
+				return report, err
+			}
+		}
+	}
+	oldTask, oldNode := baseline.ID, sessions[servingIndex].node
+	if _, err := call(ctx, servingIndex, command{Operation: "stop"}); err != nil {
+		return report, err
+	}
+	var replacement taskState
+	if err := wait(ctx, func() (bool, error) {
+		r, err := observe(control, service)
+		if err != nil {
+			return false, err
+		}
+		if r.Ready == 1 && len(r.Tasks) == 1 && r.Tasks[0].ID != oldTask && r.Tasks[0].NodeID != oldNode {
+			replacement = r.Tasks[0]
+			return true, nil
+		}
+		return false, nil
+	}); err != nil {
+		return report, err
+	}
+	// Two different stateless task generations can coexist while an agent is
+	// disconnected. The same upstream task identity must never run on two hosts.
+	identities := map[string]bool{}
+	for i := range sessions {
+		r, err := call(ctx, i, command{Operation: "inventory", ServiceID: service})
+		if err != nil {
+			return report, err
+		}
+		for _, t := range r.Tasks {
+			if identities[t.ID] {
+				return report, errors.New("unavailable agent duplicated the same upstream task identity")
+			}
+			identities[t.ID] = true
+		}
+	}
+	rejoined, err := call(ctx, servingIndex, command{Operation: "start"})
+	if err != nil {
+		return report, err
+	}
+	if rejoined.NodeID != oldNode {
+		return report, errors.New("unavailable agent rejoin replaced node certificate identity")
+	}
+	baseline = replacement
+	if err := wait(ctx, func() (bool, error) {
+		r, err := inventory()
+		if err == nil {
+			runtimeTask = r
+		}
+		return err == nil, err
+	}); err != nil {
+		return report, err
+	}
+	servingIndex = indexOf(replacement.NodeID)
+	if servingIndex < 0 {
+		return report, errors.New("replacement task absent from native inventory")
+	}
+	if err := probe(ctx); err != nil {
+		return report, err
+	}
+	report.Scenarios = append(report.Scenarios, rec.scenario("unavailable-agent-replacement", "runtime-ha", start, req.Hosts))
+
 	start = time.Now().UTC()
 	currentTask, err := inventory()
 	if err != nil {
