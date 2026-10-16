@@ -4,8 +4,6 @@ import (
 	"cmp"
 	"context"
 	"crypto/ed25519"
-	"crypto/x509"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -50,8 +48,7 @@ type specRegistry struct {
 	nativeHistory *nativeHistory
 	cell          string
 	identity      cellspec.Identity
-	// roots is the cell's root chain; nil when the controller cannot verify
-	// specs (a lab without spec_trust): it then refuses every amendment.
+	// roots is the cell's accepted root chain.
 	roots *rootRegistry
 	// reserved roles are owned by placement and keep their signed config
 	// profiles in fixed; a spec never holds them. TerraBase's signed profile
@@ -169,39 +166,10 @@ func newSpecRegistry(cfg Config, memberRole string) (*specRegistry, error) {
 	return r, nil
 }
 
-// loadTrust takes the roots and deployment identity from the image, or for a
-// lab controller from its spec_trust setting.
+// loadTrust takes the roots and deployment identity from the accepted image.
 func (r *specRegistry) loadTrust(cfg Config) error {
-	if settings := cfg.Controller.SpecTrust; settings != nil {
-		if !cfg.NATS.Lab {
-			return errors.New("controller spec_trust is a lab setting; production uses the image trust roots")
-		}
-		data, err := readBoundedConfigFile(settings.RootPublicKeyFile)
-		if err != nil {
-			return fmt.Errorf("cell spec root key: %w", err)
-		}
-		block, _ := pem.Decode(data)
-		if block == nil || block.Type != "PUBLIC KEY" {
-			return errors.New("cell spec root key must be an Ed25519 PKIX PEM")
-		}
-		parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
-		public, ok := parsed.(ed25519.PublicKey)
-		if err != nil || !ok {
-			return errors.New("cell spec root key must be an Ed25519 PKIX PEM")
-		}
-		genesis, err := trust.ParseKeyring(public)
-		if err != nil {
-			return err
-		}
-		r.identity = cellspec.Identity{DeploymentID: settings.DeploymentID, Cell: cfg.NATS.Cell,
-			Environment: settings.Environment}
-		if err := r.identity.Validate(); err != nil {
-			return err
-		}
-		return r.openRoots(genesis, trust.RootChain{Version: 1}, "")
-	}
-	if cfg.NATS.Lab {
-		return nil
+	if cfg.Controller.SpecTrust != nil {
+		return errors.New("production controller uses the image trust roots")
 	}
 	accepted, inputs, err := specAcceptedInputs()
 	if err != nil {

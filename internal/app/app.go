@@ -486,9 +486,6 @@ func readPrivateKey(path string) (ed25519.PrivateKey, error) {
 // it spools, with the same rule (selfupdate/cli).
 func hostRollouts(cfg Config, identity ed25519.PrivateKey, controller ed25519.PublicKey,
 ) func(context.Context, host.RolloutSession) {
-	if cfg.NATS.Lab {
-		return nil
-	}
 	return followHostRollouts(hostRollout{cell: cfg.NATS.Cell, node: cfg.Host.Node, identity: identity,
 		controller: controller, spool: rolloutexec.HostSpoolDir, stateRoot: cfg.Host.StateRoot,
 		layout: selfupdate.NewLayout(cmp.Or(cfg.Host.SelfUpdateRoot, selfupdate.DefaultRoot))})

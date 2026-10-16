@@ -259,7 +259,6 @@ version 1
 .NATS.Embedded.Users.PublicKey string json:"public_key"
 .NATS.Embedded.Users.Role string json:"role"
 .NATS.Instance string json:"instance"
-.NATS.Lab bool json:"lab"
 .NATS.NKeySeedFile string json:"nkey_seed_file"
 .NATS.Replicas int json:"replicas"
 .NATS.TLS struct json:"tls"

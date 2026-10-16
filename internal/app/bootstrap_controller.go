@@ -53,9 +53,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 		return err
 	}
 	if !present {
-		if cfg.NATS.Lab {
-			return nil
-		}
 		return errors.New("production controller requires accepted identity or baked bootstrap inputs")
 	}
 	if clockCheck == nil {
@@ -70,15 +67,6 @@ func admitControllerBootstrap(ctx context.Context, cfg Config, clockCheck func()
 func bootstrapController(ctx context.Context, cfg Config) error {
 	if os.Geteuid() != 0 {
 		return errors.New("bootstrap-controller requires root")
-	}
-	if cfg.NATS.Lab {
-		present, err := controllerProductionInputsPresent()
-		if err != nil {
-			return err
-		}
-		if !present {
-			return nil
-		}
 	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err == nil {
@@ -240,8 +228,8 @@ func admitProductionController(ctx context.Context, cfg Config, markers bootstra
 	if err != nil {
 		return fmt.Errorf("load fixed baked controller bootstrap inputs: %w", err)
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
-		return errors.New("controller config does not match baked production cell and mode")
+	if cfg.NATS.Cell != strings.ToLower(string(baked.Identity.Cell)) {
+		return errors.New("controller config does not match baked production cell")
 	}
 	serviceUID, serviceGID, err := controllerServiceIdentity()
 	if err != nil {
@@ -369,7 +357,7 @@ func acceptedControllerAdmissionGate(cfg Config, markers bootstrapstart.MarkerSt
 	if err != nil {
 		return fail(fmt.Errorf("read accepted controller identity: %w", err))
 	}
-	if cfg.NATS.Lab || cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
+	if cfg.NATS.Cell != strings.ToLower(accepted.Cell) || cfg.NATS.Instance != accepted.Slot ||
 		cfg.Controller.CandidateID != entityid.Derive("controller", accepted.DeploymentID, accepted.Cell, accepted.Slot) {
 		return fail(errors.New("controller configuration differs from accepted deployment and slot"))
 	}

@@ -44,11 +44,8 @@ const (
 )
 
 // rolloutSeedSlot names the cell's founding controller, which every
-// controller rollout replaces last. A lab cell has none; tests replace it.
+// controller rollout replaces last.
 var rolloutSeedSlot = func(cfg Config) (string, error) {
-	if cfg.NATS.Lab {
-		return "", nil
-	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	return accepted.SeedSlot, err
 }

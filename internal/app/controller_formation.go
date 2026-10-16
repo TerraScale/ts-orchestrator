@@ -68,13 +68,10 @@ func (admission *controllerAdmission) stop() {
 // for route formation: only a production restart with an accepted marker.
 // Initial admission never does.
 func offlineRestartAdmission(cfg Config) (bool, error) {
-	if cfg.NATS.Lab {
-		return false, nil
-	}
 	return controllerMarkerPresent()
 }
 
-// startControllerAdmission admits initial and lab starts before NATS starts.
+// startControllerAdmission admits initial starts before NATS starts.
 // Accepted production restarts first pass local proof, then repeat full
 // admission in the background; it gates everything except route formation.
 // An interrupted material install was finished before this process started

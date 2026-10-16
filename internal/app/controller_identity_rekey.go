@@ -16,9 +16,6 @@ import (
 // openControllerRuntime reconciles rooted shared identity before exposing any
 // bridge, leafnode or ordinary authority on an installation that was re-keyed.
 func openControllerRuntime(ctx context.Context, cfg Config, clockCheck func() error) (*natscell.Runtime, error) {
-	if cfg.NATS.Lab {
-		return natscell.Start(ctx, cfg.NATS)
-	}
 	accepted, err := bootstrapstart.NewMarkerStore().ReadIdentity()
 	if err != nil {
 		return nil, err

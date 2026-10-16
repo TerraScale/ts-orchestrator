@@ -116,7 +116,7 @@ func validateControllerConfig(manifest controllerConfigBinding, observedPrivateI
 		hostConfig.Roles = nil
 	}
 	if cfg.NATS.Cell != strings.ToLower(string(manifest.Cell)) || cfg.NATS.Instance != manifest.Slot ||
-		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Lab || cfg.NATS.Embedded == nil ||
+		cfg.NATS.Replicas != len(manifest.ControllerSlots) || cfg.NATS.Embedded == nil ||
 		cfg.Controller.CandidateID != entityid.Derive("controller", manifest.DeploymentID, string(manifest.Cell), manifest.Slot) ||
 		!reflect.DeepEqual(hostConfig, HostConfig{}) ||
 		cfg.Operator != (OperatorConfig{}) ||

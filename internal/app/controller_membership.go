@@ -380,9 +380,6 @@ func (m *controllerMembership) Run(ctx context.Context) error {
 func startControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	control *authority.Runtime,
 ) (*controllerMembership, error) {
-	if cfg.NATS.Lab {
-		return nil, errors.New("controller membership supervision requires a production controller")
-	}
 	return &controllerMembership{open: func(openCtx context.Context) (*controllerMembership, error) {
 		return openControllerMembership(openCtx, cfg, runtime, control)
 	}}, nil

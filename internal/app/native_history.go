@@ -436,9 +436,6 @@ func (h *nativeHistory) currentProvenance(ctx context.Context, role string, prof
 			}
 		}
 	}
-	if h.cfg.NATS.Lab {
-		return nativeProfileProvenance{}, errors.New("lab native profile must be in an accepted signed cell spec")
-	}
 	initial, err := bootstrapstart.NewMarkerStore().ReadInitialFormation()
 	if err != nil {
 		return nativeProfileProvenance{}, err

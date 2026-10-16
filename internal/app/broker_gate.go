@@ -54,9 +54,6 @@ type fenceResult struct {
 }
 
 func brokerTicketKeys(cfg Config) (ed25519.PrivateKey, ed25519.PublicKey, error) {
-	if cfg.NATS.Lab {
-		return nil, nil, nil
-	}
 	if cfg.NATS.Embedded == nil || cfg.Controller.BrokerTicketKeyFile == "" || cfg.NATS.Embedded.TicketPublicKeyFile == "" {
 		return nil, nil, errors.New("production broker ticket signing and pinned public keys are required")
 	}
@@ -96,9 +93,6 @@ type brokerGate struct {
 func startBrokerGate(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 	control *authority.Runtime, deploymentID, candidateID string, private ed25519.PrivateKey,
 	public ed25519.PublicKey, clock brokerauth.ClockProbe) (*brokerGate, error) {
-	if cfg.NATS.Lab {
-		return nil, nil
-	}
 	if runtime.Bridge() == nil || clock == nil || len(private) != ed25519.PrivateKeySize || len(public) != ed25519.PublicKeySize || !entityid.Valid(deploymentID) {
 		return nil, errors.New("production broker gate prerequisites are unavailable")
 	}

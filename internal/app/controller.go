@@ -182,18 +182,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err != nil {
 		return err
 	}
-	if !cfg.NATS.Lab {
-		// Offline-first restarts form routes without NTP; raft needs no wall
-		// clock. The same check then gates authority below.
-		if !admission.offline {
-			if err := clockCheck(); err != nil {
-				return fmt.Errorf("production broker NTP clock health: %w", err)
-			}
+
+	// Offline-first restarts form routes without NTP; raft needs no wall
+	// clock. The same check then gates authority below.
+	if !admission.offline {
+		if err := clockCheck(); err != nil {
+			return fmt.Errorf("production broker NTP clock health: %w", err)
 		}
-	} else {
-		clockCheck = nil
-		clockProbe = nil
 	}
+
 	cfg.NATS.ClientRole = "controller"
 	runtime, err := controllerRuntimeProduction(ctx, cfg, clockCheck)
 	if err != nil {
@@ -202,12 +199,12 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	defer runtime.Close()
 	healthCtx, stopHealth := context.WithCancel(ctx)
 	var healthReporter clusterhealth.Reporter
-	if !cfg.NATS.Lab {
-		// Local operator tools (break-glass refound) read the running
-		// controller's cluster view from its state directory.
-		healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
-			Logger: slog.Default().With("component", "membership")}
-	}
+
+	// Local operator tools (break-glass refound) read the running
+	// controller's cluster view from its state directory.
+	healthReporter = &clusterhealth.StatusFile{Path: membership.DefaultClusterHealthFile,
+		Logger: slog.Default().With("component", "membership")}
+
 	_, brokerStopped, waitHealth := startClusterHealth(healthCtx, runtime, healthReporter)
 	defer waitHealth()
 	defer stopHealth()
@@ -233,15 +230,15 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return err
 	}
 	var foundPeers func(context.Context) error
-	if !cfg.NATS.Lab {
-		// The founder makes OCI effects, so it waits for full admission.
-		foundPeers = func(founderCtx context.Context) error {
-			if err := admission.wait(founderCtx); err != nil {
-				return err
-			}
-			return controllerFounderProduction(founderCtx)
+
+	// The founder makes OCI effects, so it waits for full admission.
+	foundPeers = func(founderCtx context.Context) error {
+		if err := admission.wait(founderCtx); err != nil {
+			return err
 		}
+		return controllerFounderProduction(founderCtx)
 	}
+
 	_, stopFounder, err := superviseFounderAndWaitCluster(ctx, waitCluster, foundPeers)
 	if err != nil {
 		return err
@@ -359,23 +356,23 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		return managedController.VerifyManagedRuntimeTarget(ctx, desired, registration)
 	})
 	if managed != nil {
-		if !cfg.NATS.Lab {
-			accepted, err := loadAcceptedMaterialConfig(cfg.NATS.Cell, managed.region)
-			if err != nil {
-				return fmt.Errorf("admit signed managed material domain: %w", err)
-			}
-			repository, err := managedmaterial.NewOCIRepository(accepted.repository, control)
-			if err != nil {
-				return fmt.Errorf("open managed material repository: %w", err)
-			}
-			materialService = &managedmaterial.PreparationService{Cell: cfg.NATS.Cell,
-				Repository: repository, Receipts: control, Fencer: control,
-				ControllerKey: responseKey, RecipientSigner: accepted.recipientSigner,
-				AllowedSubnetCIDR:    accepted.subnetCIDR,
-				NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
-				NativeVerifierSHA256: accepted.nativeVerifierSHA256}
-			materialAdmission = preparedMaterialAdmission(*materialService)
+
+		accepted, err := loadAcceptedMaterialConfig(cfg.NATS.Cell, managed.region)
+		if err != nil {
+			return fmt.Errorf("admit signed managed material domain: %w", err)
 		}
+		repository, err := managedmaterial.NewOCIRepository(accepted.repository, control)
+		if err != nil {
+			return fmt.Errorf("open managed material repository: %w", err)
+		}
+		materialService = &managedmaterial.PreparationService{Cell: cfg.NATS.Cell,
+			Repository: repository, Receipts: control, Fencer: control,
+			ControllerKey: responseKey, RecipientSigner: accepted.recipientSigner,
+			AllowedSubnetCIDR:    accepted.subnetCIDR,
+			NativeValidator:      managedmaterial.PackagedNativeMaterialValidator{},
+			NativeVerifierSHA256: accepted.nativeVerifierSHA256}
+		materialAdmission = preparedMaterialAdmission(*materialService)
+
 		journal, _, err := retryControllerOpen(ctx, "open OCI mutation journal", fullClusterReady, false,
 			func(attempt context.Context) (*oci.KVJournal, error) {
 				return oci.OpenJournal(attempt, runtime.JetStream(), cfg.NATS.Replicas)
@@ -523,7 +520,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// A cell that enrolls hosts issues its placed roles' NATS identities with
 	// the same issuer (TS-651).
 	var roleIdentity host.RoleIdentityIssuer
-	if managed != nil && !cfg.NATS.Lab {
+	if managed != nil {
 		issuer, err := loadHostIssuer(cfg, runtime)
 		if err != nil {
 			return err
@@ -732,9 +729,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	var managedEnrollment *managedHostEnrollment
 	// One node pool serves enrollment and the scaler. It binds in the
 	// background, since IMDS or OCI may not answer yet. Without a managed
-	// runtime, or in a lab, there is no pool: pool nodes are refused.
+	// runtime there is no pool: pool nodes are refused.
 	var pool *nodePoolBinding
-	if managed != nil && !cfg.NATS.Lab {
+	if managed != nil {
 		pool = &nodePoolBinding{}
 		server, listener, serveErrors, err := startManagedHostEnrollment(runCtx, cfg, runtime,
 			managed, fleet, control, placementStore, hostController, registrationVerifier, responseKey, control,
@@ -772,7 +769,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 		terminalRuntime = &managedTerminalRuntime{
 			control: control, placements: placementStore, hosts: hostController,
 			executor: terminalExecutor, enrollment: managedEnrollment,
-			requireEnrollment: !cfg.NATS.Lab,
+			requireEnrollment: true,
 		}
 	}
 	artifactSub, err := serveArtifactAdmission(runCtx, runtime.Conn(), cfg.NATS.Cell, control, service)
@@ -1005,9 +1002,9 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() { policy.rollouts.publishProofs(runCtx, cfg, runtime, responseKey) })
 	if services.roots != nil {
 		workers.Go(func() { workerErrors <- services.roots.Run(runCtx) })
-		if !cfg.NATS.Lab {
-			workers.Go(func() { runMaterialGenerationStager(runCtx, services.roots) })
-		}
+
+		workers.Go(func() { runMaterialGenerationStager(runCtx, services.roots) })
+
 	}
 	if enrollmentErrors != nil {
 		workers.Go(func() { workerErrors <- <-enrollmentErrors })
@@ -1025,13 +1022,13 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	// The cell spec's dashboard section serves the dashboard on this node's
 	// NetBird address beside the signed observability listener.
 	workers.Go(func() { telemetry.dashboardLoop(runCtx, services.dashboard, localNetBirdAddresses, readDashboardToken) })
-	if !cfg.NATS.Lab {
-		workers.Go(func() {
-			runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })
-		})
-		workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
-		workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
-	}
+
+	workers.Go(func() {
+		runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })
+	})
+	workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
+	workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
+
 	if err := runtime.Conn().FlushTimeout(2 * time.Second); err != nil {
 		stop()
 		workers.Wait()
