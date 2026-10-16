@@ -10,6 +10,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 )
@@ -31,6 +32,11 @@ func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	record, err := bootstrapmaterial.Load(sourceDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkDirectory := filepath.Join(t.TempDir(), "link")
+	linkRecord, err := bootstrapmaterial.GenerateLink(sourceDirectory, sourceDirectory, linkDirectory, linkDirectory, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +63,9 @@ func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 	}
 	manifest.IntentSHA256 = manifest.ControllerFiles[0].SHA256
 	for _, file := range record.Files {
+		if file.Purpose == "owner-only" {
+			continue
+		}
 		manifest.Secrets = append(manifest.Secrets, bootstrap.SecretReference{Purpose: file.Purpose,
 			Slot: file.Slot, SHA256: file.SHA256, MaxBytes: file.MaxBytes, TargetFile: file.Name})
 	}
@@ -99,6 +108,51 @@ func TestAutomaticControllerConfigLoadsFromGeneratedSource(t *testing.T) {
 				len(loaded.Controller.TrustedSigners) != 2 || loaded.Controller.TrustedSigners[0].PublicKey != grant.PublicKey ||
 				loaded.Controller.TrustedSigners[1].PublicKey != secondGrant.PublicKey {
 				t.Fatal("generated source lost its slot, routes or complete operator grants through config loading")
+			}
+		})
+		t.Run(slot.Name+"-link", func(t *testing.T) {
+			linked := manifest
+			linked.Slot, linked.Secrets = slot.Name, slices.Clone(manifest.Secrets)
+			for _, file := range linkRecord.Files {
+				if file.Purpose == "owner-only" {
+					continue
+				}
+				name := file.Name
+				if name == "link-cell.jwt" {
+					name = "cell.jwt"
+				}
+				linked.Secrets = slices.DeleteFunc(linked.Secrets, func(ref bootstrap.SecretReference) bool {
+					return ref.TargetFile == name
+				})
+				linked.Secrets = append(linked.Secrets, bootstrap.SecretReference{Purpose: file.Purpose,
+					Slot: file.Slot, SHA256: file.SHA256, MaxBytes: file.MaxBytes, TargetFile: name})
+			}
+			rendered, err := automaticControllerConfigWithLink(linked, record, linkRecord, signerWire, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			configPath := filepath.Join(t.TempDir(), "controller.json")
+			if err := os.WriteFile(configPath, rendered.ControllerConfig, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := LoadConfig(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert, key := bootstrap.InterRegionTLSFiles(slot.Name)
+			link := loaded.NATS.Embedded.Link
+			if link == nil || link.CredentialsFile != "" ||
+				link.TLS.CAFile != filepath.Join(bootstrapstart.MaterialDirectory, "interregion-ca.pem") ||
+				link.TLS.CertFile != filepath.Join(bootstrapstart.MaterialDirectory, cert) ||
+				link.TLS.KeyFile != filepath.Join(bootstrapstart.MaterialDirectory, key) ||
+				len(loaded.Controller.TrustedSigners) != 2 {
+				t.Fatal("home Link lost its exact TLS paths or operator grants through config loading")
+			}
+			linked.Secrets = slices.DeleteFunc(linked.Secrets, func(ref bootstrap.SecretReference) bool {
+				return ref.TargetFile == cert
+			})
+			if _, err := automaticControllerConfigWithLink(linked, record, linkRecord, signerWire, now); err == nil {
+				t.Fatal("startup Link accepted a missing slot certificate reference")
 			}
 		})
 	}

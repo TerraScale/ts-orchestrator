@@ -192,6 +192,10 @@ func automaticControllerConfig(manifest bootstrap.Manifest, record bootstrapmate
 		return bootstrap.Manifest{}, err
 	}
 	config.Controller.TrustedSigners = signers
+	return automaticRenderedControllerConfig(manifest, config)
+}
+
+func automaticRenderedControllerConfig(manifest bootstrap.Manifest, config Config) (bootstrap.Manifest, error) {
 	wire, err := protocol.EncodeJSON(config)
 	if err != nil || len(wire) > bootstrap.MaxControllerConfigBytes {
 		return bootstrap.Manifest{}, errors.New("derived controller configuration exceeds its size bound")
