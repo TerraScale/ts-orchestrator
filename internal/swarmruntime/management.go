@@ -418,10 +418,26 @@ func (s *managementServer) UpdateConfig(ctx context.Context, req *api.UpdateConf
 	if current.Config.Spec.Annotations.Name != req.Spec.Annotations.Name || !bytes.Equal(current.Config.Spec.Data, req.Spec.Data) {
 		return nil, denied()
 	}
-	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
-		if current.Config.Spec.Annotations.Labels[key] != req.Spec.Annotations.Labels[key] {
-			return nil, denied()
+	before, after := current.Config.Spec.Annotations.Labels, req.Spec.Annotations.Labels
+	if len(before) != len(after) {
+		return nil, denied()
+	}
+	for key, value := range before {
+		switch key {
+		case "terrascale.release-sequence", "terrascale.release-fingerprint", "terrascale.release-baseline":
+		default:
+			if after[key] != value {
+				return nil, denied()
+			}
 		}
+	}
+	previous, err := strconv.ParseUint(before["terrascale.release-sequence"], 10, 64)
+	if err != nil || previous == 0 {
+		return nil, denied()
+	}
+	next, err := strconv.ParseUint(after["terrascale.release-sequence"], 10, 64)
+	if err != nil || next < previous || next == previous && after["terrascale.release-fingerprint"] != before["terrascale.release-fingerprint"] {
+		return nil, denied()
 	}
 	return s.client.UpdateConfig(ctx, req)
 }

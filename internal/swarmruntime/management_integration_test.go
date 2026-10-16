@@ -74,12 +74,24 @@ func TestManagementIntegration(t *testing.T) {
 	if err != nil || actual.Service.Spec.Annotations.Name != "management-proof" {
 		t.Fatalf("upstream persisted service: %v %v", actual, err)
 	}
+	floorLabels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "integration", LabelEnvironment: "test", "terrascale.release-sequence": "2", "terrascale.release-fingerprint": "signed-release"}
 	digest := sha256.Sum256([]byte("test/integration/api"))
-	config, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: fmt.Sprintf("ts-release-%x", digest[:16]), Labels: labels}, Data: []byte("immutable release evidence")}})
+	config, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: fmt.Sprintf("ts-release-%x", digest[:16]), Labels: floorLabels}, Data: []byte("immutable release evidence")}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	spec := config.Config.Spec.Copy()
+	spec.Annotations.Labels["terrascale.release-sequence"] = "1"
+	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: spec}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("release floor rollback accepted: %v", err)
+	}
+	spec.Annotations.Labels["terrascale.release-sequence"] = "3"
+	updated, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: spec})
+	if err != nil {
+		t.Fatalf("increasing release floor denied: %v", err)
+	}
+	config = updated
+	spec = config.Config.Spec.Copy()
 	spec.Data = []byte("replacement")
 	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: spec}); status.Code(err) != codes.PermissionDenied {
 		t.Fatalf("mutable evidence accepted: %v", err)
