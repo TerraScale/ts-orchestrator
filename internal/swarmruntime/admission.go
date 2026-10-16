@@ -35,10 +35,11 @@ func AdmitNode(ctx context.Context, client api.ControlClient, nodeID string, adm
 	if existing := spec.Annotations.Labels[LabelInstanceID]; existing != "" && (existing != admitted.InstanceID || spec.Annotations.Name != admitted.HostID || spec.Annotations.Labels[LabelRegion] != admitted.Region || spec.Annotations.Labels[LabelHostRole] != admitted.Role) {
 		return nil, errors.New("admitted node identity or role cannot change")
 	}
-	if spec.Annotations.Name == admitted.HostID && spec.Annotations.Labels[LabelRegion] == admitted.Region && spec.Annotations.Labels[LabelHostRole] == admitted.Role && spec.Annotations.Labels[LabelInstanceID] == admitted.InstanceID && spec.Annotations.Labels[LabelExecutionScope] == scope {
+	if spec.Membership == api.NodeMembershipAccepted && spec.Annotations.Name == admitted.HostID && spec.Annotations.Labels[LabelRegion] == admitted.Region && spec.Annotations.Labels[LabelHostRole] == admitted.Role && spec.Annotations.Labels[LabelInstanceID] == admitted.InstanceID && spec.Annotations.Labels[LabelExecutionScope] == scope {
 		return node, nil
 	}
 	spec.Annotations.Name = admitted.HostID
+	spec.Membership = api.NodeMembershipAccepted
 	spec.Annotations.Labels[LabelRegion] = admitted.Region
 	spec.Annotations.Labels[LabelHostRole] = admitted.Role
 	spec.Annotations.Labels[LabelInstanceID] = admitted.InstanceID

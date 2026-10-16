@@ -202,6 +202,46 @@ type TaskObservation struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// ReadyService checks only current desired tasks and independently probes their applications.
+// A service version change during the probes leaves readiness pending.
+func ReadyService(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (bool, error) {
+	ready, _, err := serviceReadiness(ctx, client, service, probe)
+	return ready, err
+}
+
+func serviceReadiness(ctx context.Context, client api.ControlClient, service *api.Service, probe func(context.Context, *api.Task) error) (bool, bool, error) {
+	if service == nil || service.Spec.GetReplicated() == nil || probe == nil {
+		return false, false, errors.New("service readiness requires replicated service and application probe")
+	}
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}, UpToDate: true}})
+	if err != nil {
+		return false, false, err
+	}
+	var ready uint64
+	failed := false
+	for _, task := range listed.Tasks {
+		if task.Status.State != api.TaskStateRunning {
+			continue
+		}
+		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		err := probe(probeCtx, task)
+		cancel()
+		if err == nil {
+			ready++
+		} else {
+			failed = true
+		}
+	}
+	latest, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+	if err != nil {
+		return false, false, err
+	}
+	if latest.Service.Meta.Version.Index != service.Meta.Version.Index {
+		return false, false, nil
+	}
+	return ready == service.Spec.GetReplicated().Replicas && uint64(len(listed.Tasks)) == ready, failed, nil
+}
+
 // ObserveService reads actual upstream tasks. A lifecycle RUNNING status never
 // implies application readiness; callers supply their authenticated product probe.
 func ObserveService(ctx context.Context, client api.ControlClient, serviceID string, probe func(context.Context, *api.Task) error) (ServiceObservation, error) {
