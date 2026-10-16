@@ -418,6 +418,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	if err != nil || !restarted.RecoveryRequired() || restarted.StoreGeneration() != claim.StoreGeneration() {
 		t.Fatalf("ready store identity was reset: %+v %v", restarted, err)
 	}
+	testNetBirdNetworkTeardown(t, factory, FoundationResolver{Store: store, Footprint: reader})
 	retired := maps.Clone(ceremony.objects)
 	ceremony.rotate()
 	grant.Generation++
