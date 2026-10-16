@@ -3,17 +3,13 @@ package swarmruntime
 import (
 	"context"
 	"crypto/x509"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"slices"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
-	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/ca"
@@ -64,13 +60,8 @@ func VerifyFunctionRegistryTask(ctx context.Context, client api.ControlClient, t
 		}
 		previous = true
 	}
-	rollback := false
-	if !previous && service.Service.UpdateStatus != nil {
-		switch service.Service.UpdateStatus.State {
-		case api.UpdateStatus_ROLLBACK_STARTED, api.UpdateStatus_ROLLBACK_COMPLETED, api.UpdateStatus_ROLLBACK_PAUSED:
-			rollback = true
-		}
-	}
+	rollback := !previous && functionServiceRollback(service.Service)
+
 	node, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
 	if err != nil {
 		return err
@@ -100,38 +91,8 @@ func VerifyFunctionRegistryTask(ctx context.Context, client api.ControlClient, t
 		return errors.New("function registry recipient certificate does not authorize this worker")
 	}
 	if previous || rollback {
-		claim := worker.Claim()
-		workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
-		name, err := releaseFloorName(workerIntent, worker)
-		if err != nil {
+		if err := intent.verifyRetainedWorkerFloor(ctx, client, worker); err != nil {
 			return err
-		}
-		listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
-		if err != nil {
-			return err
-		}
-		if listed == nil || len(listed.Configs) != 1 || listed.Configs[0] == nil {
-			return errors.New("retained function registry task has no unique durable worker floor")
-		}
-		floor := listed.Configs[0]
-		for key, value := range map[string]string{LabelIntentID: workerIntent.ID, LabelRole: FunctionWorkerRole, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseArchitecture: intent.Architecture} {
-			if floor.Spec.Annotations.Labels[key] != value {
-				return errors.New("retained function registry worker floor ownership differs")
-			}
-		}
-		migration, err := trust.DecodeEnvelope(floor.Spec.Data)
-		if err != nil {
-			return err
-		}
-		migrationFingerprint, err := trust.Fingerprint(migration)
-		if err != nil || migrationFingerprint != claim.SequenceMigrationSHA256 {
-			return errors.New("retained function registry worker ordering namespace differs")
-		}
-		labels := floor.Spec.Annotations.Labels
-		sequence, err := strconv.ParseUint(labels[labelReleaseSequence], 10, 64)
-		_, digestErr := hex.DecodeString(labels[labelReleaseFingerprint])
-		if floor.Spec.Annotations.Name != name || err != nil || sequence < claim.ReleaseSequence || digestErr != nil || len(labels[labelReleaseFingerprint]) != 64 || strings.ToLower(labels[labelReleaseFingerprint]) != labels[labelReleaseFingerprint] || sequence == claim.ReleaseSequence && labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
-			return errors.New("retained function registry worker is not admitted by the durable floor")
 		}
 	} else if err := intent.VerifyWorkerFloor(ctx, client, worker); err != nil {
 		return err
