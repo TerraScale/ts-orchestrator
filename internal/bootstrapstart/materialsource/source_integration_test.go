@@ -493,6 +493,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if err := projection.VerifyCurrent(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	assertHomeStartupPublicProof(t, replacement, projection, anchor, roots, private, protocol, now)
 	for _, ref := range publication.References {
 		if ref.Reference.SecretOCID == replacement.state.Reference.SecretOCID {
 			t.Fatal("escrow reference leaked to normal host")
