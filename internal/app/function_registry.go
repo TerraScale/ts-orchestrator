@@ -35,7 +35,7 @@ type functionRegistrySnapshot struct {
 
 func (controller functionController) registryAdmission(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (host.RegistryAdmissionDocument, error) {
 	config := controller.config
-	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Worker == nil || config.Evidence == nil ||
+	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Evidence == nil ||
 		!entityid.Valid(registration.ID) || registration.ID != binding.HostID || registration.Cell != strings.ToLower(config.Cell) || registration.Environment != config.Environment {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry requires current authority and its admitted recipient")
 	}
@@ -62,6 +62,7 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 		return host.RegistryAdmissionDocument{}, err
 	}
 	if node == nil || node.Node == nil || node.Node.Spec.Annotations.Name != registration.ID ||
+		node.Node.Description == nil || node.Node.Description.Platform == nil ||
 		node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] != binding.InstanceID || binding.InstanceID == "" ||
 		node.Node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != binding.Region {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry node differs from admitted host")
@@ -78,20 +79,23 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	if claim.Cell != strings.ToUpper(config.Cell) || claim.Environment != config.Environment || catalog.OCIRegion(claim.Cell) != binding.Region {
 		return host.RegistryAdmissionDocument{}, release.ErrExpectationMismatch
 	}
-	worker, err := config.Worker(ctx, proof)
+	intent := functionServiceTarget(proof, node.Node.Description.Platform.Architecture)
+	bundle, err := intent.WorkerBundleForTask(ctx, config.Client, task)
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
 	chain := config.Roots.reply("")
 	deadline, _ := ctx.Deadline()
-	verified, err := release.VerifyContainerCurrent(ctx, worker.Bundle, config.Roots.current(), release.ContainerTarget{
-		Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture,
-	}, time.Now().UTC(), deadline, config.Evidence)
+	target := release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: intent.Architecture}
+	allocations, err := currentContainerAllocations(ctx, config.Factory, bundle, config.Roots.current(), target)
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
-	// An older task needs its exact independently qualified bundle; mutable PreviousSpec cannot supply it.
-	if err := swarmruntime.VerifyFunctionRegistryTask(ctx, config.Client, task, functionServiceTarget(proof, worker.Architecture), current, verified); err != nil {
+	verified, err := release.VerifyContainerCurrent(ctx, bundle, config.Roots.current(), target, time.Now().UTC(), deadline, config.Evidence, allocations)
+	if err != nil {
+		return host.RegistryAdmissionDocument{}, err
+	}
+	if err := swarmruntime.VerifyFunctionRegistryTask(ctx, config.Client, task, intent, current, verified); err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
@@ -100,7 +104,7 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	if config.Roots.reply("").Head != chain.Head {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry roots changed during assignment verification")
 	}
-	wire, err := protocol.EncodeJSON(functionRegistrySnapshot{Function: claim, Envelope: proof.Envelope(), Delegation: proof.Delegation(), Worker: worker.Bundle, Chain: chain.Chain})
+	wire, err := protocol.EncodeJSON(functionRegistrySnapshot{Function: claim, Envelope: proof.Envelope(), Delegation: proof.Delegation(), Worker: bundle, Chain: chain.Chain})
 	if err != nil || len(wire) > runtimeRegistrySourceBytes {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry source is oversized")
 	}
@@ -186,11 +190,16 @@ func functionRuntimeRegistryResolver(ctx context.Context, cfg Config, agent *hos
 			return nil, err
 		}
 		deadline, _ := ctx.Deadline()
-		verified, err := release.VerifyContainerCurrent(ctx, snapshot.Worker, roots.current(), release.ContainerTarget{
+		target := release.ContainerTarget{
 			Cell: strings.ToUpper(signed.Cell), Environment: signed.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: signed.Architecture,
-		}, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		}
+		allocations, err := currentContainerAllocations(ctx, local.factory, snapshot.Worker, roots.current(), target)
+		if err != nil {
+			return nil, err
+		}
+		verified, err := release.VerifyContainerCurrent(ctx, snapshot.Worker, roots.current(), target, time.Now().UTC(), deadline, func(ctx context.Context, digest string) (io.ReadCloser, error) {
 			return releasechannel.ReadContainerEvidence(ctx, location, swarmruntime.FunctionWorkerRole, digest)
-		})
+		}, allocations)
 		if err != nil {
 			return nil, err
 		}

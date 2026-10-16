@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/functionmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
@@ -41,6 +42,7 @@ type functionControllerConfig struct {
 	Probe             func(context.Context, *api.Task) error
 	Channel           *channelSource
 	Roots             *rootRegistry
+	Factory           *ociclient.Factory
 	Cell, Environment string
 }
 
@@ -67,7 +69,7 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 }
 
 func startFunctionController(ctx context.Context, config functionControllerConfig) (host.FunctionMaterialProvider, func(), error) {
-	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
+	if config.Authority == nil || config.Client == nil || config.Roots == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Probe == nil || config.Retirement == nil ||
 		config.Channel == nil || config.Material.Reader.Roots == nil || config.Material.Reader.Artifacts == nil ||
 		config.Material.Conn == nil || config.Material.Issuer == nil || config.Material.Vault == nil || config.Material.Versions == nil ||
 		config.Material.Reader.Bundles == nil || config.Material.Reader.Accounts == nil || config.Material.Reader.VaultID == "" || config.Material.Target.VaultID != config.Material.Reader.VaultID ||
@@ -230,9 +232,14 @@ func (controller functionController) apply(ctx context.Context, epoch uint64, te
 		return err
 	}
 	intent := functionServiceTarget(proof, worker.Architecture)
+	allocations, err := currentContainerAllocations(ctx, controller.config.Factory, worker.Bundle, controller.config.Material.Reader.Roots(),
+		release.ContainerTarget{Cell: proof.Claim().Cell, Environment: proof.Claim().Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture})
+	if err != nil {
+		return err
+	}
 	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch}
 	_, err = swarmruntime.ApplyFunctionService(ctx, controller.config.Client, intent, source,
-		worker.Bundle, controller.config.Material.Reader.Roots(), worker.Floor, controller.config.Evidence, controller.config.Probe)
+		worker.Bundle, controller.config.Material.Reader.Roots(), worker.Floor, controller.config.Evidence, controller.config.Probe, allocations)
 	return err
 }
 
@@ -329,8 +336,13 @@ func (controller functionController) recipient(ctx context.Context, registration
 		return release.VerifiedFunction{}, err
 	}
 	// Issued material is capped at function expiry, so worker qualification must cover it too.
+	target := release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture}
+	allocations, err := currentContainerAllocations(ctx, controller.config.Factory, worker.Bundle, controller.config.Material.Reader.Roots(), target)
+	if err != nil {
+		return release.VerifiedFunction{}, err
+	}
 	verifiedWorker, err := release.VerifyContainerCurrent(ctx, worker.Bundle, controller.config.Material.Reader.Roots(),
-		release.ContainerTarget{Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture}, time.Now(), proof.ExpiresAt(), controller.config.Evidence)
+		target, time.Now(), proof.ExpiresAt(), controller.config.Evidence, allocations)
 	if err != nil {
 		return release.VerifiedFunction{}, err
 	}
