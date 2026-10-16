@@ -34,6 +34,8 @@ type Executor struct {
 	functionMaterial FunctionMaterialProvider
 	functionIdentity FunctionTaskBinding
 	functionNodeID   string
+	node             *api.Node
+	registry         RegistryResolver
 }
 
 var _ exec.Executor = (*Executor)(nil)
@@ -105,6 +107,22 @@ func (e *Executor) Configure(_ context.Context, node *api.Node) error {
 		return errors.New("runtime node identity is immutable")
 	}
 	e.functionNodeID = node.ID
+	e.node = node.Copy()
+	return nil
+}
+
+// SetRegistryResolver installs the trusted release/Vault verifier before tasks
+// execute. An unbound executor uses the anonymous resolver.
+func (e *Executor) SetRegistryResolver(resolver RegistryResolver) error {
+	if resolver == nil {
+		return errors.New("registry resolver is required")
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.registry != nil {
+		return errors.New("registry admission authority is immutable")
+	}
+	e.registry = resolver
 	return nil
 }
 

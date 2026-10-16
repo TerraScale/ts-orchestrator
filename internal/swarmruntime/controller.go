@@ -85,7 +85,22 @@ func (c *controller) Prepare(ctx context.Context) error {
 		return err
 	}
 	if errdefs.IsNotFound(err) {
-		image, err := c.executor.client.Pull(ctx, c.spec.Image, containerd.WithPullUnpack, containerd.WithPullSnapshotter("native"))
+		resolver := c.executor.registry
+		if resolver == nil {
+			resolver = publicRegistryResolver
+		}
+		var node *api.Node
+		if c.executor.node != nil {
+			node = c.executor.node.Copy()
+		}
+		resolved, err := resolver(ctx, c.task.Copy(), node)
+		if err != nil {
+			return fmt.Errorf("resolve admitted container registry: %w", err)
+		}
+		if resolved == nil {
+			return errors.New("registry admission returned no resolver")
+		}
+		image, err := c.executor.client.Pull(ctx, c.spec.Image, containerd.WithResolver(resolved), containerd.WithPullUnpack, containerd.WithPullSnapshotter("native"))
 		if err != nil {
 			return fmt.Errorf("pull container image: %w", err)
 		}
