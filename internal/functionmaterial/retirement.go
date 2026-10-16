@@ -64,10 +64,10 @@ func (controller Controller) RetireExpired(ctx context.Context, lifecycle Retire
 	pages, ids := map[string]bool{}, map[string]bool{}
 	for range 32 {
 		response, err := lifecycle.ListSecrets(ociclient.RequestContext(ctx), ocivault.ListSecretsRequest{
-			CompartmentId: new(controller.Target.CompartmentID), VaultId: new(controller.Target.VaultID), Limit: new(100), Page: page,
+			CompartmentId: new(controller.Target.CompartmentID), VaultId: new(controller.Target.VaultID), Limit: new(1000), Page: page,
 			SortBy: ocivault.ListSecretsSortByName, SortOrder: ocivault.ListSecretsSortOrderAsc,
 		})
-		if err != nil || len(response.Items) > 100 {
+		if err != nil || len(response.Items) > 1000 {
 			return retired, errors.Join(append(failures, ErrMaterial)...)
 		}
 		for _, item := range response.Items {
