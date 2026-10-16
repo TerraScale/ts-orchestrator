@@ -45,9 +45,9 @@ func EnsureDerivedSeed(ctx context.Context, roots trust.Keyring, anchor bootstra
 	scope := bootstrap.BootstrapScope{DeploymentID: manifest.DeploymentID, Cell: string(manifest.Cell), Slot: manifest.SeedSlot}
 	state, err := ledger.ReadSlot(ctx, scope)
 	if errors.Is(err, bootstrap.ErrRecordMissing) {
-		records, err := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: observed.BootstrapCreateKey, LedgerPrivate: ledgerPrivate, Now: authority.IssuedAt(), ExpiresAt: authority.ExpiresAt()})
-		if err != nil {
-			return bootstrap.SlotState{}, err
+		records, buildErr := BuildExternalSeedReservation(ExternalSeedReservationRequest{Identity: BakedIdentity{DeploymentID: manifest.DeploymentID, Cell: manifest.Cell, Environment: manifest.Environment}, Anchor: anchor, Manifest: authority, ReviewedPlanSHA256: authority.TemplateDigest(), CreateIdentity: observed.BootstrapCreateKey, LedgerPrivate: ledgerPrivate, Now: authority.IssuedAt(), ExpiresAt: authority.ExpiresAt()})
+		if buildErr != nil {
+			return bootstrap.SlotState{}, buildErr
 		}
 		state, err = ledger.ReserveSlot(ctx, scope, records.IntentWire, records.InitialHeadWire)
 	}
