@@ -236,6 +236,48 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 		return executionwire.WorkerGrantMaterial{}, err
 	}
 	material := executionwire.WorkerGrantMaterial{Desired: desiredBytes, Registration: registered, RuntimeRoot: manifest.ManagedRuntimeRoot, BootDescriptorSHA256: observed.BootDescriptorSHA256(), Scope: memberstatus.Scope(launch.Member.Scope), MemberAuthority: memberstatus.Authority(launch.Authority), Volume: volume, Mount: hostvolume.MountPins{DevicePath: volume.Device, MountPath: launch.Runtime.MountPath, FileSystemUUID: volume.FileSystemUUID, FileSystemType: volume.FileSystemType, UID: uid, GID: gid}, Container: *deployment.Container, RetainedContainer: previous, Retained: retained, DesiredGeneration: desired.Generation, PlacementGeneration: intent.Generation, MemberRevision: versioned.Revision, HostAttempt: state.HostAttempt, PlacementSHA256: intent.PayloadDigest(), RosterSHA256: state.CanonicalRosterDigest, MemberSHA256: fmt.Sprintf("%x", sha256.Sum256(memberBytes)), OperationID: operationID, Survivor: survivor}
+	// Every remote read above can overlap placement or registration changes.
+	// Re-read the pinned records before the leader may durably retain this grant.
+	freshMember, err := p.members.ReadMember(ctx, scope.DatabaseID, scope.PartitionID, pin.SeatID)
+	if err != nil || freshMember.Revision != versioned.Revision {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	freshBytes, err := json.Marshal(freshMember.State, json.Deterministic(true))
+	if err != nil || !bytes.Equal(freshBytes, memberBytes) {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	for _, record := range []struct {
+		kind     authority.HostMutationKind
+		key      string
+		sequence uint64
+	}{{authority.MutationDesired, p.cell + "." + r.Node + ".terrabase", desiredEntry.Sequence}, {authority.MutationRegistration, p.cell + "." + r.Node, entry.Sequence}, {authority.MutationPlacementIntent, scope.DatabaseID + "." + scope.PartitionID, admitted.Sequence}} {
+		current, err := p.authority.ReadHostMutation(ctx, record.kind, record.key)
+		if err != nil || current.Sequence != record.sequence {
+			return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+		}
+	}
+	if _, err := p.authority.ReadTerminalIntent(ctx, scope.DatabaseID, scope.PartitionID); !errors.Is(err, authority.ErrNotFound) {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	if _, err := p.authority.ReadHostMutation(ctx, authority.MutationRetirement, p.cell+"."+r.Node); !errors.Is(err, authority.ErrNotFound) {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	freshTask, err := p.control.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+	if err != nil || freshTask == nil || freshTask.Task == nil {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	freshHash, err := executionwire.TaskSHA256(freshTask.Task)
+	if err != nil || freshHash != actualHash {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	freshService, err := p.control.GetService(ctx, &api.GetServiceRequest{ServiceID: task.ServiceID})
+	if err != nil || freshService == nil || freshService.Service == nil || !proto.Equal(&freshService.Service.Spec, &service.Spec) {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
+	freshNode, err := p.control.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+	if err != nil || freshNode == nil || freshNode.Node == nil || freshNode.Node.Description == nil || !proto.Equal(&freshNode.Node.Spec, &node.Spec) || !proto.Equal(freshNode.Node.Description.Resources, node.Description.Resources) {
+		return executionwire.WorkerGrantMaterial{}, errors.Join(execution.ErrUnsafe, err)
+	}
 	if err := p.authority.Guard(ctx, caller.Epoch()); err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
