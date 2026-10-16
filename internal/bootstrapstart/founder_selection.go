@@ -75,6 +75,7 @@ type currentFounderPeerSelection struct {
 	PlanWire            []byte
 	AnchorWire          []byte
 	ManifestWires       map[string][]byte
+	derived             *bootstrap.DerivedFounderPlan
 }
 
 // CurrentFounderAuthorityReader uses only the accepted seed's baked anchor
