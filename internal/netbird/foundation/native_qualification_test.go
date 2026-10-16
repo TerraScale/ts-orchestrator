@@ -58,7 +58,7 @@ func TestMain(m *testing.M) {
 // The SSH worker is a test binary: production never accepts alternate Vault or storage endpoints.
 func TestNativeImageQualification(t *testing.T) {
 	if !nativeQualificationServe {
-		t.Skip("invoked only by the disposable native image runner")
+		t.Fatal("invoke this hardware scenario through the confined native image runner")
 	}
 	worker := &nativeQualification{t: t, vault: newVaultHTTP(t)}
 	t.Cleanup(worker.close)
@@ -518,16 +518,50 @@ func (w *nativeQualification) observe(ctx context.Context) (protocol.Account, er
 		return result, errors.New("native service tokens differ")
 	}
 	result.ServiceTokenID = tokens[0].ID
-	var policies []struct {
-		ID string `json:"id"`
-	}
+	var policies []map[string]any
 	if err := w.client.api(ctx, "GET", "/policies", auth, nil, &policies); err != nil {
 		return result, err
 	}
+	var groups []struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	if err := w.client.api(ctx, "GET", "/groups", auth, nil, &groups); err != nil {
+		return result, err
+	}
+	all := map[string]bool{}
+	for _, group := range groups {
+		if group.Name == "All" {
+			all[group.ID] = true
+		}
+	}
 	for _, policy := range policies {
-		result.PolicyIDs = append(result.PolicyIDs, policy.ID)
+		id, _ := policy["id"].(string)
+		if id == "" {
+			return result, errors.New("native policy has no identifier")
+		}
+		result.PolicyIDs = append(result.PolicyIDs, id)
+		if policy["enabled"] != true {
+			continue
+		}
+		rules, _ := policy["rules"].([]any)
+		for _, value := range rules {
+			rule, _ := value.(map[string]any)
+			if rule["enabled"] == true && rule["action"] == "accept" && rule["protocol"] == "all" && nativeContainsAll(rule["sources"], all) && nativeContainsAll(rule["destinations"], all) {
+				result.UnrestrictedPolicyIDs = append(result.UnrestrictedPolicyIDs, id)
+				break
+			}
+		}
 	}
 	slices.Sort(result.PolicyIDs)
+	slices.Sort(result.UnrestrictedPolicyIDs)
+	policyWire, err := json.Marshal(nativeNormalizePolicy(policies), json.Deterministic(true))
+	if err != nil {
+		return result, err
+	}
+	policyDigest := sha256.Sum256(policyWire)
+	result.PolicySHA256 = hex.EncodeToString(policyDigest[:])
+
 	for {
 		var peers []struct {
 			ID        string `json:"id"`
@@ -875,4 +909,73 @@ func (w *nativeCountWriter) Write(wire []byte) (int, error) {
 	count, err := w.Writer.Write(wire)
 	w.Bytes += int64(count)
 	return count, err
+}
+
+func nativeContainsAll(value any, all map[string]bool) bool {
+	groups, _ := value.([]any)
+	for _, value := range groups {
+		group, _ := value.(map[string]any)
+		id, _ := group["id"].(string)
+		if all[id] {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeNormalizePolicy(value any) any {
+	switch typed := value.(type) {
+	case []map[string]any:
+		values := make([]any, len(typed))
+		for index, policy := range typed {
+			values[index] = policy
+		}
+		return nativeNormalizePolicy(values)
+	case map[string]any:
+		normalized := make(map[string]any, len(typed))
+		for key, value := range typed {
+			normalized[key] = nativeNormalizePolicy(value)
+		}
+		return normalized
+	case []any:
+		normalized := make([]any, len(typed))
+		for index, value := range typed {
+			normalized[index] = nativeNormalizePolicy(value)
+		}
+		slices.SortFunc(normalized, func(a, b any) int {
+			left, _ := json.Marshal(a, json.Deterministic(true))
+			right, _ := json.Marshal(b, json.Deterministic(true))
+			return bytes.Compare(left, right)
+		})
+		return normalized
+	default:
+		return value
+	}
+}
+
+func TestNativePolicyObservationKeepsContentAndIgnoresSetOrder(t *testing.T) {
+	first := []map[string]any{{"id": "policy-1", "rules": []any{map[string]any{"id": "rule-2", "sources": []any{map[string]any{"id": "group-b"}, map[string]any{"id": "group-a"}}}, map[string]any{"id": "rule-1", "ports": []any{"443", "22"}}}}}
+	second := []map[string]any{{"rules": []any{map[string]any{"ports": []any{"22", "443"}, "id": "rule-1"}, map[string]any{"sources": []any{map[string]any{"id": "group-a"}, map[string]any{"id": "group-b"}}, "id": "rule-2"}}, "id": "policy-1"}}
+	left, err := json.Marshal(nativeNormalizePolicy(first), json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := json.Marshal(nativeNormalizePolicy(second), json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(left, right) {
+		t.Fatal("policy set order changed observed content")
+	}
+	second[0]["enabled"] = false
+	right, err = json.Marshal(nativeNormalizePolicy(second), json.Deterministic(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(left, right) {
+		t.Fatal("policy change hidden by canonicalization")
+	}
+	if !nativeContainsAll([]any{map[string]any{"id": "all"}}, map[string]bool{"all": true}) || nativeContainsAll([]any{map[string]any{"id": "restricted"}}, map[string]bool{"all": true}) {
+		t.Fatal("All-group grant misclassified")
+	}
 }
