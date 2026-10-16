@@ -451,6 +451,13 @@ func (authority DerivedStartupAuthority) VerifyLedgerKey(key ed25519.PublicKey) 
 	return nil
 }
 
+func (authority DerivedStartupAuthority) VerifyPeerKey(key ed25519.PublicKey) error {
+	if authority.verifyStartupAuthority() != nil || !bytes.Equal(key, authority.peerKey) {
+		return ErrRecordAuthorization
+	}
+	return nil
+}
+
 func (authority DerivedStartupAuthority) VerifyLedgerEnvelope(envelope trust.Envelope, scope trust.Scope, now time.Time) error {
 	manifest := authority.binding.Manifest
 	if authority.verifyStartupAuthority() != nil || !slices.Contains(BootstrapLedgerCapabilityDomains(), scope.Domain) || scope.DeploymentID != manifest.DeploymentID || scope.Cell != string(manifest.Cell) || scope.Environment != manifest.Environment || scope.Role != manifest.ControllerRole || !slices.Contains(manifest.ControllerSlots, scope.Slot) || envelope.IssuedAt.Before(authority.IssuedAt()) || envelope.ExpiresAt.After(authority.ExpiresAt()) {
