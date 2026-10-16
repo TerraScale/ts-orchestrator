@@ -101,6 +101,12 @@ func (verified VerifiedSwarmWorker) Wire() []byte        { return bytes.Clone(ve
 func VerifyWorkerTransport(wire []byte, public ed25519.PublicKey, metadata InstanceMetadata,
 	architecture string, now time.Time,
 ) (VerifiedSwarmWorker, error) {
+	return verifyWorkerTransportAt(wire, public, metadata, architecture, now, time.Now())
+}
+
+func verifyWorkerTransportAt(wire []byte, public ed25519.PublicKey, metadata InstanceMetadata,
+	architecture string, now, responseTime time.Time,
+) (VerifiedSwarmWorker, error) {
 	if len(wire) == 0 || len(wire) > 2*(MaxRequestBytes+MaxResponseBytes) {
 		return VerifiedSwarmWorker{}, errors.New("worker enrollment transport is missing or oversized")
 	}
@@ -112,7 +118,7 @@ func VerifyWorkerTransport(wire []byte, public ed25519.PublicKey, metadata Insta
 	if err != nil {
 		return VerifiedSwarmWorker{}, err
 	}
-	response, err := VerifyResponse(transport.Response, public, request, transport.Request, descriptor)
+	response, err := verifyResponseAt(transport.Response, public, request, transport.Request, descriptor, responseTime)
 	if err != nil {
 		return VerifiedSwarmWorker{}, err
 	}

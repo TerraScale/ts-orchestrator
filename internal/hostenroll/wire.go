@@ -179,6 +179,10 @@ func (response *Response) Sign(key ed25519.PrivateKey) error {
 }
 
 func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requestWire []byte, descriptor hostboot.Descriptor) (Response, error) {
+	return verifyResponseAt(wire, public, request, requestWire, descriptor, time.Now())
+}
+
+func verifyResponseAt(wire []byte, public ed25519.PublicKey, request Request, requestWire []byte, descriptor hostboot.Descriptor, now time.Time) (Response, error) {
 	if len(wire) == 0 || len(wire) > MaxResponseBytes || len(public) != ed25519.PublicKeySize {
 		return Response{}, errors.New("host enrollment response is missing or too large")
 	}
@@ -198,7 +202,7 @@ func VerifyResponse(wire []byte, public ed25519.PublicKey, request Request, requ
 		response.Node != descriptor.Node || response.DescriptorSHA256 != digest ||
 		response.RequestSHA256 != RequestSHA256(requestWire) || response.Nonce != request.Nonce ||
 		response.RegistrationReceipt.Generation == 0 || response.RegistrationReceipt.Revision == 0 ||
-		response.NATSUserJWT == "" || response.TLSCertificatePEM == "" || !time.Now().Before(response.ExpiresAt) {
+		response.NATSUserJWT == "" || response.TLSCertificatePEM == "" || !now.Before(response.ExpiresAt) {
 		return Response{}, errors.New("host enrollment response does not bind the request or has expired")
 	}
 	for i, role := range response.Roles {

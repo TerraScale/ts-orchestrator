@@ -304,6 +304,31 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	if _, _, _, _, _, err := authority.current(ctx, query); err != nil {
 		return err
 	}
-	_, err = AdmitNode(ctx, client, binding.NodeID, Admission{Region: worker.Region, HostID: worker.RegistrationID, InstanceID: worker.InstanceID, FounderID: worker.FounderID, Role: worker.Role})
+	record := hostenroll.SwarmMembership{Transport: hostenroll.WorkerTransport{Request: query.Request, Response: query.Response}, Binding: binding, Certificate: node.Node.Certificate.Certificate}
+	snapshot, err := readCurrentWorkerMembership(ctx, WorkerMembershipQuery{NodeID: binding.NodeID, RegistrationID: worker.RegistrationID, InstanceID: worker.InstanceID, Admission: &record})
+	if err != nil {
+		return err
+	}
+	if snapshot.Admission == nil || snapshot.Retired || snapshot.Disabled || snapshot.TerminalOperationID != "" || snapshot.IdentityResetOperationID != "" ||
+		snapshot.GrantInstanceID != worker.InstanceID || snapshot.GrantRevision == 0 || snapshot.Sequence != worker.Revision {
+		return errors.New("worker admission was not retained by the current instance grant")
+	}
+	expected, err := json.Marshal(record, json.Deterministic(true))
+	actual, actualErr := json.Marshal(snapshot.Admission, json.Deterministic(true))
+	if err != nil || actualErr != nil || !bytes.Equal(expected, actual) {
+		return errors.New("retained worker admission differs from actual dual-key binding")
+	}
+	expectedRegistration, err := json.Marshal(registration, json.Deterministic(true))
+	actualRegistration, actualErr := json.Marshal(snapshot.Registration, json.Deterministic(true))
+	if err != nil || actualErr != nil || !bytes.Equal(expectedRegistration, actualRegistration) {
+		return errors.New("worker registration changed during durable admission publication")
+	}
+	admitted, err := AdmitNode(ctx, client, binding.NodeID, Admission{Region: worker.Region, HostID: worker.RegistrationID, InstanceID: worker.InstanceID, FounderID: worker.FounderID, Role: worker.Role})
+	if err != nil || admitted.Spec.Availability == api.NodeAvailabilityActive {
+		return err
+	}
+	spec := admitted.Spec.Copy()
+	spec.Availability = api.NodeAvailabilityActive
+	_, err = client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: admitted.ID, NodeVersion: &admitted.Meta.Version, Spec: spec})
 	return err
 }

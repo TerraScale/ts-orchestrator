@@ -16,6 +16,7 @@ import (
 )
 
 const GrantBucket = "TS_HOST_ENROLLMENT"
+const MaxGrantBytes = 256 << 10
 
 var ErrGrantInProgress = errors.New("host enrollment is in progress")
 var ErrTerminalFenceConflict = errors.New("host enrollment grant changed during terminal fencing")
@@ -52,21 +53,22 @@ func IsGrantMutationNotApplied(err error) bool {
 // Grant pins the first successful private-network enrollment to one exact
 // instance and request. Response is set durably before it is sent to the host.
 type Grant struct {
-	SchemaVersion            int       `json:"schema_version"`
-	InstanceID               string    `json:"instance_id"`
-	CreateKey                string    `json:"create_key"`
-	DescriptorSHA256         string    `json:"descriptor_sha256"`
-	Request                  []byte    `json:"request"`
-	Response                 []byte    `json:"response,omitempty"`
-	Disabled                 bool      `json:"disabled,omitzero"`
-	OwnerToken               string    `json:"owner_token,omitempty"`
-	LeaseUntil               time.Time `json:"lease_until,omitzero"`
-	RenewalRequest           []byte    `json:"renewal_request,omitempty"`
-	RenewalResponse          []byte    `json:"renewal_response,omitempty"`
-	RenewalToken             string    `json:"renewal_token,omitempty"`
-	RenewalLeaseUntil        time.Time `json:"renewal_lease_until,omitzero"`
-	TerminalOperationID      string    `json:"terminal_operation_id,omitempty"`
-	IdentityResetOperationID string    `json:"identity_reset_operation_id,omitempty"`
+	SchemaVersion            int              `json:"schema_version"`
+	InstanceID               string           `json:"instance_id"`
+	CreateKey                string           `json:"create_key"`
+	DescriptorSHA256         string           `json:"descriptor_sha256"`
+	Request                  []byte           `json:"request"`
+	Response                 []byte           `json:"response,omitempty"`
+	Disabled                 bool             `json:"disabled,omitzero"`
+	OwnerToken               string           `json:"owner_token,omitempty"`
+	LeaseUntil               time.Time        `json:"lease_until,omitzero"`
+	RenewalRequest           []byte           `json:"renewal_request,omitempty"`
+	RenewalResponse          []byte           `json:"renewal_response,omitempty"`
+	RenewalToken             string           `json:"renewal_token,omitempty"`
+	RenewalLeaseUntil        time.Time        `json:"renewal_lease_until,omitzero"`
+	TerminalOperationID      string           `json:"terminal_operation_id,omitempty"`
+	IdentityResetOperationID string           `json:"identity_reset_operation_id,omitempty"`
+	SwarmMembership          *SwarmMembership `json:"swarm_membership,omitempty"`
 }
 
 type GrantStore struct {
@@ -78,7 +80,7 @@ func OpenGrantStore(ctx context.Context, js jetstream.JetStream, replicas int) (
 		return nil, errors.New("host enrollment requires replicated JetStream")
 	}
 	kv, err := js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket: GrantBucket, History: 2, MaxValueSize: 64 << 10,
+		Bucket: GrantBucket, History: 2, MaxValueSize: MaxGrantBytes,
 		MaxBytes: 64 << 20, Storage: jetstream.FileStorage, Replicas: replicas,
 	})
 	if err != nil {
@@ -101,7 +103,7 @@ func (store *GrantStore) Claim(ctx context.Context, candidate Grant) (Grant, uin
 	if store == nil || store.kv == nil || candidate.SchemaVersion != 1 || candidate.InstanceID == "" ||
 		!entityid.Valid(candidate.CreateKey) || len(candidate.DescriptorSHA256) != 64 ||
 		len(candidate.Request) == 0 || len(candidate.Request) > 16<<10 || len(candidate.Response) != 0 || candidate.Disabled ||
-		candidate.OwnerToken != "" || !candidate.LeaseUntil.IsZero() || candidate.IdentityResetOperationID != "" {
+		candidate.OwnerToken != "" || !candidate.LeaseUntil.IsZero() || candidate.IdentityResetOperationID != "" || candidate.SwarmMembership != nil {
 		return Grant{}, 0, mutationNotApplied(errors.New("host enrollment grant candidate is invalid"))
 	}
 	claimToken := make([]byte, 32)
@@ -125,7 +127,7 @@ func (store *GrantStore) Claim(ctx context.Context, candidate Grant) (Grant, uin
 		return Grant{}, 0, mutationNotApplied(fmt.Errorf("read host enrollment grant: %w", err))
 	}
 	var current Grant
-	if len(entry.Value()) > 64<<10 || json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)) != nil ||
+	if len(entry.Value()) > MaxGrantBytes || json.Unmarshal(entry.Value(), &current, json.RejectUnknownMembers(true)) != nil ||
 		current.SchemaVersion != 1 || current.InstanceID != candidate.InstanceID || current.CreateKey != candidate.CreateKey ||
 		current.DescriptorSHA256 != candidate.DescriptorSHA256 || !bytes.Equal(current.Request, candidate.Request) || current.Disabled {
 		return Grant{}, 0, mutationNotApplied(errors.New("host enrollment grant differs from the immutable first request or is disabled"))
@@ -197,7 +199,7 @@ func (store *GrantStore) Read(ctx context.Context, instanceID string) (Grant, ui
 		return Grant{}, 0, err
 	}
 	var grant Grant
-	if len(entry.Value()) > 64<<10 || json.Unmarshal(entry.Value(), &grant, json.RejectUnknownMembers(true)) != nil || grant.InstanceID != instanceID {
+	if len(entry.Value()) > MaxGrantBytes || json.Unmarshal(entry.Value(), &grant, json.RejectUnknownMembers(true)) != nil || grant.InstanceID != instanceID {
 		return Grant{}, 0, errors.New("host enrollment grant is corrupt")
 	}
 	return grant, entry.Revision(), nil
@@ -244,7 +246,7 @@ func (store *GrantStore) TerminalFence(ctx context.Context, expected Grant, expe
 		if expected.DescriptorSHA256 != "" || len(expected.Request) != 0 || len(expected.Response) != 0 ||
 			expected.Disabled || expected.OwnerToken != "" || !expected.LeaseUntil.IsZero() ||
 			len(expected.RenewalRequest) != 0 || len(expected.RenewalResponse) != 0 ||
-			expected.RenewalToken != "" || !expected.RenewalLeaseUntil.IsZero() || expected.TerminalOperationID != "" || expected.IdentityResetOperationID != "" {
+			expected.RenewalToken != "" || !expected.RenewalLeaseUntil.IsZero() || expected.TerminalOperationID != "" || expected.IdentityResetOperationID != "" || expected.SwarmMembership != nil {
 			return Grant{}, 0, errors.New("absent terminal grant fence contains enrollment state")
 		}
 		tombstone := Grant{SchemaVersion: 1, InstanceID: expected.InstanceID,
@@ -332,7 +334,7 @@ func isTerminalTombstone(grant Grant, instanceID, createKey, operationID string)
 		grant.Disabled && grant.TerminalOperationID == operationID && len(grant.Request) == 0 &&
 		grant.DescriptorSHA256 == "" && len(grant.Response) == 0 && grant.OwnerToken == "" &&
 		grant.LeaseUntil.IsZero() && len(grant.RenewalRequest) == 0 && len(grant.RenewalResponse) == 0 &&
-		grant.RenewalToken == "" && grant.RenewalLeaseUntil.IsZero() && grant.IdentityResetOperationID == ""
+		grant.RenewalToken == "" && grant.RenewalLeaseUntil.IsZero() && grant.IdentityResetOperationID == "" && grant.SwarmMembership == nil
 }
 
 func sameGrant(left, right Grant) bool {
@@ -344,7 +346,7 @@ func sameGrant(left, right Grant) bool {
 		bytes.Equal(left.RenewalResponse, right.RenewalResponse) && left.RenewalToken == right.RenewalToken &&
 		left.RenewalLeaseUntil.Equal(right.RenewalLeaseUntil) &&
 		left.TerminalOperationID == right.TerminalOperationID &&
-		left.IdentityResetOperationID == right.IdentityResetOperationID
+		left.IdentityResetOperationID == right.IdentityResetOperationID && sameSwarmMembership(left.SwarmMembership, right.SwarmMembership)
 }
 
 func validTerminalOperationID(value string) bool { return entityid.Valid(value) }

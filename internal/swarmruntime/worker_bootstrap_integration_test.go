@@ -220,6 +220,9 @@ func TestWorkerBootstrapIntegration(t *testing.T) {
 	if err != nil || registered.Node.Spec.Annotations.Name != signed.RegistrationID || registered.Node.Spec.Annotations.Labels[LabelRegion] != signed.Region {
 		t.Fatal("verified worker did not acquire canonical placement", err)
 	}
+	t.Run("durable-membership", func(t *testing.T) {
+		checkWorkerMembershipIntegration(t, ctx, manager, worker, accepted, binding, certificate, responsePublic, responseKey, hostKey)
+	})
 	nodeFixtureStop(t, worker)
 	workerID := worker.ID()
 	restarted, err := startAcceptedWorkerAt(ctx, directory, accepted, bundles, nodeIdleExecutor{})
