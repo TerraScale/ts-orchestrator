@@ -61,7 +61,14 @@ func TestRetainedMountKernelIntegration(t *testing.T) {
 	device := strings.TrimSpace(fixtureCommand(t, "losetup", "--find", "--show", "--nooverlap", disk))
 	t.Cleanup(func() { fixtureCommand(t, "losetup", "--detach", device) })
 	const uuid = "0d370616-bf07-48e3-90a4-75e58c799c01"
-	fixtureCommand(t, "mkfs.ext4", "-q", "-F", "-U", uuid, device)
+	tool, arguments, err := FormatCommand("ext4", uuid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureCommand(t, filepath.Base(tool), append(arguments, device)...)
+	if actual := strings.TrimSpace(fixtureCommand(t, "blkid", "-p", "-s", "UUID", "-o", "value", device)); actual != uuid {
+		t.Fatalf("formatted filesystem UUID = %q, want %q", actual, uuid)
+	}
 	uuidPath := filepath.Join("/dev/disk/by-uuid", uuid)
 	if err := os.Symlink(device, uuidPath); err != nil {
 		t.Fatal(err)
@@ -75,7 +82,7 @@ func TestRetainedMountKernelIntegration(t *testing.T) {
 	if err := os.Mkdir(volume, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Mount(device, volume, "ext4", MountFlags, "errors=remount-ro"); err != nil {
+	if err := unix.Mount(device, volume, "ext4", MountFlags, FilesystemData("ext4")); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -171,6 +178,58 @@ func TestRetainedMountKernelIntegration(t *testing.T) {
 	if err := witness.Recheck(); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("online ext4 growth preserves retained data and identity", func(t *testing.T) {
+		var deviceStat unix.Stat_t
+		if err := unix.Stat(device, &deviceStat); err != nil {
+			t.Fatal(err)
+		}
+		if size, err := DeviceBytes(deviceStat.Rdev); err != nil || size != 32<<20 {
+			t.Fatalf("actual loop device capacity = %d, %v", size, err)
+		}
+		retained := filepath.Join(volume, "data", "retained")
+		const content = "retained before online growth\n"
+		if err := os.WriteFile(retained, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var before unix.Statfs_t
+		if err := unix.Statfs(volume, &before); err != nil {
+			t.Fatal(err)
+		}
+		if grown, err := Grow(t.Context(), volume, deviceStat.Rdev, "ext4"); err != nil || grown {
+			t.Fatalf("already sized filesystem changed: grown=%t, %v", grown, err)
+		}
+		const expanded = 32<<20 + 1<<30
+		if err := os.Truncate(disk, expanded); err != nil {
+			t.Fatal(err)
+		}
+		fixtureCommand(t, "losetup", "--set-capacity", device)
+		if size, err := DeviceBytes(deviceStat.Rdev); err != nil || size != expanded {
+			t.Fatalf("expanded loop device capacity = %d, %v", size, err)
+		}
+		if grown, err := Grow(t.Context(), volume, deviceStat.Rdev, "ext4"); err != nil || !grown {
+			t.Fatalf("one GiB device increase did not grow ext4: grown=%t, %v", grown, err)
+		}
+		var after unix.Statfs_t
+		if err := unix.Statfs(volume, &after); err != nil || after.Blocks <= before.Blocks {
+			t.Fatalf("filesystem capacity did not increase: before=%d, after=%d, %v", before.Blocks, after.Blocks, err)
+		}
+		if grown, err := Grow(t.Context(), volume, deviceStat.Rdev, "ext4"); err != nil || grown {
+			t.Fatalf("repeated grow changed filesystem: grown=%t, %v", grown, err)
+		}
+		if err := os.Truncate(disk, expanded+64<<20); err != nil {
+			t.Fatal(err)
+		}
+		fixtureCommand(t, "losetup", "--set-capacity", device)
+		if grown, err := Grow(t.Context(), volume, deviceStat.Rdev, "ext4"); err != nil || grown {
+			t.Fatalf("small alignment tail caused growth: grown=%t, %v", grown, err)
+		}
+		if got, err := os.ReadFile(retained); err != nil || string(got) != content {
+			t.Fatalf("retained data changed during growth: %q, %v", got, err)
+		}
+		if err := witness.Recheck(); err != nil {
+			t.Fatal(err)
+		}
+	})
 	witness.Close()
 	if err := witness.Recheck(); err == nil {
 		t.Fatal("closed retained witness accepted")
