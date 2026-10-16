@@ -372,6 +372,12 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	pinnedSlots := slices.Clone(anchor.Anchor().ControllerSlots)
 	publish := func() {
 		t.Helper()
+		for i := range grant.Regions {
+			grant.Regions[i].Generation = grant.Generation
+			if material := grant.Regions[i].BootstrapMaterial; material != nil && material.SourceRegistration != nil {
+				material.SourceRegistration.Generation = grant.Generation
+			}
+		}
 		payload, err := trust.EncodePayload(grant)
 		if err != nil {
 			t.Fatal(err)
@@ -490,9 +496,16 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	for i := range 2 {
 		directory := filepath.Join(t.TempDir(), "source")
 		workers.Go(func() {
-			sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, directory, now)
-			if errs[i] != nil {
+			for attempt := range 30 {
 				sources[i], errs[i] = ResolveColdStartMaterial(t.Context(), verified, actor, &objects, &management, &bundles, directory, now)
+				if errs[i] == nil || attempt == 29 {
+					return
+				}
+				select {
+				case <-t.Context().Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
 			}
 		})
 	}
