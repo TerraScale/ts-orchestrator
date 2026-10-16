@@ -382,6 +382,11 @@ func (stream *hostMetricResetReadStream) GetMsg(ctx context.Context, sequence ui
 
 func TestHostMetricStreamCannotConfirmIdenticalBatchFromAnotherGeneration(t *testing.T) {
 	old := hostMetricTestStream(t, hostMetricBroker(t, t.TempDir(), -1))
+	// Keep the account directory live while NATS asynchronously removes the
+	// deleted stream; this test targets generation fencing during recreation.
+	if _, err := old.js.CreateStream(t.Context(), jetstream.StreamConfig{Name: "HOST_METRIC_TEST_KEEPALIVE", Subjects: []string{"fixture.keepalive"}, Storage: jetstream.FileStorage}); err != nil {
+		t.Fatal(err)
+	}
 	batch := hostMetricTestBatch(time.Now().UTC().Truncate(HostMetricInterval))
 	if confirmed, err := old.Publish(t.Context(), batch); err != nil || !confirmed {
 		t.Fatalf("initial batch: confirmed=%t, error=%v", confirmed, err)

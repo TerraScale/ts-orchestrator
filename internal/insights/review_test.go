@@ -14,7 +14,7 @@ import (
 // These pin the fixes for the ts-reviewer findings on PR #121.
 
 func TestDiskUsageWarningDoesNotHideAFasterFill(t *testing.T) {
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	const size = 100 << 30
 	// 86% used (past the 85% warning) and filling 2 GiB an hour: full in
 	// about 7 hours, which is critical.

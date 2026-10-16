@@ -18,7 +18,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-var testNow = time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+// History applies wall-clock retention, so the shared fixture must stay current.
+var testNow = time.Now().UTC().Truncate(time.Second)
 
 type fixedSnapshots struct {
 	snapshot observability.MemberSnapshot

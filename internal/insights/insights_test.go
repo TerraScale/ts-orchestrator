@@ -204,7 +204,7 @@ func TestRulesStaySilentWithoutProviders(t *testing.T) {
 }
 
 func TestDiskRules(t *testing.T) {
-	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	const size = 100 << 30
 	member := func(avail uint64) *observability.ClusterSnapshot {
 		return &observability.ClusterSnapshot{Members: []observability.MemberSnapshot{{Member: "c1",
