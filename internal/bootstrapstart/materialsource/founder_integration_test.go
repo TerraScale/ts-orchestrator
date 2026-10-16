@@ -143,7 +143,7 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		case strings.HasPrefix(r.URL.Path, "/20160918/images/"):
 			json.MarshalWrite(w, core.Image{Id: new(manifest.ImageOCID), CompartmentId: new(resources.ImageCompartmentOCID), LifecycleState: core.ImageLifecycleStateAvailable})
 		case r.URL.Path == "/20160918/bootVolumeAttachments":
-			json.MarshalWrite(w, []core.ParavirtualizedBootVolumeAttachment{{Id: new("ocid1.bootvolumeattachment.oc1." + manifest.OCIRegion + ".founder"), InstanceId: new(instanceID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), BootVolumeId: new(bootVolumeID), LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached}})
+			json.MarshalWrite(w, []core.BootVolumeAttachment{{Id: new("ocid1.bootvolumeattachment.oc1." + manifest.OCIRegion + ".founder"), InstanceId: new(instanceID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), BootVolumeId: new(bootVolumeID), LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached}})
 		case strings.HasPrefix(r.URL.Path, "/20160918/bootVolumes/"):
 			json.MarshalWrite(w, core.BootVolume{Id: new(bootVolumeID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), ImageId: new(manifest.ImageOCID), LifecycleState: core.BootVolumeLifecycleStateAvailable, SizeInGBs: new(int64(resources.BootVolumeGB)), VpusPerGB: new(int64(10)), IsAutoTuneEnabled: new(false)})
 		case r.URL.Path == "/20160918/vnicAttachments":
