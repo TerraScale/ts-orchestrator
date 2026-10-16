@@ -45,7 +45,8 @@ func (source VerifiedRegionalSource) Inventory() []byte                 { return
 func (source VerifiedRegionalSource) Template() VerifiedStartupTemplate { return source.template }
 func (source VerifiedRegionalSource) ExpiresAt() time.Time              { return source.expiresAt }
 func (source VerifiedRegionalSource) StorageDomain() StorageDomain {
-	return source.template.startupIdentity().StorageDomain
+	home, _ := source.template.anchor.FoundationScope()
+	return home.StorageDomain
 }
 func (source VerifiedRegionalSource) Manifest() Manifest {
 	manifest, _ := source.template.ManifestFor(source.template.template.SeedSlot, nil)
@@ -72,7 +73,11 @@ func LoadRegionalSource(ctx context.Context, template VerifiedStartupTemplate, c
 	if client == nil || ctx.Err() != nil || template.VerifyCurrent(now) != nil || template.startupIdentity().InitialSourceRegistration == nil {
 		return deny()
 	}
-	domain := template.startupIdentity().StorageDomain
+	foundation, foundationErr := template.anchor.FoundationScope()
+	if foundationErr != nil {
+		return deny()
+	}
+	domain := foundation.StorageDomain
 	response, err := client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(startupSourceKey(template))})
 	if err != nil {
 		return VerifiedRegionalSource{}, err
