@@ -365,6 +365,9 @@ func NewControllerManagerStartupFixture(t *testing.T, enrollment []byte, broker 
 			t.Fatal(err)
 		}
 	}
+	if err := os.Chmod(markerDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	markers := MarkerStore{directory: markerDirectory, ownerUID: uint32(os.Geteuid()), allowUnsafeAncestors: true}
 	floor := &FounderSelectionFloorStore{directory: floorDirectory, ownerUID: uint32(os.Geteuid()), allowUnsafeAncestors: true}
 	baked := BakedInputs{Identity: BakedIdentity{SchemaVersion: 1, DeploymentID: deployment, Environment: "production", Cell: oci.RegionGRU},
