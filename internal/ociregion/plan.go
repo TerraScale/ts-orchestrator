@@ -313,6 +313,14 @@ func validateNetbird(plan Object, gateway Object) {
 		requireOCID(c["policy_id"], "policy", "")
 	}
 }
+func hostArchitecture(host Object) string {
+	architecture := text(host["architecture"])
+	if architecture != "arm64" && architecture != "amd64" {
+		fail("manual host architecture must be arm64 or amd64")
+	}
+	return architecture
+}
+
 func (e *Engine) loadPlan(path string) Object {
 	p := readJSON(path, 64*1024, "manual region plan")
 	if !eq(p["schema_version"], 2) || catalog.OCIRegion(text(p["cell"])) == "" || p["region"] != catalog.OCIRegion(text(p["cell"])) {
@@ -357,7 +365,8 @@ func (e *Engine) loadPlan(path string) Object {
 	for _, v := range hosts {
 		h := obj(v)
 		slot := text(h["slot"])
-		if !safeMatch(`(?:controller|member)-[a-z][a-z0-9-]{0,30}`, slot) || h["shape"] != "VM.Standard.A1.Flex" || number(h["ocpus"]) <= 0 || number(h["memory_gb"]) < number(h["ocpus"]) || number(h["boot_gb"]) < 50 || number(h["data_gb"]) < 0 || (strings.HasPrefix(slot, "controller-") && number(h["data_gb"]) != 0) || (strings.HasPrefix(slot, "member-") && number(h["data_gb"]) <= 0) {
+		hostArchitecture(h)
+		if !safeMatch(`(?:controller|member)-[a-z][a-z0-9-]{0,30}`, slot) || !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, h["shape"]) || number(h["ocpus"]) <= 0 || number(h["memory_gb"]) < number(h["ocpus"]) || number(h["boot_gb"]) < 50 || number(h["data_gb"]) < 0 || (strings.HasPrefix(slot, "controller-") && number(h["data_gb"]) != 0) || (strings.HasPrefix(slot, "member-") && number(h["data_gb"]) <= 0) {
 			fail("unexpected manual shape or size for " + slot)
 		}
 	}
@@ -437,9 +446,13 @@ func (e *Engine) loadPlan(path string) Object {
 	}
 	// Retain unrelated operations inventory for safety accounting, independent of its services.
 	existing := obj(p["existing_operations_host"])
-	if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
+	if !exact(existing, "instance_id", "boot_volume_id", "data_volume_id", "public_ip_id", "vcn_id", "internet_gateway_id", "expected_shape", "expected_architecture", "expected_ocpus", "expected_memory_gb", "expected_volume_gb", "expected_volume_vpus_per_gb") {
 		fail("manual plan must bind the exact existing operations host baseline")
 	}
+	if !safeMatch(`[A-Za-z0-9][A-Za-z0-9.-]{0,99}`, existing["expected_shape"]) {
+		fail("manual operations host must declare its exact expected shape")
+	}
+	hostArchitecture(Object{"architecture": existing["expected_architecture"]})
 	for key, kind := range map[string]string{"instance_id": "instance", "boot_volume_id": "bootvolume", "data_volume_id": "volume", "public_ip_id": "publicip", "vcn_id": "vcn", "internet_gateway_id": "internetgateway"} {
 		requireOCID(existing[key], kind, "")
 	}
