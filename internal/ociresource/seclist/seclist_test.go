@@ -14,6 +14,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/nsg"
 	"github.com/TerraScale/ts-orchestrator/internal/ociresource/ociresourcetest"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const listID = "ocid1.securitylist.oc1.sa-saopaulo-1.private"
@@ -23,28 +24,80 @@ var (
 	owner = ociresource.Ownership{Mode: ociresource.TagModeFreeform, Owner: "cell-gru"}
 )
 
-type fakeAPI struct {
-	list    List
-	updates int
-	fail    error
+type providerState struct {
+	list         List
+	updates      int
+	api          API
+	loseResponse bool
 }
 
-func (f *fakeAPI) GetList(context.Context, string) (List, error) {
-	list := f.list
-	list.Rules = slices.Clone(list.Rules)
-	return list, nil
-}
-
-func (f *fakeAPI) UpdateList(_ context.Context, _, etag string, rules []nsg.Rule, tags ociresource.Tags) error {
-	if f.fail != nil {
-		return f.fail
+func (f *providerState) client(t *testing.T) API {
+	t.Helper()
+	if f.api != nil {
+		return f.api
 	}
-	if etag != f.list.ETag {
-		return errors.New("etag mismatch")
+	factory, endpoint := ociresourcetest.Server(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPut {
+			if r.Header.Get("if-match") != f.list.ETag {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				_, _ = io.WriteString(w, `{"code":"NoEtagMatch","message":"etag mismatch"}`)
+				return
+			}
+			var details core.UpdateSecurityListDetails
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(400)
+				return
+			}
+			if err := json.Unmarshal(body, &details); err != nil {
+				t.Error(err)
+				w.WriteHeader(400)
+				return
+			}
+			f.list.Rules = nil
+			for _, rule := range details.IngressSecurityRules {
+				f.list.Rules = append(f.list.Rules, ingressRule(rule))
+			}
+			for _, rule := range details.EgressSecurityRules {
+				f.list.Rules = append(f.list.Rules, egressRule(rule))
+			}
+			f.list.Tags = ociresource.Tags{Freeform: details.FreeformTags, Defined: details.DefinedTags}
+			f.updates++
+			f.list.ETag += "'"
+			if f.loseResponse {
+				f.loseResponse = false
+				connection, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				_ = connection.Close()
+				return
+			}
+		} else if r.Method != http.MethodGet {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("etag", f.list.ETag)
+		details := updateDetails(f.list.Rules, f.list.Tags)
+		body, err := json.Marshal(core.SecurityList{Id: new(f.list.ID), IngressSecurityRules: details.IngressSecurityRules,
+			EgressSecurityRules: details.EgressSecurityRules, FreeformTags: details.FreeformTags, DefinedTags: details.DefinedTags})
+		if err != nil {
+			t.Error(err)
+			w.WriteHeader(500)
+			return
+		}
+		_, _ = w.Write(body)
+	})
+	api, err := newSDKAPI(factory, endpoint)
+	if err != nil {
+		t.Fatal(err)
 	}
-	f.updates++
-	f.list.Rules, f.list.Tags, f.list.ETag = rules, tags, etag+"'"
-	return nil
+	f.api = api
+	return api
 }
 
 type fence struct{ calls int }
@@ -61,12 +114,13 @@ func spec() Spec {
 	}}
 }
 
-func reconcile(t *testing.T, api API, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy) ociresource.Result {
+func reconcile(t *testing.T, api *providerState, store ociresource.Store, spec Spec, policy ociresource.DriftPolicy) ociresource.Result {
 	t.Helper()
+	confirm(t, api, store)
 	if _, err := ociresource.Publish(t.Context(), store, key, policy, spec); err != nil {
 		t.Fatal(err)
 	}
-	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: owner, Authority: &fence{}}
 	result, err := controller.Reconcile(t.Context(), 1)
 	if err != nil {
@@ -77,9 +131,9 @@ func reconcile(t *testing.T, api API, store ociresource.Store, spec Spec, policy
 
 func TestSecurityListConvergesInOneConditionalReplace(t *testing.T) {
 	ssh := nsg.Rule{Direction: nsg.DirectionIngress, Protocol: nsg.ProtocolTCP, Peer: "0.0.0.0/0", PortMin: 22, PortMax: 22}
-	api := &fakeAPI{list: List{ID: listID, ETag: "e1", Rules: []nsg.Rule{ssh},
+	api := &providerState{list: List{ID: listID, ETag: "e1", Rules: []nsg.Rule{ssh},
 		Tags: ociresource.Tags{Freeform: map[string]string{"team": "infra"}}.Merge(owner.Stamp(key, 0, ""))}}
-	store := ociresource.NewMemoryStore()
+	store := persistentStore(t)
 	if result := reconcile(t, api, store, spec(), ociresource.PolicyEnforce); result.Applied != 1 || api.updates != 1 {
 		t.Fatalf("result=%+v updates=%d", result, api.updates)
 	}
@@ -103,34 +157,35 @@ func mustDigest(t *testing.T, store ociresource.Store) string {
 	return desired.SpecDigest
 }
 
-func TestSecurityListReportOnlyAndForeignAreNeverWritten(t *testing.T) {
-	api := &fakeAPI{list: List{ID: listID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}}
-	store := ociresource.NewMemoryStore()
-	if result := reconcile(t, api, store, spec(), ociresource.PolicyReport); result.Drifted != 1 || api.updates != 0 {
+func TestSecurityListAlwaysEnforcesAndForeignIsNeverWritten(t *testing.T) {
+	api := &providerState{list: List{ID: listID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}}
+	store := persistentStore(t)
+	if result := reconcile(t, api, store, spec(), ociresource.PolicyEnforce); result.Applied != 1 || api.updates != 1 {
 		t.Fatalf("report result=%+v updates=%d", result, api.updates)
 	}
 	status, _, _ := store.GetStatus(t.Context(), key)
-	if status.Policy != ociresource.PolicyReport || len(status.Drift) != 3 {
+	if !status.Applied || len(status.Drift) != 3 {
 		t.Fatalf("status=%+v", status)
 	}
 
-	foreign := &fakeAPI{list: List{ID: listID, ETag: "e1"}}
-	if result := reconcile(t, foreign, ociresource.NewMemoryStore(), spec(), ociresource.PolicyEnforce); result.Foreign != 1 ||
+	foreign := &providerState{list: List{ID: listID, ETag: "e1"}}
+	if result := reconcile(t, foreign, persistentStore(t), spec(), ociresource.PolicyEnforce); result.Foreign != 1 ||
 		foreign.updates != 0 {
 		t.Fatalf("foreign result=%+v", result)
 	}
 }
 
 func TestSecurityListTombstoneReleasesWithoutTouchingRules(t *testing.T) {
-	api := &fakeAPI{list: List{ID: listID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}}
-	store := ociresource.NewMemoryStore()
+	api := &providerState{list: List{ID: listID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}}
+	store := persistentStore(t)
 	reconcile(t, api, store, spec(), ociresource.PolicyEnforce)
 	rules := slices.Clone(api.list.Rules)
+	confirm(t, api, store)
 	now := time.Now()
 	if _, err := store.MarkDeleted(t.Context(), key, now.Add(-time.Hour), now.Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api}, Store: store,
+	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store,
 		Ownership: owner, Authority: &fence{}}
 	result, err := controller.Reconcile(t.Context(), 1)
 	if err != nil || result.Deleted != 1 {
@@ -145,6 +200,7 @@ func TestSecurityListTombstoneReleasesWithoutTouchingRules(t *testing.T) {
 }
 
 func TestSecurityListSpecValidation(t *testing.T) {
+	store := persistentStore(t)
 	for name, mutate := range map[string]func(*Spec){
 		"bad ocid":  func(s *Spec) { s.SecurityListID = "ocid1.networksecuritygroup.oc1..x" },
 		"nsg peer":  func(s *Spec) { s.Rules[0].PeerType, s.Rules[0].Peer = nsg.PeerNSG, "ocid1.networksecuritygroup.oc1..x" },
@@ -159,13 +215,17 @@ func TestSecurityListSpecValidation(t *testing.T) {
 	} {
 		value := spec()
 		mutate(&value)
-		if err := value.Validate(); err == nil {
+		if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, value); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	empty := Spec{SecurityListID: listID, AllowEmpty: true}
-	if err := empty.Validate(); err != nil {
+	if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, empty); err != nil {
 		t.Fatalf("explicitly empty spec rejected: %v", err)
+	}
+	records, err := store.List(t.Context(), "GRU", Kind)
+	if err != nil || len(records) != 1 || records[0].Generation != 1 {
+		t.Fatalf("valid empty input was not the sole persisted generation: records=%v err=%v", records, err)
 	}
 }
 
@@ -211,5 +271,46 @@ func TestSDKReplacesBothDirectionsUnderIfMatch(t *testing.T) {
 	ingress, ok := sent["ingressSecurityRules"].([]any)
 	if ifMatch != "e7" || !ok || len(ingress) != 0 || len(sent["egressSecurityRules"].([]any)) != 1 {
 		t.Fatalf("if-match=%q body=%v", ifMatch, sent)
+	}
+}
+
+func persistentStore(t *testing.T) *ociresource.KVStore {
+	t.Helper()
+	return ociresourcetest.Store(t)
+}
+
+func TestConditionalReplaceRecoversAfterLostResponse(t *testing.T) {
+	api := &providerState{list: List{ID: listID, ETag: "e1", Tags: owner.Stamp(key, 0, "")}, loseResponse: true}
+	store := persistentStore(t)
+	if _, err := ociresource.Publish(t.Context(), store, key, ociresource.PolicyEnforce, spec()); err != nil {
+		t.Fatal(err)
+	}
+	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: &fence{}}
+	// The provider commits the replacement before closing the response connection.
+	_, _ = controller.Reconcile(t.Context(), 1)
+	// Reconstructing the controller forces recovery from persisted desired state and provider observation.
+	restarted := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: &fence{}}
+	result, err := restarted.Reconcile(t.Context(), 2)
+	if err != nil || result.InSync != 1 || api.updates != 1 {
+		t.Fatalf("recovery=%+v err=%v updates=%d", result, err, api.updates)
+	}
+}
+
+func confirm(t *testing.T, api *providerState, store ociresource.Store) {
+	t.Helper()
+	current, err := store.Get(t.Context(), key)
+	if errors.Is(err, ociresource.ErrNotFound) {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Operation == nil || !current.Operation.CompletedAt.IsZero() {
+		return
+	}
+	controller := &ociresource.Controller[Spec, List]{Region: "GRU", Resource: Reconciler{API: api.client(t)}, Store: store, Ownership: owner, Authority: &fence{}}
+	result, err := controller.Reconcile(t.Context(), 1)
+	if err != nil || result.InSync != 1 {
+		t.Fatalf("confirm=%+v err=%v", result, err)
 	}
 }

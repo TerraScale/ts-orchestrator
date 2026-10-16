@@ -105,23 +105,27 @@ func intValue(value *int) int {
 
 func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.CreateBackend(ctx, networkloadbalancer.CreateBackendRequest{NetworkLoadBalancerId: new(id),
-		BackendSetName: new(backendSet), OpcRetryToken: new(common.RetryToken()),
+		BackendSetName: new(backendSet), OpcRetryToken: new(ociresource.RetryToken(ctx,
+			fmt.Sprintf("nlb/create/%s/%s/%s/%d", id, backendSet, backend.key(), backend.weight()))),
 		CreateBackendDetails: networkloadbalancer.CreateBackendDetails{IpAddress: new(backend.IP), Port: new(backend.Port),
 			Name: new(backend.key()), Weight: new(backend.weight())}})
 	if err != nil {
 		return "", fmt.Errorf("create OCI NLB backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 func (a sdkAPI) UpdateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.UpdateBackend(ctx, networkloadbalancer.UpdateBackendRequest{NetworkLoadBalancerId: new(id),
-		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(common.RetryToken()),
+		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(ociresource.RetryToken(ctx,
+			fmt.Sprintf("nlb/update/%s/%s/%s/%d", id, backendSet, backend.Name(), backend.weight()))),
 		UpdateBackendDetails: networkloadbalancer.UpdateBackendDetails{Weight: new(backend.weight())}})
 	if err != nil {
 		return "", fmt.Errorf("update OCI NLB backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 func (a sdkAPI) DeleteBackend(ctx context.Context, id, backendSet, name string) (string, error) {
@@ -130,7 +134,8 @@ func (a sdkAPI) DeleteBackend(ctx context.Context, id, backendSet, name string) 
 	if err != nil {
 		return "", fmt.Errorf("delete OCI NLB backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 func (a sdkAPI) UpdateTags(ctx context.Context, id, etag string, tags ociresource.Tags) (string, error) {
@@ -144,7 +149,8 @@ func (a sdkAPI) UpdateTags(ctx context.Context, id, etag string, tags ociresourc
 	if err != nil {
 		return "", fmt.Errorf("update OCI NLB tags: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 // WaitWorkRequest polls with doubling backoff until the work request ends.
@@ -162,7 +168,7 @@ func (a sdkAPI) WaitWorkRequest(ctx context.Context, id string) error {
 			return nil
 		case networkloadbalancer.OperationStatusAccepted, networkloadbalancer.OperationStatusInProgress:
 		default:
-			return fmt.Errorf("OCI NLB work request %s ended %s", id, response.Status)
+			return fmt.Errorf("%w: OCI NLB work request %s ended %s", ociresource.ErrWorkRequestFailed, id, response.Status)
 		}
 		if err := a.pause(ctx, delay); err != nil {
 			return fmt.Errorf("OCI NLB work request %s did not finish: %w", id, err)

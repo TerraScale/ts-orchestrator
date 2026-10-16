@@ -105,13 +105,15 @@ func (a sdkAPI) UnhealthyBackends(ctx context.Context, id, backendSet string) (m
 
 func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.CreateBackend(ctx, loadbalancer.CreateBackendRequest{LoadBalancerId: new(id),
-		BackendSetName: new(backendSet), OpcRetryToken: new(common.RetryToken()),
+		BackendSetName: new(backendSet), OpcRetryToken: new(ociresource.RetryToken(ctx,
+			fmt.Sprintf("lb/create/%s/%s/%s/%t/%t", id, backendSet, backend.key(), backend.Drain, backend.offline))),
 		CreateBackendDetails: loadbalancer.CreateBackendDetails{IpAddress: new(backend.IP), Port: new(backend.Port),
 			Weight: new(defaultWeight), Backup: new(false), Drain: new(backend.Drain), Offline: new(backend.offline)}})
 	if err != nil {
 		return "", fmt.Errorf("create OCI load balancer backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 // UpdateBackend sets every flag from the backend: weight (zero means 1),
@@ -119,13 +121,16 @@ func (a sdkAPI) CreateBackend(ctx context.Context, id, backendSet string, backen
 // release fence passes the observed one with Fenced.
 func (a sdkAPI) UpdateBackend(ctx context.Context, id, backendSet string, backend Backend) (string, error) {
 	response, err := a.client.UpdateBackend(ctx, loadbalancer.UpdateBackendRequest{LoadBalancerId: new(id),
-		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(common.RetryToken()),
+		BackendSetName: new(backendSet), BackendName: new(backend.Name()), OpcRetryToken: new(ociresource.RetryToken(ctx,
+			fmt.Sprintf("lb/update/%s/%s/%s/%d/%t/%t/%t", id, backendSet, backend.Name(), cmp.Or(backend.weight, defaultWeight),
+				backend.backup, backend.Drain, backend.offline))),
 		UpdateBackendDetails: loadbalancer.UpdateBackendDetails{Weight: new(cmp.Or(backend.weight, defaultWeight)),
 			Backup: new(backend.backup), Drain: new(backend.Drain), Offline: new(backend.offline)}})
 	if err != nil {
 		return "", fmt.Errorf("update OCI load balancer backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 func (a sdkAPI) DeleteBackend(ctx context.Context, id, backendSet, name string) (string, error) {
@@ -134,7 +139,8 @@ func (a sdkAPI) DeleteBackend(ctx context.Context, id, backendSet, name string) 
 	if err != nil {
 		return "", fmt.Errorf("delete OCI load balancer backend: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 func (a sdkAPI) UpdateTags(ctx context.Context, id, etag string, tags ociresource.Tags) (string, error) {
@@ -148,7 +154,8 @@ func (a sdkAPI) UpdateTags(ctx context.Context, id, etag string, tags ociresourc
 	if err != nil {
 		return "", fmt.Errorf("update OCI load balancer tags: %w", err)
 	}
-	return deref(response.OpcWorkRequestId), nil
+	workRequestID := deref(response.OpcWorkRequestId)
+	return workRequestID, ociresource.RecordWorkRequest(ctx, workRequestID)
 }
 
 // WaitWorkRequest polls with doubling backoff until the work request ends.
@@ -166,7 +173,7 @@ func (a sdkAPI) WaitWorkRequest(ctx context.Context, id string) error {
 			return nil
 		case loadbalancer.WorkRequestLifecycleStateAccepted, loadbalancer.WorkRequestLifecycleStateInProgress:
 		default:
-			return fmt.Errorf("OCI load balancer work request %s ended %s: %s", id, response.LifecycleState, deref(response.Message))
+			return fmt.Errorf("%w: OCI load balancer work request %s ended %s: %s", ociresource.ErrWorkRequestFailed, id, response.LifecycleState, deref(response.Message))
 		}
 		if err := a.pause(ctx, delay); err != nil {
 			return fmt.Errorf("OCI load balancer work request %s did not finish: %w", id, err)

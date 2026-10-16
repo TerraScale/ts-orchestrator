@@ -49,6 +49,9 @@ type operationContext struct {
 // WithOperation carries an already persisted operation ID to OCI SDK calls.
 // It confers no authority; callers still fence every mutation separately.
 func WithOperation(ctx context.Context, operationID string) context.Context {
+	if existing, ok := ctx.Value(operationContextKey{}).(operationContext); ok && existing.id == operationID {
+		return ctx
+	}
 	return context.WithValue(ctx, operationContextKey{}, operationContext{id: operationID})
 }
 

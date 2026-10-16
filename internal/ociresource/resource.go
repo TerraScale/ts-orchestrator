@@ -54,11 +54,9 @@ type DriftPolicy string
 const (
 	// PolicyEnforce applies the plan to converge OCI to the desired spec.
 	PolicyEnforce DriftPolicy = "enforce"
-	// PolicyReport records drift in the observed bucket without mutating OCI.
-	PolicyReport DriftPolicy = "report"
 )
 
-func (p DriftPolicy) valid() bool { return p == PolicyEnforce || p == PolicyReport }
+func (p DriftPolicy) valid() bool { return p == PolicyEnforce }
 
 // Change is one human-readable step of a plan.
 type Change struct {
@@ -96,6 +94,9 @@ type Target[S any] struct {
 	SpecDigest string
 	Ownership  Ownership
 	Spec       S
+	// OperationID is durable before Apply/Delete and retained until OCI
+	// observation confirms convergence, including after a leader restart.
+	OperationID string
 	// Deleting is set when the desired record is tombstoned. A resource that
 	// is part of a larger object (rules of an NSG, backends of an NLB) reports
 	// found=false once none of its managed parts remain.
@@ -109,7 +110,7 @@ type Target[S any] struct {
 // Fence re-checks mutation authority immediately before one mutation.
 func (t Target[S]) Fence(ctx context.Context) error {
 	if t.Guard == nil {
-		return nil
+		return ErrFenced
 	}
 	return t.Guard(ctx)
 }
@@ -138,4 +139,7 @@ var (
 	// tombstoned record whose containing object is gone has nothing left to
 	// delete, so reconcilers report found=false and the record is purged.
 	ErrGone = errors.New("OCI resource does not exist")
+	// ErrWorkRequestFailed marks a terminal failed mutation. Its effects are
+	// observed before any new operation; transient polling errors retain it.
+	ErrWorkRequestFailed = errors.New("OCI work request failed")
 )

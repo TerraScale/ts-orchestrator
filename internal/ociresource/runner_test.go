@@ -21,11 +21,15 @@ func (a *snapshotAuthority) Guard(_ context.Context, epoch uint64) error {
 }
 
 func TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures(t *testing.T) {
+	store := integrationStore(t)
 	auth := &snapshotAuthority{}
 	var ran []string
 	var epochs []uint64
 	pass := func(name string, err error) Pass {
 		return Pass{Name: name, Run: func(_ context.Context, epoch uint64) error {
+			if storeErr := store.PutStatus(t.Context(), Status{Key: widgetKey(name), Generation: epoch}); storeErr != nil {
+				return storeErr
+			}
 			ran = append(ran, name)
 			epochs = append(epochs, epoch)
 			return err
@@ -36,7 +40,8 @@ func TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures(t *testing.T) {
 	runner.Tick(t.Context())
 	auth.snapshot = authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: false, Epoch: 3}
 	runner.Tick(t.Context())
-	if len(ran) != 0 {
+	records, storeErr := store.ListStatus(t.Context(), "GRU")
+	if storeErr != nil || len(records) != 0 || len(ran) != 0 {
 		t.Fatalf("a follower or unready leader ran %v", ran)
 	}
 	auth.snapshot.Ready = true
@@ -45,6 +50,10 @@ func TestRunnerOnlyRunsOnTheReadyLeaderAndSurvivesFailures(t *testing.T) {
 		t.Fatalf("ran=%v epochs=%v", ran, epochs)
 	}
 
+	records, storeErr = store.ListStatus(t.Context(), "GRU")
+	if storeErr != nil || len(records) != 2 {
+		t.Fatalf("persisted passes=%+v err=%v", records, storeErr)
+	}
 	ran = nil
 	runner.Passes = []Pass{pass("a", ErrFenced), pass("b", nil)}
 	runner.Tick(t.Context())
@@ -58,7 +67,7 @@ func TestRunnerStopsWithContextAndControllerPassIsFenced(t *testing.T) {
 		t.Fatal("ran without authority or passes")
 	}
 	auth := &snapshotAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 9}}
-	store := NewMemoryStore()
+	store := integrationStore(t)
 	cloud := &fakeWidgets{cloud: map[string]widget{}}
 	controller := &Controller[widgetSpec, widget]{Region: "GRU", Resource: cloud, Store: store,
 		Ownership: Ownership{Mode: TagModeFreeform, Owner: "cell-gru"}, Authority: auth}
@@ -88,11 +97,20 @@ func TestRunnerStopsWithContextAndControllerPassIsFenced(t *testing.T) {
 
 // A wake runs the next tick at once instead of after the interval.
 func TestRunnerWakeStartsTheNextTick(t *testing.T) {
+	store := integrationStore(t)
+	cloud := &fakeWidgets{cloud: map[string]widget{}}
+	controller, _ := newController(t, store, cloud, TagModeFreeform)
+	controller.Authority = &fakeAuthority{epoch: 1}
+	put(t, store, "a", 1, PolicyEnforce, 2)
 	auth := &snapshotAuthority{snapshot: authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Leader: true, Ready: true, Epoch: 1}}
 	ticks := make(chan struct{}, 4)
 	wake := make(chan struct{}, 1)
 	runner := Runner{Authority: auth, Interval: time.Hour, Wake: wake,
-		Passes: []Pass{{Name: "count", Run: func(context.Context, uint64) error { ticks <- struct{}{}; return nil }}}}
+		Passes: []Pass{{Name: "count", Run: func(ctx context.Context, epoch uint64) error {
+			_, err := controller.Reconcile(ctx, epoch)
+			ticks <- struct{}{}
+			return err
+		}}}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	go func() { _ = runner.Run(ctx) }()
