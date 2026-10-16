@@ -297,6 +297,9 @@ func (controller functionController) material(ctx context.Context, registration 
 	if controller.config.Roots.reply("").Head != rootHead {
 		return host.FunctionMaterialFiles{}, errors.New("function roots changed during material preparation")
 	}
+	if !delivery.Valid() {
+		return host.FunctionMaterialFiles{}, functionmaterial.ErrMaterial
+	}
 	return host.FunctionMaterialFiles{Files: delivery.Files(), ExpiresAt: delivery.ExpiresAt(), CredentialExpiresAt: delivery.CredentialExpiresAt()}, nil
 }
 
