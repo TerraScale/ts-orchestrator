@@ -360,7 +360,17 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		t.pool.Pending = "a fresh spending allowance for another node is unavailable"
 		return nil
 	}
-	freshRecipe, err := s.Recipe(ctx)
+	var freshRecipe Recipe
+	var err error
+	if t.record.Recipe != nil && t.record.Recipe.Capacity.Role == RoleWasm {
+		if s.FunctionRecipe == nil {
+			t.pool.Pending = "current isolated function host recipe authority is unavailable"
+			return nil
+		}
+		freshRecipe, err = s.FunctionRecipe(ctx, t.record.Recipe.Capacity.Architecture)
+	} else {
+		freshRecipe, err = s.Recipe(ctx)
+	}
 	if err != nil {
 		if errors.Is(err, ErrCapacityPending) {
 			t.pool.Pending = err.Error()
