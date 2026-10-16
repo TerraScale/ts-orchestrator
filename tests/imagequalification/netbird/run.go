@@ -240,10 +240,19 @@ func run(ctx context.Context, req Request, initialReport native.Report, sessions
 	if err != nil || !sameAccount(initial.Observation.Account, restarted.Observation.Account) {
 		return report, errors.New("NetBird restart lost account or peer continuity")
 	}
+	if err := validateFoundation(restarted.Observation, req); err != nil {
+		return report, err
+	}
+	if serverPID(initial.Observation) == serverPID(restarted.Observation) {
+		return report, errors.New("NetBird restart did not replace the failed server process")
+	}
 	rotated, err := call(ctx, 0, "rotate", nil)
 	if err != nil || !sameIdentity(initial.Observation.Account, rotated.Observation.Account) || rotated.Observation.Account.ServiceTokenID == initial.Observation.Account.ServiceTokenID ||
-		rotated.Observation.CredentialVersion == "" || rotated.Observation.DeniedHTTPStatus != 401 || rotated.Observation.Account.ServiceHTTPStatus != 200 {
+		rotated.Observation.CredentialVersion == "" || rotated.Observation.CredentialVersion == restarted.Observation.CredentialVersion || rotated.Observation.DeniedHTTPStatus != 401 || rotated.Observation.Account.ServiceHTTPStatus != 200 {
 		return report, errors.New("NetBird credential rotation did not preserve identity and reject the previous credential")
+	}
+	if err := validateFoundation(rotated.Observation, req); err != nil {
+		return report, err
 	}
 	finish("netbird-foundation", "netbird-foundation")
 	backup, err := call(ctx, 0, "backup", store.Private)
@@ -302,6 +311,15 @@ func validateFoundation(observation protocol.Observation, req Request) error {
 
 func sameIdentity(a, b protocol.Account) bool {
 	return a.AccountID == b.AccountID && a.OwnerID == b.OwnerID && a.ServiceID == b.ServiceID && a.PeerID == b.PeerID && a.PeerKeySHA256 == b.PeerKeySHA256 && a.PeerAddress == b.PeerAddress && a.StoreID == b.StoreID && a.PolicySHA256 == b.PolicySHA256 && slices.Equal(a.PolicyIDs, b.PolicyIDs)
+}
+
+func serverPID(observation protocol.Observation) uint32 {
+	for _, component := range observation.Components {
+		if component.Name == "netbird-server" {
+			return component.PID
+		}
+	}
+	return 0
 }
 
 func sameAccount(a, b protocol.Account) bool {
