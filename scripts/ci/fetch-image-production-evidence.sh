@@ -24,17 +24,32 @@ fetch() {
 }
 prefix=image-production-$image_sha256-$cell-$architecture
 target=$directory/$cell/$architecture
-fetch "$prefix.json" "$target/production.json" 1064960
+fetch "$prefix.json" "$work/production.json" 1064960
 if jq -e --arg name "$prefix-delegation.json" 'any(.assets[]; .name == $name)' "$work/assets.json" >/dev/null; then
-    fetch "$prefix-delegation.json" "$target/delegation.json" 1064960
+    fetch "$prefix-delegation.json" "$work/delegation.json" 1064960
 fi
 jq -er '.payload.evidence | select(length == 2) | .[] |
     select((.sha256 | test("^[0-9a-f]{64}$")) and (.bytes > 0 and .bytes <= 67108864)) |
-    [.sha256, (.bytes | tostring)] | @tsv' "$target/production.json" > "$work/objects"
+    [.sha256, (.bytes | tostring)] | @tsv' "$work/production.json" > "$work/objects"
 [[ $(wc -l < "$work/objects") == 2 ]] || { echo 'image record must retain both gate objects' >&2; exit 1; }
 while IFS=$'\t' read -r digest bytes; do
     [[ $digest =~ ^[0-9a-f]{64}$ && $bytes =~ ^[1-9][0-9]*$ ]] || exit 2
-    if [[ ! -f $directory/objects/$digest ]]; then
-        fetch "image-production-evidence-$digest" "$directory/objects/$digest" "$bytes"
+    object=$directory/objects/$digest
+    if [[ -f $object && ! -L $object && $(stat -c '%s' "$object") == "$bytes" &&
+        $(sha256sum "$object" | awk '{print $1}') == "$digest" ]]; then
+        continue
     fi
+    fetch "image-production-evidence-$digest" "$work/$digest" "$bytes"
+    [[ $(stat -c '%s' "$work/$digest") == "$bytes" &&
+        $(sha256sum "$work/$digest" | awk '{print $1}') == "$digest" ]] || {
+        echo "retained image evidence bytes differ: $digest" >&2; exit 1;
+    }
+    mv -f -- "$work/$digest" "$object"
 done < "$work/objects"
+if [[ -f $work/delegation.json ]]; then
+    mv -f -- "$work/delegation.json" "$target/delegation.json"
+else
+    rm -f -- "$target/delegation.json"
+fi
+# Consumers use this completion marker to resume without another provider call.
+mv -f -- "$work/production.json" "$target/production.json"
