@@ -15,6 +15,7 @@ import (
 	containerd "github.com/containerd/containerd/v2/client"
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 type containerMaterialFixture func(context.Context, ContainerTaskBinding) (ContainerMaterial, error)
@@ -247,6 +248,15 @@ while :; do sleep 1; done
 }
 
 func TestContainerdContainerCredentialExpirySurvivesAgentExit(t *testing.T) {
+	testContainerCredentialExpiry(t, "container")
+}
+
+func TestContainerdFunctionCredentialExpirySurvivesAgentExit(t *testing.T) {
+	testContainerCredentialExpiry(t, "function-worker")
+}
+
+func testContainerCredentialExpiry(t *testing.T, role string) {
+	t.Helper()
 	if *integrationSocket == "" {
 		t.Fatal("provide -containerd-socket for a disposable real runtime")
 	}
@@ -258,11 +268,20 @@ func TestContainerdContainerCredentialExpirySurvivesAgentExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = e.Close() })
-	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-c", "test -r \"$TOKEN_FILE\"; echo credential-consumer-ready; exec sleep 120"}})
+	commandText := "test -r \"$TOKEN_FILE\"; echo credential-consumer-ready; exec sleep 120"
+	if role == "function-worker" {
+		commandText = "test -r /run/ts-orch/function/broker.creds; echo credential-consumer-ready; exec sleep 120"
+	}
+	runtime, err := ContainerRuntime(&api.ContainerSpec{Image: integrationImage, User: "65532:65532", Command: []string{"/bin/sh", "-ec", commandText}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	task := &api.Task{ID: fmt.Sprintf("expiry%d", time.Now().UnixNano()), ServiceID: "credentialexpiryintegration", NodeID: "expirynode", Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	if role == "function-worker" {
+		task.ServiceAnnotations.Labels = map[string]string{LabelRole: role, "terrascale.function-proof": "expiry-fixture"}
+		task.Spec.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+		task.Spec.Resources.Reservations = task.Spec.Resources.Limits.Copy()
+	}
 	c, err := e.Controller(task)
 	if err != nil {
 		t.Fatal(err)
@@ -330,7 +349,19 @@ func integrationExpiringAgent(socket, state, taskPath, deadline string) error {
 	}
 	defer e.Close()
 	admission := Admission{Role: "container", Region: "sa-saopaulo-1", InstanceID: "ocid1.instance.expiryfixture", HostID: "expiryhost"}
-	if err := e.BindContainerMaterial(admission, containerMaterialFixture(func(_ context.Context, binding ContainerTaskBinding) (ContainerMaterial, error) {
+	if task.ServiceAnnotations.Labels[LabelRole] == "function-worker" {
+		admission.Role = "wasm"
+		files := make(map[string][]byte, len(functionMaterialLimits))
+		for name := range functionMaterialLimits {
+			files[name] = []byte("fixture-" + name)
+		}
+		files["root.pub"] = bytes.Repeat([]byte{1}, 32)
+		if err := e.BindFunctionMaterial(admission, functionMaterialFixture(func(_ context.Context, binding FunctionTaskBinding) (FunctionMaterial, error) {
+			return FunctionMaterial{Binding: binding, ExpiresAt: time.Now().Add(time.Hour), CredentialExpiresAt: expires, Files: files}, nil
+		})); err != nil {
+			return err
+		}
+	} else if err := e.BindContainerMaterial(admission, containerMaterialFixture(func(_ context.Context, binding ContainerTaskBinding) (ContainerMaterial, error) {
 		return ContainerMaterial{Binding: binding, User: "65532:65532", ExpiresAt: time.Now().Add(time.Hour), CredentialExpiresAt: expires, Files: map[string][]byte{"token_file": []byte("fixture-expiring-credential")}, FileEnvironment: map[string]string{"TOKEN_FILE": "token_file"}}, nil
 	})); err != nil {
 		return err
