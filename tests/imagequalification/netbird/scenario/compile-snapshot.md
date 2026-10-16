@@ -14,11 +14,16 @@ The QA integrator approved these exact upstream copies:
   obtained with `git show`, including the qualified containerd dependencies.
   No dirty CORE module files were copied.
 
+- `04e987e1`: exact parent-owned `tests/imagequalification/netbird/protocol/protocol.go`,
+  approved by its owner, using independent shared host transport. This avoids
+  importing the unrelated CORE runtime through the stale native transport.
+
 Copied content SHA-256:
 
 | File | SHA-256 |
 | --- | --- |
 | `internal/netbird/manager/baseline.go` | `71927a96c9e60a6d2faeae9ea8ca1184cd740eb0862f4822585c570bff869344` |
+| `tests/imagequalification/netbird/protocol/protocol.go` | `1c6a13347a4d8b666b90d4daa22d9633dc1724585c5b47be5678032ac472e8ea` |
 | `go.mod` | `3dcc9ecb65641323ccb85a6383ad370d328ccc3ef47545227abb38e7b8474d4f` |
 | `go.sum` | `8b66a5397e2d3eddd6f553f081eb34365352c104503b72a813bc21a4ebf3dca3` |
 

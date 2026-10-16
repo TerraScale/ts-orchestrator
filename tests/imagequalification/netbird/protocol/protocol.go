@@ -4,7 +4,7 @@ package protocol
 import (
 	"encoding/json/jsontext"
 
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
+	native "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
 // Command credentials travel through authenticated SSH stdin and are never evidence.
