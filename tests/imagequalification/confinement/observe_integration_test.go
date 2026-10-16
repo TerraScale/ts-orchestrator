@@ -28,7 +28,7 @@ import (
 // This scenario traverses the actual OCI clients, HTTP signing and paginated
 // protocol. The local endpoint is a provider simulator, never live acceptance.
 func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
-	for _, mode := range []string{"valid", "late-policy", "late-membership", "late-dynamic-group", "policy-extra", "public-route", "external-egress", "foreign-host", "key-mismatch", "pagination-loop"} {
+	for _, mode := range []string{"valid", "late-policy", "late-membership", "late-dynamic-group", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "key-mismatch", "pagination-loop"} {
 		t.Run(mode, func(t *testing.T) {
 			s := Scope{ApprovalSHA256: strings.Repeat("a", 64), RunID: "exact-run", Tenancy: "ocid1.tenancy.oc1..test", Principal: "ocid1.user.oc1..candidate", Group: "ocid1.group.oc1..candidate", PolicyID: "ocid1.policy.oc1..candidate", Compartment: "ocid1.compartment.oc1..disposable", Subnet: "ocid1.subnet.oc1..disposable", Namespace: "qualification", Bucket: "disposable", Object: "qualification/exact-run/image.qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16", HostNames: []string{"ts-qualification-exact-run-host"}, ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Second), CleanupUntil: time.Now().Add(2 * time.Hour).Truncate(time.Second)}
 			s.PolicyStatements = RequiredStatements(s)
@@ -128,6 +128,18 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 					}
 				case path == "/subnets/"+s.Subnet:
 					write(core.Subnet{Id: new(s.Subnet), CompartmentId: new(s.Compartment), VcnId: new("ocid1.vcn.oc1..disposable"), RouteTableId: new("ocid1.routetable.oc1..disposable"), CidrBlock: new(s.PeerCIDR), ProhibitPublicIpOnVnic: new(true), SecurityListIds: []string{"ocid1.securitylist.oc1..disposable"}, LifecycleState: core.SubnetLifecycleStateAvailable})
+				case path == "/subnets":
+					if r.URL.Query().Get("compartmentId") != s.Compartment {
+						t.Error("subnet inventory is not complete compartment scope")
+					}
+					if page == "" {
+						w.Header().Set("opc-next-page", "subnet-2")
+						write([]core.Subnet{{Id: new(s.Subnet), CompartmentId: new(s.Compartment)}})
+					} else if mode == "foreign-subnet" {
+						write([]core.Subnet{{Id: new("ocid1.subnet.oc1..production"), CompartmentId: new(s.Compartment)}})
+					} else {
+						write([]core.Subnet{})
+					}
 				case path == "/vcns/ocid1.vcn.oc1..disposable":
 					write(core.Vcn{Id: new("ocid1.vcn.oc1..disposable"), CompartmentId: new(s.Compartment), CidrBlock: new(s.VCNCIDR), LifecycleState: core.VcnLifecycleStateAvailable})
 				case path == "/routeTables/ocid1.routetable.oc1..disposable":

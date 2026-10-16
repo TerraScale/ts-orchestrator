@@ -9,6 +9,16 @@ import (
 )
 
 func observeNetwork(ctx context.Context, client core.VirtualNetworkClient, s Scope, f *facts) error {
+	subnets, err := pages(func(page *string) ([]core.Subnet, *string, error) {
+		r, e := client.ListSubnets(ctx, core.ListSubnetsRequest{CompartmentId: new(s.Compartment), Page: page})
+		return r.Items, r.OpcNextPage, e
+	})
+	if err != nil {
+		return err
+	}
+	if len(subnets) != 1 || text(subnets[0].Id) != s.Subnet || text(subnets[0].CompartmentId) != s.Compartment {
+		return errors.New("disposable compartment must contain only its exact approved subnet")
+	}
 	subnet, err := client.GetSubnet(ctx, core.GetSubnetRequest{SubnetId: new(s.Subnet)})
 	if err != nil {
 		return err

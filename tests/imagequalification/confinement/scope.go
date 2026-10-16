@@ -92,9 +92,12 @@ func RequiredStatements(s Scope) []string {
 	return []string{
 		statement("manage instance-family", "", s.ExpiresAt, "CreateImage", "LaunchInstance"),
 		statement("manage instance-family", "", s.CleanupUntil, "GetImage", "GetInstance", "ListVnicAttachments", "TerminateInstance", "DeleteImage"),
-		statement("use virtual-network-family", fmt.Sprintf("target.subnet.id='%s', ", s.Subnet), s.ExpiresAt, "LaunchInstance"),
+		// OCI has no supported subnet-ID policy variable; the observer requires
+		// this compartment's complete subnet inventory to be exactly one subnet.
+		statement("use virtual-network-family", "", s.ExpiresAt, "LaunchInstance"),
+		statement("use virtual-network-family", "", s.CleanupUntil, "TerminateInstance"),
 		statement("read virtual-network-family", "", s.CleanupUntil, "GetVnic", "GetSubnet"),
-		statement("manage objects", object, s.ExpiresAt, "PutObject", "CreateMultipartUpload", "UploadPart", "CommitMultipartUpload"),
+		statement("manage objects", object, s.ExpiresAt, "PutObject", "CreateMultipartUpload", "UploadPart", "CommitMultipartUpload", "GetObject", "CreateImage"),
 		statement("manage objects", object, s.CleanupUntil, "HeadObject", "DeleteObject", "AbortMultipartUpload"),
 	}
 }
