@@ -118,7 +118,8 @@ func TestRegistryResolverAuthenticatedHTTPIntegration(t *testing.T) {
 	}
 	private, err = NewOCIRegistryResolver(factory, func(context.Context, *api.Task) (*RegistryAdmission, error) {
 		return &RegistryAdmission{ServiceID: "serviceid", Environment: intent.Environment, Region: intent.Region,
-			Scope: ociregistry.PullScope{RegistryHost: host, Repository: repository, Digest: digest, TaskPrincipal: intent.ID}}, nil
+			Scope:         ociregistry.PullScope{RegistryHost: host, Repository: repository, Digest: digest, TaskPrincipal: intent.ID},
+			VerifyCurrent: func(ctx context.Context) error { return ctx.Err() }}, nil
 	})
 	if err != nil {
 		t.Fatal(err)
