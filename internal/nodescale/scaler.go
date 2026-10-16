@@ -16,9 +16,9 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
+	"github.com/moby/swarmkit/v2/api"
 )
 
 const (
@@ -37,20 +37,14 @@ const (
 	stepGone   = "gone"
 )
 
-// Hosts is the host registry the scaler reads, and retires nodes through.
-type Hosts interface {
-	ListHosts(ctx context.Context) ([]host.HostStatus, error)
-	ListDesired(ctx context.Context, role string) ([]host.Desired, error)
-	Cordon(ctx context.Context, node string) error // retire mark regardless of allocations
-	Unretire(ctx context.Context, node string) error
-}
-
 // Scaler scales one region's pool nodes. Tick acts on the leader only.
 type Scaler struct {
-	Cell      string // e.g. "gru"; nodes are naming.RegionCell(strings.ToUpper(Cell)).Node(n)
-	Pool      Pool
-	Recipe    func(ctx context.Context) (Recipe, error)
-	Hosts     Hosts
+	Cell    string // e.g. "gru"; nodes are naming.RegionCell(strings.ToUpper(Cell)).Node(n)
+	Pool    Pool
+	Recipe  func(ctx context.Context) (Recipe, error)
+	Control api.ControlClient
+	// CanRetire verifies owned retained-volume inventory and DATA retirement safety; nil holds scale-down.
+	CanRetire func(ctx context.Context, node, instanceID string) error
 	Loads     func() []NodeLoad                                            // latest load per node
 	Allowance func(now time.Time) (int, bool)                              // false: no fresh allowance, so no growth
 	Revoke    func(ctx context.Context, instanceID string) error           // ends a removed node's enrollment
@@ -84,12 +78,13 @@ type tick struct {
 	obs     observation
 	loads   []NodeLoad
 	journal []decisionlog.Decision
+	blocked string
 }
 
 // observation is the pool and the hosts at one tick: which nodes count toward the sample, and how many.
 type observation struct {
 	nodes, quorum, pool int
-	live                map[string]bool   // nodes with a live host session
+	live                map[string]bool   // nodes ready in SwarmKit
 	counted             map[string]bool   // nodes whose load counts toward the sample
 	addresses           map[string]string // named pool instance -> private IP
 }
@@ -129,17 +124,20 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("observe node pool: %w", err)
 	}
-	hosts, err := s.Hosts.ListHosts(ctx)
+	if s.Control == nil {
+		return errors.New("SwarmKit control API is unavailable")
+	}
+	hosts, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
 	if err != nil {
-		return fmt.Errorf("list hosts: %w", err)
+		return fmt.Errorf("list SwarmKit nodes: %w", err)
 	}
 	t := &tick{epoch: snapshot.Epoch, now: s.Now(), record: record, pool: pool}
 	if t.pool.Pending == "" {
-		if err := s.nameUnnamed(ctx, t, hosts); err != nil {
+		if err := s.nameUnnamed(ctx, t, hosts.Nodes); err != nil {
 			return err
 		}
 	}
-	t.obs = s.observe(t.pool, hosts, t.now)
+	t.obs = s.observe(t.pool, hosts.Nodes)
 	t.loads = countedLoads(s.Loads(), t.obs)
 	s.mu.Lock()
 	s.addresses = t.obs.addresses
@@ -204,10 +202,10 @@ func (s *Scaler) named(name string) bool {
 }
 
 // nameUnnamed gives each live pool instance without a node name the lowest free one, and updates t to match.
-func (s *Scaler) nameUnnamed(ctx context.Context, t *tick, hosts []host.HostStatus) error {
+func (s *Scaler) nameUnnamed(ctx context.Context, t *tick, hosts []*api.Node) error {
 	used := map[string]bool{}
 	for _, h := range hosts {
-		used[h.Registration.Node] = true
+		used[h.Spec.Annotations.Name] = true
 	}
 	for _, in := range t.pool.Instances {
 		used[in.Name] = true
@@ -247,20 +245,26 @@ func freeNode(cell naming.Cell, used map[string]bool) (string, error) {
 	}
 }
 
-// observe counts the region's nodes: quorum hosts with a live session, and pool instances, which all have names by now.
-func (s *Scaler) observe(pool PoolState, hosts []host.HostStatus, now time.Time) observation {
+// observe counts admitted ready managers and owned pool instances.
+func (s *Scaler) observe(pool PoolState, hosts []*api.Node) observation {
 	obs := observation{live: map[string]bool{}, counted: map[string]bool{}, addresses: map[string]string{}}
-	poolNodes := map[string]bool{}
+	poolNodes := map[string]string{}
 	for _, in := range pool.Instances {
-		poolNodes[in.Name] = true
+		poolNodes[in.Name] = in.ID
 	}
 	for _, h := range hosts {
-		if now.Before(h.SessionExpiresAt) {
-			obs.live[h.Registration.Node] = true
+		name := h.Spec.Annotations.Name
+		if !s.named(name) || h.Spec.Membership != api.NodeMembershipAccepted ||
+			h.Status.State != api.NodeStatus_READY ||
+			(poolNodes[name] != "" && h.Spec.Annotations.Labels["terrascale.instance-id"] != poolNodes[name]) {
+			continue
+		}
+		if !obs.live[name] {
+			obs.live[name] = true
 		}
 	}
 	for _, h := range hosts {
-		if node := h.Registration.Node; obs.live[node] && !poolNodes[node] {
+		if node := h.Spec.Annotations.Name; obs.live[node] && !obs.counted[node] && poolNodes[node] == "" && h.Role == api.NodeRoleManager {
 			obs.quorum++
 			obs.counted[node] = true
 		}
@@ -355,7 +359,7 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 	return nil
 }
 
-// enroll ends the scale-up once every pool node has a live host session. A node that never enrolls is removed
+// enroll ends the scale-up once every pool node is admitted and ready in SwarmKit. A node that never enrolls is removed
 // after LaunchTimeout.
 func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 	action := t.record.Action
@@ -374,6 +378,10 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 		if absent(in.State) || in.Created.Before(action.Started) || t.obs.live[in.Name] {
 			continue
 		}
+		if err := s.expiredSafe(ctx, t, in); err != nil {
+			t.pool.Pending = fmt.Sprintf("cannot retire expired launch %s: %s", in.Name, err)
+			return nil
+		}
 		if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 			return err
 		}
@@ -384,11 +392,50 @@ func (s *Scaler) enroll(ctx context.Context, t *tick) error {
 	t.record.Action = nil
 	s.queue(t, decisionlog.Decision{Kind: decisionlog.KindHeld, Rule: "nodescale.launch-expired",
 		Subject: s.regionSubject(), Summary: fmt.Sprintf("stop launching a node in %s", s.Cell),
-		Reason: fmt.Sprintf("no host session within %s", LaunchTimeout)})
+		Reason: fmt.Sprintf("no SwarmKit ready node within %s", LaunchTimeout)})
 	return nil
 }
 
-// launched reports whether the pool holds From+1 live instances, each named and each with a live host session.
+// expiredSafe requires the same DATA proof for launch cleanup, including nodes that joined but never became ready.
+func (s *Scaler) expiredSafe(ctx context.Context, t *tick, instance PoolInstance) error {
+	if s.CanRetire == nil {
+		return errors.New("node retirement safety proof is unavailable")
+	}
+	if err := s.CanRetire(ctx, instance.Name, instance.ID); err != nil {
+		return err
+	}
+	nodes, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return err
+	}
+	for _, node := range nodes.Nodes {
+		if node.Spec.Annotations.Name != instance.Name && node.Spec.Annotations.Labels["terrascale.instance-id"] != instance.ID {
+			continue
+		}
+		safe, err := s.retireSafe(ctx, instance.Name, instance.ID)
+		if err != nil {
+			return err
+		}
+		if !safe {
+			return errors.New("the admitted node holds protected tasks or has an unverified identity")
+		}
+		if err := s.setAvailability(ctx, instance.Name, instance.ID, api.NodeAvailabilityDrain, t.epoch); err != nil {
+			return err
+		}
+		probe := *t
+		probe.record.Action = &InFlight{Node: instance.Name}
+		drained, err := s.drained(ctx, &probe)
+		if err != nil {
+			return err
+		}
+		if !drained {
+			return errors.New("the admitted node has not finished draining")
+		}
+	}
+	return nil
+}
+
+// launched reports whether the pool holds From+1 live instances, each named, admitted and ready in SwarmKit.
 func (s *Scaler) launched(t *tick) bool {
 	live := 0
 	for _, in := range t.pool.Instances {
@@ -414,20 +461,29 @@ func joined(t *tick) []string {
 	return nodes
 }
 
-// cordon retires the node, so the workload reconciler places nothing more on it.
+// cordon asks SwarmKit to drain a verified stateless worker.
 func (s *Scaler) cordon(ctx context.Context, t *tick) error {
 	action := t.record.Action
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
-	if err := s.Hosts.Cordon(ctx, action.Node); err != nil {
+	safe, err := s.retireSafe(ctx, action.Node, action.InstanceID)
+	if err != nil {
+		t.pool.Pending = err.Error()
+		return nil
+	}
+	if !safe {
+		t.pool.Pending = "node retirement safety is unavailable or the node holds protected tasks"
+		return nil
+	}
+	if err := s.setAvailability(ctx, action.Node, action.InstanceID, api.NodeAvailabilityDrain, t.epoch); err != nil {
 		return fmt.Errorf("cordon %s: %w", action.Node, err)
 	}
 	action.Step = stepDrain
 	return nil
 }
 
-// drain waits until nothing is desired on the node and no load balancer backend points at it. After
+// drain waits until every task on the node is terminal and no load balancer backend points at it. After
 // DrainTimeout the node is uncordoned and the failure counts as a change, so the cooldown holds.
 func (s *Scaler) drain(ctx context.Context, t *tick) error {
 	action := t.record.Action
@@ -445,7 +501,7 @@ func (s *Scaler) drain(ctx context.Context, t *tick) error {
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
-	if err := s.Hosts.Unretire(ctx, action.Node); err != nil {
+	if err := s.setAvailability(ctx, action.Node, action.InstanceID, api.NodeAvailabilityActive, t.epoch); err != nil {
 		return fmt.Errorf("uncordon %s: %w", action.Node, err)
 	}
 	// DownCooldown equals DrainTimeout, so the start stamp has expired by now; the failure restarts it.
@@ -457,15 +513,25 @@ func (s *Scaler) drain(ctx context.Context, t *tick) error {
 	return nil
 }
 
-// drained reports whether nothing is desired on the node and no load balancer backend still points at it.
+// drained reports whether every task on the node is terminal and no load balancer backend still points at it.
 func (s *Scaler) drained(ctx context.Context, t *tick) (bool, error) {
 	node := t.record.Action.Node
-	desired, err := s.Hosts.ListDesired(ctx, "")
+	n, err := s.worker(ctx, node)
 	if err != nil {
-		return false, fmt.Errorf("list desired state: %w", err)
+		return false, err
 	}
-	if slices.ContainsFunc(desired, func(d host.Desired) bool { return d.Node == node && !d.Withdrawn }) {
+	if n.Spec.Availability != api.NodeAvailabilityDrain {
 		return false, nil
+	}
+	tasks, err := s.Control.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{n.ID}}})
+	if err != nil {
+		return false, fmt.Errorf("list tasks at %s: %w", node, err)
+	}
+	for _, task := range tasks.Tasks {
+		// Desired SHUTDOWN or manager orphaning cannot prove the agent stopped the process.
+		if task.Status.State < api.TaskStateCompleted || task.Status.State == api.TaskStateOrphaned {
+			return false, nil
+		}
 	}
 	backends, err := s.Backends(ctx, node, t.obs.addresses[node])
 	if err != nil {
@@ -477,6 +543,26 @@ func (s *Scaler) drained(ctx context.Context, t *tick) (bool, error) {
 // remove detaches and terminates the drained instance.
 func (s *Scaler) remove(ctx context.Context, t *tick) error {
 	action := t.record.Action
+	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
+		return err
+	}
+	safe, err := s.retireSafe(ctx, action.Node, action.InstanceID)
+	if err != nil {
+		t.pool.Pending = err.Error()
+		return nil
+	}
+	if !safe {
+		t.pool.Pending = "node retirement safety is unavailable or the node holds protected tasks"
+		return nil
+	}
+	drained, err := s.drained(ctx, t)
+	if err != nil {
+		return err
+	}
+	if !drained {
+		action.Step = stepDrain
+		return nil
+	}
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
@@ -529,7 +615,7 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 		}
 		if !found {
 			decision.Action = Hold
-			decision.Reason = "no pool node is free to drain: each holds a terrabase member or lacks a load"
+			decision.Reason = cmp.Or(t.blocked, "no pool node is free to drain: protected tasks, manager, or missing load")
 			break
 		}
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Down, Step: stepCordon, Node: target.Name,
@@ -545,16 +631,20 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 	return decision, nil
 }
 
-// pickDrain picks the named pool node with the least CPU, ties to the highest n, that holds no TerraBase member.
+// pickDrain picks the verified stateless worker with the least CPU, ties to the highest n.
 func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, error) {
-	desired, err := s.Hosts.ListDesired(ctx, roleTerraBase)
+	protected, err := s.protectedNodes(ctx)
 	if err != nil {
-		return PoolInstance{}, false, fmt.Errorf("list terrabase desired state: %w", err)
+		return PoolInstance{}, false, err
 	}
-	holds := map[string]bool{}
-	for _, d := range desired {
-		if !d.Withdrawn && d.Role == roleTerraBase {
-			holds[d.Node] = true
+	nodes, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return PoolInstance{}, false, fmt.Errorf("list drain candidates: %w", err)
+	}
+	workers := map[string]bool{}
+	for _, node := range nodes.Nodes {
+		if node.Role == api.NodeRoleWorker && node.Spec.DesiredRole == api.NodeRoleWorker && node.Spec.Membership == api.NodeMembershipAccepted && node.Spec.Availability == api.NodeAvailabilityActive && !protected[node.ID] {
+			workers[node.Spec.Annotations.Name] = true
 		}
 	}
 	cpu := map[string]float64{}
@@ -563,7 +653,7 @@ func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, er
 	}
 	var candidates []PoolInstance
 	for _, in := range t.pool.Instances {
-		if _, loaded := cpu[in.Name]; loaded && t.obs.counted[in.Name] && s.named(in.Name) && !holds[in.Name] {
+		if _, loaded := cpu[in.Name]; loaded && t.obs.counted[in.Name] && s.named(in.Name) && workers[in.Name] {
 			candidates = append(candidates, in)
 		}
 	}
@@ -573,12 +663,114 @@ func (s *Scaler) pickDrain(ctx context.Context, t *tick) (PoolInstance, bool, er
 	slices.SortFunc(candidates, func(a, b PoolInstance) int {
 		return cmp.Or(cmp.Compare(cpu[a.Name], cpu[b.Name]), cmp.Compare(nodeNumber(b.Name), nodeNumber(a.Name)))
 	})
-	return candidates[0], true, nil
+	for _, candidate := range candidates {
+		if s.CanRetire == nil {
+			t.blocked = "node retirement safety proof is unavailable"
+			break
+		}
+		if err := s.CanRetire(ctx, candidate.Name, candidate.ID); err != nil {
+			t.blocked = fmt.Sprintf("cannot retire %s: %s", candidate.Name, err)
+			continue
+		}
+		return candidate, true, nil
+	}
+	return PoolInstance{}, false, nil
+}
+
+// protectedNodes retains stateful history and orphan tasks: task state cannot prove a writer fence.
+func (s *Scaler) protectedNodes(ctx context.Context) (map[string]bool, error) {
+	services, err := s.Control.ListServices(ctx, &api.ListServicesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list services for retirement safety: %w", err)
+	}
+	known := map[string]*api.Service{}
+	for _, service := range services.Services {
+		known[service.ID] = service
+	}
+	tasks, err := s.Control.ListTasks(ctx, &api.ListTasksRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("list tasks for retirement safety: %w", err)
+	}
+	protected := map[string]bool{}
+	for _, task := range tasks.Tasks {
+		service := known[task.ServiceID]
+		if service == nil || service.Spec.Annotations.Labels["terrascale.role"] == "" ||
+			stateful(service.Spec.Annotations.Labels) || stateful(task.Annotations.Labels) {
+			protected[task.NodeID] = true
+		}
+	}
+	return protected, nil
+}
+
+func stateful(labels map[string]string) bool {
+	_, declared := labels["terrascale.stateful"]
+	return declared || labels["terrascale.role"] == roleTerraBase
+}
+
+// worker resolves the manager-owned node name; a missing or ambiguous identity cannot retire capacity.
+func (s *Scaler) worker(ctx context.Context, name string) (*api.Node, error) {
+	nodes, err := s.Control.ListNodes(ctx, &api.ListNodesRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("find worker %s: %w", name, err)
+	}
+	var found *api.Node
+	for _, node := range nodes.Nodes {
+		if node.Spec.Annotations.Name != name {
+			continue
+		}
+		if found != nil || node.Role != api.NodeRoleWorker || node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Membership != api.NodeMembershipAccepted {
+			return nil, fmt.Errorf("node %s is ambiguous or is a manager", name)
+		}
+		found = node
+	}
+	if found == nil {
+		return nil, fmt.Errorf("worker %s is not admitted to SwarmKit", name)
+	}
+	return found, nil
+}
+
+func (s *Scaler) setAvailability(ctx context.Context, name, instanceID string, availability api.NodeSpec_Availability, epoch uint64) error {
+	node, err := s.worker(ctx, name)
+	if err != nil {
+		return err
+	}
+	if node.Spec.Annotations.Labels["terrascale.instance-id"] != instanceID {
+		return fmt.Errorf("node %s is not instance %s", name, instanceID)
+	}
+	if node.Spec.Availability == availability {
+		return nil
+	}
+	spec := node.Spec.Copy()
+	spec.Availability = availability
+	if err := s.Leader.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	_, err = s.Control.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: node.ID, NodeVersion: &node.Meta.Version, Spec: spec})
+	return err
+}
+
+func (s *Scaler) retireSafe(ctx context.Context, name, instanceID string) (bool, error) {
+	node, err := s.worker(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	protected, err := s.protectedNodes(ctx)
+	if err != nil {
+		return false, err
+	}
+	if node.Spec.Annotations.Labels["terrascale.instance-id"] != instanceID || protected[node.ID] || s.CanRetire == nil {
+		return false, nil
+	}
+	if err := s.CanRetire(ctx, name, instanceID); err != nil {
+		return false, fmt.Errorf("retirement safety for %s: %w", name, err)
+	}
+	return true, nil
 }
 
 // nodeNumber is n of a node name ts-<cell>-<n>.
 func nodeNumber(node string) int {
-	n, _ := strconv.Atoi(node[strings.LastIndexByte(node, '-')+1:])
+	_, suffix, _ := strings.CutLast(node, "-")
+	n, _ := strconv.Atoi(suffix)
 	return n
 }
 

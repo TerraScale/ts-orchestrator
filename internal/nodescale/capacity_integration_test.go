@@ -26,7 +26,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
-	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 )
@@ -588,49 +587,6 @@ func TestCapacityPoolProtocolLifecycle(t *testing.T) {
 	}
 }
 
-type capacityHosts struct {
-	now       func() time.Time
-	live      map[string]bool
-	desired   []host.Desired
-	cordoned  []string
-	unretired []string
-}
-
-func (h *capacityHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
-	var hosts []host.HostStatus
-	for node, live := range h.live {
-		status := host.HostStatus{Registration: host.Registration{Node: node}}
-		if live {
-			status.SessionExpiresAt = h.now().Add(time.Hour)
-		}
-		hosts = append(hosts, status)
-	}
-	slices.SortFunc(hosts, func(a, b host.HostStatus) int {
-		return strings.Compare(a.Registration.Node, b.Registration.Node)
-	})
-	return hosts, nil
-}
-
-func (h *capacityHosts) ListDesired(_ context.Context, role string) ([]host.Desired, error) {
-	var out []host.Desired
-	for _, d := range h.desired {
-		if role == "" || d.Role == role {
-			out = append(out, d)
-		}
-	}
-	return out, nil
-}
-
-func (h *capacityHosts) Cordon(_ context.Context, node string) error {
-	h.cordoned = append(h.cordoned, node)
-	return nil
-}
-
-func (h *capacityHosts) Unretire(_ context.Context, node string) error {
-	h.unretired = append(h.unretired, node)
-	return nil
-}
-
 type capacityLeader struct{ snapshot authority.Snapshot }
 
 func (f *capacityLeader) Current() authority.Snapshot { return f.snapshot }
@@ -769,14 +725,15 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			hosts := &capacityHosts{now: func() time.Time { return now }, live: map[string]bool{"ts-gru-1": true, "ts-gru-2": true, "ts-gru-3": true}}
+			hosts := newSwarmHosts(t)
+			hosts.live = map[string]bool{"ts-gru-1": true, "ts-gru-2": true, "ts-gru-3": true}
 			leader := &capacityLeader{snapshot: authority.Snapshot{DeploymentID: entityid.New(), Leader: true, Ready: true, Epoch: 7, Revision: 3, ExpiresAt: time.Now().Add(time.Hour)}}
 			backendCount := 0
 			cpu := .9
 			stale := false
 			var revoked []string
 			var entries []decisionlog.Decision
-			scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Leader: leader, Hosts: hosts,
+			scaler := &Scaler{Cell: "gru", Pool: pool, Store: store, Leader: leader, Control: hosts.control, CanRetire: func(context.Context, string, string) error { return nil },
 				Recipe: func(context.Context) (Recipe, error) { return recipe, nil }, Now: func() time.Time { return now },
 				Allowance: func(time.Time) (int, bool) { return MaxNodes, scenario != "missing allowance" },
 				Loads: func() []NodeLoad {
@@ -806,9 +763,18 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 			}
 			tick := func() Record {
 				t.Helper()
+				observed, err := pool.Observe(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, instance := range observed.Instances {
+					hosts.instanceIDs[instance.Name] = instance.ID
+				}
+				hosts.sync(t)
 				if err := scaler.Tick(ctx); err != nil {
 					t.Fatal(err)
 				}
+				hosts.observe(t)
 				record, _, err := store.Load(ctx)
 				if err != nil {
 					t.Fatal(err)
@@ -838,7 +804,7 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				cloud.pools[state.PoolID].Size = new(1)
 				hosts.live["ts-gru-4"] = true
 				if scenario == "database drain hold" {
-					hosts.desired = []host.Desired{{Node: "ts-gru-4", Role: "terrabase"}}
+					hosts.desired = []desiredTask{{Node: "ts-gru-4", Role: "terrabase"}}
 				}
 				for range int(DownWindow/Interval) + 1 {
 					tick()
@@ -907,7 +873,7 @@ func TestCapacityScalerRecoveryAndSafety(t *testing.T) {
 				t.Fatalf("growth not persisted: %+v", record.Action)
 			}
 			updates := cloud.updates
-			scaler = &Scaler{Cell: scaler.Cell, Pool: scaler.Pool, Store: scaler.Store, Leader: scaler.Leader, Hosts: scaler.Hosts,
+			scaler = &Scaler{Cell: scaler.Cell, Pool: scaler.Pool, Store: scaler.Store, Leader: scaler.Leader, Control: scaler.Control, CanRetire: scaler.CanRetire,
 				Recipe: scaler.Recipe, Now: scaler.Now, Allowance: scaler.Allowance, Loads: scaler.Loads, Backends: scaler.Backends, Revoke: scaler.Revoke, Journal: scaler.Journal}
 			id := cloud.launch("new-instance", state.PoolID, "10.0.0.4", core.InstanceLifecycleStateRunning, nil)
 			cloud.instances[id].TimeCreated = &common.SDKTime{Time: now}
