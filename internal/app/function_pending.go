@@ -18,7 +18,7 @@ import (
 // A failed authority or manager observation holds the entire scaling decision.
 func functionDemandSource(config functionControllerConfig) func(context.Context) ([]nodescale.CapacityDemand, error) {
 	return func(ctx context.Context) ([]nodescale.CapacityDemand, error) {
-		if config.Authority == nil || config.Client == nil || config.Worker == nil || config.Evidence == nil || config.Material.Reader.Roots == nil {
+		if config.Authority == nil || config.Client == nil || config.Factory == nil || config.Worker == nil || config.Evidence == nil || config.Material.Reader.Roots == nil {
 			return nil, errors.New("function capacity requires current authority, manager and qualified worker source")
 		}
 		epoch := config.Authority.Current().Epoch
@@ -50,9 +50,14 @@ func functionDemandSource(config functionControllerConfig) func(context.Context)
 			if err != nil {
 				return nil, err
 			}
-			verified, err := release.VerifyContainerCurrent(ctx, worker.Bundle, reader.Roots(), release.ContainerTarget{
+			target := release.ContainerTarget{
 				Cell: claim.Cell, Environment: claim.Environment, Role: swarmruntime.FunctionWorkerRole, Architecture: worker.Architecture,
-			}, time.Now(), proof.ExpiresAt(), config.Evidence)
+			}
+			allocations, err := currentContainerAllocations(ctx, config.Factory, worker.Bundle, reader.Roots(), target)
+			if err != nil {
+				return nil, err
+			}
+			verified, err := release.VerifyContainerCurrent(ctx, worker.Bundle, reader.Roots(), target, time.Now(), proof.ExpiresAt(), config.Evidence, allocations)
 			if err != nil {
 				return nil, err
 			}
