@@ -89,6 +89,8 @@ func (c command) run(args []string) error {
 		return c.signSpec(args[1:])
 	case "sign-root-rotation":
 		return c.signRootRotation(args[1:])
+	case "verify-production":
+		return c.verifyProduction(args[1:])
 	case "apply":
 		return c.apply(args[1:])
 	case "deploy":
@@ -103,7 +105,7 @@ func (c command) run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|apply|deploy|fleet-status> [flags]")
+	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|apply|deploy|fleet-status> [flags]")
 }
 
 func (c command) publish(args []string) error {
