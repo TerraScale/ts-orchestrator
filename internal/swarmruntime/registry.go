@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
@@ -28,8 +27,7 @@ type RegistryAdmission struct {
 }
 
 // NewOCIRegistryResolver reads admitted private credentials automatically for
-// each pull. lookup verifies current signed release admission and root ownership;
-// nil admission permits only an anonymous pull, which cannot read Vault.
+// each pull. lookup verifies current signed release admission and root ownership.
 func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Context, *api.Task) (*RegistryAdmission, error)) (RegistryResolver, error) {
 	if lookup == nil {
 		return nil, errors.New("registry requires authenticated release admission")
@@ -48,10 +46,7 @@ func NewOCIRegistryResolver(factory *ociclient.Factory, lookup func(context.Cont
 			return nil, errors.New("registry release admission unavailable")
 		}
 		if admitted == nil {
-			if host, _, _ := strings.Cut(spec.Image, "/"); strings.HasSuffix(host, ".ocir.io") {
-				return nil, errors.New("private OCI registry release admission is unavailable")
-			}
-			return publicRegistryResolver(ctx, task, node)
+			return nil, errors.New("private OCI registry release admission is unavailable")
 		}
 		approved := *admitted
 		admitted = &approved
