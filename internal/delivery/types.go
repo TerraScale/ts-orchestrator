@@ -8,6 +8,11 @@ import (
 	"fmt"
 	"net/url"
 	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
@@ -146,25 +151,52 @@ func (r ArtifactRecord) validate() error {
 // desired state. A rollback is a new Intent with a higher generation and a
 // previously admitted artifact digest.
 type Intent struct {
-	SchemaVersion   int            `json:"schemaVersion"`
-	OperationID     string         `json:"operationId"`
-	Source          ArtifactSource `json:"source"`
-	ArtifactDigest  string         `json:"artifactDigest"`
-	ManifestDigest  string         `json:"manifestDigest"`
-	Cell            string         `json:"cell"`
-	Role            string         `json:"role"`
-	Environment     string         `json:"environment"`
-	Generation      uint64         `json:"generation"`
-	DesiredReplicas int            `json:"desiredReplicas"`
-	ConfigDigest    string         `json:"configDigest"`
-	AuthorityEpoch  uint64         `json:"authorityEpoch"`
+	Container       *release.ContainerBundle `json:"container,omitempty"`
+	SchemaVersion   int                      `json:"schemaVersion"`
+	OperationID     string                   `json:"operationId"`
+	Source          ArtifactSource           `json:"source"`
+	ArtifactDigest  string                   `json:"artifactDigest"`
+	ManifestDigest  string                   `json:"manifestDigest"`
+	Cell            string                   `json:"cell"`
+	Role            string                   `json:"role"`
+	Environment     string                   `json:"environment"`
+	Generation      uint64                   `json:"generation"`
+	DesiredReplicas int                      `json:"desiredReplicas"`
+	ConfigDigest    string                   `json:"configDigest"`
+	AuthorityEpoch  uint64                   `json:"authorityEpoch"`
 }
 
 func (i Intent) Validate() error {
-	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
+	if i.SchemaVersion != SchemaVersion || !entityid.Valid(i.OperationID) || !nameRE.MatchString(i.Cell) || !nameRE.MatchString(i.Role) || !nameRE.MatchString(i.Environment) || !sha256RE.MatchString(i.ConfigDigest) || i.Generation == 0 || i.AuthorityEpoch == 0 || i.DesiredReplicas < 0 || i.DesiredReplicas > maxReplicas {
 		return fmt.Errorf("%w: delivery intent", ErrInvalid)
 	}
-	return i.Source.validate()
+	if err := i.Source.validate(); err != nil {
+		return err
+	}
+	if i.Container == nil {
+		if !sha256RE.MatchString(i.ArtifactDigest) || !sha256RE.MatchString(i.ManifestDigest) {
+			return fmt.Errorf("%w: native artifact digests", ErrInvalid)
+		}
+		return nil
+	}
+	if i.ArtifactDigest != "" || i.ManifestDigest != "" {
+		return fmt.Errorf("%w: container and native artifact are mutually exclusive", ErrInvalid)
+	}
+	envelope, err := trust.DecodeEnvelope(i.Container.Claim)
+	if err != nil {
+		return fmt.Errorf("%w: container envelope: %v", ErrInvalid, err)
+	}
+	var claim release.ContainerClaim
+	if err := protocol.DecodeStrict(envelope.Payload, &claim, trust.MaxPayloadBytes); err != nil {
+		return fmt.Errorf("%w: container claim: %v", ErrInvalid, err)
+	}
+	if err := claim.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	if strings.ToLower(claim.Cell) != i.Cell || claim.Environment != i.Environment || claim.Role != i.Role || claim.SourceRevision != i.Source.Commit || claim.SourceRepository != i.Source.Repository || claim.SourceTreeSHA256 != i.Source.TreeDigest {
+		return fmt.Errorf("%w: container source or target differs from intent", ErrInvalid)
+	}
+	return nil
 }
 
 func (i Intent) fingerprint() (string, error) {
@@ -197,4 +229,16 @@ func DecodeIntent(b []byte) (Intent, error) {
 		return Intent{}, fmt.Errorf("%w: decode intent: %v", ErrInvalid, err)
 	}
 	return i, i.Validate()
+}
+
+// Clone retains the exact admitted OCI bytes across callback boundaries.
+func (i Intent) Clone() Intent {
+	if i.Container != nil {
+		bundle := *i.Container
+		bundle.Claim = slices.Clone(bundle.Claim)
+		bundle.Delegation = slices.Clone(bundle.Delegation)
+		bundle.Migration = slices.Clone(bundle.Migration)
+		i.Container = &bundle
+	}
+	return i
 }
