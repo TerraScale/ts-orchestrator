@@ -10,7 +10,6 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
-	"golang.org/x/sys/unix"
 	"io"
 	"net"
 	"net/http"
@@ -18,15 +17,16 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	ocivault "github.com/oracle/oci-go-sdk/v65/vault"
 	"golang.org/x/net/html"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -40,13 +40,25 @@ const (
 
 // BootstrapVault uses the existing instance-principal OCI clients. Values never leave this boundary.
 type BootstrapVault struct {
-	Check      func() error
-	Target     vaultsecret.Target
-	Management interface {
+	// StoreGeneration comes from the authenticated foundation record, never peer metadata.
+	StoreGeneration string
+	Check           func() error
+	Target          vaultsecret.Target
+	Management      interface {
 		vaultsecret.VaultClient
 		vaultsecret.VersionClient
 	}
 	Bundles vaultsecret.BundleClient
+}
+
+func (v BootstrapVault) validate() error {
+	if v.Management == nil || v.Bundles == nil || v.Target.VaultID == "" || v.Check == nil {
+		return errors.New("NetBird bootstrap requires its scoped foundation Vault")
+	}
+	if v.StoreGeneration == "" || len(v.StoreGeneration) > 256 || strings.TrimSpace(v.StoreGeneration) != v.StoreGeneration || strings.ContainsFunc(v.StoreGeneration, unicode.IsControl) {
+		return errors.New("NetBird bootstrap requires its authenticated store generation")
+	}
+	return v.Check()
 }
 
 // BootstrapResult contains references only, suitable for retained operation evidence.
@@ -79,10 +91,7 @@ func newBootstrapClient(base string) (*bootstrapClient, error) {
 // The password is committed first, so losing any later response is recoverable through embedded Dex.
 func Bootstrap(ctx context.Context, origin, identityDirectory string, vault BootstrapVault) (BootstrapResult, error) {
 	var result BootstrapResult
-	if vault.Management == nil || vault.Bundles == nil || vault.Target.VaultID == "" || vault.Check == nil {
-		return result, errors.New("NetBird bootstrap requires its scoped foundation Vault")
-	}
-	if err := vault.Check(); err != nil {
+	if err := vault.validate(); err != nil {
 		return result, err
 	}
 	vault.Management = fencedBootstrapVault{vault.Management, vault.Check}
@@ -105,10 +114,14 @@ func Bootstrap(ctx context.Context, origin, identityDirectory string, vault Boot
 	if err != nil {
 		return result, err
 	}
-	if escrow.Password != "" && escrow.Target != vault.Target {
-		return result, errors.New("NetBird owner escrow requires authenticated recovery before changing its foundation Vault")
+	if escrow.Password != "" && (escrow.Target != vault.Target || escrow.StoreGeneration != vault.StoreGeneration) {
+		return result, errors.New("NetBird owner escrow requires authenticated recovery before changing its foundation Vault or store generation")
 	}
 	escrow.Target = vault.Target
+	escrow.StoreGeneration = vault.StoreGeneration
+	if *instance.SetupRequired && escrow.SetupAttempt != "" {
+		return result, errors.New("NetBird retained setup attempt requires original store restoration or authenticated recovery before bootstrap")
+	}
 	identity, identityErr := vaultsecret.Read(ctx, vault.Bundles, vault.Target.VaultID, identitySecretName)
 	if identityErr != nil && !vaultsecret.Absent(identityErr) {
 		return result, errors.New("NetBird retained owner identity unavailable")
@@ -152,6 +165,10 @@ func Bootstrap(ctx context.Context, origin, identityDirectory string, vault Boot
 		return result, errors.New("NetBird owner credential is invalid")
 	}
 	if *instance.SetupRequired {
+		escrow.SetupAttempt = randomCredential()
+		if err = saveOwnerEscrow(identityDirectory, escrow); err != nil {
+			return result, err
+		}
 		if err = client.api(ctx, "POST", "/setup", "", map[string]any{"email": ownerEmail, "password": password, "name": "TerraScale foundation owner"}, nil); err != nil {
 			return result, err
 		}
@@ -495,21 +512,41 @@ func (v fencedBootstrapVault) UpdateSecret(ctx context.Context, req ocivault.Upd
 }
 
 type ownerEscrow struct {
-	Target   vaultsecret.Target `json:"vault_target"`
-	Password string             `json:"password"`
-	OwnerID  string             `json:"owner_id"`
+	StoreGeneration string             `json:"store_generation"`
+	SetupAttempt    string             `json:"setup_attempt"`
+	Target          vaultsecret.Target `json:"vault_target"`
+	Password        string             `json:"password"`
+	OwnerID         string             `json:"owner_id"`
+}
+
+func ownerEscrowDirectory(directory string) (int, error) {
+	fd, err := unix.Open(directory, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, err
+	}
+	var stat unix.Stat_t
+	if unix.Fstat(fd, &stat) != nil || stat.Uid != uint32(os.Geteuid()) || stat.Mode&0777 != 0700 {
+		unix.Close(fd)
+		return -1, errors.New("NetBird owner escrow directory is not protected")
+	}
+	return fd, nil
 }
 
 func loadOwnerEscrow(directory string) (ownerEscrow, error) {
+	fd, err := ownerEscrowDirectory(directory)
+	if errors.Is(err, unix.ENOENT) {
+		return ownerEscrow{}, nil
+	}
+	if err != nil {
+		return ownerEscrow{}, errors.New("NetBird owner escrow directory is not protected")
+	}
+	defer unix.Close(fd)
+	return loadOwnerEscrowAt(fd)
+}
+
+func loadOwnerEscrowAt(directory int) (ownerEscrow, error) {
 	var result ownerEscrow
-	info, err := os.Lstat(directory)
-	if errors.Is(err, os.ErrNotExist) {
-		return result, nil
-	}
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
-		return result, errors.New("NetBird owner escrow directory is not protected")
-	}
-	fd, err := unix.Open(filepath.Join(directory, "owner.json"), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(directory, "owner.json", unix.O_RDONLY|unix.O_NONBLOCK|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if errors.Is(err, unix.ENOENT) {
 		return result, nil
 	}
@@ -518,12 +555,12 @@ func loadOwnerEscrow(directory string) (ownerEscrow, error) {
 	}
 	file := os.NewFile(uintptr(fd), "owner.json")
 	defer file.Close()
-	info, err = file.Stat()
+	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 || info.Size() > 4096 {
 		return result, errors.New("NetBird owner escrow file is not protected")
 	}
 	var stat unix.Stat_t
-	if unix.Fstat(fd, &stat) != nil || stat.Uid != uint32(os.Geteuid()) {
+	if unix.Fstat(fd, &stat) != nil || stat.Uid != uint32(os.Geteuid()) || stat.Nlink != 1 {
 		return result, errors.New("NetBird owner escrow file ownership differs")
 	}
 	wire, err := io.ReadAll(io.LimitReader(file, 4097))
@@ -537,11 +574,16 @@ func saveOwnerEscrow(directory string, value ownerEscrow) error {
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		return errors.New("NetBird owner escrow directory creation failed")
 	}
-	existing, err := loadOwnerEscrow(directory)
+	fd, err := ownerEscrowDirectory(directory)
+	if err != nil {
+		return errors.New("NetBird owner escrow directory is not protected")
+	}
+	defer unix.Close(fd)
+	existing, err := loadOwnerEscrowAt(fd)
 	if err != nil {
 		return err
 	}
-	if existing.Password != "" && existing.Password != value.Password || existing.OwnerID != "" && existing.OwnerID != value.OwnerID || existing.Password != "" && existing.Target != value.Target {
+	if existing.Password != "" && existing.Password != value.Password || existing.OwnerID != "" && existing.OwnerID != value.OwnerID || existing.Password != "" && existing.Target != value.Target || existing.StoreGeneration != "" && existing.StoreGeneration != value.StoreGeneration || existing.SetupAttempt != "" && existing.SetupAttempt != value.SetupAttempt {
 		return errors.New("NetBird owner escrow replacement refused")
 	}
 	if existing == value {
@@ -552,11 +594,13 @@ func saveOwnerEscrow(directory string, value ownerEscrow) error {
 		return errors.New("NetBird owner escrow encoding failed")
 	}
 	defer clear(wire)
-	file, err := os.CreateTemp(directory, ".owner-*")
+	name := ".owner-" + randomCredential()
+	temp, err := unix.Openat(fd, name, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
 	if err != nil {
 		return errors.New("NetBird owner escrow write failed")
 	}
-	defer os.Remove(file.Name())
+	file := os.NewFile(uintptr(temp), name)
+	defer unix.Unlinkat(fd, name, 0)
 	if _, err = file.Write(wire); err != nil {
 		file.Close()
 		return errors.New("NetBird owner escrow write failed")
@@ -568,15 +612,10 @@ func saveOwnerEscrow(directory string, value ownerEscrow) error {
 	if err = file.Close(); err != nil {
 		return errors.New("NetBird owner escrow close failed")
 	}
-	if err = os.Rename(file.Name(), filepath.Join(directory, "owner.json")); err != nil {
+	if err = unix.Renameat(fd, name, fd, "owner.json"); err != nil {
 		return errors.New("NetBird owner escrow publication failed")
 	}
-	parent, err := os.Open(directory)
-	if err != nil {
-		return errors.New("NetBird owner escrow directory sync failed")
-	}
-	defer parent.Close()
-	if parent.Sync() != nil {
+	if unix.Fsync(fd) != nil {
 		return errors.New("NetBird owner escrow directory sync failed")
 	}
 	return nil

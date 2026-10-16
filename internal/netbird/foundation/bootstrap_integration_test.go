@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/secrets"
 	"github.com/oracle/oci-go-sdk/v65/vault"
+	"golang.org/x/sys/unix"
 )
 
 // This scenario crosses the actual pinned upstream process, Dex, SQLite, HTTP and OCI SDK boundaries.
@@ -119,6 +121,92 @@ func TestBootstrapPinnedUpstreamAndLostVaultPublication(t *testing.T) {
 	if pat == "" || owner == "" {
 		t.Fatal("credentials not persisted through SDK HTTP")
 	}
+	escrow, err := loadOwnerEscrow(filepath.Join(directory, "identity"))
+	if err != nil || escrow.Password != owner || escrow.OwnerID == "" || escrow.Target != target.Target || escrow.StoreGeneration != target.StoreGeneration || escrow.SetupAttempt == "" {
+		t.Fatal("owner recovery escrow does not match the authoritative identity")
+	}
+	other := target
+	other.Target.KeyID += "replacement"
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), other); err == nil || !strings.Contains(err.Error(), "authenticated recovery") {
+		t.Fatalf("changed Vault target was accepted: %v", err)
+	}
+	other = target
+	other.StoreGeneration = "fixture-operation:2"
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), other); err == nil || !strings.Contains(err.Error(), "authenticated recovery") {
+		t.Fatalf("changed admitted store generation was accepted: %v", err)
+	}
+	// A malformed escrow must fail before opening a blocking FIFO or accepting a hard link.
+	unsafe := filepath.Join(directory, "unsafe-identity")
+	if err := os.Mkdir(unsafe, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mkfifo(filepath.Join(unsafe, "owner.json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Bootstrap(ctx, origin, unsafe, target); err == nil || !strings.Contains(err.Error(), "not protected") {
+		t.Fatalf("FIFO owner escrow was accepted: %v", err)
+	}
+	if err := os.Remove(filepath.Join(unsafe, "owner.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(directory, "identity", "owner.json"), filepath.Join(unsafe, "owner.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Bootstrap(ctx, origin, unsafe, target); err == nil || !strings.Contains(err.Error(), "ownership differs") {
+		t.Fatalf("hard-linked owner escrow was accepted: %v", err)
+	}
+	if err := os.Remove(filepath.Join(unsafe, "owner.json")); err != nil {
+		t.Fatal(err)
+	}
+	// Seed an actually issued one-day PAT, then lose the SDK response after Vault commits renewal.
+	jwt, err := client.login(ctx, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var users []apiUser
+	if err := client.api(ctx, "GET", "/users", "Bearer "+jwt, nil, &users); err != nil {
+		t.Fatal(err)
+	}
+	var serviceID string
+	for _, user := range users {
+		if user.Name == serviceName && user.Service {
+			serviceID = user.ID
+		}
+	}
+	if serviceID == "" {
+		t.Fatal("service identity missing")
+	}
+	var existing []apiToken
+	if err := client.api(ctx, "GET", "/users/"+serviceID+"/tokens", "Bearer "+jwt, nil, &existing); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range existing {
+		if err := client.api(ctx, "DELETE", "/users/"+serviceID+"/tokens/"+token.ID, "Bearer "+jwt, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var short struct {
+		Plain string `json:"plain_token"`
+	}
+	if err := client.api(ctx, "POST", "/users/"+serviceID+"/tokens", "Bearer "+jwt, map[string]any{"name": serviceName, "expires_in": 1}, &short); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.values[ManagementSecretName] = short.Plain
+	store.loseUpdate = true
+	store.mu.Unlock()
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), target); err == nil || !strings.Contains(err.Error(), "publication failed") {
+		t.Fatalf("expected lost Vault update response: %v", err)
+	}
+	if err := client.api(ctx, "GET", "/users", "Token "+short.Plain, nil, new([]apiUser)); err != nil {
+		t.Fatal("previous CURRENT was revoked before replacement verification")
+	}
+	if _, err := Bootstrap(ctx, origin, filepath.Join(directory, "identity"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.api(ctx, "GET", "/users", "Token "+short.Plain, nil, new([]apiUser)); err == nil {
+		t.Fatal("recovered renewal retained the previous token")
+	}
 	// Reuse persists across the upstream process/store restart.
 	if output, err := exec.CommandContext(ctx, "podman", "stop", "-t", "5", container).CombinedOutput(); err != nil {
 		t.Fatalf("stop: %v: %s", err, output)
@@ -162,19 +250,58 @@ func TestBootstrapPinnedUpstreamAndLostVaultPublication(t *testing.T) {
 	if err := client.api(ctx, "POST", "/setup", "", map[string]any{"email": "attacker@example.test", "password": randomCredential(), "name": "second owner"}, nil); err == nil {
 		t.Fatal("closed setup accepted another owner")
 	}
+	// Model store loss before owner capture: retained pre-setup intent is the only identity evidence.
+	uncaptured := escrow
+	uncaptured.OwnerID = ""
+	lostIdentity := filepath.Join(directory, "uncaptured-identity")
+	if err := saveOwnerEscrow(lostIdentity, uncaptured); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	delete(store.values, identitySecretName)
+	delete(store.values, ManagementSecretName)
+	store.mu.Unlock()
+	if output, err := exec.CommandContext(ctx, "podman", "rm", "-f", "-t", "1", container).CombinedOutput(); err != nil {
+		t.Fatalf("discard disposable manager: %v: %s", err, output)
+	}
+	if output, err := exec.CommandContext(ctx, "podman", "volume", "rm", container+"-data").CombinedOutput(); err != nil {
+		t.Fatalf("discard disposable store: %v: %s", err, output)
+	}
+	if output, err := exec.CommandContext(ctx, command.Args[0], command.Args[1:]...).CombinedOutput(); err != nil {
+		t.Fatalf("start replacement disposable store: %v: %s", err, output)
+	}
+	for {
+		if err := client.api(ctx, "GET", "/instance", "", nil, new(any)); err == nil {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatal("replacement readiness deadline")
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if _, err := Bootstrap(ctx, origin, lostIdentity, target); err == nil || !strings.Contains(err.Error(), "retained setup attempt") {
+		t.Fatalf("lost uncaptured store accepted new genesis: %v", err)
+	}
+	if err := client.api(ctx, "GET", "/instance", "", nil, &status); err != nil || !status.SetupRequired {
+		t.Fatal("refused recovery mutated replacement setup")
+	}
+
 }
 
 type vaultHTTP struct {
-	server  *httptest.Server
-	mu      sync.Mutex
-	values  map[string]string
-	failPAT bool
+	server     *httptest.Server
+	mu         sync.Mutex
+	values     map[string]string
+	failPAT    bool
+	loseUpdate bool
+	versions   map[string]int64
 }
 
 const vaultTestID = "ocid1.vault.oc1.sa-saopaulo-1.test.fixture"
 
 func newVaultHTTP(t *testing.T) *vaultHTTP {
-	s := &vaultHTTP{values: map[string]string{}}
+	s := &vaultHTTP{values: map[string]string{}, versions: map[string]int64{}}
 	s.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -199,7 +326,7 @@ func newVaultHTTP(t *testing.T) *vaultHTTP {
 				absent()
 				return
 			}
-			write(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test." + strings.ReplaceAll(name, "-", ""), "versionNumber": 1, "secretBundleContent": map[string]any{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}})
+			write(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test." + strings.ReplaceAll(name, "-", ""), "versionNumber": s.versions[name], "secretBundleContent": map[string]any{"contentType": "BASE64", "content": base64.StdEncoding.EncodeToString([]byte(value))}})
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/secrets") && r.Method == "GET" {
@@ -234,8 +361,50 @@ func newVaultHTTP(t *testing.T) *vaultHTTP {
 				t.Error(err)
 			}
 			s.values[req.Name] = string(decoded)
+			s.versions[req.Name] = 1
 			w.WriteHeader(200)
 			write(map[string]any{"id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test." + strings.ReplaceAll(req.Name, "-", "")})
+			return
+		}
+		for name, version := range s.versions {
+			id := "ocid1.vaultsecret.oc1.sa-saopaulo-1.test." + strings.ReplaceAll(name, "-", "")
+			if !strings.HasSuffix(r.URL.Path, "/secrets/"+id) {
+				continue
+			}
+			if r.Method == "PUT" {
+				if r.Header.Get("If-Match") != strconv.FormatInt(version, 10) {
+					w.WriteHeader(412)
+					write(map[string]any{"code": "NoEtagMatch", "message": "fixture changed"})
+					return
+				}
+				var req struct {
+					Content struct {
+						Content string `json:"content"`
+					} `json:"secretContent"`
+				}
+				if err := json.UnmarshalRead(r.Body, &req); err != nil {
+					t.Error(err)
+					w.WriteHeader(400)
+					return
+				}
+				decoded, err := base64.StdEncoding.DecodeString(req.Content.Content)
+				if err != nil {
+					t.Error(err)
+				}
+				s.values[name] = string(decoded)
+				version++
+				s.versions[name] = version
+				if s.loseUpdate {
+					s.loseUpdate = false
+					w.WriteHeader(500)
+					write(map[string]any{"code": "InternalServerError", "message": "injected lost response after commit"})
+					return
+				}
+			} else if r.Method != "GET" {
+				break
+			}
+			w.Header().Set("etag", strconv.FormatInt(version, 10))
+			write(map[string]any{"id": id, "vaultId": vaultTestID, "secretName": name, "lifecycleState": "ACTIVE", "currentVersionNumber": version})
 			return
 		}
 		t.Errorf("unexpected OCI request %s %s", r.Method, r.URL.Path)
@@ -263,5 +432,5 @@ func (s *vaultHTTP) clients(t *testing.T) BootstrapVault {
 	}
 	bundles.Host = s.server.URL
 	bundles.Configuration.RetryPolicy = &policy
-	return BootstrapVault{Check: func() error { return nil }, Target: vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..fixture", VaultID: vaultTestID, KeyID: "ocid1.key.oc1.sa-saopaulo-1.test.fixture"}, Management: management, Bundles: bundles}
+	return BootstrapVault{StoreGeneration: "fixture-operation:1", Check: func() error { return nil }, Target: vaultsecret.Target{CompartmentID: "ocid1.compartment.oc1..fixture", VaultID: vaultTestID, KeyID: "ocid1.key.oc1.sa-saopaulo-1.test.fixture"}, Management: management, Bundles: bundles}
 }
