@@ -77,11 +77,19 @@ func startAcceptedWorkerAt(ctx context.Context, directory string, accepted hoste
 	if err != nil {
 		return nil, errors.New("read exact admitted worker Vault material failed")
 	}
-	content, ok := response.SecretBundleContent.(secrets.Base64SecretBundleContentDetails)
-	if !ok || content.Content == nil || response.SecretId == nil || *response.SecretId != signed.SecretID || response.VersionNumber == nil || *response.VersionNumber != signed.SecretVersion {
+	var encoded *string
+	switch content := response.SecretBundleContent.(type) {
+	case secrets.Base64SecretBundleContentDetails:
+		encoded = content.Content
+	case *secrets.Base64SecretBundleContentDetails:
+		if content != nil {
+			encoded = content.Content
+		}
+	}
+	if encoded == nil || response.SecretId == nil || *response.SecretId != signed.SecretID || response.VersionNumber == nil || *response.VersionNumber != signed.SecretVersion {
 		return nil, errors.New("worker Vault bundle differs from signed version")
 	}
-	wire, err := base64.StdEncoding.DecodeString(*content.Content)
+	wire, err := base64.StdEncoding.DecodeString(*encoded)
 	if err != nil || len(wire) == 0 || len(wire) > 16384 {
 		return nil, errors.New("invalid worker Vault material")
 	}

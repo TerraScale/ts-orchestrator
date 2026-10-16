@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json/v2"
 	"encoding/pem"
 	"net/http"
@@ -150,6 +152,11 @@ type bootstrapVaultFixture struct {
 	denyCreate bool
 }
 
+func bootstrapSecretID(name string) string {
+	digest := sha256.Sum256([]byte(name))
+	return "ocid1.vaultsecret.oc1.sa-saopaulo-1." + hex.EncodeToString(digest[:])
+}
+
 func bootstrapVaultServer(t *testing.T) (*bootstrapVaultFixture, *vault.VaultsClient, *secrets.SecretsClient) {
 	t.Helper()
 	f := &bootstrapVaultFixture{values: make(map[string]string)}
@@ -167,7 +174,7 @@ func bootstrapVaultServer(t *testing.T) (*bootstrapVaultFixture, *vault.VaultsCl
 			name := r.URL.Query().Get("name")
 			items := []any{}
 			if _, exists := f.values[name]; exists {
-				items = append(items, map[string]any{"id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test", "secretName": name, "lifecycleState": "ACTIVE"})
+				items = append(items, map[string]any{"id": bootstrapSecretID(name), "secretName": name, "lifecycleState": "ACTIVE"})
 			}
 			write(items)
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/secrets"):
@@ -193,16 +200,27 @@ func bootstrapVaultServer(t *testing.T) (*bootstrapVaultFixture, *vault.VaultsCl
 			}
 			f.values[body.SecretName] = body.SecretContent.Content
 			f.creates++
-			write(map[string]any{"id": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test", "secretName": body.SecretName, "lifecycleState": "ACTIVE"})
+			write(map[string]any{"id": bootstrapSecretID(body.SecretName), "secretName": body.SecretName, "lifecycleState": "ACTIVE"})
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "getByName"):
-			value, exists := f.values[r.URL.Query().Get("secretName")]
+			name := r.URL.Query().Get("secretName")
+			value, exists := f.values[name]
 			if !exists {
 				w.WriteHeader(http.StatusNotFound)
 				write(map[string]string{"code": "NotFound", "message": "absent"})
 				return
 			}
-			write(map[string]any{"secretId": "ocid1.vaultsecret.oc1.sa-saopaulo-1.test", "versionNumber": 1,
+			write(map[string]any{"secretId": bootstrapSecretID(name), "versionNumber": 1,
 				"secretBundleContent": map[string]string{"contentType": "BASE64", "content": value}})
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/secretbundles/"):
+			for name, value := range f.values {
+				if strings.HasSuffix(r.URL.Path, "/"+bootstrapSecretID(name)) && r.URL.Query().Get("versionNumber") == "1" {
+					write(map[string]any{"secretId": bootstrapSecretID(name), "versionNumber": 1,
+						"secretBundleContent": map[string]string{"contentType": "BASE64", "content": value}})
+					return
+				}
+			}
+			w.WriteHeader(http.StatusNotFound)
+			write(map[string]string{"code": "NotFound", "message": "exact secret version absent"})
 		default:
 			http.Error(w, "unexpected OCI protocol path", http.StatusNotFound)
 		}

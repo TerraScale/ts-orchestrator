@@ -213,7 +213,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	expires := minTime(now.Add(10*time.Minute), response.ExpiresAt)
 	digest := sha256.Sum256(wire)
 	worker := hostenroll.SwarmWorker{Version: 1, DeploymentID: material.DeploymentID, ClusterID: material.ClusterID, Environment: material.Environment, Cell: registration.Cell, Region: material.Region,
-		OCIRegion: strings.Split(stored.ID, ".")[3], FounderID: material.FounderID, RegistrationID: registration.ID, Generation: registration.Generation, Revision: response.RegistrationReceipt.Revision,
+		OCIRegion: authority.identity.OCIRegion, FounderID: material.FounderID, RegistrationID: registration.ID, Generation: registration.Generation, Revision: response.RegistrationReceipt.Revision,
 		InstanceID: request.InstanceID, PrivateIP: observed.PrimaryPrivateIP, Architecture: architecture, Role: role, ManagerAddress: material.ManagerAddress, SwarmID: material.SwarmID, CAPEM: material.CAPEM,
 		SecretID: stored.ID, SecretVersion: 1, SecretSHA256: hex.EncodeToString(digest[:]), IssuedAt: now, ExpiresAt: expires}
 	if err := worker.Validate(now); err != nil {
@@ -276,7 +276,9 @@ func (n *Node) AdmitEnrolledWorker(ctx context.Context, query WorkerRegistration
 	}
 	worker := verified.Worker()
 	role, _, _ := strings.Cut(execution, ":")
-	if worker.DeploymentID != authority.identity.DeploymentID || worker.ClusterID != authority.identity.ClusterID || worker.Environment != authority.identity.Environment || worker.FounderID != authority.identity.SeedSlot || worker.Role != role || worker.PrivateIP != observed.PrimaryPrivateIP || response.Swarm == nil {
+	if worker.DeploymentID != authority.identity.DeploymentID || worker.ClusterID != authority.identity.ClusterID || worker.Environment != authority.identity.Environment ||
+		worker.Region != authority.identity.OCIRegion || worker.OCIRegion != authority.identity.OCIRegion || worker.ManagerAddress != net.JoinHostPort(authority.identity.SeedPrivateIP, swarmManagerPort) ||
+		worker.FounderID != authority.identity.SeedSlot || worker.Role != role || worker.PrivateIP != observed.PrimaryPrivateIP || response.Swarm == nil {
 		return errors.New("worker binding differs from current regional and OCI execution scope")
 	}
 	client, err := n.ControlClient(ctx)
