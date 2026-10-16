@@ -166,8 +166,10 @@ func (a *authenticatedNATS) config(t *testing.T, cfg natscell.Config) natscell.C
 	case "controller":
 		claim.Pub.Allow = natscell.ControllerPublishes(a.cell)
 		claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
+		claim.Pub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Pub.Allow.Add("$JS.ACK.>")
 		claim.Sub.Allow.Add(natscell.ControllerSubscriptions(a.cell)...)
+		claim.Sub.Allow.Add(natscell.GlobalControllerRequests()...)
 		claim.Sub.Allow.Add(protocol.ObservabilityGrant(a.cell), protocol.Broker(a.cell, "ticket", ">"), protocol.Broker(a.cell, "fence", cfg.Instance))
 		claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
 	case "operator":
