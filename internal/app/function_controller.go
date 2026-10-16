@@ -52,9 +52,14 @@ type functionIntentSource struct {
 	reader    functionmaterial.Reader
 	authority *authority.Runtime
 	epoch     uint64
+	roots     *rootRegistry
+	rootHead  string
 }
 
 func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, function string) (release.VerifiedFunction, error) {
+	if source.roots == nil || source.roots.reply("").Head != source.rootHead {
+		return release.VerifiedFunction{}, errors.New("function roots changed during current intent observation")
+	}
 	if err := source.authority.Guard(ctx, source.epoch); err != nil {
 		return release.VerifiedFunction{}, err
 	}
@@ -64,6 +69,9 @@ func (source functionIntentSource) CurrentFunction(ctx context.Context, tenant, 
 	}
 	if err := source.authority.Guard(ctx, source.epoch); err != nil {
 		return release.VerifiedFunction{}, err
+	}
+	if source.roots.reply("").Head != source.rootHead {
+		return release.VerifiedFunction{}, errors.New("function roots changed during current intent observation")
 	}
 	return proof, nil
 }
@@ -237,7 +245,8 @@ func (controller functionController) apply(ctx context.Context, epoch uint64, te
 	if err != nil {
 		return err
 	}
-	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch}
+	source := functionIntentSource{reader: controller.config.Material.Reader, authority: controller.config.Authority, epoch: epoch,
+		roots: controller.config.Roots, rootHead: controller.config.Roots.reply("").Head}
 	_, err = swarmruntime.ApplyFunctionService(ctx, controller.config.Client, intent, source,
 		worker.Bundle, controller.config.Material.Reader.Roots(), worker.Floor, controller.config.Evidence, controller.config.Probe, allocations)
 	return err
@@ -280,6 +289,10 @@ func (controller functionController) recipient(ctx context.Context, registration
 	if !entityid.Valid(registration.ID) || binding.HostID != registration.ID || registration.Cell != strings.ToLower(controller.config.Cell) || registration.Environment != controller.config.Environment {
 		return fail()
 	}
+	if controller.config.Roots == nil {
+		return fail()
+	}
+	rootHead := controller.config.Roots.reply("").Head
 	epoch := controller.config.Authority.Current().Epoch
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return release.VerifiedFunction{}, err
@@ -362,6 +375,9 @@ func (controller functionController) recipient(ctx context.Context, registration
 	}
 	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
 		return release.VerifiedFunction{}, err
+	}
+	if controller.config.Roots.reply("").Head != rootHead {
+		return fail()
 	}
 	return proof, nil
 }

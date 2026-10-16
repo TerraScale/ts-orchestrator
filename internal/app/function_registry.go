@@ -69,7 +69,7 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	}
 	reader := config.Material.Reader
 	reader.Authority = config.Authority
-	current := functionIntentSource{reader: reader, authority: config.Authority, epoch: epoch}
+	current := functionIntentSource{reader: reader, authority: config.Authority, epoch: epoch, roots: config.Roots, rootHead: config.Roots.reply("").Head}
 	labels := task.ServiceAnnotations.Labels
 	proof, err := current.CurrentFunction(ctx, labels[swarmruntime.LabelFunctionTenant], labels[swarmruntime.LabelFunctionID])
 	if err != nil {
