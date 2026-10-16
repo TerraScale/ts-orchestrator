@@ -91,7 +91,7 @@ func (c command) serviceBundleWith(args []string, env deployEnv) error {
 	if err != nil {
 		return err
 	}
-	migration, err := release.VerifySequenceMigrationCurrent(migrationEnvelope, roots, *role, *environment, time.Now().UTC())
+	migration, err := release.VerifySequenceMigrationHistorical(migrationEnvelope, roots, *role, *environment)
 	if err != nil {
 		return err
 	}

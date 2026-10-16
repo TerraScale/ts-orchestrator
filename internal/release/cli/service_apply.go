@@ -76,7 +76,7 @@ func (bundle serviceBundle) verify(ctx context.Context, roots trust.Keyring, cel
 		!slices.Contains(delegation.Architectures, bundle.Architecture) {
 		return delivery.ArtifactRecord{}, errors.New("service claim exceeds its root delegation or bundle scope")
 	}
-	if err := verifyServiceSequence(bundle, record, roots, now); err != nil {
+	if err := verifyServiceSequence(bundle, record, roots); err != nil {
 		return delivery.ArtifactRecord{}, err
 	}
 	return record, nil
@@ -204,9 +204,6 @@ func (c command) serviceApplyWith(args []string, env deployEnv) error {
 				if scope.Environment != record.Environment || !slices.Contains(scope.Architectures, bundle.Architecture) {
 					return errors.New("service bundle differs from admitted regional scope")
 				}
-				if err := verifyServiceSequence(bundle, record, roots, deadline); err != nil {
-					return err
-				}
 				if _, _, _, err := release.VerifyReleaseDelegationCurrent(bundle.Delegation, roots, bundle.Environment, deadline); err != nil {
 					return err
 				}
@@ -276,12 +273,12 @@ func (c command) serviceApplyWith(args []string, env deployEnv) error {
 	return errors.Join(failures...)
 }
 
-func verifyServiceSequence(bundle serviceBundle, record delivery.ArtifactRecord, roots trust.Keyring, now time.Time) error {
+func verifyServiceSequence(bundle serviceBundle, record delivery.ArtifactRecord, roots trust.Keyring) error {
 	envelope, err := trust.DecodeEnvelope(bundle.Migration)
 	if err != nil {
 		return err
 	}
-	migration, err := release.VerifySequenceMigrationCurrent(envelope, roots, record.Role, record.Environment, now)
+	migration, err := release.VerifySequenceMigrationHistorical(envelope, roots, record.Role, record.Environment)
 	if err != nil {
 		return err
 	}
@@ -293,7 +290,7 @@ func verifyServiceSequence(bundle serviceBundle, record delivery.ArtifactRecord,
 	if err := protocol.DecodeStrict(bundle.Claim, &claim, delivery.MaxArtifactClaimBytes); err != nil {
 		return err
 	}
-	if claim.IssuedAt.Before(envelope.IssuedAt) || claim.ExpiresAt.After(envelope.ExpiresAt) || claim.KeyID != migration.SignerKeyID || record.ReleaseSequence <= migration.SequenceFloor || record.SequenceMigrationSHA256 != digest {
+	if claim.IssuedAt.Before(envelope.IssuedAt) || claim.KeyID != migration.SignerKeyID || record.ReleaseSequence <= migration.SequenceFloor || record.SequenceMigrationSHA256 != digest {
 		return errors.New("service claim differs from its signed sequence migration")
 	}
 	return nil
