@@ -33,6 +33,7 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/brokerauth"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
@@ -359,6 +360,9 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 }
 
 func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
+	if _, err := brokerauth.MeasureHealthyClock(brokerauth.KernelClockProbe{}); err != nil {
+		t.Fatalf("source admission scenario requires bounded kernel NTP clock: %v", err)
+	}
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	now := time.Now().UTC().Truncate(time.Second).Add(-2 * time.Second)
 	anchor, _, roots, private, _ := materialSourceAnchor(t)
