@@ -28,10 +28,13 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 )
 
 var issuerKey = sync.OnceValues(func() (*rsa.PrivateKey, error) { return rsa.GenerateKey(rand.Reader, 3072) })
@@ -55,6 +58,7 @@ type sdkFixture struct {
 	failCreate       string
 	failDelete       string
 	wrongObservation bool
+	wrongIAMHome     bool
 	expireAfterUser  bool
 }
 
@@ -88,6 +92,11 @@ func newFixture(t *testing.T) *sdkFixture {
 		Object: "qualification/testrun/" + strings.Repeat("b", 64) + ".qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16",
 		WorkloadImage: "registry.example.test/qualification/workload@sha256:" + strings.Repeat("d", 64), WorkloadArchiveSHA256: strings.Repeat("e", 64), ImageBytes: 1 << 20, MaxSpendMicros: 5_000_000,
 		BinarySHA256: strings.Repeat("1", 64), KernelSHA256: strings.Repeat("2", 64), ContainerdSHA256: strings.Repeat("3", 64), RuncSHA256: strings.Repeat("4", 64), RunnerSHA256: strings.Repeat("5", 64), ExpiresAt: now.Add(47 * time.Hour), CleanupUntil: now.Add(60 * time.Hour)}
+	f.prep.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification-profile", f.prep.RunID), Cell: f.prep.Candidate.Cell, Environment: f.prep.Candidate.Environment}
+	f.prep.KernelRelease = "6.12.57-terrascale"
+	for _, scenario := range []string{"ready", "after-loss", "after-partition", "unready", "failed-update"} {
+		f.prep.MaterialFixtures = append(f.prep.MaterialFixtures, MaterialApproval{Scenario: scenario, SignedProfileSHA256: hash([]byte("profile/" + scenario)), ContainerIntentSHA256: hash([]byte("intent/" + scenario))})
+	}
 	for i := range 4 {
 		role := "manager"
 		if i == 3 {
@@ -173,6 +182,14 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/20160918")
 	if r.Method == http.MethodGet {
+		if path == "/tenancies/"+f.prep.Tenancy {
+			key := "GRU"
+			if f.wrongIAMHome {
+				key = "FRA"
+			}
+			write(200, identity.Tenancy{Id: new(f.prep.Tenancy), HomeRegionKey: new(key)})
+			return
+		}
 		if path == "/users/"+f.prep.IssuerPrincipal {
 			write(200, identity.User{Id: new(f.prep.IssuerPrincipal), CompartmentId: new(f.prep.Tenancy), LifecycleState: identity.UserLifecycleStateActive})
 			return
@@ -304,7 +321,7 @@ func (f *sdkFixture) serve(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(body, &details); err != nil {
 				f.t.Error(err)
 			}
-			resource = identity.Policy{Id: new(id), CompartmentId: new(f.prep.Compartment), Name: new(f.prep.PolicyName), Description: new(description), Statements: details.Statements, LifecycleState: identity.PolicyLifecycleStateActive}
+			resource = identity.Policy{Id: new(id), CompartmentId: new(f.prep.Tenancy), Name: new(f.prep.PolicyName), Description: new(description), Statements: details.Statements, LifecycleState: identity.PolicyLifecycleStateActive}
 		case "key":
 			resource = identity.ApiKey{UserId: new("ocid1.user.oc1..created"), Fingerprint: new(id), KeyValue: new(f.prep.PublicKeyPEM), LifecycleState: identity.ApiKeyLifecycleStateActive}
 		case "membership":
@@ -531,10 +548,12 @@ func TestSDKExpiredAmbiguousCreateNeverAdoptsByName(t *testing.T) {
 }
 
 func TestSDKScopeAndObservationDriftStopBeforeNextMutation(t *testing.T) {
-	for _, mode := range []string{"wrong-observed-id", "creation-expired", "issuer-mismatch", "policy-change", "escrow-mismatch"} {
+	for _, mode := range []string{"wrong-observed-id", "creation-expired", "issuer-mismatch", "wrong-iam-home", "policy-change", "escrow-mismatch"} {
 		t.Run(mode, func(t *testing.T) {
 			f := newFixture(t)
 			switch mode {
+			case "wrong-iam-home":
+				f.wrongIAMHome = true
 			case "wrong-observed-id":
 				f.wrongObservation = true
 			case "creation-expired":
@@ -568,7 +587,7 @@ func TestSDKScopeAndObservationDriftStopBeforeNextMutation(t *testing.T) {
 			if f.creates["group"] != 0 || f.creates["policy"] != 0 || f.creates["key"] != 0 || f.creates["membership"] != 0 {
 				t.Fatal("later mutation escaped observation or authority fence")
 			}
-			if (mode == "issuer-mismatch" || mode == "escrow-mismatch") && f.creates["user"] != 0 {
+			if (mode == "issuer-mismatch" || mode == "escrow-mismatch" || mode == "wrong-iam-home") && f.creates["user"] != 0 {
 				t.Fatal("mutation preceded issuer/key verification")
 			}
 		})
@@ -689,5 +708,106 @@ func TestSDKPreparationRejectsChangedJournalAndUnsafeEscrow(t *testing.T) {
 				t.Fatal("unsafe recovery mutated cloud")
 			}
 		})
+	}
+}
+
+func TestSDKFixedRoleMaterialAndProductionGroupBindings(t *testing.T) {
+	for _, mode := range []string{"netbird-valid", "netbird-wrong-cell", "netbird-extra-swarm-material", "missing-kernel-release", "material-hash", "profile-cell", "production-group-overlap", "production-group-duplicate", "tagged-workload", "unqualified-role"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFixture(t)
+			p := f.prep
+			if strings.HasPrefix(mode, "netbird-") {
+				p.Candidate.Role = "netbird-manager"
+				p.Candidate.Runtime = "netbird-containerd"
+				p.ProfileIdentity = cellspec.Identity{}
+				p.MaterialFixtures = nil
+				p.WorkloadImage = ""
+				p.WorkloadArchiveSHA256 = ""
+				p.ClientSHA256 = strings.Repeat("6", 64)
+				p.Hosts = slices.Clone(p.Hosts[:2])
+				p.Hosts[0].Role = "netbird-primary"
+				p.Hosts[1].Role = "netbird-replacement"
+				for _, role := range []string{"server", "dashboard", "ingress"} {
+					p.ContainerArtifacts = append(p.ContainerArtifacts, ContainerArtifactApproval{Role: role, Image: "registry.example.test/netbird/" + role + "@sha256:" + hash([]byte(role)), ArchiveSHA256: hash([]byte("archive/" + role))})
+				}
+			}
+			switch mode {
+			case "netbird-wrong-cell":
+				p.Candidate.Cell = "FRA"
+				p.OCIRegion = "eu-frankfurt-1"
+			case "netbird-extra-swarm-material":
+				p.MaterialFixtures = []MaterialApproval{f.prep.MaterialFixtures[0]}
+			case "missing-kernel-release":
+				p.KernelRelease = ""
+			case "material-hash":
+				p.MaterialFixtures = slices.Clone(p.MaterialFixtures)
+				p.MaterialFixtures[0].SignedProfileSHA256 = "changed"
+			case "profile-cell":
+				p.ProfileIdentity.Cell = "FRA"
+			case "production-group-overlap":
+				p.ProductionDynamicGroups = []confinement.ProductionDynamicGroup{{ID: "ocid1.dynamicgroup.oc1..production", Name: "Production", InstanceCompartment: p.Compartment}}
+			case "production-group-duplicate":
+				group := confinement.ProductionDynamicGroup{ID: "ocid1.dynamicgroup.oc1..production", Name: "Production", InstanceCompartment: "ocid1.compartment.oc1..production"}
+				p.ProductionDynamicGroups = []confinement.ProductionDynamicGroup{group, group}
+			case "tagged-workload":
+				p.WorkloadImage = "registry.example.test/workload:latest@sha256:" + strings.Repeat("d", 64)
+			case "unqualified-role":
+				p.Candidate.Role = "other"
+			}
+			wire := f.wire(p, PreparationScope(p.RunID, p.Candidate), f.root)
+			v, err := VerifyPreparation(wire, nil, f.roots, p.RunID, f.now())
+			if mode != "netbird-valid" {
+				if err == nil {
+					t.Fatal("changed signed finite role/material scope accepted")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.prep = p
+			f.verified = v
+			result, err := f.producer.Prepare(t.Context(), v, f.dir)
+			if err != nil || !result.Prepared() {
+				t.Fatalf("actual NetBird principal preparation: %v", err)
+			}
+			receipt := result.Receipt()
+			receipt.Principal = "unrelated"
+			receipt.PolicyStatements[0] = "altered"
+			if result.Receipt().Principal == "unrelated" || result.Receipt().PolicyStatements[0] == "altered" || (Result{}).Prepared() {
+				t.Fatal("public receipt can alter sealed producer result")
+			}
+			if _, err := f.producer.Cleanup(t.Context(), v, f.dir); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+type rotatingIssuer struct {
+	common.ConfigurationProvider
+	calls atomic.Int32
+}
+
+func (r *rotatingIssuer) KeyID() (string, error) {
+	if r.calls.Add(1) == 1 {
+		return r.ConfigurationProvider.KeyID()
+	}
+	return "ocid1.tenancy.oc1..test/ocid1.user.oc1..unrelated/other", nil
+}
+
+func TestSDKFreezesExactIssuerBeforeDispatch(t *testing.T) {
+	f := newFixture(t)
+	rotating := &rotatingIssuer{ConfigurationProvider: f.producer.issuer.Provider()}
+	factory, err := ociclient.New(rotating, ociclient.Options{Region: f.prep.IAMRegion, Limits: map[ociclient.Service]ociclient.Limit{ociclient.ServiceIdentity: {PerSecond: 10000, Burst: 10000}}, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.producer.issuer = factory
+	if result, err := f.producer.Prepare(t.Context(), f.verified, f.dir); err != nil || !result.Prepared() {
+		t.Fatalf("frozen issuer preparation: %v", err)
+	}
+	if rotating.calls.Load() != 1 {
+		t.Fatal("mutable issuer provider was consulted after exact identity freeze")
 	}
 }
