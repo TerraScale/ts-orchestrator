@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/hostload"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 const testCompartment = "ocid1.compartment.oc1..gru"
@@ -476,6 +477,7 @@ func protocolPool(t *testing.T, cloud *capacityCloud, capacity Capacity) *OCIPoo
 	policy := common.NoRetryPolicy()
 	base := common.BaseClient{Host: srv.URL, BasePath: "20160918", UserAgent: "capacity-integration", HTTPClient: srv.Client(), Signer: capacitySigner{},
 		Configuration: common.CustomClientConfiguration{RetryPolicy: &policy}}
+	ociclient.ConfigureRequestCancellation(&base)
 	pool, err := newOCIPool(core.ComputeManagementClient{BaseClient: base}, core.ComputeClient{BaseClient: base}, core.VirtualNetworkClient{BaseClient: base}, "gru", testCompartment, capacity)
 	if err != nil {
 		t.Fatal(err)

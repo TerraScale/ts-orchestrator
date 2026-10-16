@@ -218,6 +218,12 @@ func (o *OCIPool) admit(ctx context.Context, recipe Recipe) (func(), error) {
 	return release, nil
 }
 
+func (o *OCIPool) writeContext(ctx context.Context, recipe Recipe) context.Context {
+	return ociclient.RequestContext(ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
+		return o.admit(ctx, recipe)
+	}))
+}
+
 // Ensure makes this capacity's configuration and pool exist, and points the pool at the recipe.
 // It never changes the pool's size.
 func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) {
@@ -279,11 +285,6 @@ func (o *OCIPool) Grow(ctx context.Context, from int) error {
 	if o.recipe == nil {
 		return fmt.Errorf("%w: pool recipe has not been admitted", ErrCapacityPending)
 	}
-	release, err := o.admit(ctx, *o.recipe)
-	if err != nil {
-		return err
-	}
-	defer release()
 	if from < 0 || from >= MaxPoolNodes {
 		return fmt.Errorf("pool of cell %s cannot grow from %d; it holds 0 to %d nodes", o.cell, from, MaxPoolNodes)
 	}
@@ -304,7 +305,7 @@ func (o *OCIPool) Grow(ctx context.Context, from int) error {
 	default:
 		return fmt.Errorf("%w: pool of cell %s is %d, expected %d", ErrPoolChanged, o.cell, size, from)
 	}
-	_, err = o.management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{
+	_, err = o.management.UpdateInstancePool(o.writeContext(ctx, *o.recipe), core.UpdateInstancePoolRequest{
 		InstancePoolId: pool.Id, IfMatch: common.String(etag),
 		UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{Size: common.Int(from + 1)}})
 	if err != nil {
@@ -509,12 +510,7 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 		}
 		return deref(configs[i].Id), nil
 	}
-	release, err := o.admit(ctx, recipe)
-	if err != nil {
-		return "", err
-	}
-	defer release()
-	response, err := o.management.CreateInstanceConfiguration(ctx, core.CreateInstanceConfigurationRequest{
+	response, err := o.management.CreateInstanceConfiguration(o.writeContext(ctx, recipe), core.CreateInstanceConfigurationRequest{
 		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
 			CompartmentId:   common.String(o.compartmentID),
 			DisplayName:     common.String(name),
@@ -539,12 +535,7 @@ func (o *OCIPool) pruneConfigurations(ctx context.Context, recipe Recipe, keep .
 		if slices.Contains(keep, deref(config.Id)) {
 			continue
 		}
-		release, err := o.admit(ctx, recipe)
-		if err != nil {
-			return err
-		}
-		_, err = o.management.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{InstanceConfigurationId: config.Id})
-		release()
+		_, err = o.management.DeleteInstanceConfiguration(o.writeContext(ctx, recipe), core.DeleteInstanceConfigurationRequest{InstanceConfigurationId: config.Id})
 		if err != nil {
 			return fmt.Errorf("delete instance configuration %s: %w", deref(config.DisplayName), err)
 		}
@@ -554,11 +545,6 @@ func (o *OCIPool) pruneConfigurations(ctx context.Context, recipe Recipe, keep .
 
 // createPool makes the cell's pool at size 0, with one placement per availability domain on the recipe's subnet.
 func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string) error {
-	release, err := o.admit(ctx, recipe)
-	if err != nil {
-		return err
-	}
-	defer release()
 	name := PoolName(o.cell, o.capacity)
 	placements := make([]core.CreateInstancePoolPlacementConfigurationDetails, 0, len(recipe.AvailabilityDomains))
 	for _, domain := range recipe.AvailabilityDomains {
@@ -567,7 +553,7 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 			PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: common.String(recipe.SubnetID)},
 		})
 	}
-	_, err = o.management.CreateInstancePool(ctx, core.CreateInstancePoolRequest{
+	_, err := o.management.CreateInstancePool(o.writeContext(ctx, recipe), core.CreateInstancePoolRequest{
 		CreateInstancePoolDetails: core.CreateInstancePoolDetails{
 			CompartmentId:           common.String(o.compartmentID),
 			InstanceConfigurationId: common.String(configID),
@@ -586,11 +572,6 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 
 // point moves the pool to the recipe's configuration and placements. Its size is left alone.
 func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, configID string, recipe Recipe) error {
-	release, err := o.admit(ctx, recipe)
-	if err != nil {
-		return err
-	}
-	defer release()
 	details := core.UpdateInstancePoolDetails{InstanceConfigurationId: common.String(configID)}
 	if !placementsMatch(pool, recipe) {
 		for _, domain := range recipe.AvailabilityDomains {
@@ -600,7 +581,7 @@ func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, conf
 			})
 		}
 	}
-	_, err = o.management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{
+	_, err := o.management.UpdateInstancePool(o.writeContext(ctx, recipe), core.UpdateInstancePoolRequest{
 		InstancePoolId: pool.Id, IfMatch: common.String(etag), UpdateInstancePoolDetails: details})
 	if err != nil {
 		return fmt.Errorf("point instance pool %s at %s: %w", deref(pool.DisplayName), configID, err)
