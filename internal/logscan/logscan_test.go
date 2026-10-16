@@ -3,13 +3,70 @@ package logscan
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/netbird/sshlogin"
 )
+
+func logscanProcess(ctx context.Context, env []string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
+	cmd.Env = append(cmd.Env, env...)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("%w: %s", err, bytes.TrimSpace(out))
+	}
+	return out, err
+}
+
+func logscanFiles(t *testing.T) (Fetchers, string) {
+	t.Helper()
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"gru-1-ctl-1":  journal,
+		"gru-1-ctl-2":  "",
+		"ts-dashboard": fly,
+		"journalctl": `#!/bin/sh
+printf '%s\n' "$@" > "$LOGSCAN_FIXTURES/journal-args"
+exec cat "$LOGSCAN_FIXTURES/$LOGSCAN_NODE"
+`,
+		"fly": `#!/bin/sh
+[ "$#" -eq 4 ] && [ "$1" = logs ] && [ "$2" = -a ] && [ "$4" = --no-tail ] || exit 2
+exec cat "$LOGSCAN_FIXTURES/$3"
+`,
+	} {
+		mode := os.FileMode(0o600)
+		if name == "journalctl" || name == "fly" {
+			mode = 0o700
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LOGSCAN_FIXTURES", dir)
+	return Fetchers{
+		Node: func(ctx context.Context, node, command string) ([]byte, error) {
+			return logscanProcess(ctx, []string{"LOGSCAN_NODE=" + node}, "bash", "-c", command)
+		},
+		Fly: func(ctx context.Context, app string) ([]byte, error) {
+			return logscanProcess(ctx, nil, "fly", "logs", "-a", app, "--no-tail")
+		},
+	}, dir
+}
 
 // journal is RemoteCommand output in the shapes gru-1 logs on 2026-10-07.
 const journal = `{"__CURSOR":"s=1","_COMM":"terrabase","_PID":"7137","MESSAGE":"warn: TerraBase.Features.Replication.ReplicationSender[1858781747]"}
@@ -28,7 +85,12 @@ const journal = `{"__CURSOR":"s=1","_COMM":"terrabase","_PID":"7137","MESSAGE":"
 `
 
 func TestParseJournalClassifiesEveryFormat(t *testing.T) {
-	got := ParseJournal([]byte(journal))
+	fetch, _ := logscanFiles(t)
+	out, err := fetch.Node(t.Context(), "gru-1-ctl-1", RemoteCommand(20*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ParseJournal(out)
 	want := []Record{
 		{"terrabase", "WARN", "TerraBase.Features.Replication.ReplicationSender: Replication of N databases to peer #N failed; retrying within N ms"},
 		{"terrabase", "WARN", "TerraBase.Features.Replication.ReplicationSender: Replication of N databases to peer #N failed; retrying within N ms"},
@@ -42,18 +104,24 @@ func TestParseJournalClassifiesEveryFormat(t *testing.T) {
 }
 
 func TestLevelPatternSelectsWarningsAndErrorsOnly(t *testing.T) {
-	pattern := regexp.MustCompile(levelPattern) // the ERE is also valid RE2
+	fetch, dir := logscanFiles(t)
+	out, err := logscanProcess(t.Context(), nil, "grep", "-a", "-E", levelPattern, filepath.Join(dir, "gru-1-ctl-1"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var kept []string
-	for line := range strings.Lines(journal) {
-		if pattern.MatchString(line) {
-			kept = append(kept, strings.Split(line, `"`)[3])
-		}
+	for line := range strings.Lines(string(out)) {
+		kept = append(kept, strings.Split(line, `"`)[3])
 	}
 	if want := []string{"s=1", "s=4", "s=6", "s=8", "s=10"}; !slices.Equal(kept, want) {
 		t.Fatalf("pattern kept %q, want %q", kept, want)
 	}
-	if command := RemoteCommand(20 * time.Minute); !strings.Contains(command, "--since -1200s ") || !strings.Contains(command, "'"+levelPattern+"'") {
-		t.Fatalf("remote command %q", command)
+	if _, err := fetch.Node(t.Context(), "gru-1-ctl-1", RemoteCommand(20*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(filepath.Join(dir, "journal-args"))
+	if want := "--since\n-1200s\n--no-pager\n-o\njson\n--output-fields=_COMM,_PID,MESSAGE\n-u\nterrascale-orchestrator*\n"; err != nil || string(args) != want {
+		t.Fatalf("journalctl arguments = %q, error %v; want %q", args, err, want)
 	}
 }
 
@@ -65,7 +133,12 @@ const fly = "\x1b[2m2026-10-07T14:00:00Z\x1b[0m app[d8d96000b74e78] \x1b[32mgru\
 	"2026-10-07T14:53:00Z proxy[d8d96000b74e78] gru [error][PC01] instance refused connection. is your app listening on 0.0.0.0:8080?\n"
 
 func TestParseFlyKeepsRecentWarningsAndErrors(t *testing.T) {
-	got := ParseFly("ts-dashboard", []byte(fly), time.Date(2026, 10, 7, 14, 40, 0, 0, time.UTC))
+	fetch, _ := logscanFiles(t)
+	out, err := fetch.Fly(t.Context(), "ts-dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := ParseFly("ts-dashboard", out, time.Date(2026, 10, 7, 14, 40, 0, 0, time.UTC))
 	want := []Record{
 		{"ts-dashboard", "WARN", "read system database: system collection list failed: terrabase: N not_found"},
 		{"ts-dashboard", "ERROR", "resolve: store unavailable"},
@@ -77,22 +150,11 @@ func TestParseFlyKeepsRecentWarningsAndErrors(t *testing.T) {
 }
 
 func TestScanCountsPerServiceAndNodeAndFailsOnAnUnreadableNode(t *testing.T) {
-	fetch := Fetchers{
-		Node: func(_ context.Context, node, command string) ([]byte, error) {
-			switch node {
-			case "gru-1-ctl-1":
-				return []byte(journal), nil
-			case "gru-1-ctl-2":
-				return nil, nil
-			}
-			return nil, errors.New("no route")
-		},
-		Fly: func(context.Context, string) ([]byte, error) { return []byte(fly), nil },
-	}
+	fetch, _ := logscanFiles(t)
 	var out bytes.Buffer
 	now := time.Date(2026, 10, 7, 15, 0, 0, 0, time.UTC)
 	err := Scan(t.Context(), &out, []string{"gru-1-ctl-1", "gru-1-ctl-2", "ts-sfo-1"}, []string{"ts-dashboard"}, 20*time.Minute, 2, now, fetch)
-	if err == nil || !strings.Contains(err.Error(), "node ts-sfo-1: no route") {
+	if err == nil || !strings.Contains(err.Error(), "node ts-sfo-1: exit status 1") || !strings.Contains(err.Error(), "No such file or directory") {
 		t.Fatalf("error %v", err)
 	}
 	report := regexp.MustCompile(` +`).ReplaceAllString(out.String(), " ")
@@ -116,28 +178,82 @@ func TestScanCountsPerServiceAndNodeAndFailsOnAnUnreadableNode(t *testing.T) {
 }
 
 func TestRunRejectsBadArguments(t *testing.T) {
+	if os.Getenv("LOGSCAN_ARGS_CHILD") == "1" {
+		args := os.Args[slices.Index(os.Args, "--")+1:]
+		if err := Run(t.Context(), args, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	childEnv := []string{"LOGSCAN_ARGS_CHILD=1", "GORACE=atexit_sleep_ms=0", "PATH=" + t.TempDir()}
 	for _, args := range [][]string{
 		{"--since", "0s", "--node", "gru-1-ctl-1"},
 		{"--node", "gru-1-ctl-1", "extra"},
+		{"--help"},
 	} {
-		if err := Run(t.Context(), args, &bytes.Buffer{}); err == nil {
-			t.Errorf("Run(%q) accepted", args)
+		out, err := logscanProcess(t.Context(), childEnv, executable,
+			append([]string{"-test.run=^TestRunRejectsBadArguments$", "--"}, args...)...)
+		if args[0] == "--help" {
+			if err != nil || !strings.Contains(string(out), "--fly-app") {
+				t.Fatalf("help: %v %q", err, out)
+			}
+		} else if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 2 ||
+			!strings.Contains(string(out), "log-scan needs a --since of at least 1s and no positional arguments") {
+			t.Errorf("Run(%q) error %v, output %q", args, err, out)
 		}
-	}
-	var help bytes.Buffer
-	if err := Run(t.Context(), []string{"--help"}, &help); err != nil || !strings.Contains(help.String(), "--fly-app") {
-		t.Fatalf("help: %v %q", err, help.String())
 	}
 }
 
 func TestServersAreThePeersNamedLikeCellServers(t *testing.T) {
-	peers := map[string]string{}
+	fetch, dir := logscanFiles(t)
+	var details []map[string]string
 	for _, name := range []string{"ts-gru-1", "ts-sfo-3", "gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3",
 		"gru-1", "ts-ops", "delta", "mariogk-dev-ops", "ts-xyz-1"} {
-		peers[name], peers[name+".nb.ts.internal"] = "10.200.0.1", "10.200.0.1"
+		details = append(details, map[string]string{"fqdn": name + ".nb.ts.internal", "netbirdIp": "10.200.0.1"})
+	}
+	status, err := json.Marshal(map[string]any{"peers": map[string]any{"details": details}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "netbird.json"), status, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	netbird := filepath.Join(dir, "netbird")
+	if err := os.WriteFile(netbird, []byte(`#!/bin/sh
+[ "$#" -eq 2 ] && [ "$1" = status ] && [ "$2" = --json ] || exit 2
+exec cat "$LOGSCAN_FIXTURES/netbird.json"
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	peers, err := sshlogin.Peers(ctx, netbird)
+	if err != nil {
+		t.Fatal(err)
 	}
 	want := []string{"gru-1-ctl-2", "gru-1-db-1", "gru-1-pool-app-3", "ts-gru-1", "ts-sfo-3"}
-	if got := Servers(peers); !slices.Equal(got, want) {
+	got := Servers(peers)
+	if !slices.Equal(got, want) {
 		t.Fatalf("Servers = %q, want %q", got, want)
+	}
+	for _, node := range want {
+		if err := os.WriteFile(filepath.Join(dir, node), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := Scan(t.Context(), &out, got, nil, 20*time.Minute, 2, time.Now(), fetch); err != nil {
+		t.Fatal(err)
+	}
+	report := regexp.MustCompile(` +`).ReplaceAllString(out.String(), " ")
+	for _, node := range want {
+		if !strings.Contains(report, "ts-orchestrator "+node+" 0 0\n") {
+			t.Errorf("report omitted selected server %s:\n%s", node, out.String())
+		}
 	}
 }
