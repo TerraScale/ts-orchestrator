@@ -70,26 +70,6 @@ func FoundationIntentDigest(intent FoundationIntent) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// FoundationIntentDigest binds every signed authority field to its generation.
-func FoundationIntentDigest(intent FoundationIntent) (string, error) {
-	wire, err := json.Marshal(intent, json.Deterministic(true))
-	if err != nil {
-		return "", err
-	}
-	// Independent verifiers read the signed JSON as objects, so normalize struct
-	// field order to the same recursively sorted representation before hashing.
-	var object map[string]any
-	if err := json.Unmarshal(wire, &object); err != nil {
-		return "", err
-	}
-	wire, err = json.Marshal(object, json.Deterministic(true))
-	if err != nil {
-		return "", err
-	}
-	sum := sha256.Sum256(wire)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 // FoundationAuthority is the existing scoped foundation authority. HomeWrite
 // serializes tenancy-wide IAM across all regional operations, including GRU.
 type FoundationAuthority interface {
