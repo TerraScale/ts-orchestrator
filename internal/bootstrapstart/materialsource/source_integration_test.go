@@ -343,6 +343,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	spokePlan["cell"], spokePlan["region"] = "SFO", "us-sanjose-1"
 	spokePlan["resource_ids"] = map[string]any{"control_compartment": "ocid1.compartment.oc1..sfo-control", "vault": "ocid1.vault.oc1.us-sanjose-1.vault", "key": "ocid1.key.oc1.us-sanjose-1.key"}
 	grant.Regions = append(grant.Regions, region.FoundationIntent{Generation: 1, Plan: spokePlan})
+	pinnedLedgerWire := bytes.Clone(anchor.Anchor().LedgerDelegationWire)
+	pinnedSlots := slices.Clone(anchor.Anchor().ControllerSlots)
 	publish := func() {
 		t.Helper()
 		payload, err := trust.EncodePayload(grant)
@@ -358,6 +360,16 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 			t.Fatal(err)
 		}
 		anchorValue := anchor.Anchor()
+		if intent.SourceRegistration != nil {
+			registration := intent.SourceRegistration.Clone()
+			anchorValue.InitialSourceRegistration = &registration
+			anchorValue.ControllerSlots = slices.Clone(registration.ControllerSlots)
+			anchorValue.LedgerDelegationWire = nil
+		} else {
+			anchorValue.InitialSourceRegistration = nil
+			anchorValue.LedgerDelegationWire = bytes.Clone(pinnedLedgerWire)
+			anchorValue.ControllerSlots = slices.Clone(pinnedSlots)
+		}
 		anchorValue.FoundationScope = &bootstrap.FoundationScope{InstallationID: grant.InstallationID, DeploymentID: cfg.DeploymentID, ClusterID: cfg.ClusterID, TenancyID: grant.TenancyID, OCIRegion: "sa-saopaulo-1", StorageDomain: anchor.StorageDomain(), GrantGeneration: grant.Generation, GrantSHA256: digestWire(wire)}
 		rootEnvelope, err := bootstrap.SignBootstrapAnchor(anchorValue, now.Add(-time.Minute), now.Add(time.Hour), private)
 		if err != nil {
@@ -386,6 +398,21 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	grant.Regions[0].BootstrapMaterial = intent
 	grant.Regions[1].BootstrapMaterial = spokeIntent
+	publish()
+	pinnedOnly, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveColdStartMaterial(t.Context(), pinnedOnly, &objects, &management, &bundles, filepath.Join(t.TempDir(), "missing-pinned-source"), now); err == nil || protocol.creates != 0 {
+		t.Fatal("existing pinned identity minted replacement source")
+	}
+	for index, material := range []*region.BootstrapMaterialIntent{intent, spokeIntent} {
+		ids := grant.Regions[index].Plan["resource_ids"].(map[string]any)
+		ids["subnet"], ids["network_security_group"] = "ocid1.subnet.oc1."+material.Config.Region+".test", "ocid1.networksecuritygroup.oc1."+material.Config.Region+".test"
+		startup, _ := sourceImageRecipe(t, private, roots, now, material.Config, ids, anchor.Anchor().InitialRegionIntentWire)
+		material.Startup = &startup
+		material.SourceRegistration = &bootstrap.InitialSourceRegistration{InstallationID: material.InstallationID, DeploymentID: material.Config.DeploymentID, Environment: material.Config.Environment, ClusterID: material.Config.ClusterID, Cell: oci.Region(strings.ToUpper(material.Config.Cell)), Generation: 1, PlanSHA256: material.PlanSHA256, SeedSlot: startup.SeedSlot, ControllerSlots: []string{"controller-a", "controller-b", "controller-c"}, StorageDomain: anchor.StorageDomain(), LedgerRecordDomains: bootstrap.BootstrapLedgerCapabilityDomains()}
+	}
 	publish()
 	verified, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -581,6 +608,8 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	grant.Generation = 2
 	grant.Regions[0].Generation = 2
 	grant.Regions[1].Generation = 2
+	intent.SourceRegistration.Generation = 2
+	spokeIntent.SourceRegistration.Generation = 2
 	publish()
 	verified, err = reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -602,6 +631,7 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	intent.Config.ValidityHours = 72
 	wire, _ = json.Marshal(intent.Config, json.Deterministic(true))
 	intent.PlanSHA256 = digestWire(wire)
+	intent.SourceRegistration.PlanSHA256 = intent.PlanSHA256
 	publish()
 	changed, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
 	if err != nil {
@@ -609,5 +639,27 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	}
 	if _, err := ResolveColdStartMaterial(t.Context(), changed, &objects, &management, &bundles, filepath.Join(t.TempDir(), "changed"), now); err == nil {
 		t.Fatal("same installation changed its signing source")
+	}
+	intent.Config = cfg
+	wire, _ = json.Marshal(cfg, json.Deterministic(true))
+	intent.PlanSHA256, intent.SourceRegistration = digestWire(wire), nil
+	publish()
+	wrongPin, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ResolveColdStartMaterial(t.Context(), wrongPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "wrong-pin"), now); err == nil || protocol.creates != 39 {
+		t.Fatal("source escrow overrode pinned ledger key")
+	}
+	pinnedLedgerWire = sourcePinnedLedger(t, private, replacement.Record(), now)
+	pinnedSlots = []string{"controller-a", "controller-b", "controller-c"}
+	publish()
+	matchingPin, err := reader.AuthorizedBootstrapMaterial(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinnedRecovery, err := ResolveColdStartMaterial(t.Context(), matchingPin, &objects, &management, &bundles, filepath.Join(t.TempDir(), "matching-pin"), now)
+	if err != nil || !reflect.DeepEqual(pinnedRecovery.Record(), replacement.Record()) || protocol.creates != 39 {
+		t.Fatalf("matching pinned source recovery: %v", err)
 	}
 }

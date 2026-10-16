@@ -129,11 +129,17 @@ func (source *ColdStartMaterial) loadRecord(directory string) (bootstrapmaterial
 		if err := bootstrapmaterial.ValidateLive(directory, record); err != nil {
 			return bootstrapmaterial.Record{}, err
 		}
+		if err := source.validateLedger(record); err != nil {
+			return bootstrapmaterial.Record{}, err
+		}
 		return record, nil
 	}
 	record, err := bootstrapmaterial.LoadLink(directory, time.Now())
-	if err != nil || record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) {
+	if err != nil || record.SourceSHA256 != source.link.regionalDigest || record.HomeSHA256 != source.link.homeDigest || record.HomeLinkSHA256 != source.link.homeLinkDigest || !reflect.DeepEqual(record.Config, source.grant.Config()) || record.Public != source.link.regional.record.Public || record.HomeAccount != source.link.home.record.Public.CellAccountNKey || source.link.homeLink != nil && record.Signer != source.link.homeLink.record.Signer {
 		return bootstrapmaterial.Record{}, ErrMaterialSource
+	}
+	if err := source.validateLedger(record.Record); err != nil {
+		return bootstrapmaterial.Record{}, err
 	}
 	return record.Record, nil
 }
