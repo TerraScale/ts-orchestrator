@@ -20,6 +20,9 @@ runtime, measured savings, production readiness, or deployment authorization.
 | Customer workloads | Short-lived Wasm functions on isolated worker hosts. |
 | Mixed execution | Native `linux/arm64`, native `linux/amd64`, and portable Wasm coexist in each region as demand requires. |
 | Security and joining | Substantially simplify custom protocols; automatic discovery and worker admission using OCI identity and Vault-delivered bootstrap material. |
+| First regional milestone | A small, working GRU / San Francisco Bay Area / FRA deployment, communicating through orchestrator-managed NetBird. |
+| NetBird control plane | One dedicated A1 Flex VM in GRU, owned and recovered by `ts-orch`. |
+| Build and release provider | GitHub-hosted Actions, GitHub artifacts/releases, and GitHub source/run verification; no Forgejo server, runner, token, CLI, or package-fetch requirement. |
 
 Wasmtime is the proposed first function runtime, subject to the compatibility
 prototype below. The user selected customer Wasm, not a particular WASI version
@@ -57,6 +60,97 @@ safety requirements. Close these gaps before implementing the replacement:
    Workers cannot create a new regional cluster after an empty discovery result.
 5. **Make migrations explicit.** A newer ARM family, ARM-to-x86 move, database
    relocation, and Wasm recompilation have different compatibility requirements.
+
+## First desired state: three regions that actually communicate
+
+| Display location | OCI region | Existing product token |
+| --- | --- | --- |
+| GRU / São Paulo | `sa-saopaulo-1` | `gru` |
+| San Francisco Bay Area (OCI San Jose) | `us-sanjose-1` | `sfo` |
+| FRA / Frankfurt | `eu-frankfurt-1` | `fra` |
+
+Keep the existing `sfo` product token; OCI's region key is `SJC`. Fly's `sjc`
+identifier is a different provider's naming convention. Do not substitute
+Phoenix or rename stored identities to make the display name match.
+
+Start with four disposable A1 VMs: one regional controller per region and one
+dedicated GRU NetBird server. Each regional controller runs its own embedded
+NATS and a bounded, trusted smoke workload. This is a connectivity milestone,
+not a highly available deployment or a customer execution environment. The
+qualification topology belongs in test tooling, never a production singleton
+switch. Before HA claims, qualify three managers per region: ten VMs including
+NetBird, plus any isolated workload/function hosts required by later slices.
+
+Acceptance requires real OCI hosts and the exact qualified source/artifacts:
+
+1. **Automatic formation.** All three controllers infer their regions, join
+   NetBird, discover the other regions, and expose authenticated readiness with
+   observed commit/digests. Restart one without manual enrollment or enable flags.
+2. **Working communication.** Exercise authenticated request/reply in all six
+   directed regional pairs and verify replies identify the intended region.
+   Use a loop-free NATS leaf tree rooted in GRU; a request may traverse GRU.
+   Prove required overlay paths and DNS; a ping or peer count alone is not enough.
+3. **Working rollout.** Deploy the trusted smoke workload in every region, serve
+   requests for 30 minutes, update it by digest, and recover an unhealthy release.
+   Record failures and recovery time; an unavailable region cannot count as passed.
+4. **Failure and recovery.** Restart the central server, test a relay-dependent
+   peer, and restore NetBird from an off-host backup onto a replacement GRU VM.
+   Existing direct tunnels may survive; new joins and relayed paths may not.
+   Separately interrupt the GRU NATS hub and prove other regions keep serving
+   locally while unavailable cross-region operations are reported honestly.
+5. **Publish evidence.** Retain redacted inventories/OCIDs, peer and link health,
+   six-direction results, boot/join/rollout/recovery timings, resource use, and
+   the actual regional bill under `benchmark/bench/`. Add separate ARM/x86/Wasm
+   workload hosts before claiming the mixed-runtime milestone is complete.
+
+These are desired acceptance results, not a report that the fleet exists.
+Provisioning and destructive recovery exercises retain their authorization gates.
+
+## NetBird: a managed GRU foundation service
+
+Provision one dedicated `VM.Standard.A1.Flex` host in `sa-saopaulo-1` for the
+pinned ARM64 NetBird management, signal, relay/STUN, and required identity/TLS
+components. Preserve `netbird.terrascale.tech` and existing account/peer identity
+where recoverable. Inspect current resources and backups before choosing
+restoration or fresh bootstrap; the historical ts-ops bundle is not live evidence.
+
+`ts-orch` owns the VM/image, network/firewall, persistent data, DNS/certificates,
+upstream component installation, health/restart, updates, setup keys, scoped API
+credential rotation, groups/policies, peer cleanup, backups, and restore. Use
+upstream NetBird components managed by the Go executable; do not reimplement
+the VPN server or require a second operator deployment tool. The target has no
+Forgejo cohosting, `ts-ops` hostname guard, pinned ts-ops private address, manual
+PAT file, or dashboard-only setup step. Preserve the existing mesh address plan.
+
+Bootstrap/recovery must work before NetBird and regional scheduler admission.
+Use a narrowly authorized foundation path on OCI networking, the host supervisor,
+and instance-principal Vault access. Create the initial owner/service identity
+over a private local bootstrap channel, deliver its credentials into Vault
+without stdout/file handoffs, and close initial setup before public exposure.
+Do not schedule the sole manager through the network that it must create.
+This bootstrap authority does not grant serving admission or customer privileges.
+
+Every private regional subnet needs a verified path to the manager, DNS, OCI
+identity/Vault, and artifact endpoints before enrollment. Declare and test the
+chosen egress/private routing; a public hostname alone supplies no route.
+Restrict public exposure to the pinned upstream version's required TLS and
+STUN/relay ports, with the appropriate DNS-only endpoint for UDP. Derive least-
+privilege policies from the required traffic graph, preserving scoped NATS mTLS.
+NetBird's central coordination server does not imply that all peer traffic
+passes through GRU. Do not create cyclic NATS links to obtain pairwise reachability.
+
+Use one GRU authority for account-wide writes; other regions report inventory
+and request scoped changes. Check authority before each write and cancel a
+cycle on leadership loss. Recover partially applied operations before retrying.
+Back up a consistent store together with the required encryption/identity
+material to protected OCI Object Storage outside the VM; copy recovery material
+outside GRU for regional disaster recovery. Prove restore preserves peer identity
+and access policy. Measure and publish recovery time and recoverable data age.
+
+The single GRU server is an accepted initial failure domain. Its loss can stop
+joins, policy changes, authentication, and relay-dependent traffic. A GRU-wide
+outage needs separately approved alternate-region recovery; a backup alone does
+not supply that capacity. Local regional serving must not require a live manager.
 
 ## What the current code establishes
 
@@ -446,8 +540,12 @@ commit. External tests use fakes/contract fixtures; do not download or run
 TerraBase from this repository's tests. Real TerraBase integration belongs in
 the monorepo using its same-commit build. Local build/test/benchmark commands run
 with `nice -n 19`; GitHub CI runs normally on hosted runners. No local check is
-required before opening a PR. Use the GitHub implementation repository and
-retire the old Forgejo/private-builder assumptions.
+required before opening a PR. Use GitHub-hosted CI and retain exact-commit
+qualification, binaries, images, logs, and rollback history in GitHub-backed
+release paths. Replace Forgejo qualification/lineage checks with GitHub run,
+job, repository, SHA, and artifact validation; never bypass admission to migrate.
+Move SDK fetching and operational tools to their GitHub equivalents, remove
+private-builder/`fj` requirements, and preserve credential and production gates.
 
 ## Measure whether it is actually cheaper
 
@@ -468,6 +566,59 @@ Expected benefit: fewer custom scheduling and rollout mechanisms to maintain.
 Unproven benefit: lower infrastructure spend or faster function execution.
 If the adapter retains most existing orchestration or requires extensive upstream
 patches, stop and reassess the architecture rather than maintaining two platforms.
+
+## Project review: recommended implementation order
+
+Review scope: the four-VM connectivity milestone, then HA and mixed workloads.
+Read the control/bootstrap, NetBird, regional NATS, release/CI, OCI capacity/cost,
+host execution, storage fencing, API, and artifact-retention paths. This is a
+risk-based source review, not exhaustive inspection of every file or live proof.
+
+### Must fix before claiming the first milestone
+
+1. **GitHub must produce deployable releases.** `.forgejo/workflows/` and
+   `internal/release/cli/admission.go` still require the old provider; GitHub
+   currently has no Actions workflows. Migrate producers, exact-run/job and
+   source lineage validators, SDK fetching, and consumers together. Otherwise
+   a GitHub checkout cannot qualify, fetch, and deploy its own release.
+2. **NetBird must bootstrap and recover independently.** The manager installer
+   and `setup-owner.sh` require ts-ops; `netbirdManagementLoop` also requires
+   explicit PAT/peer-map inputs. Replace these assumptions with the foundation
+   lifecycle above, or a fresh fleet still needs manual enrollment and setup.
+3. **Fence NetBird writes through leadership changes.** `manager/loop.go` checks
+   leadership before a cycle and between sync/prune; `sync.go` applies its
+   planned writes without checking each one. Cancel and recheck before writes,
+   and reconcile partial results. Otherwise old/new leaders can apply stale
+   plans concurrently and create ambiguous objects that stop later syncs.
+4. **Backups must survive host loss.** `manager/netbird-backup` writes consistent
+   SQLite snapshots beside the live store on the same VM. Add protected off-host
+   storage, matching key/identity recovery, and a restore exercise. Otherwise
+   losing the manager's disk can lose the account and peer state with it.
+5. **Prove the actual network graph.** `manager/desired.go` grants GRU-to-other-
+   region fabric access; `natscell/interregion.go` requires a signed leaf tree.
+   Generate compatible policies, DNS, credentials, and links automatically and
+   test all six request/reply directions. Existing group/heartbeat code alone
+   does not establish a reachable three-region deployment.
+
+### Must complete before production or mixed-runtime claims
+
+6. **Keep stateless availability separate from database fencing.** Session loss
+   in `internal/host/agent.go` stops workloads. Move stateless supervision to the
+   qualified executor while retaining `storage/failover` writer/volume proofs;
+   removing every lease uniformly risks concurrent database writers.
+7. **Migrate shape, image, pricing, and scheduling as one contract.** A1-only
+   pool/seed/cost paths and the unwired generic Machines planner cannot provide
+   mixed execution. Keep exactly one task owner and qualify wrong-architecture,
+   missing-capacity, replacement, isolation, and rollback failures end to end.
+8. **Update stale operational claims after qualification.** README still says
+   artifact cleanup and serving verification are absent, but the corresponding
+   code exists. Preserve that code and correct docs from retained evidence;
+   do not rebuild working services or call source tests production readiness.
+
+Verdict: establish GitHub release continuity and the managed NetBird foundation
+first, then prove the three-region milestone before replacing production tasks.
+Not checked: live OCI/NetBird state, credentials, real traffic, runtime benchmarks,
+or every source file. No infrastructure changes are implied by this review.
 
 ## Primary references
 
