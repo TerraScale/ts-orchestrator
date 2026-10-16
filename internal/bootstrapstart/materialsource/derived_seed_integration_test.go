@@ -5,6 +5,7 @@ package materialsource
 import (
 	"bytes"
 	"encoding/json/v2"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -75,11 +76,15 @@ func assertDerivedSeedAdmission(t *testing.T, source *ColdStartMaterial, seed bo
 	bootstrapstart.ExerciseDerivedSeedAdmission(t, seed, source.actor.Founder(), anchor, roots, source.directory)
 }
 
-func TestDerivedSeedCredentialChild(t *testing.T) {
-	if os.Getenv("TS_ORCH_FIXTURE_CREDENTIAL_CHILD") != "1" {
+// The credential verifier reexecutes this same integration binary as the
+// service user before the Go test runner parses its flags.
+func init() {
+	if len(os.Args) != 2 || os.Args[1] != "derived-seed-credential-child" {
 		return
 	}
 	if err := bootstrapstart.ValidateDerivedSeedCredentialChild(os.Stdin); err != nil {
-		t.Fatal(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+	os.Exit(0)
 }

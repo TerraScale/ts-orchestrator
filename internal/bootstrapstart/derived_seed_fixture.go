@@ -260,9 +260,9 @@ func derivedSeedInstallationIdentity(observed natscell.InstallationIdentity) (id
 }
 
 func runDerivedSeedCredentialChild(ctx context.Context, wire []byte, uid, gid uint32) error {
-	command := exec.CommandContext(ctx, "/proc/self/exe", "-test.run=^TestDerivedSeedCredentialChild$")
+	command := exec.CommandContext(ctx, "/proc/self/exe", "derived-seed-credential-child")
 	command.Stdin = bytes.NewReader(wire)
-	command.Env = []string{"PATH=/usr/bin:/bin", "TS_ORCH_FIXTURE_CREDENTIAL_CHILD=1"}
+	command.Env = []string{"PATH=/usr/bin:/bin"}
 	command.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{Uid: uid, Gid: gid, Groups: []uint32{}}}
 	if output, err := command.CombinedOutput(); err != nil {
 		return fmt.Errorf("real service-user credential child: %w: %s", err, output)
