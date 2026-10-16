@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -19,6 +20,7 @@ import (
 )
 
 const labelReleaseBaseline = "terrascale.release-baseline"
+const labelReleaseArchitecture = "terrascale.release-architecture"
 
 // ApplySignedService admits a release and waits for actual application readiness.
 // The probe must resolve each task through independently admitted node inventory.
@@ -122,6 +124,9 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 	if !ok {
 		return nil, errors.New("signed service requires canonical OCI region")
 	}
+	if !entityid.Valid(intent.OperationID) {
+		return nil, errors.New("signed service requires durable delivery operation locator")
+	}
 	target := release.ContainerTarget{Cell: region.Cell, Environment: intent.Environment, Role: intent.Role, Architecture: intent.Architecture}
 	verified, err := release.VerifyContainerCurrent(operation, bundle, roots, target, time.Now().UTC(), deadline, evidence)
 	if err != nil {
@@ -182,14 +187,26 @@ func applySignedService(ctx context.Context, client api.ControlClient, intent Se
 // data preserves the root-signed migration while CAS labels retain a high-water
 // mark independently of SwarmKit's automatic previous-spec rollback.
 func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, retained release.SequenceFloor, baseline uint64) (*api.Config, error) {
-	identity := sha256.Sum256([]byte(intent.Environment + "/" + intent.Region + "/" + intent.Role))
-	name := fmt.Sprintf("ts-release-%x", identity[:16])
+	name, err := releaseFloorName(intent, verified)
+	if err != nil {
+		return nil, err
+	}
 	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
 	if err != nil {
 		return nil, err
 	}
 	claim := verified.Claim()
 	if len(listed.Configs) == 0 {
+		if verified.Claim().Role == "function-worker" {
+			legacyIdentity := sha256.Sum256([]byte(intent.Environment + "/" + intent.Region + "/" + intent.Role))
+			legacy, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{fmt.Sprintf("ts-release-%x", legacyIdentity[:16])}}})
+			if err != nil {
+				return nil, err
+			}
+			if len(legacy.Configs) != 0 {
+				return nil, errors.New("unpartitioned worker release floor requires root-authorized migration")
+			}
+		}
 		migration, err := release.VerifySequenceMigrationCurrent(verified.MigrationEnvelope(), roots, intent.Role, intent.Environment, time.Now().UTC())
 		if err != nil {
 			return nil, err
@@ -203,6 +220,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 			return nil, err
 		}
 		labels := map[string]string{LabelIntentID: intent.ID, LabelRole: intent.Role, LabelRegion: intent.Region, LabelEnvironment: intent.Environment, labelReleaseSequence: strconv.FormatUint(claim.ReleaseSequence, 10), labelReleaseFingerprint: verified.ReleaseIdentity(), labelReleaseBaseline: strconv.FormatUint(baseline, 10), "terrascale.legacy-run": strconv.FormatInt(retained.RunNumber, 10), "terrascale.legacy-issued": retained.IssuedAt.UTC().Format(time.RFC3339Nano), "terrascale.legacy-evidence": retained.EvidenceSHA256}
+		if claim.Role == "function-worker" {
+			labels[labelReleaseArchitecture] = claim.Architecture
+		}
 		if !verified.Valid(time.Now().UTC()) {
 			return nil, errors.New("signed container authorization expired before floor reservation")
 		}
@@ -217,6 +237,9 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 	}
 	current := listed.Configs[0]
 	labels := current.Spec.Annotations.Labels
+	if claim.Role == "function-worker" && labels[labelReleaseArchitecture] != claim.Architecture {
+		return nil, errors.New("worker release floor architecture mismatch")
+	}
 	if labels[LabelIntentID] != intent.ID || labels[LabelRole] != intent.Role || labels[LabelRegion] != intent.Region || labels[LabelEnvironment] != intent.Environment {
 		return nil, errors.New("release floor ownership mismatch")
 	}
@@ -257,4 +280,19 @@ func reserveReleaseFloor(ctx context.Context, client api.ControlClient, intent S
 		return nil, err
 	}
 	return updated.Config, nil
+}
+
+// The worker artifact floor is shared by functions but independent per qualified architecture.
+func releaseFloorName(intent ServiceIntent, verified release.VerifiedContainer) (string, error) {
+	claim := verified.Claim()
+	region, known := catalog.CellForOCIRegion(intent.Region)
+	if !known || !verified.Valid(time.Now().UTC()) || claim.Cell != region.Cell || claim.Role != intent.Role || claim.Environment != intent.Environment || claim.Architecture != intent.Architecture {
+		return "", errors.New("release floor requires current proof for admitted target")
+	}
+	scope := intent.Environment + "/" + intent.Region + "/" + intent.Role
+	if claim.Role == "function-worker" {
+		scope += "/" + claim.Architecture
+	}
+	identity := sha256.Sum256([]byte(scope))
+	return fmt.Sprintf("ts-release-%x", identity[:16]), nil
 }
