@@ -100,6 +100,21 @@ func TestManagementIntegration(t *testing.T) {
 			}
 		})
 	}
+	for _, method := range []string{workerAuditMethod, workerReadMembershipMethod} {
+		payload := []byte(`{}`)
+		if method == workerReadMembershipMethod {
+			payload = []byte(`{"node_id":"aaaaaaaaaaaaaaaaaaaaaaaaa"}`)
+		}
+		err := conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: payload}, new(wrapperspb.BytesValue))
+		if status.Code(err) != codes.Unknown || status.Convert(err).Message() != "management operation failed" {
+			t.Fatalf("missing concrete worker membership authority: %v", err)
+		}
+		for _, invalid := range [][]byte{[]byte(`{"unexpected":true}`), []byte(strings.Repeat(" ", (128<<10)+1))} {
+			if err := conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: invalid}, new(wrapperspb.BytesValue)); status.Code(err) != codes.PermissionDenied {
+				t.Fatalf("invalid membership transport accepted: %v", err)
+			}
+		}
+	}
 	nodeResult, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: id})
 	if err != nil {
 		t.Fatal(err)
@@ -215,7 +230,7 @@ func TestManagementIntegration(t *testing.T) {
 		t.Fatalf("revoked authority admitted existing connection: %v", err)
 	}
 
-	for _, method := range []string{workerPrepareMethod, workerAdmitMethod} {
+	for _, method := range []string{workerPrepareMethod, workerAdmitMethod, workerAuditMethod, workerReadMembershipMethod} {
 		if err := conn.Invoke(ctx, method, &wrapperspb.BytesValue{Value: []byte(`{}`)}, new(wrapperspb.BytesValue)); status.Code(err) != codes.PermissionDenied {
 			t.Fatalf("revoked authority admitted existing worker connection: %v", err)
 		}
