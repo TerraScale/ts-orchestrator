@@ -91,6 +91,8 @@ func (c command) run(args []string) error {
 		return c.signRootRotation(args[1:])
 	case "verify-production":
 		return c.verifyProduction(args[1:])
+	case "verify-image-production":
+		return c.verifyImageProduction(args[1:])
 	case "bundle":
 		return c.bundle(args[1:])
 	case "service-bundle":
@@ -113,7 +115,7 @@ func (c command) run(args []string) error {
 }
 
 func usageError() error {
-	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|bundle|service-bundle|service-apply|sign-sequence-migration|allocate-sequence|apply|deploy|fleet-status> [flags]")
+	return errors.New("usage: ts-orch release <run-detail|sign-delegation|binary-candidate|sign-binary|verify-binary|image-candidate|sign-image|verify-image|publish|sign-update-delegation|sign-binary-update|sign-spec-delegation|sign-spec|sign-root-rotation|verify-production|verify-image-production|bundle|service-bundle|service-apply|sign-sequence-migration|allocate-sequence|apply|deploy|fleet-status> [flags]")
 }
 
 func (c command) publish(args []string) error {
@@ -558,6 +560,7 @@ func (c command) signImageWithCheck(args []string, check func(release.Qualificat
 	binaryReceiptPath := flags.String("binary-receipt", "", "current signed qualified binary receipt")
 	binaryPath := flags.String("binary", "", "exact retained CI binary embedded in image")
 	qualificationPath := flags.String("qualification", "", "retained CI qualification manifest")
+	evidenceDir := flags.String("production-evidence-dir", "", "retained signed production evidence directory")
 	imageFile := flags.String("image-file", "", "final QCOW2 image whose bytes are signed")
 	baseImageFile := flags.String("base-image-file", "", "exact pinned base QCOW2 image")
 	kernelFile := flags.String("kernel-file", "", "exact guest kernel")
@@ -612,6 +615,28 @@ func (c command) signImageWithCheck(args []string, check func(release.Qualificat
 	if err := c.verifyImageCandidateFiles(payload, *imageFile, *baseImageFile, *kernelFile, *guestBinary); err != nil {
 		return err
 	}
+	root, err := readRootPublicKey(*rootPath)
+	if err != nil {
+		return err
+	}
+	roots, err := trust.ParseKeyring(root)
+	if err != nil {
+		return err
+	}
+	if *evidenceDir == "" {
+		*evidenceDir = filepath.Join(filepath.Dir(*qualificationPath), "image-production")
+	}
+	expected := release.ProductionExpectation{SourceRevision: payload.SourceRevision, ArtifactSHA256: payload.ImageSHA256,
+		QualificationSHA256: payload.QualificationSHA256, Cell: payload.OCIRegion, Environment: *environment,
+		Runtime: release.ProductionRuntime, Architecture: payload.Architecture, Role: "orchestrator"}
+	if err := c.verifyProductionCandidate(*evidenceDir, roots, expected, time.Now().UTC()); err != nil {
+		return err
+	}
+	production, err := readProductionProof(*evidenceDir, payload.OCIRegion, payload.Architecture)
+	if err != nil {
+		return err
+	}
+	payload.Production = &production
 	envelope, err := c.signReceiptWithFiles(payload, *environment, *delegationPath, *rootPath, *privatePath, *validFor)
 	if err != nil {
 		return err

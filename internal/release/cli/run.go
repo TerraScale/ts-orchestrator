@@ -14,6 +14,7 @@ const usage = `Usage: ts-orch release <command> [flags]
 Commands:
   run-detail
   verify-production
+  verify-image-production
   bundle
   apply
   service-bundle
