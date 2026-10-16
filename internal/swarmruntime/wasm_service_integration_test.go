@@ -110,7 +110,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	readEvidence := func(context.Context, string) (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(evidence)), nil
 	}
-	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "function-test", Bucket: "gru-function-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: FunctionWorkerRole, Environment: intent.Environment, SequenceFloor: 100}
+	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "function-test", Bucket: "gru-1-head", Region: "GRU", SignerKeyID: keyID, SignerPublicKey: base64.RawURLEncoding.EncodeToString(public), Role: FunctionWorkerRole, Environment: intent.Environment, SequenceFloor: 100}
 	legacy := release.SequenceFloor{Cell: "GRU", RunNumber: 100, EvidenceSHA256: strings.Repeat("1", 64)}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		floor := legacy
