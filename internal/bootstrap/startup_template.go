@@ -17,16 +17,17 @@ const ControllerConfigDerivationV1 = "terrascale.bootstrap.controller.v1"
 // foundation grant that authorizes regional material generation. Dynamic Vault
 // references and rendered configuration are bound by the source CAS before use.
 type StartupTemplate struct {
-	SeedSlot                   string                 `json:"seedSlot"`
-	Profiles                   []LaunchProfile        `json:"profiles"`
-	ImageOCID                  string                 `json:"imageOcid"`
-	ImageArchitecture          string                 `json:"imageArchitecture"`
-	ReleaseImageReceiptWire    []byte                 `json:"releaseImageReceiptWire"`
-	ReleaseDelegationWire      []byte                 `json:"releaseDelegationWire"`
-	TrustedSigners             jsontext.Value         `json:"trustedSigners"`
-	ControllerConfigDerivation string                 `json:"controllerConfigDerivation"`
-	ControllerFiles            []ControllerConfigFile `json:"controllerFiles"`
-	ManagedMaterial            *ManagedMaterialDomain `json:"managedMaterial,omitempty"`
+	SeedSlot                   string                   `json:"seedSlot"`
+	Profiles                   []LaunchProfile          `json:"profiles"`
+	ImageOCID                  string                   `json:"imageOcid"`
+	ImageArchitecture          string                   `json:"imageArchitecture"`
+	ReleaseImageReceiptWire    []byte                   `json:"releaseImageReceiptWire"`
+	ReleaseDelegationWire      []byte                   `json:"releaseDelegationWire"`
+	TrustedSigners             jsontext.Value           `json:"trustedSigners"`
+	ControllerConfigDerivation string                   `json:"controllerConfigDerivation"`
+	ControllerFiles            []ControllerConfigFile   `json:"controllerFiles"`
+	ManagedMaterial            *ManagedMaterialDomain   `json:"managedMaterial,omitempty"`
+	FounderResources           *StartupFounderResources `json:"founderResources,omitempty"`
 }
 
 func (template StartupTemplate) Clone() StartupTemplate {
@@ -36,6 +37,9 @@ func (template StartupTemplate) Clone() StartupTemplate {
 	}
 	if template.ManagedMaterial != nil {
 		template.ManagedMaterial = new(*template.ManagedMaterial)
+	}
+	if template.FounderResources != nil {
+		template.FounderResources = new(template.FounderResources.Clone())
 	}
 	template.Profiles = slices.Clone(template.Profiles)
 	for index := range template.Profiles {
@@ -71,6 +75,15 @@ func (template StartupTemplate) Validate() error {
 			return ErrManifestInvalid
 		}
 		seen[profile.Slot] = true
+	}
+	if template.FounderResources != nil {
+		slots := make([]string, len(template.Profiles))
+		for index, profile := range template.Profiles {
+			slots[index] = profile.Slot
+		}
+		if err := template.FounderResources.Validate(slots); err != nil {
+			return err
+		}
 	}
 	var signers []jsontext.Value
 	if !seen[template.SeedSlot] || len(template.TrustedSigners) > MaxManifestBytes || json.Unmarshal(template.TrustedSigners, &signers) != nil || len(signers) == 0 {
