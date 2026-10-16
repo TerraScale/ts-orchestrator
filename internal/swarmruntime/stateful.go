@@ -128,8 +128,7 @@ func (s *statefulController) observe(ctx context.Context) error {
 // Wait continuously checks the same concrete process and retained volume while
 // upstream SwarmKit remains the task lifecycle owner.
 func (s *statefulController) Wait(ctx context.Context) error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+	ticker := time.Tick(time.Second)
 	for {
 		var exited bool
 		var result error
@@ -158,7 +157,7 @@ func (s *statefulController) Wait(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-ticker:
 		}
 	}
 }
