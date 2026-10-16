@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,9 +56,9 @@ func inventoryProtocolEngine(t *testing.T, handler http.HandlerFunc) *Engine {
 func TestImportCurrentObjectHeadThroughOCIProtocol(t *testing.T) {
 	for _, scenario := range []string{"versioned", "missing version", "invalid timestamp", "negative bytes", "deleted"} {
 		t.Run(scenario, func(t *testing.T) {
-			requests := 0
+			var requests atomic.Int64
 			engine := inventoryProtocolEngine(t, func(w http.ResponseWriter, r *http.Request) {
-				requests++
+				requests.Add(1)
 				if r.Method != http.MethodHead || r.URL.Path != "/n/ns/b/images/o/controller.qcow2" || r.Header.Get("Authorization") == "" {
 					t.Errorf("unexpected unsigned object request: %s %s", r.Method, r.URL.Path)
 				}
@@ -79,8 +80,8 @@ func TestImportCurrentObjectHeadThroughOCIProtocol(t *testing.T) {
 			})
 			engine.Clock = func() time.Time { return time.Date(2026, 10, 16, 12, 0, 1, 0, time.UTC) }
 			head, err := capture(func() Object { return engine.currentHead("ns", "images", "controller.qcow2", "sa-saopaulo-1") })
-			if requests != 1 {
-				t.Fatalf("object HEAD requests=%d", requests)
+			if requests.Load() != 1 {
+				t.Fatalf("object HEAD requests=%d", requests.Load())
 			}
 			if scenario != "versioned" {
 				if err == nil {
