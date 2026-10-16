@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/gofrs/flock"
+	"github.com/gogo/protobuf/proto"
 	"github.com/moby/swarmkit/v2/api"
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc"
@@ -49,6 +51,7 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		return nil, err
 	}
 	identity := authority.Identity()
+	region := authority.Anchor().Anchor().OCIRegion
 	account, err := user.Lookup("terrascale-orchestrator")
 	if err != nil {
 		return nil, err
@@ -67,17 +70,17 @@ func StartManagementServer(ctx context.Context, node *Node, reader *bootstrapsta
 		return nil, err
 	}
 	observed, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID()})
-	if err != nil || observed.Node == nil || observed.Node.Spec.Annotations.Name != identity.Slot || observed.Node.Spec.Annotations.Labels[LabelInstanceID] != identity.InstanceID || observed.Node.Spec.Annotations.Labels[LabelRegion] != strings.ToLower(identity.Cell) || observed.Node.Spec.Annotations.Labels[LabelHostRole] != "manager" {
+	if err != nil || observed.Node == nil || observed.Node.Spec.Annotations.Name != identity.Slot || observed.Node.Spec.Annotations.Labels[LabelInstanceID] != identity.InstanceID || observed.Node.Spec.Annotations.Labels[LabelRegion] != region || observed.Node.Spec.Annotations.Labels[LabelHostRole] != "manager" {
 		return nil, errors.New("management node differs from accepted controller")
 	}
 	refresh := func(ctx context.Context) error {
 		current, err := reader.ReadRuntimeAuthority(ctx, accepted, time.Now().UTC())
-		if err != nil || current.Identity() != identity {
+		if err != nil || current.Identity() != identity || current.Anchor().Anchor().OCIRegion != region {
 			return errors.New("current controller authority unavailable")
 		}
 		return nil
 	}
-	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node.ID(), strings.ToLower(identity.Cell), identity.Environment, client, refresh)
+	return startManagementAt(ctx, managementSocket, uint32(uid), uint32(gid), controllerCgroup, binding, node.ID(), region, identity.Environment, client, refresh)
 }
 
 // DialManagement authenticates the root manager over the fixed local socket.
@@ -169,27 +172,9 @@ type managementServer struct {
 	client              api.ControlClient
 	region, environment string
 }
-type managementListener struct {
-	server   *grpc.Server
-	listener net.Listener
-	stop     func() bool
-	once     sync.Once
-	lock     *flock.Flock
-}
+type managementListener struct{ close func() }
 
-func (s *managementListener) Close() error {
-	s.once.Do(func() {
-		if s.stop != nil {
-			s.stop()
-		}
-		s.server.Stop()
-		_ = s.listener.Close()
-		if s.lock != nil {
-			_ = s.lock.Unlock()
-		}
-	})
-	return nil
-}
+func (s *managementListener) Close() error { s.close(); return nil }
 func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup, binding, nodeID, region, environment string, client api.ControlClient, refresh func(context.Context) error) (io.Closer, error) {
 	parent, err := os.Lstat(filepath.Dir(path))
 	if err != nil {
@@ -263,8 +248,8 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		return result, nil
 	}))
 	api.RegisterControlServer(server, &managementServer{client: client, region: region, environment: environment})
-	serving := &managementListener{server: server, listener: listener, lock: lock}
-	serving.stop = context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
+	stop := context.AfterFunc(ctx, func() { server.Stop(); _ = listener.Close(); _ = lock.Unlock() })
+	serving := &managementListener{close: sync.OnceFunc(func() { stop(); server.Stop(); _ = listener.Close(); _ = lock.Unlock() })}
 	ready = true
 	go func() { _ = server.Serve(listener) }()
 	return serving, nil
@@ -296,7 +281,11 @@ func (s *managementServer) scoped(a api.Annotations) bool {
 	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && entityid.Valid(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
 }
 func (s *managementServer) floor(spec *api.ConfigSpec) bool {
-	if spec == nil || !s.scoped(spec.Annotations) {
+	if spec == nil || spec.Templating != nil || !s.scoped(spec.Annotations) {
+		return false
+	}
+	sequence, err := strconv.ParseUint(spec.Annotations.Labels["terrascale.release-sequence"], 10, 64)
+	if err != nil || sequence == 0 {
 		return false
 	}
 	identity := sha256.Sum256([]byte(s.environment + "/" + s.region + "/" + spec.Annotations.Labels[LabelRole]))
@@ -323,11 +312,8 @@ func (s *managementServer) UpdateNode(ctx context.Context, req *api.UpdateNodeRe
 	if req.Spec.DesiredRole != current.Node.Spec.DesiredRole || req.Spec.Membership != current.Node.Spec.Membership {
 		return nil, denied()
 	}
-	labels := req.Spec.Annotations.Labels
-	if labels[LabelRegion] != s.region || labels[LabelInstanceID] == "" || labels[LabelHostRole] == "" {
-		return nil, denied()
-	}
-	if bound := current.Node.Spec.Annotations.Labels[LabelInstanceID]; bound != "" && (bound != labels[LabelInstanceID] || current.Node.Spec.Annotations.Name != req.Spec.Annotations.Name || current.Node.Spec.Annotations.Labels[LabelHostRole] != labels[LabelHostRole]) {
+	labels := current.Node.Spec.Annotations.Labels
+	if labels[LabelRegion] != s.region || labels[LabelInstanceID] == "" || !proto.Equal(&current.Node.Spec.Annotations, &req.Spec.Annotations) {
 		return nil, denied()
 	}
 	return s.client.UpdateNode(ctx, req)
@@ -359,22 +345,56 @@ func (s *managementServer) ListServices(ctx context.Context, req *api.ListServic
 	result.Services = visible
 	return result, nil
 }
+func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
+	if spec == nil || !s.scoped(spec.Annotations) || spec.GetReplicated() == nil || len(spec.Networks) != 0 {
+		return false
+	}
+	placement := spec.Task.Placement
+	if placement == nil || len(placement.Platforms) != 1 || placement.Platforms[0] == nil || placement.Platforms[0].OS != "linux" || (placement.Platforms[0].Architecture != "arm64" && placement.Platforms[0].Architecture != "amd64") {
+		return false
+	}
+	constraints := []string{"node.labels." + LabelRegion + "==" + s.region, "node.labels." + LabelExecutionScope + "==platform"}
+	if spec.Annotations.Labels[LabelRole] == "function-worker" {
+		constraints[1] = "node.labels." + LabelExecutionScope + "==tenant"
+		constraints = append(constraints, "node.labels."+LabelHostRole+"==wasm")
+	}
+	if !slices.Equal(placement.Constraints, constraints) {
+		return false
+	}
+	if spec.Endpoint != nil && (spec.Endpoint.Mode != api.ResolutionModeDNSRoundRobin || len(spec.Endpoint.Ports) > 1) {
+		return false
+	}
+	_, err := DecodeContainer(&api.Task{ID: "validation", ServiceID: "validation", Spec: spec.Task, ServiceAnnotations: spec.Annotations, Endpoint: &api.Endpoint{Spec: spec.Endpoint}})
+	return err == nil
+}
+
 func (s *managementServer) CreateService(ctx context.Context, req *api.CreateServiceRequest) (*api.CreateServiceResponse, error) {
-	if req.Spec == nil || !s.scoped(req.Spec.Annotations) {
+	if !s.managedService(req.Spec) {
 		return nil, denied()
 	}
 	return s.client.CreateService(ctx, req)
 }
 func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateServiceRequest) (*api.UpdateServiceResponse, error) {
-	if req.Spec == nil || !s.scoped(req.Spec.Annotations) {
+	if !s.managedService(req.Spec) {
 		return nil, denied()
 	}
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
 	if err != nil {
 		return nil, err
 	}
+	effective := req.Spec
+	switch req.Rollback {
+	case api.UpdateServiceRequest_NONE:
+	case api.UpdateServiceRequest_PREVIOUS:
+		effective = current.Service.PreviousSpec
+	default:
+		return nil, denied()
+	}
+	if !s.managedService(effective) {
+		return nil, denied()
+	}
 	for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment} {
-		if current.Service.Spec.Annotations.Labels[key] != req.Spec.Annotations.Labels[key] {
+		if current.Service.Spec.Annotations.Labels[key] != effective.Annotations.Labels[key] {
 			return nil, denied()
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -25,6 +26,7 @@ func TestManagementIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
 	cfg := nodeFixtureConfig(t, "founder", "manager")
+	cfg.Admission.Region = "sa-saopaulo-1"
 	node := nodeFixtureStart(t, ctx, cfg)
 	upstream, err := node.ControlClient(ctx)
 	if err != nil {
@@ -48,7 +50,7 @@ func TestManagementIntegration(t *testing.T) {
 		}
 		return nil
 	}
-	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "integration", "test", upstream, refresh)
+	server, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,12 +63,36 @@ func TestManagementIntegration(t *testing.T) {
 	if id != node.ID() {
 		t.Fatalf("manager ID = %q, want %q", id, node.ID())
 	}
-	labels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "integration", LabelEnvironment: "test"}
-	created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: &api.ServiceSpec{
+	nodeResult, err := client.GetNode(ctx, &api.GetNodeRequest{NodeID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeSpec := nodeResult.Node.Spec.Copy()
+	nodeSpec.DesiredRole = api.NodeRoleWorker
+	if _, err := client.UpdateNode(ctx, &api.UpdateNodeRequest{NodeID: id, NodeVersion: &nodeResult.Node.Meta.Version, Spec: nodeSpec}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("certificate role mutation accepted: %v", err)
+	}
+	labels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "sa-saopaulo-1", LabelEnvironment: "test"}
+	runtimeSpec, err := ContainerRuntime(&api.ContainerSpec{Image: "example.invalid/proof@sha256:" + strings.Repeat("0", 64), User: "65532:65532"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := &api.CreateServiceRequest{Spec: &api.ServiceSpec{
 		Annotations: api.Annotations{Name: "management-proof", Labels: labels},
-		Task:        api.TaskSpec{Runtime: &api.TaskSpec_Container{Container: &api.ContainerSpec{Image: "example.invalid/proof@sha256:" + strings.Repeat("0", 64)}}},
+		Task:        api.TaskSpec{Runtime: runtimeSpec, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 100_000_000, MemoryBytes: 32 << 20}}, Placement: &api.Placement{Constraints: []string{"node.labels." + LabelRegion + "==sa-saopaulo-1", "node.labels." + LabelExecutionScope + "==platform"}, Platforms: []*api.Platform{{OS: "linux", Architecture: runtime.GOARCH}}}},
 		Mode:        &api.ServiceSpec_Replicated{Replicated: &api.ReplicatedService{Replicas: 0}},
-	}})
+	}}
+	unsafe := request.Spec.Copy()
+	unsafe.Task.Placement.Constraints = nil
+	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unscoped placement accepted: %v", err)
+	}
+	unsafe = request.Spec.Copy()
+	unsafe.Annotations.Labels[LabelRole] = "terrabase"
+	if _, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: unsafe}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stateful workload accepted: %v", err)
+	}
+	created, err := client.CreateService(ctx, request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +100,47 @@ func TestManagementIntegration(t *testing.T) {
 	if err != nil || actual.Service.Spec.Annotations.Name != "management-proof" {
 		t.Fatalf("upstream persisted service: %v %v", actual, err)
 	}
-	floorLabels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "integration", LabelEnvironment: "test", "terrascale.release-sequence": "2", "terrascale.release-fingerprint": "signed-release"}
-	digest := sha256.Sum256([]byte("test/integration/api"))
+	changed := actual.Service.Spec.Copy()
+	changed.Task.ForceUpdate++
+	changedService, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &actual.Service.Meta.Version, Spec: changed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rolledBack, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &changedService.Service.Meta.Version, Spec: &changedService.Service.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS})
+	if err != nil {
+		t.Fatalf("valid admitted rollback denied: %v", err)
+	}
+	waitRuntime(t, ctx, func() (bool, error) {
+		current, err := upstream.GetService(ctx, &api.GetServiceRequest{ServiceID: actual.Service.ID})
+		if err != nil {
+			return false, err
+		}
+		rolledBack.Service = current.Service
+		return current.Service.UpdateStatus == nil || current.Service.UpdateStatus.State == api.UpdateStatus_ROLLBACK_COMPLETED, nil
+	})
+	unsafe = rolledBack.Service.Spec.Copy()
+	unsafe.Task.Placement.Constraints = nil
+	unscoped, err := upstream.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &rolledBack.Service.Meta.Version, Spec: unsafe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := upstream.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &unscoped.Service.Meta.Version, Spec: request.Spec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: actual.Service.ID, ServiceVersion: &restored.Service.Meta.Version, Spec: request.Spec, Rollback: api.UpdateServiceRequest_PREVIOUS}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unscoped previous spec accepted through rollback: %v", err)
+	}
+	floorLabels := map[string]string{LabelIntentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", LabelRole: "api", LabelRegion: "sa-saopaulo-1", LabelEnvironment: "test", "terrascale.release-sequence": "2", "terrascale.release-fingerprint": "signed-release"}
+	digest := sha256.Sum256([]byte("test/sa-saopaulo-1/api"))
 	config, err := client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: fmt.Sprintf("ts-release-%x", digest[:16]), Labels: floorLabels}, Data: []byte("immutable release evidence")}})
 	if err != nil {
 		t.Fatal(err)
+	}
+	templated := config.Config.Spec.Copy()
+	templated.Templating = &api.Driver{Name: "golang"}
+	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: templated}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("unsupported config templating accepted: %v", err)
 	}
 	spec := config.Config.Spec.Copy()
 	spec.Annotations.Labels["terrascale.release-sequence"] = "1"
@@ -90,7 +152,7 @@ func TestManagementIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("increasing release floor denied: %v", err)
 	}
-	config = updated
+	config.Config = updated.Config
 	spec = config.Config.Spec.Copy()
 	spec.Data = []byte("replacement")
 	if _, err := client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.Config.ID, ConfigVersion: &config.Config.Meta.Version, Spec: spec}); status.Code(err) != codes.PermissionDenied {
@@ -116,7 +178,7 @@ func TestManagementIntegration(t *testing.T) {
 		t.Fatalf("revoked authority admitted existing connection: %v", err)
 	}
 	revoked.Store(false)
-	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "integration", "test", upstream, refresh); err == nil {
+	if _, err := startManagementAt(ctx, path, uint32(os.Getuid()), uint32(os.Getgid()), cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh); err == nil {
 		t.Fatal("concurrent management server replaced active socket")
 	}
 	if err := server.Close(); err != nil {
@@ -131,7 +193,7 @@ func TestManagementIntegration(t *testing.T) {
 		{"wrong service", uint32(os.Getuid()), "/another.service"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node.ID(), "integration", "test", upstream, refresh)
+			deniedServer, err := startManagementAt(ctx, path, test.uid, uint32(os.Getgid()), test.cgroup, "accepted-current", node.ID(), "sa-saopaulo-1", "test", upstream, refresh)
 			if err != nil {
 				t.Fatal(err)
 			}
