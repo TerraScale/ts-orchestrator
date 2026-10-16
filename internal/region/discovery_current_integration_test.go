@@ -355,7 +355,7 @@ func TestCurrentFoundationDiscoveryHTTPDurableAuthority(t *testing.T) {
 		if _, err := f.discover(t.Context()); err != nil {
 			t.Fatal(err)
 		}
-		command := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestCurrentFoundationDiscoveryLockProcess$")
+		command := exec.Command(os.Args[0], "-test.run=^TestCurrentFoundationDiscoveryLockProcess$")
 		command.Env = append(os.Environ(), "TS_TEST_FOUNDATION_LOCK="+f.floorPath()+".lock")
 		output, err := command.StdoutPipe()
 		if err != nil {
