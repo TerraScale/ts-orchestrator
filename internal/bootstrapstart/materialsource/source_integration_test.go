@@ -132,6 +132,7 @@ type materialProtocol struct {
 	hiddenSourceReads int
 	sourceCreates     int
 	policies          map[string]identity.Policy
+	founders          map[string]http.Handler
 	interceptObject   func(http.ResponseWriter, *http.Request) bool
 	interceptIAM      func(http.ResponseWriter, *http.Request) bool
 }
@@ -146,6 +147,21 @@ func (server *materialProtocol) put(key string, body []byte) error {
 func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if server.interceptObject != nil && server.interceptObject(w, r) {
 		return
+	}
+	if strings.HasPrefix(r.URL.Path, "/20160918/") {
+		var handler http.Handler
+		server.mu.Lock()
+		for token, candidate := range server.founders {
+			if strings.Contains(r.Header.Get("Authorization"), token) {
+				handler = candidate
+				break
+			}
+		}
+		server.mu.Unlock()
+		if handler != nil {
+			handler.ServeHTTP(w, r)
+			return
+		}
 	}
 	server.mu.Lock()
 	defer server.mu.Unlock()

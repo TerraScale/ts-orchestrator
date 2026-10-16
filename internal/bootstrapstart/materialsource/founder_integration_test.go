@@ -102,6 +102,13 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 	if err != nil {
 		t.Fatal(err)
 	}
+	var resources bootstrap.StartupSlotResources
+	for _, slot := range template.Template().FounderResources.Slots {
+		if slot.Slot == profile.Slot {
+			resources = slot
+		}
+	}
+	bootVolumeID := "ocid1.bootvolume.oc1." + manifest.OCIRegion + ".founder"
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +120,7 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		protocol.policies = map[string]identity.Policy{}
 	}
 	protocol.mu.Unlock()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if protocol.interceptIAM != nil && protocol.interceptIAM(w, r) {
 			return
@@ -132,7 +139,13 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/20160918/instances/"):
-			json.MarshalWrite(w, core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
+			json.MarshalWrite(w, core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))}, LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
+		case strings.HasPrefix(r.URL.Path, "/20160918/images/"):
+			json.MarshalWrite(w, core.Image{Id: new(manifest.ImageOCID), CompartmentId: new(resources.ImageCompartmentOCID), LifecycleState: core.ImageLifecycleStateAvailable})
+		case r.URL.Path == "/20160918/bootVolumeAttachments":
+			json.MarshalWrite(w, []core.ParavirtualizedBootVolumeAttachment{{Id: new("ocid1.bootvolumeattachment.oc1." + manifest.OCIRegion + ".founder"), InstanceId: new(instanceID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), BootVolumeId: new(bootVolumeID), LifecycleState: core.BootVolumeAttachmentLifecycleStateAttached}})
+		case strings.HasPrefix(r.URL.Path, "/20160918/bootVolumes/"):
+			json.MarshalWrite(w, core.BootVolume{Id: new(bootVolumeID), CompartmentId: new(profile.CompartmentOCID), AvailabilityDomain: new(profile.AvailabilityDomain), ImageId: new(manifest.ImageOCID), LifecycleState: core.BootVolumeLifecycleStateAvailable, SizeInGBs: new(int64(resources.BootVolumeGB)), VpusPerGB: new(int64(10)), IsAutoTuneEnabled: new(false)})
 		case r.URL.Path == "/20160918/vnicAttachments":
 			json.MarshalWrite(w, []core.VnicAttachment{{Id: new("ocid1.vnicattachment.oc1." + manifest.OCIRegion + ".test"), InstanceId: new(instanceID), CompartmentId: new(profile.CompartmentOCID), VnicId: new("ocid1.vnic.oc1." + manifest.OCIRegion + ".test"), SubnetId: new(profile.SubnetOCID), LifecycleState: core.VnicAttachmentLifecycleStateAttached}})
 		case strings.HasPrefix(r.URL.Path, "/20160918/vnics/"):
@@ -176,7 +189,14 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 			t.Errorf("unexpected founder SDK request %s %s", r.Method, r.URL)
 			w.WriteHeader(400)
 		}
-	}))
+	})
+	protocol.mu.Lock()
+	if protocol.founders == nil {
+		protocol.founders = map[string]http.Handler{}
+	}
+	protocol.founders[provider.token] = handler
+	protocol.mu.Unlock()
+	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 	factory, err := ociclient.New(provider, ociclient.Options{Region: manifest.OCIRegion, Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 	if err != nil {
