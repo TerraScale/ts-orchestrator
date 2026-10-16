@@ -1,0 +1,191 @@
+package swarmruntime
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/gogo/protobuf/proto"
+	"github.com/moby/swarmkit/v2/api"
+)
+
+const (
+	FunctionWorkerRole    = "function-worker"
+	LabelFunctionTenant   = "terrascale.function-tenant"
+	LabelFunctionID       = "terrascale.function-id"
+	LabelFunctionRevision = "terrascale.function-revision"
+	LabelFunctionDigest   = "terrascale.function-digest"
+	LabelFunctionProof    = "terrascale.function-proof"
+	LabelFunctionSequence = "terrascale.function-sequence"
+)
+
+// CurrentFunctionIntent resolves signed bytes against the durable current head
+// and its sequence floor. Task annotations never implement this authority.
+type CurrentFunctionIntent interface {
+	CurrentFunction(context.Context, string, string) (release.VerifiedFunction, error)
+}
+
+// FunctionServiceIntent identifies the independently admitted deployment target.
+// Each tenant/function has one long-lived worker; SwarmKit chooses its host.
+type FunctionServiceIntent struct {
+	TenantID, FunctionID, Region, Environment, Architecture string
+}
+
+func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, worker release.VerifiedContainer) (*api.ServiceSpec, error) {
+	if !function.Valid() || worker.Fingerprint() == "" || !entityid.Valid(i.TenantID) || !intentName.MatchString(i.FunctionID) || !intentName.MatchString(i.Region) {
+		return nil, errors.New("function service requires current signed function and qualified worker")
+	}
+	f, w := function.Claim(), worker.Claim()
+	if f.TenantID != i.TenantID || f.FunctionID != i.FunctionID || f.Environment != i.Environment || f.Cell != strings.ToUpper(i.Region) || w.Role != FunctionWorkerRole || w.Environment != i.Environment || w.Cell != f.Cell || w.Architecture != i.Architecture {
+		return nil, errors.New("function or qualified worker differs from admitted target")
+	}
+	base := ServiceIntent{
+		ID:   entityid.Derive("function-service", i.Environment, i.Region, i.TenantID, i.FunctionID),
+		Role: FunctionWorkerRole, Region: i.Region, Environment: i.Environment, Architecture: i.Architecture, Replicas: 1,
+		Container:       &api.ContainerSpec{Image: w.Image, User: "65532:65532", Command: []string{"/usr/local/bin/terrascale-orchestrator"}, Args: []string{FunctionWorkerRole}},
+		Resources:       &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 1_000_000_000, MemoryBytes: 256 << 20}},
+		Ports:           []*api.PortConfig{{Name: "function-https", Protocol: api.ProtocolTCP, PublishMode: api.PublishModeHost, TargetPort: 8080, PublishedPort: 8080}},
+		releaseSequence: w.ReleaseSequence, releaseFingerprint: worker.ReleaseIdentity(),
+	}
+	spec, err := base.serviceSpec()
+	if err != nil {
+		return nil, err
+	}
+	spec.Task.Placement.Constraints = []string{
+		"node.labels." + LabelRegion + "==" + i.Region,
+		"node.labels." + LabelExecutionScope + "==tenant",
+		"node.labels." + LabelHostRole + "==wasm",
+	}
+	labels := spec.Annotations.Labels
+	labels[LabelFunctionTenant], labels[LabelFunctionID] = f.TenantID, f.FunctionID
+	labels[LabelFunctionRevision], labels[LabelFunctionDigest] = f.Revision, f.Digest
+	labels[LabelFunctionProof], labels[LabelFunctionSequence] = function.EnvelopeSHA256(), strconv.FormatUint(f.Sequence, 10)
+	// Renewed proof material requires a new task even when module bytes match.
+	fingerprint := sha256.Sum256([]byte(function.EnvelopeSHA256()))
+	spec.Task.ForceUpdate = binary.BigEndian.Uint64(fingerprint[:8])
+	return spec, nil
+}
+
+// ApplyFunctionService admits the qualified OCI worker separately from its
+// tenant function and waits for authenticated application readiness. Material
+// delivery remains bound to the actual scheduled task by the executor provider.
+func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent FunctionServiceIntent, current CurrentFunctionIntent, bundle release.ContainerBundle, roots trust.Keyring, retained release.SequenceFloor, evidence func(context.Context, string) (io.ReadCloser, error), probe func(context.Context, *api.Task) error) (*api.Service, error) {
+	if current == nil || probe == nil {
+		return nil, errors.New("function service requires current intent authority and authenticated readiness")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	function, err := current.CurrentFunction(ctx, intent.TenantID, intent.FunctionID)
+	if err != nil {
+		return nil, err
+	}
+	deadline, _ := ctx.Deadline()
+	if !function.Valid() || function.ExpiresAt().Before(deadline) {
+		return nil, errors.New("function authority expires before rollout deadline")
+	}
+	target := release.ContainerTarget{Cell: strings.ToUpper(intent.Region), Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: intent.Architecture}
+	worker, err := release.VerifyContainerCurrent(ctx, bundle, roots, target, time.Now().UTC(), deadline, evidence)
+	if err != nil {
+		return nil, err
+	}
+	spec, err := intent.serviceSpec(function, worker)
+	if err != nil {
+		return nil, err
+	}
+	listed, err := client.ListServices(ctx, &api.ListServicesRequest{Filters: &api.ListServicesRequest_Filters{Names: []string{spec.Annotations.Name}}})
+	if err != nil {
+		return nil, err
+	}
+	if len(listed.Services) > 1 {
+		return nil, errors.New("ambiguous function service identity")
+	}
+	var existing *api.Service
+	if len(listed.Services) == 1 {
+		existing = listed.Services[0]
+		for _, key := range []string{LabelIntentID, LabelRole, LabelRegion, LabelEnvironment, LabelFunctionTenant, LabelFunctionID} {
+			if existing.Spec.Annotations.Labels[key] != spec.Annotations.Labels[key] {
+				return nil, errors.New("function service ownership or target mismatch")
+			}
+		}
+		if existing.PendingDelete || existing.Spec.GetReplicated() == nil || existing.Spec.GetReplicated().Replicas != 1 {
+			return nil, errors.New("function service is deleting or has unsupported replication")
+		}
+		if existing.UpdateStatus != nil && existing.PreviousSpec != nil {
+			switch existing.UpdateStatus.State {
+			case api.UpdateStatus_ROLLBACK_STARTED, api.UpdateStatus_ROLLBACK_COMPLETED, api.UpdateStatus_ROLLBACK_PAUSED:
+				if proto.Equal(&existing.PreviousSpec.Task, &spec.Task) && !proto.Equal(&existing.Spec.Task, &spec.Task) {
+					return nil, errors.New("function revision already rolled back; a newer signed revision is required")
+				}
+			}
+		}
+	}
+	// Worker ordering belongs to the regional role channel, independently of
+	// tenant function ordering retained by the current intent authority.
+	checkIntent := func() error {
+		latest, err := current.CurrentFunction(ctx, intent.TenantID, intent.FunctionID)
+		if err != nil {
+			return err
+		}
+		if !latest.Valid() || latest.EnvelopeSHA256() != function.EnvelopeSHA256() {
+			return errors.New("function intent changed during service admission")
+		}
+		return ctx.Err()
+	}
+	if err := checkIntent(); err != nil {
+		return nil, err
+	}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
+	floor, err := reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
+	if err != nil {
+		return nil, err
+	}
+	guard := func() error {
+		if err := checkIntent(); err != nil {
+			return err
+		}
+		stored, err := client.GetConfig(ctx, &api.GetConfigRequest{ConfigID: floor.ID})
+		if err != nil {
+			return err
+		}
+		if stored.Config.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(worker.Claim().ReleaseSequence, 10) || stored.Config.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
+			return errors.New("qualified worker release was superseded")
+		}
+		return ctx.Err()
+	}
+	if err := guard(); err != nil {
+		return nil, err
+	}
+	var requested *api.Service
+	if existing == nil {
+		created, err := client.CreateService(ctx, &api.CreateServiceRequest{Spec: spec})
+		if err != nil {
+			return nil, fmt.Errorf("create function service: %w", err)
+		}
+		requested = created.Service
+	} else if proto.Equal(&existing.Spec, spec) {
+		requested = existing
+	} else {
+		updated, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: existing.ID, ServiceVersion: &existing.Meta.Version, Spec: spec})
+		if err != nil {
+			return nil, fmt.Errorf("update function service: %w", err)
+		}
+		requested = updated.Service
+	}
+	ready, err := AwaitServiceReady(ctx, client, requested, probe)
+	if err != nil {
+		return ready, err
+	}
+	if err := guard(); err != nil {
+		return nil, err
+	}
+	return ready, nil
+}
