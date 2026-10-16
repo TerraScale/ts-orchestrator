@@ -1,9 +1,15 @@
-# OCI-native orchestrator: A1-first capacity and mixed Wasm, ARM, and x86
+# Replace custom orchestration with SwarmKit: OCI, A1-first and mixed runtimes
 
-Start with a disposable OCI regional prototype on A1 Flex: automatic cluster
-formation, one containerd executor, and a healthy rolling container deployment.
-Prove ARM/x86 placement and OCI host replacement before migrating production
-workloads. Qualify customer Wasm on that same capacity model.
+Replace the existing custom orchestration engine with embedded upstream
+SwarmKit. Delete the superseded scheduler, task reconciliation, native workload
+supervision and generic rollout machinery, including their dependent code and
+tooling. `ts-orch` remains the single Go binary, cluster CLI and dashboard,
+owning OCI/NetBird integration around SwarmKit.
+
+Start the migration on disposable A1 Flex capacity with automatic regional
+formation, one containerd executor and a healthy rolling container deployment.
+Prove ARM/x86 placement, host replacement and database safety before production
+cutover. Qualify customer Wasm on the same capacity model.
 
 ## Status and decisions
 
@@ -15,7 +21,7 @@ runtime, measured savings, production readiness, or deployment authorization.
 | --- | --- |
 | Infrastructure owner | `ts-orch` reconciles the platform's complete OCI lifecycle through the existing Go SDK clients. |
 | Capacity | Prefer `VM.Standard.A1.Flex`; qualify other ARM families and x86 without changing workload identity. |
-| Control plane | Keep `ts-orch` in Go; qualify embedded upstream SwarmKit before committing to migration. |
+| Orchestration engine | Embedded upstream SwarmKit replaces the custom orchestration engine. Delete the superseded implementation and its dependents; no permanent legacy scheduler or fallback execution path. |
 | First-party workloads | OCI containers through containerd and runc; no Docker Engine. |
 | Customer workloads | Short-lived Wasm functions on isolated worker hosts. |
 | Mixed execution | Native `linux/arm64`, native `linux/amd64`, and portable Wasm coexist in each region as demand requires. |
@@ -44,11 +50,79 @@ TerraScale services off Fly or Cloudflare. Keep the existing external service
 hosting boundaries. No new paid capacity, IAM permission, credential, or secret
 installation is authorized by this planning document.
 
+## Required replacement and deletion scope (user decision)
+
+**SwarmKit is the selected replacement. This refactor is incomplete while the
+old orchestration engine or a fallback path to it remains in the final tree.**
+Qualification gates production rollout and safe deletion order; it does not
+make the SwarmKit replacement optional. Adding SwarmKit beside the old engine
+does not satisfy this plan.
+
+1. **Delete the custom scheduling engine.** Replace generic workload placement,
+   replica convergence, task assignment, node/task reconciliation and generic
+   rolling-update/restart/rollback state machines with SwarmKit's native service,
+   task, node and update mechanisms. Remove duplicate task ownership and task
+   desired-state stores. Product intent and read-only observations can remain;
+   they must not form another task scheduler.
+2. **Delete the old workload execution path.** Replace direct native process
+   launching/supervision, task dispatch over host sessions and execution leases
+   used solely by that path with the SwarmKit agent and containerd executor.
+   Convert first-party services to digest-pinned container tasks. SwarmKit also
+   owns long-lived Wasm worker tasks; worker-local invocation handling remains.
+   The adapter must implement runtime lifecycle, not reproduce a scheduler.
+3. **Delete every orphaned dependent.** Follow all callers of removed code and
+   remove obsolete CLI commands, API handlers, NATS subjects/consumers, task KV
+   schemas, configuration, secrets/IAM grants, scripts, workflows, dependency
+   entries, mocks, fixtures and old-engine-only tests. Rewrite useful behavioral
+   contracts against the replacement. Update docs and dashboard sources to
+   SwarmKit observations. Do not leave parked packages, compatibility switches,
+   legacy backend selectors or an alternate executable retaining the old engine.
+4. **Keep the platform responsibilities through narrow integrations.** `ts-orch`
+   owns OCI capacity/resources, regional bootstrap, NetBird, global federation,
+   Vault delivery, signed artifact admission, product APIs, CLI/dashboard and
+   telemetry. Autoscaling computes desired SwarmKit service replica counts and
+   OCI host capacity; it does not pick task hosts. SwarmKit owns orchestration
+   state in its Raft store; NATS remains regional/global messaging and queues.
+5. **Port safety before deleting its old implementation.** Move TerraBase
+   writer/volume fencing, catch-up, drain and restore checks into the replacement
+   database lifecycle/executor boundary. Retain infrastructure/controller binary
+   bootstrap and recovery outside the application tasks they start. Preserve
+   authorization, release trust and data; these are required replacement
+   behavior, not a reason to retain the old execution engine indefinitely.
+
+### Concrete removal inventory
+
+Inventory by responsibility and caller; these are starting locations, not
+instructions to delete whole mixed-purpose directories blindly.
+
+| Existing responsibility / source | Required disposition |
+| --- | --- |
+| `internal/workload` generic placement/convergence and `internal/app/workload_autoscale.go` wiring | Replace with service-intent/replica translation into SwarmKit; delete old placement and task-write loops. Retain only needed product policy outside task scheduling. |
+| `internal/machines/schedule.go` and dependent planner/placement code | Delete the custom Machines scheduler; adapt retained product API semantics to SwarmKit services/tasks. Never wire the old planner as another backend. |
+| `internal/host` native runner, execution dispatch and session-driven task lifetime | Delete the superseded process execution protocol/runner and its dependents after migrating tasks. Extract required host identity, infrastructure observation and volume safety into the owning integrations. |
+| `internal/rollout`, `internal/placement` and `internal/app` orchestration callers | Remove generic task rollout/placement state and duplicate dispatch. Port application-readiness policy, database safety and retained release evidence to SwarmKit-backed paths; audit shared infrastructure/self-update callers separately. |
+| Old-engine-only storage, transport, tools and dependency graph | Remove dead subjects/KV clients, config/types, endpoints, scripts, credentials, fixtures/tests and module entries once no retained caller needs them. Delete empty feature slices and misleading docs. |
+
+### Migration completion gate
+
+Every slice records the removed responsibility, replacement owner, migrated
+callers and deleted files/dependencies. Only one engine owns a workload during
+cutover. Old binaries and data may be retained for the bounded approved migration
+and recovery period, but the final source and deployment have one orchestration
+engine. An unhealthy replacement is a rollout stop/restore condition; do not
+ship a permanent legacy fallback or a switch to choose engines.
+
+Completion requires source/dependency inventory showing no reachable old
+scheduling/execution path, SwarmKit-backed CLI/dashboard state, automatic
+regional/global joining, and retained rollout/failure/recovery evidence. Preserve
+historical audit records and migrate/delete persisted task state only after its
+replacement and retention requirements are established. This document authorizes
+the replacement direction, not an immediate destructive production cleanup.
+
 ## Review verdict and required corrections
 
-The original direction makes sense as a compatibility spike, not yet as a
-production migration commitment. Preserve its rollout, isolation, and database
-safety requirements. Close these gaps before implementing the replacement:
+Proceed with the SwarmKit replacement and deletion plan. Preserve rollout,
+isolation and database safety while closing these implementation gaps:
 
 1. **Complete OCI ownership.** Existing resource reconcilers manage selected
    rules and backends; creating infrastructure once is not continuous lifecycle
@@ -56,9 +130,10 @@ safety requirements. Close these gaps before implementing the replacement:
 2. **Remove the A1-only model.** Pool recipes, regional validation, bootstrap,
    and cost estimation contain A1/ARM assumptions. An x86 container cannot run
    on an ARM host just because both hosts joined the same scheduler.
-3. **Qualify SwarmKit's value.** It adds regional Raft beside NATS/JetStream and
-   still needs a containerd executor, OCI capacity controller, and routing.
-   Compare the adapter's total maintenance against the existing control path.
+3. **Qualify the SwarmKit integration.** It adds regional Raft beside
+   NATS/JetStream and needs a containerd executor, OCI capacity controller and
+   routing. Keep these adapters narrow and remove the replaced control paths;
+   measure overhead without rebuilding the old orchestration inside the adapter.
 4. **Close bootstrap and identity gaps.** NetBird admission must lead to serving
    automatically, while OCI permissions come from verified host identity.
    Workers cannot create a new regional cluster after an empty discovery result.
@@ -647,12 +722,14 @@ missing observations from a real rollout exceeding its deadline.
 
 ## Migration sequence and acceptance
 
-1. **Baseline, OCI capacity, and compatibility spike.** Inventory production
-   callers and state; record present join/deployment failure stages. Run a disposable three-manager
+1. **Inventory deletions and qualify the replacement.** Inventory production
+   callers, dependencies and persisted state; record the replacement owner and
+   deletion scope for every old orchestration responsibility. Run a disposable three-manager
    SwarmKit cluster with one containerd executor, pinned upstream versions, and
    ARM and x86. Discover and price compatible shapes; qualify A1 first and other
    available families. Prove the executor, network path, and mixed-architecture
-   constraints without a fork. Record the SwarmKit maintenance/cost decision.
+   constraints without a fork. Record pinned integration behavior, overhead and
+   blockers; SwarmKit remains the selected target.
 2. **Automatic joining and one stateless service.** Exercise simultaneous boot,
    replacement, persistent identity, Vault outage, manager loss, and partitions.
    Recover interrupted OCI creates and discover regions without enable flags.
@@ -660,13 +737,15 @@ missing observations from a real rollout exceeding its deadline.
    on readiness and prove rollback after an unhealthy update. Existing stateless
    tasks survive manager unavailability. Exercise A1 exhaustion and unavailable
    alternatives without discarding healthy hosts or exceeding authorized spend.
-3. **Replace generic orchestration.** Map Machines intent to SwarmKit, assign each
+3. **Replace and delete generic orchestration.** Map Machines intent to SwarmKit, assign each
    migrated workload exactly one owner, and remove its old scheduler, native
    supervisor, host-session execution lease, and redundant authentication path.
    Join foundation/resource, capacity, image, credential, and upgrade ownership
    into continuous reconciliation. Exercise mixed pools, shape replacement,
    manager/NATS quorum preservation, and safe cleanup. Use a bounded deployment
-   migration, not permanent dual controllers or flags.
+   migration. Delete superseded callers, state protocols, config, dependencies,
+   scripts and old-engine-only fixtures/tests with each slice; no permanent dual
+   controllers, fallback backend or flags.
 4. **Add functions.** Compare the required handler contract on Wasmtime/wazero;
    select one engine, then qualify HTTP/queue delivery, tenant isolation, quotas,
    cancellation, compilation caching on both CPU architectures, worker loss,
@@ -707,8 +786,11 @@ three regional managers, NATS, containerd, image storage, and operational work.
 
 Expected benefit: fewer custom scheduling and rollout mechanisms to maintain.
 Unproven benefit: lower infrastructure spend or faster function execution.
-If the adapter retains most existing orchestration or requires extensive upstream
-patches, stop and reassess the architecture rather than maintaining two platforms.
+If the adapter retains the old scheduler or extensive task-control machinery,
+the refactor has not met its deletion requirement. Simplify the integration and
+raise upstream incompatibilities before production cutover; do not accept dual
+engines or silently revert the selected target. Report maintenance/cost findings
+without presenting unmeasured savings as established.
 
 ## Project review: recommended implementation order
 
@@ -775,6 +857,10 @@ risk-based source review, not exhaustive inspection of every file or live proof.
     automatic regional formation and both ends of global leaf admission. Prove
     simultaneous boot, interrupted provisioning and restart without duplicate
     foundations or competing founders before claiming automatic deployment.
+11. **Close the deletion inventory.** Remove the superseded orchestration engine
+    and all orphaned callers/dependencies from the final source and deployment.
+    Prove that CLI actions, reconciliation and task execution reach SwarmKit,
+    with no legacy scheduler, native-process task backend or duplicate task store.
 
 Verdict: establish signed artifact continuity and the managed NetBird foundation
 first, then prove the three-region milestone before replacing production tasks.
@@ -790,4 +876,5 @@ or every source file. No infrastructure changes are implied by this review.
 - [Wasmtime security model](https://docs.wasmtime.dev/security.html) and [Go embedding](https://github.com/bytecodealliance/wasmtime-go)
 - [wazero compatibility and Go embedding](https://github.com/tetratelabs/wazero)
 
-Pin exact versions during the spike; upstream branch links describe moving code.
+Pin exact versions during replacement qualification; upstream branch links
+describe moving code.
