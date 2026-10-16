@@ -109,11 +109,11 @@ func TestDrillUnknownEntitiesAreNotFound(t *testing.T) {
 	handler := drillDashboard(t, drillView(testNow))
 	for path, want := range map[string]string{
 		"/regions/xyz":                                "is not in the global view",
-		"/regions/gru/nodes/nope":                     "does not report in GRU",
-		"/regions/gru/volumes/nope":                   "is not in the GRU rollup",
-		"/regions/gru/nodes/gru-n00/services/nope":    "is not placed on node gru-n00",
-		"/regions/gru/nodes/nope/services/controller": "does not report in GRU",
-		"/regions/fra/nodes/fra-n00":                  "does not report in FRA",
+		"/regions/gru/nodes/nope":                     "is absent from the current complete regional observation",
+		"/regions/gru/volumes/nope":                   "is absent from the current complete regional observation",
+		"/regions/gru/nodes/gru-n00/services/nope":    "is absent from the current complete regional observation",
+		"/regions/gru/nodes/nope/services/controller": "is absent from the current complete regional observation",
+		"/regions/fra/nodes/fra-n00":                  "is unknown: no regional observation is available",
 	} {
 		response := get(t, handler, path)
 		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), want) {
@@ -151,5 +151,39 @@ func TestUnreadVolumesAreNotShownAsNone(t *testing.T) {
 	}
 	if body := get(t, handler, "/volumes").Body.String(); !strings.Contains(body, "Volume list unavailable from GRU") {
 		t.Fatal("/volumes hides the region whose volume read failed")
+	}
+}
+
+func TestDrillIncompleteObservationsKeepAbsenceUnknown(t *testing.T) {
+	t.Parallel()
+	global := drillView(testNow)
+	rollup := overviewRollup("gru", testNow.Add(time.Second), []string{"sfo", "fra"})
+	rollup.Truncated = true
+	if !global.Accept(rollup) {
+		t.Fatal("regional producer rejected truncated observation")
+	}
+	handler := drillDashboard(t, global)
+	for _, scenario := range []struct{ path, reason string }{
+		{"/regions/gru/nodes/absent", "truncated"},
+		{"/regions/gru/volumes/absent", "truncated"},
+		{"/regions/gru/nodes/gru-n00/services/absent", "truncated"},
+		{"/regions/sfo/nodes/absent", "stale"},
+		{"/regions/sfo/volumes/absent", "stale"},
+		{"/regions/sfo/nodes/sfo-n00/services/absent", "stale"},
+		{"/regions/fra/nodes/absent", "no regional observation"},
+	} {
+		body := get(t, handler, scenario.path).Body.String()
+		if !strings.Contains(body, "is unknown:") || !strings.Contains(body, scenario.reason) || strings.Contains(body, "is absent from") {
+			t.Errorf("GET %s did not preserve uncertainty: %s", scenario.path, body)
+		}
+	}
+	rollup.ObservedAt = testNow.Add(2 * time.Second)
+	rollup.Truncated, rollup.VolumesUnavailable = false, true
+	if !global.Accept(rollup) {
+		t.Fatal("regional producer rejected volume-unavailable observation")
+	}
+	body := get(t, handler, "/regions/gru/volumes/gru-vol-0").Body.String()
+	if !strings.Contains(body, "the regional volume observation is unavailable") || strings.Contains(body, "<dd>attached</dd>") {
+		t.Fatal("unavailable volume list rendered retained volume as current")
 	}
 }
