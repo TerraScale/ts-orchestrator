@@ -231,6 +231,80 @@ func TestFileStoreHeadersPersistWithRecordAccounting(t *testing.T) {
 	})
 }
 
+func TestFileStoreAdmissionAndRepeatedRecoveryPreserveMessages(t *testing.T) {
+	testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
+		for _, invalid := range []StreamConfig{{Name: "INVALID", Storage: MemoryStorage}, {Storage: FileStorage}} {
+			fs, err := newFileStoreWithCreated(fcfg, invalid, time.Now(), prf(&fcfg), nil)
+			require_Error(t, err)
+			require_True(t, fs == nil)
+			entries, err := os.ReadDir(fcfg.StoreDir)
+			require_NoError(t, err)
+			require_Equal(t, len(entries), 0)
+		}
+		cfg := StreamConfig{Name: "ADMISSION-RECOVERY", Storage: FileStorage}
+		created := time.Now()
+		fs, err := newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		t.Cleanup(func() {
+			if fs != nil {
+				fs.Stop()
+			}
+		})
+		for batch := range 2 {
+			for i := batch*100 + 1; i <= (batch+1)*100; i++ {
+				seq, _, err := fs.StoreMsg("foo", nil, fmt.Appendf(nil, "[%08d] Hello World!", i), 0)
+				require_NoError(t, err)
+				require_Equal(t, seq, uint64(i))
+			}
+			require_NoError(t, fs.Stop())
+			_, _, err = fs.StoreMsg("foo", nil, []byte("closed write"), 0)
+			require_Error(t, err, ErrStoreClosed)
+			fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+			require_NoError(t, err)
+			count := uint64((batch + 1) * 100)
+			state := fs.State()
+			require_Equal(t, state.Msgs, count)
+			require_Equal(t, state.FirstSeq, uint64(1))
+			require_Equal(t, state.LastSeq, count)
+			require_Equal(t, state.Bytes, count*fileStoreMsgSize("foo", nil, []byte("[00000022] Hello World!")))
+			for seq := uint64(1); seq <= count; seq++ {
+				sm, err := fs.LoadMsg(seq, nil)
+				require_NoError(t, err)
+				require_Equal(t, sm.subj, "foo")
+				require_Equal(t, string(sm.msg), fmt.Sprintf("[%08d] Hello World!", seq))
+			}
+		}
+		n, err := fs.Purge()
+		require_NoError(t, err)
+		require_Equal(t, n, uint64(200))
+		require_NoError(t, fs.Stop())
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		require_Equal(t, fs.State().Msgs, uint64(0))
+		require_Equal(t, fs.State().Bytes, uint64(0))
+		seq, _, err := fs.StoreMsg("foo", nil, []byte("Hello"), 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(201))
+		removed, err := fs.RemoveMsg(seq)
+		require_NoError(t, err)
+		require_True(t, removed)
+		require_NoError(t, fs.Stop())
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		require_Equal(t, fs.State().Msgs, uint64(0))
+		require_Equal(t, fs.State().FirstSeq, uint64(202))
+		seq, _, err = fs.StoreMsg("foo", nil, []byte("after empty recovery"), 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(202))
+		require_NoError(t, fs.Stop())
+		fs, err = newFileStoreWithCreated(fcfg, cfg, created, prf(&fcfg), nil)
+		require_NoError(t, err)
+		sm, err := fs.LoadMsg(seq, nil)
+		require_NoError(t, err)
+		require_Equal(t, string(sm.msg), "after empty recovery")
+	})
+}
+
 func TestFileStoreBasicWriteMsgsAndRestore(t *testing.T) {
 	testFileStoreAllPermutations(t, func(t *testing.T, fcfg FileStoreConfig) {
 		if _, err := newFileStore(fcfg, StreamConfig{Storage: MemoryStorage}); err == nil {
@@ -7268,14 +7342,18 @@ func TestFileStoreMessageBlockBoundariesRecoverFromDisk(t *testing.T) {
 				} else {
 					for i := range 33 {
 						if i > 0 {
+							fs.mu.Lock()
 							_, err = fs.newMsgBlockForWrite()
+							fs.mu.Unlock()
 							require_NoError(t, err)
 						}
 						store("foo")
 						store("foo")
 						if i == 15 {
 							for _, seq := range []uint64{2, 5} {
+								fs.mu.Lock()
 								_, err = fs.newMsgBlockForWrite()
+								fs.mu.Unlock()
 								require_NoError(t, err)
 								removed, err := fs.RemoveMsg(seq)
 								require_NoError(t, err)
@@ -8256,7 +8334,9 @@ func TestFileStoreSubjectMutationsRecoverExactMessages(t *testing.T) {
 			subjects = append(subjects, test.suffix...)
 			for i, subj := range subjects {
 				if test.rotateLast && i == len(subjects)-1 {
+					fs.mu.Lock()
 					_, err := fs.newMsgBlockForWrite()
+					fs.mu.Unlock()
 					require_NoError(t, err)
 				}
 				seq, _, err := fs.StoreMsg(subj, nil, test.payload, 0)
@@ -12811,7 +12891,9 @@ func TestFileStoreCompressionAfterTruncate(t *testing.T) {
 					require_NoError(t, err)
 					require_False(t, compressed)
 
+					fs.mu.Lock()
 					_, err = fs.newMsgBlockForWrite()
+					fs.mu.Unlock()
 					require_NoError(t, err)
 
 					if fcfg.Compression != NoCompression {
@@ -14001,11 +14083,7 @@ func TestFileStoreNonOrderedSequencesRecoveredFromDisk(t *testing.T) {
 					require_NoError(t, err)
 				}
 				mb := fs.getFirstBlock()
-				func() {
-					mb.mu.Lock()
-					defer mb.mu.Unlock()
-					require_NoError(t, mb.recompressOnDiskIfNeeded())
-				}()
+				// Active blocks stay uncompressed so recovery can append normally.
 				require_NoError(t, fs.Stop())
 				info, err := os.Stat(mb.mfn)
 				require_NoError(t, err)
@@ -14023,7 +14101,7 @@ func TestFileStoreNonOrderedSequencesRecoveredFromDisk(t *testing.T) {
 				for seq := uint64(1); seq <= test.last; seq++ {
 					sm, err := fs.LoadMsg(seq, nil)
 					if !slices.Contains(test.live, seq) {
-						require_Error(t, err, ErrStoreMsgNotFound)
+						require_Error(t, err, ErrStoreMsgNotFound, errDeletedMsg)
 						continue
 					}
 					require_NoError(t, err)
@@ -15708,7 +15786,9 @@ func TestFileStoreSkippedBlocksRecoverMatchingMessages(t *testing.T) {
 					require_NoError(t, err)
 					require_Equal(t, seq, uint64(i+1))
 					if i < 10 && (i+1)%2 == 0 {
+						fs.mu.Lock()
 						_, err = fs.newMsgBlockForWrite()
+						fs.mu.Unlock()
 						require_NoError(t, err)
 					}
 				}
@@ -17880,6 +17960,55 @@ func TestFileStoreEncryptedConversionRecoversMessagesAndAppends(t *testing.T) {
 	}
 }
 
+func TestFileStoreLimitsCallbackSubjectSurvivesCacheOverwrite(t *testing.T) {
+	fcfg := FileStoreConfig{StoreDir: t.TempDir()}
+	cfg := StreamConfig{Name: "CALLBACK-LIFETIME", Storage: FileStorage, MaxMsgs: 1, Discard: DiscardOld}
+	fs, err := newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	t.Cleanup(func() {
+		if fs != nil {
+			fs.Stop()
+		}
+	})
+	var captured string
+	var removed uint64
+	var retainedCache *cache
+	fs.RegisterStorageUpdates(func(delta, _ int64, seq uint64, subj string) {
+		if delta != -1 {
+			return
+		}
+		captured, removed = subj, seq
+		mb := fs.getFirstBlock()
+		mb.mu.Lock()
+		defer mb.mu.Unlock()
+		require_NoError(t, mb.loadMsgsWithLock())
+		retainedCache = mb.cache
+	})
+	for i := range 2 {
+		seq, _, err := fs.StoreMsg("foo.bar", nil, fmt.Appendf(nil, "payload-%d", i+1), 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(i+1))
+	}
+	require_Equal(t, captured, "foo.bar")
+	require_Equal(t, removed, uint64(1))
+	require_NotNil(t, retainedCache)
+	require_True(t, len(retainedCache.buf) > 0)
+	require_NoError(t, fs.Stop())
+	// Overwrite the actual retired cache only after all writes and callbacks have finished.
+	clear(retainedCache.buf)
+	runtime.KeepAlive(retainedCache)
+	require_Equal(t, captured, "foo.bar")
+	fs, err = newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	require_Equal(t, fs.State().Msgs, uint64(1))
+	_, err = fs.LoadMsg(1, nil)
+	require_Error(t, err, ErrStoreMsgNotFound, errDeletedMsg)
+	sm, err := fs.LoadMsg(2, nil)
+	require_NoError(t, err)
+	require_Equal(t, sm.subj, "foo.bar")
+	require_Equal(t, string(sm.msg), "payload-2")
+}
+
 func TestFileStoreRemoveMsgViaLimitsCallbackAliasedSubj(t *testing.T) {
 	fs, err := newFileStore(
 		FileStoreConfig{StoreDir: t.TempDir()},
@@ -18016,6 +18145,61 @@ loop:
 		corrupt, _ := gotSubj.Load().(string)
 		t.Fatalf("SubjectForSeq returned a corrupted subject %d time(s); seq=%d got=%q want=%q",
 			n, gotSeqVal.Load(), corrupt, subjects[gotSeqVal.Load()-1])
+	}
+}
+
+func TestFileStoreMultiLastQueriesPreservePersistedSubjectOrder(t *testing.T) {
+	fcfg := FileStoreConfig{StoreDir: t.TempDir()}
+	cfg := StreamConfig{Name: "SUBJECT-ORDER", Subjects: []string{"orders.*", "billing.*"}, Storage: FileStorage}
+	fs, err := newFileStore(fcfg, cfg)
+	require_NoError(t, err)
+	t.Cleanup(func() {
+		if fs != nil {
+			fs.Stop()
+		}
+	})
+	for i, subj := range []string{"orders.1", "billing.1"} {
+		seq, _, err := fs.StoreMsg(subj, nil, fmt.Appendf(nil, "order-%d", i+1), 0)
+		require_NoError(t, err)
+		require_Equal(t, seq, uint64(i+1))
+	}
+	for round := range 2 {
+		want := []uint64{1, 2}
+		if round == 1 {
+			want = []uint64{2, 3}
+		}
+		seqs, err := fs.MultiLastSeqs([]string{"orders.*", "billing.*"}, 0, 0)
+		require_NoError(t, err)
+		require_True(t, slices.Equal(seqs, want))
+		// Persist the caller's configuration after the query, then reopen using the actual metadata.
+		require_NoError(t, fs.UpdateConfig(&cfg))
+		require_NoError(t, fs.Stop())
+		meta, err := os.ReadFile(filepath.Join(fcfg.StoreDir, JetStreamMetaFile))
+		require_NoError(t, err)
+		var recovered FileStreamInfo
+		require_NoError(t, json.Unmarshal(meta, &recovered))
+		require_True(t, slices.Equal(recovered.Subjects, []string{"orders.*", "billing.*"}))
+		cfg = recovered.StreamConfig
+		fs, err = newFileStore(fcfg, cfg)
+		require_NoError(t, err)
+		seqs, err = fs.MultiLastSeqs([]string{"orders.*", "billing.*"}, 0, 0)
+		require_NoError(t, err)
+		require_True(t, slices.Equal(seqs, want))
+		for seq := uint64(1); seq <= uint64(round+2); seq++ {
+			sm, err := fs.LoadMsg(seq, nil)
+			require_NoError(t, err)
+			require_Equal(t, string(sm.msg), fmt.Sprintf("order-%d", seq))
+			wantSubject := "orders.1"
+			if seq == 2 {
+				wantSubject = "billing.1"
+			}
+			require_Equal(t, sm.subj, wantSubject)
+		}
+		if round == 0 {
+			seq, _, err := fs.StoreMsg("orders.1", nil, []byte("order-3"), 0)
+			require_NoError(t, err)
+			require_Equal(t, seq, uint64(3))
+		}
 	}
 }
 

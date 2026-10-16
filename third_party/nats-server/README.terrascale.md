@@ -82,10 +82,13 @@ Auth source `319b113a07dd1a25880a717f0c83d7a2fcdb51b3` separately removes
 `TestProcessUserPermissionsTemplate*` originals. The corresponding real listener
 type, 36-row TLS DNS and signed scoped-template cases passed; both original
 DNS/type cases also passed in `cb868ebc`, and the original three template cases
-passed in `3a9f09da`. All other retained function bodies are unchanged. These five
-additional removals await compilation in their combined final source. All five
-clone originals, the concurrent proxy original and twelve existing auth
-integrations remain. The strengthened directional clone replacement is unrun.
+passed in `3a9f09da`. All other retained function bodies are unchanged. Combined
+source `8e417f90f6908902a307dc59333f7690a48426c5` compiled with all thirteen
+approved removals. Its 17 selected tests produced fourteen passes and three
+retained failures in 13.066 seconds, with no skips. The strengthened directional
+clone replacement passed its unrestricted and distinct publish/subscribe
+controls. All five clone originals, the concurrent proxy original and twelve
+existing auth integrations remain. Central integration qualification is pending.
 
 Every original outside these thirteen approved removals remains while additive
 candidates are qualified. This migration is incomplete; these source removals

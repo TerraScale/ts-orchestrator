@@ -972,7 +972,7 @@ func TestSublistRoutingLeafPermissionIntersection(t *testing.T) {
 			nc := natsConnect(t, leaf.ClientURL(), nats.Timeout(time.Second))
 			defer nc.Close()
 			sub := natsSubSync(t, nc, test.pattern)
-			fence := natsSubSync(t, nc, "_INBOX."+nuid.Next())
+			fence := natsSubSync(t, nc, "_INBOX.fence."+nuid.Next())
 			require_NoError(t, nc.FlushTimeout(time.Second))
 			checkSubInterest(t, hub, globalAccountName, fence.Subject, 5*time.Second)
 			if len(test.want) != 0 {

@@ -5010,8 +5010,8 @@ func TestOptsConfiguredStartupProcess(t *testing.T) {
 		{"TestNkeyWithPassConfig", `authorization { users: [{nkey: "UDKTV7HZVYJFJN64LLMYQBUR6MTNNYCDC3LAZH4VHURW3GZLL3FULBXV", pass: "foo"}] }`, "configure", "Nkey users do not take usernames or passwords", nil},
 		{"TestTokenWithUserPass", `authorization {user: user, pass: password, token: "$2a$11$whatever"}`, "configure", "token", nil},
 		{"TestTokenWithUsers", `authorization {token: "$2a$11$whatever", users: [{user: test, password: test}]}`, "configure", "token", nil},
-		{"TestMalformedListenAddress", "# test garbage listen address for failure\nlisten: 10.0.1.22:foo", "configure", "port", nil},
-		{"TestMalformedClusterAddress", "# Test malformed cluster listen address\ncluster { listen: 266.0.0.1:foo }", "configure", "port", nil},
+		{"TestMalformedListenAddress", "# test garbage listen address for failure\nlisten: \"10.0.1.22:foo\"", "configure", "port", nil},
+		{"TestMalformedClusterAddress", "# Test malformed cluster listen address\ncluster { listen: \"266.0.0.1:foo\" }", "configure", "port", nil},
 		{"TestPanic", `port: "this_string_trips_a_panic"`, "configure", ":1:0: interface conversion:", nil},
 		{"TestLargeMaxControlLine", `max_control_line: 3000000000`, "configure", "max_control_line value is too big", nil},
 		{"TestLargeMaxPayload/overflow", `max_payload: 3000000000`, "configure", "max_payload value is too big", nil},
@@ -5391,6 +5391,25 @@ func runOptsAPIChild(mode string, args []string) {
 	case "from-config":
 		opts.ConfigFile = config
 		s, err = NewServerFromConfig(opts)
+	case "file", "seeded-file", "ignore-unknown":
+		if mode == "seeded-file" {
+			opts.Debug, opts.Trace = true, false
+			opts.LogFile = filepath.Join(filepath.Dir(config), "seeded.log")
+		}
+		if mode == "ignore-unknown" {
+			NoErrOnUnknownFields(true)
+		}
+		err = opts.ProcessConfigFile(config)
+		if err == nil {
+			s, err = NewServer(opts)
+		}
+	case "empty-file":
+		opts, err = ProcessConfigFile("")
+		if err == nil {
+			opts.Host, opts.Port = "127.0.0.1", -1
+			opts.HTTPHost, opts.HTTPPort, opts.PortsFileDir = "127.0.0.1", -1, portsDir
+			s, err = NewServer(opts)
+		}
 	case "load-config":
 		opts = LoadConfig(config)
 		opts.PortsFileDir = portsDir
@@ -5589,17 +5608,7 @@ func readOptsStartupJSON(t *testing.T, endpoint string, destination any) {
 
 func exchangeOptsStartupMessage(t *testing.T, publisher, subscriber *nats.Conn) {
 	t.Helper()
-	subject := nats.NewInbox()
-	sub, err := subscriber.SubscribeSync(subject)
-	require_NoError(t, err)
-	defer sub.Unsubscribe()
-	require_NoError(t, subscriber.FlushTimeout(time.Second))
-	payload := []byte(subject)
-	require_NoError(t, publisher.Publish(subject, payload))
-	require_NoError(t, publisher.FlushTimeout(time.Second))
-	msg, err := sub.NextMsg(time.Second)
-	require_NoError(t, err)
-	require_True(t, bytes.Equal(msg.Data, payload))
+	deliverOptsStartupSubject(t, publisher, subscriber, nats.NewInbox())
 }
 
 func TestOptsConfiguredNoAuthUserProcess(t *testing.T) {
@@ -6111,4 +6120,320 @@ func assertOptsAuthenticationTimeout(t *testing.T, address string, seconds float
 	require_NoError(t, err)
 	require_Contains(t, string(response), "Authentication Timeout")
 	require_True(t, time.Since(started) >= expected/2)
+}
+
+func optsUserNkey(t *testing.T, key nkeys.KeyPair) nats.Option {
+	t.Helper()
+	public, err := key.PublicKey()
+	require_NoError(t, err)
+	return nats.Nkey(public, key.Sign)
+}
+
+func TestOptsConfiguredNkeyUsersProcess(t *testing.T) {
+	first, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	second, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	firstPublic, err := first.PublicKey()
+	require_NoError(t, err)
+	secondPublic, err := second.PublicKey()
+	require_NoError(t, err)
+	content := fmt.Sprintf("authorization { users: [{nkey: %q}, {nkey: %q}] }", firstPublic, secondPublic)
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	a, err := nats.Connect(ports.Nats[0], optsUserNkey(t, first), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer a.Close()
+	b, err := nats.Connect(ports.Nats[0], optsUserNkey(t, second), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer b.Close()
+	exchangeOptsStartupMessage(t, a, b)
+	exchangeOptsStartupMessage(t, b, a)
+	wrongSigner, err := nats.Connect(ports.Nats[0], nats.Nkey(firstPublic, second.Sign), nats.NoReconnect(), nats.Timeout(time.Second))
+	if wrongSigner != nil {
+		wrongSigner.Close()
+	}
+	require_True(t, errors.Is(err, nats.ErrAuthorization))
+}
+
+func deliverOptsStartupSubject(t *testing.T, publisher, subscriber *nats.Conn, subject string) {
+	t.Helper()
+	sub, err := subscriber.SubscribeSync(subject)
+	require_NoError(t, err)
+	defer sub.Unsubscribe()
+	require_NoError(t, subscriber.FlushTimeout(time.Second))
+	require_NoError(t, publisher.Publish(subject, []byte(subject)))
+	require_NoError(t, publisher.FlushTimeout(time.Second))
+	msg, err := sub.NextMsg(time.Second)
+	require_NoError(t, err)
+	require_Equal(t, string(msg.Data), subject)
+}
+
+func rejectOptsStartupPermission(t *testing.T, nc *nats.Conn, failures <-chan error, operation, subject string) {
+	t.Helper()
+	switch operation {
+	case "Publish":
+		require_NoError(t, nc.Publish(subject, []byte("denied")))
+	case "Subscription":
+		sub, err := nc.SubscribeSync(subject)
+		require_NoError(t, err)
+		defer sub.Unsubscribe()
+	default:
+		t.Fatalf("unknown permission operation %q", operation)
+	}
+	require_NoError(t, nc.FlushTimeout(time.Second))
+	select {
+	case err := <-failures:
+		require_Contains(t, err.Error(), "Permissions Violation for "+operation)
+		require_Contains(t, err.Error(), subject)
+	case <-time.After(time.Second):
+		t.Fatalf("missing permission violation for %s %s", operation, subject)
+	}
+}
+
+func TestOptsConfiguredNkeyPermissionsProcess(t *testing.T) {
+	key, err := nkeys.CreateUser()
+	require_NoError(t, err)
+	public, err := key.PublicKey()
+	require_NoError(t, err)
+	content := fmt.Sprintf(`
+		authorization {
+			users: [
+				{nkey: %q, permissions: {publish: "$SYS.>", subscribe: {deny: [foo, bar, baz]}}}
+				{user: observer, password: secret}
+			]
+		}
+	`, public)
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	failures := make(chan error, 8)
+	nc, err := nats.Connect(ports.Nats[0], optsUserNkey(t, key), nats.NoReconnect(), nats.Timeout(time.Second),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+	require_NoError(t, err)
+	defer nc.Close()
+	observer, err := nats.Connect(ports.Nats[0], nats.UserInfo("observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer observer.Close()
+	deliverOptsStartupSubject(t, nc, observer, "$SYS.opts.allowed")
+	deliverOptsStartupSubject(t, observer, nc, "outside")
+	rejectOptsStartupPermission(t, nc, failures, "Publish", "outside")
+	for _, subject := range []string{"foo", "bar", "baz"} {
+		rejectOptsStartupPermission(t, nc, failures, "Subscription", subject)
+	}
+}
+
+func TestOptsConfiguredMultipleUsersProcess(t *testing.T) {
+	content, err := os.ReadFile("./configs/multiple_users.conf")
+	require_NoError(t, err)
+	child := startOptsStartupProcess(t, string(content), nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	alice, err := nats.Connect(ports.Nats[0], nats.UserInfo("alice", "foo"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer alice.Close()
+	bob, err := nats.Connect(ports.Nats[0], nats.UserInfo("bob", "bar"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer bob.Close()
+	exchangeOptsStartupMessage(t, alice, bob)
+	exchangeOptsStartupMessage(t, bob, alice)
+	denied, err := nats.Connect(ports.Nats[0], nats.UserInfo("alice", "bar"), nats.NoReconnect(), nats.Timeout(time.Second))
+	if denied != nil {
+		denied.Close()
+	}
+	require_True(t, errors.Is(err, nats.ErrAuthorization))
+}
+
+func TestOptsConfiguredDefaultPermissionsProcess(t *testing.T) {
+	keys := make([]nkeys.KeyPair, 4)
+	public := make([]string, len(keys))
+	for i := range keys {
+		var err error
+		keys[i], err = nkeys.CreateUser()
+		require_NoError(t, err)
+		public[i], err = keys[i].PublicKey()
+		require_NoError(t, err)
+	}
+	content := fmt.Sprintf(`
+		authorization {
+			default_permissions: {publish: foo}
+			users: [
+				{user: user, password: pwd}
+				{user: other, password: pwd, permissions: {subscribe: bar}}
+				{nkey: %q}
+				{nkey: %q, permissions: {subscribe: bar}}
+				{user: global-observer, password: secret, permissions: {publish: ">", subscribe: ">"}}
+			]
+		}
+		accounts {
+			A {
+				default_permissions: {publish: foo}
+				users: [
+					{user: accuser, password: pwd}
+					{user: accother, password: pwd, permissions: {subscribe: bar}}
+					{nkey: %q}
+					{nkey: %q, permissions: {subscribe: bar}}
+					{user: account-observer, password: secret, permissions: {publish: ">", subscribe: ">"}}
+				]
+			}
+		}
+	`, public[0], public[1], public[2], public[3])
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	global, err := nats.Connect(ports.Nats[0], nats.UserInfo("global-observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer global.Close()
+	account, err := nats.Connect(ports.Nats[0], nats.UserInfo("account-observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer account.Close()
+	for _, tc := range []struct {
+		name       string
+		credential nats.Option
+		observer   *nats.Conn
+		inherited  bool
+	}{
+		{"global-user-default", nats.UserInfo("user", "pwd"), global, true},
+		{"global-user-explicit", nats.UserInfo("other", "pwd"), global, false},
+		{"global-nkey-default", optsUserNkey(t, keys[0]), global, true},
+		{"global-nkey-explicit", optsUserNkey(t, keys[1]), global, false},
+		{"account-user-default", nats.UserInfo("accuser", "pwd"), account, true},
+		{"account-user-explicit", nats.UserInfo("accother", "pwd"), account, false},
+		{"account-nkey-default", optsUserNkey(t, keys[2]), account, true},
+		{"account-nkey-explicit", optsUserNkey(t, keys[3]), account, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failures := make(chan error, 8)
+			nc, err := nats.Connect(ports.Nats[0], tc.credential, nats.NoReconnect(), nats.Timeout(time.Second),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+			require_NoError(t, err)
+			defer nc.Close()
+			deliverOptsStartupSubject(t, nc, tc.observer, "foo")
+			deliverOptsStartupSubject(t, tc.observer, nc, "bar")
+			if tc.inherited {
+				deliverOptsStartupSubject(t, tc.observer, nc, "outside")
+				rejectOptsStartupPermission(t, nc, failures, "Publish", "outside")
+			} else {
+				deliverOptsStartupSubject(t, nc, tc.observer, "outside")
+				rejectOptsStartupPermission(t, nc, failures, "Subscription", "outside")
+			}
+		})
+	}
+}
+
+func TestOptsEmbeddedFileOptionsProcess(t *testing.T) {
+	for _, tc := range []struct{ mode, content string }{
+		{"seeded-file", "debug: false\ntrace: true"},
+		{"ignore-unknown", "streaming { id: me }"},
+		{"empty-file", "this_file_must_not_be_loaded: true"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			config := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(config, []byte(tc.content), 0o600))
+			child := startOptsConfigProcess(t, config, nil, "opts-api-"+tc.mode)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			exchangeOptsStartupMessage(t, nc, nc)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			switch tc.mode {
+			case "seeded-file":
+				checkFor(t, time.Second, 10*time.Millisecond, func() error {
+					log, err := os.ReadFile(filepath.Join(filepath.Dir(config), "seeded.log"))
+					if err != nil {
+						return err
+					}
+					if !bytes.Contains(log, []byte("[TRC]")) {
+						return fmt.Errorf("traffic trace not in preserved log file: %s", log)
+					}
+					if bytes.Contains(log, []byte("[DBG]")) {
+						return fmt.Errorf("config did not replace seeded debug value: %s", log)
+					}
+					return nil
+				})
+			case "ignore-unknown":
+				require_True(t, info.ConfigDigest != "")
+			case "empty-file":
+				require_Equal(t, info.ConfigDigest, "")
+			}
+		})
+	}
+	for _, tc := range []struct{ mode, content, diagnostic string }{
+		{"file", "streaming { id: me }", "streaming"},
+		{"ignore-unknown", "streaming { id: me }\ncluster { non_top_level_unknown_field: 123 }", "non_top_level_unknown_field"},
+	} {
+		t.Run("reject-"+tc.mode, func(t *testing.T) {
+			config := filepath.Join(t.TempDir(), "nats.conf")
+			require_NoError(t, os.WriteFile(config, []byte(tc.content), 0o600))
+			child := startOptsConfigProcess(t, config, nil, "opts-api-"+tc.mode)
+			rejectOptsProcess(t, child, "api-"+tc.mode, tc.diagnostic)
+		})
+	}
+}
+
+func TestOptsConfiguredWriteDeadlineProcess(t *testing.T) {
+	t.Run("invalid", func(t *testing.T) {
+		rejectOptsStartupProcess(t, `write_deadline: "1x"`, "configure", "parsing", nil)
+	})
+	for _, tc := range []struct {
+		name, content string
+		deadline      time.Duration
+	}{
+		{"duration", `write_deadline: "1s"`, time.Second},
+		{"integer", "write_deadline: 2", 2 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := startOptsStartupProcess(t, tc.content, nil)
+			defer stopOptsStartupProcess(t, child)
+			ports := optsStartupPorts(t, child)
+			nc, err := nats.Connect(ports.Nats[0], nats.NoReconnect(), nats.Timeout(time.Second))
+			require_NoError(t, err)
+			defer nc.Close()
+			exchangeOptsStartupMessage(t, nc, nc)
+			var info Varz
+			readOptsStartupJSON(t, ports.Monitoring[0]+VarzPath, &info)
+			require_Equal(t, info.WriteDeadline, tc.deadline)
+		})
+	}
+}
+
+func TestOptsConfiguredNewStylePermissionsProcess(t *testing.T) {
+	body, err := os.ReadFile("./configs/new_style_authorization.conf")
+	require_NoError(t, err)
+	content := strings.Replace(string(body), "users = [", `users = [ {user: observer, password: secret, permissions: {publish: ">", subscribe: ">"}}`, 1)
+	child := startOptsStartupProcess(t, content, nil)
+	defer stopOptsStartupProcess(t, child)
+	ports := optsStartupPorts(t, child)
+	observer, err := nats.Connect(ports.Nats[0], nats.UserInfo("observer", "secret"), nats.NoReconnect(), nats.Timeout(time.Second))
+	require_NoError(t, err)
+	defer observer.Close()
+	for _, tc := range []struct{ user, password string }{{"alice", "foo"}, {"bob", "special"}} {
+		t.Run(tc.user, func(t *testing.T) {
+			failures := make(chan error, 16)
+			nc, err := nats.Connect(ports.Nats[0], nats.UserInfo(tc.user, tc.password), nats.NoReconnect(), nats.Timeout(time.Second),
+				nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) { failures <- err }))
+			require_NoError(t, err)
+			defer nc.Close()
+			deliverOptsStartupSubject(t, observer, nc, "outside")
+			if tc.user == "alice" {
+				for _, subject := range []string{"foo", "bar", "baz"} {
+					deliverOptsStartupSubject(t, nc, observer, subject)
+					deliverOptsStartupSubject(t, observer, nc, subject)
+				}
+				rejectOptsStartupPermission(t, nc, failures, "Publish", "outside")
+				rejectOptsStartupPermission(t, nc, failures, "Subscription", "$SYS.opts.denied")
+			} else {
+				deliverOptsStartupSubject(t, nc, observer, "$SYS.opts.allowed")
+				deliverOptsStartupSubject(t, observer, nc, "$SYS.opts.allowed")
+				for _, subject := range []string{"foo", "bar", "baz"} {
+					rejectOptsStartupPermission(t, nc, failures, "Publish", subject)
+					rejectOptsStartupPermission(t, nc, failures, "Subscription", subject)
+				}
+			}
+		})
+	}
 }
