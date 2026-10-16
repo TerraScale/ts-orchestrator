@@ -32,6 +32,7 @@ type functionSlotExecutor struct{ serviceExecutor }
 func (e functionSlotExecutor) Describe(ctx context.Context) (*api.NodeDescription, error) {
 	description, err := e.serviceExecutor.Describe(ctx)
 	if err == nil {
+		description.Resources.NanoCPUs = 750_000_000
 		description.Resources.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
 	}
 	return description, err
@@ -123,9 +124,15 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	}
 	migrationWire, _ := trust.EncodeEnvelope(migrationEnvelope)
 	migrationSHA, _ := trust.Fingerprint(migrationEnvelope)
-	bundle := func(role string, sequence uint64) release.ContainerBundle {
+	index := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":42,"platform":{"os":"linux","architecture":"arm64"}},{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":"sha256:%s","size":42,"platform":{"os":"linux","architecture":"amd64"}}]}`, strings.Repeat("a", 64), strings.Repeat("e", 64)))
+	indexSHA := fmt.Sprintf("%x", sha256.Sum256(index))
+	bundle := func(role string, sequence uint64, architecture string) release.ContainerBundle {
 		t.Helper()
-		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat("c", 40), ArtifactSHA256: strings.Repeat("a", 64), QualificationSHA256: strings.Repeat("b", 64), Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: runtime.GOARCH, Role: role}
+		digest := strings.Repeat("a", 64)
+		if architecture == "amd64" {
+			digest = strings.Repeat("e", 64)
+		}
+		candidate := release.ProductionExpectation{SourceRevision: strings.Repeat("c", 40), ArtifactSHA256: digest, QualificationSHA256: indexSHA, Cell: "GRU", Environment: intent.Environment, Runtime: release.ProductionRuntime, Architecture: architecture, Role: role}
 		qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema, Candidate: candidate, Evidence: []release.ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 		payload, _ := trust.EncodePayload(qualification)
 		proof, err := trust.Sign(payload, release.ProductionQualificationScope(candidate), now, now.Add(time.Hour), key)
@@ -133,15 +140,14 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 		proofWire, _ := trust.EncodeEnvelope(proof)
-		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/worker@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://example.invalid/function-worker", SourceRevision: candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("d", 64), Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: runtime.GOARCH, ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
-
+		claim := release.ContainerClaim{Schema: release.ContainerClaimSchema, Image: "example.invalid/worker@sha256:" + digest, SourceRepository: "https://example.invalid/function-worker", SourceRevision: candidate.SourceRevision, SourceTreeSHA256: strings.Repeat("d", 64), Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: architecture, ReleaseSequence: sequence, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: candidate.QualificationSHA256, Production: release.ProductionProof{Qualification: proofWire}}
 		payload, _ = trust.EncodePayload(claim)
-		signed, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: runtime.GOARCH}), now, now.Add(time.Hour), key)
+		signed, err := trust.Sign(payload, release.ContainerScope(release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: role, Architecture: architecture}), now, now.Add(time.Hour), key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		wire, _ := trust.EncodeEnvelope(signed)
-		return release.ContainerBundle{Claim: wire, Migration: migrationWire}
+		return release.ContainerBundle{Claim: wire, Migration: migrationWire, Index: index}
 	}
 	probe := func(_ context.Context, task *api.Task) error {
 		if task.NodeID != wasm.ID() || task.NodeID == platform.ID() {
@@ -149,7 +155,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		}
 		return nil
 	}
-	qualified := bundle(FunctionWorkerRole, 101)
+	qualified := bundle(FunctionWorkerRole, 101, runtime.GOARCH)
 	created, err := ApplyFunctionService(ctx, client, intent, current, qualified, roots, legacy, readEvidence, probe)
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +177,22 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, workerProof); err != nil {
 		t.Fatal(err)
 	}
+	siblingIntent := intent
+	siblingIntent.Architecture = "arm64"
+	if runtime.GOARCH == "arm64" {
+		siblingIntent.Architecture = "amd64"
+	}
+	sibling, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 101, siblingIntent.Architecture), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: siblingIntent.Architecture}, now, now.Add(time.Minute), readEvidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	siblingWorkerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: siblingIntent.Architecture}
+	if _, err := reserveReleaseFloor(ctx, client, siblingWorkerIntent, sibling, roots, legacy, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := intent.VerifyWorkerFloor(ctx, client, workerProof); err != nil {
+		t.Fatal("sibling architecture superseded current worker: ", err)
+	}
 	forged := tasks.Tasks[0].Copy()
 	forged.Spec.ForceUpdate++
 	if err := intent.VerifyTask(forged, created, current.proof, workerProof); err == nil {
@@ -181,7 +203,7 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err != nil || replayed.ID != created.ID || replayed.Meta.Version.Index != version {
 		t.Fatalf("function replay not idempotent: %+v %v", replayed, err)
 	}
-	if _, err := ApplyFunctionService(ctx, client, intent, current, bundle("ts-auth", 101), roots, legacy, readEvidence, probe); err == nil {
+	if _, err := ApplyFunctionService(ctx, client, intent, current, bundle("ts-auth", 101, runtime.GOARCH), roots, legacy, readEvidence, probe); err == nil {
 		t.Fatal("platform worker qualification admitted for tenant functions")
 	}
 	current.revoked = true
@@ -206,11 +228,15 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{blocked.Service.ID}}})
 		return err == nil && len(tasks.Tasks) == 1 && tasks.Tasks[0].Status.State == api.TaskStatePending && tasks.Tasks[0].NodeID == ""
 	})
-	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
+	if _, err := client.RemoveService(ctx, &api.RemoveServiceRequest{ServiceID: blocked.Service.ID}); err != nil {
+		t.Fatal(err)
+	}
+	testFunctionCapacityManagerIntegration(t, ctx, client, intent, current, workerProof, wasm.ID())
+	newWorker, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, now, now.Add(time.Minute), readEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
-	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment, Architecture: intent.Architecture}
 	if _, err := reserveReleaseFloor(ctx, client, workerIntent, newWorker, roots, legacy, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -220,8 +246,11 @@ func TestFunctionServiceManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, newWorker); err != nil {
 		t.Fatal(err)
 	}
+	if err := siblingIntent.VerifyWorkerFloor(ctx, client, sibling); err != nil {
+		t.Fatal("advancing current worker superseded sibling architecture: ", err)
+	}
 	admittedAt := time.Now().UTC()
-	expiring, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, admittedAt, admittedAt.Add(50*time.Millisecond), readEvidence)
+	expiring, err := release.VerifyContainerCurrent(ctx, bundle(FunctionWorkerRole, 102, runtime.GOARCH), roots, release.ContainerTarget{Cell: "GRU", Environment: intent.Environment, Role: FunctionWorkerRole, Architecture: runtime.GOARCH}, admittedAt, admittedAt.Add(50*time.Millisecond), readEvidence)
 	if err != nil {
 		t.Fatal(err)
 	}
