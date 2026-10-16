@@ -90,3 +90,23 @@ exact-source passes and failures without importing that vendor source or
 claiming migration closure. The [first-party source inventory](../first-party-test-inventory-bfca6036/REPORT.md)
 records 1,036 files and 4,319 lexical Test candidates; classification and
 execution remain unknown.
+
+## Later read-only status correction
+
+[Attempt status evidence](../attempt-status-61aa29d6/README.md) retains exact
+`61aa29d6` PASS for all four signed OCI SDK HTTP cases, with no skips
+(package 0.273s). Status now includes current SFO node names alongside retained
+legacy names. GRU naming, terminated-instance exclusion, both compartment
+pagination chains and wrapped later-page errors are covered. The original
+`18b3ac46` compilation failure executed no cases and remains in the packet.
+The feature branch fast-forwarded to the exact qualified source; no passing
+case was repeated and main remains unchanged. Live OCI and migration closure
+remain unqualified.
+
+[Corrected vendor receipts](../vendor-scoped-dd038410/README.md) retain the
+separate `dd038410` service-latency and authentication-diagnostics passes,
+alongside links to their historical failures. This source stays on its own
+feature branch. The [three-contract source review](../first-party-oci-contract-review-bfca6036/REVIEW.md)
+is bound to frozen `bfca6036`; its F1 status finding is corrected by the
+separate evidence above. Its isolated-negative and live-witness gaps remain
+open.
