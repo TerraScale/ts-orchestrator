@@ -1563,7 +1563,7 @@ func TestParserPreConnectAuthenticationIngress(t *testing.T) {
 			o.Users = []*User{user}
 			o.Cluster.Username, o.Cluster.Password = "peer", "pwd"
 			o.LeafNode.Username, o.LeafNode.Password = "peer", "pwd"
-			o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "parser-local", "127.0.0.1", -1
+			o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = o.Cluster.Name, "127.0.0.1", -1
 			o.Gateway.Username, o.Gateway.Password = "peer", "pwd"
 			o.SystemAccount = "SYS"
 			o.Accounts = []*Account{NewAccount(o.SystemAccount)}
@@ -1695,7 +1695,7 @@ func TestParserControlLineIngress(t *testing.T) {
 			t.Run(fmt.Sprintf("kind-%d/read-width-%d", kind, width), func(t *testing.T) {
 				o := parserIngressOptions()
 				o.MaxControlLine = 8
-				o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+				o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = o.Cluster.Name, "127.0.0.1", -1
 				o.SystemAccount = "SYS"
 				o.Accounts = []*Account{NewAccount(o.SystemAccount)}
 				s := RunServer(o)
@@ -1732,7 +1732,7 @@ func TestParserPeerControlLineBoundaryIngress(t *testing.T) {
 				t.Run(fmt.Sprintf("kind-%d/read-width-%d/offset-%d", kind, width, offset), func(t *testing.T) {
 					o := parserIngressOptions()
 					o.MaxControlLine = MAX_CONTROL_LINE_SIZE
-					o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = "local", "127.0.0.1", -1
+					o.Gateway.Name, o.Gateway.Host, o.Gateway.Port = o.Cluster.Name, "127.0.0.1", -1
 					o.SystemAccount = "SYS"
 					o.Accounts = []*Account{NewAccount(o.SystemAccount)}
 					s := RunServer(o)
