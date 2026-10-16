@@ -1,13 +1,8 @@
-> **Mandatory model routing (user decision):** Record each task's estimated
-> duration in minutes before assignment. Tasks confidently estimated below
-> **10 minutes**, including tasks below 5 minutes, use **LUNA 6**
-> (`gpt-6-luna`). Everything else uses **GPT 6.1 Sol, high reasoning**
-> (`gpt-6.1-sol`, `reasoning_effort: high`), including tasks estimated at
-> 10 minutes or longer and tasks with uncertain duration. Reassign to the latter
-> if a short task's revised estimate reaches 10 minutes or becomes uncertain.
-> This replaces older model-routing
-> preferences for this refactor. Split tasks at real independent boundaries;
-> do not split an inseparable task merely to use the cheaper model.
+> **Mandatory model rule (user decision):** Use **GPT 6.1 Sol, high reasoning**
+> (`gpt-6.1-sol`, `reasoning_effort: high`) for every task and subagent,
+> regardless of estimated duration or complexity. This replaces all older
+> model-routing preferences for this refactor. Record ETA for planning;
+> split tasks at real independent boundaries to support parallel work.
 
 # Replace custom orchestration with SwarmKit: OCI, A1-first and mixed runtimes
 
@@ -79,7 +74,7 @@ stream's remaining implementation work or another region's independent work.
 
 ### Startup checks: parallel tasks with local blockers
 
-Start these five tasks together, following the model-routing rule at the top.
+Start these five tasks together, following the model rule at the top.
 Record actual owner names, ETA/model, claimed files, outputs and evidence in the
 existing work ledger. A pending check blocks only the action named in its last
 column. It does not create a repository-wide approval or design freeze.
