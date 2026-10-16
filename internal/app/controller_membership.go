@@ -325,6 +325,8 @@ func RenderBreakGlassRetirementRequest(ctx context.Context, slot, dir string, no
 type controllerMembership struct {
 	reconciler *membership.Reconciler
 	seed       *seedReplacementService
+	// Provider availability cannot gate local serving or bypass verified membership.
+	open func(context.Context) (*controllerMembership, error)
 }
 
 // Run runs the reconciler and the seed server until ctx ends. Either one
@@ -332,6 +334,35 @@ type controllerMembership struct {
 // both are joined before Run returns, so the controller's worker supervision
 // sees the failure at once instead of only at shutdown.
 func (m *controllerMembership) Run(ctx context.Context) error {
+	if m.open != nil {
+		for {
+			attemptCtx, cancel := context.WithCancel(ctx)
+			timer := time.AfterFunc(20*time.Second, cancel)
+			opened, err := m.open(attemptCtx)
+			stopped := timer.Stop()
+			if err == nil && stopped && attemptCtx.Err() == nil {
+				defer cancel()
+				return opened.Run(attemptCtx)
+			}
+			if opened != nil && opened.seed != nil {
+				opened.seed.server.Close()
+			}
+			cancel()
+			if ctx.Err() != nil {
+				return nil
+			}
+			if err == nil {
+				err = context.DeadlineExceeded
+			}
+			slog.WarnContext(ctx, "controller membership held while verified ledger is unavailable",
+				"component", "membership", "error", err)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(membership.DefaultInterval):
+			}
+		}
+	}
 	if m.seed == nil {
 		return m.reconciler.Run(ctx)
 	}
@@ -352,6 +383,14 @@ func startControllerMembership(ctx context.Context, cfg Config, runtime *natscel
 	if cfg.NATS.Lab {
 		return nil, errors.New("controller membership supervision requires a production controller")
 	}
+	return &controllerMembership{open: func(openCtx context.Context) (*controllerMembership, error) {
+		return openControllerMembership(openCtx, cfg, runtime, control)
+	}}, nil
+}
+
+func openControllerMembership(ctx context.Context, cfg Config, runtime *natscell.Runtime,
+	control *authority.Runtime,
+) (*controllerMembership, error) {
 	opened, err := openMembershipLedger(ctx)
 	if err != nil {
 		return nil, err
