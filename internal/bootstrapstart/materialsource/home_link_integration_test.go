@@ -25,6 +25,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/region"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/nats-io/jwt/v2"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	ocisecrets "github.com/oracle/oci-go-sdk/v65/secrets"
@@ -137,6 +138,26 @@ func TestPublicLinkDeliveryRestoresOnlyRegionalLeaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	homeLinkDir := filepath.Join(t.TempDir(), "home-link")
+	homeClaimWire, err := os.ReadFile(filepath.Join(sourceDirs[0], "cell.jwt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeClaim, err := jwt.DecodeAccountClaims(strings.TrimSpace(string(homeClaimWire)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if delay := time.Until(time.Unix(homeClaim.IssuedAt+1, 0)); delay > 0 {
+		if delay > 1200*time.Millisecond {
+			t.Fatal("home cell claim issuance exceeds the fixture clock")
+		}
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-t.Context().Done():
+			t.Fatal(t.Context().Err())
+		case <-timer.C:
+		}
+	}
 	if _, err := bootstrapmaterial.GenerateLink(sourceDirs[0], sourceDirs[0], homeLinkDir, homeLinkDir, now); err != nil {
 		t.Fatal(err)
 	}
