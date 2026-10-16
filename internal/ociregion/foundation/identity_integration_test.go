@@ -209,12 +209,12 @@ func TestFoundationSDKOwnershipCheckpointAndRecovery(t *testing.T) {
 	foundation.CheckpointAuxiliary = func(context.Context, string, string) error { return nil }
 	foundation.Pause = func(context.Context, time.Duration) error { return nil }
 	foundation.Guard = func(context.Context) error { return nil }
-	foundation.BeforeWrite = func(_ context.Context, iam bool) (func(), error) {
+	foundation.BeforeWrite = func(ctx context.Context, iam bool) (context.Context, func(), error) {
 		if !iam {
 			t.Error("compartment mutation did not acquire home IAM authority")
 		}
 		guards++
-		return func() { releases++ }, nil
+		return ctx, func() { releases++ }, nil
 	}
 	checkpointed := false
 	interrupted := errors.New("controller interrupted after durable checkpoint")
