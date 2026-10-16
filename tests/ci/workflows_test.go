@@ -147,9 +147,11 @@ func TestWorkflowContracts(t *testing.T) {
 		_, deployJob, _ := strings.Cut(deploy, "\n  deploy:\n")
 		steps := matches(deployJob, `(?m)^      - name: (.+)$`)
 		gate := slices.Index(steps, "Wait for ci.yml and skip a failed or overtaken revision")
-		roll := slices.Index(steps, "Sign and deploy every region concurrently")
-		if gate < 0 || roll != gate+1 || roll != len(steps)-1 {
-			t.Fatalf("the rollout must follow the CI gate: %v", steps)
+		admit := slices.Index(steps, "Verify retained production admission before deployment credentials")
+		retain := slices.Index(steps, "Retain regional production admission results")
+		roll := slices.Index(steps, "Sign and deploy admitted regions concurrently")
+		if gate < 0 || admit != gate+1 || retain != admit+1 || roll != retain+1 || roll != len(steps)-1 {
+			t.Fatalf("production admission and retained results must follow CI before rollout: %v", steps)
 		}
 		// Scripts of the revision run with secrets only once it is on main,
 		// and the signer is never built from the shared Go caches.
@@ -165,9 +167,23 @@ func TestWorkflowContracts(t *testing.T) {
 		requireText(t, gateStep, "if: ${{ inputs.trigger == 'ci' }}")
 		requireText(t, gateStep, "GATE_WORKFLOW: deploy.yml\n")
 		requireText(t, gateStep, `bash scripts/ci/image-superseded.sh "${SOURCE_SHA}" "${SOURCE_CI_RUN_ID}" "${SOURCE_CI_RUN_NUMBER}" 300`)
-		_, rollStep, _ := strings.Cut(deploy, "- name: Sign and deploy every region concurrently")
+		_, admitStep, _ := strings.Cut(deploy, "- name: Verify retained production admission before deployment credentials")
+		admitStep, _, _ = strings.Cut(admitStep, "- name:")
+		requireText(t, admitStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
+		requireText(t, admitStep, "run: bash scripts/ci/deploy-fleet.sh qualify\n")
+		forbidText(t, admitStep, "continue-on-error:")
+		_, retainStep, _ := strings.Cut(deploy, "- name: Retain regional production admission results")
+		retainStep, _, _ = strings.Cut(retainStep, "- name:")
+		requireText(t, retainStep, "if: always()")
+		requireText(t, retainStep, "production-admission.jsonl")
+		beforeRoll, rollStep, _ := strings.Cut(deploy, "- name: Sign and deploy admitted regions concurrently")
+		for _, credential := range []string{"TS_OBJECT_NAMESPACE", "TS_RELEASE_VAULT_ID", "TS_RELEASE_LEAF_SECRET",
+			"TS_DEPLOY_OCI_USER", "TS_DEPLOY_OCI_TENANCY", "TS_DEPLOY_OCI_FINGERPRINT", "TS_DEPLOY_OCI_KEY"} {
+			forbidText(t, beforeRoll, credential+":")
+		}
 		requireText(t, rollStep, "if: ${{ steps.gate.outputs.skip != 'true' }}")
-		requireText(t, rollStep, "run: bash scripts/ci/deploy-fleet.sh")
+		requireText(t, rollStep, "run: bash scripts/ci/deploy-fleet.sh deploy\n")
+		forbidText(t, rollStep, "continue-on-error:")
 		// The OCI key reaches only the rollout step, and the leaf key never
 		// reaches the job: ts-orch reads it from OCI Vault.
 		if strings.Count(deploy, "secrets.TS_DEPLOY_OCI_KEY") != 1 || !strings.Contains(rollStep, "secrets.TS_DEPLOY_OCI_KEY") {
@@ -175,10 +191,18 @@ func TestWorkflowContracts(t *testing.T) {
 		}
 		wrapper := workflowText(t, "scripts/ci/deploy-fleet.sh")
 		forbidText(t, wrapper, "TS_AUTO_DEPLOY_")
-		for _, flag := range []string{"--cell", "--environment", "--arch"} {
+		for _, flag := range []string{"--environment", "--arch"} {
 			forbidText(t, wrapper, flag)
 		}
-		requireText(t, wrapper, "'.artifacts[].name'")
+		requireText(t, wrapper, "tag=ci-$SOURCE_SHA-run-$SOURCE_CI_RUN_ID")
+		requireText(t, wrapper, "--pattern qualification.json")
+		requireText(t, wrapper, "for architecture in amd64 arm64; do")
+		requireText(t, wrapper, "asset=terrascale-orchestrator-linux-$architecture")
+		requireText(t, wrapper, `--pattern "$asset"`)
+		requireText(t, wrapper, `mapfile -t cells < <(jq -er 'select(.state == "qualified") | .cell' "$work/production-admission.jsonl")`)
+		requireText(t, wrapper, `arguments+=(--cell "$cell")`)
+		requireText(t, wrapper, `dist/ts-orch release verify-production --dir "$work/release" --root-key "$root_key" "${arguments[@]}"`)
+		requireText(t, wrapper, `--source-checkout . --namespace "$TS_OBJECT_NAMESPACE" --poll 5s "${arguments[@]}"`)
 		requireText(t, wrapper, "dist/ts-orch release deploy ")
 		requireText(t, wrapper, `--signing-key-secret "$TS_RELEASE_LEAF_SECRET" --vault-id "$TS_RELEASE_VAULT_ID"`)
 		forbidText(t, wrapper, "--signing-key \"")
