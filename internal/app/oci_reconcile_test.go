@@ -27,7 +27,7 @@ func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {
 	if cfg.OciReconcile != nil {
 		t.Fatal("OCI reconcile is on by default")
 	}
-	wire := `{"oci_reconcile":{"enabled":true,"interval_seconds":120,"tag_mode":"defined",` +
+	wire := `{"oci_reconcile":{"enabled":true,"interval_seconds":120,"tag_mode":"freeform",` +
 		`"public_nlb":{"name":"public-api","nlb_id":"ocid1.networkloadbalancer.oc1..n","backend_set":"terrabase-https","port":9465}}}`
 	if err := json.Unmarshal([]byte(wire), &cfg, json.RejectUnknownMembers(true)); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestOciReconcileConfigDefaultsOffAndValidates(t *testing.T) {
 		t.Fatalf("interval=%v err=%v", interval, err)
 	}
 	ownership, err := cfg.OciReconcile.ownership("cell-gru")
-	if err != nil || ownership.Mode != ociresource.TagModeDefined || ownership.Namespace != "" {
+	if err != nil || ownership.Mode != ociresource.TagModeFreeform || ownership.Namespace != "" {
 		t.Fatalf("ownership=%+v err=%v", ownership, err)
 	}
 	for _, seconds := range []int{1, 29, 3601} {

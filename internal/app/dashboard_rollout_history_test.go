@@ -364,7 +364,7 @@ func TestDashboardRolloutStoreFailuresStayUnavailable(t *testing.T) {
 				cancel()
 			}
 			if failure == "disconnected" {
-				conn.Close()
+				reconnected.Conn().Close()
 			}
 			if _, err := source.Rollout(readCtx, id); err == nil || errors.Is(err, dashboard.ErrRolloutNotFound) {
 				t.Fatalf("failed exact read became absence/success: %v", err)
