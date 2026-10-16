@@ -20,6 +20,7 @@ runtime, measured savings, production readiness, or deployment authorization.
 | Customer workloads | Short-lived Wasm functions on isolated worker hosts. |
 | Mixed execution | Native `linux/arm64`, native `linux/amd64`, and portable Wasm coexist in each region as demand requires. |
 | Security and joining | Substantially simplify custom protocols; automatic discovery and worker admission using OCI identity and Vault-delivered bootstrap material. |
+| Automatic regional deployment | Continuously reconcile the authorized regional footprint, provision missing foundations/hosts, form each regional cluster and join the global fabric without per-region commands, manual enrollment or activation flags. |
 | First regional milestone | A small, working GRU / San Francisco Bay Area / FRA deployment, communicating through orchestrator-managed NetBird. |
 | NetBird control plane | One dedicated A1 Flex VM in GRU, owned and recovered by `ts-orch`. |
 | Human and AI interface | `ts-orch` is the complete cluster CLI for operators and AI agents; CLI and dashboard share authenticated cluster APIs and operation semantics. |
@@ -474,32 +475,63 @@ generic readiness-based stateless replacement is insufficient. If cross-CPU
 database compatibility is unproven, retain its current architecture until a
 same-commit restore/replication exercise proves the migration.
 
-## Automatic joining without manual enrollment
+## Automatic region deployment, regional joining and global joining
 
-1. A prepared OCI instance boots `ts-orch`, discovers its OCI region and intended
-   pool, and establishes its existing private-network/NetBird membership. Do not
-   require an operator to paste addresses, tokens, or certificates per host.
-2. OCI instance-principal access retrieves only that pool's regional bootstrap
-   material from OCI Vault. Use separate permissions for trusted service hosts,
-   function hosts, and managers; a self-reported tag alone grants no privilege.
-3. The node discovers the region's stable private manager endpoint, validates its
-   TLS identity, and exchanges the regional bootstrap secret for worker-join
-   material. Reuse the same path for replacements; reconnect using persisted
-   SwarmKit identity on normal restarts.
-4. SwarmKit performs its existing certificate issuance and rotation. Workers join
-   automatically. Manager promotion follows the controller placement plan and
-   separate manager admission; a worker secret never grants manager membership.
-5. Retry transient discovery/Vault/manager failures with bounded backoff. Expose
-   the current blocked stage. Region creation initializes exactly one first
-   manager, then joins its peers; workers must never initialize competing swarms
-   merely because discovery returned no answer.
+After initial tenancy authorization, `ts-orch` continuously reconciles the
+approved regional footprint. A missing authorized region is a provisioning
+task, not an instruction for the operator to run `region create`. Start with
+GRU, San Jose and FRA. No per-region enable step, copied plan, peer list, setup
+key or manual global-registration action. Discovery of an OCI region or an
+arbitrary NetBird peer does not authorize new spending or a new region.
 
-Use the existing region-provisioning operation under a single durable bootstrap
-authority to select the first manager and publish its endpoint. An admitted
-region forms and serves automatically within its authorized footprint; an
-initial tenancy/IAM authorization is not a per-region enable step. Persist
-identity and container inventory across agent restarts; do not kill healthy
-stateless containers merely to rebuild the supervisor's in-memory state.
+1. **Deploy the region automatically.** The fenced foundation authority derives
+   the regional plan from approved ownership and live OCI inventory, creates
+   required networking, scoped IAM/Vault material, buckets, qualified host
+   capacity and images, and verifies bootstrap endpoint access. Resume durable
+   operations after failure; adopt only verified owned resources. Bring up the
+   dedicated GRU NetBird foundation independently before overlay-dependent joins.
+2. **Join the network and infer identity.** Each host boots the binary, verifies
+   its OCI identity, infers region/pool/architecture and obtains only its role's
+   bootstrap material through instance-principal Vault access. `ts-orch` enrolls
+   NetBird automatically and generates the required groups, DNS and policies.
+   Network membership triggers admission; no operator approval is needed per
+   host once authorized identity and scope checks pass.
+3. **Form and join the regional cluster.** A durable, fenced bootstrap operation
+   selects exactly one regional founder and publishes its verified endpoint.
+   Regional controllers join embedded NATS/JetStream; scheduler managers/workers
+   join their corresponding roles through the qualified runtime adapter.
+   Workers cannot self-promote or initialize a competing cluster after an empty
+   discovery result. Persist identities and recover existing membership on
+   restart; use upstream certificate issuance/rotation where available.
+4. **Join the global fabric automatically.** Generate versioned interregion
+   topology, scoped NATS imports/exports, peer credentials and NetBird policies
+   from admitted regional membership. Reconcile both ends of required leaf links
+   and prove authenticated request/reply before reporting global connectivity.
+   Start with the existing loop-free tree rooted in GRU. The global cluster is
+   a federation of regional clusters, not one WAN-spanning scheduler or
+   JetStream quorum; healthy regions keep serving through a global-link outage.
+5. **Deploy services and publish observed readiness.** Discover admitted signed
+   artifacts, provision service credentials, place compatible workloads and
+   reconcile ingress/DNS. After health and fencing checks pass, publish actual
+   service readiness to Atlas and expose the region through CLI/dashboard.
+   Keep regional readiness and global connectivity separate. Reconcile drift,
+   replacements, release updates and rejoining continuously without manual steps.
+
+Bootstrap discovery must work before the first serving heartbeat: use trusted
+OCI/Vault foundation records, not the public serving-region roster as the sole
+input. Record provisioning, admitted membership and observed readiness separately
+so joining does not depend on already being advertised as healthy. Reuse
+`internal/region`, OCI foundation, NetBird, regional NATS, global control and
+Atlas paths instead of adding a parallel provisioner or membership authority.
+
+Use bounded backoff for transient failures and show the blocked stage and
+operation ID. Recheck authority before mutations and recover in-flight work on
+leadership changes. A missing discovery reply never authorizes deleting data,
+re-founding a cluster or retiring a region. Regional loss must not trigger a
+second founder while an existing quorum or data may still be recoverable.
+Persist identity and container inventory across agent restarts; do not kill
+healthy stateless containers merely to rebuild supervisor memory. See
+[automatic regional lifecycle](docs/automatic-regions.md) for gaps and evidence.
 
 Record boot-to-ready separately from agent-start-to-admitted, and break out
 network join, discovery, Vault fetch, certificate exchange, image pull, and health
@@ -721,6 +753,12 @@ risk-based source review, not exhaustive inspection of every file or live proof.
    sources. Consolidate the two current stylesheets into one. Qualify complete
    metric discovery, history, charts and partial-outage behavior; existing pages
    and HTTP 200 responses alone do not establish full cluster visibility.
+10. **Replace manual region creation with continuous reconciliation.** Reuse
+    `internal/region` provisioning and durable recovery patterns, remove manual
+    plan/credential/Atlas/interregion inputs from the target path, and wire
+    automatic regional formation and both ends of global leaf admission. Prove
+    simultaneous boot, interrupted provisioning and restart without duplicate
+    foundations or competing founders before claiming automatic deployment.
 
 Verdict: establish signed artifact continuity and the managed NetBird foundation
 first, then prove the three-region milestone before replacing production tasks.
