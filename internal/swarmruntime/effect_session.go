@@ -281,8 +281,12 @@ func (s *EffectSessions) currentTask(ctx context.Context, registration host.Regi
 	if err != nil || actualHash != hash || task.DesiredState != api.TaskStateRunning || task.Status.State < api.TaskStateAssigned || task.Status.State > api.TaskStateRunning {
 		return nil, errors.New("manager task differs from current running assignment")
 	}
-	if _, err := s.admittedNode(ctx, registration, task.NodeID); err != nil {
+	node, err := s.admittedNode(ctx, registration, task.NodeID)
+	if err != nil {
 		return nil, err
+	}
+	if node.Status.State != api.NodeStatus_READY || node.Spec.Availability != api.NodeAvailabilityActive {
+		return nil, errors.New("manager task host is not ready for current execution")
 	}
 	return task, nil
 }
@@ -301,7 +305,7 @@ func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Reg
 	}
 	node := response.Node
 	labels := node.Spec.Annotations.Labels
-	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.DesiredRole != api.NodeRoleWorker ||
+	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.DesiredRole != api.NodeRoleWorker || node.Spec.Membership != api.NodeMembershipAccepted ||
 		node.Spec.Annotations.Name != registration.ID || labels[LabelRegion] != region || labels[LabelHostRole] != "container" ||
 		labels[LabelExecutionScope] != "platform" || labels[LabelInstanceID] != registration.ManagedOCI.InstanceID ||
 		node.Certificate.CN != nodeID || node.Certificate.Role != api.NodeRoleWorker || len(node.Certificate.Certificate) == 0 {
