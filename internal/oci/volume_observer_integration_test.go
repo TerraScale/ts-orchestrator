@@ -202,6 +202,9 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	if err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.PredecessorID() != oldID || observation.BootDescriptorSHA256() != descriptorDigest {
 		t.Fatalf("existing retained mount did not verify: %v", err)
 	}
+	if observation, err := observer.InspectVolumeMount(t.Context(), pins, ""); err != nil || !observation.IsVerified() || observation.PredecessorID() != "" {
+		t.Fatalf("current mount with terminated historical attachments did not verify: %v", err)
+	}
 	terminal, err := observer.ObserveTerminatedInstance(t.Context(), oldID)
 	if err != nil || !terminal.IsVerified() || terminal.InstanceID() != oldID || terminal.Region() != config.Region || terminal.Generation() != config.Generation || terminal.Owner() != config.Owner {
 		t.Fatalf("exact terminated predecessor did not verify: %v", err)
@@ -211,6 +214,10 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		if _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {
 			t.Fatalf("unsafe OCI observation scenario %d admitted", scenario)
 		}
+	}
+	mode.Store(5)
+	if _, err := observer.InspectVolumeMount(t.Context(), pins, ""); err == nil {
+		t.Fatal("omitted predecessor skipped nonterminal attachment history")
 	}
 	mode.Store(0)
 	if _, err := observer.ObserveTerminatedInstance(t.Context(), instanceID); err == nil {
@@ -226,7 +233,7 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	started := time.Now()
 	_, err = observer.InspectVolumeMount(ctx, pins, oldID)
 	cancel()
-	if err == nil || time.Since(started) > 2*time.Second || calls.Load() <= count {
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > 2*time.Second || calls.Load() <= count {
 		t.Fatalf("actual SDK read did not honor cancellation: %v", err)
 	}
 	mode.Store(0)
