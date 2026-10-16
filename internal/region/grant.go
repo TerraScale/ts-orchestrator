@@ -9,12 +9,14 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
@@ -27,6 +29,8 @@ import (
 
 const foundationGrantDomain = "terrascale.foundation.scope"
 const foundationGrantObject = "foundation-scope-v1.json"
+
+var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pending")
 
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
@@ -322,7 +326,10 @@ func (s *SignedFootprint) readGrant(ctx context.Context) ([]byte, error) {
 	defer cancel()
 	response, err := s.client.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(domain.Namespace), BucketName: new(domain.HeadBucket), ObjectName: new(name)})
 	if err != nil {
-		return nil, errors.New("authenticated foundation scope unavailable; initial tenancy authorization is required")
+		if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
+			return nil, fmt.Errorf("%w: initial tenancy authorization is absent", ErrFoundationGrantPending)
+		}
+		return nil, fmt.Errorf("read authenticated foundation scope: %w", err)
 	}
 	if response.Content == nil {
 		return nil, errors.New("foundation scope object has no content")
