@@ -154,6 +154,15 @@ func (r FoundationRecord) validate() error {
 			return errors.New("foundation record has invalid resource identity")
 		}
 	}
+	// Retained worker grants are finite; wire size remains independently bounded.
+	if len(r.WorkerPolicyIDs) > 256 {
+		return errors.New("worker IAM journal exceeds its fixed bound")
+	}
+	for key, worker := range r.WorkerPolicyIDs {
+		if err := worker.validate(key); err != nil {
+			return err
+		}
+	}
 	if len(r.SourcePolicyIDs) > 64 {
 		return errors.New("source policy reservations exceed their fixed bound")
 	}

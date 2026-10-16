@@ -129,6 +129,7 @@ type FoundationRecord struct {
 	PendingCreates      map[string]PendingFoundationCreate `json:"pendingCreates,omitempty"`
 	SourcePolicyIDs     map[string]SourcePolicyRecord      `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      *NetBirdManagerLaunch              `json:"netbirdManager,omitempty"`
+	WorkerPolicyIDs     map[string]WorkerPolicyRecord      `json:"workerPolicyIds,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -532,5 +533,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
 	result.PendingCreates = maps.Clone(result.PendingCreates)
 	result.SourcePolicyIDs = cloneSourcePolicies(result.SourcePolicyIDs)
+	result.WorkerPolicyIDs = maps.Clone(result.WorkerPolicyIDs)
 	return result, errors.Join(providerErr, err)
 }
