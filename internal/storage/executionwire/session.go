@@ -22,25 +22,28 @@ type WorkerIdentity struct {
 }
 
 type RuntimeEffectQuery struct {
-	Action   string         `json:"action"`
-	EffectID string         `json:"effect_id"`
-	Nonce    string         `json:"nonce"`
-	Task     *api.Task      `json:"task"`
-	Identity WorkerIdentity `json:"identity"`
+	Action    string             `json:"action"`
+	EffectID  string             `json:"effect_id"`
+	Nonce     string             `json:"nonce"`
+	Task      *api.Task          `json:"task"`
+	Identity  WorkerIdentity     `json:"identity"`
+	StopProof *SignedRuntimeStop `json:"stop_proof,omitempty"`
 }
 
 type WorkerGrantPayload struct {
-	Identity   WorkerIdentity      `json:"identity"`
-	TaskID     string              `json:"task_id"`
-	ServiceID  string              `json:"service_id"`
-	TaskSHA256 string              `json:"task_sha256"`
-	EffectID   string              `json:"effect_id"`
-	Nonce      string              `json:"nonce"`
-	Epoch      uint64              `json:"epoch"`
-	Revision   uint64              `json:"revision"`
-	IssuedAt   time.Time           `json:"issued_at"`
-	Deadline   time.Time           `json:"deadline"`
-	Material   WorkerGrantMaterial `json:"material"`
+	Identity      WorkerIdentity      `json:"identity"`
+	TaskID        string              `json:"task_id"`
+	ServiceID     string              `json:"service_id"`
+	TaskSHA256    string              `json:"task_sha256"`
+	EffectID      string              `json:"effect_id"`
+	Nonce         string              `json:"nonce"`
+	Epoch         uint64              `json:"epoch"`
+	Revision      uint64              `json:"revision"`
+	IssuedAt      time.Time           `json:"issued_at"`
+	Deadline      time.Time           `json:"deadline"`
+	Material      WorkerGrantMaterial `json:"material"`
+	Phase         string              `json:"phase"`
+	StopChallenge string              `json:"stop_challenge,omitempty"`
 }
 
 // WorkerAdmissionSHA256 binds immutable material; renewal changes no identity.
@@ -62,4 +65,28 @@ func WorkerAdmissionSHA256(payload WorkerGrantPayload) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("%x", sha256.Sum256(wire)), nil
+}
+
+// RuntimeStopPayload describes a fresh observation of an already stopped writer.
+type RuntimeStopPayload struct {
+	EffectID       string    `json:"effect_id"`
+	TaskSHA256     string    `json:"task_sha256"`
+	InstanceID     string    `json:"instance_id"`
+	NodeID         string    `json:"node_id"`
+	ContainerID    string    `json:"container_id"`
+	KernelStart    string    `json:"kernel_start"`
+	Cgroup         string    `json:"cgroup"`
+	Challenge      string    `json:"challenge"`
+	Epoch          uint64    `json:"epoch"`
+	Revision       uint64    `json:"revision"`
+	PIDNamespace   uint64    `json:"pid_namespace"`
+	MountNamespace uint64    `json:"mount_namespace"`
+	HostPID        int       `json:"host_pid"`
+	Deadline       time.Time `json:"deadline"`
+	ObservedAt     time.Time `json:"observed_at"`
+}
+type SignedRuntimeStop struct {
+	Payload          RuntimeStopPayload `json:"payload"`
+	CertificateChain [][]byte           `json:"certificate_chain"`
+	Signature        []byte             `json:"signature"`
 }
