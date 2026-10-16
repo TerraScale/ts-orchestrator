@@ -23,7 +23,7 @@ import (
 // controller. The caller reads the current durable account claim and fences
 // publication against concurrent claim or function-intent changes.
 func (issuer *ControllerIssuer) IssueFunctionCredentials(admitted release.VerifiedFunction, accountJWT string, existing []byte) ([]byte, functions.WorkerBrokerIdentity, error) {
-	if issuer == nil || !admitted.Valid() {
+	if issuer == nil || issuer.cert == nil || issuer.key == nil || !admitted.Valid() {
 		return nil, functions.WorkerBrokerIdentity{}, errors.New("function issuance requires a current admitted release and controller generation")
 	}
 	claim := admitted.Claim()
@@ -38,7 +38,7 @@ func (issuer *ControllerIssuer) IssueFunctionCredentials(admitted release.Verifi
 // IssueFunctionTLS issues only the admitted function's fixed server identity.
 // The returned issuer certificate is public; its signing key stays here.
 func (issuer *ControllerIssuer) IssueFunctionTLS(admitted release.VerifiedFunction) (certPEM, keyPEM, issuerPEM []byte, err error) {
-	if issuer == nil || !admitted.Valid() {
+	if issuer == nil || issuer.cert == nil || issuer.key == nil || !admitted.Valid() {
 		return nil, nil, nil, errors.New("function TLS issuance requires a current admitted release and controller generation")
 	}
 	claim := admitted.Claim()
@@ -69,6 +69,7 @@ func (issuer *ControllerIssuer) IssueFunctionTLS(admitted release.VerifiedFuncti
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	defer clear(keyDER)
 	return append(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), issuer.certPEM...),
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), bytes.Clone(issuer.certPEM), nil
 }
