@@ -1,0 +1,456 @@
+package app
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/containermaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
+	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
+	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
+	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
+	"github.com/gogo/protobuf/proto"
+	"github.com/moby/swarmkit/v2/api"
+)
+
+type containerMaterialConfig struct {
+	Hosts     seatrollout.Hosts
+	Authority authority.Fencer
+	Client    api.ControlClient
+	Specs     *specRegistry
+	Delivery  *delivery.Service
+	Evidence  func(context.Context, string, string) (io.ReadCloser, error)
+}
+
+type containerMaterialController struct{ config containerMaterialConfig }
+
+type containerMaterialRecipient struct {
+	Task         *api.Task
+	Service      *api.Service
+	Intent       delivery.Intent
+	Profile      WorkloadProfile
+	Verified     release.VerifiedContainer
+	Expected     swarmruntime.ServiceIntent
+	SpecRevision uint64
+	proof        containermaterial.Profile
+}
+
+type containerSecretVersion struct {
+	ID        string    `json:"id"`
+	Version   int64     `json:"version"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
+}
+
+// This service-owned Raft config records only credential versions and the
+// upstream ForceUpdate generation; secret values never enter manager state.
+type containerSecretSnapshot struct {
+	OperationID  string                            `json:"operation_id"`
+	ServiceID    string                            `json:"service_id"`
+	ConfigDigest string                            `json:"config_digest"`
+	Generation   uint64                            `json:"generation"`
+	Versions     map[string]containerSecretVersion `json:"versions"`
+}
+
+func startContainerMaterial(ctx context.Context, config containerMaterialConfig) (*containerMaterialController, func(), error) {
+	if config.Hosts == nil || config.Authority == nil || config.Client == nil || config.Specs == nil || config.Specs.kv == nil || config.Specs.roots == nil || config.Delivery == nil || config.Evidence == nil {
+		return nil, nil, errors.New("container material requires current authority, signed profiles, delivery and manager")
+	}
+	controller := &containerMaterialController{config: config}
+	stop := ownedLoop(ctx, "container material renewal", controller.run)
+	return controller, stop, nil
+}
+
+func (controller *containerMaterialController) registryRecipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
+	fail := func() (containerMaterialRecipient, error) {
+		return containerMaterialRecipient{}, containermaterial.ErrPending
+	}
+	config := controller.config
+	epoch := config.Authority.Current().Epoch
+	if err := config.Authority.Guard(ctx, epoch); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	taskResponse, err := config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: binding.TaskID})
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if taskResponse == nil || taskResponse.Task == nil {
+		return fail()
+	}
+	task := taskResponse.Task
+	intent, err := config.Delivery.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	entry, err := config.Specs.kv.Get(ctx, cellSpecKey)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	config.Specs.mu.Lock()
+	adopted := config.Specs.revision
+	config.Specs.mu.Unlock()
+	if entry.Revision() != adopted {
+		return fail()
+	}
+	roots := config.Specs.roots.current()
+	proof, err := containermaterial.VerifyProfile(entry.Value(), roots, config.Specs.identity, intent)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	node, err := config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: binding.NodeID})
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if node == nil || node.Node == nil || node.Node.Description == nil || node.Node.Description.Platform == nil {
+		return fail()
+	}
+	// Manager material additionally needs the sealed bootstrap/OCI association;
+	// a registration or self-reported hostname cannot supply that authority.
+	if node.Node.Role == api.NodeRoleManager {
+		return fail()
+	}
+	expected, err := containermaterial.ServiceIntent(proof, node.Node.Description.Platform.Architecture)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	validUntil := time.Now().UTC().Add(30 * time.Second)
+	verified, err := release.VerifyContainerCurrent(ctx, *intent.Container, roots, release.ContainerTarget{Cell: strings.ToUpper(intent.Cell), Environment: intent.Environment, Role: intent.Role, Architecture: expected.Architecture}, time.Now().UTC(), validUntil, func(ctx context.Context, digest string) (io.ReadCloser, error) {
+		return config.Evidence(ctx, intent.Role, digest)
+	})
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if err := containermaterial.VerifyTask(ctx, config.Client, task, expected, verified, roots, proof, registration, binding); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	service, err := config.Client.GetService(ctx, &api.GetServiceRequest{ServiceID: binding.ServiceID})
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if service == nil || service.Service == nil {
+		return fail()
+	}
+	latest, err := config.Specs.kv.Get(ctx, cellSpecKey)
+	if err != nil || latest.Revision() != entry.Revision() {
+		return fail()
+	}
+	confirmed, err := config.Delivery.ContainerIntent(ctx, intent.OperationID)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	before, beforeErr := intent.Fingerprint()
+	after, afterErr := confirmed.Fingerprint()
+	if beforeErr != nil || afterErr != nil || before != after {
+		return fail()
+	}
+	if err := config.Authority.Guard(ctx, epoch); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	return containerMaterialRecipient{Task: task, Service: service.Service, Intent: intent, Profile: proof.Profile(), Verified: verified, Expected: expected, SpecRevision: entry.Revision(), proof: proof}, nil
+}
+
+func (controller *containerMaterialController) recipient(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (containerMaterialRecipient, error) {
+	selected, err := controller.registryRecipient(ctx, registration, binding)
+	if err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	if !proto.Equal(&selected.Service.Spec.Task, &selected.Task.Spec) || !proto.Equal(&selected.Service.Spec.Annotations, &selected.Task.ServiceAnnotations) {
+		return containerMaterialRecipient{}, containermaterial.ErrPending
+	}
+	return selected, nil
+}
+
+func (controller *containerMaterialController) material(ctx context.Context, registration host.Registration, binding host.ContainerMaterialBinding) (result host.ContainerMaterialFiles, resultErr error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	recipient, err := controller.recipient(ctx, registration, binding)
+	if err != nil {
+		return result, err
+	}
+	result = host.ContainerMaterialFiles{Files: map[string][]byte{}, FileEnvironment: map[string]string{}, User: recipient.Expected.Container.User, ExpiresAt: recipient.Verified.ExpiresAt()}
+	defer func() {
+		if resultErr != nil {
+			for _, value := range result.Files {
+				clear(value)
+			}
+			result = host.ContainerMaterialFiles{}
+		}
+	}()
+	if recipient.proof.NoSecrets() {
+		return result, nil
+	}
+	for key := range recipient.Profile.Secrets {
+		if !vaultsecret.FileKey(key) {
+			return result, fmt.Errorf("%w: service requires supported signed _FILE secret keys", containermaterial.ErrPending)
+		}
+	}
+	values, err := vaultsecret.ReadCurrentRefs(ctx, recipient.Profile.Secrets)
+	if err != nil {
+		return result, fmt.Errorf("%w: OCI Vault secret observation unavailable", containermaterial.ErrPending)
+	}
+	snapshot := containerSnapshot(recipient, values)
+	if err := controller.syncSnapshot(ctx, recipient, snapshot); err != nil {
+		return result, err
+	}
+	for key, value := range values {
+		name := strings.ToLower(key)
+		result.Files[name] = []byte(value.Value())
+		result.FileEnvironment[key] = name
+		if !value.ExpiresAt.IsZero() && (result.CredentialExpiresAt.IsZero() || value.ExpiresAt.Before(result.CredentialExpiresAt)) {
+			result.CredentialExpiresAt = value.ExpiresAt
+		}
+	}
+	if !result.CredentialExpiresAt.IsZero() && result.CredentialExpiresAt.Before(result.ExpiresAt) {
+		result.ExpiresAt = result.CredentialExpiresAt
+	}
+	confirmed, err := controller.recipient(ctx, registration, binding)
+	if err != nil || confirmed.SpecRevision != recipient.SpecRevision {
+		return result, containermaterial.ErrPending
+	}
+	if err := controller.checkSnapshot(ctx, snapshot); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func containerSnapshot(recipient containerMaterialRecipient, values map[string]vaultsecret.Current) containerSecretSnapshot {
+	versions := make(map[string]containerSecretVersion, len(values))
+	for key, value := range values {
+		versions[key] = containerSecretVersion{ID: value.ID, Version: value.Version, ExpiresAt: value.ExpiresAt}
+	}
+	return containerSecretSnapshot{OperationID: recipient.Intent.OperationID, ServiceID: recipient.Service.ID, ConfigDigest: recipient.Intent.ConfigDigest, Generation: recipient.Service.Spec.Task.ForceUpdate, Versions: versions}
+}
+
+func containerSnapshotName(serviceID string) string {
+	digest := sha256.Sum256([]byte(serviceID))
+	return "ts-container-material-" + hex.EncodeToString(digest[:16])
+}
+
+func (controller *containerMaterialController) snapshotConfig(ctx context.Context, serviceID string) (*api.Config, error) {
+	name := containerSnapshotName(serviceID)
+	listed, err := controller.config.Client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
+	if err != nil {
+		return nil, err
+	}
+	if len(listed.Configs) == 0 {
+		return nil, nil
+	}
+	if len(listed.Configs) != 1 || listed.Configs[0] == nil || listed.Configs[0].Spec.Annotations.Name != name {
+		return nil, containermaterial.ErrPending
+	}
+	return listed.Configs[0], nil
+}
+
+func (controller *containerMaterialController) checkSnapshot(ctx context.Context, wanted containerSecretSnapshot) error {
+	config, err := controller.snapshotConfig(ctx, wanted.ServiceID)
+	if err != nil {
+		return err
+	}
+	if config == nil {
+		return containermaterial.ErrPending
+	}
+	wire, err := protocol.EncodeJSON(wanted)
+	if err != nil {
+		return err
+	}
+	if string(config.Spec.Data) != string(wire) {
+		return containermaterial.ErrPending
+	}
+	return nil
+}
+
+// syncSnapshot writes version metadata before advancing the upstream counter.
+// A lost response resumes from that config; there is no parallel task lifecycle.
+func (controller *containerMaterialController) syncSnapshot(ctx context.Context, recipient containerMaterialRecipient, next containerSecretSnapshot) error {
+	config, err := controller.snapshotConfig(ctx, next.ServiceID)
+	if err != nil {
+		return err
+	}
+	epoch := controller.config.Authority.Current().Epoch
+	if config == nil {
+		wire, err := protocol.EncodeJSON(next)
+		if err != nil {
+			return err
+		}
+		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		_, err = controller.config.Client.CreateConfig(ctx, &api.CreateConfigRequest{Spec: &api.ConfigSpec{Annotations: api.Annotations{Name: containerSnapshotName(next.ServiceID)}, Data: wire}})
+		return err
+	}
+	var previous containerSecretSnapshot
+	if err := protocol.DecodeStrict(config.Spec.Data, &previous, 32<<10); err != nil {
+		return err
+	}
+	if previous.ServiceID != next.ServiceID {
+		return containermaterial.ErrPending
+	}
+	changed := previous.ConfigDigest != next.ConfigDigest
+	newOperation := previous.OperationID != next.OperationID
+	for key, value := range next.Versions {
+		old, exists := previous.Versions[key]
+		if exists && old.ID == value.ID && value.Version < old.Version {
+			return containermaterial.ErrPending
+		}
+		if !exists || old != value {
+			changed = true
+		}
+	}
+	if len(previous.Versions) != len(next.Versions) {
+		changed = true
+	}
+	if newOperation {
+		wire, err := protocol.EncodeJSON(next)
+		if err != nil {
+			return err
+		}
+		spec := config.Spec.Copy()
+		spec.Data = wire
+		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		_, err = controller.config.Client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.ID, ConfigVersion: &config.Meta.Version, Spec: spec})
+		return err
+	}
+	if previous.Generation > next.Generation {
+		if previous.Generation != next.Generation+1 || changed {
+			return containermaterial.ErrPending
+		}
+		next = previous
+	} else if changed {
+		if previous.Generation != next.Generation || next.Generation == ^uint64(0) {
+			return containermaterial.ErrPending
+		}
+		next.Generation++
+		wire, err := protocol.EncodeJSON(next)
+		if err != nil {
+			return err
+		}
+		spec := config.Spec.Copy()
+		spec.Data = wire
+		if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+			return err
+		}
+		if _, err := controller.config.Client.UpdateConfig(ctx, &api.UpdateConfigRequest{ConfigID: config.ID, ConfigVersion: &config.Meta.Version, Spec: spec}); err != nil {
+			return err
+		}
+	} else if previous.Generation != next.Generation {
+		return containermaterial.ErrPending
+	}
+	if next.Generation == recipient.Service.Spec.Task.ForceUpdate {
+		return nil
+	}
+	service := recipient.Service
+	spec := service.Spec.Copy()
+	spec.Task.ForceUpdate = next.Generation
+	if err := controller.config.Authority.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	if _, err := controller.config.Client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &service.Meta.Version, Spec: spec}); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: OCI Vault versions replaced upstream task generation", containermaterial.ErrPending)
+}
+
+func (controller *containerMaterialController) run(ctx context.Context) error {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		if controller.config.Authority.Current().CanMutate() {
+			if err := controller.renew(ctx); err != nil && ctx.Err() == nil {
+				slog.WarnContext(ctx, "container secret renewal pending", "error", err)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (controller *containerMaterialController) renew(ctx context.Context) error {
+	hosts, err := controller.config.Hosts.ListHosts(ctx)
+	if err != nil {
+		return err
+	}
+	tasks, err := controller.config.Client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+	if err != nil {
+		return err
+	}
+	var failures []error
+	seen := map[string]bool{}
+	for _, task := range tasks.Tasks {
+		if task == nil || seen[task.ServiceID] || task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID] == "" {
+			continue
+		}
+		intent, err := controller.config.Delivery.ContainerIntent(ctx, task.ServiceAnnotations.Labels[swarmruntime.LabelOperationID])
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		entry, err := controller.config.Specs.kv.Get(ctx, cellSpecKey)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		proof, err := containermaterial.VerifyProfile(entry.Value(), controller.config.Specs.roots.current(), controller.config.Specs.identity, intent)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if proof.NoSecrets() {
+			continue
+		}
+		node, err := controller.config.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: task.NodeID})
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		if node == nil || node.Node == nil {
+			continue
+		}
+		fingerprint, err := swarmruntime.ContainerTaskFingerprint(task)
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		binding := host.ContainerMaterialBinding{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, InstanceID: node.Node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], Region: node.Node.Spec.Annotations.Labels[swarmruntime.LabelRegion], HostID: node.Node.Spec.Annotations.Name, Fingerprint: fingerprint}
+		var registration *host.Registration
+		for _, status := range hosts {
+			if status.Retired || status.Registration.ManagedOCI == nil || status.Registration.ID != binding.HostID || status.Registration.ManagedOCI.InstanceID != binding.InstanceID {
+				continue
+			}
+			if registration != nil {
+				registration = nil
+				break
+			}
+			current := status.Registration
+			registration = &current
+		}
+		if registration == nil {
+			failures = append(failures, containermaterial.ErrPending)
+			continue
+		}
+		files, err := controller.material(ctx, *registration, binding)
+		for _, value := range files.Files {
+			clear(value)
+		}
+		if err != nil {
+			failures = append(failures, err)
+			continue
+		}
+		seen[task.ServiceID] = true
+	}
+	return errors.Join(failures...)
+}
