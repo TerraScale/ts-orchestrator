@@ -13,6 +13,7 @@ import (
 
 	swarmexec "github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
+	"github.com/moby/swarmkit/v2/api/genericresource"
 )
 
 type functionMaterialFixture func(context.Context, FunctionTaskBinding) (FunctionMaterial, error)
@@ -51,6 +52,8 @@ while :; do sleep 1; done
 		t.Fatal(err)
 	}
 	task := &api.Task{ID: fmt.Sprintf("material%d", time.Now().UnixNano()), ServiceID: "materialintegration", NodeID: "materialnode", ServiceAnnotations: api.Annotations{Labels: map[string]string{LabelRole: "function-worker", "terrascale.function-proof": "fixture-proof"}}, Spec: api.TaskSpec{Runtime: runtime, Resources: &api.ResourceRequirements{Limits: &api.Resources{NanoCPUs: 250_000_000, MemoryBytes: 64 << 20}}}}
+	task.Spec.Resources.Limits.Generic = []*api.GenericResource{genericresource.NewDiscrete(FunctionWorkerSlot, 1)}
+	task.Spec.Resources.Reservations = task.Spec.Resources.Limits.Copy()
 	controllerFor := func(executor *Executor, task *api.Task) *controller {
 		t.Helper()
 		c, err := executor.Controller(task)
@@ -99,6 +102,10 @@ while :; do sleep 1; done
 		}
 	}
 	bind(e)
+	description, err := e.Describe(ctx)
+	if err != nil || !hasFunctionWorkerSlot(description.Resources.Generic) {
+		t.Fatalf("admitted function host lacks scheduler slot: %v", err)
+	}
 	if err := e.BindFunctionMaterial(admission, provider); err == nil {
 		t.Fatal("function authority replaced after admission")
 	}

@@ -18,6 +18,7 @@ import (
 )
 
 const ContainerKind = "terrascale.container.v1"
+const FunctionWorkerSlot = "terrascale.function-worker-slot"
 const containerTypeURL = "terrascale.tech/runtime/container/v1"
 
 // ContainerRuntime encodes the supported, stateless container contract.
@@ -65,10 +66,14 @@ func DecodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 	if r == nil || r.Limits == nil || r.Limits.NanoCPUs < 10_000_000 || r.Limits.NanoCPUs > 1_000_000_000_000 || r.Limits.MemoryBytes < 16<<20 {
 		return nil, fmt.Errorf("container requires positive CPU and memory limits")
 	}
-	if len(r.Limits.Generic) != 0 || r.SwapBytes != nil || r.MemorySwappiness != nil {
+	function := task.ServiceAnnotations.Labels[LabelRole] == "function-worker"
+	if function && (!hasFunctionWorkerSlot(r.Limits.Generic) || r.Reservations == nil || !proto.Equal(r.Limits, r.Reservations)) {
+		return nil, fmt.Errorf("function worker requires one dedicated host slot and fully reserved resources")
+	}
+	if !function && len(r.Limits.Generic) != 0 || r.SwapBytes != nil || r.MemorySwappiness != nil {
 		return nil, fmt.Errorf("unsupported container resource controls")
 	}
-	if rr := r.Reservations; rr != nil && (rr.NanoCPUs < 0 || rr.MemoryBytes < 0 || rr.NanoCPUs > r.Limits.NanoCPUs || rr.MemoryBytes > r.Limits.MemoryBytes || len(rr.Generic) != 0) {
+	if rr := r.Reservations; rr != nil && (rr.NanoCPUs < 0 || rr.MemoryBytes < 0 || rr.NanoCPUs > r.Limits.NanoCPUs || rr.MemoryBytes > r.Limits.MemoryBytes || !function && len(rr.Generic) != 0) {
 		return nil, fmt.Errorf("invalid container resource reservations")
 	}
 	if len(task.Spec.Networks) != 0 || task.Spec.LogDriver != nil || len(task.Spec.ResourceReferences) != 0 || len(task.Networks) != 0 || len(task.Volumes) != 0 {
@@ -91,6 +96,14 @@ func DecodeContainer(task *api.Task) (*api.ContainerSpec, error) {
 		}
 	}
 	return spec, nil
+}
+
+func hasFunctionWorkerSlot(resources []*api.GenericResource) bool {
+	if len(resources) != 1 {
+		return false
+	}
+	discrete := resources[0].GetDiscreteResourceSpec()
+	return discrete != nil && discrete.Kind == FunctionWorkerSlot && discrete.Value == 1
 }
 
 func validateContainer(s *api.ContainerSpec) error {
