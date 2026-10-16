@@ -95,7 +95,8 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
-	if err := swarmruntime.VerifyFunctionRegistryTask(ctx, config.Client, task, intent, current, verified); err != nil {
+	admission, err := swarmruntime.AdmitFunctionRegistryTask(ctx, config.Client, task, intent, current, verified)
+	if err != nil {
 		return host.RegistryAdmissionDocument{}, err
 	}
 	if err := config.Authority.Guard(ctx, epoch); err != nil {
@@ -103,6 +104,13 @@ func (controller functionController) registryAdmission(ctx context.Context, regi
 	}
 	if config.Roots.reply("").Head != chain.Head {
 		return host.RegistryAdmissionDocument{}, errors.New("function registry roots changed during assignment verification")
+	}
+	if err := admission.VerifyCurrent(ctx); err != nil {
+		return host.RegistryAdmissionDocument{}, err
+	}
+	currentAuthority := config.Authority.Current()
+	if !currentAuthority.CanMutate() || currentAuthority.Epoch != epoch || config.Roots.reply("").Head != chain.Head {
+		return host.RegistryAdmissionDocument{}, errors.New("function registry authority changed during final task verification")
 	}
 	wire, err := protocol.EncodeJSON(functionRegistrySnapshot{Function: claim, Envelope: proof.Envelope(), Delegation: proof.Delegation(), Worker: bundle, Chain: chain.Chain})
 	if err != nil || len(wire) > runtimeRegistrySourceBytes {
