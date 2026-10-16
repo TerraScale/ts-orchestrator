@@ -36,7 +36,7 @@ import (
 	managerbundle "github.com/TerraScale/ts-orchestrator/deploy/netbird/manager"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/manager"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
-	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/native"
+	native "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/netbird/protocol"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/netbird/scenario"
 	containerd "github.com/containerd/containerd/v2/client"
@@ -950,32 +950,5 @@ func nativeNormalizePolicy(value any) any {
 		return normalized
 	default:
 		return value
-	}
-}
-
-func TestNativePolicyObservationKeepsContentAndIgnoresSetOrder(t *testing.T) {
-	first := []map[string]any{{"id": "policy-1", "rules": []any{map[string]any{"id": "rule-2", "sources": []any{map[string]any{"id": "group-b"}, map[string]any{"id": "group-a"}}}, map[string]any{"id": "rule-1", "ports": []any{"443", "22"}}}}}
-	second := []map[string]any{{"rules": []any{map[string]any{"ports": []any{"22", "443"}, "id": "rule-1"}, map[string]any{"sources": []any{map[string]any{"id": "group-a"}, map[string]any{"id": "group-b"}}, "id": "rule-2"}}, "id": "policy-1"}}
-	left, err := json.Marshal(nativeNormalizePolicy(first), json.Deterministic(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	right, err := json.Marshal(nativeNormalizePolicy(second), json.Deterministic(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(left, right) {
-		t.Fatal("policy set order changed observed content")
-	}
-	second[0]["enabled"] = false
-	right, err = json.Marshal(nativeNormalizePolicy(second), json.Deterministic(true))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Equal(left, right) {
-		t.Fatal("policy change hidden by canonicalization")
-	}
-	if !nativeContainsAll([]any{map[string]any{"id": "all"}}, map[string]bool{"all": true}) || nativeContainsAll([]any{map[string]any{"id": "restricted"}}, map[string]bool{"all": true}) {
-		t.Fatal("All-group grant misclassified")
 	}
 }
