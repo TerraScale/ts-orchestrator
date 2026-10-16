@@ -541,6 +541,11 @@ func TestColdMaterialHTTPConcurrentBootAndHostLossRecovery(t *testing.T) {
 	if _, err := sources[1].Provision(t.Context(), target, &management, &bundles, now); err == nil {
 		t.Fatal("stale source checkpoint was allowed")
 	}
+	for _, directory := range []string{replacement.directory, filepath.Join(replacement.directory, "link")} {
+		if _, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, directory, now); err == nil || protocol.creates != 28 {
+			t.Fatal("Link restore overlapped original regional producer")
+		}
+	}
 	link, err := ResolveLinkSource(t.Context(), replacement, replacement, nil, &objects, &management, &bundles, filepath.Join(t.TempDir(), "home-link"), now)
 	if err != nil {
 		t.Fatal(err)
