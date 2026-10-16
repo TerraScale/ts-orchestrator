@@ -90,7 +90,10 @@ func (f sequenceFixture) update(t *testing.T, sequence uint64, run int64, digest
 		SourceRevision: revision, SourceTree: revision, GoVersion: release.DefaultGoVersion,
 		GoModSHA256: digest, GoSumSHA256: digest,
 		Verification: release.QualificationCheck{Workflow: release.QualificationWorkflow, Job: release.QualificationJob, RunID: run + 4000, RunNumber: run, Conclusion: "success"},
-		Artifacts:    []release.QualifiedArtifact{{Architecture: "amd64", Name: "terrascale-orchestrator-linux-amd64", Bytes: 13, SHA256: digest}},
+		Artifacts: []release.QualifiedArtifact{
+			{Architecture: "amd64", Name: "terrascale-orchestrator-linux-amd64", Bytes: 13, SHA256: digest},
+			{Architecture: "arm64", Name: "terrascale-orchestrator-linux-arm64", Bytes: 13, SHA256: digest},
+		},
 	}
 	payload, err := trust.EncodePayload(qual)
 	if err != nil {
