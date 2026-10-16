@@ -299,6 +299,7 @@ type ControllerConfig struct {
 	ManagedEffectGate           func(context.Context, uint64, authority.WorkloadScope) (func(), error)
 	ManagedMaterialProvider     ManagedMaterialProvider
 	FunctionMaterialProvider    FunctionMaterialProvider
+	ContainerMaterialProvider   ContainerMaterialProvider
 	ManagedCredentialFloor      func(context.Context, Registration) (uint64, error)
 	ManagedVolumeInspector      ManagedVolumeInspector
 	ControlLog                  jetstream.Stream
