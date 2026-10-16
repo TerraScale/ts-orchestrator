@@ -58,6 +58,13 @@ func functionMaterialLimit(name string) int {
 	}
 }
 
+func functionMaterialChunkSize(name string) int {
+	if name == "module.wasm" {
+		return artifactChunkBytes
+	}
+	return materialChunkBytes
+}
+
 func functionMaterialDigest(files map[string][]byte, expires time.Time) (string, error) {
 	if len(files) != len(functionMaterialNames) || !time.Now().Before(expires) {
 		return "", errors.New("function material inventory is incomplete or expired")
@@ -100,7 +107,7 @@ func (c *Controller) serveFunctionMaterial(ctx context.Context, req request, reg
 	if validateFunctionMaterialBinding(query.Binding) != nil || !known || region.Name() != c.cell ||
 		query.Binding.HostID != registration.ID || query.RegistrationGeneration != registration.Generation ||
 		!slices.Contains(functionMaterialNames[:], query.File) || query.Offset < 0 ||
-		query.Offset >= functionMaterialLimit(query.File) || query.Length < 1 || query.Length > materialChunkBytes ||
+		query.Offset >= functionMaterialLimit(query.File) || query.Length < 1 || query.Length > functionMaterialChunkSize(query.File) ||
 		len(query.EphemeralPublicKey) != 32 {
 		return nil, errors.New("function material query differs from the registered host or file bounds")
 	}
@@ -211,7 +218,7 @@ func (a *Agent) downloadFunctionFile(ctx context.Context, binding FunctionMateri
 			return contents, "", time.Time{}, err
 		}
 		query := functionMaterialQuery{Binding: binding, RegistrationGeneration: generation,
-			File: name, Offset: len(contents), Length: materialChunkBytes, EphemeralPublicKey: private.PublicKey().Bytes()}
+			File: name, Offset: len(contents), Length: functionMaterialChunkSize(name), EphemeralPublicKey: private.PublicKey().Bytes()}
 		var reply functionMaterialReply
 		req, err := a.sendToLeader(ctx, "function-material", query, &reply, nil, nil)
 		if err != nil {
