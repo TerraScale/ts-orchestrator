@@ -1,0 +1,203 @@
+{
+  "revision": "614f9182469106778157a111bc084e9d4c366ae1",
+  "tree": "/tmp/ts-qa-capacity-614f",
+  "clean_before": true,
+  "argv": [
+    "nice",
+    "-n",
+    "19",
+    "flock",
+    "-n",
+    "/tmp/ts-orch-refactor-capacity-check.lock",
+    "timeout",
+    "180s",
+    "env",
+    "GOMAXPROCS=2",
+    "GOFLAGS=-p=2",
+    "go",
+    "test",
+    "-mod=readonly",
+    "./internal/nodescale",
+    "-run",
+    "^(TestCapacityStoreReopenAndFencedWrites|TestCapacityProberUsesTCPAndKeepsLastOnCancel|TestCapacityPoolProtocolLifecycle|TestCapacityPoolProtocolIsolationAndValidation|TestCapacityAdmissionAndLegacyObservationOverOCI|TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI|TestCapacityPruningRechecksAdmissionOverOCI|TestChosenFallbackKeepsExistingCapacityPools|TestChosenCapacitySurvivesRestartAndFencesOCIChanges|TestCapacityAdmissionRechecksEveryHTTPRetry|TestCapacityReservationPersistsBeforeOCIWrite|TestCapacityScalerRecoveryAndSafety|TestFunctionCapacityTracksManagerAndActualPoolSlots)$",
+    "-count=1",
+    "-timeout=120s",
+    "-json"
+  ],
+  "log": "/tmp/ts-qa-capacity-614f-results.jsonl",
+  "started_epoch": 1792190652.3686082,
+  "state": "terminal",
+  "pid": 108668,
+  "exit": 1,
+  "elapsed_seconds": 53.795,
+  "clean_after": true,
+  "terminal_events": [
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestFunctionCapacityTracksManagerAndActualPoolSlots",
+      "Elapsed": 0.1
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityPoolProtocolLifecycle",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityPoolProtocolIsolationAndValidation",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityStoreReopenAndFencedWrites",
+      "Elapsed": 0.03
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/grow_and_restart",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/launch_timeout",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/database_drain_hold",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/backend_drain_timeout",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/drain_and_revoke",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/missing_allowance",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/stale_loads",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/request_pressure",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/missing_host_memory",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/pending_admission_resume",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/expired_allowance_resume",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety/follower",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityScalerRecoveryAndSafety",
+      "Elapsed": 0.45
+    },
+    {
+      "Action": "pass",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityProberUsesTCPAndKeepsLastOnCancel",
+      "Elapsed": 0
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionAndLegacyObservationOverOCI",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityPruningRechecksAdmissionOverOCI",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry/current",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry/revoked",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityAdmissionRechecksEveryHTTPRetry",
+      "Elapsed": 0.08
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestCapacityReservationPersistsBeforeOCIWrite",
+      "Elapsed": 0.09
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestChosenFallbackKeepsExistingCapacityPools",
+      "Elapsed": 0.04
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Test": "TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+      "Elapsed": 0.07
+    },
+    {
+      "Action": "fail",
+      "Package": "github.com/TerraScale/ts-orchestrator/internal/nodescale",
+      "Elapsed": 1.101
+    }
+  ]
+}

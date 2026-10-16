@@ -1,0 +1,12 @@
+=== RUN   TestRegistryResolverRequiresCurrentAdmissionAfterVault
+=== RUN   TestRegistryResolverRequiresCurrentAdmissionAfterVault/missing_final_guard
+=== RUN   TestRegistryResolverRequiresCurrentAdmissionAfterVault/current_admission
+=== RUN   TestRegistryResolverRequiresCurrentAdmissionAfterVault/stale_after_Vault
+=== RUN   TestRegistryResolverRequiresCurrentAdmissionAfterVault/cancelled_after_Vault
+--- PASS: TestRegistryResolverRequiresCurrentAdmissionAfterVault (0.17s)
+    --- PASS: TestRegistryResolverRequiresCurrentAdmissionAfterVault/missing_final_guard (0.00s)
+    --- PASS: TestRegistryResolverRequiresCurrentAdmissionAfterVault/current_admission (0.01s)
+    --- PASS: TestRegistryResolverRequiresCurrentAdmissionAfterVault/stale_after_Vault (0.01s)
+    --- PASS: TestRegistryResolverRequiresCurrentAdmissionAfterVault/cancelled_after_Vault (0.01s)
+PASS
+ok  	github.com/TerraScale/ts-orchestrator/internal/swarmruntime	0.226s

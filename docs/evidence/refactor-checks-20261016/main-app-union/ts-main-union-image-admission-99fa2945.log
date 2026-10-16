@@ -1,0 +1,4 @@
+# github.com/TerraScale/ts-orchestrator/internal/release/cli [github.com/TerraScale/ts-orchestrator/internal/release/cli.test]
+internal/release/cli/container_apply_integration_test.go:70:37: undefined: serviceMigrationFixture
+FAIL	github.com/TerraScale/ts-orchestrator/internal/release/cli [build failed]
+FAIL

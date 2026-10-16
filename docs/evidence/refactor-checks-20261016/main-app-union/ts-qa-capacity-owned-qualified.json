@@ -1,0 +1,206 @@
+{
+  "frozen_repair_revision": "195580378543515c21151c62d93eaf4fadf9d86d",
+  "tree": "/tmp/ts-qa-capacity-final-refusal",
+  "patch": "/tmp/ts-qa-capacity-final-refusal.patch",
+  "state": "25-owned-leaves-individually-qualified-CAPACITY-released",
+  "retained_passes": [
+    {
+      "test": "TestCapacityStoreReopenAndFencedWrites",
+      "elapsed": 0.03,
+      "source": "614f9182469106778157a111bc084e9d4c366ae1",
+      "log": "/tmp/ts-qa-capacity-614f-results.jsonl"
+    },
+    {
+      "test": "TestCapacityProberUsesTCPAndKeepsLastOnCancel",
+      "elapsed": 0,
+      "source": "614f9182469106778157a111bc084e9d4c366ae1",
+      "log": "/tmp/ts-qa-capacity-614f-results.jsonl"
+    },
+    {
+      "test": "TestFunctionCapacityTracksManagerAndActualPoolSlots",
+      "elapsed": 0.18,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityPoolProtocolLifecycle",
+      "elapsed": 0.13,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityPoolProtocolIsolationAndValidation",
+      "elapsed": 0.41,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/grow_and_restart",
+      "elapsed": 0.26,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/launch_timeout",
+      "elapsed": 0.25,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/database_drain_hold",
+      "elapsed": 0.82,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/backend_drain_timeout",
+      "elapsed": 0.82,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/drain_and_revoke",
+      "elapsed": 0.83,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/missing_allowance",
+      "elapsed": 0.18,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/stale_loads",
+      "elapsed": 0.19,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/request_pressure",
+      "elapsed": 0.23,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/missing_host_memory",
+      "elapsed": 0.19,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/pending_admission_resume",
+      "elapsed": 0.1,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/expired_allowance_resume",
+      "elapsed": 0.11,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityScalerRecoveryAndSafety/follower",
+      "elapsed": 0.1,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityAdmissionAndLegacyObservationOverOCI",
+      "elapsed": 0.06,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI",
+      "elapsed": 0.09,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityPruningRechecksAdmissionOverOCI",
+      "elapsed": 0.09,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityReservationPersistsBeforeOCIWrite",
+      "elapsed": 0.12,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestChosenFallbackKeepsExistingCapacityPools",
+      "elapsed": 0.14,
+      "source": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "log": "/tmp/ts-qa-capacity-e841dce2-results.jsonl"
+    },
+    {
+      "test": "TestCapacityAdmissionRechecksEveryHTTPRetry/current",
+      "elapsed": 0.32,
+      "source": "1cd6b18970aa00f38786072a39188e60a031fdc1",
+      "log": "/tmp/ts-qa-capacity-1cd6b189-results.jsonl"
+    },
+    {
+      "test": "TestCapacityAdmissionRechecksEveryHTTPRetry/revoked",
+      "elapsed": 0.3,
+      "source": "1cd6b18970aa00f38786072a39188e60a031fdc1",
+      "log": "/tmp/ts-qa-capacity-1cd6b189-results.jsonl"
+    },
+    {
+      "test": "TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+      "elapsed": 0.17,
+      "source": "195580378543515c21151c62d93eaf4fadf9d86d",
+      "log": "/tmp/ts-qa-capacity-19558037-results.jsonl"
+    }
+  ],
+  "failed_before_repair": [],
+  "selector": "^TestChosenCapacitySurvivesRestartAndFencesOCIChanges$",
+  "top_level_count": 1,
+  "leaf_count": 1,
+  "limits": {
+    "priority": "nice -n 19",
+    "GOMAXPROCS": 2,
+    "GOFLAGS": "-p=2",
+    "outer_seconds": 180,
+    "test_timeout_seconds": 120,
+    "count": 1,
+    "mod": "readonly",
+    "output": "json",
+    "lock": "/tmp/ts-orch-refactor-capacity-check.lock",
+    "nonblocking": true
+  },
+  "qualification_boundary": "Local SDK+journal and refusal only; positive signed authority, child enrollment and spending retirement remain Pending/unqualified.",
+  "pending_runtime_leaf_count": 0,
+  "owned_integration_commits": [
+    {
+      "commit": "2f978eb7",
+      "scope": "four test-fixture files; included in canonicalAPP614f9182"
+    },
+    {
+      "commit": "e841dce2be7c172690be8d0b9c2a26a9d0c03baa",
+      "scope": "CAP/pools-owned production current SDK body preservation; one-file own-hunk transplant"
+    },
+    {
+      "commit": "1cd6b18970aa00f38786072a39188e60a031fdc1",
+      "scope": "retry authority phases and initial restart refusal; two test files"
+    },
+    {
+      "commit": "195580378543515c21151c62d93eaf4fadf9d86d",
+      "scope": "fully audited changed-recipe refusal; one test leaf"
+    }
+  ],
+  "runtime_receipts": [
+    "/tmp/ts-qa-capacity-614f-runtime.json",
+    "/tmp/ts-qa-capacity-e841dce2-runtime.json",
+    "/tmp/ts-qa-capacity-1cd6b189-runtime.json",
+    "/tmp/ts-qa-capacity-19558037-runtime.json"
+  ],
+  "qualifications_not_claimed": [
+    "One combined current full-union suite pass",
+    "Full nodescale package or race/vet checks",
+    "Signed home authority or successful child enrollment/naming/removal/pruning",
+    "Historical spending retirement or live production/cloud provisioning"
+  ]
+}
