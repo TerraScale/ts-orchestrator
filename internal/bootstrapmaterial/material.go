@@ -85,6 +85,7 @@ type Public struct {
 	LedgerSignerPublicKey       string `json:"ledgerSignerPublicKey"`
 	TicketSignerPublicKey       string `json:"ticketSignerPublicKey"`
 	ControllerResponsePublicKey string `json:"controllerResponsePublicKey"`
+	ControllerAccountSignerNKey string `json:"controllerAccountSignerNkey"`
 	HostNATSIssuerNKey          string `json:"hostNatsIssuerNkey"`
 	OperatorNKey                string `json:"operatorNkey"`
 	SystemAccountNKey           string `json:"systemAccountNkey"`
@@ -311,6 +312,7 @@ func expectedNames() []string {
 		"operator.jwt", "operator.creds", "operator-tls-cert.pem", "operator-tls-key.pem",
 		"system.jwt", "cell.jwt", "system.creds", "ca.pem", "route-password",
 		"ticket.pub", "ticket.key", "founder-peer.key", "founder-ledger.key",
+		"controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed",
 		"host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem"}
 	for _, slot := range []string{"controller-a", "controller-b", "controller-c"} {
 		names = append(names, slot+".creds", slot+"-tls-cert.pem", slot+"-tls-key.pem", slot+"-response.key")
@@ -353,6 +355,20 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		return nil, Public{}, err
 	}
 	files["host-nats-issuer.seed"] = bytes.Clone(hostIssuerSeed)
+	controllerSigner, err := nkeys.CreateAccount()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	defer controllerSigner.Wipe()
+	controllerSignerID, err := controllerSigner.PublicKey()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	controllerSignerSeed, err := controllerSigner.Seed()
+	if err != nil {
+		return nil, Public{}, err
+	}
+	files["controller-account-signer.seed"] = bytes.Clone(controllerSignerSeed)
 	for name, pair := range map[string]nkeys.KeyPair{"issuer-operator.seed": op, "issuer-system.seed": sys, "issuer-cell.seed": cell} {
 		seed, err := pair.Seed()
 		if err != nil {
@@ -388,6 +404,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		return nil, Public{}, err
 	}
 	cellClaim.SigningKeys.AddScopedSigner(role)
+	cellClaim.SigningKeys.Add(controllerSignerID)
 	if cfg.LinkSigner != "" {
 		natscell.ApplyLink(cellClaim, cfg.LinkSigner)
 	}
@@ -445,6 +462,10 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	files["host-tls-issuer-cert.pem"] = hostCAPEM
 	files["host-tls-issuer-key.pem"] = hostCAKeyPEM
+	files["controller-tls-issuer-cert.pem"], files["controller-tls-issuer-key.pem"], err = makeControllerIssuerCA(cfg, now, minTime(expires, now.Add(controllerIssuedLifetime)), ca, caKey)
+	if err != nil {
+		return nil, Public{}, err
+	}
 	// Every controller holds the cell's C# TerraBase member CA and signs
 	// member certificates with it; database hosts never see the key.
 	memberCell, err := naming.RegionCell(strings.ToUpper(cfg.Cell)).Name()
@@ -524,7 +545,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 	}
 	public := Public{PeerSignerPublicKey: base64.StdEncoding.EncodeToString(peerPub), LedgerSignerPublicKey: base64.StdEncoding.EncodeToString(ledgerPub),
 		TicketSignerPublicKey: base64.StdEncoding.EncodeToString(ticketPub), ControllerResponsePublicKey: responsePublic,
-		HostNATSIssuerNKey: hostIssuerID, OperatorNKey: opID, SystemAccountNKey: sysID, CellAccountNKey: cellID}
+		HostNATSIssuerNKey: hostIssuerID, ControllerAccountSignerNKey: controllerSignerID, OperatorNKey: opID, SystemAccountNKey: sysID, CellAccountNKey: cellID}
 	return files, public, nil
 }
 
@@ -580,6 +601,22 @@ func makeCA(cfg Config, now, expires time.Time) ([]byte, *ecdsa.PrivateKey, *x50
 }
 
 func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
+	domain := "hosts." + cfg.Cell + ".terrascale.internal"
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " host issuer"},
+		NotBefore: now.Add(-time.Minute), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
+		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		PermittedDNSDomainsCritical: true, PermittedDNSDomains: []string{"." + domain}, PermittedURIDomains: []string{domain}}
+	return makeIssuerCA(cert, root, rootKey)
+}
+
+func makeControllerIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " controller issuer"},
+		NotBefore: now.Add(-issuedBackdate), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
+		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	return makeIssuerCA(cert, root, rootKey)
+}
+
+func makeIssuerCA(cert *x509.Certificate, root *x509.Certificate, rootKey *ecdsa.PrivateKey) ([]byte, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -588,11 +625,7 @@ func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate
 	if err != nil {
 		return nil, nil, err
 	}
-	domain := "hosts." + cfg.Cell + ".terrascale.internal"
-	cert := &x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "TerraScale " + cfg.Cell + " host issuer"},
-		NotBefore: now.Add(-time.Minute), NotAfter: expires, IsCA: true, BasicConstraintsValid: true, MaxPathLenZero: true,
-		KeyUsage: x509.KeyUsageCertSign, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		PermittedDNSDomainsCritical: true, PermittedDNSDomains: []string{"." + domain}, PermittedURIDomains: []string{domain}}
+	cert.SerialNumber = serial
 	der, err := x509.CreateCertificate(rand.Reader, cert, root, &key.PublicKey, rootKey)
 	if err != nil {
 		return nil, nil, err
@@ -601,6 +634,7 @@ func makeHostIssuerCA(cfg Config, now, expires time.Time, root *x509.Certificate
 	if err != nil {
 		return nil, nil, err
 	}
+	defer clear(keyDER)
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
 		pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}), nil
 }
@@ -664,6 +698,8 @@ func classify(name string) (bootstrap.SecretPurpose, string) {
 	case "host-nats-issuer.seed", "host-tls-issuer-key.pem", "host-tls-issuer-cert.pem",
 		"terrabase-member-ca.pem", "terrabase-member-ca.key":
 		return bootstrap.SecretHostIssuer, ""
+	case "controller-tls-issuer-cert.pem", "controller-tls-issuer-key.pem", "controller-account-signer.seed":
+		return bootstrap.SecretControllerIssuer, ""
 	case "operator.jwt", "system.jwt", "cell.jwt", "system.creds", "ca.pem", "route-password", "ticket.pub", "ticket.key":
 		return bootstrap.SecretRegionalShared, ""
 	}
@@ -853,6 +889,7 @@ func validateSignerFiles(directory string, record Record) error {
 	// Material generated before TS-663 has no role signer.
 	bound, hasRole := cellClaim.SigningKeys.GetScope(role.Key)
 	roleBound, _ := bound.(*jwt.UserScope)
+	controllerScope, hasController := cellClaim.SigningKeys.GetScope(record.Public.ControllerAccountSignerNKey)
 	// A link signer, when configured, is the only other scoped key.
 	hasLink := record.Config.LinkSigner != ""
 	if hasLink {
@@ -861,9 +898,15 @@ func validateSignerFiles(directory string, record Record) error {
 		}
 	}
 	if !ok || !reflect.DeepEqual(hostScope, expectedHostScope(record.Config.Cell, issuerID)) ||
-		hasRole && !reflect.DeepEqual(roleBound, role) || len(cellClaim.SigningKeys) != 1+boolInt(hasRole)+boolInt(hasLink) {
+		hasRole && !reflect.DeepEqual(roleBound, role) || !hasController || controllerScope != nil ||
+		len(cellClaim.SigningKeys) != 2+boolInt(hasRole)+boolInt(hasLink) {
 		return ErrMaterial
 	}
+	controller, err := loadRecordedControllerIssuer(record, read, time.Now())
+	if err != nil {
+		return err
+	}
+	controller.Wipe()
 	operatorWire, err := read("operator.creds")
 	if err != nil {
 		return ErrMaterial
