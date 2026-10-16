@@ -1,6 +1,6 @@
 # OCIR lifecycle boundary
 
-This package is an OCI-specific metadata reconciler, with no registry framework,
+This package is an OCI-specific reconciler, with no registry framework,
 CLI fallback, production credential payload, environment settings or dependency
 addition. It is not wired into regional reconciliation yet.
 
@@ -51,7 +51,7 @@ at the executor boundary; no manual credential configuration is introduced here.
 
 `NewPullSecrets` now provides the narrow existing-token boundary. An independently
 root-approved `PullSecret` fixes the OCIR host, namespace/repository
-and regional Vault reference. Both username and vendor-issued token remain in
+and regional Vault reference. Both username and OCI-issued token remain in
 one existing Vault JSON value `{username,password}`; neither enters admission
 or object-storage metadata. `Describe` reads the actual CURRENT version and
 returns only identity/version/hash/generation metadata for the existing release
@@ -68,12 +68,38 @@ admission generation by itself. The existing signed admission and CAS owner must
 enforce that ordering and independently obtain the root-approved `PullSecret`.
 Rotating Vault CURRENT requires fresh admitted metadata; old references fail.
 
-No authorized OCI IAM auth-token issuer or repository read policy was supplied.
-This boundary consumes an existing vendor-issued token in Vault and never mints
-tokens, creates users/policies, installs secrets or invents signing authority.
+`PullSecrets` consumes a Vault value and conveys no issuance authority itself.
 Missing credential ownership, scoped IAM policy, token or authenticated admission
-binding therefore leaves private pulls blocked. CORE owns the containerd resolver
-and REL/task admission integration; these source checks do not qualify live IAM.
+binding leaves private pulls blocked. CORE owns the containerd resolver and
+REL/task admission integration; these source checks do not qualify live IAM.
+
+`NewIssuer` adds the first-party IAM-to-Vault producer. It consumes the sealed
+`region.VerifiedOCIRIssuer` from the same root-signed foundation grant, the
+existing persistent non-expiring regional KV, a fresh authority guard and the
+existing tenancy-wide home IAM write lease. The guard must refresh current
+trusted roots/source before comparing the exact grant digest and generation;
+an initially pinned resolver cannot detect later root rotation by itself.
+The issuer discovers the actual tenancy home and Object Storage namespace,
+records the exact private immutable repository OCID, then creates only the
+signed service user, derived group and single repository `read repos` policy.
+The user permits auth tokens only and membership in its dedicated group only.
+OCI supports `target.repo.name`; no unsupported repository-ID policy condition
+is invented. A changed physical repository or broadened policy blocks progress.
+
+The journal leases and checkpoints IAM creation retry tokens and nonsecret token
+operations before each mutation. `CreateAuthToken` supports a persisted OCI
+retry token; an uncertain operation never starts another unrecorded creation.
+Recovery uses that operation and its pre-request token inventory, records an
+exact observed token OCID and confirms revocation before fresh issuance when
+the once-returned value cannot be recovered. Username and token enter only
+Vault JSON. A new CURRENT version must match its recorded hash, and its token
+must be active, before the old token is revoked. Rotation is fixed at thirty
+days. Unknown identity, token or Vault values are not adopted.
+
+The always-on controller caller, protected KV ownership and fresh-root guard
+remain integration requirements. Runtime pulls need only map the sealed scope
+to `PullSecret` and use `Describe`/`Resolve`; workers gain no IAM write authority.
+No live IAM, token, policy or Vault writes were performed by these source tests.
 
 Retirement tombstones are intentionally retained: a retired digest cannot be
 re-admitted by a stale publisher. Journal exhaustion fails closed at one MiB.
