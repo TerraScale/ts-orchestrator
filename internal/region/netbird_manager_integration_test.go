@@ -32,6 +32,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 // This fixture crosses the real OCI SDK, public-price HTTP and disk-backed
@@ -184,13 +185,29 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 				return
 			}
 			expected := netBirdLaunchDetails(manager, control, idFor("subnet"), idFor("networksecuritygroup"))
-			wire, _ := json.Marshal(expected)
+			sdkRequest := core.LaunchInstanceRequest{LaunchInstanceDetails: expected}
+			httpRequest, err := sdkRequest.HTTPRequest(http.MethodPost, "/20160918/instances", nil, nil)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			wire, readErr := io.ReadAll(httpRequest.Body)
+			closeErr := httpRequest.Body.Close()
+			if err := errors.Join(readErr, closeErr); err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
 			var expectedBody map[string]any
 			json.Unmarshal(wire, &expectedBody)
 			actualWire, _ := json.Marshal(body, json.Deterministic(true))
 			expectedWire, _ := json.Marshal(expectedBody, json.Deterministic(true))
 			if string(actualWire) != string(expectedWire) {
 				t.Error("actual SDK body differs from compiled durable recipe")
+			}
+			if digest(actualWire) != saved.NetBirdManager.RequestDigest {
+				t.Error("persisted request digest does not authenticate actual SDK body")
 			}
 			if launches == 0 {
 				launches++

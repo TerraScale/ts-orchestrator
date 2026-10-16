@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"errors"
+	"io"
+	"net/http"
 	"net/netip"
 	"slices"
 	"time"
@@ -175,7 +177,24 @@ func netBirdLaunchDetails(intent NetBirdManagerIntent, compartment, subnet, nsg 
 }
 
 func netBirdRequestDigest(details core.LaunchInstanceDetails) (string, error) {
-	wire, err := json.Marshal(details, json.Deterministic(true))
+	request := core.LaunchInstanceRequest{LaunchInstanceDetails: details}
+	httpRequest, err := request.HTTPRequest(http.MethodPost, "/20160918/instances", nil, nil)
+	if err != nil {
+		return "", err
+	}
+	if httpRequest.Body == nil {
+		return "", errors.New("dedicated manager SDK request has no body")
+	}
+	defer httpRequest.Body.Close()
+	wire, err := io.ReadAll(io.LimitReader(httpRequest.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	var object map[string]any
+	if err := json.Unmarshal(wire, &object); err != nil {
+		return "", err
+	}
+	wire, err = json.Marshal(object, json.Deterministic(true))
 	if err != nil {
 		return "", err
 	}
