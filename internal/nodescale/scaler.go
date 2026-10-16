@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
+	"github.com/TerraScale/ts-orchestrator/internal/budget"
 	"github.com/TerraScale/ts-orchestrator/internal/decisionlog"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
@@ -43,6 +44,7 @@ type Scaler struct {
 	Cell    string // e.g. "gru"; nodes are naming.RegionCell(strings.ToUpper(Cell)).Node(n)
 	Pool    Pool
 	Recipe  func(ctx context.Context) (Recipe, error)
+	Reserve func(context.Context, string, Recipe) (budget.Reservation, error)
 	Control api.ControlClient
 	// CanRetire verifies owned retained-volume inventory and DATA retirement safety; nil holds scale-down.
 	CanRetire func(ctx context.Context, node, instanceID string) error
@@ -360,6 +362,15 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		return nil
 	}
 	recipe := *t.record.Recipe
+	if s.Reserve != nil && t.record.Reservation == nil {
+		receipt, err := s.Reserve(ctx, t.record.Action.ID, recipe)
+		if err != nil {
+			t.pool.Pending = fmt.Sprintf("home capacity reservation is pending: %v", err)
+			return nil
+		}
+		t.record.Reservation = new(receipt)
+		return nil
+	}
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
@@ -645,6 +656,7 @@ func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, er
 			return decision, fmt.Errorf("validate chosen node recipe: %w", err)
 		}
 		t.record.Recipe = new(recipe)
+		t.record.Reservation = nil
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: t.now}
 		t.record.From = t.pool.Size
 		t.record.LastChange = t.now

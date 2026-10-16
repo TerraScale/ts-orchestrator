@@ -94,6 +94,9 @@ func NewOCIPool(factory *ociclient.Factory, cell, compartmentID string, capacity
 	return newOCIPool(management, compute, network, cell, compartmentID, capacity)
 }
 
+// CompartmentID is the authenticated pool scope used by home spending admission.
+func (o *OCIPool) CompartmentID() string { return o.compartmentID }
+
 func newOCIPool(management computeManagementAPI, compute computeAPI, network networkAPI, cell, compartmentID string, capacity Capacity) (*OCIPool, error) {
 	if !cellPattern.MatchString(cell) || compartmentID == "" {
 		return nil, fmt.Errorf("node pool for cell %q needs a cell name and a compartment", cell)

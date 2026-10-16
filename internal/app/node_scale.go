@@ -43,7 +43,8 @@ type nodeScaling struct {
 	// scaler publishes the running scaler to the release fence's spec.
 	scaler *atomic.Pointer[nodescale.Scaler]
 	// costViews prices the node and forecasts the region for the scaler's Cost (TS-807).
-	costViews *ociCostViews
+	costViews    *ociCostViews
+	reservations *capacityReservations
 }
 
 // startNodeScaler runs the region's node scaler on every regional leader and
@@ -56,13 +57,25 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	if err != nil {
 		return nil, err
 	}
+	in.pool.Admit = in.reservations.admit(in.pool, store, in.fencer)
 	pool, err := nodescale.NewChosenPool(in.pool, store)
 	if err != nil {
 		return nil, err
 	}
 	prober := &nodescale.Prober{Regions: ociRegionNames(in.factory), Dial: (&net.Dialer{}).DialContext, Now: time.Now}
 	recipe := func(ctx context.Context) (nodescale.Recipe, error) {
-		return nodeRecipe(ctx, in.factory, in.cell)
+		record, _, err := store.Load(ctx)
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		if record.Action != nil && record.Action.Kind == nodescale.Up && record.Recipe != nil {
+			return in.reservations.choose(ctx, *record.Recipe, in.pool, in.factory, store)
+		}
+		base, err := nodeRecipe(ctx, in.factory, in.cell)
+		if err != nil {
+			return nodescale.Recipe{}, err
+		}
+		return in.reservations.choose(ctx, base, in.pool, in.factory, store)
 	}
 	pricedRecipe := func(ctx context.Context) (nodescale.Recipe, error) {
 		record, _, err := store.Load(ctx)
@@ -77,8 +90,15 @@ func startNodeScaler(ctx context.Context, in nodeScaling) (func() *nodescale.Sta
 	scaler := &nodescale.Scaler{Cell: in.cell, Pool: pool, Control: in.control, CanRetire: in.canRetire, Store: store, Leader: in.fencer,
 		Now:    time.Now,
 		Recipe: recipe,
-		Cost:   in.costViews.nodeCost(pricedRecipe, time.Now),
-		Loads:  func() []nodescale.NodeLoad { return nodeLoads(in.load) },
+		Reserve: func(ctx context.Context, operationID string, recipe nodescale.Recipe) (budget.Reservation, error) {
+			request, err := in.reservations.prepare(ctx, operationID, recipe, in.pool.CompartmentID())
+			if err != nil {
+				return budget.Reservation{}, err
+			}
+			return in.reservations.request(ctx, "reserve", request)
+		},
+		Cost:  in.costViews.nodeCost(pricedRecipe, time.Now),
+		Loads: func() []nodescale.NodeLoad { return nodeLoads(in.load) },
 		Allowance: func(now time.Time) (int, bool) {
 			return allowance(in.global, in.cell, now)
 		},
