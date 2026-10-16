@@ -238,8 +238,22 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 		t.Fatal(err)
 	}
 	for _, cell := range []string{"FRA", "GRU", "SFO"} {
+		for _, evidenceDir := range []string{filepath.Join(bundle, "production"), filepath.Join(retainedDir, "production")} {
+			record := writeProductionEvidence(t, evidenceDir, productionCandidate(binary, cell))
+			writeProductionRecord(t, filepath.Join(evidenceDir, cell, "amd64", "production.json"), record, rootPrivate,
+				now.Add(-time.Minute), now.Add(time.Hour))
+		}
 		envelope, err := release.SignBinaryUpdateReceipt(binary, qualification, digest, cell, "production",
 			applyFixtureLineage{t, dir}, delegation, roots, leafPrivate, now, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := readProductionProof(filepath.Join(bundle, "production"), cell, "amd64")
+		if err != nil {
+			t.Fatal(err)
+		}
+		envelope, err = release.AttachProductionQualification(envelope, proof, delegationWire, roots, leafPrivate,
+			release.UpdateExpectation{Environment: "production", Cell: cell, Architecture: "amd64"}, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -255,11 +269,6 @@ func newApplyHTTPFixture(t *testing.T) *applyHTTPFixture {
 		}
 		if err := os.WriteFile(filepath.Join(bundle, cell, "channel.json"), wire, 0o600); err != nil {
 			t.Fatal(err)
-		}
-		for _, evidenceDir := range []string{filepath.Join(bundle, "production"), filepath.Join(retainedDir, "production")} {
-			record := writeProductionEvidence(t, evidenceDir, productionCandidate(binary, cell))
-			writeProductionRecord(t, filepath.Join(evidenceDir, cell, "amd64", "production.json"), record, rootPrivate,
-				now.Add(-time.Minute), now.Add(time.Hour))
 		}
 	}
 	rootDER, _ := x509.MarshalPKIXPublicKey(rootPublic)

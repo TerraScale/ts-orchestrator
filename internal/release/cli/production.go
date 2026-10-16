@@ -48,6 +48,9 @@ func (c command) verifyProductionCandidate(evidenceDir string, roots trust.Keyri
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("%w: qualification delegation: %w", release.ErrProductionQualification, err)
 	}
+	if _, err := release.VerifyProductionCurrent(wire, delegation, roots, expected, time.Now().UTC()); err != nil {
+		return fmt.Errorf("%s %s current admission: %w", expected.Cell, expected.Architecture, err)
+	}
 	qualification, err := release.VerifyProductionCurrent(wire, delegation, roots, expected, now)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", expected.Cell, expected.Architecture, err)
@@ -143,4 +146,17 @@ func (c command) verifyProduction(args []string) error {
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func readProductionProof(evidenceDir, cell, architecture string) (release.ProductionProof, error) {
+	directory := filepath.Join(evidenceDir, cell, architecture)
+	wire, err := readBoundedRegular(filepath.Join(directory, "production.json"), trust.MaxEnvelopeBytes)
+	if err != nil {
+		return release.ProductionProof{}, err
+	}
+	delegation, err := readBoundedRegular(filepath.Join(directory, "delegation.json"), trust.MaxEnvelopeBytes)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return release.ProductionProof{}, err
+	}
+	return release.ProductionProof{Qualification: wire, Delegation: delegation}, nil
 }

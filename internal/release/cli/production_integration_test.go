@@ -22,7 +22,7 @@ import (
 func TestProductionAdmissionRetainedArtifactBoundary(t *testing.T) {
 	f := newApplyHTTPFixture(t)
 	candidate := productionCandidate(f.binary, "GRU")
-	for _, refusal := range []string{"", "missing record", "source", "digest", "manifest", "cell", "environment", "runtime", "architecture", "role", "missing gate", "future proof", "tampered evidence", "expired", "wrong signer", "release capability"} {
+	for _, refusal := range []string{"", "missing record", "source", "digest", "manifest", "cell", "environment", "runtime", "architecture", "role", "missing gate", "future proof", "tampered evidence", "expired", "future record", "wrong signer", "release capability"} {
 		t.Run(refusal, func(t *testing.T) {
 			directory := t.TempDir()
 			record := writeProductionEvidence(t, directory, candidate)
@@ -54,6 +54,9 @@ func TestProductionAdmissionRetainedArtifactBoundary(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(directory, "objects", record.Evidence[0].SHA256), []byte("tampered"), 0o600); err != nil {
 					t.Fatal(err)
 				}
+			case "future record":
+				issued = now.Add(5 * time.Minute)
+				expires = now.Add(time.Hour)
 			case "expired":
 				issued, expires = now.Add(-2*time.Hour), now.Add(-time.Hour)
 			case "wrong signer", "release capability":
@@ -108,6 +111,16 @@ func TestProductionAdmissionRetainedArtifactBoundary(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "SFO") || !strings.Contains(output.String(), `"cell":"GRU"`) ||
 			!strings.Contains(output.String(), `"state":"qualified"`) || !strings.Contains(output.String(), `"state":"refused"`) {
 			t.Fatalf("lost independent regional result: %v\n%s", err, output.String())
+		}
+	})
+	t.Run("future authorization cannot start a rollout", func(t *testing.T) {
+		directory := t.TempDir()
+		record := writeProductionEvidence(t, directory, candidate)
+		now := time.Now().UTC()
+		writeProductionRecord(t, filepath.Join(directory, "GRU", "amd64", "production.json"), record, f.rootPrivate, now.Add(5*time.Minute), now.Add(time.Hour))
+		err := (command{ctx: t.Context(), output: io.Discard}).verifyProductionArtifacts(directory, f.roots, "GRU", "production", map[string]binaryReceipt{"amd64": f.binary}, now.Add(20*time.Minute))
+		if !errors.Is(err, release.ErrProductionQualification) {
+			t.Fatalf("future authorization started immediately: %v", err)
 		}
 	})
 	t.Run("future rollout deadline outlives qualification", func(t *testing.T) {
