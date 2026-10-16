@@ -140,7 +140,7 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 		}
 		switch {
 		case strings.HasPrefix(r.URL.Path, "/20160918/instances/"):
-			wire, err := json.Marshal(core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))}, LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}})
+			wire, err := json.Marshal(core.Instance{Id: new(instanceID), CompartmentId: new(profile.CompartmentOCID), ImageId: new(manifest.ImageOCID), AvailabilityDomain: new(profile.AvailabilityDomain), FaultDomain: new(profile.FaultDomain), Shape: new(profile.Shape), ShapeConfig: &core.InstanceShapeConfig{Ocpus: new(float32(resources.WholeOCPUs)), MemoryInGBs: new(float32(resources.MemoryInGB))}, LifecycleState: core.InstanceLifecycleStateRunning, FreeformTags: map[string]string{"BootstrapCreateKey": "source-founder-" + profile.Slot}}, json.Deterministic(true))
 			if err != nil {
 				t.Error(err)
 				w.WriteHeader(http.StatusInternalServerError)
