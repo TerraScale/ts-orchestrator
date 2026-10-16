@@ -70,7 +70,7 @@ func TestReleaseChannelRollsCIReleasesOutRegionByRegion(t *testing.T) {
 				Cell: strings.ToUpper(region), Architecture: goruntime.GOARCH},
 			configure: func(c *rolloutControl) {
 				c.channel = &channelSource{location: &location}
-				c.channelInterval = 300 * time.Millisecond
+				c.channelInterval = rolloutTestInterval
 			}})
 	}
 	// The canary's reports are published for fan-in across regions.

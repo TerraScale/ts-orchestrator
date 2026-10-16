@@ -32,6 +32,10 @@ import (
 
 const rolloutTestSystemdUnit = "terrascale-orchestrator-controller.service"
 
+// Channel status collects pins through replicated KV watchers; 200 ms ticks
+// churn consumers faster than the six-broker race lab can process them.
+const rolloutTestInterval = time.Second
+
 // TestRolloutExecutorUpdatesARunningCell runs the cell's orchestrator
 // self-update end to end on three real brokers: the authority leader's
 // executor behind the real cluster gate, the replicated rollout store,
@@ -294,7 +298,7 @@ func startRolloutTestCell(t *testing.T, ctx context.Context, config rolloutTestC
 			t.Fatal(err)
 		}
 		rollouts.policy = func() rollout.Policy { return policy }
-		rollouts.interval = 200 * time.Millisecond
+		rollouts.interval = rolloutTestInterval
 		rollouts.spool = filepath.Join(root, "spool-"+id)
 		rollouts.layout = selfupdate.Layout{Root: filepath.Join(root, "release-"+id), Owner: os.Getuid()}
 		if config.configure != nil {
@@ -494,7 +498,7 @@ func (u *rolloutTestUnit) restart(_ context.Context, systemdUnit string) error {
 			return err
 		}
 	}
-	publisher := rolloutexec.Publisher{Conn: u.conn, Cell: u.cell, Unit: u.id, Key: u.key, Interval: 200 * time.Millisecond,
+	publisher := rolloutexec.Publisher{Conn: u.conn, Cell: u.cell, Unit: u.id, Key: u.key, Interval: rolloutTestInterval,
 		Executable: u.layout.BinaryPath(current), Healthy: func() bool { return true }}
 	go func() { _ = publisher.Run(ctx) }()
 	return nil
