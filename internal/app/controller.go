@@ -28,7 +28,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/membership"
 	"github.com/TerraScale/ts-orchestrator/internal/membership/clusterhealth"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
@@ -1024,7 +1023,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	workers.Go(func() { telemetry.dashboardLoop(runCtx, services.dashboard, localNetBirdAddresses, readDashboardToken) })
 
 	workers.Go(func() {
-		runNetBirdManagement(runCtx, netbird.PublicConfigPath, func() bool { return control.Current().CanMutate() })
+		runNetBirdManagement(runCtx, control)
 	})
 	workers.Go(func() { workerErrors <- newOCICostCollector(cfg.NATS.Cell, costStore, control).Run(runCtx) })
 	workers.Go(func() { workerErrors <- newOCICostTagger(cfg.NATS.Cell, control).Run(runCtx) })
