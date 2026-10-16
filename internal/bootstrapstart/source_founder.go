@@ -32,8 +32,11 @@ type VerifiedSourceFounder struct {
 // VerifySourceFounder uses fixed local metadata and authenticated OCI endpoints.
 // Matching an IMDS slot or a mutable instance tag alone grants no authority.
 func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate) (VerifiedSourceFounder, error) {
-	if factory == nil || template.VerifyCurrent(time.Now().UTC()) != nil {
+	if factory == nil {
 		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
 	}
 	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
 	if err != nil || factory.Region() != manifest.OCIRegion {
@@ -58,8 +61,11 @@ func VerifySourceFounder(ctx context.Context, factory *ociclient.Factory, templa
 }
 
 func verifySourceFounderWithSources(ctx context.Context, factory *ociclient.Factory, template bootstrap.VerifiedStartupTemplate, imds DescriptorSource, observer InstanceObserver) (VerifiedSourceFounder, error) {
-	if factory == nil || imds == nil || observer == nil || template.VerifyCurrent(time.Now().UTC()) != nil {
+	if factory == nil || imds == nil || observer == nil {
 		return VerifiedSourceFounder{}, ErrSourceFounder
+	}
+	if err := template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return VerifiedSourceFounder{}, errors.Join(ErrSourceFounder, err)
 	}
 	manifest, err := template.ManifestFor(template.Template().SeedSlot, nil)
 	if err != nil || factory.Region() != manifest.OCIRegion {
@@ -128,8 +134,11 @@ func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObserva
 	if err := ctx.Err(); err != nil {
 		return InstanceObservation{}, err
 	}
-	if proof.factory == nil || proof.imds == nil || proof.observer == nil || proof.template.VerifyCurrent(time.Now().UTC()) != nil {
+	if proof.factory == nil || proof.imds == nil || proof.observer == nil {
 		return InstanceObservation{}, ErrSourceFounder
+	}
+	if err := proof.template.VerifyCurrentContext(ctx, time.Now().UTC()); err != nil {
+		return InstanceObservation{}, errors.Join(ErrSourceFounder, err)
 	}
 	instance, err := proof.imds.FetchInstanceID(ctx)
 	if err != nil || !instanceIDRE.MatchString(instance) || proof.instance != "" && instance != proof.instance {
@@ -173,6 +182,9 @@ func (proof VerifiedSourceFounder) observe(ctx context.Context) (InstanceObserva
 			observed.FaultDomain != profile.FaultDomain || observed.Shape != profile.Shape || observed.SubnetOCID != profile.SubnetOCID ||
 			!slices.Equal(nsgs, expected) || !observed.PrimaryVNIC || !strings.HasPrefix(observed.PrimaryVNICOCID, "ocid1.vnic.") || observed.PrimaryPrivateIP != address {
 			return InstanceObservation{}, ErrSourceFounder
+		}
+		if err := proof.verifyResources(ctx, observed); err != nil {
+			return InstanceObservation{}, err
 		}
 		return observed, nil
 	}
