@@ -20,7 +20,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats.go"
 )
 
 func rootKeys(keys ...ed25519.PrivateKey) []ed25519.PrivateKey { return keys }

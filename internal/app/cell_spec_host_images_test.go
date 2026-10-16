@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"maps"
 	"os"
@@ -19,7 +21,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/nats-io/nats.go"
 )
 
 // testHostImage signs a release image receipt for imageID with a release
@@ -47,13 +48,37 @@ func testHostImage(t *testing.T, keys testSpecTrust, imageID string, issuedAt ti
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := strings.Repeat("cd", 32)
+	digest, imageDigest := strings.Repeat("cd", 32), strings.Repeat("ab", 32)
+	qualification := release.ProductionQualification{Schema: release.ProductionQualificationSchema,
+		Candidate: release.ProductionExpectation{SourceRevision: revision, ArtifactSHA256: imageDigest,
+			QualificationSHA256: digest, Cell: "GRU", Environment: keys.identity.Environment,
+			Runtime: release.ProductionRuntime, Architecture: "arm64", Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " final image evidence")
+		sum := sha256.Sum256(evidence)
+		qualification.Evidence = append(qualification.Evidence, release.ProductionGateEvidence{
+			Gate: gate, SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(evidence)), CompletedAt: issuedAt.Add(-time.Second)})
+	}
+	payload, err := trust.EncodePayload(qualification)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := trust.Sign(payload, release.ProductionQualificationScope(qualification.Candidate),
+		issuedAt, issuedAt.Add(lifetime), keys.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proofWire, err := trust.EncodeEnvelope(proof)
+	if err != nil {
+		t.Fatal(err)
+	}
 	receipt, err := release.SignImageReceipt(release.ImageReceipt{
 		Schema: release.ImageSchema, SourceRevision: revision, GoVersion: release.DefaultGoVersion,
 		Architecture: "arm64", BinaryBytes: 100, BinarySHA256: digest, QualificationSHA256: digest,
 		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.base", BaseImageRegion: "GRU", BaseImageSHA256: digest,
 		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2", ImageBytes: 1024,
-		ImageSHA256: digest, OCIImageOCID: imageID, OCIRegion: "GRU",
+		ImageSHA256: imageDigest, OCIImageOCID: imageID, OCIRegion: "GRU",
+		Production: &release.ProductionProof{Qualification: proofWire},
 	}, keys.identity.Environment, delegation, keys.roots, leafPrivate, issuedAt, lifetime)
 	if err != nil {
 		t.Fatal(err)
