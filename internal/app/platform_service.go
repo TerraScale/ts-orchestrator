@@ -48,7 +48,7 @@ func platformServiceIntent(intent delivery.Intent, profile WorkloadProfile, ociR
 	}
 	limits := &api.Resources{NanoCPUs: int64(profile.Resources.CPU) * 1_000_000_000, MemoryBytes: profile.Resources.MemoryBytes}
 	service := swarmruntime.ServiceIntent{
-		ID:   entityid.Derive("platform-service", intent.Role, intent.Environment, ociRegion),
+		ID: entityid.Derive("platform-service", intent.Role, intent.Environment, ociRegion), OperationID: intent.OperationID,
 		Role: intent.Role, Region: ociRegion, Environment: intent.Environment, Architecture: architecture,
 		Replicas:  uint64(intent.DesiredReplicas),
 		Container: &api.ContainerSpec{Image: claim.Image, User: "65532:65532", Args: slices.Clone(profile.Args), Env: environment},
