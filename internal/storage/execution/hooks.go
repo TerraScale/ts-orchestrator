@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -14,6 +13,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
+	"github.com/TerraScale/ts-orchestrator/internal/storage/executionwire"
 	"github.com/moby/swarmkit/v2/api"
 )
 
@@ -80,19 +80,11 @@ func Stateful(task *api.Task) bool {
 
 // TaskSHA256 binds the assignment and complete spec, including both label sets.
 func TaskSHA256(task *api.Task) (string, error) {
-	if task == nil || task.ID == "" || task.ServiceID == "" || task.NodeID == "" {
-		return "", ErrUnsafe
-	}
-	data, err := json.Marshal(struct {
-		ID, ServiceID, NodeID           string
-		Spec                            api.TaskSpec
-		Annotations, ServiceAnnotations api.Annotations
-	}{task.ID, task.ServiceID, task.NodeID, task.Spec, task.Annotations, task.ServiceAnnotations}, json.Deterministic(true))
+	digest, err := executionwire.TaskSHA256(task)
 	if err != nil {
-		return "", err
+		return "", errors.Join(ErrUnsafe, err)
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:]), nil
+	return digest, nil
 }
 
 // WithTaskEffect holds the existing per-database authority gate through the
