@@ -214,7 +214,7 @@ func (server *materialProtocol) ServeHTTP(w http.ResponseWriter, r *http.Request
 			return
 		}
 		server.creates++
-		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.sa-saopaulo-1.secret%d", server.creates), Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
+		secret := materialProtocolSecret{ID: fmt.Sprintf("ocid1.vaultsecret.oc1.%s.secret%d", strings.Split(server.target.VaultOCID, ".")[3], server.creates), Name: details.Name, Content: details.Content.Content, Token: r.Header.Get("opc-retry-token")}
 		wire, _ := json.Marshal(secret)
 		if server.put("secret-"+secret.ID, wire) != nil || server.put("name-"+secret.Name, wire) != nil || server.put("token-"+secret.Token, wire) != nil {
 			w.WriteHeader(500)
