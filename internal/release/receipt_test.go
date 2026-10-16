@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func TestImageReceiptClampsToDelegationAndPinsExactEnvelope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyImageCurrent() error = %v", err)
 	}
-	if !verified.IsVerified() || verified.Receipt() != fixture.image || verified.EnvelopeSHA256() != fingerprintWire(t, imageWire) {
+	if !verified.IsVerified() || !reflect.DeepEqual(verified.Receipt(), fixture.image) || verified.EnvelopeSHA256() != fingerprintWire(t, imageWire) {
 		t.Fatalf("verified image does not preserve exact pinned receipt: %+v", verified)
 	}
 	if !verified.ExpiresAt().Equal(fixture.delegation.ExpiresAt) {
@@ -142,7 +143,7 @@ func TestHistoricalReceiptsDoNotAuthorizeCurrentUse(t *testing.T) {
 		t.Fatalf("VerifyImageCurrent() error = %v; want expired current authorization", err)
 	}
 	historicalImage, err := VerifyImageHistorical(imageWire, delegationWire, fixture.roots, imageExpected)
-	if err != nil || !historicalImage.IsVerified() || historicalImage.Receipt() != fixture.image {
+	if err != nil || !historicalImage.IsVerified() || !reflect.DeepEqual(historicalImage.Receipt(), fixture.image) {
 		t.Fatalf("VerifyImageHistorical() = %+v, %v", historicalImage, err)
 	}
 }
@@ -176,6 +177,17 @@ func newReleaseFixture(t *testing.T, delegationLifetime time.Duration) releaseFi
 		t.Fatal(err)
 	}
 	image := testImageReceipt()
+	qualified := ProductionQualification{Schema: ProductionQualificationSchema,
+		Candidate: ProductionExpectation{SourceRevision: image.SourceRevision, ArtifactSHA256: image.ImageSHA256,
+			QualificationSHA256: image.QualificationSHA256, Cell: image.OCIRegion, Environment: "canary",
+			Runtime: ProductionRuntime, Architecture: image.Architecture, Role: "orchestrator"}}
+	for _, gate := range []string{"runtime-ha", "workload-safety"} {
+		evidence := []byte("test-only " + gate + " image evidence")
+		qualified.Evidence = append(qualified.Evidence, ProductionGateEvidence{Gate: gate,
+			SHA256: fingerprintWire(t, evidence), Bytes: int64(len(evidence)), CompletedAt: now.Add(-time.Second)})
+	}
+	proof := signDirect(t, qualified, ProductionQualificationScope(qualified.Candidate), rootPrivate, now, now.Add(24*time.Hour))
+	image.Production = &ProductionProof{Qualification: encodeEnvelope(t, proof)}
 	delegationIssuedAt := now.Add(-time.Minute)
 	delegation, err := trust.SignDelegation(trust.Delegation{
 		SchemaVersion: trust.SchemaVersion, SubjectKeyID: keyID, SubjectPublicKey: encodedPublic,

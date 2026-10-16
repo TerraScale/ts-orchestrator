@@ -263,6 +263,7 @@ func founderFixtureWithAdmissibleRelease(t *testing.T, fixture *founderSignerFix
 		KernelRelease: "6.1.0-test+1", KernelSHA256: strings.Repeat("c", 64),
 		ImageFormat: "qcow2", ImageBytes: 1024, ImageSHA256: strings.Repeat("d", 64),
 		OCIImageOCID: imageID, OCIRegion: "GRU"}
+	imageReceipt = qualifiedImageFixture(t, imageReceipt, "production", fixture.root, fixture.now.Add(-time.Minute))
 	imageEnvelope, err := release.SignImageReceipt(imageReceipt, "production", grant, fixture.baked.Roots,
 		private, fixture.now.Add(-time.Minute), time.Hour)
 	if err != nil {
