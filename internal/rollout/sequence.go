@@ -54,7 +54,7 @@ func (s *Store) PublishSequencedRelease(ctx context.Context, epoch uint64, admit
 // seedReleaseOrdering upgrades every surviving historical floor once. The
 // signed records stay in Desired even after bounded rollback history is purged.
 func (s *Store) seedReleaseOrdering(ctx context.Context, desired Desired) (Desired, error) {
-	if desired.OrderingFloor.Generation > 0 || desired.LegacyFloor.Generation > 0 || desired.Generation() == 0 {
+	if desired.OrderingFloor.Generation > 0 || desired.LegacyFloor.Generation > 0 && desired.LegacyIssuanceFloor.Generation > 0 || desired.Generation() == 0 {
 		return desired, nil
 	}
 	retained, err := s.retainedReleases(ctx, desired)
@@ -67,6 +67,9 @@ func (s *Store) seedReleaseOrdering(ctx context.Context, desired Desired) (Desir
 		}
 		if desired.LegacyFloor.Generation == 0 || historical.RunNumber > desired.LegacyFloor.RunNumber {
 			desired.LegacyFloor = historical
+		}
+		if desired.LegacyIssuanceFloor.Generation == 0 || historical.CreatedAt.After(desired.LegacyIssuanceFloor.CreatedAt) {
+			desired.LegacyIssuanceFloor = historical
 		}
 	}
 	return desired, nil
@@ -104,7 +107,7 @@ func advanceReleaseOrdering(desired *Desired, next Release, cell string) error {
 		if err := protocol.DecodeStrict(envelope.Payload, &migration, trust.MaxPayloadBytes); err != nil {
 			return err
 		}
-		if !migration.AdmitsLegacyFloor(strings.ToUpper(cell), desired.LegacyFloor.RunNumber, time.Time{}) {
+		if !migration.AdmitsLegacyFloor(strings.ToUpper(cell), desired.LegacyFloor.RunNumber, desired.LegacyIssuanceFloor.CreatedAt) {
 			return fmt.Errorf("%w: migration omits retained legacy run floor %d", ErrInvalid, desired.LegacyFloor.RunNumber)
 		}
 		desired.OrderingFloor = next
@@ -112,8 +115,17 @@ func advanceReleaseOrdering(desired *Desired, next Release, cell string) error {
 		if next.RunNumber < desired.LegacyFloor.RunNumber {
 			return fmt.Errorf("%w: CI run is below retained legacy floor", ErrInvalid)
 		}
+		if next.CreatedAt.Before(desired.LegacyIssuanceFloor.CreatedAt) {
+			return fmt.Errorf("%w: issuance is below retained legacy floor", ErrInvalid)
+		}
+		if next.RunNumber > 0 && next.RunNumber == desired.LegacyFloor.RunNumber && (next.Digest != desired.LegacyFloor.Digest || next.SourceRevision != desired.LegacyFloor.SourceRevision) {
+			return fmt.Errorf("%w: CI run already names another release", ErrInvalid)
+		}
 		if desired.LegacyFloor.Generation == 0 || next.RunNumber > desired.LegacyFloor.RunNumber {
 			desired.LegacyFloor = next
+		}
+		if desired.LegacyIssuanceFloor.Generation == 0 || next.CreatedAt.After(desired.LegacyIssuanceFloor.CreatedAt) {
+			desired.LegacyIssuanceFloor = next
 		}
 	}
 	return nil

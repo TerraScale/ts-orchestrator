@@ -127,12 +127,13 @@ func (r Release) validate() error {
 // Desired is the cell's newest release generation. Paused stops the executor
 // from starting another rollout; a rollout already running still finishes.
 type Desired struct {
-	OrderingFloor Release `json:"ordering_floor,omitzero"`
-	LegacyFloor   Release `json:"legacy_floor,omitzero"`
-	SchemaVersion int     `json:"schema_version"`
-	Cell          string  `json:"cell"`
-	Release       Release `json:"release,omitzero"`
-	Paused        bool    `json:"paused,omitzero"`
+	OrderingFloor       Release `json:"ordering_floor,omitzero"`
+	LegacyFloor         Release `json:"legacy_floor,omitzero"`
+	LegacyIssuanceFloor Release `json:"legacy_issuance_floor,omitzero"`
+	SchemaVersion       int     `json:"schema_version"`
+	Cell                string  `json:"cell"`
+	Release             Release `json:"release,omitzero"`
+	Paused              bool    `json:"paused,omitzero"`
 }
 
 // Generation is the newest generation, zero before the first release.
@@ -142,7 +143,7 @@ func (d Desired) validate(cell string) error {
 	if (d.SchemaVersion != SchemaVersion && d.SchemaVersion != DesiredSchemaVersion) || d.Cell != cell {
 		return fmt.Errorf("%w: desired release", ErrInvalid)
 	}
-	if d.SchemaVersion == SchemaVersion && (d.OrderingFloor.Generation != 0 || d.LegacyFloor.Generation != 0 || d.Release.ReleaseSequence != 0) {
+	if d.SchemaVersion == SchemaVersion && (d.OrderingFloor.Generation != 0 || d.LegacyFloor.Generation != 0 || d.LegacyIssuanceFloor.Generation != 0 || d.Release.ReleaseSequence != 0) {
 		return fmt.Errorf("%w: legacy desired schema carries sequence state", ErrInvalid)
 	}
 	if d.OrderingFloor.Generation > 0 {
@@ -153,12 +154,14 @@ func (d Desired) validate(cell string) error {
 			return fmt.Errorf("%w: ordering floor", ErrInvalid)
 		}
 	}
-	if d.LegacyFloor.Generation > 0 {
-		if err := d.LegacyFloor.validate(); err != nil {
-			return err
-		}
-		if d.LegacyFloor.ReleaseSequence != 0 {
-			return fmt.Errorf("%w: legacy ordering floor", ErrInvalid)
+	for _, floor := range []Release{d.LegacyFloor, d.LegacyIssuanceFloor} {
+		if floor.Generation > 0 {
+			if err := floor.validate(); err != nil {
+				return err
+			}
+			if floor.ReleaseSequence != 0 {
+				return fmt.Errorf("%w: legacy ordering floor", ErrInvalid)
+			}
 		}
 	}
 	if d.Release.Generation != 0 {
@@ -275,7 +278,7 @@ func (s *Store) publishRelease(ctx context.Context, epoch uint64, release Releas
 				return Release{}, err
 			}
 			if !retry {
-				if desired.SchemaVersion != DesiredSchemaVersion || desired.OrderingFloor.ReleaseSequence != next.OrderingFloor.ReleaseSequence || desired.LegacyFloor.Generation != next.LegacyFloor.Generation {
+				if desired.SchemaVersion != DesiredSchemaVersion || desired.OrderingFloor.ReleaseSequence != next.OrderingFloor.ReleaseSequence || desired.LegacyFloor.Generation != next.LegacyFloor.Generation || desired.LegacyIssuanceFloor.Generation != next.LegacyIssuanceFloor.Generation {
 					if err := s.writeDesired(ctx, epoch, next, revision); errors.Is(err, ErrConflict) {
 						continue
 					} else if err != nil {

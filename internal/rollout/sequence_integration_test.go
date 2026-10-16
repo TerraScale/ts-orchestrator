@@ -212,6 +212,12 @@ func TestSequencePublicationDurableBoundary(t *testing.T) {
 	if _, err := store.PublishRelease(ctx, 7, Release{Digest: otherBad, RunNumber: 999, Actor: "ci", CreatedAt: fixture.now}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("legacy floor bypass: %v", err)
 	}
+	if _, err := store.PublishRelease(ctx, 7, Release{Digest: otherBad, RunNumber: 1000, Actor: "ci", CreatedAt: fixture.now}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy run equivocation: %v", err)
+	}
+	if _, err := store.PublishRelease(ctx, 7, Release{Digest: otherBad, RunNumber: 1001, Actor: "ci", CreatedAt: fixture.now.Add(-time.Second)}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("legacy issuance regression: %v", err)
+	}
 	first := fixture.update(t, 1001, 1, toDigest, true)
 	admitted, err := store.PublishSequencedRelease(ctx, 7, first, fixture.roots, "GRU", "production")
 	if err != nil || admitted.RunNumber != 1 {
@@ -326,12 +332,13 @@ func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
 	store, _ := testStore(t)
 	ctx := t.Context()
 	// A pre-upgrade rollback leaves the greatest run outside the 64-generation window.
-	historical := Release{ID: generationKey(store.cell, 1), Generation: 1, Digest: fromDigest, RunNumber: 2000, Actor: "ci", CreatedAt: fixture.now}
+	historical := Release{ID: generationKey(store.cell, 1), Generation: 1, Digest: fromDigest, RunNumber: 2000, Actor: "ci", CreatedAt: fixture.now.Add(-2 * time.Minute)}
 	if err := store.retain(ctx, 7, historical); err != nil {
 		t.Fatal(err)
 	}
 	current := historical
 	current.ID, current.Generation, current.Digest, current.RunNumber = generationKey(store.cell, 100), 100, toDigest, 1
+	current.CreatedAt = fixture.now.Add(-time.Minute)
 	legacy := Desired{SchemaVersion: SchemaVersion, Cell: store.cell, Release: current}
 	wire, err := protocol.EncodeJSON(legacy)
 	if err != nil {
@@ -350,6 +357,21 @@ func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
 	migration.SequenceFloor = 2000
 	for i := range migration.Regions {
 		migration.Regions[i].RunNumber = 2000
+		migration.Regions[i].IssuedAt = fixture.now.Add(-3 * time.Minute)
+	}
+	fixture.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.migrationSHA, err = trust.Fingerprint(fixture.migration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.PublishSequencedRelease(ctx, 7, fixture.update(t, 2001, 1, otherBad, true), fixture.roots, "GRU", "production"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("migration erased independent legacy issuance floor: %v", err)
+	}
+	for i := range migration.Regions {
+		migration.Regions[i].IssuedAt = fixture.now
 	}
 	fixture.migration, err = release.SignSequenceMigration(migration, fixture.now, fixture.root)
 	if err != nil {
@@ -363,7 +385,7 @@ func TestSequenceMigrationSeedsAllLegacyHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	desired, _, err := store.Desired(ctx)
-	if err != nil || desired.SchemaVersion != DesiredSchemaVersion || desired.LegacyFloor.Generation != 1 || desired.LegacyFloor.RunNumber != 2000 || desired.OrderingFloor.ReleaseSequence != 2001 {
+	if err != nil || desired.SchemaVersion != DesiredSchemaVersion || desired.LegacyFloor.Generation != 1 || desired.LegacyFloor.RunNumber != 2000 || desired.LegacyIssuanceFloor.Generation != 100 || !desired.LegacyIssuanceFloor.CreatedAt.Equal(current.CreatedAt) || desired.OrderingFloor.ReleaseSequence != 2001 {
 		t.Fatalf("legacy schema migration lost evidence: %+v %v", desired, err)
 	}
 }
