@@ -8,6 +8,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"io"
 	"math"
 	"net/http"
@@ -200,7 +201,7 @@ func (location SequenceLocation) read(ctx context.Context, role, environment str
 		return head, "", false, fmt.Errorf("%w: sequence location", ErrInvalidReceipt)
 	}
 	name := SequenceObject(role, environment)
-	response, err := location.Client.GetObject(ctx, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
+	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
 	if sequenceHTTPStatus(err) == http.StatusNotFound {
 		return head, "", false, nil
 	}
@@ -317,6 +318,9 @@ func (location SequenceLocation) retainReservation(ctx context.Context, head seq
 	response, err := ociclient.ReadObject(ctx, location.Client, objectstorage.GetObjectRequest{NamespaceName: &location.Namespace, BucketName: &location.Bucket, ObjectName: &name})
 	if err != nil {
 		return nil, err
+	}
+	if response.Content == nil {
+		return nil, fmt.Errorf("%w: retained sequence reservation has no body", ErrInvalidReceipt)
 	}
 	defer response.Content.Close()
 	retained, err := io.ReadAll(io.LimitReader(response.Content, MaxWorkerFamilyEvidenceBytes+1))
