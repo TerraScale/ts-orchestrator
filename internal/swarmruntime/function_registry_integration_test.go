@@ -17,8 +17,19 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/gogo/protobuf/proto"
+	"github.com/moby/swarmkit/v2/agent/exec"
 	"github.com/moby/swarmkit/v2/api"
 )
+
+type functionRegistryRollbackExecutor struct{ functionSlotExecutor }
+
+func (functionRegistryRollbackExecutor) Controller(_ context.Context, task *api.Task) (exec.Controller, error) {
+	if _, err := DecodeContainer(task); err != nil {
+		return nil, err
+	}
+	return &serviceController{fail: task.ServiceAnnotations.Labels[labelReleaseSequence] == "102", done: make(chan struct{})}, nil
+}
 
 func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
@@ -32,7 +43,7 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	config.Admission.HostID = entityid.Derive("function-registry-host", t.Name())
 	config.Admission.ManagerAddress = workerConfig.Admission.ManagerAddress
 	config.Admission.JoinToken = clusters.Clusters[0].RootCA.JoinTokens.Worker
-	node, err := StartNode(ctx, config, functionSlotExecutor{})
+	node, err := StartNode(ctx, config, functionRegistryRollbackExecutor{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,8 +252,64 @@ func TestFunctionRegistryManagerIntegration(t *testing.T) {
 	if err := intent.VerifyWorkerFloor(ctx, client, worker); err == nil {
 		t.Fatal("previous worker pull authorization also authorized stale function material")
 	}
+	// Restore the fixed recipe before the genuine updater rolls back a rejected worker.
+	latest, err = client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &latest.Service.Meta.Version, Spec: service.Spec.Copy()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextWorkerSpec, err := intent.serviceSpec(current.proof, newWorker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: service.ID, ServiceVersion: &canonical.Service.Meta.Version, Spec: nextWorkerSpec}); err != nil {
+		t.Fatal(err)
+	}
+	var rollbackTask *api.Task
+	serviceEventually(t, ctx, func() bool {
+		actual, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: service.ID})
+		if err != nil || actual.Service == nil || actual.Service.UpdateStatus == nil || !proto.Equal(&actual.Service.Spec, &service.Spec) {
+			return false
+		}
+		switch actual.Service.UpdateStatus.State {
+		case api.UpdateStatus_ROLLBACK_STARTED, api.UpdateStatus_ROLLBACK_COMPLETED, api.UpdateStatus_ROLLBACK_PAUSED:
+		default:
+			return false
+		}
+		tasks, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{ServiceIDs: []string{service.ID}, DesiredStates: []api.TaskState{api.TaskStateRunning}}})
+		if err != nil {
+			return false
+		}
+		for _, candidate := range tasks.Tasks {
+			if candidate.ID != task.ID && candidate.Status.State == api.TaskStateRunning && intent.VerifyTask(candidate, actual.Service, current.proof, worker) == nil {
+				rollbackTask = candidate
+				return true
+			}
+		}
+		return false
+	})
+	rollbackBundle, err := intent.WorkerBundleForTask(ctx, client, rollbackTask)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollbackWorker, err := release.VerifyContainerCurrent(ctx, rollbackBundle, roots, target, time.Now().UTC(), deadline, readEvidence, allocations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyFunctionRegistryTask(ctx, client, rollbackTask, intent, current, rollbackWorker); err != nil {
+		t.Fatal("actual current rollback task could not pull its qualified retained worker: ", err)
+	}
+	if err := VerifyFunctionRegistryTask(ctx, client, rollbackTask, intent, current, newWorker); err == nil {
+		t.Fatal("rollback status authorized a different worker bundle")
+	}
+	if err := intent.VerifyWorkerFloor(ctx, client, rollbackWorker); err == nil {
+		t.Fatal("rollback image pull also authorized superseded worker material")
+	}
 	current.proof = functionProof(2)
-	if err := VerifyFunctionRegistryTask(ctx, client, task, intent, current, worker); err == nil {
-		t.Fatal("previous service recipe authorized a superseded function proof")
+	if err := VerifyFunctionRegistryTask(ctx, client, rollbackTask, intent, current, rollbackWorker); err == nil {
+		t.Fatal("rollback status authorized a superseded function proof")
 	}
 }
