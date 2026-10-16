@@ -116,11 +116,11 @@ func writeStatefulGuardFixture(t *testing.T, guard StatefulRuntimeGuard, private
 		Epoch     uint64         `json:"epoch"`
 		Operation string         `json:"operation"`
 		Payload   jsontext.Value `json:"payload"`
-	}{nonce, guard.Identity.HostNode, guard.Identity.HostSessionID, guard.Epoch, "runtime-effect", material})
+	}{nonce, guard.Identity.HostNode, guard.Identity.HostSessionID, guard.HostEpoch, "runtime-effect", material})
 	if err != nil {
 		t.Fatal(err)
 	}
-	envelope, err := protocol.SignEnvelope(response, protocol.EnvelopeScope{Region: guard.Identity.Cell, Kind: "host.response.runtime-effect", Actor: "controller", OperationID: entityid.Derive("host-request", nonce), Epoch: guard.Epoch}, now, now.Add(10*time.Second), private)
+	envelope, err := protocol.SignEnvelope(response, protocol.EnvelopeScope{Region: guard.Identity.Cell, Kind: "host.response.runtime-effect", Actor: "controller", OperationID: entityid.Derive("host-request", nonce), Epoch: guard.HostEpoch}, now, now.Add(10*time.Second), private)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestContainerdStatefulGuardSurvivesAgentExit(t *testing.T) {
 				t.Fatal(err)
 			}
 			deadline := time.Now().UTC().Add(10 * time.Second)
-			guard := StatefulRuntimeGuard{CachePath: filepath.Join(root, hash+".json"), Identity: identity, ControllerPublicKey: public, TaskSHA256: hash, AdmissionSHA256: admission, EffectID: payload.EffectID, Epoch: 1, HostEpoch: 1, Revision: 2, Deadline: deadline}
+			guard := StatefulRuntimeGuard{CachePath: filepath.Join(root, hash+".json"), Identity: identity, ControllerPublicKey: public, TaskSHA256: hash, AdmissionSHA256: admission, EffectID: payload.EffectID, Epoch: 1, HostEpoch: 7, Revision: 2, Deadline: deadline}
 			writeStatefulGuardFixture(t, guard, private, 2, deadline)
 			fixture := statefulGuardFixture{Socket: *integrationSocket, Logs: filepath.Join(root, "logs"), ContainerID: "ts-" + payload.TaskID, Guard: guard}
 			data, err := json.Marshal(fixture)
