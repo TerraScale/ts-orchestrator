@@ -123,6 +123,8 @@ func Run(ctx context.Context, args []string, output io.Writer) (err error) {
 		observability.ConfigureDefault(logger)
 	}
 	switch args[0] {
+	case "managed-host-start":
+		return app.RunAutomaticBootstrap(ctx, args[1:])
 	case "managed-runtime-start":
 		return app.RunManagedRuntime(ctx, args[1:], output)
 	case "observe":

@@ -411,6 +411,52 @@ func validateAutomaticAuthorityRendering(authority bootstrap.DerivedStartupAutho
 	return nil
 }
 
+// installedAutomaticStartup restores only the durable same-grant proof. Its
+// source objects always live in the signed home domain, including on spokes.
+func installedAutomaticStartup(ctx context.Context) (automaticFoundation, bootstrap.DerivedStartupAuthority, bool, error) {
+	fail := func(err error) (automaticFoundation, bootstrap.DerivedStartupAuthority, bool, error) {
+		return automaticFoundation{}, bootstrap.DerivedStartupAuthority{}, true, err
+	}
+	missing := 0
+	for _, name := range []string{automaticStartupGrantFilename, automaticStartupAuthorityFilename} {
+		if _, err := os.Lstat(filepath.Join(controllerConfigDirectory, name)); errors.Is(err, os.ErrNotExist) {
+			missing++
+		} else if err != nil {
+			return fail(err)
+		}
+	}
+	if missing == 2 {
+		return automaticFoundation{}, bootstrap.DerivedStartupAuthority{}, false, nil
+	}
+	if missing != 0 {
+		return fail(errors.New("durable automatic startup authority is incomplete"))
+	}
+	local, err := foundationDiscovery(ctx)
+	if err != nil {
+		return fail(err)
+	}
+	home, err := local.anchor.FoundationScope()
+	if err != nil {
+		return fail(err)
+	}
+	factory, err := local.factory.ForRegion(home.OCIRegion)
+	if err != nil {
+		return fail(err)
+	}
+	objects, err := factory.ObjectStorage()
+	if err != nil {
+		return fail(err)
+	}
+	derived, present, err := loadAutomaticStartupAuthority(ctx, local.factory, local.anchor, local.baked.Roots, &objects)
+	if err != nil {
+		return fail(err)
+	}
+	if !present {
+		return fail(errors.New("durable automatic startup authority disappeared while loading"))
+	}
+	return local, derived, true, nil
+}
+
 func loadAutomaticStartupAuthority(ctx context.Context, factory *ociclient.Factory, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring,
 	objects bootstrap.ObjectStorageClient,
 ) (bootstrap.DerivedStartupAuthority, bool, error) {
