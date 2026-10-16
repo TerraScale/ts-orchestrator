@@ -3,6 +3,7 @@ package ociclient
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/rand/v2"
@@ -78,6 +79,21 @@ func (e *readTransportError) Error() string { return e.err.Error() }
 func (e *readTransportError) Unwrap() error { return e.err }
 
 func (d readDispatcher) Do(request *http.Request) (*http.Response, error) {
+	if request.Method != http.MethodGet && request.Method != http.MethodHead && request.Method != http.MethodOptions {
+		if acquire, ok := request.Context().Value(admissionKey{}).(func(context.Context) (func(), error)); ok {
+			if acquire == nil {
+				return nil, errors.New("OCI write admission is unavailable")
+			}
+			release, err := acquire(request.Context())
+			if err != nil {
+				return nil, fmt.Errorf("OCI write admission: %w", err)
+			}
+			if release == nil {
+				return nil, errors.New("OCI write admission did not fence current authority")
+			}
+			defer release()
+		}
+	}
 	response, err := d.next.Do(request)
 	if original := originalReadContext(request.Context()); original != nil && err != nil {
 		return response, &readTransportError{err: err, ctx: original}
