@@ -5,8 +5,9 @@ host-key pins, and an owner-only ephemeral SSH key. The parent must authenticate
 actual OCI confinement and host ownership before calling it. A `/run` marker is
 an additional accident guard, not cloud authorization.
 
-`OpenSession(SessionConfig)` exposes this same transport to other qualification
-workers without creating Swarm topology. It always uses root SSH on port 22,
+`tests/imagequalification/host` owns shared host observations, report DTOs and
+`OpenSession(SessionConfig)` without a CORE/runtime dependency. Native retains
+public type aliases and protocol adapters. The transport always uses root SSH on port 22,
 checks the local/remote worker digest and starts only `worker serve`.
 `Session.UploadFile` requires an explicit basename and SHA256, checks both ends,
 and rejects overwrites. `Session.Exchange` uses strict JSON with a 1 MiB frame

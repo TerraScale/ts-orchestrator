@@ -301,12 +301,16 @@ func publicIdentity(wire []byte) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), fingerprintDER(der), nil
+}
+
+func fingerprintDER(der []byte) string {
 	digest := md5.Sum(der)
 	parts := make([]string, len(digest))
 	for i, b := range digest {
 		parts[i] = fmt.Sprintf("%02x", b)
 	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), strings.Join(parts, ":"), nil
+	return strings.Join(parts, ":")
 }
 
 func validFingerprint(value string) bool {

@@ -1,6 +1,7 @@
 package confinement
 
 import (
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -9,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json/v2"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -28,7 +30,7 @@ import (
 // This scenario traverses the actual OCI clients, HTTP signing and paginated
 // protocol. The local endpoint is a provider simulator, never live acceptance.
 func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
-	for _, mode := range []string{"valid", "home-region", "late-policy", "late-membership", "late-dynamic-group", "dynamic-rule-overlap", "dynamic-rule-compound", "dynamic-profile-missing", "ambiguous-group", "domain-subject", "policy-extra", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
+	for _, mode := range []string{"valid", "cancel-read", "home-region", "late-policy", "late-membership", "late-dynamic-group", "dynamic-rule-overlap", "dynamic-rule-compound", "dynamic-profile-missing", "ambiguous-group", "domain-subject", "policy-extra", "policy-compartment", "console-create-late", "console-content-unbounded", "public-route", "external-egress", "foreign-host", "foreign-subnet", "descendant-compartment", "key-mismatch", "pagination-loop"} {
 		t.Run(mode, func(t *testing.T) {
 			s := Scope{ApprovalSHA256: strings.Repeat("a", 64), RunID: "exact-run", Tenancy: "ocid1.tenancy.oc1..test", Principal: "ocid1.user.oc1..candidate", Group: "ocid1.group.oc1..candidate", PolicyID: "ocid1.policy.oc1..candidate", Compartment: "ocid1.compartment.oc1..disposable", Subnet: "ocid1.subnet.oc1..disposable", Namespace: "qualification", Bucket: "disposable", Object: "qualification/exact-run/image.qcow2", RunnerCIDR: "10.72.0.1/32", PeerCIDR: "10.72.1.0/24", VCNCIDR: "10.72.0.0/16", HostNames: []string{"ts-qualification-exact-run-host"}, ExpiresAt: time.Now().Add(time.Hour).Truncate(time.Second), CleanupUntil: time.Now().Add(2 * time.Hour).Truncate(time.Second)}
 			s.PolicyStatements = RequiredStatements(s)
@@ -48,10 +50,17 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 			}
 			observer := factory("ocid1.user.oc1..reader", "reader-fingerprint")
 			candidate := factory(s.Principal, "candidate-fingerprint")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
 			var requests, writes atomic.Int32
 			var drift atomic.Bool
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
+				if mode == "cancel-read" {
+					cancel()
+					<-r.Context().Done()
+					return
+				}
 				if r.Method != http.MethodGet {
 					writes.Add(1)
 					http.Error(w, "read-only observer", http.StatusForbidden)
@@ -158,15 +167,25 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 							write([]identity.Policy{{Id: new("ocid1.policy.oc1..admin"), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: []string{"Allow group " + subject + " to manage all-resources in tenancy", "Allow dynamic-group gru-1-controllers to read secret-bundles in compartment id ocid1.compartment.oc1..production"}}})
 						} else if mode == "late-policy" || drift.Load() {
 							write([]identity.Policy{{Id: new("ocid1.policy.oc1..unknown"), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: []string{"Allow any-user to manage all-resources in tenancy"}}})
-						} else {
+						} else if mode == "policy-compartment" {
 							write([]identity.Policy{})
+						} else {
+							statements := s.PolicyStatements
+							if mode == "policy-extra" {
+								statements = append(append([]string{}, statements...), "Allow group id "+s.Group+" to manage all-resources in tenancy")
+							}
+							if mode == "console-create-late" {
+								statements = append(append([]string{}, statements...), fmt.Sprintf("Allow group id %s to manage console-histories in compartment id %s where all {request.utc-timestamp < '%s', request.operation='CaptureConsoleHistory'}", s.Group, s.Compartment, s.CleanupUntil.UTC().Format(time.RFC3339)))
+							}
+							if mode == "console-content-unbounded" {
+								statements = append(append([]string{}, statements...), "Allow group id "+s.Group+" to read console-histories in tenancy")
+							}
+							write([]identity.Policy{{Id: new(s.PolicyID), CompartmentId: new(s.Tenancy), LifecycleState: identity.PolicyLifecycleStateActive, Statements: statements}})
 						}
+					} else if mode == "policy-compartment" {
+						write([]identity.Policy{{Id: new(s.PolicyID), CompartmentId: new(s.Compartment), LifecycleState: identity.PolicyLifecycleStateActive, Statements: s.PolicyStatements}})
 					} else {
-						statements := s.PolicyStatements
-						if mode == "policy-extra" {
-							statements = append(append([]string{}, statements...), "Allow group id "+s.Group+" to manage all-resources in tenancy")
-						}
-						write([]identity.Policy{{Id: new(s.PolicyID), CompartmentId: new(s.Compartment), LifecycleState: identity.PolicyLifecycleStateActive, Statements: statements}})
+						write([]identity.Policy{})
 					}
 				case path == "/subnets/"+s.Subnet:
 					write(core.Subnet{Id: new(s.Subnet), CompartmentId: new(s.Compartment), VcnId: new("ocid1.vcn.oc1..disposable"), RouteTableId: new("ocid1.routetable.oc1..disposable"), CidrBlock: new(s.PeerCIDR), ProhibitPublicIpOnVnic: new(true), SecurityListIds: []string{"ocid1.securitylist.oc1..disposable"}, LifecycleState: core.SubnetLifecycleStateAvailable})
@@ -210,7 +229,10 @@ func TestSDKConfinementInventoryAndPreEffectRevalidation(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			verified, err := observe(t.Context(), observer, candidate, s, server.URL, time.Now())
+			verified, err := observe(ctx, observer, candidate, s, server.URL, time.Now())
+			if mode == "cancel-read" && !errors.Is(err, context.Canceled) {
+				t.Fatalf("SDK cancellation lost caller context: %v", err)
+			}
 			if mode != "valid" {
 				if err == nil || verified.Factory() != nil {
 					t.Fatal("unsafe OCI state produced verified authority")
@@ -269,4 +291,16 @@ func validSignature(r *http.Request, key *rsa.PublicKey, tenancyPrefix string) b
 	}
 	digest := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	return rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], signature) == nil
+}
+
+func TestUnsafeSDKEnvironmentBlocksBeforeRequests(t *testing.T) {
+	for _, name := range ociclient.SecretUnsafeEnv {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "unsafe-value-must-not-be-printed")
+			verified, err := Observe(t.Context(), nil, nil, Scope{})
+			if err == nil || !strings.Contains(err.Error(), "unsafe OCI SDK environment") || strings.Contains(err.Error(), "unsafe-value-must-not-be-printed") || verified.Factory() != nil {
+				t.Fatal("unsafe SDK environment was not rejected before client construction")
+			}
+		})
+	}
 }

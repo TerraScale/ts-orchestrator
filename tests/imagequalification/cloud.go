@@ -33,7 +33,7 @@ type cloud struct {
 	prepared Prepared
 	compute  core.ComputeClient
 	objects  objectstorage.ObjectStorageClient
-	uploader imageimport.API
+	uploader imageimport.ObjectUploader
 	now      func() time.Time
 }
 

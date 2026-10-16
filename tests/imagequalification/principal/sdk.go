@@ -54,6 +54,35 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 	if tenancy != prep.Tenancy || user != prep.IssuerPrincipal || fingerprint != prep.IssuerFingerprint {
 		return nil, errors.New("issuer authenticated credential differs from signed preparation")
 	}
+	auth, err := provider.AuthType()
+	if err != nil || (auth.AuthType != common.UserPrincipal && auth.AuthType != common.UnknownAuthenticationType) || auth.OboToken != nil {
+		return nil, errors.New("issuer requires direct IAM API-key authentication")
+	}
+	keyID, err := provider.KeyID()
+	if err != nil || keyID != prep.Tenancy+"/"+prep.IssuerPrincipal+"/"+prep.IssuerFingerprint {
+		return nil, errors.New("issuer signing identity differs from signed preparation")
+	}
+	key, err := provider.PrivateRSAKey()
+	if err != nil || key == nil || key.N == nil || key.N.BitLen() < 2048 {
+		return nil, errors.New("issuer RSA signing key unavailable")
+	}
+	if err := key.Validate(); err != nil {
+		return nil, errors.New("invalid issuer RSA signing key")
+	}
+	// Serialize once and freeze the signing key with its checked identity. A
+	// refreshable source provider must never select a different request caller.
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	defer clear(keyPEM)
+	block, _ := pem.Decode(keyPEM)
+	frozenKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return nil, errors.New("invalid issuer RSA signing key")
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(&frozenKey.PublicKey)
+	if err != nil || fingerprintDER(publicDER) != prep.IssuerFingerprint {
+		return nil, errors.New("issuer private key differs from signed API fingerprint")
+	}
+	frozen := common.NewRawConfigurationProvider(prep.Tenancy, prep.IssuerPrincipal, prep.IAMRegion, prep.IssuerFingerprint, string(keyPEM), nil)
 	s, err := openStore(workdir)
 	if err != nil {
 		return nil, err
@@ -63,11 +92,13 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 		s.close()
 		return nil, err
 	}
-	client, err := p.issuer.Identity()
+	client, err := identity.NewIdentityClientWithConfigurationProvider(frozen)
 	if err != nil {
 		s.close()
 		return nil, err
 	}
+	client.SetRegion(prep.IAMRegion)
+	p.issuer.Configure(&client.BaseClient, ociclient.ServiceIdentity)
 	ociclient.PinHost(&client.BaseClient, p.endpoint)
 	a := &attempt{producer: p, verified: v, store: s, journal: j, client: client}
 	previous := a.client.Interceptor
@@ -118,6 +149,14 @@ func (p *Producer) attempt(ctx context.Context, v VerifiedPreparation, workdir s
 
 func (a *attempt) authenticate(ctx context.Context) error {
 	p := a.verified.preparation
+	tenancy, err := a.client.GetTenancy(ociclient.RequestContext(ctx), identity.GetTenancyRequest{TenancyId: new(p.Tenancy)})
+	if err != nil {
+		return err
+	}
+	home, err := ociclient.TenancyHomeRegion(tenancy.HomeRegionKey)
+	if err != nil || value(tenancy.Id) != p.Tenancy || home != p.IAMRegion {
+		return errors.New("issuer tenancy home differs from independently signed IAM region")
+	}
 	u, err := a.client.GetUser(ociclient.RequestContext(ctx), identity.GetUserRequest{UserId: new(p.IssuerPrincipal)})
 	if err != nil {
 		return err
@@ -243,7 +282,7 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 		if group == "" {
 			return errors.New("policy lacks actual created group identity")
 		}
-		details := identity.CreatePolicyDetails{CompartmentId: new(p.Compartment), Name: new(p.PolicyName), Description: new(a.description()), Statements: confinement.RequiredStatements(p.scope(group))}
+		details := identity.CreatePolicyDetails{CompartmentId: new(p.Tenancy), Name: new(p.PolicyName), Description: new(a.description()), Statements: confinement.RequiredStatements(p.scope(group))}
 		_, err := a.create(ctx, "policy", details, func(token string) (string, error) {
 			r, err := a.client.CreatePolicy(ociclient.RequestContext(ctx), identity.CreatePolicyRequest{CreatePolicyDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			return value(r.Id), err
@@ -257,13 +296,13 @@ func (a *attempt) prepare(ctx context.Context, recoverOnly bool) error {
 		if user == "" {
 			return errors.New("API key lacks actual created user identity")
 		}
-		details := identity.UploadApiKeyDetails{Key: new(p.PublicKeyPEM)}
+		details := identity.CreateApiKeyDetails{Key: new(p.PublicKeyPEM)}
 		request := struct {
 			User    string                       `json:"user"`
-			Details identity.UploadApiKeyDetails `json:"details"`
+			Details identity.CreateApiKeyDetails `json:"details"`
 		}{user, details}
 		_, err := a.create(ctx, "key", request, func(token string) (string, error) {
-			r, err := a.client.UploadApiKey(ociclient.RequestContext(ctx), identity.UploadApiKeyRequest{UserId: new(user), UploadApiKeyDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
+			r, err := a.client.UploadApiKey(ociclient.RequestContext(ctx), identity.UploadApiKeyRequest{UserId: new(user), CreateApiKeyDetails: details, OpcRetryToken: new(token), OpcRequestId: new(token)})
 			if err == nil && (value(r.UserId) != user || value(r.KeyValue) != p.PublicKeyPEM) {
 				return "", errors.New("uploaded key response differs from exact signed key and user")
 			}
@@ -386,7 +425,7 @@ func (a *attempt) observe(ctx context.Context, name string) (bool, string, error
 		r, err = a.client.GetPolicy(ociclient.RequestContext(ctx), identity.GetPolicyRequest{PolicyId: new(id)})
 		etag = value(r.Etag)
 		if err == nil {
-			if value(r.Id) != id || value(r.CompartmentId) != p.Compartment || value(r.Name) != p.PolicyName || value(r.Description) != a.description() || !slices.Equal(r.Statements, confinement.RequiredStatements(p.scope(a.id("group")))) {
+			if value(r.Id) != id || value(r.CompartmentId) != p.Tenancy || value(r.Name) != p.PolicyName || value(r.Description) != a.description() || !slices.Equal(r.Statements, confinement.RequiredStatements(p.scope(a.id("group")))) {
 				return true, "", errors.New("created policy observation differs from exact canonical request")
 			}
 			active = r.LifecycleState == identity.PolicyLifecycleStateActive

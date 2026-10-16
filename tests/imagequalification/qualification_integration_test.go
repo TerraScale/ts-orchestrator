@@ -63,7 +63,7 @@ func fixture(t *testing.T) qualificationFixture {
 		Group: "ocid1.group.oc1..fixture", PolicyID: "ocid1.policy.oc1..fixture", PolicyStatements: []string{"fixture-exact-confined-policy"},
 		RunnerCIDR: "10.9.0.1/32", PeerCIDR: "10.8.0.0/24", VCNCIDR: "10.8.0.0/15", WorkloadImage: "example.invalid/probe@sha256:" + hashBytes([]byte("image")),
 		WorkloadArchiveSHA256: hashBytes([]byte("archive")), ImageBytes: int64(len(disk)), MaxSpendMicros: 10_000_000,
-		CleanupUntil: now.Add(2 * time.Hour), BinarySHA256: q.Artifacts[1].SHA256, KernelSHA256: hashBytes([]byte("kernel")),
+		KernelRelease: "6.12.fixture", CleanupUntil: now.Add(2 * time.Hour), BinarySHA256: q.Artifacts[1].SHA256, KernelSHA256: hashBytes([]byte("kernel")),
 		ContainerdSHA256: hashBytes([]byte("containerd")), RuncSHA256: hashBytes([]byte("runc")), RunnerSHA256: hashBytes([]byte("runner"))}
 	a.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification", a.RunID), Cell: a.Candidate.Cell, Environment: a.Candidate.Environment}
 	for _, scenario := range []string{"ready", "after-loss", "after-partition", "unready", "failed-update"} {
@@ -388,5 +388,30 @@ func TestCleanupTerminatesKnownHostsWhileRetainingUnresolvedIntent(t *testing.T)
 	}
 	if len(retained.Terminated) != 1 || retained.ImageDeleted || retained.ObjectDeleted || remote.image == nil || remote.object == nil || remote.deletes != 1 {
 		t.Fatalf("known host not terminated or recovery resources deleted: %+v", retained)
+	}
+}
+
+func TestApprovalKeepsNetBirdAndManagerTopologyDistinct(t *testing.T) {
+	a := fixture(t).prepared.Approval()
+	a.Candidate.Role, a.Candidate.Runtime = "netbird-manager", "netbird-containerd"
+	a.ProfileIdentity, a.MaterialFixtures = cellspec.Identity{}, nil
+	a.WorkloadImage, a.WorkloadArchiveSHA256 = "", ""
+	a.ClientSHA256 = hashBytes([]byte("netbird-client"))
+	a.Hosts = a.Hosts[:2]
+	a.Hosts[0].Role, a.Hosts[1].Role = "netbird-primary", "netbird-replacement"
+	for _, role := range []string{"server", "dashboard", "ingress"} {
+		a.ContainerArtifacts = append(a.ContainerArtifacts, ContainerArtifactApproval{Role: role, Image: "example.invalid/" + role + "@sha256:" + hashBytes([]byte(role)), ArchiveSHA256: hashBytes([]byte(role + "-archive"))})
+	}
+	if err := a.validate(); err != nil {
+		t.Fatal(err)
+	}
+	a.Hosts[1].Role = "manager"
+	if err := a.validate(); err == nil {
+		t.Fatal("Swarm host accepted as NetBird replacement")
+	}
+	a.Hosts[1].Role = "netbird-replacement"
+	a.Candidate.Runtime = release.ProductionRuntime
+	if err := a.validate(); err == nil {
+		t.Fatal("ordinary manager runtime accepted as dedicated NetBird")
 	}
 }
