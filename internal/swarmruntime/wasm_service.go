@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
@@ -43,7 +42,7 @@ type FunctionServiceIntent struct {
 }
 
 func (i FunctionServiceIntent) serviceSpec(function release.VerifiedFunction, worker release.VerifiedContainer) (*api.ServiceSpec, error) {
-	if !function.Valid() || worker.Fingerprint() == "" || !entityid.Valid(i.TenantID) || !intentName.MatchString(i.FunctionID) || !intentName.MatchString(i.Region) {
+	if !function.Valid() || !worker.Valid(time.Now().UTC()) || !entityid.Valid(i.TenantID) || !intentName.MatchString(i.FunctionID) || !intentName.MatchString(i.Region) {
 		return nil, errors.New("function service requires current signed function and qualified worker")
 	}
 	f, w := function.Claim(), worker.Claim()
@@ -105,11 +104,10 @@ func (i FunctionServiceIntent) VerifyTask(task *api.Task, service *api.Service, 
 func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api.ControlClient, worker release.VerifiedContainer) error {
 	region, known := catalog.CellForOCIRegion(i.Region)
 	claim := worker.Claim()
-	if !known || worker.Fingerprint() == "" || claim.Cell != region.Cell || claim.Environment != i.Environment || claim.Role != FunctionWorkerRole || claim.Architecture != i.Architecture {
+	if !known || !worker.Valid(time.Now().UTC()) || claim.Cell != region.Cell || claim.Environment != i.Environment || claim.Role != FunctionWorkerRole || claim.Architecture != i.Architecture {
 		return errors.New("worker release differs from admitted function target")
 	}
-	cell := strings.ToLower(region.Cell)
-	identity := sha256.Sum256([]byte(i.Environment + "/" + cell + "/" + FunctionWorkerRole))
+	identity := sha256.Sum256([]byte(i.Environment + "/" + i.Region + "/" + FunctionWorkerRole))
 	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{fmt.Sprintf("ts-release-%x", identity[:16])}}})
 	if err != nil {
 		return err
@@ -118,7 +116,7 @@ func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api
 		return errors.New("qualified worker has no unique durable release floor")
 	}
 	floor := listed.Configs[0]
-	for key, value := range map[string]string{LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region), LabelRole: FunctionWorkerRole, LabelRegion: cell, LabelEnvironment: i.Environment} {
+	for key, value := range map[string]string{LabelIntentID: entityid.Derive("function-worker-release", i.Environment, i.Region), LabelRole: FunctionWorkerRole, LabelRegion: i.Region, LabelEnvironment: i.Environment} {
 		if floor.Spec.Annotations.Labels[key] != value {
 			return errors.New("worker release floor ownership or target mismatch")
 		}
@@ -135,6 +133,9 @@ func (i FunctionServiceIntent) VerifyWorkerFloor(ctx context.Context, client api
 	}
 	if fingerprint != claim.SequenceMigrationSHA256 || floor.Spec.Annotations.Labels[labelReleaseSequence] != strconv.FormatUint(claim.ReleaseSequence, 10) || floor.Spec.Annotations.Labels[labelReleaseFingerprint] != worker.ReleaseIdentity() {
 		return errors.New("qualified worker release floor differs or was superseded")
+	}
+	if !worker.Valid(time.Now().UTC()) {
+		return errors.New("worker authorization expired during release floor verification")
 	}
 	return ctx.Err()
 }
@@ -211,7 +212,7 @@ func ApplyFunctionService(ctx context.Context, client api.ControlClient, intent 
 	if err := checkIntent(); err != nil {
 		return nil, err
 	}
-	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: strings.ToLower(region.Cell), Environment: intent.Environment}
+	workerIntent := ServiceIntent{ID: entityid.Derive("function-worker-release", intent.Environment, intent.Region), Role: FunctionWorkerRole, Region: intent.Region, Environment: intent.Environment}
 	_, err = reserveReleaseFloor(ctx, client, workerIntent, worker, roots, retained, 0)
 	if err != nil {
 		return nil, err
