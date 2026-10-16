@@ -675,6 +675,7 @@ func launchDetails(recipe Recipe, compartmentID, operationID string) *core.Insta
 		CreateVnicDetails: &core.InstanceConfigurationCreateVnicDetails{AssignPublicIp: common.Bool(false), NsgIds: recipe.NSGIDs},
 		Metadata:          recipe.Metadata,
 		InstanceOptions:   &core.InstanceConfigurationInstanceOptions{AreLegacyImdsEndpointsDisabled: new(true)},
+		LicensingConfigs:  []core.LaunchInstanceLicensingConfig{},
 		FreeformTags:      launchTags(recipe, roleNode, operationID),
 	}
 }
