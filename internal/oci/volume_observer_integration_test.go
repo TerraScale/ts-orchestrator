@@ -39,9 +39,22 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { runtime.Close() })
+	if _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1); err == nil {
+		t.Fatal("journal reader opened an absent bucket")
+	}
+	if _, err := runtime.JetStream().KeyValue(t.Context(), journalBucket); err == nil {
+		t.Fatal("journal reader created an absent bucket")
+	}
 	journal, err := OpenJournal(t.Context(), runtime.JetStream(), 1)
 	if err != nil {
 		t.Fatal(err)
+	}
+	reader, err := OpenJournalReader(t.Context(), runtime.JetStream(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenJournalReader(t.Context(), runtime.JetStream(), 2); err == nil {
+		t.Fatal("journal reader ignored the required regional replicas")
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -55,6 +68,26 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	observer, err := NewVolumeMountObserver(factory, config, intent, journal)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The running host uses a signed allow-list image rather than the new pin.
+	fleetConfig := config
+	fleetConfig.ImageID = "ocid1.image.oc1.sa-saopaulo-1.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	images := &allowListImageVerifier{allowed: []string{config.ImageID}}
+	fleetReader, err := NewFleetObserver(fleetConfig, intent, factory, reader, images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fleetReader.(Fleet); ok {
+		t.Fatal("read-only observer exposed fleet mutations")
+	}
+	if _, ok := any(reader).(Journal); ok {
+		t.Fatal("opaque reader exposed journal mutations")
+	}
+	if _, err := NewFleetObserver(config, intent, factory, reader, nil); err == nil {
+		t.Fatal("fleet observer accepted a missing image verifier")
+	}
+	if _, err := NewFleetObserver(config, intent, factory, JournalReader{}, images); err == nil {
+		t.Fatal("fleet observer accepted a zero journal reader")
 	}
 	instanceID, oldID := "ocid1.instance.oc1.sa-saopaulo-1.recipient", "ocid1.instance.oc1.sa-saopaulo-1.predecessor"
 	volumeID, attachmentID := "ocid1.volume.oc1.sa-saopaulo-1.retained", "ocid1.volumeattachment.oc1.sa-saopaulo-1.current"
@@ -120,6 +153,11 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		w.Header().Set("etag", "instance-v1")
 		var value any
 		switch {
+		case strings.HasSuffix(r.URL.Path, "/instances"):
+			if r.URL.Query().Get("compartmentId") != config.CompartmentID {
+				t.Error("fleet observer widened its regional compartment query")
+			}
+			value = []map[string]any{instances[instanceID]}
 		case strings.Contains(r.URL.Path, "/instances/"):
 			_, id, _ := strings.CutLast(r.URL.Path, "/")
 			if mode.Load() == 9 {
@@ -146,7 +184,11 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		case strings.HasSuffix(r.URL.Path, "/vnicAttachments"):
 			value = []map[string]any{{"instanceId": r.URL.Query().Get("instanceId"), "vnicId": "ocid1.vnic.oc1.sa-saopaulo-1.private", "lifecycleState": "ATTACHED"}}
 		case strings.Contains(r.URL.Path, "/vnics/"):
-			value = map[string]any{"id": "ocid1.vnic.oc1.sa-saopaulo-1.private", "subnetId": config.SubnetID, "privateIp": "10.251.0.21", "lifecycleState": "AVAILABLE", "nsgIds": config.NetworkSecurityGroupIDs}
+			subnet := config.SubnetID
+			if mode.Load() == 8 {
+				subnet = "ocid1.subnet.oc1.sa-saopaulo-1.foreign"
+			}
+			value = map[string]any{"id": "ocid1.vnic.oc1.sa-saopaulo-1.private", "subnetId": subnet, "privateIp": "10.251.0.21", "lifecycleState": "AVAILABLE", "nsgIds": config.NetworkSecurityGroupIDs}
 		case strings.Contains(r.URL.Path, "/volumes/"):
 			value = map[string]any{"id": volumeID, "compartmentId": config.CompartmentID, "availabilityDomain": config.AvailabilityDomain, "lifecycleState": "AVAILABLE", "sizeInGBs": 50, "vpusPerGB": 10,
 				"freeformTags": volumeTags(config, VolumeCreateRequest{CreateKey: volumeKey, SizeGB: 50})}
@@ -192,12 +234,53 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	for _, client := range []*common.BaseClient{&sdk.compute.BaseClient, &sdk.storage.BaseClient, &sdk.network.BaseClient} {
 		ociclient.PinHost(client, server.URL)
 	}
+	fleetSDK := fleetReader.(*fleetObserver).reader.provider.(fleetObservationProvider).Provider.(*sdkProvider)
+	for _, client := range []*common.BaseClient{&fleetSDK.compute.BaseClient, &fleetSDK.storage.BaseClient, &fleetSDK.network.BaseClient} {
+		ociclient.PinHost(client, server.URL)
+	}
 	pins := VolumeInitializationPins{DatabaseID: database, PartitionID: partition, InstanceID: instanceID, HostCreateKey: hostKey, VolumeID: volumeID,
 		AttachmentID: attachmentID, AttachmentETag: "attachment-v1", Device: device, FileSystemUUID: "12345678-1234-1234-1234-123456789abc", FileSystemType: "ext4"}
 	before, err := journal.kv.Status(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
+	stream, err := runtime.JetStream().Stream(t.Context(), "KV_"+journalBucket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lastSequence := func() uint64 {
+		t.Helper()
+		info, err := stream.Info(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info.State.LastSeq
+	}
+	sequence := lastSequence()
+	cachedContext := WithCachedVerification(t.Context())
+	selected := func(id, node string) bool { return id == instanceID && node == hostNode(config, hostKey) }
+	if hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err != nil || len(hosts) != 1 || hosts[0].ID != instanceID || hosts[0].BootDescriptorSHA256 != descriptorDigest {
+		t.Fatalf("read-only fleet did not preserve allow-listed host verification: hosts=%+v err=%v", hosts, err)
+	}
+	if hosts, err := fleetReader.Observe(t.Context()); err != nil || len(hosts) != 1 {
+		t.Fatalf("read-only fleet sweep failed: hosts=%+v err=%v", hosts, err)
+	}
+	if _, err := fleetReader.ObserveSelected(t.Context(), nil); err == nil {
+		t.Fatal("read-only fleet accepted a nil selector")
+	}
+	if hosts, err := fleetReader.ObserveSelected(t.Context(), func(string, string) bool { return false }); err != nil || len(hosts) != 0 {
+		t.Fatalf("read-only fleet ignored its selector: hosts=%+v err=%v", hosts, err)
+	}
+	images.allowed = nil
+	if hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {
+		t.Fatalf("read-only fleet admitted an image removed from the allow-list: hosts=%+v err=%v", hosts, err)
+	}
+	images.allowed = []string{config.ImageID}
+	mode.Store(8)
+	if hosts, err := fleetReader.ObserveSelected(cachedContext, selected); err == nil && len(hosts) != 0 {
+		t.Fatal("read-only fleet reused cached network verification during registration")
+	}
+	mode.Store(0)
 	observation, err := observer.InspectVolumeMount(t.Context(), pins, oldID)
 	if err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.PredecessorID() != oldID || observation.BootDescriptorSHA256() != descriptorDigest {
 		t.Fatalf("existing retained mount did not verify: %v", err)
@@ -224,7 +307,7 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 		t.Fatal("running recipient proved terminated")
 	}
 	after, err := journal.kv.Status(t.Context())
-	if err != nil || before.Values() != after.Values() || writes.Load() != 0 {
+	if err != nil || before.Values() != after.Values() || sequence != lastSequence() || writes.Load() != 0 {
 		t.Fatal("observer mutated OCI or journal records")
 	}
 	mode.Store(9)
@@ -240,12 +323,19 @@ func TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects(t *te
 	if err := journal.kv.Delete(t.Context(), ownershipKey("instance", instanceID)); err != nil {
 		t.Fatal(err)
 	}
+	sequence = lastSequence()
+	if hosts, err := fleetReader.ObserveSelected(t.Context(), selected); err != nil || len(hosts) != 0 {
+		t.Fatalf("read-only fleet admitted or repaired missing durable ownership: hosts=%+v err=%v", hosts, err)
+	}
 	if _, err := observer.InspectVolumeMount(t.Context(), pins, oldID); err == nil {
 		t.Fatal("missing ownership projection was repaired by a read-only observer")
 	}
 	entry, err := journal.kv.Get(t.Context(), ownershipKey("instance", instanceID))
 	if err == nil || entry != nil {
 		t.Fatal("read-only observer recreated missing ownership projection")
+	}
+	if sequence != lastSequence() || writes.Load() != 0 {
+		t.Fatal("read-only observers changed the journal or OCI after missing ownership")
 	}
 	if (VerifiedVolumeObservation{}).IsVerified() || (VerifiedTerminatedInstance{}).IsVerified() || !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		t.Fatal("zero or canceled observation acquired authority")
