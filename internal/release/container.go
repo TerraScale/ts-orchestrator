@@ -44,6 +44,7 @@ type ContainerClaim struct {
 
 type ContainerBundle struct {
 	Claim      jsontext.Value `json:"claim"`
+	Index      []byte         `json:"index,omitempty"`
 	Delegation jsontext.Value `json:"delegation,omitempty"`
 	Migration  jsontext.Value `json:"sequence_migration"`
 }
@@ -231,6 +232,9 @@ func verifyContainerIdentity(bundle ContainerBundle, roots trust.Keyring, expect
 		return VerifiedContainer{}, err
 	}
 	if err := claim.Validate(); err != nil {
+		return VerifiedContainer{}, err
+	}
+	if err := verifyContainerIndex(bundle.Index, claim); err != nil {
 		return VerifiedContainer{}, err
 	}
 	if claim.Cell != expected.Cell || claim.Environment != expected.Environment || claim.Role != expected.Role || claim.Architecture != expected.Architecture {

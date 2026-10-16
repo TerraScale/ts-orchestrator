@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -74,7 +75,7 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claim := ContainerClaim{Schema: ContainerClaimSchema, Image: "registry.example/platform/auth@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://github.com/TerraScale/ts-auth", SourceRevision: strings.Repeat("c", 40), SourceTreeSHA256: strings.Repeat("e", 64), Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("b", 64)}
+	claim := ContainerClaim{Schema: ContainerClaimSchema, Image: "registry.example/platform/auth@sha256:" + strings.Repeat("a", 64), SourceRepository: "https://github.com/TerraScale/ts-auth", SourceRevision: strings.Repeat("c", 40), SourceTreeSHA256: strings.Repeat("e", 64), Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, ReleaseSequence: 101, SequenceMigrationSHA256: migrationSHA, QualificationSHA256: strings.Repeat("a", 64)}
 	qualifier := ProductionQualification{Schema: ProductionQualificationSchema, Candidate: ProductionExpectation{SourceRevision: claim.SourceRevision, ArtifactSHA256: strings.Repeat("a", 64), QualificationSHA256: claim.QualificationSHA256, Cell: target.Cell, Environment: target.Environment, Role: target.Role, Architecture: target.Architecture, Runtime: ProductionRuntime}, Evidence: []ProductionGateEvidence{{Gate: "runtime-ha", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}, {Gate: "workload-safety", SHA256: evidenceSHA, Bytes: int64(len(evidence)), CompletedAt: now}}}
 	qualificationPayload, _ := trust.EncodePayload(qualifier)
 	qualificationEnvelope, err := trust.Sign(qualificationPayload, ProductionQualificationScope(qualifier.Candidate), now, now.Add(time.Hour), root)
@@ -160,6 +161,61 @@ func TestContainerAdmissionHTTPIntegration(t *testing.T) {
 	changedSourceVerified, err := VerifyContainerCurrent(ctx, makeBundle(changedSource, signer), roots, target, now, now.Add(time.Minute), reader)
 	if err != nil || changedSourceVerified.ReleaseIdentity() == verified.ReleaseIdentity() {
 		t.Fatalf("signed tree change did not change immutable content identity: %+v %v", changedSourceVerified, err)
+	}
+	indexed := func(index []byte) ContainerBundle {
+		t.Helper()
+		c := claim
+		c.QualificationSHA256 = fmt.Sprintf("%x", sha256.Sum256(index))
+		qualification := qualifier
+		qualification.Candidate.QualificationSHA256 = c.QualificationSHA256
+		payload, err := trust.EncodePayload(qualification)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := trust.Sign(payload, ProductionQualificationScope(qualification.Candidate), now, now.Add(time.Hour), root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Production.Qualification, err = trust.EncodeEnvelope(proof)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := makeBundle(c, signer)
+		result.Index = index
+		return result
+	}
+	index := []byte(fmt.Sprintf(" {\n\"schemaVersion\":2,\"mediaType\":\"application/vnd.oci.image.index.v1+json\",\"manifests\":[{\"mediaType\":\"application/vnd.oci.image.manifest.v1+json\",\"digest\":\"sha256:%s\",\"size\":42,\"platform\":{\"os\":\"linux\",\"architecture\":\"arm64\"}}]}\n", strings.Repeat("a", 64)))
+	withIndex := indexed(index)
+	transport, err := json.Marshal(withIndex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var transported ContainerBundle
+	if err := json.Unmarshal(transport, &transported); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyContainerCurrent(ctx, transported, roots, target, now, now.Add(time.Minute), reader); err != nil {
+		t.Fatal("exact retained OCI index did not survive transport: ", err)
+	}
+	if _, err := VerifyContainerHistorical(transported, roots, target); err != nil {
+		t.Fatal("historical index membership: ", err)
+	}
+	missingIndex := withIndex
+	missingIndex.Index = nil
+	if _, err := VerifyContainerHistorical(missingIndex, roots, target); err == nil {
+		t.Fatal("signed index digest accepted without retained membership bytes")
+	}
+	wrongIndex := withIndex
+	wrongIndex.Index = []byte(strings.ReplaceAll(string(index), "arm64", "amd64"))
+	if _, err := VerifyContainerHistorical(wrongIndex, roots, target); err == nil {
+		t.Fatal("modified index bytes accepted")
+	}
+	if _, err := VerifyContainerCurrent(ctx, indexed(wrongIndex.Index), roots, target, now, now.Add(time.Minute), reader); err == nil {
+		t.Fatal("signed index without target architecture accepted")
+	}
+	wrongChild := []byte(strings.ReplaceAll(string(index), strings.Repeat("a", 64), strings.Repeat("d", 64)))
+	if _, err := VerifyContainerCurrent(ctx, indexed(wrongChild), roots, target, now, now.Add(time.Minute), reader); err == nil {
+		t.Fatal("signed index with wrong child accepted")
 	}
 	changed := claim
 	changed.Image = "registry.example/platform/auth@sha256:" + strings.Repeat("d", 64)
