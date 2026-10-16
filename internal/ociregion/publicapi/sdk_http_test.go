@@ -184,7 +184,7 @@ func (f *fakeOCI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case len(parts) >= 3:
 			id := parts[1]
 			switch parts[2] {
-			case "actions":
+			case "actions", "updateShape":
 				args = append(args, "update-shape")
 				flag("load-balancer-id", id)
 				detailFlags()

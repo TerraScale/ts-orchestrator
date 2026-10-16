@@ -766,7 +766,7 @@ func (p Provisioner) ensureNetwork(ctx context.Context, kind, name string, d Des
 		}
 	case "security-list":
 		ingress, err := command.Rows(r["ingress-security-rules"])
-		_, hasIngress := r["ingress-security-rules"]
+		hasIngress := r["ingress-security-rules"] != nil
 		ok = ok && hasIngress && err == nil && len(ingress) == 0
 		egress, err := command.Rows(r["egress-security-rules"])
 		want := d.Egress()

@@ -27,7 +27,7 @@ func inventoryProtocolEngine(t *testing.T, handler http.HandlerFunc) *Engine {
 	}
 	provider := common.NewRawConfigurationProvider("ocid1.tenancy.oc1..test", "ocid1.user.oc1..test", "sa-saopaulo-1", "test",
 		string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), nil)
-	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1"})
+	factory, err := ociclient.New(provider, ociclient.Options{Region: "sa-saopaulo-1", Retry: ociclient.RetryOptions{MaxAttempts: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}

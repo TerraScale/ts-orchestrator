@@ -126,6 +126,7 @@ func (c *Client) Factory() *ociclient.Factory { return c.factory }
 
 func (c *Client) pin(client *common.BaseClient) {
 	client.HTTPClient = strictResponses{next: client.HTTPClient}
+	ociclient.ConfigureRequestCancellation(client)
 	if c.endpoint != "" {
 		client.Host = c.endpoint
 	}
@@ -199,7 +200,7 @@ func (c *Client) Call(ctx context.Context, args []string) (data jsontext.Value, 
 	if !ok {
 		return nil, false, fmt.Errorf("%w: %s", ErrUnsupported, command.Path)
 	}
-	value, err := handler(ctx, c, command)
+	value, err := handler(ociclient.RequestContext(ctx), c, command)
 	if err != nil {
 		return nil, true, fmt.Errorf("OCI read failed: %s: %w", command.Path, err)
 	}
@@ -219,15 +220,7 @@ func Render(value any) (jsontext.Value, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode OCI response: %w", err)
 	}
-	var decoded any
-	if err := json.Unmarshal(wire, &decoded); err != nil {
-		return nil, fmt.Errorf("decode OCI response: %w", err)
-	}
-	wire, err = json.Marshal(kebab(decoded, false), json.Deterministic(true))
-	if err != nil {
-		return nil, fmt.Errorf("encode CLI-shaped OCI response: %w", err)
-	}
-	return jsontext.Value(wire), nil
+	return kebab(jsontext.Value(wire), false)
 }
 
 // userKeyed are SDK members whose object keys are user data, not schema.
@@ -245,36 +238,66 @@ var nameKeyed = map[string]bool{
 	"pathRouteSets": true, "ruleSets": true, "routingPolicies": true, "sslCipherSuites": true,
 }
 
-func kebab(value any, preserveKeys bool) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		result := make(map[string]any, len(typed))
+func kebab(value jsontext.Value, preserveKeys bool) (jsontext.Value, error) {
+	switch value.Kind() {
+	case '{':
+		var typed map[string]jsontext.Value
+		if err := json.Unmarshal(value, &typed); err != nil {
+			return nil, err
+		}
+		result := make(map[string]jsontext.Value, len(typed))
 		for key, member := range typed {
 			name := key
 			if !preserveKeys {
 				name = Kebab(key)
 			}
-			if named, ok := member.(map[string]any); ok && !preserveKeys && nameKeyed[key] {
-				entries := make(map[string]any, len(named))
-				for entryName, entry := range named {
-					entries[entryName] = kebab(entry, false)
+			if member.Kind() == '{' && !preserveKeys && nameKeyed[key] {
+				var named map[string]jsontext.Value
+				if err := json.Unmarshal(member, &named); err != nil {
+					return nil, err
 				}
-				result[name] = entries
+				entries := make(map[string]jsontext.Value, len(named))
+				for entryName, entry := range named {
+					converted, err := kebab(entry, false)
+					if err != nil {
+						return nil, err
+					}
+					entries[entryName] = converted
+				}
+				encoded, err := json.Marshal(entries, json.Deterministic(true))
+				if err != nil {
+					return nil, err
+				}
+				result[name] = encoded
 				continue
 			}
 			// The members of a user-keyed map are user data at any depth
 			// (defined tags nest one level), so preserve keys below it.
-			result[name] = kebab(member, preserveKeys || userKeyed[key])
+			converted, err := kebab(member, preserveKeys || userKeyed[key])
+			if err != nil {
+				return nil, err
+			}
+			result[name] = converted
 		}
-		return result
-	case []any:
-		result := make([]any, len(typed))
+		wire, err := json.Marshal(result, json.Deterministic(true))
+		return jsontext.Value(wire), err
+	case '[':
+		var typed []jsontext.Value
+		if err := json.Unmarshal(value, &typed); err != nil {
+			return nil, err
+		}
+		result := make([]jsontext.Value, len(typed))
 		for index, member := range typed {
-			result[index] = kebab(member, preserveKeys)
+			converted, err := kebab(member, preserveKeys)
+			if err != nil {
+				return nil, err
+			}
+			result[index] = converted
 		}
-		return result
+		wire, err := json.Marshal(result)
+		return jsontext.Value(wire), err
 	default:
-		return value
+		return value, nil
 	}
 }
 
