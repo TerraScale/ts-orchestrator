@@ -1,6 +1,8 @@
 package runtimepriority
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,15 +25,31 @@ func TestScopeSeparatesAdmissionTokensAndEntityIDs(t *testing.T) {
 		{"lowercase member", "member_id", strings.ToLower(id), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			scope := Object{"cluster_id": token, "incarnation": token, "tenant_id": id, "database_id": id, "member_id": id, "shard_id": int64(1)}
+			manifest, _, err := LoadJSON("../../tests/runtime_priority/example-dry-run.json", 1<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scope := sub(sub(sub(manifest, "managed_member"), "source"), "scope")
+			scope["cluster_id"], scope["incarnation"] = token, token
+			scope["tenant_id"], scope["database_id"], scope["member_id"] = id, id, id
+			peer := sub(sub(sub(manifest, "managed_member"), "peer"), "scope")
+			for _, key := range []string{"cluster_id", "tenant_id", "database_id"} {
+				peer[key] = scope[key]
+			}
 			scope[tc.field] = tc.value
-			err := func() (err error) {
-				defer recoverError(&err)
-				validateScope(scope, "test.scope")
-				return
-			}()
+			if tc.valid {
+				peer[tc.field] = tc.value
+			}
+			path := filepath.Join(t.TempDir(), "manifest.json")
+			if err := os.WriteFile(path, Canonical(manifest), 0600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := runtimeCLI(t, "pressure", "dry-run", "--manifest", path)
+			if !tc.valid && !strings.Contains(string(output), "source.scope."+tc.field) {
+				t.Fatalf("scope rejected for the wrong reason: %s", output)
+			}
 			if (err == nil) != tc.valid {
-				t.Fatalf("valid = %v, error = %v", tc.valid, err)
+				t.Fatalf("valid = %v, error = %v: %s", tc.valid, err, output)
 			}
 		})
 	}

@@ -1,7 +1,6 @@
 package runtimepriority
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +19,7 @@ func TestNativeRoleRecreationRestoresAfterOldDescriptorError(t *testing.T) {
 	remote := Remote{}
 	fd, meta := remote.openDir(path)
 	defer unix.Close(fd)
-	limit := remote.openAt(fd, "memory.max", true)
+	limit := remote.openAt(fd, "memory.max", false)
 	defer unix.Close(limit)
 	if e := os.Rename(path, path+"-old"); e != nil {
 		t.Fatal(e)
@@ -31,7 +30,6 @@ func TestNativeRoleRecreationRestoresAfterOldDescriptorError(t *testing.T) {
 	if e := os.WriteFile(filepath.Join(path, "memory.max"), []byte("1000"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	remote.WriteLimit = func(int, int64) error { return unix.ENODEV }
 	method, e := remote.restoreNativeCap(path, meta, fd, limit, 1000)
 	if e != nil {
 		t.Fatal(e)
@@ -49,8 +47,13 @@ func TestNativeRoleRecreationRestoresAfterOldDescriptorError(t *testing.T) {
 func TestMalformedOperatorHostArraysAreDomainErrors(t *testing.T) {
 	for _, raw := range []string{"null", "{}", `{"reports":[]}`} {
 		t.Run(raw, func(t *testing.T) {
-			adapter := Adapter{OperatorHosts: func(context.Context, Object) (string, error) { return raw, nil }}
-			_, e := adapter.Dispatch(t.Context(), Object{"role": "target_identity"})
+			path := filepath.Join(t.TempDir(), "hosts.json")
+			if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			command := runtimeCommandFixture(t, "cat "+shellQuote(path)+"\n")
+			adapter := Adapter{}
+			_, e := adapter.Dispatch(t.Context(), Object{"role": "target_identity", "deadline_seconds": 2, "transport": Object{"operator": Object{"executable_path": command, "config_path": path}}})
 			if e == nil || ErrorType(e) != "HarnessError" {
 				t.Fatalf("malformed operator evidence returned %v", e)
 			}
