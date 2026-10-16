@@ -182,6 +182,15 @@ func (controller *containerMaterialController) registryRecipient(ctx context.Con
 	if err := controllerHostSpecCurrent(ctx, config.JS, config.Specs, entry, rootHead); err != nil {
 		return containerMaterialRecipient{}, err
 	}
+	if err := containermaterial.VerifyCurrentTask(ctx, config.Client, task, expected, verified, roots, proof, registration, taskBinding, controllerProof); err != nil {
+		return containerMaterialRecipient{}, err
+	}
+	config.Specs.mu.Lock()
+	currentRevision := config.Specs.revision
+	config.Specs.mu.Unlock()
+	if currentRevision != entry.Revision() || config.Specs.roots.reply("").Head != rootHead || config.Authority.Current().Epoch != epoch {
+		return fail()
+	}
 	if ctx.Err() != nil || !verified.Valid(time.Now().UTC()) || controllerProof != nil && (!controllerProof.Valid(time.Now()) || !time.Now().Before(enrollment.ExpiresAt)) {
 		return fail()
 	}
