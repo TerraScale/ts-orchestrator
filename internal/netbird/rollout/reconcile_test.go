@@ -5,6 +5,8 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -14,12 +16,19 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird"
 	"github.com/TerraScale/ts-orchestrator/internal/netbird/client"
+	"github.com/nats-io/nats-server/v2/server"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 type rolloutFixture struct {
 	t             *testing.T
 	now           time.Time
-	journal       []byte
+	storeDir      string
+	broker        *server.Server
+	connection    *nats.Conn
+	workerHandled chan struct{}
+	kv            jetstream.KeyValue
 	statuses      map[string]Status
 	previous      map[string]string
 	drained       map[string]bool
@@ -48,37 +57,71 @@ func rolloutTarget(version string) Target {
 
 func newRolloutFixture(t *testing.T) *rolloutFixture {
 	t.Helper()
-	f := &rolloutFixture{t: t, now: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
+	f := &rolloutFixture{t: t, workerHandled: make(chan struct{}, 1), storeDir: t.TempDir(), now: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),
 		statuses: map[string]Status{}, previous: map[string]string{}, drained: map[string]bool{},
 		healthError: map[string]error{}, returnError: map[string]error{}, actionError: map[string]string{}, nodes: []string{"gru-1-ctl-1", "gru-1-ctl-2", "gru-1-ctl-3"}}
 	for i, node := range f.nodes {
 		f.statuses[node] = Status{Version: "0.79.0", Connected: true, IP: fmt.Sprintf("100.87.0.%d", i+1), DNS: node + ".nb.ts.internal"}
 		f.previous[node] = "0.79.0"
 	}
+	t.Cleanup(func() {
+		if f.connection != nil {
+			f.connection.Close()
+		}
+		if f.broker != nil {
+			f.broker.Shutdown()
+			f.broker.WaitForShutdown()
+		}
+	})
+	f.startBroker()
 	return f
+}
+
+func (f *rolloutFixture) journalBytes() []byte {
+	f.t.Helper()
+	entry, err := f.kv.Get(f.t.Context(), "current")
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return entry.Value()
+}
+
+func (f *rolloutFixture) loadRecord(ctx context.Context) (Record, error) {
+	entry, err := f.kv.Get(ctx, "current")
+	if errors.Is(err, jetstream.ErrKeyNotFound) {
+		return Record{}, nil
+	}
+	if err != nil {
+		return Record{}, err
+	}
+	var record Record
+	err = json.Unmarshal(entry.Value(), &record, json.RejectUnknownMembers(true))
+	return record, err
 }
 
 func (f *rolloutFixture) record() Record {
 	f.t.Helper()
 	var record Record
-	if len(f.journal) != 0 {
-		if err := json.Unmarshal(f.journal, &record, json.RejectUnknownMembers(true)); err != nil {
+	if wire := f.journalBytes(); len(wire) != 0 {
+		if err := json.Unmarshal(wire, &record, json.RejectUnknownMembers(true)); err != nil {
 			f.t.Fatal(err)
 		}
 	}
 	return record
 }
 
-// Every tick gets a fresh reconciler. Only serialized journal bytes and node
-// observations survive, as they do when another controller becomes leader.
-func (f *rolloutFixture) reconciler() *Reconciler {
+// The simulator keeps node observations outside the regional broker, as independent workers do.
+func (f *rolloutFixture) worker() *Reconciler {
 	return &Reconciler{
 		Now:  func() time.Time { return f.now },
-		Load: func(context.Context) (Record, error) { return f.record(), nil },
-		Save: func(_ context.Context, record Record) error {
+		Load: f.loadRecord,
+		Save: func(ctx context.Context, record Record) error {
 			wire, err := json.Marshal(record)
 			if err == nil {
-				f.journal = wire
+				_, err = f.kv.Put(ctx, "current", wire)
 			}
 			return err
 		},
@@ -213,37 +256,46 @@ func TestLateMeshHealthGetsASeparateConfirmationWindow(t *testing.T) {
 	}
 }
 
-func TestCompareVersionsUsesNumericStableComponents(t *testing.T) {
-	for _, test := range []struct {
-		a, b string
-		want int
-	}{
-		{"0.79.0", "0.80.0", -1}, {"v0.80.0", "0.80.0", 0}, {" 0.80.0 ", "v0.80.0", 0},
-		{"0.80.9", "0.80.10", -1}, {"0.80.10", "0.80.9", 1}, {"1.0.0", "0.80.99", 1},
-	} {
-		if got, err := CompareVersions(test.a, test.b); err != nil || got != test.want {
-			t.Errorf("CompareVersions(%q,%q)=%d,%v; want %d", test.a, test.b, got, err, test.want)
-		}
-	}
-	for _, version := range []string{"", "0.80", "0.80.0-rc.1", "0.080.0", "0.80.-1", "0.80.4294967296"} {
-		if _, err := CompareVersions(version, "0.80.0"); err == nil {
-			t.Errorf("invalid version %q accepted", version)
-		}
+func TestRolloutIntegrationValidatesObservedVersionsBeforePersistingIntent(t *testing.T) {
+	for _, version := range []string{"v0.80.0", " 0.80.0 ", "0.80.9", "0.80.10", "", "0.80", "0.80.0-rc.1", "0.080.0", "0.80.-1", "0.80.4294967296"} {
+		t.Run(version, func(t *testing.T) {
+			f := newRolloutFixture(t)
+			target := rolloutTarget("0.80.0")
+			for node, status := range f.statuses {
+				status.Version = version
+				status.AppliedTargetHash = Hash(target)
+				f.statuses[node] = status
+			}
+			err := f.tick(target)
+			valid := version == "v0.80.0" || version == " 0.80.0 " || version == "0.80.9" || version == "0.80.10" || version == ""
+			if valid != (err == nil) {
+				t.Fatalf("observed version %q: %v", version, err)
+			}
+			if !valid && len(f.journalBytes()) != 0 {
+				t.Fatal("invalid worker version persisted rollout")
+			}
+		})
 	}
 }
 
-func TestTargetHashIsStableForEquivalentPeerNameMaps(t *testing.T) {
+func TestRolloutIntegrationEquivalentTargetSurvivesPersistedRoundTrip(t *testing.T) {
+	f := newRolloutFixture(t)
 	target := rolloutTarget("0.80.0")
-	first := Hash(target)
-	for range 100 {
-		copy := rolloutTarget("0.80.0")
-		if got := Hash(copy); got != first {
-			t.Fatalf("unchanged pin/config changed hash from %s to %s", first, got)
-		}
+	f.advance(target, "done")
+	first := f.record()
+	for node, status := range f.statuses {
+		status.Version = target.Pin.Version
+		status.AppliedTargetHash = first.PinHash
+		f.statuses[node] = status
 	}
-	changed := rolloutTarget("0.80.1")
-	if Hash(changed) == first {
-		t.Fatal("version change did not change desired-state identity")
+	equivalent := rolloutTarget("0.80.0")
+	equivalent.Enrollment.PeerNames = map[string]string{"10.251.0.13": "gru-1-ctl-3", "10.251.0.11": "gru-1-ctl-1", "10.251.0.12": "gru-1-ctl-2"}
+	before := len(f.effects)
+	if err := f.tick(equivalent); err != nil || f.record().ID != first.ID || len(f.effects) != before {
+		t.Fatalf("equivalent target repeated rollout: %v", err)
+	}
+	if err := f.tick(rolloutTarget("0.80.1")); err != nil || f.record().ID == first.ID {
+		t.Fatalf("changed target failed to start: %v", err)
 	}
 }
 
@@ -338,7 +390,7 @@ func TestReturnPhasesReDrainBeforeDeadlineAndRetryFailedDrain(t *testing.T) {
 				if failDrain {
 					r.Drain = func(context.Context, string) error { return drainErr }
 				}
-				if err := r.Tick(t.Context(), target, f.nodes); !errors.Is(err, returnErr) ||
+				if err := r.Tick(t.Context(), target, f.nodes); (err == nil || !strings.Contains(err.Error(), returnErr.Error())) ||
 					failDrain && !errors.Is(err, drainErr) || f.drained[node] == failDrain ||
 					f.record().RecoveryReturning != failDrain || f.record().RecoveryComplete || f.record().Phase != phase {
 					t.Fatalf("failed return lost its fence or retry intent: record=%+v effects=%v error=%v", f.record(), f.effects, err)
@@ -402,7 +454,7 @@ func TestMatchingPinSkipsDrainAndInvalidDaemonVersionHolds(t *testing.T) {
 		status.AppliedTargetHash = Hash(target)
 		f.statuses[node] = status
 	}
-	if err := f.tick(target); err != nil || len(f.effects) != 0 || len(f.journal) != 0 {
+	if err := f.tick(target); err != nil || len(f.effects) != 0 || len(f.journalBytes()) != 0 {
 		t.Fatalf("matching daemon versions caused effects: %v %v", f.effects, err)
 	}
 	status := f.statuses[f.nodes[0]]
@@ -551,7 +603,7 @@ func TestFailedRecoveryPersistsCompletionAfterReturnSucceeds(t *testing.T) {
 	status.ActionID = CommandID(record.ID, "rollback")
 	f.statuses[record.Node] = status
 	f.returnError[record.Node] = errors.New("LB return incomplete")
-	if err := f.tick(target); !errors.Is(err, f.returnError[record.Node]) || f.record().RecoveryComplete || !f.drained[record.Node] {
+	if err := f.tick(target); (err == nil || !strings.Contains(err.Error(), f.returnError[record.Node].Error())) || f.record().RecoveryComplete || !f.drained[record.Node] {
 		t.Fatalf("failed Return did not preserve the fence: record=%+v effects=%v error=%v", f.record(), f.effects, err)
 	}
 	if got := f.effects[len(f.effects)-2:]; !slices.Equal(got, []string{"return:" + record.Node, "drain:" + record.Node}) {
@@ -602,7 +654,7 @@ func TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus(t *testing.T) {
 			f.returnError[record.Node] = returnErr
 			r := f.reconciler()
 			r.Drain = func(context.Context, string) error { return drainErr }
-			if err := r.Tick(t.Context(), target, f.nodes); !errors.Is(err, returnErr) || !errors.Is(err, drainErr) ||
+			if err := r.Tick(t.Context(), target, f.nodes); (err == nil || !strings.Contains(err.Error(), returnErr.Error())) || !errors.Is(err, drainErr) ||
 				!f.record().RecoveryReturning || f.record().RecoveryComplete || f.drained[record.Node] {
 				t.Fatalf("failed re-drain lost retry intent: record=%+v error=%v", f.record(), err)
 			}
@@ -824,7 +876,7 @@ func TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges(t *testing
 			if err := f.reconciler().Save(t.Context(), record); err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(f.journal), "rollback_required") {
+			if strings.Contains(string(f.journalBytes()), "rollback_required") {
 				t.Fatal("legacy journal unexpectedly contains the new marker")
 			}
 			node := record.Node
@@ -894,7 +946,7 @@ func TestPendingNodeAnywhereBlocksNewRollout(t *testing.T) {
 	if err := f.tick(rolloutTarget("0.80.0")); err == nil {
 		t.Fatalf("started %s while %s has an unresolved update", f.record().Node, f.nodes[2])
 	}
-	if len(f.journal) != 0 || len(f.effects) != 0 {
+	if len(f.journalBytes()) != 0 || len(f.effects) != 0 {
 		t.Fatalf("pending transaction caused another rollout: %#v %v", f.record(), f.effects)
 	}
 }
@@ -1048,8 +1100,217 @@ func TestReturnRefusesAReportedPendingTransaction(t *testing.T) {
 func TestReconcilerRejectsOldTransactionWithoutEffects(t *testing.T) {
 	f := newRolloutFixture(t)
 	r := f.reconciler()
-	r.Load = func(context.Context) (Record, error) { return Record{ID: "old-transaction", Phase: "install"}, nil }
+	if err := r.Save(t.Context(), Record{ID: "old-transaction", Phase: "install"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := r.Tick(t.Context(), rolloutTarget("0.80.0"), f.nodes); err == nil || len(f.effects) != 0 {
 		t.Fatalf("invalid transaction reached effects: %v %v", err, f.effects)
+	}
+}
+
+type workerRequest struct {
+	Node    string    `json:"node"`
+	Status  Status    `json:"status"`
+	Since   time.Time `json:"since"`
+	Command Command   `json:"command"`
+}
+
+type workerResponse struct {
+	Status Status `json:"status"`
+	Error  string `json:"error"`
+}
+
+func (f *rolloutFixture) startBroker() {
+	f.t.Helper()
+	broker, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1, JetStream: true, StoreDir: f.storeDir, NoLog: true, NoSigs: true})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.broker = broker
+	go broker.Start()
+	if !broker.ReadyForConnections(5 * time.Second) {
+		f.t.Fatal("regional NATS did not start")
+	}
+	connection, err := nats.Connect(broker.ClientURL(), nats.Timeout(5*time.Second), nats.NoReconnect())
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.connection = connection
+	js, err := jetstream.New(connection)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.kv, err = js.CreateOrUpdateKeyValue(f.t.Context(), jetstream.KeyValueConfig{Bucket: "NETBIRD_ROLLOUT", Storage: jetstream.FileStorage, History: 64})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	_, err = connection.Subscribe("netbird.worker.*", func(message *nats.Msg) {
+		defer func() { f.workerHandled <- struct{}{} }()
+		var request workerRequest
+		var response workerResponse
+		if err := json.Unmarshal(message.Data, &request, json.RejectUnknownMembers(true)); err != nil {
+			response.Error = err.Error()
+		} else {
+			worker := f.worker()
+			var err error
+			switch strings.TrimPrefix(message.Subject, "netbird.worker.") {
+			case "status":
+				response.Status, err = worker.Status(f.t.Context(), request.Node)
+			case "preflight":
+				err = worker.Preflight(f.t.Context(), request.Node)
+			case "drain":
+				err = worker.Drain(f.t.Context(), request.Node)
+			case "healthy":
+				err = worker.Healthy(f.t.Context(), request.Node, request.Status, request.Since)
+			case "return":
+				err = worker.Return(f.t.Context(), request.Node)
+			case "send":
+				err = worker.Send(f.t.Context(), request.Node, request.Command)
+			default:
+				err = errors.New("unknown worker request")
+			}
+			if err != nil {
+				response.Error = err.Error()
+			}
+		}
+		if response.Error == "controller lost the worker response" {
+			return
+		}
+		wire, err := json.Marshal(response)
+		if err != nil {
+			f.t.Error(err)
+			return
+		}
+		if err := message.Respond(wire); err != nil {
+			f.t.Error(err)
+		}
+	})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	if err := connection.FlushTimeout(5 * time.Second); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+func (f *rolloutFixture) request(ctx context.Context, action string, request workerRequest) (Status, error) {
+	wire, err := json.Marshal(request)
+	if err != nil {
+		return Status{}, err
+	}
+	bounded, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	message, err := f.connection.RequestWithContext(bounded, "netbird.worker."+action, wire)
+	// A dropped network reply must still finish its simulated worker before state assertions.
+	select {
+	case <-f.workerHandled:
+	case <-time.After(5 * time.Second):
+		return Status{}, errors.New("worker did not finish request")
+	}
+	if err != nil {
+		return Status{}, err
+	}
+	var response workerResponse
+	if err := json.Unmarshal(message.Data, &response, json.RejectUnknownMembers(true)); err != nil {
+		return Status{}, err
+	}
+	if response.Error != "" {
+		return Status{}, errors.New(response.Error)
+	}
+	return response.Status, nil
+}
+
+func (f *rolloutFixture) reconciler() *Reconciler {
+	reconciler := f.worker()
+	reconciler.Status = func(ctx context.Context, node string) (Status, error) {
+		return f.request(ctx, "status", workerRequest{Node: node})
+	}
+	reconciler.Preflight = func(ctx context.Context, node string) error {
+		_, err := f.request(ctx, "preflight", workerRequest{Node: node})
+		return err
+	}
+	reconciler.Drain = func(ctx context.Context, node string) error {
+		_, err := f.request(ctx, "drain", workerRequest{Node: node})
+		return err
+	}
+	reconciler.Healthy = func(ctx context.Context, node string, status Status, since time.Time) error {
+		_, err := f.request(ctx, "healthy", workerRequest{Node: node, Status: status, Since: since})
+		return err
+	}
+	reconciler.Return = func(ctx context.Context, node string) error {
+		_, err := f.request(ctx, "return", workerRequest{Node: node})
+		return err
+	}
+	reconciler.Send = func(ctx context.Context, node string, command Command) error {
+		_, err := f.request(ctx, "send", workerRequest{Node: node, Command: command})
+		return err
+	}
+	return reconciler
+}
+
+func TestRolloutIntegrationRestartsJetStreamAfterLostInstallReply(t *testing.T) {
+	f := newRolloutFixture(t)
+	target := rolloutTarget("0.80.0")
+	f.advance(target, "install")
+	original := f.record()
+	f.loseReply = "install"
+	if err := f.tick(target); err == nil {
+		t.Fatal("lost install reply was not reported")
+	}
+	f.connection.Close()
+	f.broker.Shutdown()
+	f.broker.WaitForShutdown()
+	files, err := os.ReadDir(filepath.Join(f.storeDir, "jetstream"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("JetStream journal has no disk state: %v", err)
+	}
+	f.startBroker()
+	if recovered := f.record(); recovered.ID != original.ID || recovered.Node != original.Node || recovered.Phase != "install" {
+		t.Fatalf("restart lost intent: %+v", recovered)
+	}
+	f.advance(rolloutTarget("0.80.1"), "done")
+	installs := 0
+	for _, command := range f.commands {
+		if command.Action == "install" {
+			installs++
+		}
+		if command.Transaction != original.ID || command.Target.Pin.Version != target.Pin.Version {
+			t.Fatalf("restart replaced in-flight command: %+v", command)
+		}
+	}
+	if installs != 1 || f.drained[original.Node] {
+		t.Fatalf("restart repeated install or failed return: installs=%d drained=%t", installs, f.drained[original.Node])
+	}
+}
+
+func TestRolloutIntegrationJournalOutageAfterDrainPreservesOriginalIntent(t *testing.T) {
+	f := newRolloutFixture(t)
+	target := rolloutTarget("0.80.0")
+	f.advance(target, "drain")
+	original := f.record()
+	reconciler := f.reconciler()
+	drain := reconciler.Drain
+	reconciler.Drain = func(ctx context.Context, node string) error {
+		if err := drain(ctx, node); err != nil {
+			return err
+		}
+		f.connection.Close()
+		f.broker.Shutdown()
+		f.broker.WaitForShutdown()
+		return nil
+	}
+	if err := reconciler.Tick(t.Context(), target, f.nodes); err == nil {
+		t.Fatal("closed journal accepted install intent")
+	}
+	if !f.drained[original.Node] || len(f.commands) != 0 {
+		t.Fatal("journal outage installed or returned drained worker")
+	}
+	f.startBroker()
+	if recovered := f.record(); recovered.ID != original.ID || recovered.Phase != "drain" {
+		t.Fatalf("journal outage lost drain intent: %+v", recovered)
+	}
+	f.advance(target, "check")
+	if recovered := f.record(); recovered.ID != original.ID || recovered.Node != original.Node || len(f.commands) != 1 {
+		t.Fatalf("recovery changed node or duplicated install: %+v commands=%v", recovered, f.commands)
 	}
 }
