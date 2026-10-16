@@ -138,6 +138,7 @@ func TestPrivateKeyFilesystemAndSSHAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer client.Close()
 	if err := probeHTTP(t.Context(), web.URL+"/readyz", client.DialContext); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +227,7 @@ func serveSSHFixture(channel ssh.Channel, requests <-chan *ssh.Request, uploadDi
 			process = exec.Command("sh", "-c", "cat >/dev/null")
 		default:
 			// Only the production uploader's fixed command reaches this fixture.
-			process = exec.Command("sh", "-c", strings.ReplaceAll(invocation.Command, "/run/ts-native-fixture", uploadDirectory))
+			process = exec.Command("sh", "-c", "printf 'fixture upload diagnostic\\n' >&2; "+strings.ReplaceAll(invocation.Command, "/run/ts-native-fixture", uploadDirectory))
 		}
 		process.Stdin, process.Stdout, process.Stderr = channel, channel, channel.Stderr()
 		status := uint32(0)
