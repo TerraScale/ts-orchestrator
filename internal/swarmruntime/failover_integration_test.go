@@ -224,9 +224,13 @@ func TestRuntimeThreeManagerLeaderLoss(t *testing.T) {
 		view, err := ObserveService(ctx, client, created.ID, nil)
 		return err == nil && view.RunningReplicas == 1 && len(view.Tasks) == 1, err
 	})
-	spec := created.Spec.Copy()
+	current, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: created.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := current.Service.Spec.Copy()
 	spec.Annotations.Labels["terrascale.failover-proof"] = "committed"
-	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: created.ID, ServiceVersion: &created.Meta.Version, Spec: spec}); err != nil {
+	if _, err := client.UpdateService(ctx, &api.UpdateServiceRequest{ServiceID: created.ID, ServiceVersion: &current.Service.Meta.Version, Spec: spec}); err != nil {
 		t.Fatal(err)
 	}
 	observed, err := client.GetService(ctx, &api.GetServiceRequest{ServiceID: created.ID})
