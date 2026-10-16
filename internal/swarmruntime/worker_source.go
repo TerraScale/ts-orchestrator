@@ -43,6 +43,7 @@ type WorkerRegistrationSnapshot struct {
 	Sequence                 uint64            `json:"sequence"`
 	Retired                  bool              `json:"retired"`
 	Disabled                 bool              `json:"disabled,omitzero"`
+	Pending                  bool              `json:"pending,omitzero"`
 	TerminalOperationID      string            `json:"terminal_operation_id,omitempty"`
 	IdentityResetOperationID string            `json:"identity_reset_operation_id,omitempty"`
 	RequestSHA256            string            `json:"request_sha256"`
@@ -52,6 +53,13 @@ type WorkerRegistrationSnapshot struct {
 
 // ErrWorkerCreationLineagePending refuses worker admission until its original creation is authenticated.
 var ErrWorkerCreationLineagePending = errors.New("worker original creation authority is pending")
+
+type workerRegistrationPhase uint8
+
+const (
+	workerCompletedAdmission workerRegistrationPhase = iota
+	workerEnrollmentPreparation
+)
 
 type workerAuthority struct {
 	identity    bootstrapstart.RuntimeIdentity
@@ -111,6 +119,10 @@ func (output *workerSourceOutput) Write(data []byte) (int, error) {
 }
 
 func (authority *workerAuthority) current(ctx context.Context, query WorkerRegistrationQuery) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
+	return authority.currentInPhase(ctx, query, workerCompletedAdmission)
+}
+
+func (authority *workerAuthority) currentInPhase(ctx context.Context, query WorkerRegistrationQuery, phase workerRegistrationPhase) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
 	fail := func(err error) (hostenroll.Request, hostenroll.Response, host.Registration, bootstrapstart.InstanceObservation, string, error) {
 		return hostenroll.Request{}, hostenroll.Response{}, host.Registration{}, bootstrapstart.InstanceObservation{}, "", err
 	}
@@ -137,6 +149,9 @@ func (authority *workerAuthority) current(ctx context.Context, query WorkerRegis
 	current, err := readCurrentWorkerRegistration(ctx, query)
 	if err != nil {
 		return fail(err)
+	}
+	if current.Pending && phase != workerEnrollmentPreparation {
+		return fail(errors.New("worker admission requires a completed enrollment grant"))
 	}
 	registration := current.Registration
 	if current.Retired || current.Disabled || current.TerminalOperationID != "" || current.IdentityResetOperationID != "" ||
@@ -193,7 +208,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 		return nil, errors.New("worker projection is derived only by the root manager")
 	}
 	authority := n.workerAuthority
-	request, response, registration, observed, execution, err := authority.current(ctx, query)
+	request, response, registration, observed, execution, err := authority.currentInPhase(ctx, query, workerEnrollmentPreparation)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +249,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 	if err != nil || version.SecretID != stored.ID || version.Value != string(wire) {
 		return nil, errors.New("recipient worker Vault version differs from current upstream cluster")
 	}
-	if _, _, _, _, _, err := authority.current(ctx, query); err != nil {
+	if _, _, _, _, _, err := authority.currentInPhase(ctx, query, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -265,7 +280,7 @@ func (n *Node) PrepareEnrolledWorker(ctx context.Context, query WorkerRegistrati
 		return nil, errors.New("worker source signed another recipient projection")
 	}
 	currentQuery := WorkerRegistrationQuery{Request: query.Request, Response: signed.Response}
-	if _, _, _, _, _, err := authority.current(ctx, currentQuery); err != nil {
+	if _, _, _, _, _, err := authority.currentInPhase(ctx, currentQuery, workerEnrollmentPreparation); err != nil {
 		return nil, err
 	}
 	if err := n.authorizeWorkerVaultRead(ctx, verified, currentQuery); err != nil {
