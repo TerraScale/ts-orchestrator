@@ -96,6 +96,9 @@ func (r *Runtime) CommitFunctionIntent(ctx context.Context, epoch uint64, operat
 				return trust.ErrExpired
 			}
 			prior, err := r.ReadFunctionIntent(ctx, intent.Claim.TenantID, intent.Claim.FunctionID)
+			if !proof.Valid() {
+				return trust.ErrExpired
+			}
 			if errors.Is(err, ErrNotFound) {
 				return nil
 			}
