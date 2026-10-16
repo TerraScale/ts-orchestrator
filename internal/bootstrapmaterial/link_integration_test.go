@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -115,6 +116,15 @@ func TestLinkMaterialPublicationRecovery(t *testing.T) {
 	published, err := ProvisionLinkDurable(t.Context(), f.homeLink, target, management, bundles, f.now.Add(time.Minute), persist)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err := ValidateLinkPublication(f.homeLink, published, checkpoint, f.now.Add(time.Minute)); err != nil {
+		t.Fatalf("durable Link install projection rejected: %v", err)
+	}
+	foreign := published
+	foreign.References = slices.Clone(published.References)
+	foreign.References[0].Reference.SecretOCID = "ocid1.vaultsecret.oc1.sa-saopaulo-1.foreign"
+	if err := ValidateLinkPublication(f.homeLink, foreign, checkpoint, f.now.Add(time.Minute)); err == nil {
+		t.Fatal("altered Link Vault reference was accepted")
 	}
 	creates := vault.create
 	retry, err := ProvisionLink(t.Context(), f.homeLink, target, management, bundles, f.now.Add(2*time.Minute))
