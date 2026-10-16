@@ -42,6 +42,7 @@ type Authority struct {
 	TenancyID      string
 	Namespace      string
 	Bucket         string
+	Prefix         string
 	Cell           string
 }
 
@@ -161,7 +162,7 @@ type record struct {
 func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority, grantWire []byte) (VerifiedBindings, error) {
 	if factory == nil || !catalog.IsCell(authority.Cell) || !canonicalDigest(authority.GrantSHA256) || authority.Generation == 0 ||
 		!entityid.Valid(authority.InstallationID) || !resourceID(authority.TenancyID, "tenancy", "") ||
-		authority.Namespace == "" || authority.Bucket == "" || strings.ContainsAny(authority.Namespace+authority.Bucket, "/\\\r\n\x00") ||
+		authority.Namespace == "" || authority.Bucket == "" || authority.Prefix == "" || strings.ContainsAny(authority.Prefix, "\\\r\n\x00") || strings.ContainsAny(authority.Namespace+authority.Bucket, "/\\\r\n\x00") ||
 		authority.Scope.Domain != "terrascale.foundation.scope" || authority.Scope.Cell != "GRU" || authority.Scope.Role != "foundation" {
 		return VerifiedBindings{}, errors.New("foundation binding authority is incomplete or outside its root scope")
 	}
@@ -178,6 +179,9 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	}
 	payload, err := trust.VerifyCurrent(envelope, authority.Scope, authority.Roots, time.Now(), authority.Policy)
 	if err != nil {
+		return VerifiedBindings{}, err
+	}
+	if err := verifyCurrentGrant(ctx, factory, authority, grantWire); err != nil {
 		return VerifiedBindings{}, err
 	}
 	var approved grant
@@ -266,6 +270,33 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 	}
 	maps.DeleteFunc(current.ResourceIDs, func(key, _ string) bool { return !requested[key] })
 	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: envelope.ExpiresAt, ids: current.ResourceIDs}, nil
+}
+
+func verifyCurrentGrant(ctx context.Context, factory *ociclient.Factory, authority Authority, expected []byte) error {
+	home, err := factory.ForRegion(catalog.OCIRegion("GRU"))
+	if err != nil {
+		return err
+	}
+	objects, err := home.ObjectStorage()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	name := strings.TrimSuffix(authority.Prefix, "/") + "/foundation-scope-v1.json"
+	response, err := objects.GetObject(ociclient.RequestContext(ctx), objectstorage.GetObjectRequest{NamespaceName: new(authority.Namespace), BucketName: new(authority.Bucket), ObjectName: new(name)})
+	if err != nil {
+		return fmt.Errorf("read current protected foundation grant: %w", err)
+	}
+	if response.Content == nil {
+		return errors.New("current foundation grant has no content")
+	}
+	defer response.Content.Close()
+	wire, err := io.ReadAll(io.LimitReader(response.Content, trust.MaxEnvelopeBytes+1))
+	if err != nil || len(wire) > trust.MaxEnvelopeBytes || !bytes.Equal(wire, expected) {
+		return errors.New("active foundation grant differs from exact root-pinned wire")
+	}
+	return nil
 }
 
 func loadRecord(ctx context.Context, factory *ociclient.Factory, authority Authority) (record, error) {

@@ -30,17 +30,18 @@ import (
 // All observations cross signed OCI SDK HTTP requests. The remote protocol
 // fixture serves persisted records separately from the provider resource APIs.
 type bindingScenario struct {
-	t         *testing.T
-	factory   *ociclient.Factory
-	authority Authority
-	root      ed25519.PrivateKey
-	grant     grant
-	intent    intent
-	record    record
-	wire      []byte
-	live      map[string]map[string]any
-	reads     map[string]int
-	etag      string
+	t          *testing.T
+	factory    *ociclient.Factory
+	authority  Authority
+	root       ed25519.PrivateKey
+	grant      grant
+	intent     intent
+	record     record
+	wire       []byte
+	live       map[string]map[string]any
+	reads      map[string]int
+	etag       string
+	activeWire []byte
 }
 
 func newBindingScenario(t *testing.T) *bindingScenario {
@@ -57,7 +58,7 @@ func newBindingScenario(t *testing.T) *bindingScenario {
 		t.Fatal(err)
 	}
 	s.authority = Authority{Scope: trust.Scope{Domain: "terrascale.foundation.scope", DeploymentID: entityid.New(), Cell: "GRU", Environment: "production", Role: "foundation", Slot: entityid.New()},
-		Roots: roots, Policy: trust.Policy{MaxLifetime: 2 * time.Hour}, Generation: 2, InstallationID: entityid.New(), TenancyID: "ocid1.tenancy.oc1..test", Namespace: "namespace", Bucket: "protected", Cell: "SFO"}
+		Roots: roots, Policy: trust.Policy{MaxLifetime: 2 * time.Hour}, Generation: 2, InstallationID: entityid.New(), TenancyID: "ocid1.tenancy.oc1..test", Namespace: "namespace", Bucket: "protected", Prefix: "bootstrap", Cell: "SFO"}
 	ids := map[string]string{}
 	for key, kind := range map[string]string{"control_compartment": "compartment", "network_compartment": "compartment", "workload_compartment": "compartment", "vcn": "vcn", "subnet": "subnet", "network_security_group": "networksecuritygroup", "workload_network_security_group": "networksecuritygroup", "vault": "vault", "key": "key"} {
 		idRegion := region
@@ -103,6 +104,10 @@ func newBindingScenario(t *testing.T) *bindingScenario {
 			return
 		}
 		s.reads[request.URL.Path]++
+		if request.URL.Path == "/n/namespace/b/protected/o/bootstrap/foundation-scope-v1.json" {
+			w.Write(s.activeWire)
+			return
+		}
 		if request.URL.Path == "/n/namespace/b/protected/o/orchestrator/regions/v1/SFO.json" {
 			if !strings.Contains(request.Host, "sa-saopaulo-1") {
 				t.Errorf("record read escaped protected home region: %s", request.Host)
@@ -167,6 +172,7 @@ func (s *bindingScenario) publish() {
 	if err != nil {
 		s.t.Fatal(err)
 	}
+	s.activeWire = append([]byte(nil), s.wire...)
 	s.authority.GrantSHA256 = digest(s.wire)
 	s.record.GrantSHA256 = s.authority.GrantSHA256
 	var canonical map[string]any
@@ -239,6 +245,7 @@ func TestLogicalBindingsRejectUnownedStaleAndWrongRoleState(t *testing.T) {
 		mutate func(*bindingScenario)
 	}{
 		{"schema one", func(s *bindingScenario) { s.grant.SchemaVersion = 1; s.publish() }},
+		{"revoked active grant", func(s *bindingScenario) { s.activeWire = []byte(`{}`) }},
 		{"wrong wire pin", func(s *bindingScenario) { s.authority.GrantSHA256 = strings.Repeat("c", 64) }},
 		{"wrong signer", func(s *bindingScenario) { s.authority.Roots = trust.Keyring{} }},
 		{"wrong tenancy", func(s *bindingScenario) { s.authority.TenancyID = "ocid1.tenancy.oc1..other" }},
@@ -343,7 +350,7 @@ func TestLogicalBindingsRetainOriginalBirthAndExactDependencies(t *testing.T) {
 	if _, err := verified.Resolve("foundation:SFO:control_compartment"); err == nil {
 		t.Fatal("exact dependency was promoted into a logical binding")
 	}
-	if len(s.reads) != 4 {
+	if len(s.reads) != 5 {
 		t.Fatalf("read unrelated resource families: %v", s.reads)
 	}
 }
@@ -368,5 +375,17 @@ func TestLogicalBindingsSpendIncludesUnboundCompartmentRoles(t *testing.T) {
 	}
 	if _, err := verified.Resolve("foundation:SFO:key"); err == nil {
 		t.Fatal("spend scope authorized an unrelated key ref")
+	}
+}
+
+func TestLogicalBindingsRevalidationRejectsRevokedActiveGrant(t *testing.T) {
+	s := newBindingScenario(t)
+	verified, err := Verify(t.Context(), s.factory, s.authority, s.wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.activeWire = []byte(`{}`)
+	if err := verified.Revalidate(t.Context()); err == nil {
+		t.Fatal("old signed wire remained authorized after active grant changed")
 	}
 }
