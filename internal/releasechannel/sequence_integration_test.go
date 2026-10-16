@@ -38,7 +38,12 @@ func TestSequenceChannelHTTPMigrationPreservesLegacyFloors(t *testing.T) {
 	encoded, _ := trust.EncodeDelegatedPublicKey(signer)
 	migration := release.SequenceMigration{Schema: release.SequenceMigrationSchema, Namespace: "ns", Bucket: "gru-1-head", Region: "GRU", Role: "orchestrator", Environment: "production", SequenceFloor: 1000, SignerKeyID: signerID, SignerPublicKey: encoded}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
-		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: testRunNumber, IssuedAt: fixture.now, EvidenceSHA256: strings.Repeat("a", 64)})
+		legacyWire, err := trust.EncodePayload(fixture.channel(t, cell))
+		if err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(legacyWire)
+		migration.Regions = append(migration.Regions, release.SequenceFloor{Cell: cell, RunNumber: testRunNumber, IssuedAt: fixture.now, EvidenceSHA256: hex.EncodeToString(sum[:])})
 	}
 	envelope, err := release.SignSequenceMigration(migration, fixture.now, root)
 	if err != nil {
@@ -92,6 +97,9 @@ func TestSequenceChannelHTTPMigrationPreservesLegacyFloors(t *testing.T) {
 	// Service claim order is independent of a producer's wall clock.
 	migration.Role = "ts-auth"
 	migration.SequenceFloor = 1
+	for index := range migration.Regions {
+		migration.Regions[index].RunNumber = 0
+	}
 	envelope, err = release.SignSequenceMigration(migration, fixture.now, root)
 	if err != nil {
 		t.Fatal(err)

@@ -2,8 +2,10 @@ package releasechannel
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
@@ -18,6 +20,9 @@ func SequenceMigrationObject(fingerprint string) string {
 }
 
 func ReadSequenceMigration(ctx context.Context, location Location, fingerprint string) (trust.Envelope, bool, error) {
+	if _, err := hex.DecodeString(fingerprint); err != nil || len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint {
+		return trust.Envelope{}, false, fmt.Errorf("%w: migration fingerprint", ErrInvalid)
+	}
 	wire, _, found, err := location.get(ctx, SequenceMigrationObject(fingerprint), trust.MaxEnvelopeBytes)
 	if err != nil || !found {
 		return trust.Envelope{}, found, err
