@@ -18,7 +18,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
-	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -138,9 +137,10 @@ func TestOperatorMetadataRecovery(t *testing.T) {
 }
 
 func TestArtifactAdmissionExactEnvelopeIsIdempotent(t *testing.T) {
+	auth := newAuthenticatedNATS(t, "lab")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	runtime, err := natscell.Start(ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1, Lab: true,
+	runtime, err := auth.start(t, ctx, natscell.Config{Cell: "lab", Instance: "one", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(t.TempDir(), "js")}})
 	if err != nil {
 		t.Fatal(err)
@@ -284,19 +284,10 @@ func TestArtifactAdmissionPermanentReplyAndCallerBound(t *testing.T) {
 
 func testOperatorAdmissionConnection(t *testing.T) *nats.Conn {
 	t.Helper()
-	srv, err := server.NewServer(&server.Options{Host: "127.0.0.1", Port: -1})
+	auth := newAuthenticatedNATS(t, "lab")
+	runtime, err := auth.start(t, t.Context(), natscell.Config{Instance: "admission", Embedded: &natscell.Embedded{Port: -1}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	go srv.Start()
-	if !srv.ReadyForConnections(5 * time.Second) {
-		t.Fatal("NATS did not start")
-	}
-	t.Cleanup(func() { srv.Shutdown(); srv.WaitForShutdown() })
-	conn, err := nats.Connect(srv.ClientURL())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(conn.Close)
-	return conn
+	return runtime.Conn()
 }

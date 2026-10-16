@@ -87,13 +87,14 @@ var fakeTerraBaseMagic = func() string {
 }()
 
 func testTerraBaseRelease(t *testing.T, release string, fake bool) {
+	auth := newAuthenticatedNATS(t, "gru")
 	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Minute)
 	defer cancel()
 	root := t.TempDir()
 	ports := reserveControllerPorts(t, 3)
 	port, adminPort, peerPort := ports[0], ports[1], ports[2]
-	controllerNKey, controllerSeed := testNKey(t)
-	operatorNKey, operatorSeed := testNKey(t)
+	_, controllerSeed := testNKey(t)
+	_, operatorSeed := testNKey(t)
 	hostNKey, hostSeed := testNKey(t)
 	controllerPublic, _ := testEd25519(t, root, "controller.key")
 	operatorPublic, _ := testEd25519(t, root, "operator.key")
@@ -109,17 +110,17 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	grant := TrustedSignerConfig{Actor: "ops", PublicKey: base64.StdEncoding.EncodeToString(operatorPublic),
 		Roles: []string{"terrabase"}, Environments: []string{"test"}, CanRegisterHosts: true,
 		Repositories: []string{terrabase.Repository}}
-	controllerConfigPath := testJSONFile(t, root, "controller.json", Config{Version: ConfigVersion,
-		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, Lab: true, NKeySeedFile: controllerSeed,
-			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30,
-				Users: []natscell.NKeyGrant{{PublicKey: controllerNKey, Role: "controller", Global: true}, {PublicKey: operatorNKey, Role: "operator"},
-					{PublicKey: hostNKey, Role: "host", Node: "node-a"}}}},
+	controllerConfig := Config{Version: ConfigVersion,
+		NATS: natscell.Config{Cell: "gru", Instance: "one", Replicas: 1, NKeySeedFile: controllerSeed,
+			Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: port, StoreDir: filepath.Join(root, "nats"), StoreMaxBytes: 4 << 30}},
 		Controller: ControllerConfig{CandidateID: "0000000000DV8998ZCQW1J2V2R", ResponseKeyFile: filepath.Join(root, "controller.key"),
 			SpecTrust:             specKeys.config(),
 			ArtifactStoreMaxBytes: 512 << 20, TrustedSigners: []TrustedSignerConfig{grant},
 			Workloads:           map[string]WorkloadProfile{"terrabase": profile},
 			TerraBaseCACertFile: filepath.Join(root, "ca", "member-ca.pem"), TerraBaseCAKeyFile: filepath.Join(root, "ca", "member-ca.key")},
-	})
+	}
+	auth.controller(t, &controllerConfig)
+	controllerConfigPath := testJSONFile(t, root, "controller.json", controllerConfig)
 	controllerOutput := &readyWriter{ready: make(chan struct{})}
 	controllerDone := make(chan error, 1)
 	go func() {
@@ -132,8 +133,8 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
-	operatorConfig := Config{Version: ConfigVersion, NATS: natscell.Config{Cell: "gru", Instance: "operator", Replicas: 1, Lab: true,
-		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed},
+	operatorConfig := Config{Version: ConfigVersion, NATS: auth.config(t, natscell.Config{Cell: "gru", Instance: "operator", ClientRole: "operator", Replicas: 1,
+		URL: fmt.Sprintf("nats://127.0.0.1:%d", port), NKeySeedFile: operatorSeed}),
 		Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant}},
 		Operator:   OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key")}}
 	operatorConfigPath := testJSONFile(t, root, "operator.json", operatorConfig)
@@ -149,8 +150,8 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	if err := Run(ctx, []string{"operator", "host-register", "--config", operatorConfigPath, "--registration", registrationPath}, &output); err != nil {
 		t.Fatalf("host registration: %v", err)
 	}
-	hostRuntime, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "host-a", Replicas: 1, Lab: true,
-		URL: operatorConfig.NATS.URL, NKeySeedFile: hostSeed, ClientRole: "host"})
+	hostRuntime, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "host-a", Replicas: 1,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: hostSeed, ClientRole: "host"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +284,8 @@ func testTerraBaseRelease(t *testing.T, release string, fake bool) {
 	// TS-610: CI releases the role through the service release channel. The
 	// leader admits the claim the release key signed and rolls the member
 	// out through the same gate, and rolls a broken release back.
-	leader, err := natscell.Start(ctx, natscell.Config{Cell: "gru", Instance: "leader", Replicas: 1, Lab: true,
-		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"})
+	leader, err := natscell.Start(ctx, auth.config(t, natscell.Config{Cell: "gru", Instance: "leader", Replicas: 1,
+		URL: operatorConfig.NATS.URL, NKeySeedFile: controllerSeed, ClientRole: "controller"}))
 	if err != nil {
 		t.Fatal(err)
 	}

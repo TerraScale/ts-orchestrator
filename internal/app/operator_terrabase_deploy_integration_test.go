@@ -41,6 +41,7 @@ const (
 // every managed TerraBase service the live controller wires, backed by an
 // in-memory OCI region and object store.
 type deployTestCellServices struct {
+	auth          *authenticatedNATS
 	control       *authority.Runtime
 	broker        *natscell.Runtime
 	provider      *deployTestProvider
@@ -219,10 +220,11 @@ func TestTerraBaseDeployHoldsVolumeAttachOnUnqualifiedImageLaunchOptions(t *test
 }
 
 func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deployTestCellServices {
+	auth := newAuthenticatedNATS(t, "gru")
 	t.Helper()
 	ctx := t.Context()
 	root := t.TempDir()
-	broker, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: "deploy-controller", Replicas: 1, Lab: true,
+	broker, err := auth.start(t, ctx, natscell.Config{Cell: deployTestCell, Instance: "deploy-controller", Replicas: 1,
 		Embedded: &natscell.Embedded{Host: "127.0.0.1", Port: -1, StoreDir: filepath.Join(root, "nats")}})
 	if err != nil {
 		t.Fatal(err)
@@ -252,9 +254,9 @@ func startDeployTestCell(t *testing.T, consistentNaming, inTransit bool) *deploy
 	if err != nil {
 		t.Fatal(err)
 	}
-	cell := &deployTestCellServices{control: control, broker: broker, root: root, responseKey: controllerPublic,
+	cell := &deployTestCellServices{auth: auth, control: control, broker: broker, root: root, responseKey: controllerPublic,
 		operatorFile: testJSONFile(t, root, "operator.json", Config{Version: ConfigVersion,
-			NATS:       natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", Replicas: 1, Lab: true, URL: broker.URL()},
+			NATS:       auth.config(t, natscell.Config{Cell: deployTestCell, Instance: "deploy-operator", ClientRole: "operator", Replicas: 1, URL: broker.URL()}),
 			Controller: ControllerConfig{TrustedSigners: []TrustedSignerConfig{grant, compatibility}},
 			Operator: OperatorConfig{Actor: "ops", SigningKeyFile: filepath.Join(root, "operator.key"),
 				ControllerPublicKey: base64.StdEncoding.EncodeToString(controllerPublic)},
@@ -576,7 +578,7 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		}
 		state := member.State
 		hostPublic, hostPrivate := testEd25519(t, cell.root, seat+"-host.key")
-		hostNKey, _ := testNKey(t)
+		hostNKey, hostSeed := testNKey(t)
 		row, roster := state.CanonicalRosterRow, intent.CanonicalRoster
 		registration := host.Registration{Cell: deployTestCell, Node: state.HostNode, FailureDomain: row.FailureDomain,
 			Environment: "canary", Roles: []string{"terrabase"}, PublicKey: base64.StdEncoding.EncodeToString(hostPublic),
@@ -596,8 +598,8 @@ func (cell *deployTestCellServices) enrollMembers(t *testing.T, intent placement
 		if _, err := runDeployTestOperatorErr(ctx, cell, "host-register", "--registration", path); err != nil {
 			t.Fatalf("register %s: %v", seat, err)
 		}
-		connection, err := natscell.Start(ctx, natscell.Config{Cell: deployTestCell, Instance: "host-" + strings.ToLower(seat), Replicas: 1,
-			Lab: true, URL: cell.broker.URL(), ClientRole: "host"})
+		connection, err := cell.auth.start(t, ctx, natscell.Config{Cell: deployTestCell, Instance: "host-" + strings.ToLower(seat), Replicas: 1,
+			URL: cell.broker.URL(), NKeySeedFile: hostSeed, ClientRole: "host"})
 		if err != nil {
 			t.Fatal(err)
 		}
