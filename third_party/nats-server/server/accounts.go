@@ -3598,8 +3598,8 @@ func (s *Server) updateAccountClaimsWithRefresh(a *Account, ac *jwt.AccountClaim
 
 	// Reset exports and imports here.
 
-	// Exports is creating a whole new map.
-	a.exports = exportMap{}
+	// Preserve replies to requests already admitted while replacing claim exports.
+	a.exports = exportMap{responses: a.exports.responses}
 
 	// Imports are checked unlocked in processInbound, so we can't change out the struct here. Need to process inline.
 	if a.imports.streams != nil {
