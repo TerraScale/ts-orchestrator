@@ -63,9 +63,11 @@ func fixture(t *testing.T) qualificationFixture {
 		WorkloadArchiveSHA256: hashBytes([]byte("archive")), ImageBytes: int64(len(disk)), MaxSpendMicros: 10_000_000,
 		CleanupUntil: now.Add(2 * time.Hour), BinarySHA256: q.Artifacts[1].SHA256, KernelSHA256: hashBytes([]byte("kernel")),
 		ContainerdSHA256: hashBytes([]byte("containerd")), RuncSHA256: hashBytes([]byte("runc")), RunnerSHA256: hashBytes([]byte("runner"))}
-	for index := range 3 {
+	for index := range 4 {
+		role := "manager"
+		if index == 3 { role = "worker" }
 		a.Hosts = append(a.Hosts, HostSpec{Name: fmt.Sprintf("manager-%d", index+1), AvailabilityDomain: "fixture-ad",
-			FaultDomain: fmt.Sprintf("FAULT-DOMAIN-%d", index+1), Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGB: 6, BootGB: 50})
+			Role: role, FaultDomain: fmt.Sprintf("FAULT-DOMAIN-%d", index%3+1), Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGB: 6, BootGB: 50})
 	}
 	public, private, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
@@ -308,7 +310,7 @@ func TestSDKQualificationResumesExactResourcesAndCleansOnlyOwnedHosts(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(complete.Hosts) != 3 || remote.creates != 1 || remote.launches != 3 {
+	if len(complete.Hosts) != 4 || remote.creates != 1 || remote.launches != 4 {
 		t.Fatalf("duplicate or missing resources: %+v", complete)
 	}
 	for _, host := range remote.hosts {
@@ -339,13 +341,13 @@ func TestSDKQualificationResumesExactResourcesAndCleansOnlyOwnedHosts(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !retained.ImageDeleted || !retained.ObjectDeleted || len(retained.Terminated) != 3 || remote.object != nil {
+	if !retained.ImageDeleted || !retained.ObjectDeleted || len(retained.Terminated) != 4 || remote.object != nil {
 		t.Fatalf("cleanup incomplete: %+v", retained)
 	}
 	if err := client.cleanup(t.Context(), path); err != nil {
 		t.Fatal(err)
 	}
-	if remote.deletes != 5 {
+	if remote.deletes != 6 {
 		t.Fatalf("cleanup replay deleted %d objects", remote.deletes)
 	}
 	for _, request := range remote.requests {

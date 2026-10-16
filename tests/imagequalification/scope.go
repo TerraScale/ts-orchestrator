@@ -35,6 +35,7 @@ var hostPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,47}$`)
 // HostSpec is one exact, disposable host, never a desired production fleet.
 type HostSpec struct {
 	Name               string  `json:"name"`
+	Role               string  `json:"role"`
 	AvailabilityDomain string  `json:"availability_domain"`
 	FaultDomain        string  `json:"fault_domain"`
 	Shape              string  `json:"shape"`
@@ -202,15 +203,18 @@ func (a Approval) validate() error {
 			return errors.New("runner and peers must be inside the approved isolated VCN")
 		}
 	}
-	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) < 3 || len(a.Hosts) > 5 {
+	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) != 4 {
 		return errors.New("finite native HA host, image and spending bounds are required")
 	}
 	seen := map[string]bool{}
-	for _, host := range a.Hosts {
+	for index, host := range a.Hosts {
 		if !hostPattern.MatchString(host.Name) || seen[host.Name] || host.AvailabilityDomain == "" || host.FaultDomain == "" ||
 			host.Shape == "" || !(host.OCPUs > 0 && host.OCPUs <= 80) || !(host.MemoryGB > 0 && host.MemoryGB <= 1024) || host.BootGB < 50 || host.BootGB > 1024 {
 			return errors.New("invalid, repeated or unbounded disposable host")
 		}
+		role := "manager"
+		if index == 3 { role = "worker" }
+		if host.Role != role { return errors.New("native qualification requires three managers followed by one dedicated worker") }
 		seen[host.Name] = true
 	}
 	return nil
