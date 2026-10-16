@@ -168,6 +168,7 @@ func (r FoundationRecord) validate() error {
 		}
 	}
 	if len(r.AuxiliaryIDs) > 12 || len(r.PendingCreates) > 64 || r.Stage == "reconciled" && len(r.PendingCreates) != 0 {
+		return errors.New("foundation auxiliary identities or pending creates exceed their bound")
 	}
 	for key, id := range r.AuxiliaryIDs {
 		if !validAuxiliaryID(key, id, r.OCIRegion) {
