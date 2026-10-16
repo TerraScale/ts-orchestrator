@@ -35,6 +35,7 @@ type Footprint interface {
 // ApprovedFootprint contains only reviewed scope. The producer must verify the
 // grant's authenticity and spend authority before returning these plans.
 type ApprovedFootprint struct {
+	GrantSHA256         string
 	TenancyID           string
 	ParentCompartmentID string
 	SharedCompartmentID string
@@ -46,6 +47,26 @@ type FoundationIntent struct {
 	Plan              map[string]any           `json:"plan"`
 	BootstrapMaterial *BootstrapMaterialIntent `json:"bootstrapMaterial,omitempty"`
 	ReadAccess        *ReadAccessIntent        `json:"readAccess,omitempty"`
+}
+
+// FoundationIntentDigest binds every signed authority field to its generation.
+func FoundationIntentDigest(intent FoundationIntent) (string, error) {
+	wire, err := json.Marshal(intent, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	// Independent verifiers read the signed JSON as objects, so normalize struct
+	// field order to the same recursively sorted representation before hashing.
+	var object map[string]any
+	if err := json.Unmarshal(wire, &object); err != nil {
+		return "", err
+	}
+	wire, err = json.Marshal(object, json.Deterministic(true))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(wire)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // FoundationAuthority is the existing scoped foundation authority. HomeWrite
@@ -79,30 +100,41 @@ type PendingFoundationCreate struct {
 	FirstAttemptAt time.Time                 `json:"firstAttemptAt"`
 }
 
+// FoundationResourceProvenance preserves the original accepted create after its
+// pending entry is cleared; later grants cannot manufacture resource ownership.
+type FoundationResourceProvenance struct {
+	Create      PendingFoundationCreate `json:"create"`
+	ResourceID  string                  `json:"resourceId"`
+	Generation  uint64                  `json:"generation"`
+	GrantSHA256 string                  `json:"grantSha256"`
+}
+
 // FoundationRecord is bootstrap inventory, never serving or membership truth.
 // ResourceIDs contain verified OCIDs, never credential payloads.
 type FoundationRecord struct {
-	SchemaVersion       int                                `json:"schemaVersion"`
-	Cell                string                             `json:"cell"`
-	OCIRegion           string                             `json:"ociRegion"`
-	TenancyID           string                             `json:"tenancyId"`
-	ParentCompartmentID string                             `json:"parentCompartmentId"`
-	SharedCompartmentID string                             `json:"sharedCompartmentId"`
-	Generation          uint64                             `json:"generation"`
-	IntentDigest        string                             `json:"intentDigest"`
-	OperationID         string                             `json:"operationId"`
-	Epoch               uint64                             `json:"epoch"`
-	LeaseID             string                             `json:"leaseId,omitempty"`
-	ExpiresAt           time.Time                          `json:"expiresAt,omitzero"`
-	Stage               string                             `json:"stage"`
-	BlockedReason       string                             `json:"blockedReason,omitempty"`
-	StartedAt           time.Time                          `json:"startedAt"`
-	UpdatedAt           time.Time                          `json:"updatedAt"`
-	CompletedAt         time.Time                          `json:"completedAt,omitzero"`
-	ResourceIDs         map[string]string                  `json:"resourceIds"`
-	AuxiliaryIDs        map[string]string                  `json:"auxiliaryIds,omitempty"`
-	PendingCreates      map[string]PendingFoundationCreate `json:"pendingCreates,omitempty"`
-	SourcePolicyIDs     map[string]SourcePolicyRecord      `json:"sourcePolicyIds,omitempty"`
+	SchemaVersion       int                                     `json:"schemaVersion"`
+	Cell                string                                  `json:"cell"`
+	OCIRegion           string                                  `json:"ociRegion"`
+	TenancyID           string                                  `json:"tenancyId"`
+	ParentCompartmentID string                                  `json:"parentCompartmentId"`
+	SharedCompartmentID string                                  `json:"sharedCompartmentId"`
+	Generation          uint64                                  `json:"generation"`
+	IntentDigest        string                                  `json:"intentDigest"`
+	OperationID         string                                  `json:"operationId"`
+	Epoch               uint64                                  `json:"epoch"`
+	LeaseID             string                                  `json:"leaseId,omitempty"`
+	ExpiresAt           time.Time                               `json:"expiresAt,omitzero"`
+	Stage               string                                  `json:"stage"`
+	BlockedReason       string                                  `json:"blockedReason,omitempty"`
+	StartedAt           time.Time                               `json:"startedAt"`
+	UpdatedAt           time.Time                               `json:"updatedAt"`
+	CompletedAt         time.Time                               `json:"completedAt,omitzero"`
+	ResourceIDs         map[string]string                       `json:"resourceIds"`
+	AuxiliaryIDs        map[string]string                       `json:"auxiliaryIds,omitempty"`
+	PendingCreates      map[string]PendingFoundationCreate      `json:"pendingCreates,omitempty"`
+	SourcePolicyIDs     map[string]SourcePolicyRecord           `json:"sourcePolicyIds,omitempty"`
+	GrantSHA256         string                                  `json:"grantSha256,omitempty"`
+	ResourceProvenance  map[string]FoundationResourceProvenance `json:"resourceProvenance,omitempty"`
 }
 
 // FoundationStore uses conditional writes in an already-authorized durable home
@@ -213,8 +245,10 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	}
 	delete(plan, "_source_path")
 	cell := plan["cell"].(string)
-	sum := sha256.Sum256(wire)
-	digest := hex.EncodeToString(sum[:])
+	digest, err := FoundationIntentDigest(intent)
+	if err != nil {
+		return FoundationRecord{}, err
+	}
 	current, etag, err := c.Store.Load(ctx, cell)
 	if err != nil && !errors.Is(err, ErrFoundationMissing) {
 		return FoundationRecord{}, err
@@ -223,7 +257,7 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 	if errors.Is(err, ErrFoundationMissing) {
 		current = FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: plan["region"].(string), TenancyID: footprint.TenancyID,
 			ParentCompartmentID: footprint.ParentCompartmentID, SharedCompartmentID: footprint.SharedCompartmentID,
-			Generation: intent.Generation, IntentDigest: digest, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
+			Generation: intent.Generation, IntentDigest: digest, GrantSHA256: footprint.GrantSHA256, OperationID: entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation)),
 			StartedAt: now, ResourceIDs: map[string]string{}}
 	} else {
 		if current.TenancyID != footprint.TenancyID || current.ParentCompartmentID != footprint.ParentCompartmentID || current.SharedCompartmentID != footprint.SharedCompartmentID {
@@ -239,10 +273,17 @@ func (c *FoundationController) reconcile(ctx context.Context, epoch uint64, foot
 			if len(current.PendingCreates) != 0 {
 				return current, errors.New("previous foundation intent has unresolved accepted creates")
 			}
-			current.Generation, current.IntentDigest = intent.Generation, digest
+			current.Generation, current.IntentDigest, current.GrantSHA256 = intent.Generation, digest, footprint.GrantSHA256
 			current.OperationID = entityid.Derive("regional-foundation", footprint.TenancyID, cell, fmt.Sprint(intent.Generation))
 			current.StartedAt = now
 		}
+	}
+	if current.GrantSHA256 != "" && current.GrantSHA256 != footprint.GrantSHA256 {
+		return current, errors.New("foundation grant differs from persisted generation authority")
+	}
+	current.GrantSHA256 = footprint.GrantSHA256
+	if current.ResourceProvenance == nil {
+		current.ResourceProvenance = map[string]FoundationResourceProvenance{}
 	}
 	if current.ResourceIDs == nil {
 		current.ResourceIDs = map[string]string{}
@@ -400,7 +441,9 @@ func (a *foundationAttempt) checkpoint(ctx context.Context, key, id string) erro
 		return errors.New("foundation resource identity cannot be silently replaced")
 	}
 	a.record.ResourceIDs[key] = id
-	delete(a.record.PendingCreates, key)
+	if err := a.completeCreate(key, id); err != nil {
+		return err
+	}
 	return a.update(ctx)
 }
 
@@ -414,8 +457,26 @@ func (a *foundationAttempt) checkpointAuxiliary(ctx context.Context, key, id str
 		return errors.New("auxiliary foundation identity cannot be silently replaced")
 	}
 	a.record.AuxiliaryIDs[key] = id
-	delete(a.record.PendingCreates, key)
+	if err := a.completeCreate(key, id); err != nil {
+		return err
+	}
 	return a.update(ctx)
+}
+
+func (a *foundationAttempt) completeCreate(key, id string) error {
+	if original, exists := a.record.ResourceProvenance[key]; exists {
+		if original.ResourceID != id {
+			return errors.New("foundation create provenance cannot be replaced")
+		}
+		return nil
+	}
+	if pending, exists := a.record.PendingCreates[key]; exists {
+		if validFoundationDigest(a.record.GrantSHA256) {
+			a.record.ResourceProvenance[key] = FoundationResourceProvenance{Create: pending, ResourceID: id, Generation: a.record.Generation, GrantSHA256: a.record.GrantSHA256}
+		}
+		delete(a.record.PendingCreates, key)
+	}
+	return nil
 }
 
 func (a *foundationAttempt) prepareCreate(ctx context.Context, request foundation.CreateIdentity, recovery bool) error {
@@ -474,5 +535,6 @@ func (a *foundationAttempt) finish(ctx context.Context, providerErr error) (Foun
 	result.AuxiliaryIDs = maps.Clone(result.AuxiliaryIDs)
 	result.PendingCreates = maps.Clone(result.PendingCreates)
 	result.SourcePolicyIDs = maps.Clone(result.SourcePolicyIDs)
+	result.ResourceProvenance = maps.Clone(result.ResourceProvenance)
 	return result, errors.Join(providerErr, err)
 }

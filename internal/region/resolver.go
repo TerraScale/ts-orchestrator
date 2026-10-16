@@ -2,9 +2,6 @@ package region
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"strings"
 
@@ -37,12 +34,11 @@ func (r FoundationResolver) Resolve(ctx context.Context, cell string) (Foundatio
 		if err != nil {
 			return FoundationRecord{}, err
 		}
-		wire, err := json.Marshal(intent.Plan, json.Deterministic(true))
+		digest, err := FoundationIntentDigest(intent)
 		if err != nil {
 			return FoundationRecord{}, err
 		}
-		digest := sha256.Sum256(wire)
-		if record.IntentDigest != hex.EncodeToString(digest[:]) || record.Generation != intent.Generation || record.TenancyID != footprint.TenancyID ||
+		if record.IntentDigest != digest || record.Generation != intent.Generation || record.TenancyID != footprint.TenancyID ||
 			record.ParentCompartmentID != footprint.ParentCompartmentID || record.SharedCompartmentID != footprint.SharedCompartmentID || record.Stage != "reconciled" {
 			return FoundationRecord{}, errors.New("authorized regional foundation is not reconciled at its current generation")
 		}

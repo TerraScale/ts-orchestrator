@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json/v2"
 	"errors"
 	"maps"
 	"testing"
@@ -70,11 +69,10 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 	}
 	records, etags := map[string]FoundationRecord{}, map[string]string{}
 	for _, intent := range grant.Regions {
-		wire, err := json.Marshal(intent.Plan, json.Deterministic(true))
+		digest, err := FoundationIntentDigest(intent)
 		if err != nil {
 			t.Fatal(err)
 		}
-		digest := sha256.Sum256(wire)
 		cell := intent.Plan["cell"].(string)
 		ids := map[string]string{}
 		for key, id := range intent.Plan["resource_ids"].(map[string]any) {
@@ -82,7 +80,7 @@ func TestSignedReadAccessRequiresCurrentOwnedFoundation(t *testing.T) {
 		}
 		record := FoundationRecord{SchemaVersion: 1, Cell: cell, OCIRegion: intent.Plan["region"].(string), TenancyID: reader.tenancy,
 			ParentCompartmentID: grant.ParentCompartmentID, SharedCompartmentID: grant.SharedCompartmentID,
-			Generation: 1, IntentDigest: hex.EncodeToString(digest[:]), OperationID: entityid.New(), Epoch: 1, Stage: "reconciled",
+			Generation: 1, IntentDigest: digest, OperationID: entityid.New(), Epoch: 1, Stage: "reconciled",
 			StartedAt: now, UpdatedAt: now, CompletedAt: now, ResourceIDs: ids,
 			AuxiliaryIDs: map[string]string{"backup_bucket": "ocid1.bucket.oc1." + intent.Plan["region"].(string) + ".owned"}}
 		etag, err := store.CompareAndSwap(t.Context(), record, "")

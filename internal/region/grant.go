@@ -64,6 +64,8 @@ type BootstrapMaterialIntent struct {
 type BootstrapStartupIntent = bootstrap.StartupTemplate
 
 type VerifiedBootstrapMaterial struct {
+	source          *SignedFootprint
+	cell            string
 	intent          BootstrapMaterialIntent
 	generation      uint64
 	storage         bootstrap.StorageDomain
@@ -88,6 +90,27 @@ func (v VerifiedBootstrapMaterial) PinnedLedgerSignerPublicKey() (string, error)
 		return "", errors.New("same signed scope has no current pinned local ledger signer")
 	}
 	return v.ledgerPublicKey, nil
+}
+
+// Revalidate observes the current signed scope and any logical resource bindings
+// again. Credential producers call it immediately before each external effect.
+func (v VerifiedBootstrapMaterial) Revalidate(ctx context.Context) error {
+	if v.source == nil || !v.IsVerified() || !time.Now().Before(v.expires) {
+		return errors.New("bootstrap material authority is absent or expired")
+	}
+	current, err := v.source.AuthorizedBootstrapMaterial(ctx, v.cell)
+	if err != nil {
+		return err
+	}
+	expected, err := json.Marshal(v.intent, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	actual, err := json.Marshal(current.intent, json.Deterministic(true))
+	if err != nil || current.generation != v.generation || !bytes.Equal(current.grantWire, v.grantWire) || !bytes.Equal(expected, actual) {
+		return errors.New("bootstrap material authority or owned resources changed")
+	}
+	return ctx.Err()
 }
 
 func (v VerifiedBootstrapMaterial) FoundationGrantWire() []byte { return bytes.Clone(v.grantWire) }
@@ -188,7 +211,12 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 		var image release.VerifiedImage
 		if material.Startup != nil {
 			startup := material.Startup.Clone()
-			image, err = s.verifyStartup(startup, config, intent.Plan)
+			var boundPlan map[string]any
+			startup, boundPlan, err = s.boundStartup(ctx, startup, intent.Plan, grantWire)
+			if err != nil {
+				return VerifiedBootstrapMaterial{}, err
+			}
+			image, err = s.verifyStartup(startup, config, boundPlan)
 			if err != nil {
 				return VerifiedBootstrapMaterial{}, err
 			}
@@ -218,7 +246,7 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterial(ctx context.Context, cell 
 			}
 			ledgerPublicKey = base64.StdEncoding.EncodeToString(key)
 		}
-		return VerifiedBootstrapMaterial{intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
+		return VerifiedBootstrapMaterial{source: s, cell: cell, intent: material, generation: intent.Generation, storage: s.storage, expires: expires, escrow: escrow, image: image, grantWire: bytes.Clone(grantWire), ledgerPublicKey: ledgerPublicKey}, nil
 	}
 	return VerifiedBootstrapMaterial{}, errors.New("signed foundation scope does not authorize regional credential generation")
 }
@@ -287,6 +315,7 @@ type SignedFootprint struct {
 	tenancy       string
 	home          bootstrap.FoundationScope
 	local         bootstrap.BootstrapAnchor
+	factory       *ociclient.Factory
 }
 
 func NewSignedFootprint(client FoundationObjects, anchor bootstrap.VerifiedBootstrapAnchor, roots trust.Keyring, tenancy string) (*SignedFootprint, error) {
@@ -380,11 +409,11 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 	if err := json.Unmarshal(payload, &grant, json.RejectUnknownMembers(true)); err != nil {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
-	if grant.InstallationID != s.home.InstallationID || grant.SchemaVersion != 1 || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
+	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||
 		(grant.Currency != "USD" && grant.Currency != "BRL") || grant.CleanupOwner == "" || len(grant.CleanupOwner) > 128 {
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope lacks matching tenancy, numerical spend authority or cleanup owner")
 	}
-	footprint := ApprovedFootprint{TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,
+	footprint := ApprovedFootprint{GrantSHA256: hex.EncodeToString(digest[:]), TenancyID: grant.TenancyID, ParentCompartmentID: grant.ParentCompartmentID,
 		SharedCompartmentID: grant.SharedCompartmentID, Regions: grant.Regions}
 	for _, intent := range footprint.Regions {
 		if intent.Generation != grant.Generation {
@@ -426,5 +455,6 @@ func NewFoundationDiscovery(factory *ociclient.Factory, anchor bootstrap.Verifie
 	if err != nil {
 		return FoundationResolver{}, err
 	}
+	footprint.factory = factory
 	return FoundationResolver{Footprint: footprint, Store: store}, nil
 }
