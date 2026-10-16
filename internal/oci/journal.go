@@ -28,6 +28,8 @@ type KVJournal struct {
 }
 
 type journalEntry struct {
+	PoolPointRequest   PoolPointRequest         `json:"pool_point_request,omitzero"`
+	PoolPointResult    PoolPointResult          `json:"pool_point_result,omitzero"`
 	PoolCreateRequest  PoolCreateRequest        `json:"pool_create_request,omitzero"`
 	PoolCreateResult   PoolCreateResult         `json:"pool_create_result,omitzero"`
 	CapacityResult     CapacityResult           `json:"capacity_result,omitzero"`

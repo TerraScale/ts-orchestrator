@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -50,6 +51,15 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 		case "/20160918/instancePools":
 			fmt.Fprintf(w, `{"id":%q,"compartmentId":"ocid1.compartment.oc1..owned","instanceConfigurationId":%q,"size":0}`, poolID, configurationID)
 		case "/20160918/instancePools/" + poolID:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if strings.Contains(string(body), configurationID) {
+				fmt.Fprintf(w, `{"id":%q,"compartmentId":"ocid1.compartment.oc1..owned","instanceConfigurationId":"ocid1.instanceconfiguration.oc1..previous","size":0}`, poolID)
+				return
+			}
 			fmt.Fprintf(w, `{"id":%q,"compartmentId":"ocid1.compartment.oc1..owned","instanceConfigurationId":%q,"size":1}`, poolID, configurationID)
 		default:
 			t.Errorf("unexpected SDK endpoint: %s %s", r.Method, r.URL)
@@ -120,6 +130,20 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 		TenancyID: original.TenancyID, Region: original.Region, CompartmentID: original.CompartmentID, PoolID: poolID,
 		RequestSHA256: strings.Repeat("f", 64), RetryToken: entityid.New(), IfMatch: "original-etag", Currency: original.Currency,
 		ReservedMonthlyCents: original.ReservedMonthlyCents, QuoteSHA256: original.QuoteSHA256, TargetSize: 1, StartedAt: original.StartedAt}
+	pointBase := growth
+	pointBase.TargetSize, pointBase.RetryToken, pointBase.IfMatch = 0, entityid.New(), "original-point-etag"
+	point := PoolPointRequest{Request: pointBase, ConfigurationID: configurationID, ConfigurationSHA256: configurationSHA, PlacementSHA256: poolRequest.PlacementSHA256}
+	if err := journal.RecordPoolPointRequest(t.Context(), point); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := management.UpdateInstancePool(t.Context(), core.UpdateInstancePoolRequest{InstancePoolId: new(poolID), IfMatch: new(pointBase.IfMatch),
+		OpcRetryToken: new(pointBase.RetryToken), UpdateInstancePoolDetails: core.UpdateInstancePoolDetails{InstanceConfigurationId: new(configurationID)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := journal.RecordPoolPointResult(t.Context(), original.OperationID, accepted); err != nil {
+		t.Fatalf("asynchronous old config readback was confused with rejected SDK acceptance: %v", err)
+	}
 	if err := journal.RecordCapacityRequest(t.Context(), growth); err != nil {
 		t.Fatal(err)
 	}
@@ -162,6 +186,17 @@ func TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmis
 	}
 	if _, found, err := journal.GetCapacityResult(t.Context(), original.OperationID); err != nil || !found {
 		t.Fatalf("positive growth result lost on restart: found=%v err=%v", found, err)
+	}
+	if saved, found, err := journal.GetPoolPointRequest(t.Context(), original.OperationID); err != nil || !found || saved != point {
+		t.Fatalf("point and growth collided or original point request lost: %+v found=%v err=%v", saved, found, err)
+	}
+	if saved, found, err := journal.GetPoolPointResult(t.Context(), original.OperationID); err != nil || !found || saved.ObservedConfigurationID != "ocid1.instanceconfiguration.oc1..previous" || saved.ObservedSize != 0 {
+		t.Fatalf("SDK acceptance manufactured new asynchronous configuration: %+v found=%v err=%v", saved, found, err)
+	}
+	changedPoint := point
+	changedPoint.Request.IfMatch = "refreshed-point-etag"
+	if journal.RecordPoolPointRequest(t.Context(), changedPoint) == nil {
+		t.Fatal("changed point precondition replaced original unknown attempt")
 	}
 	altered := original
 	altered.QuoteSHA256 = strings.Repeat("1", 64)
