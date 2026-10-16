@@ -55,7 +55,11 @@ func (controller Controller) Prepare(ctx context.Context, tenant, function strin
 	if err != nil {
 		return VerifiedDelivery{}, err
 	}
-	if _, err := controller.Authority.ReadFunctionGrant(ctx, binding.TaskID); err == nil {
+	if entry, err := controller.Authority.ReadFunctionGrant(ctx, binding.TaskID); err == nil {
+		grant, err := authority.DecodeFunctionGrant(entry)
+		if err != nil || grant.TenantID != tenant || grant.FunctionID != function || grant.EnvelopeSHA256 != proof.EnvelopeSHA256() {
+			return VerifiedDelivery{}, ErrMaterial
+		}
 		return reader.Current(ctx, binding)
 	} else if !errors.Is(err, authority.ErrNotFound) {
 		return VerifiedDelivery{}, err
