@@ -2,7 +2,7 @@ package globalview
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -116,7 +116,7 @@ func TestBuildHealth(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			in := healthyRegion()
 			test.mutate(&in)
-			got := Build(in).Health
+			got := observedRollup(t, in).Health
 			if got.Status != test.status {
 				t.Fatalf("status = %q, want %q (reasons %v)", got.Status, test.status, got.Reasons)
 			}
@@ -128,7 +128,7 @@ func TestBuildHealth(t *testing.T) {
 }
 
 func TestBuildNodeHealthPerNode(t *testing.T) {
-	rollup := Build(healthyRegion())
+	rollup := observedRollup(t, healthyRegion())
 	if got := len(rollup.Nodes); got != 4 {
 		t.Fatalf("nodes = %d, want 4", got)
 	}
@@ -145,7 +145,7 @@ func TestBuildNodeHealthPerNode(t *testing.T) {
 func TestBuildNodeMissingReportIsDown(t *testing.T) {
 	in := healthyRegion()
 	in.Reports = in.Reports[1:]
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if got := rollup.Nodes[0]; got.Name != "ts-gru-0" || got.Health != NodeDown || got.Services == nil {
 		t.Fatalf("node 0 = %+v, want down with its grant services", got)
 	}
@@ -162,7 +162,7 @@ func TestBuildTotalsExcludeDownNodesAndCountBeyondCap(t *testing.T) {
 		in.Grants = append(in.Grants, regionview.Node{Name: name})
 		in.Reports = append(in.Reports, reportOf(name, at, 8, 0.5, 0.5, nil))
 	}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if rollup.Totals.Nodes != 70 || rollup.Totals.Ready != 68 {
 		t.Fatalf("totals nodes/ready = %d/%d, want 70/68", rollup.Totals.Nodes, rollup.Totals.Ready)
 	}
@@ -187,7 +187,7 @@ func TestBuildFilesystemsDedupeByDevice(t *testing.T) {
 		{Role: "install", SizeBytes: 100, FreeBytes: 60, Device: 7},
 		{Role: "scratch", SizeBytes: 50, FreeBytes: 60, Device: 9},
 	}
-	node := Build(in).Nodes[0]
+	node := observedRollup(t, in).Nodes[0]
 	if len(node.Filesystems) != 2 || node.Filesystems[0].Role != "state, install" {
 		t.Fatalf("filesystems = %+v, want state, install and scratch", node.Filesystems)
 	}
@@ -216,7 +216,7 @@ func TestBuildLinksCarryWANLag(t *testing.T) {
 		ReceiverRegion: "gru",
 		Sources:        []terrabase.WANSource{{SourceRegion: "SFO", StalenessSeconds: ptrTo(7.0)}},
 	}}}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	want := []Link{
 		{Region: "gru", Reach: "ok", RTTMillis: ptrTo(12.5)},
 		{Region: "nrt", Reach: "unknown", LagSeconds: ptrTo(9.0)},
@@ -250,7 +250,7 @@ func TestBuildRoutes(t *testing.T) {
 		{Name: "nats-ctl-3", Offline: true},
 		{Name: "nats-ctl-4", Lag: 5},
 	}
-	routes := Build(in).Routes
+	routes := observedRollup(t, in).Routes
 	want := []Route{
 		{From: "nats-ctl-1", To: "nats-ctl-2", Lag: 3, Error: "no measurement"},
 		{From: "nats-ctl-1", To: "nats-ctl-3", RTTMillis: ptrTo(20.0), Error: "offline"},
@@ -274,7 +274,7 @@ func TestBuildErrorsFromEvents(t *testing.T) {
 		{Time: t0.Add(time.Minute), Level: slog.LevelError.String(), Component: "host", Message: "old", Attrs: map[string]string{"node": "ts-gru-1"}},
 		{Time: t0.Add(3 * time.Minute), Level: slog.LevelError.String(), Message: strings.Repeat("é", 300)},
 	}
-	errs := Build(in).Errors
+	errs := observedRollup(t, in).Errors
 	if len(errs) != 2 {
 		t.Fatalf("errors = %+v, want 2 ERROR events", errs)
 	}
@@ -297,7 +297,7 @@ func TestBuildErrorsClipsNodes(t *testing.T) {
 		nodes = append(nodes, fmt.Sprintf("ts-gru-%02d", i))
 	}
 	in.Errors = []Error{{At: rollupNow, Level: "WARN", Count: 40, Nodes: nodes}}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if len(rollup.Errors) != 1 || len(rollup.Errors[0].Nodes) != maxErrorNodes || rollup.Errors[0].Count != 40 {
 		t.Fatalf("errors = %+v, want one with %d nodes and count 40", rollup.Errors, maxErrorNodes)
 	}
@@ -313,7 +313,7 @@ func TestBuildErrorsSourceOverridesEvents(t *testing.T) {
 	in := healthyRegion()
 	in.Errors = []Error{{At: rollupNow, Message: "from source"}}
 	in.Events = []observability.Event{{Time: rollupNow, Level: slog.LevelError.String(), Message: "from events"}}
-	errs := Build(in).Errors
+	errs := observedRollup(t, in).Errors
 	if len(errs) != 1 || errs[0].Message != "from source" {
 		t.Fatalf("errors = %+v, want only the source error", errs)
 	}
@@ -324,7 +324,7 @@ func TestBuildDatabasesSortedAndCapped(t *testing.T) {
 	for i := range 12 {
 		in.Databases = append(in.Databases, Database{ID: fmt.Sprintf("db-%02d", i), ReplicationBytesPerSecond: float64(i * 10)})
 	}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if len(rollup.Databases) != maxDatabases || rollup.Databases[0].ID != "db-11" || rollup.Databases[9].ID != "db-02" {
 		t.Fatalf("databases = %+v, want db-11 down to db-02", rollup.Databases)
 	}
@@ -343,7 +343,7 @@ func TestBuildDatabasePeersSortedAndCapped(t *testing.T) {
 		db.Peers = append(db.Peers, DatabasePeer{Region: fmt.Sprintf("r%02d", i), SentBytesPerSecond: float64(i)})
 	}
 	in.Databases = []Database{db}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	peers := rollup.Databases[0].Peers
 	if len(peers) != maxDatabasePeers || peers[0].Region != "r39" || peers[31].Region != "r08" {
 		t.Fatalf("peers = %d, first %s, last %s; want 32 from r39 down to r08", len(peers), peers[0].Region, peers[len(peers)-1].Region)
@@ -362,7 +362,7 @@ func TestBuildAutoscaleSkipsAwaitingRelease(t *testing.T) {
 		"web":    {Replicas: 2, Target: 4, Reason: "scale-up"},
 		"worker": {Replicas: 1, Target: 1, Reason: "awaiting-release"},
 	}
-	services := Build(in).Autoscale.Services
+	services := observedRollup(t, in).Autoscale.Services
 	if len(services) != 1 || services[0] != (Scaling{Service: "web", Replicas: 2, Goal: 4, Reason: "scale-up"}) {
 		t.Fatalf("scaling = %+v, want only web", services)
 	}
@@ -373,7 +373,7 @@ func TestBuildVolumesSortedAndCapped(t *testing.T) {
 	for i := range maxVolumes + 1 {
 		in.Volumes = append(in.Volumes, insights.Volume{ID: fmt.Sprintf("vol-%03d", i), Host: fmt.Sprintf("ts-gru-%d", i%4), State: "attached"})
 	}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if len(rollup.Volumes) != maxVolumes || !rollup.Truncated {
 		t.Fatalf("volumes = %d truncated = %v, want %d and true", len(rollup.Volumes), rollup.Truncated, maxVolumes)
 	}
@@ -386,7 +386,7 @@ func TestBuildVersionsAndControllers(t *testing.T) {
 	in := healthyRegion()
 	in.Cluster.Members[1].BuildVersion = "2026.09.4"
 	in.Cluster.Members[2].BuildVersion = ""
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if rollup.Controllers != (Controllers{Expected: 3, Ready: 3, Leader: "ctl-1", MetaLeader: "nats-ctl-1"}) {
 		t.Fatalf("controllers = %+v", rollup.Controllers)
 	}
@@ -425,7 +425,7 @@ func TestBuildRollupJSONStaysUnder16KB(t *testing.T) {
 		in.Errors = append(in.Errors, Error{At: rollupNow, Level: "ERROR", Count: i + 1, Nodes: []string{"ts-gru-01"}, Component: "terrabase", Message: strings.Repeat("x", 300) + fmt.Sprint(i)})
 		in.Databases = append(in.Databases, Database{ID: fmt.Sprintf("db-%d", i), ReplicationBytesPerSecond: float64(i)})
 	}
-	raw, err := json.Marshal(Build(in))
+	raw, err := json.Marshal(observedRollup(t, in))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,12 @@ func TestBuildRollupJSONStaysUnder16KB(t *testing.T) {
 }
 
 func TestCollectReadsSourcesOnce(t *testing.T) {
-	cluster := &fakeClusterSource{err: errors.New("unreachable")}
+	conn, _ := startNATS(t)
+	cluster, err := observability.NewAggregator(conn, "gru", []string{"ctl-1"}, 20*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
 	sources := Sources{
 		Cell:    "GRU",
 		Cluster: cluster,
@@ -448,8 +453,8 @@ func TestCollectReadsSourcesOnce(t *testing.T) {
 		},
 	}
 	in := sources.Collect(context.Background())
-	if in.ClusterOK || cluster.calls != 1 {
-		t.Fatalf("ClusterOK = %v after %d calls, want false after 1", in.ClusterOK, cluster.calls)
+	if in.ClusterOK {
+		t.Fatal("closed regional NATS connection reported an available cluster")
 	}
 	if in.Now.Location() != time.UTC || !in.Now.Equal(rollupNow) {
 		t.Fatalf("Now = %v, want %v in UTC", in.Now, rollupNow)
@@ -457,15 +462,31 @@ func TestCollectReadsSourcesOnce(t *testing.T) {
 	if len(in.Errors) != 1 || in.Cell != "GRU" {
 		t.Fatalf("inputs = %+v", in)
 	}
-	rollup := Build(in)
+	rollup := observedRollup(t, in)
 	if rollup.Health.Status != Critical || rollup.Cell != "gru" {
 		t.Fatalf("rollup = %s %+v, want critical gru", rollup.Cell, rollup.Health)
 	}
 }
 
 func TestCollectEventsWhenNoErrorSource(t *testing.T) {
+	conn, _ := startNATS(t)
+	collector, err := observability.NewCollector(observability.CollectorConfig{Cell: "gru", Member: "ctl-1", Role: "controller", Registry: observability.NewRegistry(false), Health: new(observability.Health)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := observability.ServeSnapshots(t.Context(), conn, "gru", collector); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	cluster, err := observability.NewAggregator(conn, "gru", []string{"ctl-1"}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sources := Sources{
-		Cluster: &fakeClusterSource{},
+		Cell:    "gru",
+		Cluster: cluster,
 		Now:     func() time.Time { return rollupNow },
 		Events: func(limit int) []observability.Event {
 			if limit != 256 {
@@ -478,16 +499,10 @@ func TestCollectEventsWhenNoErrorSource(t *testing.T) {
 	if !in.ClusterOK || len(in.Events) != 1 || in.Errors != nil {
 		t.Fatalf("inputs = ClusterOK %v events %d errors %v", in.ClusterOK, len(in.Events), in.Errors)
 	}
-}
-
-type fakeClusterSource struct {
-	err   error
-	calls int
-}
-
-func (f *fakeClusterSource) Cluster(context.Context, bool) (observability.ClusterSnapshot, error) {
-	f.calls++
-	return observability.ClusterSnapshot{Expected: []string{"ctl-1"}}, f.err
+	rollup := observedRollup(t, in)
+	if len(rollup.Errors) != 1 || rollup.Errors[0].Message != "boom" {
+		t.Fatalf("event did not reach remote regional observation: %+v", rollup.Errors)
+	}
 }
 
 // samePtr compares optional readings by value. nil must match nil.
@@ -510,8 +525,8 @@ func TestFailedVolumeReadIsNotAnEmptyList(t *testing.T) {
 		t.Fatal("a failed volume read was collected as an empty list")
 	}
 	healthy := healthyRegion()
-	healthy.VolumesUnavailable = true
-	rollup := Build(healthy)
+	healthy.VolumesUnavailable = in.VolumesUnavailable
+	rollup := observedRollup(t, healthy)
 	if !rollup.VolumesUnavailable || rollup.Health.Status != Degraded ||
 		!slices.Contains(rollup.Health.Reasons, "volume list unavailable") {
 		t.Fatalf("rollup = unavailable %v, health %+v", rollup.VolumesUnavailable, rollup.Health)

@@ -125,41 +125,32 @@ func publishUntil(t *testing.T, ch <-chan struct{}, publish func()) {
 
 func TestViewAccept(t *testing.T) {
 	c := &fakeClock{now: start}
-	view := NewView("gru", func() []string { return []string{"sfo"} }, c.Now)
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, c.Now)
 
 	ch := view.Changed()
-	if view.Accept(rollupAt("SFO", start)) {
-		t.Fatal("accepted an uppercase cell")
-	}
-	if view.Accept(rollupAt("sfo", start.Add(2*time.Minute))) {
-		t.Fatal("accepted a rollup from the future")
-	}
+	publishTestRollup(t, conn, rollupAt("SFO", start))
+	publishTestRollup(t, conn, rollupAt("sfo", start.Add(2*time.Minute)))
 	if closed(ch) {
 		t.Fatal("Changed closed on a rejected rollup")
 	}
 
-	if !view.Accept(rollupAt("sfo", start)) {
-		t.Fatal("rejected a new rollup")
-	}
+	publishTestRollup(t, conn, rollupAt("sfo", start))
 	if !closed(ch) {
 		t.Fatal("Changed not closed on accept")
 	}
 	ch = view.Changed()
 
-	if view.Accept(rollupAt("sfo", start.Add(-time.Second))) || view.Accept(rollupAt("sfo", start)) {
-		t.Fatal("accepted an older or equal rollup")
-	}
+	publishTestRollup(t, conn, rollupAt("sfo", start.Add(-time.Second)))
+	publishTestRollup(t, conn, rollupAt("sfo", start))
 	if closed(ch) {
 		t.Fatal("Changed closed on a rejected rollup")
 	}
 
-	if !view.Accept(rollupAt("sfo", start.Add(time.Second))) {
-		t.Fatal("rejected a newer rollup")
-	}
+	publishTestRollup(t, conn, rollupAt("sfo", start.Add(time.Second)))
 	if !closed(ch) {
 		t.Fatal("Changed not closed on newer accept")
 	}
-	region, _ := view.Region("sfo")
+	region := readTestRegion(t, view, "sfo")
 	if !region.Rollup.ObservedAt.Equal(start.Add(time.Second)) {
 		t.Fatalf("held ObservedAt = %s, want the newer one", region.Rollup.ObservedAt)
 	}
@@ -168,12 +159,12 @@ func TestViewAccept(t *testing.T) {
 func TestViewRegions(t *testing.T) {
 	c := &fakeClock{now: start}
 	regions := []string{"zrh", "SFO", "ams", "bogus!", "gru"}
-	view := NewView("gru", func() []string { return regions }, c.Now)
-	view.Accept(rollupAt("sfo", start))
-	view.Accept(rollupAt("hidden", start))
+	view, conn := followedTestView(t, "gru", func() []string { return regions }, c.Now)
+	publishTestRollup(t, conn, rollupAt("sfo", start))
+	publishTestRollup(t, conn, rollupAt("hidden", start))
 
 	var cells []string
-	for _, region := range view.Regions() {
+	for _, region := range readTestRegions(t, view) {
 		cells = append(cells, region.Cell)
 	}
 	if got := strings.Join(cells, ","); got != "gru,ams,sfo,zrh" {
@@ -182,25 +173,25 @@ func TestViewRegions(t *testing.T) {
 	if _, ok := view.Region("hidden"); ok {
 		t.Fatal("Region reported an unlisted cell")
 	}
-	if region, ok := view.Region("SFO"); !ok || region.Rollup == nil {
+	if region := readTestRegion(t, view, "SFO"); region.Rollup == nil {
 		t.Fatal("Region did not find listed cell sfo")
 	}
-	if region, _ := view.Region("gru"); region.Rollup != nil {
+	if region := readTestRegion(t, view, "gru"); region.Rollup != nil {
 		t.Fatal("local region has a rollup before any arrived")
 	}
 }
 
 func TestViewRegionsStale(t *testing.T) {
 	c := &fakeClock{now: start}
-	view := NewView("gru", func() []string { return []string{"sfo"} }, c.Now)
-	view.Accept(rollupAt("sfo", start))
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, c.Now)
+	publishTestRollup(t, conn, rollupAt("sfo", start))
 
 	c.now = start.Add(StaleAfter)
-	if region, _ := view.Region("sfo"); region.Stale {
+	if region := readTestRegion(t, view, "sfo"); region.Stale {
 		t.Fatal("rollup stale at exactly StaleAfter")
 	}
 	c.now = start.Add(StaleAfter + time.Second)
-	if region, _ := view.Region("sfo"); !region.Stale {
+	if region := readTestRegion(t, view, "sfo"); !region.Stale {
 		t.Fatal("rollup not stale after StaleAfter")
 	}
 }
@@ -230,8 +221,12 @@ func TestDecodeRejectsInvalidRollups(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decode(tc.subject, tc.data); err == nil {
-				t.Fatal("decode accepted an invalid rollup")
+			view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo", "lhr"} }, func() time.Time { return now })
+			publishTestRaw(t, conn, tc.subject, tc.data)
+			for _, region := range readTestRegions(t, view) {
+				if region.Rollup != nil {
+					t.Fatalf("invalid wire data became an observation: %+v", region)
+				}
 			}
 		})
 	}
@@ -243,34 +238,36 @@ func TestDecodeAcceptsUnknownField(t *testing.T) {
 		t.Fatal(err)
 	}
 	data = append([]byte(`{"future_field":true,`), data[1:]...)
-	r, err := decode(protocol.RegionRollupSubject("sfo"), data)
-	if err != nil {
-		t.Fatalf("decode rejected a newer region's extra field: %v", err)
-	}
-	if r.Cell != "sfo" {
-		t.Fatalf("decoded cell %q, want sfo", r.Cell)
+	view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, time.Now)
+	publishTestRaw(t, conn, protocol.RegionRollupSubject("sfo"), data)
+	region := readTestRegion(t, view, "sfo")
+	if region.Rollup == nil || region.Rollup.Cell != "sfo" {
+		t.Fatalf("newer wire field prevented observation: %+v", region)
 	}
 }
 
 func TestViewAcceptBoundsRegions(t *testing.T) {
 	c := &fakeClock{now: start}
 	var listed []string
-	view := NewView("gru", func() []string { return listed }, c.Now)
-	view.Accept(rollupAt("gru", start))
+	view, conn := followedTestView(t, "gru", func() []string { return listed }, c.Now)
+	publishTestRollup(t, conn, rollupAt("gru", start))
 	for i := range maxRegions - 1 {
 		cell := fmt.Sprintf("c%02d", i)
 		listed = append(listed, cell)
-		if !view.Accept(rollupAt(cell, start)) {
-			t.Fatalf("rejected listed cell %d below the bound", i)
+		publishTestRollup(t, conn, rollupAt(cell, start))
+		if readTestRegion(t, view, cell).Rollup == nil {
+			t.Fatalf("listed cell %d missing below bound", i)
 		}
 	}
-	if view.Accept(rollupAt("late", start)) {
-		t.Fatal("accepted an unlisted cell past the bound")
+	publishTestRollup(t, conn, rollupAt("late", start))
+	if _, exists := view.rollups["late"]; exists {
+		t.Fatal("unlisted wire observation exceeded regional bound")
 	}
 
 	listed = []string{"zrh"}
-	if !view.Accept(rollupAt("zrh", start)) {
-		t.Fatal("rejected a listed cell at the bound")
+	publishTestRollup(t, conn, rollupAt("zrh", start))
+	if readTestRegion(t, view, "zrh").Rollup == nil {
+		t.Fatal("listed cell missing at bound")
 	}
 	if len(view.rollups) != 2 {
 		t.Fatalf("held %d rollups, want 2: gru and zrh", len(view.rollups))
@@ -537,9 +534,11 @@ func TestDecodeKeepsOnlyTheRegionsOwnScaleStatus(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r, err := decode(protocol.RegionRollupSubject("sfo"), data)
-			if err != nil || (r.Scale != nil) != tc.kept {
-				t.Fatalf("decode = %+v, %v; want scale kept %v", r.Scale, err, tc.kept)
+			view, conn := followedTestView(t, "gru", func() []string { return []string{"sfo"} }, func() time.Time { return now })
+			publishTestRaw(t, conn, protocol.RegionRollupSubject("sfo"), data)
+			r := readTestRegion(t, view, "sfo")
+			if r.Rollup == nil || (r.Rollup.Scale != nil) != tc.kept {
+				t.Fatalf("regional API = %+v; want scale kept %v", r, tc.kept)
 			}
 		})
 	}
