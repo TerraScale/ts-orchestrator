@@ -93,7 +93,7 @@ func newBindingScenario(t *testing.T) *bindingScenario {
 	for _, role := range []string{"network_security_group", "workload_network_security_group"} {
 		s.live["/20160918/networkSecurityGroups/"+ids[role]] = map[string]any{"id": ids[role], "compartmentId": ids["network_compartment"], "vcnId": ids["vcn"], "lifecycleState": "AVAILABLE"}
 	}
-	s.live["/20180608/vaults/"+ids["vault"]] = map[string]any{"id": ids["vault"], "compartmentId": ids["control_compartment"], "lifecycleState": "ACTIVE", "vaultType": "DEFAULT", "managementEndpoint": "https://fixture.management.kms." + region + ".oraclecloud.com"}
+	s.live["/20180608/vaults/"+ids["vault"]] = map[string]any{"id": ids["vault"], "compartmentId": ids["control_compartment"], "lifecycleState": "ACTIVE", "vaultType": "DEFAULT", "managementEndpoint": "https://fixture-management.kms." + region + ".oraclecloud.com"}
 	s.live["/20180608/keys/"+ids["key"]] = map[string]any{"id": ids["key"], "compartmentId": ids["control_compartment"], "vaultId": ids["vault"], "lifecycleState": "ENABLED", "protectionMode": "HSM", "keyShape": map[string]any{"algorithm": "AES", "length": 32}}
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

@@ -438,7 +438,7 @@ func observe(ctx context.Context, factory *ociclient.Factory, plan map[string]an
 	}
 	endpoint, err := url.Parse(value(vault.ManagementEndpoint))
 	if err != nil || endpoint.Scheme != "https" || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" || endpoint.RawQuery != "" || endpoint.Fragment != "" ||
-		!strings.HasSuffix(endpoint.Hostname(), ".management.kms."+current.OCIRegion+".oraclecloud.com") {
+		!strings.HasSuffix(endpoint.Hostname(), ".oraclecloud.com") || !strings.Contains(endpoint.Hostname(), "."+current.OCIRegion+".") {
 		return errors.New("foundation vault has an invalid regional KMS endpoint")
 	}
 	keys, err := keymanagement.NewKmsManagementClientWithConfigurationProvider(regional.Provider(), endpoint.String())
