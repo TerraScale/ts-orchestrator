@@ -38,6 +38,19 @@ func TestReadCurrentMetadataAndRedaction(t *testing.T) {
 	if err != nil || value.Value() != sentinel || value.Version != 7 {
 		t.Fatal("current read did not return the named version", err)
 	}
+	deadline := time.Now().Add(time.Hour).UTC()
+	for name, metadata := range map[string]ocisecrets.SecretBundle{
+		"expiry":   {TimeOfExpiry: &common.SDKTime{Time: deadline}},
+		"deletion": {TimeOfDeletion: &common.SDKTime{Time: deadline}},
+		"earliest": {TimeOfExpiry: &common.SDKTime{Time: deadline.Add(time.Hour)}, TimeOfDeletion: &common.SDKTime{Time: deadline}},
+	} {
+		bundle := good
+		bundle.TimeOfExpiry, bundle.TimeOfDeletion = metadata.TimeOfExpiry, metadata.TimeOfDeletion
+		current, err := read(bundle)
+		if err != nil || !current.ExpiresAt.Equal(deadline) {
+			t.Fatalf("%s credential deadline = %v, error %v", name, current.ExpiresAt, err)
+		}
+	}
 	encoded, err := json.Marshal(value)
 	for _, formatted := range []string{string(encoded), fmt.Sprint(value), fmt.Sprintf("%+v", value), fmt.Sprintf("%#v", value)} {
 		if err != nil || strings.Contains(formatted, sentinel) {
