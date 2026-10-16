@@ -98,7 +98,7 @@ func TestGenerateStableAndProductionValid(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(first, second) {
 		t.Fatalf("rerun changed material: %v", err)
 	}
-	if len(first.Files) != 34 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
+	if len(first.Files) != 37 || first.Public.PeerSignerPublicKey == first.Public.LedgerSignerPublicKey {
 		t.Fatal("incomplete or reused signing identities")
 	}
 	for _, name := range expectedNames() {
@@ -634,7 +634,7 @@ func TestCellAccountRoleSignerIsExactOrAbsent(t *testing.T) {
 		}
 		var role string
 		for key := range claim.SigningKeys {
-			if key != record.Public.HostNATSIssuerNKey {
+			if key != record.Public.HostNATSIssuerNKey && key != record.Public.ControllerAccountSignerNKey {
 				role = key
 			}
 		}

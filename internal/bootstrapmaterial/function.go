@@ -23,16 +23,24 @@ import (
 // controller. The caller reads the current durable account claim and fences
 // publication against concurrent claim or function-intent changes.
 func (issuer *ControllerIssuer) IssueFunctionCredentials(admitted release.VerifiedFunction, accountJWT string, existing []byte) ([]byte, functions.WorkerBrokerIdentity, error) {
-	if issuer == nil || issuer.cert == nil || issuer.key == nil || !admitted.Valid() {
+	if issuer == nil || issuer.cert == nil || issuer.key == nil || !admitted.Valid() || !time.Now().Before(issuer.identity.expiresAt) {
 		return nil, functions.WorkerBrokerIdentity{}, errors.New("function issuance requires a current admitted release and controller generation")
 	}
 	claim := admitted.Claim()
 	account, err := jwt.DecodeAccountClaims(accountJWT)
-	if err != nil || account.Subject != issuer.generation.CellAccount || account.Issuer != issuer.generation.Operator ||
-		claim.Environment != issuer.generation.Environment || claim.Cell != string(issuer.generation.Cell) {
+	if err != nil || account.Subject != issuer.identity.CellAccount || account.Issuer != issuer.identity.Operator ||
+		claim.Environment != issuer.identity.Environment || claim.Cell != issuer.identity.Cell {
 		return nil, functions.WorkerBrokerIdentity{}, errors.New("function release or broker account differs from the controller generation")
 	}
-	return functions.IssueWorkerCredentials(admitted, issuer.generation.CellAccount, accountJWT, issuer.signer, existing)
+	credentials, identity, err := functions.IssueWorkerCredentials(admitted, issuer.identity.CellAccount, accountJWT, issuer.signer, existing)
+	if err != nil {
+		return nil, functions.WorkerBrokerIdentity{}, err
+	}
+	if identity.ExpiresAt.After(issuer.identity.expiresAt) {
+		clear(credentials)
+		return nil, functions.WorkerBrokerIdentity{}, errors.New("function credentials outlive the current controller authority")
+	}
+	return credentials, identity, nil
 }
 
 // IssueFunctionTLS issues only the admitted function's fixed server identity.
@@ -52,8 +60,8 @@ func (issuer *ControllerIssuer) issueFunctionTLS(admitted release.VerifiedFuncti
 	}
 	claim := admitted.Claim()
 	now := time.Now()
-	expires := minTime(minTime(admitted.ExpiresAt(), now.Add(time.Hour)), issuer.cert.NotAfter)
-	if claim.Environment != issuer.generation.Environment || claim.Cell != string(issuer.generation.Cell) ||
+	expires := minTime(minTime(admitted.ExpiresAt(), now.Add(time.Hour)), issuer.identity.expiresAt)
+	if claim.Environment != issuer.identity.Environment || claim.Cell != issuer.identity.Cell ||
 		now.Before(issuer.cert.NotBefore) || !now.Before(expires) {
 		return nil, nil, nil, errors.New("function TLS release differs from the current controller generation")
 	}
