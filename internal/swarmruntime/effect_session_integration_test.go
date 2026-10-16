@@ -49,7 +49,8 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 	if err != nil || len(clusters.Clusters) != 1 {
 		t.Fatalf("actual cluster: %v", err)
 	}
-	workerCfg := nodeFixtureConfig(t, "worker", "container")
+	hostID := entityid.New()
+	workerCfg := nodeFixtureConfig(t, hostID, "container")
 	workerCfg.Admission.Region = "sa-saopaulo-1"
 	workerCfg.Admission.InstanceID = "ocid1.instance.oc1.sa-saopaulo-1.held-worker"
 	workerCfg.Admission.ManagerAddress, err = founder.RemoteAddress()
@@ -76,7 +77,7 @@ func TestEffectSessionsRecoverHeldR3AfterLeaderChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	scope := authority.WorkloadScope{DatabaseID: entityid.New(), PartitionID: entityid.New()}
-	registration := host.Registration{ID: entityid.New(), Cell: "gru", Node: "worker", PublicKey: base64.StdEncoding.EncodeToString(key), NATSUserPublicKey: public, Generation: 1,
+	registration := host.Registration{ID: hostID, Cell: "gru", Node: "worker", PublicKey: base64.StdEncoding.EncodeToString(key), NATSUserPublicKey: public, Generation: 1,
 		ManagedPlacement: &host.ManagedPlacementBinding{DatabaseID: scope.DatabaseID, PartitionID: scope.PartitionID},
 		ManagedOCI:       &host.ManagedOCIBinding{Region: "sa-saopaulo-1", InstanceID: workerCfg.Admission.InstanceID}}
 	registrationBytes, err := json.Marshal(registration, json.Deterministic(true))

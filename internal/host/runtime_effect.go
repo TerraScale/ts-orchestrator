@@ -97,10 +97,10 @@ func (c *Controller) serveRuntimeEffect(ctx context.Context, req request, regist
 		return nil, errors.New("invalid runtime effect request")
 	}
 	identity := query.Identity
-	if identity.Cell != c.cell || identity.HostNode != registration.Node || identity.HostPublicKey != registration.PublicKey ||
-		identity.NATSUserPublicKey != registration.NATSUserPublicKey || !entityid.Valid(identity.HostSessionID) ||
-		query.Action != "close" && identity.HostSessionID != req.SessionID ||
-		identity.RegistrationGeneration != registration.Generation || identity.InstanceID != registration.ManagedOCI.InstanceID {
+	if identity.Cell != c.cell || identity.HostNode != registration.Node || !entityid.Valid(identity.HostSessionID) ||
+		identity.InstanceID != registration.ManagedOCI.InstanceID ||
+		query.Action != "close" && (identity.HostPublicKey != registration.PublicKey || identity.NATSUserPublicKey != registration.NATSUserPublicKey ||
+			identity.HostSessionID != req.SessionID || identity.RegistrationGeneration != registration.Generation) {
 		return nil, errors.New("runtime effect differs from authenticated host identity")
 	}
 	if query.Task == nil || query.Task.NodeID != identity.NodeID {

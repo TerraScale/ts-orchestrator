@@ -145,10 +145,10 @@ func (s *EffectSessions) HandleRuntimeEffect(ctx context.Context, caller host.Ru
 	}
 	registration := caller.Registration()
 	if registration.ManagedPlacement == nil || registration.ManagedMember == nil || registration.ManagedOCI == nil || query.Task == nil ||
-		query.Identity.Cell != registration.Cell || query.Identity.HostNode != registration.Node || query.Identity.HostPublicKey != registration.PublicKey ||
-		query.Identity.NATSUserPublicKey != registration.NATSUserPublicKey || query.Identity.InstanceID != registration.ManagedOCI.InstanceID ||
-		query.Identity.RegistrationGeneration != registration.Generation || query.Identity.NodeID != query.Task.NodeID ||
-		query.Action != "close" && query.Identity.HostSessionID != caller.SessionID() {
+		query.Identity.Cell != registration.Cell || query.Identity.HostNode != registration.Node || query.Identity.InstanceID != registration.ManagedOCI.InstanceID ||
+		query.Identity.NodeID != query.Task.NodeID ||
+		query.Action != "close" && (query.Identity.HostPublicKey != registration.PublicKey || query.Identity.NATSUserPublicKey != registration.NATSUserPublicKey ||
+			query.Identity.RegistrationGeneration != registration.Generation || query.Identity.HostSessionID != caller.SessionID()) {
 		return empty, errors.New("runtime effect caller differs from admitted worker")
 	}
 	if err := s.recover(ctx, epoch); err != nil {
@@ -298,7 +298,7 @@ func (s *EffectSessions) admittedNode(ctx context.Context, registration host.Reg
 	node := response.Node
 	labels := node.Spec.Annotations.Labels
 	if node.ID != nodeID || node.Role != api.NodeRoleWorker || node.Spec.Role != api.NodeRoleWorker ||
-		node.Spec.Annotations.Name != registration.Node || labels[LabelRegion] != registration.ManagedOCI.Region || labels[LabelHostRole] != "container" ||
+		node.Spec.Annotations.Name != registration.ID || labels[LabelRegion] != registration.ManagedOCI.Region || labels[LabelHostRole] != "container" ||
 		labels[LabelExecutionScope] != "platform" || labels[LabelInstanceID] != registration.ManagedOCI.InstanceID ||
 		node.Certificate.CN != nodeID || node.Certificate.Role != api.NodeRoleWorker || len(node.Certificate.Certificate) == 0 {
 		return nil, errors.New("manager worker differs from independently admitted host identity")
