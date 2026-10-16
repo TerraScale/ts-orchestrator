@@ -108,7 +108,7 @@ func assertHomeIAMLeases(t *testing.T, first, second *region.HomeIAMAuthority, o
 	}
 	releaseSecond()
 	fault.Store(2)
-	if _, wrongRelease, err := first.HomeWrite(ctx, 0); err == nil {
+	if _, wrongRelease, err := first.HomeWrite(ctx, 0); err == nil || fault.Load() != 0 {
 		if wrongRelease != nil {
 			wrongRelease()
 		}
@@ -295,7 +295,7 @@ func assertHomeIAMRetiredRoot(t *testing.T, authority *region.HomeIAMAuthority, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := iam.CreatePolicy(ociclient.RequestContext(guarded), fixtureHomeIAMRequest()); err == nil || mutations.Load() != 0 {
+	if _, err := iam.CreatePolicy(ociclient.RequestContext(guarded), fixtureHomeIAMRequest()); !errors.Is(err, trust.ErrUntrustedKey) || mutations.Load() != 0 {
 		t.Fatalf("retired terminal root did not deny before mutation wire: count=%d err=%v", mutations.Load(), err)
 	}
 }
