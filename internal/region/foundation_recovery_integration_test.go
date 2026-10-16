@@ -122,8 +122,8 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	now := time.Now().UTC()
 	record := FoundationRecord{SchemaVersion: 1, Cell: "SFO", OCIRegion: plan["region"].(string), TenancyID: plan["tenancy_id"].(string),
 		ParentCompartmentID: plan["parent_compartment_id"].(string), SharedCompartmentID: plan["shared_compartment_id"].(string), Generation: 1,
-		IntentDigest: hex.EncodeToString(intentHash[:]), OperationID: entityid.New(), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
-		Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}}
+		IntentDigest: hex.EncodeToString(intentHash[:]), GrantSHA256: strings.Repeat("a", 64), OperationID: entityid.Derive("regional-foundation", plan["tenancy_id"].(string), "SFO", "1"), Epoch: 1, LeaseID: entityid.New(), ExpiresAt: now.Add(foundationLease),
+		Stage: "foundation", StartedAt: now, UpdatedAt: now, ResourceIDs: map[string]string{}, AuxiliaryIDs: map[string]string{}, PendingCreates: map[string]PendingFoundationCreate{}, ResourceProvenance: map[string]FoundationResourceProvenance{}}
 	etag, err := store.CompareAndSwap(t.Context(), record, "")
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +201,26 @@ func TestFoundationAcceptedCreateRecoversFromDurablePendingRequest(t *testing.T)
 	got, _, err := store.Load(t.Context(), "SFO")
 	if err != nil || got.ResourceIDs["control_compartment"] != resourceID || len(got.PendingCreates) != 0 {
 		t.Fatalf("recovered identity not checkpointed: record=%+v err=%v", got, err)
+	}
+	proof := got.ResourceProvenance["control_compartment"]
+	if proof.ResourceID != resourceID || proof.Generation != 1 || proof.GrantSHA256 != record.GrantSHA256 || proof.Create.Request != originalPendingRequest || proof.Create.OperationID != record.OperationID {
+		t.Fatalf("completed create lost original authority: %+v", proof)
+	}
+	// Advancing authority preserves the original creation proof and retry token.
+	got.Generation, got.GrantSHA256 = 2, strings.Repeat("b", 64)
+	got.OperationID = entityid.Derive("regional-foundation", got.TenancyID, got.Cell, "2")
+	got.IntentDigest = strings.Repeat("c", 64)
+	got.UpdatedAt, got.ExpiresAt = time.Now().UTC(), time.Now().UTC().Add(foundationLease)
+	_, currentETag, err := store.Load(t.Context(), "SFO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CompareAndSwap(t.Context(), got, currentETag); err != nil {
+		t.Fatalf("new generation replaced original ownership: %v", err)
+	}
+	advanced, _, err := store.Load(t.Context(), "SFO")
+	if err != nil || advanced.ResourceProvenance["control_compartment"] != proof {
+		t.Fatalf("new generation lost resource birth proof: %+v, %v", advanced, err)
 	}
 	if err := first.prepareCreate(t.Context(), originalPendingRequest, true); !errors.Is(err, ErrFoundationFenced) {
 		t.Fatalf("old owner retained pending-create authority: %v", err)

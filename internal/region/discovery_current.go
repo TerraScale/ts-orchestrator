@@ -36,7 +36,11 @@ func DiscoverCurrentFoundation(ctx context.Context, factory *ociclient.Factory) 
 	if err != nil {
 		return FoundationResolver{}, err
 	}
-	return discoverCurrentFoundation(ctx, client, tenancy, genesis)
+	resolver, err := discoverCurrentFoundation(ctx, client, tenancy, genesis)
+	if err == nil {
+		resolver.Footprint.(*SignedFootprint).factory = factory
+	}
+	return resolver, err
 }
 
 type foundationFloor struct {
