@@ -64,6 +64,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 		t.Fatalf("home startup config binding: %v", err)
 	}
 	assertDerivedFounderAuthority(t, source, bound, roots, now)
+	assertDerivedSeedAdmission(t, source, bound, home, roots, server, now)
 	var grant region.FoundationGrant
 	grantEnvelope, err := trust.DecodeEnvelope(grantWire)
 	if err != nil || json.Unmarshal(grantEnvelope.Payload, &grant) != nil {
