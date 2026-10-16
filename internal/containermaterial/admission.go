@@ -121,6 +121,23 @@ func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, e
 			return err
 		}
 	}
+	return VerifyCurrentTask(ctx, client, task, expected, verified, roots, proof, registration, binding, controller)
+}
+
+// VerifyCurrentTask repeats final assignment, certificate and finite authority
+// checks without observing OCI again. Registry pulls may retain PreviousSpec;
+// material callers must additionally require the current service revision.
+func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
+	controller *bootstrapstart.ControllerHostRecipient,
+) error {
+	if client == nil || verifyExpected(proof, expected, verified) != nil || registration.Cell != proof.identity.Cell || registration.Environment != proof.identity.Environment ||
+		binding.Region != expected.Region || !slices.Contains(registration.Roles, proof.role) {
+		return ErrPending
+	}
+	if err := verifyTaskAssignment(task, binding); err != nil {
+		return err
+	}
 	if err := swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots); err != nil {
 		return err
 	}
