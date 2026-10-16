@@ -38,19 +38,19 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	grantWire := material.Grant().FoundationGrantWire()
 	template, err := bootstrap.VerifyStartupTemplate(grantWire, roots, home, now)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup template: %v", err)
 	}
 	projection, err := NewStartupProjection(template, material, template.Template().SeedSlot)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup projection: %v", err)
 	}
 	proof, err := link.StartupLink(t.Context(), template, now)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup Link proof: %v", err)
 	}
 	projection, err = projection.WithStartupLink(t.Context(), proof, now)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup Link attachment: %v", err)
 	}
 	configs := make(map[string][]byte)
 	for _, slot := range home.Anchor().ControllerSlots {
@@ -61,7 +61,7 @@ func assertHomeStartupPublicProof(t *testing.T, source *ColdStartMaterial, mater
 	}
 	bound, err := projection.BindConfigs(t.Context(), configs)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("home startup config binding: %v", err)
 	}
 	assertDerivedFounderAuthority(t, source, bound, roots, now)
 	var grant region.FoundationGrant
