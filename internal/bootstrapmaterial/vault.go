@@ -445,3 +445,43 @@ func saveJournal(directory string, state journal) error {
 	}
 	return nil
 }
+
+// ValidatePublication binds public host references to a complete, exact source
+// journal. Owner-only escrow material cannot appear in a host publication.
+func ValidatePublication(directory string, publication Publication, journalWire []byte) error {
+	record, err := Load(directory)
+	if err != nil || publication.SchemaVersion != 1 || publication.Target.Validate(record.Config.Region) != nil {
+		return ErrProvision
+	}
+	metadata, err := readOwnedFile(filepath.Join(directory, metadataName), 1<<20)
+	if err != nil || publication.MaterialSHA256 != digest(metadata) {
+		return ErrProvision
+	}
+	var state journal
+	if json.Unmarshal(journalWire, &state, json.RejectUnknownMembers(true)) != nil || state.SchemaVersion != 1 || state.Target != publication.Target || state.MaterialSHA256 != publication.MaterialSHA256 || len(state.Entries) != len(publication.References) {
+		return ErrProvision
+	}
+	expected := 0
+	for _, file := range record.Files {
+		if file.Purpose != "owner-only" {
+			expected++
+		}
+	}
+	if len(state.Entries) != expected {
+		return ErrProvision
+	}
+	for index, entry := range state.Entries {
+		file, ok := findFile(record, entry.FileName)
+		if !ok || file.Purpose == "owner-only" || entry.Name != secretName(record.Config, file) || !entry.Verified || entry.SentAt.IsZero() || !regionalResourceOCID(entry.SecretOCID, "vaultsecret", record.Config.Region) || index > 0 && state.Entries[index-1].FileName >= entry.FileName {
+			return ErrProvision
+		}
+		if _, err := uuid.Parse(entry.RetryToken); err != nil {
+			return ErrProvision
+		}
+		want := PublicReference{SecretName: entry.Name, Reference: bootstrap.SecretReference{Purpose: file.Purpose, Slot: file.Slot, SecretOCID: entry.SecretOCID, VersionNumber: 1, SHA256: file.SHA256, MaxBytes: file.MaxBytes, TargetFile: file.Name}}
+		if publication.References[index] != want {
+			return ErrProvision
+		}
+	}
+	return nil
+}
