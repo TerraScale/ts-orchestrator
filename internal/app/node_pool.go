@@ -15,6 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nodescale"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
+	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/oracle/oci-go-sdk/v65/core"
 	"github.com/oracle/oci-go-sdk/v65/identity"
 )
@@ -141,7 +142,12 @@ func newNodePool(ctx context.Context, cell string) (*nodescale.OCIPool, *ociclie
 	if response.Instance.CompartmentId == nil {
 		return nil, nil, errors.New("leader instance has no compartment")
 	}
-	pool, err := nodescale.NewOCIPool(factory, cell, *response.Instance.CompartmentId)
+	capacity, err := nodeCapacity(ctx, compute, response.Instance)
+	if err != nil {
+		return nil, nil, err
+	}
+	// shortcut: launches stay pending without durable runtime/spend evidence; bind Admit when its producer is available.
+	pool, err := nodescale.NewOCIPool(factory, cell, *response.Instance.CompartmentId, capacity)
 	return pool, factory, err
 }
 
@@ -193,7 +199,44 @@ func nodeRecipe(ctx context.Context, factory *ociclient.Factory, cell string) (n
 		}
 	}
 	slices.Sort(names)
-	return poolRecipe(cell, response.Instance, primary, names)
+	capacity, err := nodeCapacity(ctx, compute, response.Instance)
+	if err != nil {
+		return nodescale.Recipe{}, err
+	}
+	return poolRecipe(cell, response.Instance, primary, names, capacity)
+}
+
+// nodeCapacity identifies the current platform for observation and cost.
+// Observing a leader never admits its image/runtime or authorizes spending.
+func nodeCapacity(ctx context.Context, compute core.ComputeClient, instance core.Instance) (nodescale.Capacity, error) {
+	image, ok := instance.SourceDetails.(core.InstanceSourceViaImageDetails)
+	if !ok || image.ImageId == nil || instance.Shape == nil || instance.CompartmentId == nil || instance.AvailabilityDomain == nil {
+		return nodescale.Capacity{}, errors.New("leader instance has no image, shape, compartment or availability domain")
+	}
+	var page *string
+	for {
+		response, err := compute.ListShapes(ctx, core.ListShapesRequest{
+			CompartmentId: instance.CompartmentId, AvailabilityDomain: instance.AvailabilityDomain,
+			ImageId: image.ImageId, Shape: instance.Shape, Page: page})
+		if err != nil {
+			return nodescale.Capacity{}, err
+		}
+		for _, shape := range response.Items {
+			if shape.Shape == nil || *shape.Shape != *instance.Shape || shape.ProcessorDescription == nil {
+				continue
+			}
+			architecture, err := catalog.ShapeArchitecture(*shape.ProcessorDescription)
+			if err != nil {
+				return nodescale.Capacity{}, err
+			}
+			capacity := nodescale.Capacity{Role: nodescale.RoleContainer, Architecture: architecture, Shape: *instance.Shape}
+			return capacity, capacity.Validate()
+		}
+		if response.OpcNextPage == nil {
+			return nodescale.Capacity{}, fmt.Errorf("leader image %s has no compatible shape %s", *image.ImageId, *instance.Shape)
+		}
+		page = response.OpcNextPage
+	}
 }
 
 // primaryVnic returns the VNIC the instance boots on.
@@ -215,7 +258,7 @@ func primaryVnic(ctx context.Context, network core.VirtualNetworkClient, attachm
 
 // poolRecipe builds the recipe from the leader's instance, its primary VNIC
 // and the sorted availability domains. A missing piece is an error.
-func poolRecipe(cell string, instance core.Instance, vnic core.Vnic, domains []string) (nodescale.Recipe, error) {
+func poolRecipe(cell string, instance core.Instance, vnic core.Vnic, domains []string, capacity nodescale.Capacity) (nodescale.Recipe, error) {
 	image, ok := instance.SourceDetails.(core.InstanceSourceViaImageDetails)
 	if !ok || image.ImageId == nil || instance.ShapeConfig == nil || instance.ShapeConfig.Ocpus == nil ||
 		instance.ShapeConfig.MemoryInGBs == nil || instance.CompartmentId == nil || vnic.SubnetId == nil {
@@ -229,7 +272,7 @@ func poolRecipe(cell string, instance core.Instance, vnic core.Vnic, domains []s
 		}
 		metadata[key] = value
 	}
-	recipe := nodescale.Recipe{Cell: cell, SubnetID: *vnic.SubnetId,
+	recipe := nodescale.Recipe{Cell: cell, Capacity: capacity, SubnetID: *vnic.SubnetId,
 		NSGIDs: vnic.NsgIds, AvailabilityDomains: domains, ImageID: *image.ImageId,
 		OCPUs: *instance.ShapeConfig.Ocpus, MemoryGB: *instance.ShapeConfig.MemoryInGBs, Metadata: metadata}
 	if err := recipe.Validate(); err != nil {

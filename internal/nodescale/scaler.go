@@ -134,8 +134,10 @@ func (s *Scaler) Tick(ctx context.Context) error {
 		return fmt.Errorf("list hosts: %w", err)
 	}
 	t := &tick{epoch: snapshot.Epoch, now: s.Now(), record: record, pool: pool}
-	if err := s.nameUnnamed(ctx, t, hosts); err != nil {
-		return err
+	if t.pool.Pending == "" {
+		if err := s.nameUnnamed(ctx, t, hosts); err != nil {
+			return err
+		}
 	}
 	t.obs = s.observe(t.pool, hosts, t.now)
 	t.loads = countedLoads(s.Loads(), t.obs)
@@ -143,7 +145,7 @@ func (s *Scaler) Tick(ctx context.Context) error {
 	s.addresses = t.obs.addresses
 	s.mu.Unlock()
 	s.history.Add(Measure(t.obs.nodes, t.loads, t.now))
-	if t.record.Action != nil {
+	if t.record.Action != nil && t.pool.Pending == "" {
 		if err := s.advance(ctx, t); err != nil {
 			return err
 		}
@@ -311,6 +313,15 @@ func (s *Scaler) advance(ctx context.Context, t *tick) error {
 
 // grow raises the pool by one node. A size someone else set fails the action.
 func (s *Scaler) grow(ctx context.Context, t *tick) error {
+	if t.pool.Size == t.record.From+1 {
+		t.record.Action.Step = stepEnroll
+		return nil
+	}
+	allowance, fresh := s.Allowance(t.now)
+	if !fresh || allowance <= t.obs.nodes {
+		t.pool.Pending = "a fresh spending allowance for another node is unavailable"
+		return nil
+	}
 	recipe, err := s.Recipe(ctx)
 	if err != nil {
 		return fmt.Errorf("read node recipe: %w", err)
@@ -319,12 +330,20 @@ func (s *Scaler) grow(ctx context.Context, t *tick) error {
 		return err
 	}
 	if _, err := s.Pool.Ensure(ctx, recipe); err != nil {
+		if errors.Is(err, ErrCapacityPending) {
+			t.pool.Pending = err.Error()
+			return nil
+		}
 		return fmt.Errorf("ensure node pool: %w", err)
 	}
 	if err := s.Leader.Guard(ctx, t.epoch); err != nil {
 		return err
 	}
 	err = s.Pool.Grow(ctx, t.record.From)
+	if errors.Is(err, ErrCapacityPending) {
+		t.pool.Pending = err.Error()
+		return nil
+	}
 	if errors.Is(err, ErrPoolChanged) {
 		s.fail(t, err.Error())
 		return nil
@@ -490,6 +509,11 @@ func (s *Scaler) gone(ctx context.Context, t *tick) error {
 // decide asks Decide what the region should do, and starts the action it asks for when none is in flight.
 func (s *Scaler) decide(ctx context.Context, t *tick, state State) (Decision, error) {
 	decision := Decide(state, t.now)
+	if t.pool.Pending != "" {
+		decision.Action, decision.Reason = Hold, t.pool.Pending
+		s.holdOnce(t, decision)
+		return decision, nil
+	}
 	switch decision.Action {
 	case Up:
 		t.record.Action = &InFlight{ID: entityid.New(), Kind: Up, Step: stepGrow, Started: t.now}

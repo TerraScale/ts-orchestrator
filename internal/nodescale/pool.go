@@ -125,7 +125,10 @@ type PoolState struct {
 	PoolID, ConfigurationID, LifecycleState string
 	Size                                    int
 	Instances                               []PoolInstance // sorted by Name then ID
+	Pending                                 string         // observations remain available while mutations are held
 }
+
+var ErrCapacityPending = errors.New("node capacity admission is pending")
 
 var ErrPoolChanged = errors.New("instance pool size changed under the leader")
 var ErrNotPoolInstance = errors.New("instance is not in this node pool")

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json/v2"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,6 +21,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tsauth"
 	"github.com/TerraScale/ts-orchestrator/internal/workload"
+	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
@@ -214,17 +217,30 @@ func TestPoolNodeReenrollmentKeepsItsRetireMark(t *testing.T) {
 	}
 }
 
-// A pool node copies its leader's image, shape, network and enrollment bundle,
-// and never the leader's controller slot. A missing piece makes no recipe.
-func TestPoolRecipeCopiesTheLeaderButNotItsSlot(t *testing.T) {
+// OCI's actual image-specific shape response supplies observation identity;
+// recipe metadata still excludes the leader's controller slot.
+func TestPoolRecipeUsesObservedOCIPlatform(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("imageId") != "ocid1.image.a" || r.URL.Query().Get("shape") != "VM.Standard.E4.Flex" || r.URL.Query().Get("availabilityDomain") != "AD-1" {
+			t.Errorf("wrong image/shape observation scope: %s", r.URL)
+		}
+		w.Header().Set("content-type", "application/json")
+		json.MarshalWrite(w, []core.Shape{{Shape: new("VM.Standard.E4.Flex"), ProcessorDescription: new("AMD EPYC")}})
+	}))
+	t.Cleanup(server.Close)
+	compute := core.ComputeClient{BaseClient: common.BaseClient{Host: server.URL, BasePath: "20160918", HTTPClient: server.Client(), Signer: nodePoolObservationSigner{}}}
 	ocpus, memory := float32(2), float32(12)
-	leader := core.Instance{CompartmentId: new("ocid1.compartment.a"),
+	leader := core.Instance{CompartmentId: new("ocid1.compartment.a"), Shape: new("VM.Standard.E4.Flex"), AvailabilityDomain: new("AD-1"),
 		SourceDetails: core.InstanceSourceViaImageDetails{ImageId: new("ocid1.image.a")},
 		ShapeConfig:   &core.InstanceShapeConfig{Ocpus: &ocpus, MemoryInGBs: &memory},
 		Metadata: map[string]string{"ssh_authorized_keys": "ssh-ed25519 AAAA", hostboot.EnrollmentMetadataKey: "bundle",
 			"terrascale-bootstrap": "controller slot"}}
 	vnic := core.Vnic{SubnetId: new("ocid1.subnet.a"), NsgIds: []string{"ocid1.nsg.a"}}
-	recipe, err := poolRecipe("gru", leader, vnic, []string{"AD-1", "AD-2", "AD-3"})
+	capacity, err := nodeCapacity(t.Context(), compute, leader)
+	if err != nil || capacity.Architecture != "amd64" || capacity.Shape != "VM.Standard.E4.Flex" {
+		t.Fatalf("observed native platform = %+v, %v", capacity, err)
+	}
+	recipe, err := poolRecipe("gru", leader, vnic, []string{"AD-1", "AD-2", "AD-3"}, capacity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +252,12 @@ func TestPoolRecipeCopiesTheLeaderButNotItsSlot(t *testing.T) {
 		t.Fatalf("recipe = %+v", recipe)
 	}
 	leader.Metadata = map[string]string{"ssh_authorized_keys": "ssh-ed25519 AAAA"}
-	if _, err := poolRecipe("gru", leader, vnic, []string{"AD-1"}); err == nil {
+	if _, err := poolRecipe("gru", leader, vnic, []string{"AD-1"}, capacity); err == nil {
 		t.Fatal("a leader without its enrollment bundle made a pool recipe")
 	}
 }
+
+// Loopback observations use no OCI credentials.
+type nodePoolObservationSigner struct{}
+
+func (nodePoolObservationSigner) Sign(*http.Request) error { return nil }

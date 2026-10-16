@@ -66,6 +66,12 @@ type OCIPool struct {
 	cell          string
 	capacity      Capacity
 	compartmentID string
+	// Admit rechecks current signed image/runtime qualification, price and
+	// spending authority for this exact recipe; release fences them through a write.
+	// A missing producer leaves observations available and mutations pending.
+	Admit           func(context.Context, Recipe) (release func(), err error)
+	recipe          *Recipe
+	configurationID string
 }
 
 // NewOCIPool binds one cell's capacity pool to the factory's OCI clients.
@@ -97,24 +103,68 @@ func newOCIPool(management computeManagementAPI, compute computeAPI, network net
 }
 
 func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
-	pool, _, err := o.pool(ctx)
-	if err != nil || pool == nil {
-		return PoolState{}, err
-	}
-	members, err := o.members(ctx, deref(pool.Id))
+	pools, err := listAll(func(page *string) ([]core.InstancePoolSummary, *string, error) {
+		response, err := o.management.ListInstancePools(ctx, core.ListInstancePoolsRequest{
+			CompartmentId: new(o.compartmentID), Page: page})
+		return response.Items, response.OpcNextPage, err
+	})
 	if err != nil {
-		return PoolState{}, err
+		return PoolState{}, fmt.Errorf("list observed node pools: %w", err)
 	}
-	state := PoolState{Exists: true, PoolID: deref(pool.Id), ConfigurationID: deref(pool.InstanceConfigurationId),
-		LifecycleState: string(pool.LifecycleState), Size: deref(pool.Size)}
-	for _, member := range members {
-		ip, err := o.privateIP(ctx, deref(member.Id))
+	var state PoolState
+	if o.Admit == nil {
+		state.Pending = "current signed runtime/image, price and spending admission is unavailable"
+	}
+	seen := map[string]bool{}
+	for _, summary := range pools {
+		name := deref(summary.DisplayName)
+		legacy := name == "ts-"+o.cell+"-nodes" && summary.FreeformTags[tagCell] == o.cell && summary.FreeformTags[tagRole] == roleNodePool
+		capacity := Capacity{Role: summary.FreeformTags[tagCapacityRole], Architecture: summary.FreeformTags[tagArchitecture], Shape: summary.FreeformTags[tagShape]}
+		owned := capacity.Validate() == nil && capacity.Role == o.capacity.Role && summary.FreeformTags[tagCell] == o.cell && summary.FreeformTags[tagRole] == roleNodePool &&
+			name == PoolName(o.cell, capacity) && summary.FreeformTags[tagPool] == name
+		if absent(string(summary.LifecycleState)) || !legacy && !owned {
+			continue
+		}
+		if seen[name] {
+			return PoolState{}, fmt.Errorf("multiple observed pools named %s; refusing to guess", name)
+		}
+		seen[name] = true
+		response, err := o.management.GetInstancePool(ctx, core.GetInstancePoolRequest{InstancePoolId: summary.Id})
+		if err != nil {
+			return PoolState{}, fmt.Errorf("read observed pool %s: %w", name, err)
+		}
+		pool := response.InstancePool
+		if deref(pool.Id) != deref(summary.Id) || deref(pool.CompartmentId) != o.compartmentID || deref(pool.DisplayName) != name ||
+			pool.FreeformTags[tagCell] != o.cell || pool.FreeformTags[tagRole] != roleNodePool || !legacy &&
+			(pool.FreeformTags[tagPool] != name || pool.FreeformTags[tagCapacityRole] != capacity.Role || pool.FreeformTags[tagArchitecture] != capacity.Architecture || pool.FreeformTags[tagShape] != capacity.Shape) {
+			return PoolState{}, fmt.Errorf("observed pool %s changed ownership", name)
+		}
+		if !legacy && capacity != o.capacity {
+			state.Pending = fmt.Sprintf("pool %s (%s, size %d) has a different capacity identity; verified migration and per-pool pricing are pending", name, deref(pool.Id), deref(pool.Size))
+		}
+		if legacy {
+			state.Pending = fmt.Sprintf("legacy pool %s (%s, size %d) requires verified migration; capacity is pending", name, deref(pool.Id), deref(pool.Size))
+		}
+		if len(seen) > 1 {
+			state.PoolID, state.ConfigurationID, state.LifecycleState = "", "", ""
+		} else {
+			state.PoolID, state.ConfigurationID, state.LifecycleState = deref(pool.Id), deref(pool.InstanceConfigurationId), string(pool.LifecycleState)
+		}
+		state.Exists = true
+		state.Size += deref(pool.Size)
+		members, err := o.members(ctx, deref(pool.Id))
 		if err != nil {
 			return PoolState{}, err
 		}
-		state.Instances = append(state.Instances, PoolInstance{ID: deref(member.Id), Name: deref(member.DisplayName),
-			State: deref(member.State), PrivateIP: ip, AvailabilityDomain: deref(member.AvailabilityDomain),
-			FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time})
+		for _, member := range members {
+			ip, err := o.privateIP(ctx, deref(member.Id))
+			if err != nil {
+				return PoolState{}, err
+			}
+			state.Instances = append(state.Instances, PoolInstance{ID: deref(member.Id), Name: deref(member.DisplayName),
+				State: deref(member.State), PrivateIP: ip, AvailabilityDomain: deref(member.AvailabilityDomain),
+				FaultDomain: deref(member.FaultDomain), Created: deref(member.TimeCreated).Time})
+		}
 	}
 	slices.SortFunc(state.Instances, func(a, b PoolInstance) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.ID, b.ID))
@@ -122,15 +172,35 @@ func (o *OCIPool) Observe(ctx context.Context) (PoolState, error) {
 	return state, nil
 }
 
+func (o *OCIPool) admit(ctx context.Context, recipe Recipe) (func(), error) {
+	if o.Admit == nil {
+		return nil, fmt.Errorf("%w: current signed runtime/image, price and spending admission is unavailable", ErrCapacityPending)
+	}
+	release, err := o.Admit(ctx, recipe)
+	if err != nil {
+		return nil, err
+	}
+	if release == nil {
+		return nil, fmt.Errorf("%w: admission did not fence current facts", ErrCapacityPending)
+	}
+	return release, nil
+}
+
 // Ensure makes this capacity's configuration and pool exist, and points the pool at the recipe.
 // It never changes the pool's size.
 func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) {
+	o.recipe, o.configurationID = nil, ""
 	if err := recipe.Validate(); err != nil {
 		return PoolState{}, err
 	}
 	if recipe.Cell != o.cell || recipe.Capacity != o.capacity {
 		return PoolState{}, fmt.Errorf("recipe for pool %s given to pool %s", PoolName(recipe.Cell, recipe.Capacity), PoolName(o.cell, o.capacity))
 	}
+	release, err := o.admit(ctx, recipe)
+	if err != nil {
+		return PoolState{}, err
+	}
+	release()
 	if err := o.validateImage(ctx, recipe); err != nil {
 		return PoolState{}, err
 	}
@@ -154,18 +224,34 @@ func (o *OCIPool) Ensure(ctx context.Context, recipe Recipe) (PoolState, error) 
 	if err != nil {
 		return PoolState{}, err
 	}
-	if err := o.pruneConfigurations(ctx, keep...); err != nil {
+	if err := o.pruneConfigurations(ctx, recipe, keep...); err != nil {
 		return PoolState{}, err
 	}
 	observed, err := o.Observe(ctx)
-	if err == nil && observed.ConfigurationID != configID {
-		return PoolState{}, fmt.Errorf("pool %s is still applying configuration %s; growth is pending", PoolName(o.cell, o.capacity), configID)
+	if err == nil {
+		current, _, readErr := o.pool(ctx)
+		if readErr != nil {
+			return PoolState{}, readErr
+		}
+		if current == nil || deref(current.InstanceConfigurationId) != configID || !placementsMatch(current, recipe) {
+			return PoolState{}, fmt.Errorf("%w: pool is still applying qualified configuration or placements", ErrCapacityPending)
+		}
+		o.recipe = &recipe
+		o.configurationID = configID
 	}
 	return observed, err
 }
 
 // Grow raises the pool from size from to from+1. A replay that already reached from+1 is done.
 func (o *OCIPool) Grow(ctx context.Context, from int) error {
+	if o.recipe == nil {
+		return fmt.Errorf("%w: pool recipe has not been admitted", ErrCapacityPending)
+	}
+	release, err := o.admit(ctx, *o.recipe)
+	if err != nil {
+		return err
+	}
+	defer release()
 	if from < 0 || from >= MaxPoolNodes {
 		return fmt.Errorf("pool of cell %s cannot grow from %d; it holds 0 to %d nodes", o.cell, from, MaxPoolNodes)
 	}
@@ -175,6 +261,9 @@ func (o *OCIPool) Grow(ctx context.Context, from int) error {
 	}
 	if pool == nil {
 		return fmt.Errorf("instance pool of cell %s does not exist; ensure it first", o.cell)
+	}
+	if deref(pool.InstanceConfigurationId) != o.configurationID || !placementsMatch(pool, *o.recipe) {
+		return fmt.Errorf("%w: pool launch configuration or placement changed", ErrCapacityPending)
 	}
 	switch size := deref(pool.Size); size {
 	case from + 1:
@@ -382,6 +471,11 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 	}); i >= 0 {
 		return deref(configs[i].Id), nil
 	}
+	release, err := o.admit(ctx, recipe)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	response, err := o.management.CreateInstanceConfiguration(ctx, core.CreateInstanceConfigurationRequest{
 		CreateInstanceConfiguration: core.CreateInstanceConfigurationDetails{
 			CompartmentId:   common.String(o.compartmentID),
@@ -398,7 +492,7 @@ func (o *OCIPool) ensureConfiguration(ctx context.Context, recipe Recipe) (strin
 }
 
 // pruneConfigurations deletes only this capacity pool's configurations that are not in keep.
-func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error {
+func (o *OCIPool) pruneConfigurations(ctx context.Context, recipe Recipe, keep ...string) error {
 	configs, err := o.configurations(ctx)
 	if err != nil {
 		return err
@@ -407,8 +501,13 @@ func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error
 		if slices.Contains(keep, deref(config.Id)) {
 			continue
 		}
-		if _, err := o.management.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{
-			InstanceConfigurationId: config.Id}); err != nil {
+		release, err := o.admit(ctx, recipe)
+		if err != nil {
+			return err
+		}
+		_, err = o.management.DeleteInstanceConfiguration(ctx, core.DeleteInstanceConfigurationRequest{InstanceConfigurationId: config.Id})
+		release()
+		if err != nil {
 			return fmt.Errorf("delete instance configuration %s: %w", deref(config.DisplayName), err)
 		}
 	}
@@ -417,6 +516,11 @@ func (o *OCIPool) pruneConfigurations(ctx context.Context, keep ...string) error
 
 // createPool makes the cell's pool at size 0, with one placement per availability domain on the recipe's subnet.
 func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string) error {
+	release, err := o.admit(ctx, recipe)
+	if err != nil {
+		return err
+	}
+	defer release()
 	name := PoolName(o.cell, o.capacity)
 	placements := make([]core.CreateInstancePoolPlacementConfigurationDetails, 0, len(recipe.AvailabilityDomains))
 	for _, domain := range recipe.AvailabilityDomains {
@@ -425,7 +529,7 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 			PrimaryVnicSubnets: &core.InstancePoolPlacementPrimarySubnet{SubnetId: common.String(recipe.SubnetID)},
 		})
 	}
-	_, err := o.management.CreateInstancePool(ctx, core.CreateInstancePoolRequest{
+	_, err = o.management.CreateInstancePool(ctx, core.CreateInstancePoolRequest{
 		CreateInstancePoolDetails: core.CreateInstancePoolDetails{
 			CompartmentId:           common.String(o.compartmentID),
 			InstanceConfigurationId: common.String(configID),
@@ -444,6 +548,11 @@ func (o *OCIPool) createPool(ctx context.Context, recipe Recipe, configID string
 
 // point moves the pool to the recipe's configuration and placements. Its size is left alone.
 func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, configID string, recipe Recipe) error {
+	release, err := o.admit(ctx, recipe)
+	if err != nil {
+		return err
+	}
+	defer release()
 	details := core.UpdateInstancePoolDetails{InstanceConfigurationId: common.String(configID)}
 	if !placementsMatch(pool, recipe) {
 		for _, domain := range recipe.AvailabilityDomains {
@@ -453,7 +562,7 @@ func (o *OCIPool) point(ctx context.Context, pool *core.InstancePool, etag, conf
 			})
 		}
 	}
-	_, err := o.management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{
+	_, err = o.management.UpdateInstancePool(ctx, core.UpdateInstancePoolRequest{
 		InstancePoolId: pool.Id, IfMatch: common.String(etag), UpdateInstancePoolDetails: details})
 	if err != nil {
 		return fmt.Errorf("point instance pool %s at %s: %w", deref(pool.DisplayName), configID, err)
