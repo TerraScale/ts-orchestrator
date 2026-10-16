@@ -22,7 +22,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
-	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/releasechannel"
 	"github.com/TerraScale/ts-orchestrator/internal/rollout"
@@ -732,27 +731,6 @@ func TestReleaseChannelPublishesRealDeploymentScopeWithoutAValidChannel(t *testi
 	changed.Architectures = []string{"amd64", "arm64"}
 	if sameReport(stored, changed) {
 		t.Fatal("architecture change suppressed report refresh")
-	}
-}
-
-func TestDeploymentScopeIncludesTheSignedManagedHostShape(t *testing.T) {
-	signer := newReleaseSigner(t)
-	services := signer.services(t)
-	shape := "VM.Standard.A1.Flex"
-	if goruntime.GOARCH == "arm64" {
-		shape = "VM.Standard.E5.Flex"
-	}
-	services.ociRegion = &oci.RegionConfig{Shape: shape}
-	control, err := newRolloutControl(Config{NATS: natscell.Config{Cell: "gru", Lab: true}}, services, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !slices.Equal(control.architectures, []string{"amd64", "arm64"}) {
-		t.Fatalf("managed host architecture omitted: %+v", control.architectures)
-	}
-	services.ociRegion.Shape = "unknown"
-	if _, err := newRolloutControl(Config{}, services, ""); err == nil {
-		t.Fatal("unknown signed host shape was silently omitted")
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	goruntime "runtime"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -79,6 +78,9 @@ type rolloutControl struct {
 	roots         *rootRegistry
 	environment   string
 	architectures []string
+	// managedArchitecture observes OCI only when release reconciliation runs,
+	// so a provider outage cannot prevent an accepted controller restarting.
+	managedArchitecture func(context.Context) (string, error)
 	// ticks wakes the consumer after every executor tick.
 	ticks chan struct{}
 	// channel is the region's head bucket, the CI edge; nil bridges none.
@@ -125,15 +127,11 @@ func newRolloutControl(cfg Config, services *specRegistry, region string) (*roll
 	}
 	if services != nil && services.roots != nil {
 		c.roots, c.environment = services.roots, services.identity.Environment
-		// Every controller slot shares the admitted image; managed hosts use the signed regional shape.
+		// Every controller slot shares the admitted image; OCI observes the managed host processor.
 		if services.ociRegion != nil {
-			architecture, err := imageArchitectureForShape(services.ociRegion.Shape)
-			if err != nil {
-				return nil, err
-			}
-			if architecture != goruntime.GOARCH {
-				c.architectures = append(c.architectures, architecture)
-				slices.Sort(c.architectures)
+			managed := *services.ociRegion
+			c.managedArchitecture = func(ctx context.Context) (string, error) {
+				return managedImageArchitecture(ctx, managed)
 			}
 		}
 		// The leader refuses a receipt that no node would stage; every node

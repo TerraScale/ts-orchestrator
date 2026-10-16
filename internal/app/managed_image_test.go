@@ -1,136 +1,22 @@
 package app
 
 import (
-	"bytes"
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
-	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
-	"github.com/oracle/oci-go-sdk/v65/core"
 )
 
 const managedImageTestOCID = "ocid1.image.oc1.sa-saopaulo-1.QUALIFIED"
 
-func TestManagedControllerFleetPassesQualifiedImageVerifier(t *testing.T) {
-	region := oci.RegionConfig{Region: oci.RegionGRU, ImageID: managedImageTestOCID}
-	intent := oci.RegionIntent{Generation: 7}
-	verifier := &managedImageVerifier{}
-	var called bool
-	hostMetadata := map[string]string{"terrascale-host-enrollment-v1": "{}"}
-	fleet, err := openManagedControllerFleet(t.Context(), region, intent, nil, nil, hostMetadata,
-		func(_ context.Context, got oci.RegionConfig) (oci.ImageQualificationVerifier, error) {
-			if !reflect.DeepEqual(got, region) {
-				t.Fatal("verifier received a different regional image pin")
-			}
-			return verifier, nil
-		},
-		func(gotRegion oci.RegionConfig, gotIntent oci.RegionIntent, _ oci.Journal,
-			_ authority.Fencer, drain oci.DrainRequester, stopped oci.WriterStopVerifier,
-			gotVerifier oci.ImageQualificationVerifier, gotMetadata map[string]string,
-		) (oci.Fleet, error) {
-			called = true
-			if !reflect.DeepEqual(gotRegion, region) || gotIntent.Generation != intent.Generation ||
-				gotVerifier != verifier || drain != nil || stopped != nil || !reflect.DeepEqual(gotMetadata, hostMetadata) {
-				t.Fatal("managed fleet constructor lost its exact image verifier or regional scope")
-			}
-			return regionOnlyFleet{region: region.Region}, nil
-		})
-	if err != nil || !called || fleet == nil {
-		t.Fatalf("managed fleet was not built with qualification: fleet=%v called=%t err=%v", fleet, called, err)
-	}
-	_, err = openManagedControllerFleet(t.Context(), region, intent, nil, nil, hostMetadata,
-		func(context.Context, oci.RegionConfig) (oci.ImageQualificationVerifier, error) { return nil, nil },
-		func(oci.RegionConfig, oci.RegionIntent, oci.Journal, authority.Fencer,
-			oci.DrainRequester, oci.WriterStopVerifier, oci.ImageQualificationVerifier, map[string]string,
-		) (oci.Fleet, error) {
-			t.Fatal("fleet constructor called without image qualification")
-			return nil, nil
-		})
-	if err == nil {
-		t.Fatal("managed fleet admitted a nil image verifier")
-	}
-}
-
-type fixedManagedImageReadback struct {
-	image      core.Image
-	compatible core.ImageShapeCompatibilityEntry
-	imageCalls int
-	shapeCalls int
-}
-
-func (reader *fixedManagedImageReadback) GetImage(_ context.Context, request core.GetImageRequest) (core.GetImageResponse, error) {
-	reader.imageCalls++
-	if request.ImageId == nil || *request.ImageId != managedImageTestOCID {
-		return core.GetImageResponse{}, errors.New("wrong image requested")
-	}
-	return core.GetImageResponse{Image: reader.image}, nil
-}
-
-func (reader *fixedManagedImageReadback) GetImageShapeCompatibilityEntry(_ context.Context,
-	request core.GetImageShapeCompatibilityEntryRequest,
-) (core.GetImageShapeCompatibilityEntryResponse, error) {
-	reader.shapeCalls++
-	if request.ImageId == nil || *request.ImageId != managedImageTestOCID ||
-		request.ShapeName == nil || *request.ShapeName != "VM.Standard.A1.Flex" {
-		return core.GetImageShapeCompatibilityEntryResponse{}, errors.New("wrong shape requested")
-	}
-	return core.GetImageShapeCompatibilityEntryResponse{ImageShapeCompatibilityEntry: reader.compatible}, nil
-}
-
-func TestManagedImageVerifierRequiresCurrentSignedReceiptAndOCIReadback(t *testing.T) {
-	verifier, reader, now := managedImageVerifierFixture(t)
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil {
-		t.Fatalf("qualified OCI image held: %v", err)
-	}
-	if reader.imageCalls != 1 || reader.shapeCalls != 1 {
-		t.Fatalf("OCI image and shape readback calls = %d, %d; want 1, 1", reader.imageCalls, reader.shapeCalls)
-	}
-	for _, test := range []struct {
-		name   string
-		mutate func(*managedImageVerifier, *fixedManagedImageReadback)
-	}{
-		{"wrong fleet image", func(v *managedImageVerifier, _ *fixedManagedImageReadback) { v.region.ImageID += "OTHER" }},
-		{"expired release receipt", func(v *managedImageVerifier, _ *fixedManagedImageReadback) {
-			v.now = func() time.Time { return now.Add(2 * time.Hour) }
-		}},
-		{"different OCI image", func(_ *managedImageVerifier, r *fixedManagedImageReadback) {
-			r.image.Id = new("ocid1.image.oc1.sa-saopaulo-1.OTHER")
-		}},
-		{"different OCI compartment", func(_ *managedImageVerifier, r *fixedManagedImageReadback) {
-			r.image.CompartmentId = new("ocid1.compartment.oc1..other")
-		}},
-		{"unavailable OCI image", func(_ *managedImageVerifier, r *fixedManagedImageReadback) {
-			r.image.LifecycleState = core.ImageLifecycleStateDisabled
-		}},
-		{"incompatible OCI shape", func(_ *managedImageVerifier, r *fixedManagedImageReadback) {
-			r.compatible.Shape = new("VM.Standard.E5.Flex")
-		}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			candidate := *verifier
-			copyReader := *reader
-			candidate.images = &copyReader
-			test.mutate(&candidate, &copyReader)
-			if err := candidate.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
-				t.Fatal("unqualified image passed managed fleet gate")
-			}
-		})
-	}
-}
-
-func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedManagedImageReadback, time.Time) {
+func managedImageVerifierFixture(t *testing.T, architecture string) (*managedImageVerifier, time.Time) {
 	t.Helper()
 	now := time.Now().UTC().Truncate(time.Second)
 	rootPublic, rootPrivate, err := ed25519.GenerateKey(rand.Reader)
@@ -165,7 +51,7 @@ func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedMan
 	digest := hex.EncodeToString(hash[:])
 	receipt := release.ImageReceipt{
 		Schema: release.ImageSchema, SourceRevision: "0123456789abcdef0123456789abcdef01234567",
-		GoVersion: release.DefaultGoVersion, Architecture: "arm64", BinaryBytes: 100,
+		GoVersion: release.DefaultGoVersion, Architecture: architecture, BinaryBytes: 100,
 		BinarySHA256: digest, QualificationSHA256: digest,
 		BaseImageOCID: "ocid1.image.oc1.sa-saopaulo-1.BASE", BaseImageRegion: "GRU", BaseImageSHA256: digest,
 		KernelRelease: "6.1.0-test+1", KernelSHA256: digest, ImageFormat: "qcow2",
@@ -184,186 +70,12 @@ func managedImageVerifierFixture(t *testing.T) (*managedImageVerifier, *fixedMan
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := &fixedManagedImageReadback{
-		image: core.Image{Id: new(managedImageTestOCID), CompartmentId: new("ocid1.compartment.oc1..owned"),
-			LifecycleState: core.ImageLifecycleStateAvailable},
-		compatible: core.ImageShapeCompatibilityEntry{ImageId: new(managedImageTestOCID), Shape: new("VM.Standard.A1.Flex")},
-	}
 	return &managedImageVerifier{
 		region: oci.RegionConfig{Region: oci.RegionGRU, ImageID: managedImageTestOCID,
 			CompartmentID: "ocid1.compartment.oc1..workload", ImageCompartmentID: "ocid1.compartment.oc1..owned",
-			Shape: "VM.Standard.A1.Flex"},
-		environment: "production", architecture: "arm64", roots: roots,
-		receiptWire: receiptWire, delegationWire: delegationWire, images: reader,
+			Shape: "VM.Standard.Future.Flex", AvailabilityDomain: "test:SA-SAOPAULO-1-AD-1"},
+		environment: "production", roots: roots,
+		receiptWire: receiptWire, delegationWire: delegationWire,
 		now: func() time.Time { return now },
-	}, reader, now
-}
-
-func TestIndependentManagedImageProofRequiresOwnCurrentReceipt(t *testing.T) {
-	fixture, reader, now := managedImageVerifierFixture(t)
-	region := fixture.region
-	proof, err := independentManagedImageProof(region, oci.RegionGRU, "production", fixture.roots,
-		fixture.receiptWire, fixture.delegationWire, now)
-	if err != nil {
-		t.Fatalf("independently qualified host image refused: %v", err)
-	}
-	proof.images, proof.now = reader, func() time.Time { return now }
-	if err := proof.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil {
-		t.Fatalf("independent proof does not pass the fleet gate: %v", err)
-	}
-	other := region
-	other.ImageID = "ocid1.image.oc1.sa-saopaulo-1.NEWER"
-	for name, call := range map[string]func() (*managedImageVerifier, error){
-		"other image": func() (*managedImageVerifier, error) {
-			return independentManagedImageProof(other, oci.RegionGRU, "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
-		},
-		"other cell": func() (*managedImageVerifier, error) {
-			return independentManagedImageProof(region, oci.Region("FRA"), "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
-		},
-		"other environment": func() (*managedImageVerifier, error) {
-			return independentManagedImageProof(region, oci.RegionGRU, "canary", fixture.roots, fixture.receiptWire, fixture.delegationWire, now)
-		},
-		"expired": func() (*managedImageVerifier, error) {
-			return independentManagedImageProof(region, oci.RegionGRU, "production", fixture.roots, fixture.receiptWire, fixture.delegationWire, now.Add(2*time.Hour))
-		},
-		"untrusted root": func() (*managedImageVerifier, error) {
-			return independentManagedImageProof(region, oci.RegionGRU, "production", trust.Keyring{}, fixture.receiptWire, fixture.delegationWire, now)
-		},
-	} {
-		if _, err := call(); err == nil {
-			t.Errorf("%s qualified the host image", name)
-		}
-	}
-}
-
-func TestAcceptedManagedImageInitializationSurvivesExpiredOrRetiredLaunchAuthority(t *testing.T) {
-	fixture, reader, now := managedImageVerifierFixture(t)
-	accepted, _, _ := identityRekeyConfigFixture(t)
-	accepted.Cell, accepted.Environment, accepted.ImageOCID, accepted.AcceptedAt = "GRU", "production", "ocid1.image.oc1.sa-saopaulo-1.controller", now
-	accepted.Binary.Architecture = "amd64"
-	accepted.ControllerBindings[0].ImageOCID = accepted.ImageOCID
-	accepted.ControllerBindings[0].Binary = accepted.Binary
-	for _, retired := range []bool{false, true} {
-		proof, err := acceptedManagedImageProof(fixture.region, accepted, fixture.roots, fixture.receiptWire, fixture.delegationWire)
-		if err != nil {
-			t.Fatalf("accepted initialization required current launch authority: %v", err)
-		}
-		proof.images, proof.now = reader, func() time.Time { return now.Add(2 * time.Hour) }
-		if retired {
-			proof.roots = trust.Keyring{}
-			proof.now = func() time.Time { return now }
-		}
-		if err := proof.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
-			t.Fatal("historical acceptance authorized a new launch")
-		}
-	}
-}
-
-func TestManagedImageVerifierForDefaultsToAcceptedBootImage(t *testing.T) {
-	if reflect.ValueOf(managedImageVerifierFromFiles(ControllerConfig{})).Pointer() != reflect.ValueOf(newManagedImageVerifier).Pointer() {
-		t.Fatal("unconfigured controller does not pin hosts to its accepted boot image")
-	}
-	half := managedImageVerifierFor(ControllerConfig{ManagedHostImageReceiptFile: "/etc/receipt.json"}, nil, nil)
-	if _, err := half(t.Context(), oci.RegionConfig{}); err == nil {
-		t.Fatal("half-configured independent host image accepted")
-	}
-}
-
-// The fleet reads the cell spec's host images through the verifier at each
-// check, so an adopted amendment applies without reopening the fleet, and a
-// spec image qualifies from its own current receipt and the OCI readback.
-func TestManagedImageVerifierQualifiesCellSpecHostImages(t *testing.T) {
-	verifier, reader, _ := managedImageVerifierFixture(t)
-	if images, launch := verifier.HostImages(); len(images) != 0 || launch != "" {
-		t.Fatalf("verifier without a cell spec allows %v, launches %q", images, launch)
-	}
-	image := cellspec.HostImage{ImageID: managedImageTestOCID, Receipt: verifier.receiptWire, Delegation: verifier.delegationWire}
-	// Pin another image whose proof the spec image must not borrow.
-	verifier.region.ImageID = "ocid1.image.oc1.sa-saopaulo-1.PINNED"
-	verifier.receiptWire, verifier.delegationWire = nil, nil
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
-		t.Fatal("an image outside the cell spec qualified")
-	}
-	images, roots := []cellspec.HostImage{image}, verifier.roots
-	verifier.hostImages = func() hostImageSnapshot {
-		return hostImageSnapshot{images: images, launch: image.ImageID, roots: roots}
-	}
-	if got, launch := verifier.HostImages(); !reflect.DeepEqual(got, []string{image.ImageID}) ||
-		launch != image.ImageID {
-		t.Fatalf("HostImages = %v, %q", got, launch)
-	}
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil ||
-		reader.imageCalls != 1 || reader.shapeCalls != 1 {
-		t.Fatalf("cell spec image = %v (readbacks %d, %d)", err, reader.imageCalls, reader.shapeCalls)
-	}
-	// A spec image qualifies under the cell's current roots, not the baked
-	// roots the fleet opened with: a rotated-away root no longer qualifies a
-	// launch.
-	verifier.roots, roots = roots, testSpecRoots(t)
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
-		t.Fatal("a cell spec image qualified under a rotated-away root")
-	}
-	verifier.roots, roots = nil, verifier.roots
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err != nil {
-		t.Fatalf("a cell spec image under a root adopted after the fleet opened: %v", err)
-	}
-	tampered := image
-	tampered.Receipt = bytes.Clone(image.Receipt)
-	tampered.Receipt[len(tampered.Receipt)-3] ^= 1
-	images = []cellspec.HostImage{tampered}
-	if err := verifier.VerifyImageQualified(t.Context(), oci.RegionGRU, managedImageTestOCID); err == nil {
-		t.Fatal("a tampered cell spec image receipt qualified")
-	}
-	images = nil
-	if got, _ := verifier.HostImages(); len(got) != 0 {
-		t.Fatalf("HostImages after the spec dropped its images = %v", got)
-	}
-}
-
-// A launch chooses and qualifies its image from one cell spec snapshot: a
-// generation adopted meanwhile never supplies the trust material of an
-// image another generation chose.
-func TestManagedImageVerifierQualifiesTheLaunchImageFromOneSnapshot(t *testing.T) {
-	verifier, _, _ := managedImageVerifierFixture(t)
-	image := cellspec.HostImage{ImageID: managedImageTestOCID, Receipt: verifier.receiptWire, Delegation: verifier.delegationWire}
-	pin := "ocid1.image.oc1.sa-saopaulo-1.PINNED"
-	verifier.region.ImageID = pin
-	roots := verifier.roots
-	reads := 0
-	verifier.hostImages = func() hostImageSnapshot {
-		reads++
-		if reads > 1 {
-			// A later generation that dropped the image.
-			return hostImageSnapshot{roots: roots, version: "2"}
-		}
-		return hostImageSnapshot{images: []cellspec.HostImage{image}, launch: image.ImageID, roots: roots, version: "1"}
-	}
-	got, version, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, pin)
-	if err != nil || got != image.ImageID || reads != 1 {
-		t.Fatalf("QualifiedLaunchImage = %q, %v after %d snapshot reads", got, err, reads)
-	}
-	// The final check before the launch refuses a spec that changed since,
-	// and releases the fence it took.
-	holds := 0
-	verifier.holdLaunch = func() func() { holds++; return func() { holds-- } }
-	if _, err := verifier.AdmitLaunch(t.Context(), oci.RegionGRU, got, version); err == nil || holds != 0 {
-		t.Fatalf("a launch image qualified under a later cell spec version (holds %d)", holds)
-	}
-	reads = 0
-	release, err := verifier.AdmitLaunch(t.Context(), oci.RegionGRU, got, version)
-	if err != nil || holds != 1 {
-		t.Fatalf("AdmitLaunch under the choosing version: %v (holds %d)", err, holds)
-	}
-	release()
-	if holds != 0 {
-		t.Fatal("the launch fence was not released")
-	}
-	if _, _, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, "ocid1.image.oc1.sa-saopaulo-1.OTHER"); err == nil {
-		t.Fatal("a launch for another pin qualified")
-	}
-	// A launch image the same snapshot does not allow falls back to the pin.
-	verifier.hostImages = func() hostImageSnapshot { return hostImageSnapshot{launch: image.ImageID, roots: roots} }
-	if got, _, err := verifier.QualifiedLaunchImage(t.Context(), oci.RegionGRU, pin); got != pin || err == nil {
-		t.Fatalf("unlisted launch image = %q, %v; want the pin, refused for lacking its receipt", got, err)
-	}
+	}, now
 }

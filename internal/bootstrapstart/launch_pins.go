@@ -177,14 +177,6 @@ func managedLaunchExpectation(regionWire []byte, cell, environment string) (rele
 	if err != nil || string(region.Region) != cell {
 		return release.ImageExpectation{}, ErrLaunchMaterial
 	}
-	architecture := ""
-	switch {
-	case region.Shape == "VM.Standard.A1.Flex":
-		architecture = "arm64"
-	case strings.HasPrefix(region.Shape, "VM.Standard.E4."), strings.HasPrefix(region.Shape, "VM.Standard.E5."):
-		architecture = "amd64"
-	default:
-		return release.ImageExpectation{}, ErrLaunchMaterial
-	}
-	return release.ImageExpectation{Environment: environment, LogicalRegion: cell, OCIImageOCID: region.ImageID, Architecture: architecture}, nil
+	// Offline installation checks the signed image identity; launch observes its processor through OCI.
+	return release.ImageExpectation{Environment: environment, LogicalRegion: cell, OCIImageOCID: region.ImageID}, nil
 }

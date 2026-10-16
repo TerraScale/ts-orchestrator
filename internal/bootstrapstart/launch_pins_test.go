@@ -352,7 +352,7 @@ func TestSignedARMHostLaunchIsIndependentOfAMD64Controller(t *testing.T) {
 		writeBakedFixture(t, path, files[name])
 	}
 	payload := manifest.Manifest()
-	region := oci.RegionConfig{Region: payload.Cell, ImageID: hostImage.OCIImageOCID, Shape: "VM.Standard.A1.Flex"}
+	region := oci.RegionConfig{Region: payload.Cell, ImageID: hostImage.OCIImageOCID, Shape: "VM.Standard.Future.Flex"}
 	regionWire, err := protocol.EncodeJSON(region)
 	if err != nil {
 		t.Fatal(err)
@@ -386,19 +386,15 @@ func TestSignedARMHostLaunchIsIndependentOfAMD64Controller(t *testing.T) {
 	if err := verifyIdentityRekeyLaunchMaterial(accepted, inputs, regionWire, files, *fixture.now); err != nil {
 		t.Fatal(err)
 	}
-	for _, fault := range []string{"sidecar pin", "host image", "host shape", "expired", "wrong root"} {
+	for _, fault := range []string{"sidecar pin", "host image", "expired", "wrong root"} {
 		t.Run(fault, func(t *testing.T) {
 			record, wire, roots, now := accepted.Clone(), bytes.Clone(regionWire), inputs, *fixture.now
 			switch fault {
 			case "sidecar pin":
 				wire = append(wire, ' ')
-			case "host image", "host shape":
+			case "host image":
 				changed := region
-				if fault == "host image" {
-					changed.ImageID += "-other"
-				} else {
-					changed.Shape = "VM.Standard.E5.Flex"
-				}
+				changed.ImageID += "-other"
 				wire, err = protocol.EncodeJSON(changed)
 				if err != nil {
 					t.Fatal(err)

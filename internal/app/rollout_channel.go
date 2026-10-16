@@ -203,8 +203,19 @@ func (c *rolloutControl) consumeUpdates(ctx context.Context, store *rollout.Stor
 func (c *rolloutControl) consumeChannel(ctx context.Context, store *rollout.Store, kv jetstream.KeyValue, epoch uint64,
 	wire []byte, now time.Time,
 ) error {
+	architectures := slices.Clone(c.architectures)
+	if c.managedArchitecture != nil {
+		architecture, err := c.managedArchitecture(ctx)
+		if err != nil {
+			return fmt.Errorf("observe managed host architecture for release channel: %w", err)
+		}
+		if !slices.Contains(architectures, architecture) {
+			architectures = append(architectures, architecture)
+			slices.Sort(architectures)
+		}
+	}
 	status := releasechannel.Status{Schema: releasechannel.StatusSchema, Cell: strings.ToUpper(c.cell), UpdatedAt: now,
-		Environment: c.environment, Architectures: slices.Clone(c.architectures)}
+		Environment: c.environment, Architectures: architectures}
 	var channel releasechannel.Channel
 	if len(wire) == 0 {
 		status.State, status.Reason = releasechannel.StateRolling, "the cell has no release channel"
