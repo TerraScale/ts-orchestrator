@@ -378,9 +378,10 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 		return err
 	}
 	a := c.prepared.approval
+	unresolved := false
 	for operation := range j.Intents {
 		if operation == "image" && j.ImageID == "" || operation != "image" && j.Hosts[operation] == "" {
-			return errors.New("unresolved create intent: retain journal and image until authenticated resource recovery")
+			unresolved = true
 		}
 	}
 	var pending []HostSpec
@@ -442,6 +443,9 @@ func (c *cloud) cleanup(ctx context.Context, path string) error {
 			case <-time.After(3 * time.Second):
 			}
 		}
+	}
+	if unresolved {
+		return errors.New("unresolved create intent: known hosts terminated; retain journal, image and object until authenticated resource recovery")
 	}
 	if j.ImageID != "" && !j.ImageDeleted {
 		_, err := c.image(ctx, j.ImageID)

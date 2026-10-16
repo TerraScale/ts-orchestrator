@@ -21,6 +21,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -56,16 +58,22 @@ func fixture(t *testing.T) qualificationFixture {
 	a := Approval{Schema: ApprovalSchema, RunID: "nativecase", Candidate: release.ProductionExpectation{
 		SourceRevision: q.SourceRevision, ArtifactSHA256: hashBytes(disk), QualificationSHA256: hashBytes(qualification),
 		Cell: "GRU", Environment: "production", Runtime: release.ProductionRuntime, Architecture: "arm64", Role: "orchestrator"},
-		OCIRegion: "sa-saopaulo-1", Tenancy: "ocid1.tenancy.oc1..fixture", Principal: "ocid1.user.oc1..fixture",
+		OCIRegion: "sa-saopaulo-1", IAMRegion: "sa-saopaulo-1", Tenancy: "ocid1.tenancy.oc1..fixture", Principal: "ocid1.user.oc1..fixture",
 		Compartment: "ocid1.compartment.oc1..disposable", Subnet: "ocid1.subnet.oc1..disposable", Namespace: "fixture", Bucket: "qualification",
 		Group: "ocid1.group.oc1..fixture", PolicyID: "ocid1.policy.oc1..fixture", PolicyStatements: []string{"fixture-exact-confined-policy"},
 		RunnerCIDR: "10.9.0.1/32", PeerCIDR: "10.8.0.0/24", VCNCIDR: "10.8.0.0/15", WorkloadImage: "example.invalid/probe@sha256:" + hashBytes([]byte("image")),
 		WorkloadArchiveSHA256: hashBytes([]byte("archive")), ImageBytes: int64(len(disk)), MaxSpendMicros: 10_000_000,
 		CleanupUntil: now.Add(2 * time.Hour), BinarySHA256: q.Artifacts[1].SHA256, KernelSHA256: hashBytes([]byte("kernel")),
 		ContainerdSHA256: hashBytes([]byte("containerd")), RuncSHA256: hashBytes([]byte("runc")), RunnerSHA256: hashBytes([]byte("runner"))}
+	a.ProfileIdentity = cellspec.Identity{DeploymentID: entityid.Derive("qualification", a.RunID), Cell: a.Candidate.Cell, Environment: a.Candidate.Environment}
+	for _, scenario := range []string{"ready", "after-loss", "after-partition", "unready", "failed-update"} {
+		a.MaterialFixtures = append(a.MaterialFixtures, MaterialApproval{Scenario: scenario, SignedProfileSHA256: hashBytes([]byte("profile-" + scenario)), ContainerIntentSHA256: hashBytes([]byte("intent-" + scenario))})
+	}
 	for index := range 4 {
 		role := "manager"
-		if index == 3 { role = "worker" }
+		if index == 3 {
+			role = "worker"
+		}
 		a.Hosts = append(a.Hosts, HostSpec{Name: fmt.Sprintf("manager-%d", index+1), AvailabilityDomain: "fixture-ad",
 			Role: role, FaultDomain: fmt.Sprintf("FAULT-DOMAIN-%d", index%3+1), Shape: "VM.Standard.A1.Flex", OCPUs: 1, MemoryGB: 6, BootGB: 50})
 	}
@@ -354,5 +362,31 @@ func TestSDKQualificationResumesExactResourcesAndCleansOnlyOwnedHosts(t *testing
 		if strings.Contains(request, "/users") || strings.Contains(request, "/vault") || strings.Contains(request, "netbird") {
 			t.Fatalf("production privilege path used: %s", request)
 		}
+	}
+}
+
+func TestCleanupTerminatesKnownHostsWhileRetainingUnresolvedIntent(t *testing.T) {
+	f := fixture(t)
+	remote := &cloudFixture{hosts: map[string]map[string]any{}, tokens: map[string]string{}, failSecond: true}
+	server := httptest.NewServer(http.HandlerFunc(remote.serve))
+	defer server.Close()
+	client, err := newCloud(f.prepared, sdkFactory(t, f.prepared.Approval()), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "resources.json")
+	partial, err := client.prepareResources(t.Context(), path, publicSSHKey(t))
+	if err == nil || len(partial.Hosts) != 1 {
+		t.Fatalf("expected one known host and unresolved launch: %+v %v", partial, err)
+	}
+	if err := client.cleanup(t.Context(), path); err == nil || !strings.Contains(err.Error(), "unresolved create intent") {
+		t.Fatalf("unresolved launch reported clean: %v", err)
+	}
+	retained, err := client.load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(retained.Terminated) != 1 || retained.ImageDeleted || retained.ObjectDeleted || remote.image == nil || remote.object == nil || remote.deletes != 1 {
+		t.Fatalf("known host not terminated or recovery resources deleted: %+v", retained)
 	}
 }

@@ -16,11 +16,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
 )
 
 const (
@@ -44,36 +46,48 @@ type HostSpec struct {
 	BootGB             int64   `json:"boot_gb"`
 }
 
+// MaterialApproval pins existing signed production profile and intent bytes.
+// The runner verifies their existing authority; these digests do not replace it.
+type MaterialApproval struct {
+	Scenario              string `json:"scenario"`
+	SignedProfileSHA256   string `json:"signed_profile_sha256"`
+	ContainerIntentSHA256 string `json:"container_intent_sha256"`
+}
+
 // Approval is finite resource/spending authorization under existing trust roots.
 // It does not establish effective IAM confinement or production qualification.
 type Approval struct {
-	Schema                string                        `json:"schema"`
-	RunID                 string                        `json:"run_id"`
-	Candidate             release.ProductionExpectation `json:"candidate"`
-	OCIRegion             string                        `json:"oci_region"`
-	Tenancy               string                        `json:"tenancy"`
-	Principal             string                        `json:"principal"`
-	Compartment           string                        `json:"compartment"`
-	Subnet                string                        `json:"subnet"`
-	Namespace             string                        `json:"namespace"`
-	Bucket                string                        `json:"bucket"`
-	Group                 string                        `json:"group"`
-	PolicyID              string                        `json:"policy_id"`
-	PolicyStatements      []string                      `json:"policy_statements"`
-	RunnerCIDR            string                        `json:"runner_cidr"`
-	PeerCIDR              string                        `json:"peer_cidr"`
-	VCNCIDR               string                        `json:"vcn_cidr"`
-	WorkloadImage         string                        `json:"workload_image"`
-	WorkloadArchiveSHA256 string                        `json:"workload_archive_sha256"`
-	ImageBytes            int64                         `json:"image_bytes"`
-	MaxSpendMicros        int64                         `json:"max_spend_usd_micros"`
-	CleanupUntil          time.Time                     `json:"cleanup_until"`
-	Hosts                 []HostSpec                    `json:"hosts"`
-	BinarySHA256          string                        `json:"binary_sha256"`
-	KernelSHA256          string                        `json:"kernel_sha256"`
-	ContainerdSHA256      string                        `json:"containerd_sha256"`
-	RuncSHA256            string                        `json:"runc_sha256"`
-	RunnerSHA256          string                        `json:"runner_sha256"`
+	Schema                  string                               `json:"schema"`
+	RunID                   string                               `json:"run_id"`
+	Candidate               release.ProductionExpectation        `json:"candidate"`
+	IAMRegion               string                               `json:"iam_region"`
+	OCIRegion               string                               `json:"oci_region"`
+	Tenancy                 string                               `json:"tenancy"`
+	Principal               string                               `json:"principal"`
+	Compartment             string                               `json:"compartment"`
+	Subnet                  string                               `json:"subnet"`
+	Namespace               string                               `json:"namespace"`
+	Bucket                  string                               `json:"bucket"`
+	Group                   string                               `json:"group"`
+	PolicyID                string                               `json:"policy_id"`
+	ProductionDynamicGroups []confinement.ProductionDynamicGroup `json:"production_dynamic_groups"`
+	ProfileIdentity         cellspec.Identity                    `json:"profile_identity"`
+	MaterialFixtures        []MaterialApproval                   `json:"material_fixtures"`
+	PolicyStatements        []string                             `json:"policy_statements"`
+	RunnerCIDR              string                               `json:"runner_cidr"`
+	PeerCIDR                string                               `json:"peer_cidr"`
+	VCNCIDR                 string                               `json:"vcn_cidr"`
+	WorkloadImage           string                               `json:"workload_image"`
+	WorkloadArchiveSHA256   string                               `json:"workload_archive_sha256"`
+	ImageBytes              int64                                `json:"image_bytes"`
+	MaxSpendMicros          int64                                `json:"max_spend_usd_micros"`
+	CleanupUntil            time.Time                            `json:"cleanup_until"`
+	Hosts                   []HostSpec                           `json:"hosts"`
+	BinarySHA256            string                               `json:"binary_sha256"`
+	KernelSHA256            string                               `json:"kernel_sha256"`
+	ContainerdSHA256        string                               `json:"containerd_sha256"`
+	RuncSHA256              string                               `json:"runc_sha256"`
+	RunnerSHA256            string                               `json:"runner_sha256"`
 }
 
 func ApprovalScope(runID string, candidate release.ProductionExpectation) trust.Scope {
@@ -95,6 +109,8 @@ func (p Prepared) Approval() Approval {
 	a := p.approval
 	a.Hosts = slices.Clone(a.Hosts)
 	a.PolicyStatements = slices.Clone(a.PolicyStatements)
+	a.ProductionDynamicGroups = slices.Clone(a.ProductionDynamicGroups)
+	a.MaterialFixtures = slices.Clone(a.MaterialFixtures)
 	return a
 }
 
@@ -177,7 +193,7 @@ func (a Approval) validate() error {
 		catalog.OCIRegion(c.Cell) != a.OCIRegion || a.OCIRegion == "" {
 		return errors.New("invalid disposable image candidate or regional scope")
 	}
-	for _, value := range []string{a.Tenancy, a.Principal, a.Compartment, a.Subnet, a.Namespace, a.Bucket, a.Group, a.PolicyID} {
+	for _, value := range []string{a.IAMRegion, a.Tenancy, a.Principal, a.Compartment, a.Subnet, a.Namespace, a.Bucket, a.Group, a.PolicyID} {
 		if value == "" {
 			return errors.New("disposable resource scope is incomplete")
 		}
@@ -203,6 +219,18 @@ func (a Approval) validate() error {
 			return errors.New("runner and peers must be inside the approved isolated VCN")
 		}
 	}
+	if !entityid.Valid(a.ProfileIdentity.DeploymentID) || a.ProfileIdentity.Cell != c.Cell || a.ProfileIdentity.Environment != c.Environment {
+		return errors.New("signed production material profile identity differs from candidate")
+	}
+	scenarios := []string{"ready", "after-loss", "after-partition", "unready", "failed-update"}
+	if len(a.MaterialFixtures) != len(scenarios) {
+		return errors.New("all signed native material fixtures are required")
+	}
+	for index, fixture := range a.MaterialFixtures {
+		if fixture.Scenario != scenarios[index] || !validHash(fixture.SignedProfileSHA256) || !validHash(fixture.ContainerIntentSHA256) {
+			return errors.New("native material fixture scenario or signed bytes differ")
+		}
+	}
 	if a.ImageBytes < 8 || a.ImageBytes > 64<<30 || a.MaxSpendMicros <= 0 || len(a.Hosts) != 4 {
 		return errors.New("finite native HA host, image and spending bounds are required")
 	}
@@ -213,8 +241,12 @@ func (a Approval) validate() error {
 			return errors.New("invalid, repeated or unbounded disposable host")
 		}
 		role := "manager"
-		if index == 3 { role = "worker" }
-		if host.Role != role { return errors.New("native qualification requires three managers followed by one dedicated worker") }
+		if index == 3 {
+			role = "worker"
+		}
+		if host.Role != role {
+			return errors.New("native qualification requires three managers followed by one dedicated worker")
+		}
 		seen[host.Name] = true
 	}
 	return nil
