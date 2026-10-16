@@ -21,6 +21,8 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/objectstorage"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
+
+	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 )
 
 const (
@@ -76,7 +78,7 @@ func (c *sdkClient) streamUpload(ctx context.Context, request UploadRequest) err
 			return err
 		}
 		sum := md5.Sum(first)
-		_, err := c.objects.PutObject(ctx, objectstorage.PutObjectRequest{NamespaceName: new(request.Namespace),
+		_, err := c.objects.PutObject(ociclient.RequestContext(ctx), objectstorage.PutObjectRequest{NamespaceName: new(request.Namespace),
 			BucketName: new(request.Bucket), ObjectName: new(request.Object), ContentLength: new(int64(len(first))),
 			PutObjectBody: io.NopCloser(bytes.NewReader(first)), IfNoneMatch: new("*"), OpcMeta: request.Metadata,
 			ContentMD5: new(base64.StdEncoding.EncodeToString(sum[:]))})
@@ -134,7 +136,7 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 	for name, value := range request.Metadata {
 		metadata["opc-meta-"+name] = value
 	}
-	created, err := c.objects.CreateMultipartUpload(ctx, objectstorage.CreateMultipartUploadRequest{
+	created, err := c.objects.CreateMultipartUpload(ociclient.RequestContext(ctx), objectstorage.CreateMultipartUploadRequest{
 		NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), IfNoneMatch: new("*"),
 		CreateMultipartUploadDetails: objectstorage.CreateMultipartUploadDetails{Object: new(request.Object),
 			Metadata: metadata}})
@@ -155,7 +157,7 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		// Never leave the uncommitted parts behind, even when ctx ended.
 		abortCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
 		defer cancel()
-		if _, abortErr := c.objects.AbortMultipartUpload(abortCtx, objectstorage.AbortMultipartUploadRequest{
+		if _, abortErr := c.objects.AbortMultipartUpload(ociclient.RequestContext(abortCtx), objectstorage.AbortMultipartUploadRequest{
 			NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
 			UploadId: new(uploadID)}); abortErr != nil {
 			err = errors.Join(err, fmt.Errorf("abort OCI multipart upload %s: %w", uploadID, abortErr))
@@ -259,7 +261,7 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 	for number := 1; number <= part; number++ {
 		commit = append(commit, objectstorage.CommitMultipartUploadPartDetails{PartNum: new(number), Etag: new(etags[number])})
 	}
-	response, err := c.objects.CommitMultipartUpload(ctx, objectstorage.CommitMultipartUploadRequest{
+	response, err := c.objects.CommitMultipartUpload(ociclient.RequestContext(ctx), objectstorage.CommitMultipartUploadRequest{
 		NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
 		UploadId: new(uploadID), IfNoneMatch: new("*"),
 		CommitMultipartUploadDetails: objectstorage.CommitMultipartUploadDetails{PartsToCommit: commit}})
@@ -278,7 +280,7 @@ func (c *sdkClient) multipartUpload(ctx context.Context, request UploadRequest, 
 		}
 		deleteCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
 		defer cancel()
-		if _, deleteErr := c.objects.DeleteObject(deleteCtx, objectstorage.DeleteObjectRequest{
+		if _, deleteErr := c.objects.DeleteObject(ociclient.RequestContext(deleteCtx), objectstorage.DeleteObjectRequest{
 			NamespaceName: new(request.Namespace), BucketName: new(request.Bucket), ObjectName: new(request.Object),
 			IfMatch: response.ETag}); deleteErr != nil {
 			return errors.Join(mismatch, fmt.Errorf("delete mismatched OCI object: %w", deleteErr))
