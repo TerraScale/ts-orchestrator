@@ -39,6 +39,7 @@ type issuerProtocol struct {
 	version                         int64
 	created, revoked                int
 	lostToken, lostVault            bool
+	blockToken                      chan struct{}
 	repository                      string
 	t                               *testing.T
 }
@@ -119,6 +120,13 @@ func (s *issuerProtocol) serve(w http.ResponseWriter, r *http.Request) {
 			if s.lostToken {
 				s.lostToken = false
 				fail(503)
+				return
+			}
+			if s.blockToken != nil {
+				started := s.blockToken
+				s.blockToken = nil
+				close(started)
+				<-r.Context().Done()
 				return
 			}
 			write(s.tokens[id])
@@ -449,5 +457,46 @@ func TestIssuerConcurrentClaimAndSecretDebugBlock(t *testing.T) {
 	defer remote.mu.Unlock()
 	if remote.created != 0 || remote.user != nil {
 		t.Fatal("blocked issuer reached IAM")
+	}
+}
+
+func TestIssuerHomeLeaseLossCancelsJoinedTokenHTTP(t *testing.T) {
+	i, remote, _ := setupIssuer(t)
+	started := make(chan struct{})
+	remote.mu.Lock()
+	remote.blockToken = started
+	remote.mu.Unlock()
+	var mu sync.Mutex
+	var cancelLease context.CancelFunc
+	i.homeWrite = func(ctx context.Context) (context.Context, func(), error) {
+		leased, cancel := context.WithCancel(ctx)
+		mu.Lock()
+		cancelLease = cancel
+		mu.Unlock()
+		return leased, cancel, nil
+	}
+	done := make(chan error, 1)
+	go func() { _, err := i.Ensure(t.Context()); done <- err }()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("token request did not start")
+	}
+	mu.Lock()
+	cancel := cancelLease
+	mu.Unlock()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("lost home lease reported successful issuance")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("lost home lease did not cancel and join SDK token request")
+	}
+	remote.mu.Lock()
+	defer remote.mu.Unlock()
+	if remote.created != 1 || remote.secret != "" {
+		t.Fatal("lost home lease published credentials or minted another token")
 	}
 }

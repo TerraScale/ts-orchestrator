@@ -259,6 +259,9 @@ func (a *issuerAttempt) call(ctx context.Context, iam bool, run func(context.Con
 		var leased context.Context
 		leased, release, err = a.issuer.homeWrite(ctx)
 		if err != nil || release == nil || leased == nil {
+			if release != nil {
+				release()
+			}
 			return ErrIssuer
 		}
 		ctx = leased
