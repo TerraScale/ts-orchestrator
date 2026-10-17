@@ -38,6 +38,9 @@ func TestCapacityLedgerRequiresCurrentSignedGrantAndProtectedSDKRecord(t *testin
 	if err != nil || !proof.ValidAt(time.Now()) || proof.TenancyID() != s.authority.TenancyID || proof.Cell() != s.authority.Cell {
 		t.Fatalf("authenticated financial history unavailable: %+v err=%v", proof, err)
 	}
+	if proof.ExpiresAt().After(time.Now().Add(2*time.Minute)) || proof.ValidAt(proof.ExpiresAt()) {
+		t.Fatal("protected history expiry outlives its original SDK observations")
+	}
 	copy := proof.Ledger()
 	copy.Hosts[0].Receipt.Quote.Prices[0].PerUnit = 0
 	if proof.Ledger().Hosts[0].Receipt.Quote.SHA256() != receipt.QuoteSHA256 {
