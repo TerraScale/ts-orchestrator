@@ -191,8 +191,7 @@ func (w *CapacityJournalWriter) guardBirth(ctx context.Context) error {
 			return errors.Join(ErrFoundationFenced, err)
 		}
 		if p := pending.CapacityJournal; p != nil {
-			if p.GrantSHA256 != w.grant || p.Generation != w.generation || p.PurposeSHA256 != w.purpose ||
-				!p.ExpiresAt.Equal(w.signedExpiry) || p.WriterSHA256 != w.writer || pending.validateCapacityJournal() != nil {
+			if p.PurposeSHA256 != w.purpose || p.WriterSHA256 != w.writer || pending.validateCapacityJournal() != nil {
 				return ErrFoundationFenced
 			}
 		}
@@ -389,6 +388,11 @@ func (w *CapacityJournalWriter) install(ctx context.Context) error {
 		return errors.New("discovered capacity IAM policy lacks an original dispatched request")
 	}
 	if found == "" {
+		// A current purpose may observe an original outcome, never renew the
+		// authority or deadline of an unresolved policy creation.
+		if p.GrantSHA256 != w.grant || p.Generation != w.generation || p.PurposeSHA256 != w.purpose || !p.ExpiresAt.Equal(w.signedExpiry) {
+			return errors.New("pending capacity IAM policy cannot acquire successor grant authority")
+		}
 		until := p.Policy.FirstAttemptAt.Add(bootstrapRetryLifetime)
 		if p.ExpiresAt.Before(until) {
 			until = p.ExpiresAt
