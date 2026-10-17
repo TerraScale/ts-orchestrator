@@ -1,0 +1,186 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2340_2360",
+  "owner": "/root/classification_100_dispatch/batch_2360_2380",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2360-2380-012n1lyl/classification.json",
+    "sha256": "e2660ed8ed89e4b5afaf9c5a30bf772a5a742df76b852a24dbd902d8cee6ed34",
+    "checksum_path": "/tmp/ts-source-2360-2380-012n1lyl/SHA256SUMS",
+    "checksum_sha256": "82183064809405bf4a5403eb83e5206521d3cb0bfe424fac9b6e98e87f82d3b9"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2360,
+      2380
+    ],
+    "mapped_independent_peer_owner": "/root/classification_100_dispatch/batch_2340_2360"
+  },
+  "root_ids": [
+    "internal/observability/logging_test.go::TestOutputWithoutJournalHasNoPriority",
+    "internal/observability/logging_test.go::TestRecordTimeIsUTCAndAttributeKeepsItsZone",
+    "internal/observability/render_review_test.go::TestParseProcStatAcceptsLongInterruptLine",
+    "internal/observability/render_review_test.go::TestTruncatedViewsAreVisibleOnMetrics",
+    "internal/observability/route_metrics_test.go::TestRouteRTTHistoryUsesExistingPersistenceAndAPI",
+    "internal/observability/route_metrics_test.go::TestRouteRTTMetricsAndHistoryPreservePartialCoverage",
+    "internal/observability/server_review_test.go::TestServerRemountsJSONViewsWithoutPanicking",
+    "internal/observability/server_test.go::TestServerRejectsSharedTokenFile",
+    "internal/observability/server_test.go::TestServerRoutesAndBearerToken",
+    "internal/observability/server_test.go::TestServerStartRefusesTokenlessNetworkAddress",
+    "internal/observability/server_test.go::TestServerStartServesOnLoopback",
+    "internal/observability/server_test.go::TestServerValidatesPrivateListenersAndTokenFiles",
+    "internal/observability/server_test.go::TestTokenlessServerRefusesHostnamesOnEveryRoute",
+    "internal/observability/session_test.go::TestAllocationGenerationReadOutageCleansUpWithoutDeletingReusedSlot",
+    "internal/observability/session_test.go::TestAmbiguousAllocationCleanupRetriesAndPreservesReusedSlots",
+    "internal/observability/session_test.go::TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings",
+    "internal/observability/session_test.go::TestCanceledIssuanceRollsBackWithIndependentDeadline",
+    "internal/observability/session_test.go::TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection",
+    "internal/observability/session_test.go::TestDashboardSessionStoreRejectsOldTokenMetadata",
+    "internal/observability/session_test.go::TestFailedCanceledAllocationRollbackRetriesAndPreservesReusedSlot"
+  ],
+  "counts": {
+    "integration": 13,
+    "unit": 6,
+    "mixed": 1,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": {
+    "manual_source_review": "Independently read all twenty complete canonical roots and actual fixture/production paths using immutable Git show before comparing classifications. Included logOutput os.File readback, readSystem proc fixture reads, collectorHTTP TCP, direct recorder/history memory paths, config token permissions and pre-listen guards, real session JetStream operations and exact delegating fault hooks.",
+    "metadata": "Recomputed all baseline/current raw declaration hashes from exact reported inspected bounds, excluding trailing LF; checked literal names and survival mapping identity and current drift; checked root/assertion/connected source text byte for byte against immutable Git source.",
+    "roots": 20,
+    "raw_declarations": 40,
+    "canonical_and_baseline_file_pins": 27,
+    "assertion_and_connected_spans": 103,
+    "pins": "Verified each file Git mode/blob/SHA256/bytes, source commit/tree identity, owner/allocation/cyclic reviewer identities, literal root array and counts.",
+    "packet": "Verified exact accepted packet SHA256, checksum SHA256 and every SHA256SUMS entry; report files0444 and directory0555."
+  },
+  "independent_root_assessments": [
+    {
+      "root_id": "internal/observability/logging_test.go::TestOutputWithoutJournalHasNoPriority",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/logging_test.go::TestRecordTimeIsUTCAndAttributeKeepsItsZone",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/render_review_test.go::TestParseProcStatAcceptsLongInterruptLine",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/render_review_test.go::TestTruncatedViewsAreVisibleOnMetrics",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/route_metrics_test.go::TestRouteRTTHistoryUsesExistingPersistenceAndAPI",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/route_metrics_test.go::TestRouteRTTMetricsAndHistoryPreservePartialCoverage",
+      "category": "mixed",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_review_test.go::TestServerRemountsJSONViewsWithoutPanicking",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestServerRejectsSharedTokenFile",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestServerRoutesAndBearerToken",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestServerStartRefusesTokenlessNetworkAddress",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestServerStartServesOnLoopback",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestServerValidatesPrivateListenersAndTokenFiles",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/server_test.go::TestTokenlessServerRefusesHostnamesOnEveryRoute",
+      "category": "unit",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestAllocationGenerationReadOutageCleansUpWithoutDeletingReusedSlot",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestAmbiguousAllocationCleanupRetriesAndPreservesReusedSlots",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestAuthoritativeTokenVersionsRejectStaleControllersAndReconcileBindings",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestCanceledIssuanceRollsBackWithIndependentDeadline",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestCommittedRotationRevokesBeforeCleanupAndRetriesCollection",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestDashboardSessionStoreRejectsOldTokenMetadata",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    },
+    {
+      "root_id": "internal/observability/session_test.go::TestFailedCanceledAllocationRollbackRetriesAndPreservesReusedSlot",
+      "category": "integration",
+      "agreement": "Confirmed actual asserted target/path and independent local-only blocks against complete source."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source-only acceptance is not compilation, runtime, security certification or qualification evidence.",
+    "File log/proc fixtures establish specific actual filesystem effects/readback only; live journald/live host proc and durability are not qualified.",
+    "Collector HTTP loopback uses injected views; it does not qualify live NATS/TerraBase measurement. Direct recorders and byte-buffer Export/Import remain unit; RouteRTT mixed preserves local sampler/history/JSON blocks.",
+    "Session fixture directly invokes repository-vendored upstream NATS server (go.mod replace ./third_party/nats-server) and external nats.go loopback client. It does not call natscell.Start or qualify production TLS/auth/distributed replicas/Vault/signature services.",
+    "Synthetic fault hooks preserve delegated real operations where specified; context/deadline/internal queue assertions constrain the same cleanup scenario. No actual host/network outage or process runtime was executed."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_delta": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

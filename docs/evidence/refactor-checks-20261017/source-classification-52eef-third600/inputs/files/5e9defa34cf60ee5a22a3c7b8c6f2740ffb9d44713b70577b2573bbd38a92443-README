@@ -1,0 +1,6 @@
+Source-only candidate for literal other_unadjudicated[1920:1940).
+20 roots: 4 integration, 14 unit, 2 mixed, 0 unresolved.
+Corrected root1923 after independent peer source review: phrase refusal is coupled to real Preflight and absence readback; store overlap refusal resolves real physical paths. Prior packet preserved.
+All baseline/current raw declarations and historical mappings match. Complete roots/assertions and actual callee spans are pinned in classification.json.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No repository/source/ledger mutation, no count/retirement/deletion/completion credit.
+Confirm cancellation has no synchronization proving pipe read entry and stays unit. Independent peer acceptance pending.

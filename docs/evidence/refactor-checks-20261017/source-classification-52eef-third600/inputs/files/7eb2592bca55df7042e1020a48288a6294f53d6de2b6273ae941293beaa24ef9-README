@@ -1,0 +1,6 @@
+SOURCE_ONLY_CANDIDATE — original other_unadjudicated[2440:2460).
+20 literal roots: 1 integration, 19 unit, 0 mixed, 0 unresolved.
+Exact canonical source/baseline declarations, assertion text, connected callee spans and file pins are in classification.json.
+Only the ETag/immutable receipt scenario reaches authenticated production NATS bridge and JetStream KV; all other scenarios use fake maps or a handwritten synthetic SDK HTTPClient.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No test/build/helper/runtime execution; no source/repository/ledger mutation, deletion, retirement or completion/count credit.
+Independent review remains required.

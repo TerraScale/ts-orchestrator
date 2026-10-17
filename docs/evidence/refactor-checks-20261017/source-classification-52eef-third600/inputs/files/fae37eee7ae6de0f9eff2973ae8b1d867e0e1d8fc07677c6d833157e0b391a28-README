@@ -1,0 +1,5 @@
+Source-only candidate: literal other_unadjudicated[2380:2400).
+20 roots: {'integration': 8, 'unit': 6, 'mixed': 6, 'unresolved': 0}
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+All complete declarations and assertion/callee spans are preserved in classification.json. Independent peer required.
+Runtime UNKNOWN; no execution, repository/ledger writes, count promotion, deletion, retirement or completion credit.

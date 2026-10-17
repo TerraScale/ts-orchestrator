@@ -1,0 +1,214 @@
+{
+  "schema": "source-only-independent-peer-review-explicit-spans-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2060_2080",
+  "author": "/root/classification_100_dispatch/batch_2080_2100",
+  "verdict": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/classification.json",
+    "sha256": "0c3a8d7f2e84c5c500fb61ddf20f4396bc6325b1faf5744a383f57b4258497fa",
+    "checksum_path": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/SHA256SUMS",
+    "checksum_sha256": "fda262677fceca8121944246b701750899a6041f356a3829f927fe98600b9be2"
+  },
+  "prior_reviewed_packet": {
+    "path": "/tmp/ts-source-classification-2080-2100-corrected-zul0udyy/classification.json",
+    "sha256": "17c64b6cc55cfea1ce09a14a29b9e31294bb732e023a80de8b883e6aa681ddf8"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2080:2100]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2060_2080"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/netbird/agent/agent_test.go::TestWorkerPrivateStateRejectsSpoolOverlapSymlinksAndUnsafePermissions",
+    "internal/netbird/agent/agent_test.go::TestWorkerRejectsConfirmationForAnUninstalledTarget",
+    "internal/netbird/agent/agent_test.go::TestWorkerRejectsReplayedTransactionsAcrossLeaderFailover",
+    "internal/netbird/agent/rollback_recovery_test.go::TestWorkerNoopProofCannotWaiveKnownMutationOrLegacyState",
+    "internal/netbird/agent/rollback_recovery_test.go::TestWorkerPreparationPreservesBaselineAndDurablyObservesMatchingMutation",
+    "internal/netbird/agent/rollback_recovery_test.go::TestWorkerRollbackCrashStillPreventsLateInstallBeforeAck",
+    "internal/netbird/agent/rollback_recovery_test.go::TestWorkerUncommittedInstallRollbackSurvivesRestartAndRejectsLateInstall",
+    "internal/netbird/agent/spool_test.go::TestRelayFileSyncFailureDoesNotPublishBinaryOrStep",
+    "internal/netbird/agent/spool_test.go::TestRelayStagesArtifactOnHeldDirectoryAfterAncestorReplacement",
+    "internal/netbird/agent/spool_test.go::TestSpoolAnchorsWritesReadsAndRenameAgainstReplacedAncestors",
+    "internal/netbird/agent/spool_test.go::TestSpoolDiagnosticsReadableAndAuthorityPrivate",
+    "internal/netbird/agent/spool_test.go::TestSpoolRelayReader",
+    "internal/netbird/agent/spool_test.go::TestSpoolRenamePropagatesDirectorySyncFailure",
+    "internal/netbird/agent/spool_test.go::TestSpoolSyncRejectsUnsafeCachedArtifacts",
+    "internal/netbird/agent/spool_test.go::TestSpoolWriteReplacesDestinationSymlinksWithoutFollowingThem",
+    "internal/netbird/agent/spool_test.go::TestWorkerResultUsesHeldSpoolAfterRelayReplacesPath",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigCannotChangeConcurrentInstallationSnapshot",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigPreservesEveryDurableAdmission",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigRejectsInvalidInputsBeforeWrites",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigReplacesImageDefaultsBeforeAdmission"
+  ],
+  "counts": {
+    "integration": 11,
+    "unit": 4,
+    "mixed": 4,
+    "unresolved": 1
+  },
+  "checks_performed": [
+    "Independently read all twenty complete canonical roots and actual connected fixture/callee paths, including agent private ledger/spool and managed bootstrap installation/backup/rollback code. No source/test/helper execution.",
+    "Confirmed literal allocation range other_unadjudicated[2080:2100), cyclic reviewer, exact accounting slice and survival rows. All original/current names, raw bounds and declaration SHA256 match pinned baseline/canonical Git blobs; no root body drift.",
+    "Recomputed22canonical/baseline source-file blob/mode/SHA256/byte pins; verified79exact assertion/callee text spans against canonical Git bytes. Counts exhaust own20roots only.",
+    "Reviewed assertions through actual filesystem openat/read/write/sync/rename/flock paths; synthetic perform/fetch/systemctl/status/enroll hooks explicitly scoped. Conditional child source and parent FD/credential linkage read without executing them.",
+    "Fresh final packet differs only in requested decoded-state wording and correction/supersession metadata; accepted final exact hash, checksum contents and0444files/0555directory verified."
+  ],
+  "root_judgments": [
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerPrivateStateRejectsSpoolOverlapSymlinksAndUnsafePermissions",
+      "category": "mixed",
+      "accepted": true,
+      "independent_evidence": "Independent prefix-only overlap guards; actual symlink/mode/ledger file inspections establish filesystem assertions."
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerRejectsConfirmationForAnUninstalledTarget",
+      "category": "unit",
+      "accepted": true,
+      "independent_evidence": "Initial mocked install writes are incidental; changed-target confirmation is a local accepts guard without persistence assertion."
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerRejectsReplayedTransactionsAcrossLeaderFailover",
+      "category": "unit",
+      "accepted": true,
+      "independent_evidence": "Full direct accepts table and interrupted-install case are synthetic local records; no I/O."
+    },
+    {
+      "root_id": "internal/netbird/agent/rollback_recovery_test.go::TestWorkerNoopProofCannotWaiveKnownMutationOrLegacyState",
+      "category": "unit",
+      "accepted": true,
+      "independent_evidence": "Full rollbackProof flag table is synthetic ledger state with no I/O."
+    },
+    {
+      "root_id": "internal/netbird/agent/rollback_recovery_test.go::TestWorkerPreparationPreservesBaselineAndDurablyObservesMatchingMutation",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "prepareInstall saves private state; loadLedger proves decoded baseline unchanged on rejection and journaled progress persisted."
+    },
+    {
+      "root_id": "internal/netbird/agent/rollback_recovery_test.go::TestWorkerRollbackCrashStillPreventsLateInstallBeforeAck",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Rollback callback panic follows authority save; loadLedger proves rollback authority before rejected late-install and retry."
+    },
+    {
+      "root_id": "internal/netbird/agent/rollback_recovery_test.go::TestWorkerUncommittedInstallRollbackSurvivesRestartAndRejectsLateInstall",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "All previous/interruption branches assert saved rollback state before callback acknowledgment and after reload; fake effects explicit."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestRelayFileSyncFailureDoesNotPublishBinaryOrStep",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Actual staged-file fd replaced by /dev/null causes Sync error before publication; absence and temp cleanup read back."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestRelayStagesArtifactOnHeldDirectoryAfterAncestorReplacement",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Held-directory fd survives ancestor symlink replacement; actual VerifyBinary and step readback stay in moved directory."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolAnchorsWritesReadsAndRenameAgainstReplacedAncestors",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Descriptor-relative rename/write/read produce exact bytes in held inode while outside sentinel and path rejection remain observable."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolDiagnosticsReadableAndAuthorityPrivate",
+      "category": "mixed",
+      "accepted": true,
+      "independent_evidence": "Real diagnostic/authority modes and conditional UID child access plus independent filename predicates."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolRelayReader",
+      "category": "unresolved",
+      "accepted": true,
+      "independent_evidence": "Environment-conditional child returns normally without inherited FDs; parent owns launch result. Helper accounting rule missing."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolRenamePropagatesDirectorySyncFailure",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "O_PATH directory substitution permits Renameat then real EBADF fsync; renamed bytes and cached sync failure asserted."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolSyncRejectsUnsafeCachedArtifacts",
+      "category": "mixed",
+      "accepted": true,
+      "independent_evidence": "Actual cached file/type/mode sync behavior and separate name/negative-limit guards."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolWriteReplacesDestinationSymlinksWithoutFollowingThem",
+      "category": "mixed",
+      "accepted": true,
+      "independent_evidence": "Atomic replacement of destination symlinks preserves outside bytes; independent escaping-name guard table remains unit."
+    },
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestWorkerResultUsesHeldSpoolAfterRelayReplacesPath",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "applyStep held-spool output after path replacement is read through retained fd; outside remains empty."
+    },
+    {
+      "root_id": "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigCannotChangeConcurrentInstallationSnapshot",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Actual flock excludes nested bootstrap publication while install snapshots config; backup/rollback file bytes checked, service effects fake."
+    },
+    {
+      "root_id": "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigPreservesEveryDurableAdmission",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Actual pending/confirmed/rolledback/invalid transaction files gate publication and preserve both config mirrors."
+    },
+    {
+      "root_id": "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigRejectsInvalidInputsBeforeWrites",
+      "category": "unit",
+      "accepted": true,
+      "independent_evidence": "Version/pin/config/cancellation predicate rejections; mirror files are nonmutation witnesses, no production publication effect is asserted."
+    },
+    {
+      "root_id": "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapConfigReplacesImageDefaultsBeforeAdmission",
+      "category": "integration",
+      "accepted": true,
+      "independent_evidence": "Production atomic pin/config publication consumed by read/LoadConfig; empty transaction and untouched executable are same no-admission scenario."
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/netbird/agent/rollback_recovery_test.go::TestWorkerPreparationPreservesBaselineAndDurablyObservesMatchingMutation",
+      "finding": "Reason previously claimed exact bytes/state; actual root only compares decoded loadLedger structs.",
+      "resolution": "Fresh final packet says exact decoded ledger state. Category integration remains justified by production save/load readback.",
+      "corrected_packet_sha256": "0c3a8d7f2e84c5c500fb61ddf20f4396bc6325b1faf5744a383f57b4258497fa"
+    }
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/netbird/agent/spool_test.go::TestSpoolRelayReader",
+      "kind": "unresolved_conditional_helper",
+      "detail": "No independent source-category credit: helper returns unless parent environment, descriptors and credentials supplied. Parent process linkage retained; established helper accounting rule still required."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source acceptance implies no compile/test/runtime pass.",
+    "Only local filesystem/descriptors and conditional child process are evidenced by source; no actual crash/power loss, live NetBird/systemd/enrollment/Vault/cloud/network or production privilege qualification.",
+    "Injected callbacks and synthetic ELF bytes remain explicit; no code or binary was executed. Source category preserves every safety/failure/validation obligation.",
+    "No source/repository/ledger mutation, deletion/retirement authorization, global count promotion or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

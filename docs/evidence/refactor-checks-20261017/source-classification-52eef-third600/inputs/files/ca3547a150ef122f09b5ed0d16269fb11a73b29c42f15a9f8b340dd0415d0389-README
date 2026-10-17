@@ -1,0 +1,7 @@
+Source-only candidate: literal other_unadjudicated[2280:2300), 20 roots.
+Counts: {"integration": 16, "unit": 0, "mixed": 4, "unresolved": 0}.
+All baseline/current declaration bytes and mappings verified; files identical.
+Runtime UNKNOWN; no execution, no ledger/count/retirement/deletion/completion promotion.
+Boundary evidence: actual HTTP service/client responses, production file log write/readback, Linux filesystem metadata reads.
+Mixed blocks retain direct local concurrency/validation/statistics/export-size obligations.
+Peer reviewer: /root/classification_100_dispatch/batch_2260_2280; required before any separate acceptance.

@@ -1,0 +1,199 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2400_2420",
+  "author": "/root/classification_100_dispatch/batch_2420_2440",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2420-2440-9fmnc6n1/classification.json",
+    "sha256": "8fa40432d77d66dcedc9438b0deab74cc39356e7f940e39108a943bc414f95d7",
+    "checksum_path": "/tmp/ts-source-2420-2440-9fmnc6n1/SHA256SUMS",
+    "checksum_sha256": "795f9418d8f624ced50c0c04148d6fb17822a0f9f4b1fefe799cc91dc5eb547e"
+  },
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2420,
+      2440
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2400_2420"
+  },
+  "root_ids": [
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumePinsProfileBeforeMutation",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift",
+    "internal/oci/fleet_test.go::TestEnsureHostBootsTheCellSpecLaunchImage",
+    "internal/oci/fleet_test.go::TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof",
+    "internal/oci/fleet_test.go::TestEnsureHostHoldsAnUnqualifiedPin",
+    "internal/oci/fleet_test.go::TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry",
+    "internal/oci/fleet_test.go::TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall",
+    "internal/oci/fleet_test.go::TestEnsureHostIgnoresTerminatedHostOfAnotherFleet",
+    "internal/oci/fleet_test.go::TestEnsureHostKeepsStaticNameAcrossReleases",
+    "internal/oci/fleet_test.go::TestEnsureHostNeverMixesCellSpecVersions",
+    "internal/oci/fleet_test.go::TestEnsureHostRecoversLostLaunchResponse",
+    "internal/oci/fleet_test.go::TestEnsureHostRefusesForeignResourceWithSameCreateKey",
+    "internal/oci/fleet_test.go::TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence",
+    "internal/oci/fleet_test.go::TestEnsureHostRejectsSameCreateKeyComputeProfileDrift",
+    "internal/oci/fleet_test.go::TestEnsureHostRequalifiesTheImageBeforeTheProviderLaunch"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 17,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "root_reviews": [
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeHoldsExpiredUnconfirmedIntentWithoutProviderCall",
+      "category": "integration",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeHoldsExpiredUnknownWithoutProviderCall",
+      "category": "integration",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeKeepsUnconfirmedOutcomeUnowned",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumePinsProfileBeforeMutation",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeRecoversLostResponseAndIsIdempotent",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeRejectsForeignScopeAndDuplicateCreateKeys",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestCreateRetainedVolumeRejectsObservedPerformanceTierDrift",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostBootsTheCellSpecLaunchImage",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostDoesNotAdoptMatchingTagsWithoutJournalProof",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostHoldsAnUnqualifiedPin",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostHoldsChangedBootPinsAndImageAcrossRetry",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostHoldsExpiredUnknownCreateWithoutProviderCall",
+      "category": "integration",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostIgnoresTerminatedHostOfAnotherFleet",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostKeepsStaticNameAcrossReleases",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostNeverMixesCellSpecVersions",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostRecoversLostLaunchResponse",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostRefusesForeignResourceWithSameCreateKey",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostRejectsMissingSignedComputeProfileBeforePersistence",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostRejectsSameCreateKeyComputeProfileDrift",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostRequalifiesTheImageBeforeTheProviderLaunch",
+      "category": "unit",
+      "mapping_raw_identity_assertions_callees_pins": "verified",
+      "source_blockers": []
+    }
+  ],
+  "checks_performed": [
+    "Independently read all20 entire roots at canonical source and connected actual host/volume/image/boot/scope/fake-provider/journal/fencer paths.",
+    "Verified allocation cyclic peer independence and exact20 literal mappings against survival raw rows; rehashed40 baseline/current declarations at manually inspected bounds; all byte-exact, no drift.",
+    "Verified all11 canonical file pins (Git blob/mode/SHA256/bytes), 72 exact assertion/callee evidence spans, all input/checksum hashes and file0444/directory0555 freeze.",
+    "Independently confirmed three integration roots depend materially on real authenticated JetStream stored operation age; seventeen unit roots use synthetic in-memory dependencies or local pre-I/O guards.",
+    "Checked runtime UNKNOWN, retained safety obligations and no ledger/deletion/retirement/qualification/count/completion promotion. No source-visible assertion blockers found."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Source review only; no Go/build/tests/helpers/scanners/runtime/cloud/signing/crypto/TerraBase execution.",
+    "Single local authenticated JetStream FileStorage journal supports specific persisted-age recovery behavior; no live OCI, real image/placement authority, process restart, crash durability or production qualification.",
+    "No original-count ledger promotion, test deletion, retirement or completion credit."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_delta": 0,
+    "global_completion": false
+  }
+}

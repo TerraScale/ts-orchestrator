@@ -1,0 +1,8 @@
+Source-only candidate: other_unadjudicated[2040:2060), twenty literal roots.
+Owner /root/classification_100_dispatch/batch_2040_2060
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Counts {"integration": 7, "unit": 11, "mixed": 2, "unresolved": 0}; runtime UNKNOWN.
+Full declarations, assertion text, literal survival mapping rows, exact raw hashes and explicit connected source spans are in classification.json.
+Four historical survival current hashes differ from canonical; original obligations are retained.
+No source/repository/ledger changes, Go/tests/helpers/scanners/probes/cloud/signing/crypto/TerraBase execution, count promotion or retirement.
+Independent peer: /root/classification_100_dispatch/batch_2020_2040.

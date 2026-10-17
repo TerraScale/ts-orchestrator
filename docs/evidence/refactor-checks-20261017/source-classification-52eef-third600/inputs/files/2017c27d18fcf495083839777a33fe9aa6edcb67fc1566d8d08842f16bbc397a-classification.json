@@ -1,0 +1,2046 @@
+{
+  "schema": "source-only-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_1940_1960",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1940:1960]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1920_1940"
+  },
+  "input_pins": {
+    "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+  },
+  "method": "Whole20 roots and connected actual paths manually read from pinned canonical Git; metadata-only serialization/hash of explicit reviewed bounds; baseline identical whole-file blobs for6 root files, original/current raw declarations verified against literal survival rows. No parser/scanner or project execution.",
+  "classification_definitions": {
+    "integration": "Core observable behavior materially crosses real production file/protocol/store/OS boundary.",
+    "unit": "Local predicates, concurrency/timers, or synthetic/stub observations and recordings; incidental I/O unasserted.",
+    "mixed": "Separate material real-boundary and independent local-only assertion blocks.",
+    "unresolved": "Source evidence cannot support category; distinct from runtime UNKNOWN."
+  },
+  "counts": {
+    "integration": 5,
+    "unit": 14,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/membership/decide_test.go::TestDecideNewTermResumesAdmittedSuccessor",
+    "internal/membership/decide_test.go::TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+    "internal/membership/decide_test.go::TestDecideReplacementLifecycle",
+    "internal/membership/decide_test.go::TestDecideReplacesOneSlotAtATime",
+    "internal/membership/decide_test.go::TestDecideReplacingHoldsWithoutQuorum",
+    "internal/membership/decide_test.go::TestDecideTerminatedButOnlineIsHeld",
+    "internal/membership/decide_test.go::TestDecideTerminatedInstanceSkipsGrace",
+    "internal/membership/evidence_review_test.go::TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+    "internal/membership/evidence_review_test.go::TestFileEvidenceLogsAnIgnoredFileOnce",
+    "internal/membership/reconciler_fence_review_test.go::TestReplacementIsCancelledWhenTheTermEnds",
+    "internal/membership/reconciler_request_review_test.go::TestReconcilerRefreshesAnUnansweredRetirementRequest",
+    "internal/membership/reconciler_test.go::TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+    "internal/membership/reconciler_test.go::TestReconcilerActsOnlyAsFencedLeader",
+    "internal/membership/reconciler_test.go::TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+    "internal/membership/reconciler_test.go::TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+    "internal/membership/reconciler_test.go::TestReconcilerRetriesFailedReplacementAfterBackoff",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardFailsClosedOnAMalformedRecord",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardLockAdmitsOneRefoundAtATime",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardReFoundsOneSlotAtATime",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideNewTermResumesAdmittedSuccessor",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideNewTermResumesAdmittedSuccessor",
+      "current_name": "TestDecideNewTermResumesAdmittedSuccessor",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideNewTermResumesAdmittedSuccessor",
+        "test",
+        "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+        "TestDecideNewTermResumesAdmittedSuccessor",
+        "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+      "current_declaration_sha256": "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 312,
+        "end_line": 342,
+        "function": "TestDecideNewTermResumesAdmittedSuccessor"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 312,
+        "end_line": 342,
+        "function": "TestDecideNewTermResumesAdmittedSuccessor"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideNewTermResumesAdmittedSuccessor(t *testing.T) {\n\ttopology := testTopology()\n\ttopology.Slots = append(topology.Slots, \"controller-d\", \"controller-e\")\n\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tdelete(observation.Lifecycle, \"controller-b\")\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tobservation.Lifecycle[\"controller-c\"] = LifecycleTerminated\n\tobservation.Evidence[\"controller-c\"] = evidenceFor(\"controller-c\", 1, instanceC)\n\tobservation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: \"gru-1-ctl-4\", Online: true},\n\t\tPeer{Name: \"gru-1-ctl-5\", Online: true})\n\tstate, actions := Decide(topology, State{}, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" || actions[0].PreviousAttempt != 1 ||\n\t\tactions[0].Reason != \"resume replacement\" {\n\t\tt.Fatalf(\"new term actions = %+v\", actions)\n\t}\n\tif status := state.Slots[\"controller-b\"]; status.Phase != PhaseReplacing || status.PendingAttempt != 2 {\n\t\tt.Fatalf(\"adopted successor = %+v\", status)\n\t}\n\tif status := state.Slots[\"controller-c\"]; status.Phase != PhaseHeld || status.Reason != ReasonOtherReplacement {\n\t\tt.Fatalf(\"second slot = %+v\", status)\n\t}\n\t// Evidence that did not advance this HEAD is never adopted.\n\tobservation.Evidence[\"controller-b\"] = Evidence{Slot: \"controller-b\", PreviousAttempt: 1,\n\t\tPriorInstanceOCID: instanceB, Digest: strings.Repeat(\"3\", 64), Wire: []byte(\"other\")}\n\tstate, _ = Decide(topology, State{}, observation)\n\tif state.Slots[\"controller-b\"].Phase == PhaseReplacing {\n\t\tt.Fatalf(\"foreign evidence adopted = %+v\", state.Slots[\"controller-b\"])\n\t}\n}",
+      "category": "unit",
+      "reason": "Synthetic incomplete ledger HEAD and evidence control adoption/resume, single-slot exclusion and rejection of foreign evidence; all assertions inspect returned state/actions.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 313,
+          "end_line": 341,
+          "text": "\ttopology := testTopology()\n\ttopology.Slots = append(topology.Slots, \"controller-d\", \"controller-e\")\n\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tdelete(observation.Lifecycle, \"controller-b\")\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tobservation.Lifecycle[\"controller-c\"] = LifecycleTerminated\n\tobservation.Evidence[\"controller-c\"] = evidenceFor(\"controller-c\", 1, instanceC)\n\tobservation.Meta.Peers = append(observation.Meta.Peers, Peer{Name: \"gru-1-ctl-4\", Online: true},\n\t\tPeer{Name: \"gru-1-ctl-5\", Online: true})\n\tstate, actions := Decide(topology, State{}, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" || actions[0].PreviousAttempt != 1 ||\n\t\tactions[0].Reason != \"resume replacement\" {\n\t\tt.Fatalf(\"new term actions = %+v\", actions)\n\t}\n\tif status := state.Slots[\"controller-b\"]; status.Phase != PhaseReplacing || status.PendingAttempt != 2 {\n\t\tt.Fatalf(\"adopted successor = %+v\", status)\n\t}\n\tif status := state.Slots[\"controller-c\"]; status.Phase != PhaseHeld || status.Reason != ReasonOtherReplacement {\n\t\tt.Fatalf(\"second slot = %+v\", status)\n\t}\n\t// Evidence that did not advance this HEAD is never adopted.\n\tobservation.Evidence[\"controller-b\"] = Evidence{Slot: \"controller-b\", PreviousAttempt: 1,\n\t\tPriorInstanceOCID: instanceB, Digest: strings.Repeat(\"3\", 64), Wire: []byte(\"other\")}\n\tstate, _ = Decide(topology, State{}, observation)\n\tif state.Slots[\"controller-b\"].Phase == PhaseReplacing {\n\t\tt.Fatalf(\"foreign evidence adopted = %+v\", state.Slots[\"controller-b\"])\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+      "current_name": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+        "test",
+        "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+        "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+        "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+      "current_declaration_sha256": "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 93,
+        "end_line": 121,
+        "function": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 93,
+        "end_line": 121,
+        "function": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideOfflinePeerWaitsForGraceThenRequiresTermination(t *testing.T) {\n\tobservation := withPeer(healthyObservation(testEpoch), \"gru-1-ctl-2\", false)\n\tobservation.Evidence[\"controller-b\"] = evidenceFor(\"controller-b\", 1, instanceB)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect ||\n\t\t!state.Slots[\"controller-b\"].OfflineSince.Equal(testEpoch) {\n\t\tt.Fatalf(\"first offline pass = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\tobservation.At = testEpoch.Add(DefaultOfflineGrace - time.Second)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect {\n\t\tt.Fatalf(\"within grace = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Past the grace the slot is lost, but a RUNNING instance may still come\n\t// back under the same server name, so it is never relaunched.\n\tobservation.At = testEpoch.Add(DefaultOfflineGrace)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseHeld ||\n\t\t!strings.HasPrefix(state.Slots[\"controller-b\"].Reason, ReasonInstanceAlive) {\n\t\tt.Fatalf(\"lost running instance = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Once the operator terminates it the matching evidence replaces it.\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" || actions[0].PreviousAttempt != 1 ||\n\t\tstate.Slots[\"controller-b\"].Phase != PhaseReplacing || state.Slots[\"controller-b\"].PendingAttempt != 2 {\n\t\tt.Fatalf(\"terminated instance = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n}",
+      "category": "unit",
+      "reason": "Synthetic time/lifecycle/evidence drives suspect/grace/held/replacing states; no clock wait, OCI termination or replacement occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 94,
+          "end_line": 120,
+          "text": "\tobservation := withPeer(healthyObservation(testEpoch), \"gru-1-ctl-2\", false)\n\tobservation.Evidence[\"controller-b\"] = evidenceFor(\"controller-b\", 1, instanceB)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect ||\n\t\t!state.Slots[\"controller-b\"].OfflineSince.Equal(testEpoch) {\n\t\tt.Fatalf(\"first offline pass = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\tobservation.At = testEpoch.Add(DefaultOfflineGrace - time.Second)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect {\n\t\tt.Fatalf(\"within grace = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Past the grace the slot is lost, but a RUNNING instance may still come\n\t// back under the same server name, so it is never relaunched.\n\tobservation.At = testEpoch.Add(DefaultOfflineGrace)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseHeld ||\n\t\t!strings.HasPrefix(state.Slots[\"controller-b\"].Reason, ReasonInstanceAlive) {\n\t\tt.Fatalf(\"lost running instance = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Once the operator terminates it the matching evidence replaces it.\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" || actions[0].PreviousAttempt != 1 ||\n\t\tstate.Slots[\"controller-b\"].Phase != PhaseReplacing || state.Slots[\"controller-b\"].PendingAttempt != 2 {\n\t\tt.Fatalf(\"terminated instance = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacementLifecycle",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideReplacementLifecycle",
+      "current_name": "TestDecideReplacementLifecycle",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideReplacementLifecycle",
+        "test",
+        "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+        "TestDecideReplacementLifecycle",
+        "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+      "current_declaration_sha256": "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 248,
+        "end_line": 296,
+        "function": "TestDecideReplacementLifecycle"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 248,
+        "end_line": 296,
+        "function": "TestDecideReplacementLifecycle"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideReplacementLifecycle(t *testing.T) {\n\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 1 {\n\t\tt.Fatalf(\"actions = %+v\", actions)\n\t}\n\t// The actuator failed: the same evidence is retried only after backoff.\n\tstatus := state.Slots[\"controller-b\"]\n\tstatus.LastFailure = observation.At\n\tstate.Slots[\"controller-b\"] = status\n\tobservation.At = observation.At.Add(time.Minute)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonRetryBackoff ||\n\t\tstate.Slots[\"controller-b\"].Phase != PhaseReplacing {\n\t\tt.Fatalf(\"backoff = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The ledger advanced but the successor has not completed: resume.\n\tobservation.At = observation.At.Add(DefaultRetryBackoff)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 1 || actions[0].PreviousAttempt != 1 || actions[0].Reason != \"resume replacement\" {\n\t\tt.Fatalf(\"resume = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Completed but not yet online: a fresh grace for the new instance.\n\tobservation.At = observation.At.Add(time.Minute)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, InstanceOCID: instanceB + \"-a2\", Complete: true}\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleRunning\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect ||\n\t\tstate.Slots[\"controller-b\"].Reason != ReasonRejoining ||\n\t\t!state.Slots[\"controller-b\"].OfflineSince.Equal(observation.At) {\n\t\tt.Fatalf(\"rejoining = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The old evidence can never retire the successor attempt.\n\tobservation.At = observation.At.Add(DefaultOfflineGrace)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || !strings.HasPrefix(state.Slots[\"controller-b\"].Reason, ReasonAwaitingEvidence) {\n\t\tt.Fatalf(\"stale evidence = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The rejoined successor is healthy again.\n\tobservation = withPeer(observation, \"gru-1-ctl-2\", true)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleRunning\n\tstate, _ = Decide(testTopology(), state, observation)\n\tif state.Slots[\"controller-b\"].Phase != PhaseHealthy || !state.Slots[\"controller-b\"].OfflineSince.IsZero() {\n\t\tt.Fatalf(\"rejoined = %+v\", state.Slots[\"controller-b\"])\n\t}\n}",
+      "category": "unit",
+      "reason": "Synthetic state and observation mutations test backoff, resume, fresh successor grace, stale evidence and healthy rejoin; every result is returned local state/action.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 249,
+          "end_line": 295,
+          "text": "\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 1 {\n\t\tt.Fatalf(\"actions = %+v\", actions)\n\t}\n\t// The actuator failed: the same evidence is retried only after backoff.\n\tstatus := state.Slots[\"controller-b\"]\n\tstatus.LastFailure = observation.At\n\tstate.Slots[\"controller-b\"] = status\n\tobservation.At = observation.At.Add(time.Minute)\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonRetryBackoff ||\n\t\tstate.Slots[\"controller-b\"].Phase != PhaseReplacing {\n\t\tt.Fatalf(\"backoff = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The ledger advanced but the successor has not completed: resume.\n\tobservation.At = observation.At.Add(DefaultRetryBackoff)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 1 || actions[0].PreviousAttempt != 1 || actions[0].Reason != \"resume replacement\" {\n\t\tt.Fatalf(\"resume = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// Completed but not yet online: a fresh grace for the new instance.\n\tobservation.At = observation.At.Add(time.Minute)\n\tobservation.Ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, InstanceOCID: instanceB + \"-a2\", Complete: true}\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleRunning\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Phase != PhaseSuspect ||\n\t\tstate.Slots[\"controller-b\"].Reason != ReasonRejoining ||\n\t\t!state.Slots[\"controller-b\"].OfflineSince.Equal(observation.At) {\n\t\tt.Fatalf(\"rejoining = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The old evidence can never retire the successor attempt.\n\tobservation.At = observation.At.Add(DefaultOfflineGrace)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\tstate, actions = Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || !strings.HasPrefix(state.Slots[\"controller-b\"].Reason, ReasonAwaitingEvidence) {\n\t\tt.Fatalf(\"stale evidence = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n\t// The rejoined successor is healthy again.\n\tobservation = withPeer(observation, \"gru-1-ctl-2\", true)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleRunning\n\tstate, _ = Decide(testTopology(), state, observation)\n\tif state.Slots[\"controller-b\"].Phase != PhaseHealthy || !state.Slots[\"controller-b\"].OfflineSince.IsZero() {\n\t\tt.Fatalf(\"rejoined = %+v\", state.Slots[\"controller-b\"])\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacesOneSlotAtATime",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideReplacesOneSlotAtATime",
+      "current_name": "TestDecideReplacesOneSlotAtATime",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideReplacesOneSlotAtATime",
+        "test",
+        "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+        "TestDecideReplacesOneSlotAtATime",
+        "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+      "current_declaration_sha256": "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 229,
+        "end_line": 246,
+        "function": "TestDecideReplacesOneSlotAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 229,
+        "end_line": 246,
+        "function": "TestDecideReplacesOneSlotAtATime"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideReplacesOneSlotAtATime(t *testing.T) {\n\ttopology := Topology{Cell: \"gru\", SeedSlot: \"controller-a\", SelfSlot: \"controller-a\",\n\t\tSlots: []string{\"controller-a\", \"controller-b\", \"controller-c\", \"controller-d\", \"controller-e\"}}\n\tobservation := lostB(testEpoch)\n\tobservation.Meta.Peers = append(observation.Meta.Peers,\n\t\tPeer{Name: \"gru-1-ctl-4\", Online: true}, Peer{Name: \"gru-1-ctl-5\", Online: true})\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tobservation.Ledger[\"controller-c\"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC, Complete: true}\n\tobservation.Ledger[\"controller-d\"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC + \"d\", Complete: true}\n\tobservation.Lifecycle[\"controller-c\"] = LifecycleTerminated\n\twithEvidenceB(&observation)\n\tobservation.Evidence[\"controller-c\"] = evidenceFor(\"controller-c\", 1, instanceC)\n\tstate, actions := Decide(topology, State{}, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" ||\n\t\tstate.Slots[\"controller-c\"].Reason != ReasonOtherReplacement {\n\t\tt.Fatalf(\"concurrent losses = %+v c=%+v\", actions, state.Slots[\"controller-c\"])\n\t}\n}",
+      "category": "unit",
+      "reason": "Fabricated five-slot online/lifecycle/evidence maps assert one action and a second held slot; no ledger/service or actuator boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 230,
+          "end_line": 245,
+          "text": "\ttopology := Topology{Cell: \"gru\", SeedSlot: \"controller-a\", SelfSlot: \"controller-a\",\n\t\tSlots: []string{\"controller-a\", \"controller-b\", \"controller-c\", \"controller-d\", \"controller-e\"}}\n\tobservation := lostB(testEpoch)\n\tobservation.Meta.Peers = append(observation.Meta.Peers,\n\t\tPeer{Name: \"gru-1-ctl-4\", Online: true}, Peer{Name: \"gru-1-ctl-5\", Online: true})\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tobservation.Ledger[\"controller-c\"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC, Complete: true}\n\tobservation.Ledger[\"controller-d\"] = LedgerSlot{Attempt: 1, InstanceOCID: instanceC + \"d\", Complete: true}\n\tobservation.Lifecycle[\"controller-c\"] = LifecycleTerminated\n\twithEvidenceB(&observation)\n\tobservation.Evidence[\"controller-c\"] = evidenceFor(\"controller-c\", 1, instanceC)\n\tstate, actions := Decide(topology, State{}, observation)\n\tif len(actions) != 1 || actions[0].Slot != \"controller-b\" ||\n\t\tstate.Slots[\"controller-c\"].Reason != ReasonOtherReplacement {\n\t\tt.Fatalf(\"concurrent losses = %+v c=%+v\", actions, state.Slots[\"controller-c\"])\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacingHoldsWithoutQuorum",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideReplacingHoldsWithoutQuorum",
+      "current_name": "TestDecideReplacingHoldsWithoutQuorum",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideReplacingHoldsWithoutQuorum",
+        "test",
+        "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+        "TestDecideReplacingHoldsWithoutQuorum",
+        "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+      "current_declaration_sha256": "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 298,
+        "end_line": 307,
+        "function": "TestDecideReplacingHoldsWithoutQuorum"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 298,
+        "end_line": 307,
+        "function": "TestDecideReplacingHoldsWithoutQuorum"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideReplacingHoldsWithoutQuorum(t *testing.T) {\n\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tstate, _ := Decide(testTopology(), State{}, observation)\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tstate, actions := Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonQuorumLost {\n\t\tt.Fatalf(\"replacing without quorum = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n}",
+      "category": "unit",
+      "reason": "Mutating the fabricated peer map makes the local predicate withhold actions and report ReasonQuorumLost.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 299,
+          "end_line": 306,
+          "text": "\tobservation := lostB(testEpoch)\n\twithEvidenceB(&observation)\n\tstate, _ := Decide(testTopology(), State{}, observation)\n\tobservation = withPeer(observation, \"gru-1-ctl-3\", false)\n\tstate, actions := Decide(testTopology(), state, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonQuorumLost {\n\t\tt.Fatalf(\"replacing without quorum = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideTerminatedButOnlineIsHeld",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideTerminatedButOnlineIsHeld",
+      "current_name": "TestDecideTerminatedButOnlineIsHeld",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideTerminatedButOnlineIsHeld",
+        "test",
+        "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+        "TestDecideTerminatedButOnlineIsHeld",
+        "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+      "current_declaration_sha256": "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 219,
+        "end_line": 227,
+        "function": "TestDecideTerminatedButOnlineIsHeld"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 219,
+        "end_line": 227,
+        "function": "TestDecideTerminatedButOnlineIsHeld"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideTerminatedButOnlineIsHeld(t *testing.T) {\n\tobservation := healthyObservation(testEpoch)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\twithEvidenceB(&observation)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonTerminatedButOnline {\n\t\tt.Fatalf(\"terminated but online = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n}",
+      "category": "unit",
+      "reason": "Fabricated online peer and terminated lifecycle string assert local held reason with no actions.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 220,
+          "end_line": 226,
+          "text": "\tobservation := healthyObservation(testEpoch)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\twithEvidenceB(&observation)\n\tstate, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 0 || state.Slots[\"controller-b\"].Reason != ReasonTerminatedButOnline {\n\t\tt.Fatalf(\"terminated but online = %+v %+v\", state.Slots[\"controller-b\"], actions)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideTerminatedInstanceSkipsGrace",
+      "path": "internal/membership/decide_test.go",
+      "original_name": "TestDecideTerminatedInstanceSkipsGrace",
+      "current_name": "TestDecideTerminatedInstanceSkipsGrace",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/decide_test.go",
+        "TestDecideTerminatedInstanceSkipsGrace",
+        "test",
+        "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+        "TestDecideTerminatedInstanceSkipsGrace",
+        "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+      "current_declaration_sha256": "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 123,
+        "end_line": 130,
+        "function": "TestDecideTerminatedInstanceSkipsGrace"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 123,
+        "end_line": 130,
+        "function": "TestDecideTerminatedInstanceSkipsGrace"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDecideTerminatedInstanceSkipsGrace(t *testing.T) {\n\tobservation := lostB(testEpoch)\n\tobservation.Evidence[\"controller-b\"] = evidenceFor(\"controller-b\", 1, instanceB)\n\t_, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 1 || actions[0].PriorInstanceOCID != instanceB || string(actions[0].Retirement.Wire) != \"signed\" {\n\t\tt.Fatalf(\"terminated instance actions = %+v\", actions)\n\t}\n}",
+      "category": "unit",
+      "reason": "Local terminated observation returns a correctly bound action with synthetic signed bytes; no verification or actuator executes.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 124,
+          "end_line": 129,
+          "text": "\tobservation := lostB(testEpoch)\n\tobservation.Evidence[\"controller-b\"] = evidenceFor(\"controller-b\", 1, instanceB)\n\t_, actions := Decide(testTopology(), State{}, observation)\n\tif len(actions) != 1 || actions[0].PriorInstanceOCID != instanceB || string(actions[0].Retirement.Wire) != \"signed\" {\n\t\tt.Fatalf(\"terminated instance actions = %+v\", actions)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/evidence_review_test.go::TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+      "path": "internal/membership/evidence_review_test.go",
+      "original_name": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+      "current_name": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/evidence_review_test.go",
+        "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+        "test",
+        "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+        "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+        "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+      "current_declaration_sha256": "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+      "baseline_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 35,
+        "end_line": 39,
+        "function": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory"
+      },
+      "current_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 35,
+        "end_line": 39,
+        "function": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestDefaultEvidenceDirIsUnderTheControllerStateDirectory(t *testing.T) {\n\tif !strings.HasPrefix(DefaultRetirementEvidenceDir, \"/var/lib/terrascale-orchestrator-controller/\") {\n\t\tt.Fatalf(\"evidence dir %s is not writable by the controller unit\", DefaultRetirementEvidenceDir)\n\t}\n}",
+      "category": "unit",
+      "reason": "A strings.HasPrefix assertion over a constant; it does not inspect deployment files or try filesystem access.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/evidence_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+          "line": 36,
+          "end_line": 38,
+          "text": "\tif !strings.HasPrefix(DefaultRetirementEvidenceDir, \"/var/lib/terrascale-orchestrator-controller/\") {\n\t\tt.Fatalf(\"evidence dir %s is not writable by the controller unit\", DefaultRetirementEvidenceDir)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/evidence_review_test.go::TestFileEvidenceLogsAnIgnoredFileOnce",
+      "path": "internal/membership/evidence_review_test.go",
+      "original_name": "TestFileEvidenceLogsAnIgnoredFileOnce",
+      "current_name": "TestFileEvidenceLogsAnIgnoredFileOnce",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/evidence_review_test.go",
+        "TestFileEvidenceLogsAnIgnoredFileOnce",
+        "test",
+        "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+        "TestFileEvidenceLogsAnIgnoredFileOnce",
+        "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+      "current_declaration_sha256": "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+      "baseline_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 14,
+        "end_line": 33,
+        "function": "TestFileEvidenceLogsAnIgnoredFileOnce"
+      },
+      "current_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 14,
+        "end_line": 33,
+        "function": "TestFileEvidenceLogsAnIgnoredFileOnce"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestFileEvidenceLogsAnIgnoredFileOnce(t *testing.T) {\n\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-b.retirement\"), []byte(\"not an envelope\"), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar logs bytes.Buffer\n\tsource := NewFileEvidence(dir, testTopology().Slots, slog.New(slog.NewTextHandler(&logs, nil)))\n\tfor range 3 {\n\t\tevidence, err := source.Evidence(t.Context())\n\t\tif err != nil || len(evidence) != 0 {\n\t\t\tt.Fatalf(\"evidence = %+v, %v\", evidence, err)\n\t\t}\n\t}\n\tif count := strings.Count(logs.String(), \"retirement evidence file ignored\"); count != 1 {\n\t\tt.Fatalf(\"ignored file reported %d times:\\n%s\", count, logs.String())\n\t}\n\tif !strings.Contains(logs.String(), \"slot=controller-b\") {\n\t\tt.Fatalf(\"log lacks the slot:\\n%s\", logs.String())\n\t}\n}",
+      "category": "integration",
+      "reason": "Writes malformed wire to a real slot file, then three production Evidence reads drive ignore behavior and one slot-bound log. The log count/content directly depend on readEvidenceFile bytes; no independent call to the local dedupe helper.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/evidence_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+          "line": 15,
+          "end_line": 32,
+          "text": "\tdir := t.TempDir()\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-b.retirement\"), []byte(\"not an envelope\"), 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tvar logs bytes.Buffer\n\tsource := NewFileEvidence(dir, testTopology().Slots, slog.New(slog.NewTextHandler(&logs, nil)))\n\tfor range 3 {\n\t\tevidence, err := source.Evidence(t.Context())\n\t\tif err != nil || len(evidence) != 0 {\n\t\t\tt.Fatalf(\"evidence = %+v, %v\", evidence, err)\n\t\t}\n\t}\n\tif count := strings.Count(logs.String(), \"retirement evidence file ignored\"); count != 1 {\n\t\tt.Fatalf(\"ignored file reported %d times:\\n%s\", count, logs.String())\n\t}\n\tif !strings.Contains(logs.String(), \"slot=controller-b\") {\n\t\tt.Fatalf(\"log lacks the slot:\\n%s\", logs.String())\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "file_evidence"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_fence_review_test.go::TestReplacementIsCancelledWhenTheTermEnds",
+      "path": "internal/membership/reconciler_fence_review_test.go",
+      "original_name": "TestReplacementIsCancelledWhenTheTermEnds",
+      "current_name": "TestReplacementIsCancelledWhenTheTermEnds",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_fence_review_test.go",
+        "TestReplacementIsCancelledWhenTheTermEnds",
+        "test",
+        "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+        "TestReplacementIsCancelledWhenTheTermEnds",
+        "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+      "current_declaration_sha256": "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_fence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+        "line": 28,
+        "end_line": 67,
+        "function": "TestReplacementIsCancelledWhenTheTermEnds"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_fence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+        "line": 28,
+        "end_line": 67,
+        "function": "TestReplacementIsCancelledWhenTheTermEnds"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReplacementIsCancelledWhenTheTermEnds(t *testing.T) {\n\tprevious := termFencePoll\n\ttermFencePoll = 5 * time.Millisecond\n\tt.Cleanup(func() { termFencePoll = previous })\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(4)}\n\tcell := newFakeCell()\n\treplacer := &blockingReplacer{started: make(chan struct{}), ended: make(chan error, 1)}\n\treconciler := newTestReconciler(t, leader, cell, replacer, &clock)\n\tdone := make(chan error, 1)\n\tgo func() { done <- reconciler.Tick(t.Context()) }()\n\tselect {\n\tcase <-replacer.started:\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"replacement did not start\")\n\t}\n\tif replacer.fence == nil {\n\t\tt.Fatal(\"the action carries no authority fence\")\n\t}\n\tif err := replacer.fence(t.Context()); err != nil {\n\t\tt.Fatalf(\"fence while the term holds = %v\", err)\n\t}\n\tleader.mu.Lock()\n\tleader.snapshot = leaderSnapshot(5)\n\tleader.mu.Unlock()\n\tselect {\n\tcase cause := <-replacer.ended:\n\t\tif cause == nil || errors.Is(cause, context.Canceled) {\n\t\t\tt.Fatalf(\"replacement ended for %v, not the lost term\", cause)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"a replacement kept running after its authority term ended\")\n\t}\n\tif err := replacer.fence(t.Context()); !errors.Is(err, authority.ErrFenced) {\n\t\tt.Fatalf(\"fence after the term ended = %v\", err)\n\t}\n\tif err := <-done; err != nil {\n\t\tt.Fatal(err)\n\t}\n}",
+      "category": "unit",
+      "reason": "Production termContext timer/cancellation logic runs against fakeLeadership and blockingReplacer channels. Fence existence, before/after fake epoch result and cancellation cause remain local concurrency assertions, with no live lease or process replacement.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_fence_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+          "line": 29,
+          "end_line": 66,
+          "text": "\tprevious := termFencePoll\n\ttermFencePoll = 5 * time.Millisecond\n\tt.Cleanup(func() { termFencePoll = previous })\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(4)}\n\tcell := newFakeCell()\n\treplacer := &blockingReplacer{started: make(chan struct{}), ended: make(chan error, 1)}\n\treconciler := newTestReconciler(t, leader, cell, replacer, &clock)\n\tdone := make(chan error, 1)\n\tgo func() { done <- reconciler.Tick(t.Context()) }()\n\tselect {\n\tcase <-replacer.started:\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"replacement did not start\")\n\t}\n\tif replacer.fence == nil {\n\t\tt.Fatal(\"the action carries no authority fence\")\n\t}\n\tif err := replacer.fence(t.Context()); err != nil {\n\t\tt.Fatalf(\"fence while the term holds = %v\", err)\n\t}\n\tleader.mu.Lock()\n\tleader.snapshot = leaderSnapshot(5)\n\tleader.mu.Unlock()\n\tselect {\n\tcase cause := <-replacer.ended:\n\t\tif cause == nil || errors.Is(cause, context.Canceled) {\n\t\t\tt.Fatalf(\"replacement ended for %v, not the lost term\", cause)\n\t\t}\n\tcase <-time.After(5 * time.Second):\n\t\tt.Fatal(\"a replacement kept running after its authority term ended\")\n\t}\n\tif err := replacer.fence(t.Context()); !errors.Is(err, authority.ErrFenced) {\n\t\tt.Fatalf(\"fence after the term ended = %v\", err)\n\t}\n\tif err := <-done; err != nil {\n\t\tt.Fatal(err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler",
+        "cancellation"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_request_review_test.go::TestReconcilerRefreshesAnUnansweredRetirementRequest",
+      "path": "internal/membership/reconciler_request_review_test.go",
+      "original_name": "TestReconcilerRefreshesAnUnansweredRetirementRequest",
+      "current_name": "TestReconcilerRefreshesAnUnansweredRetirementRequest",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_request_review_test.go",
+        "TestReconcilerRefreshesAnUnansweredRetirementRequest",
+        "test",
+        "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+        "TestReconcilerRefreshesAnUnansweredRetirementRequest",
+        "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+      "current_declaration_sha256": "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_request_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+        "line": 12,
+        "end_line": 41,
+        "function": "TestReconcilerRefreshesAnUnansweredRetirementRequest"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_request_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+        "line": 12,
+        "end_line": 41,
+        "function": "TestReconcilerRefreshesAnUnansweredRetirementRequest"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReconcilerRefreshesAnUnansweredRetirementRequest(t *testing.T) {\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(6)}\n\tcell := newFakeCell()\n\tcell.evidence = map[string]Evidence{}\n\trequests := &recordingRequests{}\n\treconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,\n\t\tLedger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,\n\t\tNow: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttick := func() {\n\t\tt.Helper()\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\ttick()\n\tclock = clock.Add(RetirementRequestRefresh - time.Minute)\n\ttick()\n\tif len(requests.requests) != 1 {\n\t\tt.Fatalf(\"request repeated before its refresh age: %d\", len(requests.requests))\n\t}\n\tclock = clock.Add(2 * time.Minute)\n\ttick()\n\tif len(requests.requests) != 2 || !requests.requests[1].ObservedAt.After(requests.requests[0].ObservedAt) {\n\t\tt.Fatalf(\"stale request was not refreshed: %+v\", requests.requests)\n\t}\n}",
+      "category": "unit",
+      "reason": "Ticks use fabricated clock and fakeCell; recordingRequests only appends to memory. Request count and refreshed ObservedAt check local scheduling, not file rendering or an external signer.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_request_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+          "line": 13,
+          "end_line": 40,
+          "text": "\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(6)}\n\tcell := newFakeCell()\n\tcell.evidence = map[string]Evidence{}\n\trequests := &recordingRequests{}\n\treconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,\n\t\tLedger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,\n\t\tNow: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\ttick := func() {\n\t\tt.Helper()\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\ttick()\n\tclock = clock.Add(RetirementRequestRefresh - time.Minute)\n\ttick()\n\tif len(requests.requests) != 1 {\n\t\tt.Fatalf(\"request repeated before its refresh age: %d\", len(requests.requests))\n\t}\n\tclock = clock.Add(2 * time.Minute)\n\ttick()\n\tif len(requests.requests) != 2 || !requests.requests[1].ObservedAt.After(requests.requests[0].ObservedAt) {\n\t\tt.Fatalf(\"stale request was not refreshed: %+v\", requests.requests)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+      "path": "internal/membership/reconciler_test.go",
+      "original_name": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+      "current_name": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_test.go",
+        "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+        "test",
+        "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+        "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+        "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+      "current_declaration_sha256": "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 228,
+        "end_line": 279,
+        "function": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 228,
+        "end_line": 279,
+        "function": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes(t *testing.T) {\n\tdir := t.TempDir()\n\t_, root, err := ed25519.GenerateKey(rand.Reader)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tnow := time.Now().UTC().Truncate(time.Second)\n\tcandidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: \"0000000000DMC7WFP9VHV640EP\", Cell: \"GRU\",\n\t\tEnvironment: \"production\", Role: \"controller\", Slot: \"controller-b\", PreviousAttempt: 1,\n\t\tPreviousGeneration: 1, PreviousResultDigest: strings.Repeat(\"c\", 64), PriorInstanceOCID: instanceB,\n\t\tPriorCreateKey: \"founder-controller-b-key\", Disposition: bootstrap.SlotRetirementDisposition,\n\t\tObservedEvidenceDigest: evidenceID, FencingAuthority: \"authority-epoch-2\", ObservedAt: now}\n\tenvelope, err := bootstrap.SignSlotRetirement(candidate, now, now.Add(time.Hour), root)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twire, err := trust.EncodeEnvelope(envelope)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-b.retirement\"), wire, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Misplaced evidence for b under c's name is ignored.\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-c.retirement\"), wire, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsource := FileEvidence{Dir: dir, Slots: testTopology().Slots}\n\tevidence, err := source.Evidence(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(evidence) != 1 || evidence[\"controller-b\"].PreviousAttempt != 1 ||\n\t\tevidence[\"controller-b\"].PriorInstanceOCID != instanceB || len(evidence[\"controller-b\"].Digest) != 64 {\n\t\tt.Fatalf(\"evidence = %+v\", evidence)\n\t}\n\tif err := os.Chmod(filepath.Join(dir, \"controller-b.retirement\"), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := source.Evidence(t.Context()); err == nil {\n\t\tt.Fatal(\"group-readable evidence accepted\")\n\t}\n\tif err := os.Remove(filepath.Join(dir, \"controller-b.retirement\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Symlink(filepath.Join(dir, \"controller-c.retirement\"), filepath.Join(dir, \"controller-b.retirement\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := source.Evidence(t.Context()); err == nil {\n\t\tt.Fatal(\"symlinked evidence accepted\")\n\t}\n}",
+      "category": "integration",
+      "reason": "Fixture writes signed-shaped wire under correct and wrong slot names; production Evidence reads it and asserts exact routed fields/digest length, then chmod and symlink changes must cause read errors. Signature authority is not verified or credited.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 229,
+          "end_line": 278,
+          "text": "\tdir := t.TempDir()\n\t_, root, err := ed25519.GenerateKey(rand.Reader)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tnow := time.Now().UTC().Truncate(time.Second)\n\tcandidate := bootstrap.RetirementEvidence{SchemaVersion: 1, DeploymentID: \"0000000000DMC7WFP9VHV640EP\", Cell: \"GRU\",\n\t\tEnvironment: \"production\", Role: \"controller\", Slot: \"controller-b\", PreviousAttempt: 1,\n\t\tPreviousGeneration: 1, PreviousResultDigest: strings.Repeat(\"c\", 64), PriorInstanceOCID: instanceB,\n\t\tPriorCreateKey: \"founder-controller-b-key\", Disposition: bootstrap.SlotRetirementDisposition,\n\t\tObservedEvidenceDigest: evidenceID, FencingAuthority: \"authority-epoch-2\", ObservedAt: now}\n\tenvelope, err := bootstrap.SignSlotRetirement(candidate, now, now.Add(time.Hour), root)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\twire, err := trust.EncodeEnvelope(envelope)\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-b.retirement\"), wire, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Misplaced evidence for b under c's name is ignored.\n\tif err := os.WriteFile(filepath.Join(dir, \"controller-c.retirement\"), wire, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tsource := FileEvidence{Dir: dir, Slots: testTopology().Slots}\n\tevidence, err := source.Evidence(t.Context())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(evidence) != 1 || evidence[\"controller-b\"].PreviousAttempt != 1 ||\n\t\tevidence[\"controller-b\"].PriorInstanceOCID != instanceB || len(evidence[\"controller-b\"].Digest) != 64 {\n\t\tt.Fatalf(\"evidence = %+v\", evidence)\n\t}\n\tif err := os.Chmod(filepath.Join(dir, \"controller-b.retirement\"), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := source.Evidence(t.Context()); err == nil {\n\t\tt.Fatal(\"group-readable evidence accepted\")\n\t}\n\tif err := os.Remove(filepath.Join(dir, \"controller-b.retirement\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Symlink(filepath.Join(dir, \"controller-c.retirement\"), filepath.Join(dir, \"controller-b.retirement\")); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := source.Evidence(t.Context()); err == nil {\n\t\tt.Fatal(\"symlinked evidence accepted\")\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "file_evidence"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerActsOnlyAsFencedLeader",
+      "path": "internal/membership/reconciler_test.go",
+      "original_name": "TestReconcilerActsOnlyAsFencedLeader",
+      "current_name": "TestReconcilerActsOnlyAsFencedLeader",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_test.go",
+        "TestReconcilerActsOnlyAsFencedLeader",
+        "test",
+        "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+        "TestReconcilerActsOnlyAsFencedLeader",
+        "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+      "current_declaration_sha256": "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 136,
+        "end_line": 176,
+        "function": "TestReconcilerActsOnlyAsFencedLeader"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 136,
+        "end_line": 176,
+        "function": "TestReconcilerActsOnlyAsFencedLeader"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReconcilerActsOnlyAsFencedLeader(t *testing.T) {\n\tclock := testEpoch\n\tleader := &fakeLeadership{}\n\tcell := newFakeCell()\n\treconciler := newTestReconciler(t, leader, cell, cell, &clock)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 0 || len(reconciler.Statuses()) != 0 {\n\t\tt.Fatal(\"follower evaluated or replaced\")\n\t}\n\tleader.snapshot = leaderSnapshot(4)\n\tleader.guardErr = authority.ErrFenced\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 0 || statusOf(reconciler, \"controller-b\").LastFailure.IsZero() {\n\t\tt.Fatalf(\"fenced leader replaced: %+v\", statusOf(reconciler, \"controller-b\"))\n\t}\n\tleader.guardErr = nil\n\tclock = clock.Add(DefaultRetryBackoff)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 1 || cell.replaced[0].Slot != \"controller-b\" ||\n\t\tstatusOf(reconciler, \"controller-b\").Phase != PhaseReplacing {\n\t\tt.Fatalf(\"leader did not replace: %+v %+v\", cell.replaced, statusOf(reconciler, \"controller-b\"))\n\t}\n\t// A new authority term forgets the previous term's in-flight memory and\n\t// re-derives everything from fresh observations and the durable ledger.\n\tleader.snapshot = leaderSnapshot(5)\n\tcell.ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, InstanceOCID: instanceB + \"-a2\", Complete: true}\n\tcell.lifecycle[instanceB+\"-a2\"] = LifecycleRunning\n\tcell.meta.Peers[0].Online = true\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif status := statusOf(reconciler, \"controller-b\"); status.Phase != PhaseHealthy || status.Attempt != 2 {\n\t\tt.Fatalf(\"new term status = %+v\", status)\n\t}\n}",
+      "category": "unit",
+      "reason": "Follower/fenced/leader/new-term assertions inspect fakeCell.replaced and local statuses. Dependencies supply fabricated observations, synthetic authority and in-memory actuator recordings, not actual lease/ledger/OCI effects.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 137,
+          "end_line": 175,
+          "text": "\tclock := testEpoch\n\tleader := &fakeLeadership{}\n\tcell := newFakeCell()\n\treconciler := newTestReconciler(t, leader, cell, cell, &clock)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 0 || len(reconciler.Statuses()) != 0 {\n\t\tt.Fatal(\"follower evaluated or replaced\")\n\t}\n\tleader.snapshot = leaderSnapshot(4)\n\tleader.guardErr = authority.ErrFenced\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 0 || statusOf(reconciler, \"controller-b\").LastFailure.IsZero() {\n\t\tt.Fatalf(\"fenced leader replaced: %+v\", statusOf(reconciler, \"controller-b\"))\n\t}\n\tleader.guardErr = nil\n\tclock = clock.Add(DefaultRetryBackoff)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 1 || cell.replaced[0].Slot != \"controller-b\" ||\n\t\tstatusOf(reconciler, \"controller-b\").Phase != PhaseReplacing {\n\t\tt.Fatalf(\"leader did not replace: %+v %+v\", cell.replaced, statusOf(reconciler, \"controller-b\"))\n\t}\n\t// A new authority term forgets the previous term's in-flight memory and\n\t// re-derives everything from fresh observations and the durable ledger.\n\tleader.snapshot = leaderSnapshot(5)\n\tcell.ledger[\"controller-b\"] = LedgerSlot{Attempt: 2, InstanceOCID: instanceB + \"-a2\", Complete: true}\n\tcell.lifecycle[instanceB+\"-a2\"] = LifecycleRunning\n\tcell.meta.Peers[0].Online = true\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif status := statusOf(reconciler, \"controller-b\"); status.Phase != PhaseHealthy || status.Attempt != 2 {\n\t\tt.Fatalf(\"new term status = %+v\", status)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+      "path": "internal/membership/reconciler_test.go",
+      "original_name": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+      "current_name": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_test.go",
+        "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+        "test",
+        "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+        "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+        "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+      "current_declaration_sha256": "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 178,
+        "end_line": 194,
+        "function": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 178,
+        "end_line": 194,
+        "function": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReconcilerHoldsWithoutReplacerAndOnPartialObservation(t *testing.T) {\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(2)}\n\tcell := newFakeCell()\n\treconciler := newTestReconciler(t, leader, cell, nil, &clock)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif status := statusOf(reconciler, \"controller-b\"); status.Phase != PhaseHeld ||\n\t\tstatus.Reason != ErrReplacerUnavailable.Error() {\n\t\tt.Fatalf(\"no replacer status = %+v\", status)\n\t}\n\tcell.metaErr = errors.New(\"jsz unavailable\")\n\tif err := reconciler.Tick(t.Context()); err == nil {\n\t\tt.Fatal(\"partial observation was evaluated\")\n\t}\n}",
+      "category": "unit",
+      "reason": "Nil actuator and injected fake meta error exercise pre-effect holds/errors with local status checks. No NATS observation or replacement boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 179,
+          "end_line": 193,
+          "text": "\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(2)}\n\tcell := newFakeCell()\n\treconciler := newTestReconciler(t, leader, cell, nil, &clock)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif status := statusOf(reconciler, \"controller-b\"); status.Phase != PhaseHeld ||\n\t\tstatus.Reason != ErrReplacerUnavailable.Error() {\n\t\tt.Fatalf(\"no replacer status = %+v\", status)\n\t}\n\tcell.metaErr = errors.New(\"jsz unavailable\")\n\tif err := reconciler.Tick(t.Context()); err == nil {\n\t\tt.Fatal(\"partial observation was evaluated\")\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+      "path": "internal/membership/reconciler_test.go",
+      "original_name": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+      "current_name": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_test.go",
+        "TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+        "test",
+        "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+        "TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+        "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+      "current_declaration_sha256": "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 288,
+        "end_line": 311,
+        "function": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 288,
+        "end_line": 311,
+        "function": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReconcilerRequestsRetirementOncePerTerminatedAttempt(t *testing.T) {\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(6)}\n\tcell := newFakeCell()\n\tcell.evidence = map[string]Evidence{}\n\trequests := &recordingRequests{}\n\treconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,\n\t\tLedger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,\n\t\tNow: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor range 3 {\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tclock = clock.Add(time.Minute)\n\t}\n\tif len(requests.requests) != 1 || requests.requests[0].Slot != \"controller-b\" ||\n\t\trequests.requests[0].Attempt != 1 || requests.requests[0].InstanceOCID != instanceB ||\n\t\trequests.requests[0].Epoch != 6 || len(cell.replaced) != 0 {\n\t\tt.Fatalf(\"requests = %+v replaced=%d\", requests.requests, len(cell.replaced))\n\t}\n}",
+      "category": "unit",
+      "reason": "Three local ticks append one request to recordingRequests, preserving exact slot/attempt/instance/epoch and no fake replacement. No retirement file/API or signature.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 289,
+          "end_line": 310,
+          "text": "\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(6)}\n\tcell := newFakeCell()\n\tcell.evidence = map[string]Evidence{}\n\trequests := &recordingRequests{}\n\treconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell,\n\t\tLedger: cell, Instances: cell, Evidence: cell, Replacer: cell, Requests: requests,\n\t\tNow: func() time.Time { return clock }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tfor range 3 {\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tclock = clock.Add(time.Minute)\n\t}\n\tif len(requests.requests) != 1 || requests.requests[0].Slot != \"controller-b\" ||\n\t\trequests.requests[0].Attempt != 1 || requests.requests[0].InstanceOCID != instanceB ||\n\t\trequests.requests[0].Epoch != 6 || len(cell.replaced) != 0 {\n\t\tt.Fatalf(\"requests = %+v replaced=%d\", requests.requests, len(cell.replaced))\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerRetriesFailedReplacementAfterBackoff",
+      "path": "internal/membership/reconciler_test.go",
+      "original_name": "TestReconcilerRetriesFailedReplacementAfterBackoff",
+      "current_name": "TestReconcilerRetriesFailedReplacementAfterBackoff",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/reconciler_test.go",
+        "TestReconcilerRetriesFailedReplacementAfterBackoff",
+        "test",
+        "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+        "TestReconcilerRetriesFailedReplacementAfterBackoff",
+        "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+      "current_declaration_sha256": "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 196,
+        "end_line": 226,
+        "function": "TestReconcilerRetriesFailedReplacementAfterBackoff"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 196,
+        "end_line": 226,
+        "function": "TestReconcilerRetriesFailedReplacementAfterBackoff"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestReconcilerRetriesFailedReplacementAfterBackoff(t *testing.T) {\n\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(3)}\n\tcell := newFakeCell()\n\tfailures := 1\n\tcell.replace = func(Action) error {\n\t\tif failures > 0 {\n\t\t\tfailures--\n\t\t\treturn errors.New(\"OCI launch throttled\")\n\t\t}\n\t\treturn nil\n\t}\n\treconciler := newTestReconciler(t, leader, cell, cell, &clock)\n\tfor range 3 {\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tclock = clock.Add(time.Minute)\n\t}\n\tif len(cell.replaced) != 1 || statusOf(reconciler, \"controller-b\").Reason != ReasonRetryBackoff {\n\t\tt.Fatalf(\"retry before backoff: %d %+v\", len(cell.replaced), statusOf(reconciler, \"controller-b\"))\n\t}\n\tclock = clock.Add(DefaultRetryBackoff)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 2 || cell.replaced[1].PreviousAttempt != 1 ||\n\t\tstatusOf(reconciler, \"controller-b\").LastError != \"\" {\n\t\tt.Fatalf(\"retry after backoff: %+v %+v\", cell.replaced, statusOf(reconciler, \"controller-b\"))\n\t}\n}",
+      "category": "unit",
+      "reason": "Fake Replace records Action and injects one synthetic OCI launch throttled error; clock advances test retry count/backoff/LastError. No real OCI request or task launch.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 197,
+          "end_line": 225,
+          "text": "\tclock := testEpoch\n\tleader := &fakeLeadership{snapshot: leaderSnapshot(3)}\n\tcell := newFakeCell()\n\tfailures := 1\n\tcell.replace = func(Action) error {\n\t\tif failures > 0 {\n\t\t\tfailures--\n\t\t\treturn errors.New(\"OCI launch throttled\")\n\t\t}\n\t\treturn nil\n\t}\n\treconciler := newTestReconciler(t, leader, cell, cell, &clock)\n\tfor range 3 {\n\t\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t\tclock = clock.Add(time.Minute)\n\t}\n\tif len(cell.replaced) != 1 || statusOf(reconciler, \"controller-b\").Reason != ReasonRetryBackoff {\n\t\tt.Fatalf(\"retry before backoff: %d %+v\", len(cell.replaced), statusOf(reconciler, \"controller-b\"))\n\t}\n\tclock = clock.Add(DefaultRetryBackoff)\n\tif err := reconciler.Tick(t.Context()); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif len(cell.replaced) != 2 || cell.replaced[1].PreviousAttempt != 1 ||\n\t\tstatusOf(reconciler, \"controller-b\").LastError != \"\" {\n\t\tt.Fatalf(\"retry after backoff: %+v %+v\", cell.replaced, statusOf(reconciler, \"controller-b\"))\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "reconciler"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardFailsClosedOnAMalformedRecord",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "original_name": "TestRefoundGuardFailsClosedOnAMalformedRecord",
+      "current_name": "TestRefoundGuardFailsClosedOnAMalformedRecord",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/refoundguard_integration_test.go",
+        "TestRefoundGuardFailsClosedOnAMalformedRecord",
+        "test",
+        "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+        "TestRefoundGuardFailsClosedOnAMalformedRecord",
+        "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+      "current_declaration_sha256": "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 143,
+        "end_line": 168,
+        "function": "TestRefoundGuardFailsClosedOnAMalformedRecord"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 143,
+        "end_line": 168,
+        "function": "TestRefoundGuardFailsClosedOnAMalformedRecord"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestRefoundGuardFailsClosedOnAMalformedRecord(t *testing.T) {\n\tnow := time.Now().UTC()\n\tfor name, wire := range map[string]string{\n\t\t\"empty\":           `{}`,\n\t\t\"missing cell\":    `{\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"missing attempt\": `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"missing time\":    `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"attempt\":2}`,\n\t\t\"wrong server\":    `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-1\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"duplicate cell\":  `{\"cell\":\"gru\",\"cell\":\"sfo\",\"slot\":\"controller-b\",\"server_name\":\"ts-sfo-2\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tguard := testRefoundGuard(t, &now)\n\t\t\tif err := os.MkdirAll(filepath.Dir(guard.PendingPath), 0o700); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := os.WriteFile(guard.PendingPath, []byte(wire), 0o600); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tfor _, slot := range []string{\"controller-b\", \"controller-c\"} {\n\t\t\t\tif err := guard.Admit(\"gru\", slot, completeLedger()); err == nil {\n\t\t\t\t\tt.Fatalf(\"malformed durable record admitted %s\", slot)\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "integration",
+      "reason": "Each malformed JSON record is actually written and read through Admit\u2192readPending\u2192DecodeStrict/validate; both same-slot retry and another slot fail closed on those persisted bytes. Filesystem read materially supports schema rejection, with no direct standalone parser assertion.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/refoundguard_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+          "line": 144,
+          "end_line": 167,
+          "text": "\tnow := time.Now().UTC()\n\tfor name, wire := range map[string]string{\n\t\t\"empty\":           `{}`,\n\t\t\"missing cell\":    `{\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"missing attempt\": `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"missing time\":    `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-2\",\"attempt\":2}`,\n\t\t\"wrong server\":    `{\"cell\":\"gru\",\"slot\":\"controller-b\",\"server_name\":\"gru-1-ctl-1\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t\t\"duplicate cell\":  `{\"cell\":\"gru\",\"cell\":\"sfo\",\"slot\":\"controller-b\",\"server_name\":\"ts-sfo-2\",\"attempt\":2,\"started_at\":\"2026-10-16T12:00:00Z\"}`,\n\t} {\n\t\tt.Run(name, func(t *testing.T) {\n\t\t\tguard := testRefoundGuard(t, &now)\n\t\t\tif err := os.MkdirAll(filepath.Dir(guard.PendingPath), 0o700); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif err := os.WriteFile(guard.PendingPath, []byte(wire), 0o600); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tfor _, slot := range []string{\"controller-b\", \"controller-c\"} {\n\t\t\t\tif err := guard.Admit(\"gru\", slot, completeLedger()); err == nil {\n\t\t\t\t\tt.Fatalf(\"malformed durable record admitted %s\", slot)\n\t\t\t\t}\n\t\t\t}\n\t\t})\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "refound"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardLockAdmitsOneRefoundAtATime",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "original_name": "TestRefoundGuardLockAdmitsOneRefoundAtATime",
+      "current_name": "TestRefoundGuardLockAdmitsOneRefoundAtATime",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/refoundguard_integration_test.go",
+        "TestRefoundGuardLockAdmitsOneRefoundAtATime",
+        "test",
+        "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+        "TestRefoundGuardLockAdmitsOneRefoundAtATime",
+        "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+      "current_declaration_sha256": "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 216,
+        "end_line": 232,
+        "function": "TestRefoundGuardLockAdmitsOneRefoundAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 216,
+        "end_line": 232,
+        "function": "TestRefoundGuardLockAdmitsOneRefoundAtATime"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestRefoundGuardLockAdmitsOneRefoundAtATime(t *testing.T) {\n\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\trelease, err := guard.Lock()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := guard.Lock(); err == nil || !strings.Contains(err.Error(), \"another break-glass refound\") {\n\t\tt.Fatalf(\"second lock while held = %v\", err)\n\t}\n\trelease()\n\treacquired, err := guard.Lock()\n\tif err != nil {\n\t\tt.Fatalf(\"lock after release: %v\", err)\n\t}\n\treacquired()\n}",
+      "category": "integration",
+      "reason": "Production Lock opens a real lock file and takes nonblocking flock; second acquisition must fail while held, then release permits reacquisition. Same process file descriptors only, no cross-process/crash guarantee.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/refoundguard_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+          "line": 217,
+          "end_line": 231,
+          "text": "\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\trelease, err := guard.Lock()\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif _, err := guard.Lock(); err == nil || !strings.Contains(err.Error(), \"another break-glass refound\") {\n\t\tt.Fatalf(\"second lock while held = %v\", err)\n\t}\n\trelease()\n\treacquired, err := guard.Lock()\n\tif err != nil {\n\t\tt.Fatalf(\"lock after release: %v\", err)\n\t}\n\treacquired()\n"
+        }
+      ],
+      "connected_evidence": [
+        "refound"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardReFoundsOneSlotAtATime",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "original_name": "TestRefoundGuardReFoundsOneSlotAtATime",
+      "current_name": "TestRefoundGuardReFoundsOneSlotAtATime",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/refoundguard_integration_test.go",
+        "TestRefoundGuardReFoundsOneSlotAtATime",
+        "test",
+        "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+        "TestRefoundGuardReFoundsOneSlotAtATime",
+        "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+      "current_declaration_sha256": "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 37,
+        "end_line": 100,
+        "function": "TestRefoundGuardReFoundsOneSlotAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 37,
+        "end_line": 100,
+        "function": "TestRefoundGuardReFoundsOneSlotAtATime"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestRefoundGuardReFoundsOneSlotAtATime(t *testing.T) {\n\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\tif err := guard.Admit(\"gru\", \"controller-b\", completeLedger()); err != nil {\n\t\tt.Fatalf(\"first refound refused: %v\", err)\n\t}\n\tif err := guard.Begin(RefoundPending{Cell: \"gru\", Slot: \"controller-b\", ServerName: \"gru-1-ctl-2\",\n\t\tAttempt: 2, StartedAt: now}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif info, err := os.Stat(guard.PendingPath); err != nil || info.Mode().Perm() != 0o600 {\n\t\tt.Fatalf(\"pending record = %v, %v; want an owner-only file\", info, err)\n\t}\n\t// The ledger alone blocks a second slot while b's successor is open.\n\tledger := completeLedger()\n\tledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil ||\n\t\t!strings.Contains(err.Error(), \"controller-b has an incomplete re-founded attempt 2\") {\n\t\tt.Fatalf(\"second slot while b is incomplete: %v\", err)\n\t}\n\t// Retrying the same slot is allowed.\n\tif err := guard.Admit(\"gru\", \"controller-b\", ledger); err != nil {\n\t\tt.Fatalf(\"retrying b refused: %v\", err)\n\t}\n\t// b completed in the ledger but has not caught up: still refused.\n\tledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Complete: true, Retirement: evidenceID}\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"not current yet\") {\n\t\tt.Fatalf(\"second slot without health: %v\", err)\n\t}\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline:  []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"},\n\t\tLagging: []clusterhealth.LaggingPeer{{Name: \"gru-1-ctl-2\", Lag: 900}}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"catching up\") {\n\t\tt.Fatalf(\"second slot while b lags: %v\", err)\n\t}\n\tstale := now.Add(-2 * RefoundHealthFreshness)\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: stale, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"last observed\") {\n\t\tt.Fatalf(\"second slot on stale health: %v\", err)\n\t}\n\t// Online and not lagging is not caught up without positive evidence.\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, Missing: []string{\"gru-1-ctl-3\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"zero lag\") {\n\t\tt.Fatalf(\"second slot without positive catch-up evidence: %v\", err)\n\t}\n\t// A fresh view observed before b's relaunch began says nothing about\n\t// the successor that reuses its server name.\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now.Add(-time.Second), MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, CaughtUp: []string{\"gru-1-ctl-2\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"last observed\") {\n\t\tt.Fatalf(\"second slot on a view from before the relaunch: %v\", err)\n\t}\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, CaughtUp: []string{\"gru-1-ctl-2\"},\n\t\tMissing: []string{\"gru-1-ctl-3\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err != nil {\n\t\tt.Fatalf(\"second slot after b is current: %v\", err)\n\t}\n\tif _, err := os.Stat(guard.PendingPath); !os.IsNotExist(err) {\n\t\tt.Fatalf(\"pending record survived a current slot: %v\", err)\n\t}\n}",
+      "category": "mixed",
+      "reason": "Integration: Begin writes a pending file asserted mode0600; Admit reads pending and multiple health-file variants to gate the next slot, finally removes pending with os.Stat absence. Independent unit block at53\u201356 asserts rejection of a synthetic incomplete ledger, returned at Admit76\u201382 before any read; filesystem setup does not promote that guard.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/refoundguard_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+          "line": 38,
+          "end_line": 99,
+          "text": "\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\tif err := guard.Admit(\"gru\", \"controller-b\", completeLedger()); err != nil {\n\t\tt.Fatalf(\"first refound refused: %v\", err)\n\t}\n\tif err := guard.Begin(RefoundPending{Cell: \"gru\", Slot: \"controller-b\", ServerName: \"gru-1-ctl-2\",\n\t\tAttempt: 2, StartedAt: now}); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif info, err := os.Stat(guard.PendingPath); err != nil || info.Mode().Perm() != 0o600 {\n\t\tt.Fatalf(\"pending record = %v, %v; want an owner-only file\", info, err)\n\t}\n\t// The ledger alone blocks a second slot while b's successor is open.\n\tledger := completeLedger()\n\tledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Retirement: evidenceID}\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil ||\n\t\t!strings.Contains(err.Error(), \"controller-b has an incomplete re-founded attempt 2\") {\n\t\tt.Fatalf(\"second slot while b is incomplete: %v\", err)\n\t}\n\t// Retrying the same slot is allowed.\n\tif err := guard.Admit(\"gru\", \"controller-b\", ledger); err != nil {\n\t\tt.Fatalf(\"retrying b refused: %v\", err)\n\t}\n\t// b completed in the ledger but has not caught up: still refused.\n\tledger[\"controller-b\"] = LedgerSlot{Attempt: 2, Complete: true, Retirement: evidenceID}\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"not current yet\") {\n\t\tt.Fatalf(\"second slot without health: %v\", err)\n\t}\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline:  []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"},\n\t\tLagging: []clusterhealth.LaggingPeer{{Name: \"gru-1-ctl-2\", Lag: 900}}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"catching up\") {\n\t\tt.Fatalf(\"second slot while b lags: %v\", err)\n\t}\n\tstale := now.Add(-2 * RefoundHealthFreshness)\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: stale, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"last observed\") {\n\t\tt.Fatalf(\"second slot on stale health: %v\", err)\n\t}\n\t// Online and not lagging is not caught up without positive evidence.\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, Missing: []string{\"gru-1-ctl-3\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"zero lag\") {\n\t\tt.Fatalf(\"second slot without positive catch-up evidence: %v\", err)\n\t}\n\t// A fresh view observed before b's relaunch began says nothing about\n\t// the successor that reuses its server name.\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now.Add(-time.Second), MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, CaughtUp: []string{\"gru-1-ctl-2\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err == nil || !strings.Contains(err.Error(), \"last observed\") {\n\t\tt.Fatalf(\"second slot on a view from before the relaunch: %v\", err)\n\t}\n\twriteHealth(t, guard, clusterhealth.Status{ObservedAt: now, MetaLeader: \"gru-1-ctl-1\",\n\t\tOnline: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\"}, CaughtUp: []string{\"gru-1-ctl-2\"},\n\t\tMissing: []string{\"gru-1-ctl-3\"}})\n\tif err := guard.Admit(\"gru\", \"controller-c\", ledger); err != nil {\n\t\tt.Fatalf(\"second slot after b is current: %v\", err)\n\t}\n\tif _, err := os.Stat(guard.PendingPath); !os.IsNotExist(err) {\n\t\tt.Fatalf(\"pending record survived a current slot: %v\", err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "refound"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "original_name": "TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+      "current_name": "TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "survival_row": [
+        "internal/membership/refoundguard_integration_test.go",
+        "TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+        "test",
+        "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+        "TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+        "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+        "retained_body_exact"
+      ],
+      "original_declaration_sha256": "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+      "current_declaration_sha256": "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 170,
+        "end_line": 212,
+        "function": "TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 170,
+        "end_line": 212,
+        "function": "TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+      },
+      "declaration_hash_rule": "Raw bytes from func through column-zero close, excluding following LF; manually inspected explicit bounds.",
+      "current_declaration_text": "func TestRefoundGuardRecoversPendingIdentityAcrossRestart(t *testing.T) {\n\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\tpending := RefoundPending{Cell: \"gru\", Slot: \"controller-b\", ServerName: \"gru-1-ctl-2\", Attempt: 2, StartedAt: now}\n\tif err := guard.Begin(pending); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Reopen only the durable paths; no process memory or serving roster survives.\n\trestarted := RefoundGuard{PendingPath: guard.PendingPath, HealthPath: guard.HealthPath, Now: guard.Now}\n\tif err := restarted.Admit(\"gru\", \"controller-c\", completeLedger()); err == nil {\n\t\tt.Fatal(\"missing health after restart admitted a second refound\")\n\t}\n\tif err := restarted.Admit(\"sfo\", \"controller-c\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a pending record of another region was discarded\")\n\t}\n\tinvalid := pending\n\tinvalid.Attempt = 0\n\tif err := restarted.Begin(invalid); err == nil {\n\t\tt.Fatal(\"an invalid retry overwrote the durable pending identity\")\n\t}\n\tstored, err := restarted.readPending()\n\tif err != nil || stored != pending {\n\t\tt.Fatalf(\"pending identity after invalid retry = %+v, %v\", stored, err)\n\t}\n\tif err := os.Chmod(guard.PendingPath, 0o666); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := restarted.Admit(\"gru\", \"controller-b\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a writable pending identity admitted a retry\")\n\t}\n\tif err := os.Chmod(guard.PendingPath, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Rename(guard.PendingPath, guard.PendingPath+\".record\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Symlink(guard.PendingPath+\".record\", guard.PendingPath); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := restarted.Admit(\"gru\", \"controller-b\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a linked pending identity admitted a retry\")\n\t}\n}",
+      "category": "integration",
+      "reason": "A second guard instance reopens a real Begin-written pending record; it refuses missing health/foreign cell, invalid Begin is followed by readPending equality proving old persisted identity survives, and chmod/symlink states are rejected through real file access. Invalid retry is part of the same preservation/readback assertion, not separate local-only credit. Restart means object reconstruction in one process.",
+      "assertion_evidence": [
+        {
+          "path": "internal/membership/refoundguard_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+          "line": 171,
+          "end_line": 211,
+          "text": "\tnow := time.Now().UTC()\n\tguard := testRefoundGuard(t, &now)\n\tpending := RefoundPending{Cell: \"gru\", Slot: \"controller-b\", ServerName: \"gru-1-ctl-2\", Attempt: 2, StartedAt: now}\n\tif err := guard.Begin(pending); err != nil {\n\t\tt.Fatal(err)\n\t}\n\t// Reopen only the durable paths; no process memory or serving roster survives.\n\trestarted := RefoundGuard{PendingPath: guard.PendingPath, HealthPath: guard.HealthPath, Now: guard.Now}\n\tif err := restarted.Admit(\"gru\", \"controller-c\", completeLedger()); err == nil {\n\t\tt.Fatal(\"missing health after restart admitted a second refound\")\n\t}\n\tif err := restarted.Admit(\"sfo\", \"controller-c\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a pending record of another region was discarded\")\n\t}\n\tinvalid := pending\n\tinvalid.Attempt = 0\n\tif err := restarted.Begin(invalid); err == nil {\n\t\tt.Fatal(\"an invalid retry overwrote the durable pending identity\")\n\t}\n\tstored, err := restarted.readPending()\n\tif err != nil || stored != pending {\n\t\tt.Fatalf(\"pending identity after invalid retry = %+v, %v\", stored, err)\n\t}\n\tif err := os.Chmod(guard.PendingPath, 0o666); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := restarted.Admit(\"gru\", \"controller-b\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a writable pending identity admitted a retry\")\n\t}\n\tif err := os.Chmod(guard.PendingPath, 0o600); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Rename(guard.PendingPath, guard.PendingPath+\".record\"); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := os.Symlink(guard.PendingPath+\".record\", guard.PendingPath); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif err := restarted.Admit(\"gru\", \"controller-b\", completeLedger()); err == nil {\n\t\tt.Fatal(\"a linked pending identity admitted a retry\")\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "decision",
+        "refound"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "connected_evidence": {
+    "decision": {
+      "detail": "All observations, ledger records, lifecycle strings and signed-looking evidence bytes are local synthetic values; Decide returns local state and actions without I/O. Server naming is local.",
+      "citations": [
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 11,
+          "end_line": 14,
+          "text": "func testTopology() Topology {\n\treturn Topology{Cell: \"gru\", Slots: []string{\"controller-a\", \"controller-b\", \"controller-c\"},\n\t\tSeedSlot: \"controller-a\", SelfSlot: \"controller-a\"}\n}\n",
+          "function": "testTopology"
+        },
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 41,
+          "end_line": 53,
+          "text": "func healthyObservation(at time.Time) Observation {\n\treturn Observation{At: at,\n\t\tMeta: Meta{Leader: \"gru-1-ctl-1\", Size: 3, Peers: []Peer{\n\t\t\t{Name: \"gru-1-ctl-2\", Online: true, Current: true},\n\t\t\t{Name: \"gru-1-ctl-3\", Online: true, Current: true}}},\n\t\tLedger: map[string]LedgerSlot{\n\t\t\t\"controller-a\": {Attempt: 1, InstanceOCID: instanceA, Complete: true},\n\t\t\t\"controller-b\": {Attempt: 1, InstanceOCID: instanceB, Complete: true},\n\t\t\t\"controller-c\": {Attempt: 1, InstanceOCID: instanceC, Complete: true}},\n\t\tLifecycle: map[string]string{\"controller-b\": LifecycleRunning, \"controller-c\": LifecycleRunning},\n\t\tEvidence:  map[string]Evidence{},\n\t}\n}\n",
+          "function": "healthyObservation"
+        },
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 55,
+          "end_line": 65,
+          "text": "func withPeer(observation Observation, name string, online bool) Observation {\n\tpeers := make([]Peer, 0, len(observation.Meta.Peers))\n\tfor _, peer := range observation.Meta.Peers {\n\t\tif peer.Name == name {\n\t\t\tpeer.Online = online\n\t\t}\n\t\tpeers = append(peers, peer)\n\t}\n\tobservation.Meta.Peers = peers\n\treturn observation\n}\n",
+          "function": "withPeer"
+        },
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 67,
+          "end_line": 70,
+          "text": "func evidenceFor(slot string, attempt uint64, instance string) Evidence {\n\treturn Evidence{Slot: slot, PreviousAttempt: attempt, PriorInstanceOCID: instance, Digest: evidenceID,\n\t\tWire: []byte(\"signed\")}\n}\n",
+          "function": "evidenceFor"
+        },
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 72,
+          "end_line": 76,
+          "text": "func lostB(at time.Time) Observation {\n\tobservation := withPeer(healthyObservation(at), \"gru-1-ctl-2\", false)\n\tobservation.Lifecycle[\"controller-b\"] = LifecycleTerminated\n\treturn observation\n}\n",
+          "function": "lostB"
+        },
+        {
+          "path": "internal/membership/decide_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+          "line": 201,
+          "end_line": 203,
+          "text": "func withEvidenceB(o *Observation) {\n\to.Evidence[\"controller-b\"] = evidenceFor(\"controller-b\", 1, instanceB)\n}\n",
+          "function": "withEvidenceB"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 32,
+          "end_line": 147,
+          "text": "func Decide(topology Topology, previous State, observation Observation) (State, []Action) {\n\tnext := previous.clone()\n\tslots := slices.Clone(topology.Slots)\n\tslices.Sort(slots)\n\tonline := make(map[string]bool, len(slots))\n\tfor _, peer := range observation.Meta.Peers {\n\t\tonline[peer.Name] = peer.Online\n\t}\n\tonlineSlots := 0\n\tfor _, slot := range slots {\n\t\tif slot == topology.SelfSlot || online[topology.ServerName(slot)] {\n\t\t\tonlineSlots++\n\t\t}\n\t}\n\tquorum := observation.Meta.Leader != \"\" && onlineSlots >= topology.quorum()\n\treplacing := false\n\tfor _, slot := range slots {\n\t\tstatus, ok := next.Slots[slot]\n\t\tif (!ok || status.Phase != PhaseReplacing) && slot != topology.SelfSlot && slot != topology.SeedSlot {\n\t\t\tif pending, inFlight := inFlightSuccessor(slot, observation); inFlight {\n\t\t\t\t// A new term, or a restarted leader, has no memory of a\n\t\t\t\t// replacement an earlier term admitted. The ledger does: its\n\t\t\t\t// incomplete successor HEAD is bound to this exact evidence, so\n\t\t\t\t// resume it instead of holding the slot as ledger-incomplete\n\t\t\t\t// and letting another slot start a concurrent replacement.\n\t\t\t\tstatus.Slot, status.Phase, status.PendingAttempt = slot, PhaseReplacing, pending\n\t\t\t\tnext.Slots[slot] = status\n\t\t\t\tok = true\n\t\t\t}\n\t\t}\n\t\tif ok && status.Phase == PhaseReplacing && abandonedBeforeAdmission(slot, status, observation) {\n\t\t\t// The successor was never admitted (the ledger still holds the\n\t\t\t// completed prior attempt) and the evidence that would let it be\n\t\t\t// admitted is gone. Nothing was launched, so release the gate and\n\t\t\t// hold the slot for fresh evidence instead of blocking every\n\t\t\t// other replacement for the rest of the term.\n\t\t\tstatus.Phase, status.PendingAttempt, status.LastFailure, status.LastError = PhaseHeld, 0, timeZero, \"\"\n\t\t\tnext.Slots[slot] = status\n\t\t}\n\t\tif ok && status.Phase == PhaseReplacing || admittedSuccessor(observation.Ledger[slot]) {\n\t\t\t// The verified ledger HEAD reserves the single replacement slot\n\t\t\t// even when the evidence needed to resume it is not on hand:\n\t\t\t// the founder persists the successor HEAD before any OCI launch.\n\t\t\treplacing = true\n\t\t}\n\t}\n\tvar actions []Action\n\tfor _, slot := range slots {\n\t\tstatus := next.Slots[slot]\n\t\tstatus.Slot = slot\n\t\tledger := observation.Ledger[slot]\n\t\tlifecycle := observation.Lifecycle[slot]\n\t\tstatus.Attempt, status.InstanceOCID, status.Lifecycle = ledger.Attempt, ledger.InstanceOCID, lifecycle\n\t\tstatus.Online = slot == topology.SelfSlot || online[topology.ServerName(slot)]\n\t\tevidence, hasEvidence := observation.Evidence[slot]\n\t\tif status.Phase == PhaseReplacing {\n\t\t\tstatus, actions = decideReplacing(status, ledger, evidence, hasEvidence, quorum, observation, actions)\n\t\t\tnext.Slots[slot] = status\n\t\t\tcontinue\n\t\t}\n\t\tswitch {\n\t\tcase slot == topology.SelfSlot:\n\t\t\tstatus = healthy(status, ReasonLocal)\n\t\t\tnext.Slots[slot] = status\n\t\t\tcontinue\n\t\tcase status.Online && lifecycle == LifecycleTerminated && ledger.Complete:\n\t\t\tstatus.Phase, status.Reason = PhaseHeld, ReasonTerminatedButOnline\n\t\t\tnext.Slots[slot] = status\n\t\t\tcontinue\n\t\tcase status.Online:\n\t\t\tnext.Slots[slot] = healthy(status, ReasonOnline)\n\t\t\tcontinue\n\t\t}\n\t\tif status.OfflineSince.IsZero() {\n\t\t\tstatus.OfflineSince = observation.At\n\t\t}\n\t\tterminated := lifecycle == LifecycleTerminated\n\t\tif !terminated && observation.At.Sub(status.OfflineSince) < DefaultOfflineGrace {\n\t\t\tstatus.Phase, status.Reason = PhaseSuspect, ReasonOfflineWithinGrace\n\t\t\tnext.Slots[slot] = status\n\t\t\tcontinue\n\t\t}\n\t\tstatus.Phase = PhaseHeld\n\t\tswitch {\n\t\tcase slot == topology.SeedSlot:\n\t\t\tstatus.Reason = ReasonSeedSlot\n\t\tcase ledger.Complete && ledger.Attempt == 0 && ledger.InstanceOCID != \"\":\n\t\t\tstatus.Reason = \"accepted controller has no current replacement launch authority\"\n\t\tcase !ledger.Complete || ledger.Attempt == 0 || ledger.InstanceOCID == \"\":\n\t\t\tstatus.Reason = ReasonLedgerIncomplete\n\t\tcase lifecycle == \"\":\n\t\t\tstatus.Reason = ReasonInstanceUnobserved\n\t\tcase !terminated:\n\t\t\tstatus.Reason = fmt.Sprintf(\"%s (%s is %s)\", ReasonInstanceAlive, ledger.InstanceOCID, lifecycle)\n\t\tcase !quorum:\n\t\t\tstatus.Reason = ReasonQuorumLost\n\t\tcase replacing:\n\t\t\tstatus.Reason = ReasonOtherReplacement\n\t\tcase !hasEvidence || evidence.Slot != slot || evidence.PreviousAttempt != ledger.Attempt ||\n\t\t\tevidence.PriorInstanceOCID != ledger.InstanceOCID || len(evidence.Wire) == 0:\n\t\t\tstatus.Reason = fmt.Sprintf(\"%s for %s attempt %d instance %s\", ReasonAwaitingEvidence, slot,\n\t\t\t\tledger.Attempt, ledger.InstanceOCID)\n\t\tcase !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < DefaultRetryBackoff:\n\t\t\tstatus.Reason = ReasonRetryBackoff\n\t\tdefault:\n\t\t\tstatus.Phase, status.Reason = PhaseReplacing, ReasonReplacing\n\t\t\tstatus.PendingAttempt = ledger.Attempt + 1\n\t\t\treplacing = true\n\t\t\tactions = append(actions, Action{Slot: slot, PreviousAttempt: ledger.Attempt,\n\t\t\t\tPriorInstanceOCID: ledger.InstanceOCID, Retirement: evidence,\n\t\t\t\tReason: \"pinned instance \" + ledger.InstanceOCID + \" is terminated\"})\n\t\t}\n\t\tnext.Slots[slot] = status\n\t}\n\treturn next, actions\n}\n",
+          "function": "Decide"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 153,
+          "end_line": 180,
+          "text": "func decideReplacing(status SlotStatus, ledger LedgerSlot, evidence Evidence, hasEvidence bool,\n\tquorum bool, observation Observation, actions []Action,\n) (SlotStatus, []Action) {\n\tprevious := status.PendingAttempt - 1\n\tif ledger.Attempt >= status.PendingAttempt && ledger.Complete {\n\t\tstatus.PendingAttempt, status.LastFailure, status.LastError = 0, timeZero, \"\"\n\t\tif status.Online {\n\t\t\treturn healthy(status, ReasonOnline), actions\n\t\t}\n\t\t// The successor gets a fresh grace to start and catch up.\n\t\tstatus.Phase, status.Reason, status.OfflineSince = PhaseSuspect, ReasonRejoining, observation.At\n\t\treturn status, actions\n\t}\n\tswitch {\n\tcase !quorum:\n\t\tstatus.Reason = ReasonQuorumLost\n\tcase !hasEvidence || evidence.Slot != status.Slot || evidence.PreviousAttempt != previous ||\n\t\tledger.Attempt != previous && ledger.Attempt != status.PendingAttempt || len(evidence.Wire) == 0:\n\t\tstatus.Reason = fmt.Sprintf(\"%s for %s attempt %d\", ReasonAwaitingEvidence, status.Slot, previous)\n\tcase !status.LastFailure.IsZero() && observation.At.Sub(status.LastFailure) < DefaultRetryBackoff:\n\t\tstatus.Reason = ReasonRetryBackoff\n\tdefault:\n\t\tstatus.Reason = ReasonReplacing\n\t\tactions = append(actions, Action{Slot: status.Slot, PreviousAttempt: previous,\n\t\t\tPriorInstanceOCID: evidence.PriorInstanceOCID, Retirement: evidence, Reason: \"resume replacement\"})\n\t}\n\treturn status, actions\n}\n",
+          "function": "decideReplacing"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 184,
+          "end_line": 193,
+          "text": "func inFlightSuccessor(slot string, observation Observation) (uint64, bool) {\n\tledger := observation.Ledger[slot]\n\tevidence, ok := observation.Evidence[slot]\n\tif !ok || ledger.Complete || ledger.Attempt < 2 || ledger.Retirement == \"\" ||\n\t\tevidence.Slot != slot || evidence.Digest != ledger.Retirement ||\n\t\tevidence.PreviousAttempt+1 != ledger.Attempt || len(evidence.Wire) == 0 {\n\t\treturn 0, false\n\t}\n\treturn ledger.Attempt, true\n}\n",
+          "function": "inFlightSuccessor"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 198,
+          "end_line": 200,
+          "text": "func admittedSuccessor(ledger LedgerSlot) bool {\n\treturn !ledger.Complete && ledger.Attempt >= 2 && ledger.Retirement != \"\"\n}\n",
+          "function": "admittedSuccessor"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 205,
+          "end_line": 213,
+          "text": "func abandonedBeforeAdmission(slot string, status SlotStatus, observation Observation) bool {\n\tprevious := status.PendingAttempt - 1\n\tledger := observation.Ledger[slot]\n\tif status.PendingAttempt == 0 || !ledger.Complete || ledger.Attempt != previous {\n\t\treturn false\n\t}\n\tevidence, ok := observation.Evidence[slot]\n\treturn !ok || evidence.Slot != slot || evidence.PreviousAttempt != previous || len(evidence.Wire) == 0\n}\n",
+          "function": "abandonedBeforeAdmission"
+        },
+        {
+          "path": "internal/membership/decide.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+          "line": 215,
+          "end_line": 219,
+          "text": "func healthy(status SlotStatus, reason string) SlotStatus {\n\tstatus.Phase, status.Reason = PhaseHealthy, reason\n\tstatus.OfflineSince, status.PendingAttempt, status.LastFailure, status.LastError = timeZero, 0, timeZero, \"\"\n\treturn status\n}\n",
+          "function": "healthy"
+        },
+        {
+          "path": "internal/membership/types.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "fb9ab38d2ebacae99eb598f1b69eded3d4dea850",
+          "line": 30,
+          "end_line": 46,
+          "text": "func (t Topology) Validate() error {\n\tif t.Cell == \"\" || len(t.Slots) < 1 || len(t.Slots)%2 == 0 || len(t.Slots) > 5 ||\n\t\t!slices.Contains(t.Slots, t.SeedSlot) || !slices.Contains(t.Slots, t.SelfSlot) {\n\t\treturn errors.New(\"membership topology needs an odd slot set containing the seed and local slot\")\n\t}\n\tseen := make(map[string]struct{}, len(t.Slots))\n\tfor _, slot := range t.Slots {\n\t\tif slot == \"\" {\n\t\t\treturn errors.New(\"membership topology has an empty slot\")\n\t\t}\n\t\tif _, exists := seen[slot]; exists {\n\t\t\treturn errors.New(\"membership topology repeats a slot\")\n\t\t}\n\t\tseen[slot] = struct{}{}\n\t}\n\treturn nil\n}\n",
+          "function": "Topology.Validate"
+        },
+        {
+          "path": "internal/membership/types.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "fb9ab38d2ebacae99eb598f1b69eded3d4dea850",
+          "line": 51,
+          "end_line": 53,
+          "text": "func (t Topology) ServerName(slot string) string { return naming.NATSServer(t.Cell, slot) }\n\nfunc (t Topology) quorum() int { return len(t.Slots)/2 + 1 }\n",
+          "function": "Topology.ServerName; Topology.quorum"
+        },
+        {
+          "path": "internal/membership/types.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "fb9ab38d2ebacae99eb598f1b69eded3d4dea850",
+          "line": 136,
+          "end_line": 142,
+          "text": "func (s State) clone() State {\n\tslots := make(map[string]SlotStatus, len(s.Slots))\n\tfor slot, status := range s.Slots {\n\t\tslots[slot] = status\n\t}\n\treturn State{Slots: slots}\n}\n",
+          "function": "State.clone"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 54,
+          "end_line": 59,
+          "text": "func RegionCell(region string) Cell { return Cell{Region: region, Index: 1} }\n\n// Name returns the cell name, e.g. gru-1.\nfunc (c Cell) Name() (string, error) {\n\treturn valid(fmt.Sprintf(\"%s-%d\", strings.ToLower(c.Region), c.Index))\n}\n",
+          "function": "RegionCell; Cell.Name"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 78,
+          "end_line": 80,
+          "text": "func (c Cell) Server(role string, n int) (string, error) {\n\treturn valid(fmt.Sprintf(\"%s-%d-%s-%d\", strings.ToLower(c.Region), c.Index, role, n))\n}\n",
+          "function": "Cell.Server"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 93,
+          "end_line": 102,
+          "text": "func (c Cell) ControllerSlot(slot string) (string, error) {\n\tif strings.ToUpper(c.Region) == catalog.GRU {\n\t\treturn c.slot(slot, \"controller-\", Controller)\n\t}\n\tletter, ok := strings.CutPrefix(slot, \"controller-\")\n\tif !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {\n\t\treturn \"\", fmt.Errorf(\"%w: controller-slot %q\", ErrName, slot)\n\t}\n\treturn c.Node(int(letter[0]-'a') + 1)\n}\n",
+          "function": "Cell.ControllerSlot"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 108,
+          "end_line": 114,
+          "text": "func (c Cell) slot(slot, prefix, role string) (string, error) {\n\tletter, ok := strings.CutPrefix(slot, prefix)\n\tif !ok || len(letter) != 1 || letter[0] < 'a' || letter[0] > 'z' {\n\t\treturn \"\", fmt.Errorf(\"%w: %sslot %q\", ErrName, prefix, slot)\n\t}\n\treturn c.Server(role, int(letter[0]-'a')+1)\n}\n",
+          "function": "Cell.slot"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 137,
+          "end_line": 146,
+          "text": "func Validate(name string) error {\n\tmatch := nodeScheme.FindStringSubmatch(name)\n\tif match == nil {\n\t\tmatch = scheme.FindStringSubmatch(name)\n\t}\n\tif match == nil || !catalog.IsCell(strings.ToUpper(match[1])) {\n\t\treturn fmt.Errorf(\"%w: %q\", ErrName, name)\n\t}\n\treturn nil\n}\n",
+          "function": "Validate"
+        },
+        {
+          "path": "internal/naming/naming.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+          "line": 159,
+          "end_line": 171,
+          "text": "func NATSServer(cell, instance string) string {\n\tif name, err := RegionCell(cell).ControllerSlot(instance); err == nil {\n\t\treturn name\n\t}\n\treturn cell + \"-\" + instance\n}\n\nfunc valid(name string) (string, error) {\n\tif err := Validate(name); err != nil {\n\t\treturn \"\", err\n\t}\n\treturn name, nil\n}\n",
+          "function": "NATSServer; valid"
+        },
+        {
+          "path": "internal/membership/config.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "8c95f846e17836e6793323198502e30ab94c71f7",
+          "line": 15,
+          "end_line": 27,
+          "text": "const (\n\tDefaultInterval     = 10 * time.Second\n\tDefaultOfflineGrace = 10 * time.Minute\n\tDefaultRetryBackoff = 5 * time.Minute\n\t// DefaultRetirementEvidenceDir holds operator-supplied, root-signed slot\n\t// retirement envelopes named <slot>.retirement, and the leader's unsigned\n\t// <slot>.retirement-request.json files. It lives under the controller\n\t// unit's StateDirectory, the only tree the service account may write\n\t// under ProtectSystem=strict. systemd creates the StateDirectory itself;\n\t// the controller creates this subdirectory (0700) when it first writes a\n\t// retirement request.\n\tDefaultRetirementEvidenceDir = \"/var/lib/terrascale-orchestrator-controller/membership/retirement\"\n)\n",
+          "function": "constants"
+        }
+      ]
+    },
+    "reconciler": {
+      "detail": "Tick runs production local scheduling and context logic, but all external observation, authority guard, replacement and request dependencies are fakes/recorders. Default decision logging/correlation is incidental and unasserted. No real authority/NATS/OCI/ledger service or replacement process is reached.",
+      "citations": [
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 29,
+          "end_line": 51,
+          "text": "func leaderSnapshot(epoch uint64) authority.Snapshot {\n\treturn authority.Snapshot{DeploymentID: \"01ARZ3NDEKTSV4RRFFQ69G5FAV\", Ready: true, Leader: true, Epoch: epoch, Revision: 1,\n\t\tExpiresAt: time.Now().Add(time.Hour)}\n}\n\nfunc (f *fakeLeadership) Current() authority.Snapshot {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\treturn f.snapshot\n}\n\nfunc (f *fakeLeadership) Guard(_ context.Context, epoch uint64) error {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tf.guards++\n\tif f.guardErr != nil {\n\t\treturn f.guardErr\n\t}\n\tif f.snapshot.Epoch != epoch {\n\t\treturn authority.ErrFenced\n\t}\n\treturn nil\n}\n",
+          "function": "leaderSnapshot; fakeLeadership.Current; fakeLeadership.Guard"
+        },
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 64,
+          "end_line": 112,
+          "text": "func (f *fakeCell) Meta(context.Context) (Meta, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\treturn f.meta, f.metaErr\n}\n\nfunc (f *fakeCell) Slots(_ context.Context, slots []string) (map[string]LedgerSlot, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tout := make(map[string]LedgerSlot, len(slots))\n\tfor _, slot := range slots {\n\t\tout[slot] = f.ledger[slot]\n\t}\n\treturn out, nil\n}\n\nfunc (f *fakeCell) Lifecycle(_ context.Context, instance string) (string, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\tstate, ok := f.lifecycle[instance]\n\tif !ok {\n\t\treturn \"\", errors.New(\"instance not found\")\n\t}\n\treturn state, nil\n}\n\nfunc (f *fakeCell) Evidence(context.Context) (map[string]Evidence, error) {\n\tf.mu.Lock()\n\tdefer f.mu.Unlock()\n\treturn f.evidence, nil\n}\n\nfunc (f *fakeCell) Replace(_ context.Context, action Action) error {\n\tf.mu.Lock()\n\tf.replaced = append(f.replaced, action)\n\treplace := f.replace\n\tf.mu.Unlock()\n\tif replace != nil {\n\t\treturn replace(action)\n\t}\n\treturn nil\n}\n\nfunc newFakeCell() *fakeCell {\n\tobservation := lostB(testEpoch)\n\treturn &fakeCell{meta: observation.Meta, ledger: observation.Ledger,\n\t\tlifecycle: map[string]string{instanceB: LifecycleTerminated, instanceC: LifecycleRunning},\n\t\tevidence:  map[string]Evidence{\"controller-b\": evidenceFor(\"controller-b\", 1, instanceB)}}\n}\n",
+          "function": "fakeCell.Meta; Slots; Lifecycle; Evidence; Replace; newFakeCell"
+        },
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 114,
+          "end_line": 134,
+          "text": "func newTestReconciler(t *testing.T, leader *fakeLeadership, cell *fakeCell, replacer Replacer,\n\tclock *time.Time,\n) *Reconciler {\n\tt.Helper()\n\treconciler, err := New(testTopology(), Dependencies{Leadership: leader, Peers: cell, Ledger: cell,\n\t\tInstances: cell, Evidence: cell, Replacer: replacer, Now: func() time.Time { return *clock },\n\t\tLogger: slog.New(slog.NewTextHandler(io.Discard, nil))})\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn reconciler\n}\n\nfunc statusOf(r *Reconciler, slot string) SlotStatus {\n\tfor _, status := range r.Statuses() {\n\t\tif status.Slot == slot {\n\t\t\treturn status\n\t\t}\n\t}\n\treturn SlotStatus{}\n}\n",
+          "function": "newTestReconciler; statusOf"
+        },
+        {
+          "path": "internal/membership/reconciler_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+          "line": 283,
+          "end_line": 286,
+          "text": "func (r *recordingRequests) RequestRetirement(_ context.Context, request RetirementRequest) error {\n\tr.requests = append(r.requests, request)\n\treturn nil\n}\n",
+          "function": "recordingRequests.RequestRetirement"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 99,
+          "end_line": 115,
+          "text": "func New(topology Topology, deps Dependencies) (*Reconciler, error) {\n\tif err := topology.Validate(); err != nil {\n\t\treturn nil, err\n\t}\n\tif deps.Leadership == nil || deps.Peers == nil || deps.Ledger == nil || deps.Instances == nil ||\n\t\tdeps.Evidence == nil {\n\t\treturn nil, errors.New(\"membership reconciler dependencies are incomplete\")\n\t}\n\tif deps.Now == nil {\n\t\tdeps.Now = time.Now\n\t}\n\tif deps.Logger == nil {\n\t\tdeps.Logger = slog.Default()\n\t}\n\treturn &Reconciler{topology: topology, deps: deps,\n\t\tstate: State{Slots: make(map[string]SlotStatus)}, requested: make(map[string]retirementRequestMark)}, nil\n}\n",
+          "function": "New"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 135,
+          "end_line": 167,
+          "text": "func (r *Reconciler) Statuses() []SlotStatus {\n\tr.mu.Lock()\n\tdefer r.mu.Unlock()\n\treturn slices.Clone(r.statuses)\n}\n\n// Tick is one complete observe, decide and act pass.\nfunc (r *Reconciler) Tick(ctx context.Context) error {\n\tsnapshot := r.deps.Leadership.Current()\n\tif !snapshot.CanMutate() {\n\t\tr.reset(0)\n\t\treturn nil\n\t}\n\tr.mu.Lock()\n\tif r.epoch != snapshot.Epoch {\n\t\t// A new term starts every grace period from its own observations.\n\t\tr.state, r.epoch = State{Slots: make(map[string]SlotStatus)}, snapshot.Epoch\n\t\tr.requested = make(map[string]retirementRequestMark)\n\t}\n\tprevious := r.state.clone()\n\tr.mu.Unlock()\n\tobservation, err := r.observe(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tnext, actions := Decide(r.topology, previous, observation)\n\tfor _, action := range actions {\n\t\tnext.Slots[action.Slot] = r.execute(ctx, snapshot.Epoch, action, next.Slots[action.Slot], observation.At)\n\t}\n\tr.requestRetirements(ctx, snapshot.Epoch, next, observation)\n\tr.commit(snapshot.Epoch, previous, next)\n\treturn nil\n}\n",
+          "function": "Statuses; Tick"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 184,
+          "end_line": 214,
+          "text": "func (r *Reconciler) requestRetirements(ctx context.Context, epoch uint64, next State, observation Observation) {\n\tif r.deps.Requests == nil {\n\t\treturn\n\t}\n\tfor _, slot := range r.topology.Slots {\n\t\tstatus := next.Slots[slot]\n\t\tif status.Phase != PhaseHeld || status.Lifecycle != LifecycleTerminated ||\n\t\t\t!strings.HasPrefix(status.Reason, ReasonAwaitingEvidence) {\n\t\t\tcontinue\n\t\t}\n\t\tr.mu.Lock()\n\t\tmark := r.requested[slot]\n\t\tdone := mark.attempt == status.Attempt && observation.At.Sub(mark.at) < RetirementRequestRefresh\n\t\tr.mu.Unlock()\n\t\tif done {\n\t\t\tcontinue\n\t\t}\n\t\terr := r.deps.Requests.RequestRetirement(ctx, RetirementRequest{Slot: slot, Attempt: status.Attempt,\n\t\t\tInstanceOCID: status.InstanceOCID, Lifecycle: status.Lifecycle, MetaLeader: observation.Meta.Leader,\n\t\t\tOfflineSince: status.OfflineSince, ObservedAt: observation.At, Epoch: epoch})\n\t\tif err != nil {\n\t\t\tr.deps.Logger.Warn(\"controller slot retirement request failed\", \"slot\", slot, \"error\", err)\n\t\t\tcontinue\n\t\t}\n\t\tr.deps.Logger.Info(\"controller slot retirement evidence requested\", \"slot\", slot,\n\t\t\t\"attempt\", status.Attempt, \"instance\", status.InstanceOCID)\n\t\tr.mu.Lock()\n\t\tr.requested[slot] = retirementRequestMark{attempt: status.Attempt, at: observation.At}\n\t\tr.mu.Unlock()\n\t}\n}\n",
+          "function": "requestRetirements"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 216,
+          "end_line": 248,
+          "text": "func (r *Reconciler) observe(ctx context.Context) (Observation, error) {\n\tmeta, err := r.deps.Peers.Meta(ctx)\n\tif err != nil {\n\t\treturn Observation{}, fmt.Errorf(\"read JetStream metadata peers: %w\", err)\n\t}\n\tledger, err := r.deps.Ledger.Slots(ctx, r.topology.Slots)\n\tif err != nil {\n\t\treturn Observation{}, fmt.Errorf(\"read controller slot ledger: %w\", err)\n\t}\n\tlifecycle := make(map[string]string, len(ledger))\n\tfor _, slot := range r.topology.Slots {\n\t\tpinned := ledger[slot]\n\t\tif slot == r.topology.SelfSlot || pinned.InstanceOCID == \"\" {\n\t\t\tcontinue\n\t\t}\n\t\tstate, err := r.deps.Instances.Lifecycle(ctx, pinned.InstanceOCID)\n\t\tif err != nil {\n\t\t\tif ctx.Err() != nil {\n\t\t\t\treturn Observation{}, ctx.Err()\n\t\t\t}\n\t\t\t// An unobservable instance is held, never assumed terminated.\n\t\t\tr.deps.Logger.Debug(\"controller slot instance unobservable\", \"slot\", slot, \"error\", err)\n\t\t\tcontinue\n\t\t}\n\t\tlifecycle[slot] = state\n\t}\n\tevidence, err := r.deps.Evidence.Evidence(ctx)\n\tif err != nil {\n\t\treturn Observation{}, fmt.Errorf(\"read retirement evidence: %w\", err)\n\t}\n\treturn Observation{At: r.deps.Now().UTC(), Meta: meta, Ledger: ledger, Lifecycle: lifecycle,\n\t\tEvidence: evidence}, nil\n}\n",
+          "function": "observe"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 250,
+          "end_line": 289,
+          "text": "func (r *Reconciler) execute(ctx context.Context, epoch uint64, action Action, status SlotStatus,\n\tat time.Time,\n) SlotStatus {\n\tfail := func(err error) SlotStatus {\n\t\tstatus.LastFailure, status.LastError = at, err.Error()\n\t\tr.deps.Logger.Warn(\"controller slot replacement failed\", \"slot\", action.Slot,\n\t\t\t\"previous_attempt\", action.PreviousAttempt, \"error\", err)\n\t\treturn status\n\t}\n\tunavailable := func() SlotStatus {\n\t\t// Report the decision, but do not hold the single replacement slot.\n\t\tstatus = fail(ErrReplacerUnavailable)\n\t\tstatus.Phase, status.Reason, status.PendingAttempt = PhaseHeld, ErrReplacerUnavailable.Error(), 0\n\t\treturn status\n\t}\n\tif r.deps.Replacer == nil {\n\t\treturn unavailable()\n\t}\n\tif err := r.deps.Leadership.Guard(ctx, epoch); err != nil {\n\t\treturn fail(fmt.Errorf(\"authority fence: %w\", err))\n\t}\n\tr.deps.Logger.Info(\"replacing controller slot\", \"slot\", action.Slot, \"previous_attempt\", action.PreviousAttempt,\n\t\t\"prior_instance\", action.PriorInstanceOCID, \"reason\", action.Reason, \"epoch\", epoch)\n\t// The term's fence extends through the whole replacement: the context\n\t// ends as soon as this controller stops holding the epoch, and the\n\t// replacer rechecks the guard right before each mutation.\n\tfencedCtx, stopFence := r.termContext(ctx, epoch)\n\tdefer stopFence()\n\taction.Epoch = epoch\n\taction.Fence = func(fenceCtx context.Context) error { return r.deps.Leadership.Guard(fenceCtx, epoch) }\n\tif err := r.deps.Replacer.Replace(fencedCtx, action); err != nil {\n\t\tif errors.Is(err, ErrReplacerUnavailable) {\n\t\t\treturn unavailable()\n\t\t}\n\t\treturn fail(err)\n\t}\n\tstatus.LastFailure, status.LastError = timeZero, \"\"\n\tr.recordReplacement(ctx, epoch, action)\n\treturn status\n}\n",
+          "function": "execute"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 297,
+          "end_line": 315,
+          "text": "func (r *Reconciler) termContext(ctx context.Context, epoch uint64) (context.Context, context.CancelFunc) {\n\ttermCtx, cancel := context.WithCancelCause(ctx)\n\tgo func() {\n\t\tticker := time.NewTicker(termFencePoll)\n\t\tdefer ticker.Stop()\n\t\tfor {\n\t\t\tselect {\n\t\t\tcase <-termCtx.Done():\n\t\t\t\treturn\n\t\t\tcase <-ticker.C:\n\t\t\t\tif snapshot := r.deps.Leadership.Current(); !snapshot.CanMutate() || snapshot.Epoch != epoch {\n\t\t\t\t\tcancel(errors.New(\"controller authority term ended during slot replacement\"))\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}()\n\treturn termCtx, func() { cancel(context.Canceled) }\n}\n",
+          "function": "termContext"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 321,
+          "end_line": 340,
+          "text": "func (r *Reconciler) recordReplacement(ctx context.Context, epoch uint64, action Action) {\n\tkey := fmt.Sprintf(\"membership:%s:%d\", action.Slot, action.PreviousAttempt)\n\tif decisionlog.Correlated(key) != \"\" {\n\t\treturn\n\t}\n\tid := decisionlog.Record(ctx, decisionlog.Decision{\n\t\tRegion:  r.topology.Cell,\n\t\tActor:   decisionlog.Actor{Slice: \"membership\"},\n\t\tKind:    decisionlog.KindControllerReplaced,\n\t\tSubject: decisionlog.Subject{Kind: \"member\", ID: r.topology.ServerName(action.Slot), Name: action.Slot},\n\t\tSummary: fmt.Sprintf(\"Replacing controller slot %s as attempt %d\", action.Slot, action.PreviousAttempt+1),\n\t\tReason:  \"The slot was lost and root-signed retirement evidence names its exact prior instance.\",\n\t\tRule:    \"membership.\" + action.Reason,\n\t\tSignals: []decisionlog.Signal{{Name: \"prior_attempt\", Value: float64(action.PreviousAttempt)}},\n\t\tStatus:  decisionlog.StatusInProgress,\n\t\tEpoch:   epoch,\n\t\tAttrs:   map[string]string{\"prior_instance\": action.PriorInstanceOCID, \"retirement\": action.Retirement.Digest},\n\t})\n\tdecisionlog.Correlate(key, id)\n}\n",
+          "function": "recordReplacement"
+        },
+        {
+          "path": "internal/membership/reconciler.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+          "line": 342,
+          "end_line": 375,
+          "text": "func (r *Reconciler) commit(epoch uint64, previous, next State) {\n\tstatuses := make([]SlotStatus, 0, len(next.Slots))\n\tfor _, slot := range r.topology.Slots {\n\t\tstatus := next.Slots[slot]\n\t\tstatuses = append(statuses, status)\n\t\tbefore, existed := previous.Slots[slot]\n\t\tif !existed || before.Phase != status.Phase || before.Reason != status.Reason {\n\t\t\tr.deps.Logger.Info(\"controller slot membership\", \"slot\", slot, \"phase\", status.Phase,\n\t\t\t\t\"reason\", status.Reason, \"attempt\", status.Attempt, \"online\", status.Online,\n\t\t\t\t\"lifecycle\", status.Lifecycle)\n\t\t}\n\t}\n\tslices.SortFunc(statuses, func(a, b SlotStatus) int {\n\t\tswitch {\n\t\tcase a.Slot < b.Slot:\n\t\t\treturn -1\n\t\tcase a.Slot > b.Slot:\n\t\t\treturn 1\n\t\t}\n\t\treturn 0\n\t})\n\tr.mu.Lock()\n\tdefer r.mu.Unlock()\n\tif r.epoch == epoch {\n\t\tr.state, r.statuses = next, statuses\n\t}\n}\n\nfunc (r *Reconciler) reset(epoch uint64) {\n\tr.mu.Lock()\n\tdefer r.mu.Unlock()\n\tr.state, r.epoch, r.statuses = State{Slots: make(map[string]SlotStatus)}, epoch, nil\n\tr.requested = make(map[string]retirementRequestMark)\n}\n",
+          "function": "commit; reset"
+        },
+        {
+          "path": "internal/authority/types.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+          "line": 75,
+          "end_line": 78,
+          "text": "func (s Snapshot) CanMutate() bool {\n\treturn entityid.Valid(s.DeploymentID) && s.Ready && s.Leader && s.Epoch > 0 && s.Revision > 0 &&\n\t\t!s.ExpiresAt.IsZero() && time.Now().Before(s.ExpiresAt)\n}\n",
+          "function": "Snapshot.CanMutate"
+        },
+        {
+          "path": "internal/decisionlog/record.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+          "line": 36,
+          "end_line": 51,
+          "text": "func Default() Recorder {\n\tif holder := defaultRecorder.Load(); holder != nil {\n\t\treturn holder.recorder\n\t}\n\treturn nil\n}\n\n// Record journals one decision with the process-wide recorder and returns\n// its ID, so a caller can link later decisions to it with ParentID. It never\n// blocks on the network and never fails; see the package documentation.\nfunc Record(ctx context.Context, decision Decision) string {\n\tif recorder := Default(); recorder != nil {\n\t\treturn recorder.Record(ctx, decision)\n\t}\n\treturn LogRecorder{}.Record(ctx, decision)\n}\n",
+          "function": "Default; Record"
+        },
+        {
+          "path": "internal/decisionlog/record.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+          "line": 61,
+          "end_line": 82,
+          "text": "func (recorder LogRecorder) Record(ctx context.Context, decision Decision) string {\n\tdecision = decision.Normalize(time.Now())\n\tlogger := recorder.Logger\n\tif logger == nil {\n\t\tlogger = slog.Default()\n\t}\n\tattrs := []slog.Attr{slog.String(observability.ComponentKey, \"decision\"), slog.Bool(observability.EventKey, true),\n\t\tslog.String(\"decision_id\", decision.ID),\n\t\tslog.String(\"kind\", string(decision.Kind)), slog.String(\"actor\", decision.Actor.Slice),\n\t\tslog.String(\"subject\", decision.Subject.String()), slog.String(\"status\", string(decision.Status))}\n\tif decision.Region != \"\" {\n\t\tattrs = append(attrs, slog.String(\"region\", decision.Region))\n\t}\n\tif decision.Reason != \"\" {\n\t\tattrs = append(attrs, slog.String(\"reason\", decision.Reason))\n\t}\n\tif decision.ParentID != \"\" {\n\t\tattrs = append(attrs, slog.String(\"parent_id\", decision.ParentID))\n\t}\n\tlogger.LogAttrs(ctx, slog.LevelInfo, decision.Summary, attrs...)\n\treturn decision.ID\n}\n",
+          "function": "LogRecorder.Record"
+        },
+        {
+          "path": "internal/decisionlog/correlate.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "15f864994fb0c9dd4ca2b73630ae90a4656238ee",
+          "line": 20,
+          "end_line": 41,
+          "text": "func Correlate(key, id string) {\n\tif key == \"\" || id == \"\" {\n\t\treturn\n\t}\n\tcorrelations.Lock()\n\tdefer correlations.Unlock()\n\tif _, exists := correlations.ids[key]; !exists {\n\t\tcorrelations.order = append(correlations.order, key)\n\t}\n\tcorrelations.ids[key] = id\n\tfor len(correlations.order) > maxCorrelations {\n\t\tdelete(correlations.ids, correlations.order[0])\n\t\tcorrelations.order = correlations.order[1:]\n\t}\n}\n\n// Correlated returns the decision ID remembered for key, or \"\".\nfunc Correlated(key string) string {\n\tcorrelations.Lock()\n\tdefer correlations.Unlock()\n\treturn correlations.ids[key]\n}\n",
+          "function": "Correlate; Correlated"
+        }
+      ]
+    },
+    "cancellation": {
+      "detail": "The blocking replacer only exchanges local channels and waits for context cancellation. A real timer/goroutine is local concurrency, not a process boundary.",
+      "citations": [
+        {
+          "path": "internal/membership/reconciler_fence_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+          "line": 18,
+          "end_line": 24,
+          "text": "func (replacer *blockingReplacer) Replace(ctx context.Context, action Action) error {\n\treplacer.fence = action.Fence\n\tclose(replacer.started)\n\t<-ctx.Done()\n\treplacer.ended <- context.Cause(ctx)\n\treturn ctx.Err()\n}\n",
+          "function": "blockingReplacer.Replace"
+        }
+      ]
+    },
+    "file_evidence": {
+      "detail": "Production Evidence opens actual slot files using O_NOFOLLOW, checks Fstat ownership/type/size/permissions, reads bytes and decodes their candidate structure. Malformed/misplaced wire is ignored and deduplicated by content. Signature authorization is explicitly absent: decoding only routes and Ledger.AdvanceSlot is not reached. Signing in the fixture constructs input only, and no crypto ran during this review.",
+      "citations": [
+        {
+          "path": "internal/membership/evidence.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "64abec627906e3426735ca24ce13f91b3e057bf1",
+          "line": 39,
+          "end_line": 41,
+          "text": "func NewFileEvidence(dir string, slots []string, logger *slog.Logger) FileEvidence {\n\treturn FileEvidence{Dir: dir, Slots: slots, Logger: logger, reported: new(sync.Map)}\n}\n",
+          "function": "NewFileEvidence"
+        },
+        {
+          "path": "internal/membership/evidence.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "64abec627906e3426735ca24ce13f91b3e057bf1",
+          "line": 43,
+          "end_line": 78,
+          "text": "func (source FileEvidence) Evidence(ctx context.Context) (map[string]Evidence, error) {\n\tevidence := make(map[string]Evidence, len(source.Slots))\n\tif source.Dir == \"\" {\n\t\treturn evidence, nil\n\t}\n\tfor _, slot := range source.Slots {\n\t\tif err := ctx.Err(); err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\twire, err := readEvidenceFile(filepath.Join(source.Dir, slot+EvidenceFileSuffix))\n\t\tif errors.Is(err, os.ErrNotExist) {\n\t\t\tcontinue\n\t\t}\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"read %s retirement evidence: %w\", slot, err)\n\t\t}\n\t\tdecoded, err := bootstrap.DecodeSlotRetirementCandidate(wire)\n\t\tif err != nil || decoded.Slot != slot {\n\t\t\t// A malformed or misplaced file is ignored rather than trusted.\n\t\t\tsum := sha256.Sum256(wire)\n\t\t\tif _, seen := source.loadOrStoreReported(slot, sum); source.Logger != nil && !seen {\n\t\t\t\treason := \"envelope names another slot\"\n\t\t\t\tif err != nil {\n\t\t\t\t\treason = err.Error()\n\t\t\t\t}\n\t\t\t\tsource.Logger.Warn(\"retirement evidence file ignored\", \"slot\", slot,\n\t\t\t\t\t\"file\", slot+EvidenceFileSuffix, \"reason\", reason)\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n\t\tsum := sha256.Sum256(wire)\n\t\tevidence[slot] = Evidence{Slot: slot, PreviousAttempt: decoded.PreviousAttempt,\n\t\t\tPriorInstanceOCID: decoded.PriorInstanceOCID, Digest: hex.EncodeToString(sum[:]), Wire: wire}\n\t}\n\treturn evidence, nil\n}\n",
+          "function": "FileEvidence.Evidence"
+        },
+        {
+          "path": "internal/membership/evidence.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "64abec627906e3426735ca24ce13f91b3e057bf1",
+          "line": 80,
+          "end_line": 106,
+          "text": "func readEvidenceFile(path string) ([]byte, error) {\n\tfd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)\n\tif err != nil {\n\t\tif errors.Is(err, unix.ENOENT) {\n\t\t\treturn nil, os.ErrNotExist\n\t\t}\n\t\treturn nil, err\n\t}\n\tfile := os.NewFile(uintptr(fd), path)\n\tdefer file.Close()\n\tvar stat unix.Stat_t\n\tif err := unix.Fstat(fd, &stat); err != nil {\n\t\treturn nil, err\n\t}\n\tif stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0o077 != 0 || stat.Uid != uint32(os.Geteuid()) &&\n\t\tstat.Uid != 0 || stat.Size <= 0 || stat.Size > maxEvidenceBytes {\n\t\treturn nil, errors.New(\"retirement evidence must be a bounded owner-only regular file\")\n\t}\n\twire, err := io.ReadAll(io.LimitReader(file, maxEvidenceBytes+1))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\tif len(wire) > maxEvidenceBytes || int64(len(wire)) != stat.Size {\n\t\treturn nil, errors.New(\"retirement evidence changed while reading\")\n\t}\n\treturn wire, nil\n}\n",
+          "function": "readEvidenceFile"
+        },
+        {
+          "path": "internal/membership/evidence.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "64abec627906e3426735ca24ce13f91b3e057bf1",
+          "line": 108,
+          "end_line": 113,
+          "text": "func (source FileEvidence) loadOrStoreReported(slot string, sum [sha256.Size]byte) (any, bool) {\n\tif source.reported == nil {\n\t\treturn nil, false\n\t}\n\treturn source.reported.LoadOrStore(slot+\"/\"+hex.EncodeToString(sum[:]), struct{}{})\n}\n",
+          "function": "FileEvidence.loadOrStoreReported"
+        },
+        {
+          "path": "internal/bootstrap/slot_replacement.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "92d5e4dfca40c34b91768fafd5eecc02d6dc694e",
+          "line": 48,
+          "end_line": 59,
+          "text": "func ValidateSlotRetirementCandidate(evidence RetirementEvidence) error {\n\tif evidence.SchemaVersion != 1 || evidence.Role != roleController || evidence.Slot == \"\" ||\n\t\t!ledgerIDPattern.MatchString(evidence.Slot) || evidence.DeploymentID == \"\" || evidence.Cell == \"\" ||\n\t\tevidence.Environment == \"\" || evidence.PreviousAttempt == 0 || evidence.PreviousGeneration == 0 ||\n\t\t!validDigest(evidence.PreviousResultDigest) || !isOCID(evidence.PriorInstanceOCID, \"instance\") ||\n\t\tevidence.PriorCreateKey == \"\" || evidence.Disposition != SlotRetirementDisposition ||\n\t\tevidence.CoordinatorHandoffDigest != \"\" || !validDigest(evidence.ObservedEvidenceDigest) ||\n\t\tevidence.FencingAuthority == \"\" || !validFounderNow(evidence.ObservedAt) {\n\t\treturn fmt.Errorf(\"%w: retirement candidate is incomplete\", ErrRetirementInvalid)\n\t}\n\treturn nil\n}\n",
+          "function": "ValidateSlotRetirementCandidate"
+        },
+        {
+          "path": "internal/bootstrap/slot_replacement.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "92d5e4dfca40c34b91768fafd5eecc02d6dc694e",
+          "line": 63,
+          "end_line": 82,
+          "text": "func SignSlotRetirement(evidence RetirementEvidence, issuedAt, expiresAt time.Time,\n\trootPrivateKey ed25519.PrivateKey,\n) (trust.Envelope, error) {\n\tif err := ValidateSlotRetirementCandidate(evidence); err != nil {\n\t\treturn trust.Envelope{}, err\n\t}\n\tissuedAt = issuedAt.Round(0).UTC()\n\texpiresAt = expiresAt.Round(0).UTC()\n\tif !validFounderNow(issuedAt) || !expiresAt.After(issuedAt) || issuedAt.Before(evidence.ObservedAt) ||\n\t\texpiresAt.Sub(issuedAt) > MaxSlotRetirementLifetime {\n\t\treturn trust.Envelope{}, fmt.Errorf(\"%w: retirement signing interval is invalid\", ErrRetirementInvalid)\n\t}\n\tpayload, err := trust.EncodePayload(evidence)\n\tif err != nil {\n\t\treturn trust.Envelope{}, err\n\t}\n\treturn trust.Sign(payload, trust.Scope{Domain: domainSlotRetirement, DeploymentID: evidence.DeploymentID,\n\t\tCell: evidence.Cell, Environment: evidence.Environment, Role: roleController, Slot: evidence.Slot},\n\t\tissuedAt, expiresAt, rootPrivateKey)\n}\n",
+          "function": "SignSlotRetirement"
+        },
+        {
+          "path": "internal/bootstrap/slot_replacement.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "92d5e4dfca40c34b91768fafd5eecc02d6dc694e",
+          "line": 87,
+          "end_line": 107,
+          "text": "func DecodeSlotRetirementCandidate(wire []byte) (RetirementEvidence, error) {\n\tif len(wire) == 0 || len(wire) > maxLedgerRecordBytes {\n\t\treturn RetirementEvidence{}, ErrRetirementInvalid\n\t}\n\tenvelope, err := trust.DecodeEnvelope(wire)\n\tif err != nil || envelope.Scope.Domain != domainSlotRetirement {\n\t\treturn RetirementEvidence{}, ErrRetirementInvalid\n\t}\n\tvar evidence RetirementEvidence\n\tif err := decodeCanonicalPayload(envelope.Payload, &evidence); err != nil {\n\t\treturn RetirementEvidence{}, ErrRetirementInvalid\n\t}\n\tif err := ValidateSlotRetirementCandidate(evidence); err != nil {\n\t\treturn RetirementEvidence{}, err\n\t}\n\tif envelope.Scope != (trust.Scope{Domain: domainSlotRetirement, DeploymentID: evidence.DeploymentID,\n\t\tCell: evidence.Cell, Environment: evidence.Environment, Role: roleController, Slot: evidence.Slot}) {\n\t\treturn RetirementEvidence{}, ErrRetirementInvalid\n\t}\n\treturn evidence, nil\n}\n",
+          "function": "DecodeSlotRetirementCandidate"
+        },
+        {
+          "path": "internal/trust/envelope.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+          "line": 191,
+          "end_line": 203,
+          "text": "func EncodeEnvelope(envelope Envelope) ([]byte, error) {\n\tif err := envelope.validateShape(); err != nil {\n\t\treturn nil, err\n\t}\n\tencoded, err := json.Marshal(envelope, json.Deterministic(true))\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"encode trust envelope: %w\", err)\n\t}\n\tif len(encoded) > MaxEnvelopeBytes {\n\t\treturn nil, fmt.Errorf(\"%w: encoded envelope exceeds size limit\", ErrInvalid)\n\t}\n\treturn encoded, nil\n}\n",
+          "function": "EncodeEnvelope"
+        },
+        {
+          "path": "internal/trust/envelope.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+          "line": 207,
+          "end_line": 223,
+          "text": "func DecodeEnvelope(encoded []byte) (Envelope, error) {\n\tif len(encoded) == 0 || len(encoded) > MaxEnvelopeBytes {\n\t\treturn Envelope{}, fmt.Errorf(\"%w: envelope is empty or too large\", ErrInvalid)\n\t}\n\tvar envelope Envelope\n\tif err := protocol.DecodeStrict(encoded, &envelope, MaxEnvelopeBytes); err != nil {\n\t\treturn Envelope{}, fmt.Errorf(\"decode trust envelope: %w\", err)\n\t}\n\tcanonical, err := EncodeEnvelope(envelope)\n\tif err != nil {\n\t\treturn Envelope{}, err\n\t}\n\tif string(canonical) != string(encoded) {\n\t\treturn Envelope{}, fmt.Errorf(\"%w: envelope JSON is not canonical\", ErrInvalid)\n\t}\n\treturn envelope, nil\n}\n",
+          "function": "DecodeEnvelope"
+        },
+        {
+          "path": "internal/protocol/json.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+          "line": 33,
+          "end_line": 35,
+          "text": "func DecodeStrict(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, true)\n}\n",
+          "function": "DecodeStrict"
+        },
+        {
+          "path": "internal/protocol/json.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+          "line": 46,
+          "end_line": 66,
+          "text": "func decode(data []byte, destination any, maxBytes int, rejectUnknown bool) error {\n\tif maxBytes == 0 {\n\t\tmaxBytes = DefaultMaxJSONBytes\n\t}\n\tif maxBytes < 0 {\n\t\treturn fmt.Errorf(\"%w: negative byte limit\", ErrInvalidJSON)\n\t}\n\tif len(data) > maxBytes {\n\t\treturn ErrJSONTooLarge\n\t}\n\tif !utf8.Valid(data) {\n\t\treturn fmt.Errorf(\"%w: invalid UTF-8\", ErrInvalidJSON)\n\t}\n\tif err := json.Unmarshal(data, destination,\n\t\tjson.RejectUnknownMembers(rejectUnknown),\n\t\tjsontext.AllowDuplicateNames(false),\n\t); err != nil {\n\t\treturn fmt.Errorf(\"decode protocol JSON: %w\", err)\n\t}\n\treturn nil\n}\n",
+          "function": "decode"
+        },
+        {
+          "path": "internal/bootstrap/ledger_records.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "d6767b17c0238bc9e0313d2f9b6260aa6740573a",
+          "line": 457,
+          "end_line": 469,
+          "text": "func decodeCanonicalPayload(data []byte, destination any) error {\n\tif err := protocol.DecodeStrict(data, destination, maxLedgerRecordBytes); err != nil {\n\t\treturn err\n\t}\n\tencoded, err := protocol.EncodeJSON(destination)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif !bytes.Equal(encoded, data) {\n\t\treturn errors.New(\"bootstrap payload is not deterministic JSON\")\n\t}\n\treturn nil\n}\n",
+          "function": "decodeCanonicalPayload"
+        },
+        {
+          "path": "internal/protocol/json.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+          "line": 21,
+          "end_line": 27,
+          "text": "func EncodeJSON(value any) ([]byte, error) {\n\tencoded, err := json.Marshal(value, json.Deterministic(true))\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"encode protocol JSON: %w\", err)\n\t}\n\treturn encoded, nil\n}\n",
+          "function": "EncodeJSON"
+        }
+      ]
+    },
+    "refound": {
+      "detail": "Real production pending-file writes/rename/sync/readback/permission checks, health-file write/read and flock are exercised by source assertions. Ledger and health content are fabricated inputs; there is no real peer quorum, host restart, controller process or cloud launch. Admit has an independent local ledger guard before readPending at lines76\u201382.",
+      "citations": [
+        {
+          "path": "internal/membership/refoundguard_integration_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+          "line": 15,
+          "end_line": 35,
+          "text": "func testRefoundGuard(t *testing.T, now *time.Time) RefoundGuard {\n\tt.Helper()\n\tdir := filepath.Join(t.TempDir(), \"membership\")\n\treturn RefoundGuard{PendingPath: filepath.Join(dir, \"refound-pending.json\"),\n\t\tHealthPath: filepath.Join(dir, \"cluster-health.json\"), Now: func() time.Time { return *now }}\n}\n\nfunc writeHealth(t *testing.T, guard RefoundGuard, status clusterhealth.Status) {\n\tt.Helper()\n\tif err := clusterhealth.WriteStatusFile(guard.HealthPath, status); err != nil {\n\t\tt.Fatal(err)\n\t}\n}\n\nfunc completeLedger() map[string]LedgerSlot {\n\treturn map[string]LedgerSlot{\n\t\t\"controller-a\": {Attempt: 1, InstanceOCID: instanceA, Complete: true},\n\t\t\"controller-b\": {Attempt: 1, InstanceOCID: instanceB, Complete: true},\n\t\t\"controller-c\": {Attempt: 1, InstanceOCID: instanceC, Complete: true},\n\t}\n}\n",
+          "function": "testRefoundGuard; writeHealth; completeLedger"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 43,
+          "end_line": 49,
+          "text": "func (pending RefoundPending) validate() error {\n\tserverName, err := naming.RegionCell(pending.Cell).ControllerSlot(pending.Slot)\n\tif err != nil || pending.ServerName != serverName || pending.Attempt < 2 || pending.StartedAt.IsZero() {\n\t\treturn errors.New(\"pending refound record lacks an exact regional slot, successor attempt or start time\")\n\t}\n\treturn nil\n}\n",
+          "function": "RefoundPending.validate"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 62,
+          "end_line": 67,
+          "text": "func (guard RefoundGuard) now() time.Time {\n\tif guard.Now != nil {\n\t\treturn guard.Now().UTC()\n\t}\n\treturn time.Now().UTC()\n}\n",
+          "function": "RefoundGuard.now"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 70,
+          "end_line": 102,
+          "text": "func (guard RefoundGuard) Admit(cell, slot string, ledger map[string]LedgerSlot) error {\n\tothers := make([]string, 0, len(ledger))\n\tfor other := range ledger {\n\t\tothers = append(others, other)\n\t}\n\tslices.Sort(others)\n\tfor _, other := range others {\n\t\thead := ledger[other]\n\t\tif other != slot && !head.Complete && head.Attempt >= 2 {\n\t\t\treturn fmt.Errorf(\"slot %s has an incomplete re-founded attempt %d; wait until it completes and reports current before re-founding %s\",\n\t\t\t\tother, head.Attempt, slot)\n\t\t}\n\t}\n\tpending, err := guard.readPending()\n\tif errors.Is(err, os.ErrNotExist) {\n\t\treturn nil\n\t}\n\tif err != nil {\n\t\treturn fmt.Errorf(\"read the pending refound record %s: %w\", guard.PendingPath, err)\n\t}\n\tif pending.Cell != cell {\n\t\treturn fmt.Errorf(\"pending refound belongs to cell %s, not %s\", pending.Cell, cell)\n\t}\n\tif pending.Slot == slot {\n\t\t// The same slot may be retried after interruption.\n\t\treturn nil\n\t}\n\tif err := guard.current(pending); err != nil {\n\t\treturn fmt.Errorf(\"slot %s re-founded at %s is not current yet (%v); re-found one slot at a time\",\n\t\t\tpending.Slot, pending.StartedAt.Format(time.RFC3339), err)\n\t}\n\treturn guard.Clear()\n}\n",
+          "function": "RefoundGuard.Admit"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 105,
+          "end_line": 114,
+          "text": "func (guard RefoundGuard) Begin(pending RefoundPending) error {\n\tif err := pending.validate(); err != nil {\n\t\treturn err\n\t}\n\twire, err := json.Marshal(pending)\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn writeOwnerOnly(guard.PendingPath, wire)\n}\n",
+          "function": "RefoundGuard.Begin"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 117,
+          "end_line": 125,
+          "text": "func (guard RefoundGuard) Clear() error {\n\tif err := os.Remove(guard.PendingPath); err != nil {\n\t\tif errors.Is(err, os.ErrNotExist) {\n\t\t\treturn nil\n\t\t}\n\t\treturn err\n\t}\n\treturn syncDir(filepath.Dir(guard.PendingPath))\n}\n",
+          "function": "RefoundGuard.Clear"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 161,
+          "end_line": 174,
+          "text": "func (guard RefoundGuard) current(pending RefoundPending) error {\n\tif err := pending.validate(); err != nil {\n\t\treturn err\n\t}\n\tstatus, err := clusterhealth.ReadStatusFile(guard.HealthPath)\n\tif err != nil {\n\t\treturn fmt.Errorf(\"read the controller's cluster health %s: %w\", guard.HealthPath, err)\n\t}\n\tnotBefore := guard.now().Add(-RefoundHealthFreshness)\n\tif pending.StartedAt.After(notBefore) {\n\t\tnotBefore = pending.StartedAt\n\t}\n\treturn status.PeerCurrent(pending.ServerName, notBefore)\n}\n",
+          "function": "RefoundGuard.current"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 180,
+          "end_line": 200,
+          "text": "func (guard RefoundGuard) Lock() (release func(), err error) {\n\tpath := guard.PendingPath + \".lock\"\n\tif err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {\n\t\treturn nil, err\n\t}\n\tfile, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"open the refound lock %s: %w\", path, err)\n\t}\n\tif err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {\n\t\tfile.Close()\n\t\tif errors.Is(err, syscall.EWOULDBLOCK) {\n\t\t\treturn nil, errors.New(\"another break-glass refound is running on this host; re-found one slot at a time\")\n\t\t}\n\t\treturn nil, fmt.Errorf(\"lock %s: %w\", path, err)\n\t}\n\treturn func() {\n\t\t_ = syscall.Flock(int(file.Fd()), syscall.LOCK_UN)\n\t\tfile.Close()\n\t}, nil\n}\n",
+          "function": "RefoundGuard.Lock"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 202,
+          "end_line": 227,
+          "text": "func (guard RefoundGuard) readPending() (RefoundPending, error) {\n\tfile, err := os.OpenFile(guard.PendingPath, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)\n\tif err != nil {\n\t\treturn RefoundPending{}, err\n\t}\n\tdefer file.Close()\n\tinfo, err := file.Stat()\n\tif err != nil {\n\t\treturn RefoundPending{}, err\n\t}\n\tif !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() <= 0 || info.Size() > 4<<10 {\n\t\treturn RefoundPending{}, errors.New(\"pending refound record must be a small owner-only regular file\")\n\t}\n\twire, err := io.ReadAll(io.LimitReader(file, (4<<10)+1))\n\tif err != nil {\n\t\treturn RefoundPending{}, err\n\t}\n\tvar pending RefoundPending\n\tif err := protocol.DecodeStrict(wire, &pending, 4<<10); err != nil {\n\t\treturn RefoundPending{}, errors.New(\"pending refound record is malformed\")\n\t}\n\tif err := pending.validate(); err != nil {\n\t\treturn RefoundPending{}, err\n\t}\n\treturn pending, nil\n}\n",
+          "function": "RefoundGuard.readPending"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 229,
+          "end_line": 265,
+          "text": "func writeOwnerOnly(path string, data []byte) error {\n\tdir := filepath.Dir(path)\n\tif _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {\n\t\tif err := os.MkdirAll(dir, 0o700); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := syncDir(filepath.Dir(dir)); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\ttemporary, err := os.CreateTemp(dir, \".refound-*\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer os.Remove(temporary.Name())\n\tif err := temporary.Chmod(0o600); err != nil {\n\t\ttemporary.Close()\n\t\treturn err\n\t}\n\tif _, err := temporary.Write(data); err != nil {\n\t\ttemporary.Close()\n\t\treturn err\n\t}\n\tif err := temporary.Sync(); err != nil {\n\t\ttemporary.Close()\n\t\treturn err\n\t}\n\tif err := temporary.Close(); err != nil {\n\t\treturn err\n\t}\n\tif err := os.Rename(temporary.Name(), path); err != nil {\n\t\treturn err\n\t}\n\t// The record gates the next slot after a crash, so its directory entry\n\t// must be durable before the caller launches anything.\n\treturn syncDir(dir)\n}\n",
+          "function": "writeOwnerOnly"
+        },
+        {
+          "path": "internal/membership/refoundguard.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+          "line": 267,
+          "end_line": 274,
+          "text": "func syncDir(dir string) error {\n\thandle, err := os.Open(dir)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer handle.Close()\n\treturn handle.Sync()\n}\n",
+          "function": "syncDir"
+        },
+        {
+          "path": "internal/membership/clusterhealth/statusfile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6f2d9dbf468a65c0cde72261054706d140478072",
+          "line": 38,
+          "end_line": 67,
+          "text": "func WriteStatusFile(path string, status Status) error {\n\tif path == \"\" || !filepath.IsAbs(path) {\n\t\treturn errors.New(\"cluster health status file path must be absolute\")\n\t}\n\twire, err := json.Marshal(status)\n\tif err != nil {\n\t\treturn err\n\t}\n\tdir := filepath.Dir(path)\n\tif err := os.MkdirAll(dir, 0o700); err != nil {\n\t\treturn err\n\t}\n\ttemporary, err := os.CreateTemp(dir, \".cluster-health-*\")\n\tif err != nil {\n\t\treturn err\n\t}\n\tdefer os.Remove(temporary.Name())\n\tif err := temporary.Chmod(0o600); err != nil {\n\t\ttemporary.Close()\n\t\treturn err\n\t}\n\tif _, err := temporary.Write(wire); err != nil {\n\t\ttemporary.Close()\n\t\treturn err\n\t}\n\tif err := temporary.Close(); err != nil {\n\t\treturn err\n\t}\n\treturn os.Rename(temporary.Name(), path)\n}\n",
+          "function": "WriteStatusFile"
+        },
+        {
+          "path": "internal/membership/clusterhealth/statusfile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6f2d9dbf468a65c0cde72261054706d140478072",
+          "line": 71,
+          "end_line": 96,
+          "text": "func ReadStatusFile(path string) (Status, error) {\n\tinfo, err := os.Lstat(path)\n\tif err != nil {\n\t\treturn Status{}, err\n\t}\n\tif !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxStatusFileBytes {\n\t\treturn Status{}, errors.New(\"cluster health status must be a bounded regular file\")\n\t}\n\tfile, err := os.Open(path)\n\tif err != nil {\n\t\treturn Status{}, err\n\t}\n\tdefer file.Close()\n\twire, err := io.ReadAll(io.LimitReader(file, maxStatusFileBytes+1))\n\tif err != nil {\n\t\treturn Status{}, err\n\t}\n\tif len(wire) > maxStatusFileBytes {\n\t\treturn Status{}, errors.New(\"cluster health status must be a bounded regular file\")\n\t}\n\tvar status Status\n\tif err := json.Unmarshal(wire, &status); err != nil {\n\t\treturn Status{}, fmt.Errorf(\"decode cluster health status: %w\", err)\n\t}\n\treturn status, nil\n}\n",
+          "function": "ReadStatusFile"
+        },
+        {
+          "path": "internal/membership/clusterhealth/statusfile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6f2d9dbf468a65c0cde72261054706d140478072",
+          "line": 101,
+          "end_line": 121,
+          "text": "func (status Status) PeerCurrent(serverName string, notBefore time.Time) error {\n\tswitch {\n\tcase status.ObservedAt.Before(notBefore):\n\t\treturn fmt.Errorf(\"cluster health was last observed at %s; is the controller running?\",\n\t\t\tstatus.ObservedAt.Format(time.RFC3339))\n\tcase status.MetaLeader == \"\":\n\t\treturn errors.New(\"the metadata group has no leader\")\n\tcase slices.Contains(status.Missing, serverName):\n\t\treturn fmt.Errorf(\"%s has not joined the metadata group\", serverName)\n\tcase slices.Contains(status.Offline, serverName) || !slices.Contains(status.Online, serverName):\n\t\treturn fmt.Errorf(\"%s is offline\", serverName)\n\tcase slices.ContainsFunc(status.Lagging, func(peer LaggingPeer) bool { return peer.Name == serverName }):\n\t\treturn fmt.Errorf(\"%s is still catching up\", serverName)\n\tcase !slices.Contains(status.CaughtUp, serverName):\n\t\t// Not lagging is not caught up: a lag within the alert threshold,\n\t\t// or a follower's view of another follower, proves nothing.\n\t\treturn fmt.Errorf(\"%s has not been reported current with zero lag by the metadata leader in this controller's view\",\n\t\t\tserverName)\n\t}\n\treturn nil\n}\n",
+          "function": "Status.PeerCurrent"
+        },
+        {
+          "path": "internal/protocol/json.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+          "line": 33,
+          "end_line": 35,
+          "text": "func DecodeStrict(data []byte, destination any, maxBytes int) error {\n\treturn decode(data, destination, maxBytes, true)\n}\n",
+          "function": "DecodeStrict"
+        },
+        {
+          "path": "internal/protocol/json.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+          "line": 46,
+          "end_line": 66,
+          "text": "func decode(data []byte, destination any, maxBytes int, rejectUnknown bool) error {\n\tif maxBytes == 0 {\n\t\tmaxBytes = DefaultMaxJSONBytes\n\t}\n\tif maxBytes < 0 {\n\t\treturn fmt.Errorf(\"%w: negative byte limit\", ErrInvalidJSON)\n\t}\n\tif len(data) > maxBytes {\n\t\treturn ErrJSONTooLarge\n\t}\n\tif !utf8.Valid(data) {\n\t\treturn fmt.Errorf(\"%w: invalid UTF-8\", ErrInvalidJSON)\n\t}\n\tif err := json.Unmarshal(data, destination,\n\t\tjson.RejectUnknownMembers(rejectUnknown),\n\t\tjsontext.AllowDuplicateNames(false),\n\t); err != nil {\n\t\treturn fmt.Errorf(\"decode protocol JSON: %w\", err)\n\t}\n\treturn nil\n}\n",
+          "function": "decode"
+        }
+      ]
+    }
+  },
+  "source_pins": {
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/decide_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/decide_test.go",
+      "mode": "100644",
+      "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+      "sha256": "d7e4765642efac56fa83506df93093f39c1766cc6f7e6cd1ef8274c2c0578909",
+      "bytes": 15924
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/decide.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/decide.go",
+      "mode": "100644",
+      "git_blob": "a5b4cfa90f5d382bce81244094c4130803b8fd71",
+      "sha256": "0aa0d3c48abc22bce6e910f4ce61ade7a8e030f1de78c8a1fe57159d4adbd9b3",
+      "bytes": 10007
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/types.go",
+      "mode": "100644",
+      "git_blob": "fb9ab38d2ebacae99eb598f1b69eded3d4dea850",
+      "sha256": "bbc06542b00a597a72fc36609cf5439b76b289c4b4e2d9088ead92dea4b92a66",
+      "bytes": 4918
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/naming/naming.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/naming/naming.go",
+      "mode": "100644",
+      "git_blob": "849d830258a9114981607aacd8a63418abf076fa",
+      "sha256": "0db87bb443e8cff6b768e8e5d091d19ae3ba2a97db92ef11e49eb94112795a9c",
+      "bytes": 6079
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/config.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/config.go",
+      "mode": "100644",
+      "git_blob": "8c95f846e17836e6793323198502e30ab94c71f7",
+      "sha256": "3d2cf7f892569757645ab27af5630ca6cee29a700c9c3587ef378d1b2cabe25c",
+      "bytes": 1392
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/reconciler_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/reconciler_test.go",
+      "mode": "100644",
+      "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+      "sha256": "e16147c744c0414ff352056ad12e2010f96bf5304dc167a8bc5d209bcdcd892d",
+      "bytes": 9934
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/reconciler.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/reconciler.go",
+      "mode": "100644",
+      "git_blob": "c706a222d5bed90999a5bc976944928c41cfb33a",
+      "sha256": "9e97644c1630e51d3ef03a3c458a11e9f26ec51106bead609919348fbf01ca31",
+      "bytes": 13041
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/authority/types.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/authority/types.go",
+      "mode": "100644",
+      "git_blob": "e70ccafadf1d60650e86d93549c6d4d87f2d0d5e",
+      "sha256": "d0886d7b4bd7dc75d5816a3ad4bcb01c0f3e3917f9f0b15e43a4d5cfaa53f326",
+      "bytes": 13938
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/record.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/record.go",
+      "mode": "100644",
+      "git_blob": "7fed2695fc9e488b8210b9f7680e5232cc1fe5b4",
+      "sha256": "e4811b9de947690cdc4b06774ba1ae4b4dfb174f11e4130b7c4ac0d5ccc9e0d2",
+      "bytes": 3091
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/decisionlog/correlate.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/decisionlog/correlate.go",
+      "mode": "100644",
+      "git_blob": "15f864994fb0c9dd4ca2b73630ae90a4656238ee",
+      "sha256": "882d763fcbc13fc0e9c70af0c3649213b1f8d5aee688c73ba7391dd64143ec7a",
+      "bytes": 1227
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/reconciler_fence_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/reconciler_fence_review_test.go",
+      "mode": "100644",
+      "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+      "sha256": "d015b0678e21ce26bb362fc4eedaf1892fa124c70bf2c7ac811c5605b6dd7694",
+      "bytes": 1970
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/evidence.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/evidence.go",
+      "mode": "100644",
+      "git_blob": "64abec627906e3426735ca24ce13f91b3e057bf1",
+      "sha256": "88b111a4d5a544680d1c0ed9f2c4c2b55c95726ecf300c9985abd0b93d43be77",
+      "bytes": 3675
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrap/slot_replacement.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/bootstrap/slot_replacement.go",
+      "mode": "100644",
+      "git_blob": "92d5e4dfca40c34b91768fafd5eecc02d6dc694e",
+      "sha256": "efba299f58a1f48e066474eb797a505b902983ecad79dec920dc873ab039c572",
+      "bytes": 9424
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/trust/envelope.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/trust/envelope.go",
+      "mode": "100644",
+      "git_blob": "b525ec7a2bba0fb81c2c4f51f5e503394eb0b5cc",
+      "sha256": "3c90601156d882bb761fa45b7a72542de6a9b96042272a155a8b6c87f745ac5a",
+      "bytes": 21424
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/protocol/json.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/protocol/json.go",
+      "mode": "100644",
+      "git_blob": "1f1cf935e61e24139f03e3fdeeda46f1bbc9c164",
+      "sha256": "5a0439798f0961019fe651bd7b6db2a8ef4934a1b7a891b1aa56917e413c104e",
+      "bytes": 2204
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/refoundguard_integration_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "mode": "100644",
+      "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+      "sha256": "2b70dfc4aaabc27e0fdf58c2441b3f7a358ec670dd630efaa00c87cde8cfa77c",
+      "bytes": 9755
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/refoundguard.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/refoundguard.go",
+      "mode": "100644",
+      "git_blob": "a6d4cc567ef29b0e4b233c3b6bc636b3363bc0bd",
+      "sha256": "6e9a3a8996503af503dc24a5564b54a9c99e6281f94982064e55ba6b74f048c3",
+      "bytes": 8865
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/clusterhealth/statusfile.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/clusterhealth/statusfile.go",
+      "mode": "100644",
+      "git_blob": "6f2d9dbf468a65c0cde72261054706d140478072",
+      "sha256": "96a482403df251d6133b762d08b5491ea6e596f706249e1e62767193862193ef",
+      "bytes": 3896
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/decide_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/decide_test.go",
+      "mode": "100644",
+      "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+      "sha256": "d7e4765642efac56fa83506df93093f39c1766cc6f7e6cd1ef8274c2c0578909",
+      "bytes": 15924
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/evidence_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/evidence_review_test.go",
+      "mode": "100644",
+      "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+      "sha256": "aeea4370e2a37ae3dd48013807873cd4d6a806751f4d4c0a41cdb960aa7e2cb7",
+      "bytes": 1302
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/evidence_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/evidence_review_test.go",
+      "mode": "100644",
+      "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+      "sha256": "aeea4370e2a37ae3dd48013807873cd4d6a806751f4d4c0a41cdb960aa7e2cb7",
+      "bytes": 1302
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/reconciler_fence_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/reconciler_fence_review_test.go",
+      "mode": "100644",
+      "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+      "sha256": "d015b0678e21ce26bb362fc4eedaf1892fa124c70bf2c7ac811c5605b6dd7694",
+      "bytes": 1970
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/reconciler_request_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/reconciler_request_review_test.go",
+      "mode": "100644",
+      "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+      "sha256": "47d44d5c695725f4183f9b598925c6ed7ce47dc59e005386e449b7e7f4a936da",
+      "bytes": 1290
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/membership/reconciler_request_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/membership/reconciler_request_review_test.go",
+      "mode": "100644",
+      "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+      "sha256": "47d44d5c695725f4183f9b598925c6ed7ce47dc59e005386e449b7e7f4a936da",
+      "bytes": 1290
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/reconciler_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/reconciler_test.go",
+      "mode": "100644",
+      "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+      "sha256": "e16147c744c0414ff352056ad12e2010f96bf5304dc167a8bc5d209bcdcd892d",
+      "bytes": 9934
+    },
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/membership/refoundguard_integration_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "path": "internal/membership/refoundguard_integration_test.go",
+      "mode": "100644",
+      "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+      "sha256": "2b70dfc4aaabc27e0fdf58c2441b3f7a358ec670dd630efaa00c87cde8cfa77c",
+      "bytes": 9755
+    },
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/bootstrap/ledger_records.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "path": "internal/bootstrap/ledger_records.go",
+      "mode": "100644",
+      "git_blob": "d6767b17c0238bc9e0313d2f9b6260aa6740573a",
+      "sha256": "3098084c924f7af912bd544de3bc3ba4985765dad2d32dcd480475ed0c9bc231",
+      "bytes": 30274
+    }
+  },
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no tests, builds, crypto, locks, signing or project helpers were executed.",
+    "File scenarios only establish source-visible local reads/writes/permissions/no-follow/removal; no crash or power-loss durability is qualified.",
+    "No live NATS/authority lease/OCI/retirement ledger/root trust verification or replacement launch is reached by these assertions. All external reconciler dependencies are fakes.",
+    "Refound restart means a new Go guard value reusing paths in the same process; lock test uses two descriptors in one process and does not prove cross-process behavior.",
+    "Refound one-slot root has an independent local-only ledger block; recovery invalid-input error is coupled to actual unchanged persisted identity readback, with that limit retained.",
+    "All original assertions, negative/trust/fencing/no-repeat and preservation obligations remain retained; no repository/ledger/count mutation, promotion, deletion, retirement or global completion credit."
+  ],
+  "findings": [],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false,
+    "independent_peer_required": true
+  },
+  "supersedes_unhanded_packet": {
+    "path": "/tmp/ts-membership-1940-1960-source-zzndimqn",
+    "classification_sha256": "9a2663a28f740af80eaacf9b3c214214caff075769c64d8c6d2d29df5e5ec3d4",
+    "reason": "Pre-handoff self-check tightened seven helper citation bounds and added canonical payload encoding path; root identities, hashes, counts and categories unchanged."
+  }
+}

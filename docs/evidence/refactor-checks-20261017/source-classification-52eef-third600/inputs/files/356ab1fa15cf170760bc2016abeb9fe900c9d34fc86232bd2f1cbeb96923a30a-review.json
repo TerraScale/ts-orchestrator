@@ -1,0 +1,267 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2280_2300",
+  "author": "/root/classification_100_dispatch/batch_2300_2320",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/classification.json",
+    "sha256": "e4e3c5490a6fe85623ff8ed700426b904f4f83ee0800c4c798cd52c57a8885dd",
+    "checksum_path": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/SHA256SUMS",
+    "checksum_sha256": "6c74db2118b1d628052d112be8c5ba8decd5f498fa7c0f0eb5a9ee0b716e728a"
+  },
+  "verdict": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2300:2320)"
+  },
+  "root_ids": [
+    "internal/observability/history_review_test.go::TestSamplerRecordsAClearedStageAsZero",
+    "internal/observability/history_review_test.go::TestShortHistoricalQueryAfterRestoreReadsTheCoveringTier",
+    "internal/observability/history_samples_test.go::TestSnapshotSamplerExcludesTerminalPartitionsFromActiveGauges",
+    "internal/observability/history_samples_test.go::TestSnapshotSamplerOmitsUnavailableFilesystemGauges",
+    "internal/observability/history_test.go::TestDroppedCoverageIsBoundedToRawRetention",
+    "internal/observability/history_test.go::TestHistoryConcurrentAppendAndRange",
+    "internal/observability/history_test.go::TestHistoryDownsamplesIntoTiers",
+    "internal/observability/history_test.go::TestHistoryExportImportRoundTrip",
+    "internal/observability/history_test.go::TestHistoryLabelsBoundsAndStaleSeries",
+    "internal/observability/history_test.go::TestHistoryRateHandlesCounterReset",
+    "internal/observability/history_test.go::TestHistorySamplerSnapshotsToKV",
+    "internal/observability/history_test.go::TestSnapshotSamplerDerivesSeries",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveBoundLoss",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveConsumerRecreation",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveIncompleteReplay",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveInvalidMarkedBatch",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveMarkerDecodedBound",
+    "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchivePublishEvidence",
+    "internal/observability/host_history_publish_size_test.go::TestHostMetricStreamPublishesNearPayloadLimitWithHeaders",
+    "internal/observability/host_history_replay_loss_test.go::TestHostMetricStreamReplayFailures"
+  ],
+  "counts": {
+    "integration": 11,
+    "unit": 1,
+    "mixed": 8,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical test roots, baseline changes and actual connected fixture/production source.",
+    "Literal activated map and accounting[2300:2320) equality; each original/current name and raw survival row verified.",
+    "Explicit current/baseline declaration bounds, complete body text and raw SHA256 verified against pinned Git bytes. Two canonical sampler drifts retained verbatim, no remapping or obligation loss.",
+    "All24 canonical/baseline source-file pins checked for Git blob/mode/SHA256/bytes; every root/assertion/callee blob reference checked.",
+    "All82 assertion/callee spans verified exactly from declared Git line bounds; material target-to-boundary paths independently inspected.",
+    "Real upstream server.NewServer plus nats.Connect loopback path confirmed, not natscell.Start. JetStream FileStorage publication/Info/GetMsg/CAS/ordered-consumer replay and KV paths support the cited targets.",
+    "Authenticated httptest loopback path reaches project server/auth/catalog/history and returned values. Synthetic snapshot/proc-stat inputs and codec-only blocks keep explicit limits.",
+    "Independent local blocks agree with all8 mixed categories; ArchiveBoundLoss remains unit because no broker helper is called.",
+    "Packet/checksum hashes and SHA256SUMS entries verified; classification/README/checksums0444 and directory0555. Own2280 packet was sealed and handed off before this independent peer review."
+  ],
+  "resolved_findings": [
+    {
+      "finding": "Baseline root-file full pins absent from first handed-off corrected packet source_pins.",
+      "resolution": "Author froze fresh final packet and added full six baseline file pins; original packet preserved. All24 full pins now verify.",
+      "superseded_packet": "/tmp/ts-source-classification-2300-2320-corrected-jdsmam7h/classification.json",
+      "superseded_sha256": "86712aacc9c329a9bddbed1290d75f697aae30b53df26ebea17e8cc43b190342"
+    }
+  ],
+  "remaining_findings": [],
+  "retained_limits": [
+    "Historical body changes on terminal-partition and derived-series sampler roots preserve original serving assertions as retained obligations. Source category does not resolve or retire them.",
+    "No test/build/race/runtime execution or receipts; no production cloud, multi-node durability/quorum or live telemetry acceptance.",
+    "One local upstream NATS/FileStorage server and local authenticated HTTP; in-memory gzip snapshots do not establish disk/process restart unless the specific real KV path is asserted."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/observability/history_review_test.go::TestSamplerRecordsAClearedStageAsZero",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Cleared joining-stage zero is read from historySampleValues through authenticated loopback HTTP after two Samples calls. Synthetic placement input is explicit; the observed sample crosses the production API.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestShortHistoricalQueryAfterRestoreReadsTheCoveringTier",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Export/import rebuilds in-memory rollups; the short historical result is retrieved through real authenticated HTTP and must contain covering-tier points. Export/import errors are setup guards, not separate behavior assertions.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_samples_test.go::TestSnapshotSamplerExcludesTerminalPartitionsFromActiveGauges",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Terminal filtering and omitted serving gauges are observed through real HTTP in the two-iteration block. Independent local blocks assert placement maps were not mutated and inspect direct Samples output for all-terminal zero gauges/no rollout. Baseline serving-value expectations changed in canonical source and remain explicit retained obligations.",
+      "baseline_current_identity": "DRIFT_EXPLICITLY_RETAINED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_samples_test.go::TestSnapshotSamplerOmitsUnavailableFilesystemGauges",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Fixture proc reads and an injected filesystem-stat failure feed Samples; every asserted gauge/omission and surviving CPU/memory/load reading is retrieved through real authenticated HTTP. It does not run host statfs or validate live host metrics.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestDroppedCoverageIsBoundedToRawRetention",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Dropped/incomplete evidence is asserted through real authenticated HTTP. Separate direct dropMinutes, Stats and DroppedBetween assertions cover bounded retention and expiry without I/O.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistoryConcurrentAppendAndRange",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Concurrent workers perform real authenticated HTTP range requests and bounded exports while appending. HTTP success is checked by the helper; a separate final direct Stats assertion requires eight series. This is source evidence only, not race-runtime qualification.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistoryDownsamplesIntoTiers",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Raw/minute/five-minute point counts, extrema and automatic tier are read across authenticated loopback HTTP through production catalog/history operations. The synthetic timed data are intentionally in memory.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistoryExportImportRoundTrip",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Round-trip restored series are queried through actual authenticated HTTP. Independent bounded-export size, bounded-import acceptance and malformed-gzip rejection assertions call codec/store methods locally.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistoryLabelsBoundsAndStaleSeries",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Label filters and truncation are verified through real authenticated HTTP. Independent Stats capacity/drop checks, Latest raw-value lookup and Metrics pruning remain local-only assertions.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistoryRateHandlesCounterReset",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Reset-correct rates and plain counter last values are asserted from authenticated HTTP responses; appended vectors are setup for the real API query.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestHistorySamplerSnapshotsToKV",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Direct upstream NATS server plus loopback nats.Connect supports production JetStream KV create/status, empty get, periodic Put/load polling and restart load/import. Final restored Metrics is causally dependent on KV persistence. Collection is a synthetic constant closure; no OCI/member telemetry qualification.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/history_test.go::TestSnapshotSamplerDerivesSeries",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Synthetic member snapshots feed Samples; expected gauges and omitted durable serving metric are asserted on values decoded from real authenticated HTTP. Canonical root removed baseline serving=1 expectation and added absence expectation; both identities and text are preserved.",
+      "baseline_current_identity": "DRIFT_EXPLICITLY_RETAINED",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveBoundLoss",
+      "category": "unit",
+      "source_review": "AGREE",
+      "review_detail": "All sample/byte bounds, ordered prefixes, sticky incomplete marker, codec round-trip and repeated-bounding drop counts use local data and encode/decode/BoundHostMetricBatch only. No broker helper is called.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveConsumerRecreation",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Real JetStream publication, ordered consumer replay/cancellation, DeleteMsg and a fresh handle establish sticky-versus-rebuilt loss evidence and resume cursor assertions. Local booleans and counts summarize this actual consumed state.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveIncompleteReplay",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Marked and complete records are published to a real loopback JetStream server; fresh readers replay and follow future data. Sticky archive-loss and sample counts depend on consumed stored messages.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveInvalidMarkedBatch",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "Separate invalid Publish assertion exercises pre-I/O gauge validation locally. Malformed marked raw bytes and a valid record are also really published/replayed; replay must reject the malformed record without accepting its incomplete marker or sample.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchiveMarkerDecodedBound",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "The marker-size fixture reaches real publication rejection/durable-empty readback, raw-record rejection replay, and successful bounded archive replay via helpers. A separate exact half-prefix/new-drop-count assertion calls BoundHostMetricBatch locally.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_archive_loss_test.go::TestHostMetricArchivePublishEvidence",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Lost-ack wrapper delegates actual JetStream publish before returning a deadline. Retry/different-marker confirmation is checked against real retained bytes and one stored record; subsequent replay must reproduce the retained marker and exactly one sample.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_publish_size_test.go::TestHostMetricStreamPublishesNearPayloadLimitWithHeaders",
+      "category": "mixed",
+      "source_review": "AGREE",
+      "review_detail": "The separate BoundHostMetricBatch no-drop assertion remains local. Actual stream configuration readback, near-limit CAS publish, identical retry and final one-message state cross real JetStream. Payload/header arithmetic also establishes the fixture reaches the old limit.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    },
+    {
+      "root_id": "internal/observability/host_history_replay_loss_test.go::TestHostMetricStreamReplayFailures",
+      "category": "integration",
+      "source_review": "AGREE",
+      "review_detail": "Seven malformed/truncated/invalid raw records and one valid record cross actual JetStream publication and ordered replay; retry tails must avoid recounting loss and accept future valid publications. Counters before/after reflect actual stream consumption.",
+      "baseline_current_identity": "RAW_DECLARATION_EXACT",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "retirement_delta": 0,
+    "deletion_delta": 0,
+    "runtime_qualification_delta": 0,
+    "completion_promotion": false
+  }
+}

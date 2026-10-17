@@ -1,0 +1,264 @@
+{
+  "schema": "independent-source-only-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2120_2140",
+  "author": "/root/classification_100_dispatch/batch_2140_2160",
+  "accepted_packet_path": "/tmp/ts-source-classification-2140-2160-o90o_96o/classification.json",
+  "accepted_packet_sha256": "2b0b268a76279067f4376c47749bea388f990009b140e5fbfc6e9f76a04849c3",
+  "accepted_checksum_path": "/tmp/ts-source-classification-2140-2160-o90o_96o/SHA256SUMS",
+  "accepted_checksum_sha256": "82119975b5424343b42ab951f7cf4164af5c8de60b9e171112060e040d254041",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2140,
+      2160
+    ]
+  },
+  "root_ids": [
+    "internal/netbird/client/managed_test.go::TestManagedStartupRecoversFirstInstallBeforeServiceCreation",
+    "internal/netbird/client/managed_test.go::TestManagedStartupRecoveryRepairsWatchdogOrRollsBackExpiredJournal",
+    "internal/netbird/client/managed_test.go::TestManagedTransactionIdentityAndBootstrapOwnership",
+    "internal/netbird/client/managed_test.go::TestManagedTransactionRejectsNoncanonicalIDs",
+    "internal/netbird/client/managed_test.go::TestManagedWatchdogHonorsCurrentDeadlineAndIdentity",
+    "internal/netbird/client/managed_test.go::TestValidateManagedVersion",
+    "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerAcknowledgesPreJournalFailure",
+    "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerMatchingJournalAlwaysRollsBack",
+    "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerNoopRejectsUnprovenOrPendingTransactions",
+    "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerProofDoesNotBypassLockValidationOrCancellation",
+    "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerWatchdogCleanupCannotRevokeNoopAcknowledgment",
+    "internal/netbird/config_test.go::TestConfigAcceptsOptionalAdminPATSecretInRegion",
+    "internal/netbird/config_test.go::TestConfigDefaultsAndStrictManagerValidation",
+    "internal/netbird/config_test.go::TestControllerConfigReportsMissingFile",
+    "internal/netbird/config_test.go::TestLoadConfigRejectsUnknownDuplicatesSymlinksAndWritableConfig",
+    "internal/netbird/config_test.go::TestPeerNamesRequirePrivateIPv4KeysAndUniqueServerNames",
+    "internal/netbird/decisions_test.go::TestFailedEnrollmentIsNotReportedAsDisconnected",
+    "internal/netbird/enroll_test.go::TestBootReconnectInProgressIsAwaitedWithoutUp",
+    "internal/netbird/enroll_test.go::TestCancellationPropagatesFromObserveAndAwaitDaemon",
+    "internal/netbird/enroll_test.go::TestConnectedEnrollmentDoesNotReadVaultOrRunUp"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 8,
+    "mixed": 5,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own2120:2140 packet was sealed and sent to author/dispatcher before starting cyclic2140:2160 independent review.",
+    "Independently read all twenty whole current declarations, original/current raw identities, fixture setup and actual production paths; baseline/current source equality confirms full raw declarations at explicit manual bounds.",
+    "Literal twenty-root activated allocation and survival rows verified, exact baseline/current declaration bytes/bounds/hashes checked, all source Git blob/mode/SHA256/byte pins verified.",
+    "Every supplied exact assertion and connected callee citation text/bounds/blob checked against pinned canonical Git; classifications and unit/mixed partitions independently assessed from actual reached calls.",
+    "Immutable packet directory0555/files0444 and exact SHA256SUMS contents/hash checked; input metadata pins verified."
+  ],
+  "metadata_check_counts": {
+    "roots": 20,
+    "source_pins": 26,
+    "assertion_spans": 24,
+    "connected_callee_spans": 42
+  },
+  "manual_assessment": [
+    "Managed startup/identity/worker roots classified integration materially read/write actual journals, snapshots and ELF-shaped files or contend on actual flock; systemctl/status/enroll remain test closures. No real process restart is inferred from copied struct.",
+    "Noncanonical-ID/managed-version vectors and config/peer-name predicates remain unit. Watchdog noncanonical stale-identity branch is explicitly local-only and coexists with actual journal/file rollback cases in mixed root.",
+    "Worker invalid-ID/canceled-context and cleanup callback argument/deadline blocks remain explicit unit obligations alongside actual stored-state preservation.",
+    "LoadConfig malformed JSON vectors remain explicit local-only alongside real descriptor/symlink/mode cases. Missing controller config tests actual production Lstat absence.",
+    "Decision journal is in-memory without Sink/Archive/Run. Boot/cancellation enrollment roots assert synthetic runner behavior; hosts/runtime side effects are incidental there. ConnectedEnrollment additionally asserts actual production hosts write/readback and is mixed."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestManagedStartupRecoversFirstInstallBeforeServiceCreation",
+      "category": "integration",
+      "line": 655,
+      "end_line": 684,
+      "original_declaration_sha256": "5e415276d3e49f38aaae7eb206e866c64797e62eabe44bb15b69648d4c6a2c11",
+      "current_declaration_sha256": "5e415276d3e49f38aaae7eb206e866c64797e62eabe44bb15b69648d4c6a2c11",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestManagedStartupRecoveryRepairsWatchdogOrRollsBackExpiredJournal",
+      "category": "integration",
+      "line": 611,
+      "end_line": 653,
+      "original_declaration_sha256": "ccd68f0c4ea188a3202df30ec3d446f9b484eb25b9915f24ac81d031d621dc2c",
+      "current_declaration_sha256": "ccd68f0c4ea188a3202df30ec3d446f9b484eb25b9915f24ac81d031d621dc2c",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestManagedTransactionIdentityAndBootstrapOwnership",
+      "category": "integration",
+      "line": 743,
+      "end_line": 758,
+      "original_declaration_sha256": "3f33f44ecc892c827dbc4489899a3dc20f79899153e1e9ba80499deaf098595c",
+      "current_declaration_sha256": "3f33f44ecc892c827dbc4489899a3dc20f79899153e1e9ba80499deaf098595c",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestManagedTransactionRejectsNoncanonicalIDs",
+      "category": "unit",
+      "line": 760,
+      "end_line": 773,
+      "original_declaration_sha256": "7a446825647587dab0fd46ca47849944b325068bb0eff886e3afa66d8336a967",
+      "current_declaration_sha256": "7a446825647587dab0fd46ca47849944b325068bb0eff886e3afa66d8336a967",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestManagedWatchdogHonorsCurrentDeadlineAndIdentity",
+      "category": "mixed",
+      "line": 442,
+      "end_line": 496,
+      "original_declaration_sha256": "68c0be921d4cd44956f4905a6acce2b4666792a7d3db5478491a0c82ace4730f",
+      "current_declaration_sha256": "68c0be921d4cd44956f4905a6acce2b4666792a7d3db5478491a0c82ace4730f",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/managed_test.go::TestValidateManagedVersion",
+      "category": "unit",
+      "line": 118,
+      "end_line": 129,
+      "original_declaration_sha256": "fd9e484ce0cb24ccf7e9d63f469751689311a9a5a950c1c975707b500d8d0cf3",
+      "current_declaration_sha256": "fd9e484ce0cb24ccf7e9d63f469751689311a9a5a950c1c975707b500d8d0cf3",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerAcknowledgesPreJournalFailure",
+      "category": "integration",
+      "line": 16,
+      "end_line": 92,
+      "original_declaration_sha256": "686c79abf0ee5354436ee6701c3f974b4b87c50c071adc948385f50248666496",
+      "current_declaration_sha256": "686c79abf0ee5354436ee6701c3f974b4b87c50c071adc948385f50248666496",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerMatchingJournalAlwaysRollsBack",
+      "category": "integration",
+      "line": 151,
+      "end_line": 175,
+      "original_declaration_sha256": "088abae7b5136b8ff271f5c35b638c9bd386165f2683fd71e42f6f5f09e51c4a",
+      "current_declaration_sha256": "088abae7b5136b8ff271f5c35b638c9bd386165f2683fd71e42f6f5f09e51c4a",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerNoopRejectsUnprovenOrPendingTransactions",
+      "category": "integration",
+      "line": 94,
+      "end_line": 149,
+      "original_declaration_sha256": "28aa6cc01aa4161a898e7a4ecda4a79cbb8353a908a20816da8a4cc9ecaa6e54",
+      "current_declaration_sha256": "28aa6cc01aa4161a898e7a4ecda4a79cbb8353a908a20816da8a4cc9ecaa6e54",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerProofDoesNotBypassLockValidationOrCancellation",
+      "category": "mixed",
+      "line": 177,
+      "end_line": 203,
+      "original_declaration_sha256": "592de5fe04d821d8476a182c1f7f7db6c7163a3d37ae7a20e3840b069e5c5c8b",
+      "current_declaration_sha256": "592de5fe04d821d8476a182c1f7f7db6c7163a3d37ae7a20e3840b069e5c5c8b",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/client/worker_rollback_test.go::TestManagedWorkerWatchdogCleanupCannotRevokeNoopAcknowledgment",
+      "category": "mixed",
+      "line": 205,
+      "end_line": 239,
+      "original_declaration_sha256": "756ed9901cb24392282bb9c6a19ce815e1a4ea2feee09bfe2ebacaa8b24097d0",
+      "current_declaration_sha256": "756ed9901cb24392282bb9c6a19ce815e1a4ea2feee09bfe2ebacaa8b24097d0",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/config_test.go::TestConfigAcceptsOptionalAdminPATSecretInRegion",
+      "category": "unit",
+      "line": 116,
+      "end_line": 126,
+      "original_declaration_sha256": "47f8977c136d6c14ea2a47df056e7e66a08ef5c50bc0899085427343c893a823",
+      "current_declaration_sha256": "47f8977c136d6c14ea2a47df056e7e66a08ef5c50bc0899085427343c893a823",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/config_test.go::TestConfigDefaultsAndStrictManagerValidation",
+      "category": "unit",
+      "line": 12,
+      "end_line": 44,
+      "original_declaration_sha256": "295b50ad10e5b6d4004bd3423cac7de46ea1eff89d9f78fb061084ebfcd62cdd",
+      "current_declaration_sha256": "295b50ad10e5b6d4004bd3423cac7de46ea1eff89d9f78fb061084ebfcd62cdd",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/config_test.go::TestControllerConfigReportsMissingFile",
+      "category": "integration",
+      "line": 128,
+      "end_line": 132,
+      "original_declaration_sha256": "cde95c8f8e82174bdb917fa499a2006100cd8952e76fc1c8e0a2280a6b52657b",
+      "current_declaration_sha256": "cde95c8f8e82174bdb917fa499a2006100cd8952e76fc1c8e0a2280a6b52657b",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/config_test.go::TestLoadConfigRejectsUnknownDuplicatesSymlinksAndWritableConfig",
+      "category": "mixed",
+      "line": 46,
+      "end_line": 85,
+      "original_declaration_sha256": "51baf6f589943925b5a0f4eb793e05f0693d82a7804c2204a59595b9443244c3",
+      "current_declaration_sha256": "51baf6f589943925b5a0f4eb793e05f0693d82a7804c2204a59595b9443244c3",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/config_test.go::TestPeerNamesRequirePrivateIPv4KeysAndUniqueServerNames",
+      "category": "unit",
+      "line": 87,
+      "end_line": 114,
+      "original_declaration_sha256": "54c53617f70a3a34d00a505929efc76dd53971198cf3eb23bff6972faa7ab699",
+      "current_declaration_sha256": "54c53617f70a3a34d00a505929efc76dd53971198cf3eb23bff6972faa7ab699",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/decisions_test.go::TestFailedEnrollmentIsNotReportedAsDisconnected",
+      "category": "unit",
+      "line": 13,
+      "end_line": 27,
+      "original_declaration_sha256": "284c966d7b0c1d78424575e36d5629e3fd88e148bc5a5ced151e2112bf370631",
+      "current_declaration_sha256": "284c966d7b0c1d78424575e36d5629e3fd88e148bc5a5ced151e2112bf370631",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestBootReconnectInProgressIsAwaitedWithoutUp",
+      "category": "unit",
+      "line": 390,
+      "end_line": 414,
+      "original_declaration_sha256": "875d400e5207f276cf33fa89a508e82d8e11780a50b86a7ff0c834d390ea61c4",
+      "current_declaration_sha256": "875d400e5207f276cf33fa89a508e82d8e11780a50b86a7ff0c834d390ea61c4",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestCancellationPropagatesFromObserveAndAwaitDaemon",
+      "category": "unit",
+      "line": 443,
+      "end_line": 499,
+      "original_declaration_sha256": "ba132deec3bd9be39b359e7c99b341b7c2a30681af2df03fd458a6bc345de6db",
+      "current_declaration_sha256": "ba132deec3bd9be39b359e7c99b341b7c2a30681af2df03fd458a6bc345de6db",
+      "status": "independently source reviewed; metadata verified"
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestConnectedEnrollmentDoesNotReadVaultOrRunUp",
+      "category": "mixed",
+      "line": 51,
+      "end_line": 77,
+      "original_declaration_sha256": "1633c2d2770e671c0228a378e5f613be71df664768230bd5e491fd6e779d4600",
+      "current_declaration_sha256": "1633c2d2770e671c0228a378e5f613be71df664768230bd5e491fd6e779d4600",
+      "status": "independently source reviewed; metadata verified"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "runtime_qualification_credit": false,
+    "global_completion_credit": false
+  }
+}

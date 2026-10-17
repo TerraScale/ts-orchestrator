@@ -1,0 +1,8 @@
+Source-only twenty-root candidate: other_unadjudicated[2420:2440).
+Owner /root/classification_100_dispatch/batch_2420_2440
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e tree 425f29503c1880f68c0499a8372e08b466f370de
+Counts: integration 3; unit 17; mixed 0; unresolved 0.
+All baseline/current declarations match raw survival identities; no body drift found.
+Journal expiry roots cross real authenticated NATS client/broker/JetStream storage; remaining roots use synthetic maps and callbacks.
+Runtime UNKNOWN; no execution, repository/ledger mutation, retirement/deletion/count promotion or completion credit.
+Independent review required by /root/classification_100_dispatch/batch_2400_2420.

@@ -1,0 +1,8 @@
+SOURCE_ONLY_CANDIDATE — original other_unadjudicated[2140:2160)
+Owner: /root/classification_100_dispatch/batch_2140_2160
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Twenty manually reviewed full roots; raw baseline/current declarations match survival pins.
+Categories: {'integration': 7, 'unit': 8, 'mixed': 5, 'unresolved': 0}. These are candidate source categories, not accepted ledger counts.
+Actual managed file/journal operations are separated from fake service/daemon commands; config schema and ID/context predicates retain unit obligations.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source/repository/ledger changes or test execution.
+Independent peer review is required. Safety obligations retained; retirement_authorized false.

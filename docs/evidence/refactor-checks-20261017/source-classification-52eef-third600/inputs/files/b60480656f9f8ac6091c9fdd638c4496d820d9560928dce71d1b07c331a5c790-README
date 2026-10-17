@@ -1,0 +1,4 @@
+Source-only candidate20roots other_unadjudicated[2080:2100].
+11 integration / 4 unit / 4 mixed / 1 unresolved conditional relay-reader.
+Peer wording correction: preparation test compares decoded ledger state, not raw file bytes. Categories/pins unchanged; prior packets preserved.
+Runtime UNKNOWN; no source/ledger/count/retirement/deletion/completion credit.

@@ -1,0 +1,82 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2440_2460",
+  "author": "/root/classification_100_dispatch/batch_2460_2480",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/classification.json",
+    "sha256": "980537da8039ba76ade9937112ee89f12f1816de5524c09b1acc1be59154763c",
+    "checksum_path": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/SHA256SUMS",
+    "checksum_sha256": "01805a402f94461c4c8bcfb57747767f6add265a2e100260ed312e843bbf3663"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2460:2480]"
+  },
+  "root_ids": [
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachRecoversExactAttachmentFromIntentWithoutResult",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachRejectsIncompleteObservedPolicy",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachRequiresDurableOwnership",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachRequiresPinnedImageAndConsistentNaming",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachScopesItsRetryTokenToTheFleet",
+    "internal/oci/fleet_test.go::TestRetainedVolumeOperationsHoldWithoutImageVerifier",
+    "internal/oci/fleet_test.go::TestStaleLeaderCannotLaunch",
+    "internal/oci/fleet_test.go::TestTerminateRequiresNoAttachedVolumeAndVerifiedWriterStop",
+    "internal/oci/member_volume_restore_verify_test.go::TestVerifyRestoredAttachmentFailsClosedOnWrongVolumeScopeStateAndAttachments",
+    "internal/oci/member_volume_restore_verify_test.go::TestVerifyRestoredAttachmentReadsExactScratchCopyWithoutMutatingOCI",
+    "internal/oci/member_volume_retire_test.go::TestMemberNameReuseLostCreateResponseReplaysFreshIncarnation",
+    "internal/oci/member_volume_retire_test.go::TestMemberVolumeResizeChecksRecordedIDBeforeAnyUpdate",
+    "internal/oci/member_volume_retire_test.go::TestMemberVolumeRetireRefusesOtherLiveAttachmentAndWrongRecordedData",
+    "internal/oci/member_volume_retire_test.go::TestMemberVolumeRetireRetainsAndNameReuseCreatesFreshVolume",
+    "internal/oci/member_volume_retire_test.go::TestMemberVolumeRetirementRetriesUnknownOutcomes",
+    "internal/oci/member_volume_test.go::TestMemberVolumeCarriesTheCellBackupPolicy",
+    "internal/oci/member_volume_test.go::TestMemberVolumeCreatesAndAttachesOnceIdempotently",
+    "internal/oci/member_volume_test.go::TestMemberVolumeDuplicateCreateKeyHolds",
+    "internal/oci/member_volume_test.go::TestMemberVolumeFailsClosedOnTerminatedVolume",
+    "internal/oci/member_volume_test.go::TestMemberVolumeHoldsWhenDeviceIsBusy"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "review_method": "Own packet frozen before peer review. Independently read all 20 whole actual roots and actual connected production/fixture/provider/journal paths from canonical Git. Metadata-only hash/text checks over supplied explicit spans; no parser, scanner, helper, project execution or source edits.",
+  "checks_performed": [
+    "Packet and SHA256SUMS exact advertised hashes, all listed member hashes and immutable file0444/directory0555 modes.",
+    "Five input pins; literal 20-root allocation/accounting slice and all survival original/current names, state and declaration digests.",
+    "All 40 raw baseline/current declaration spans/text/hashes from func through column-zero closing brace excluding following LF. Baseline/current test source bytes are unchanged.",
+    "Every cited canonical source file blob/mode/SHA256/bytes and every assertion and connected callee evidence span/text. Connected evidence references resolve.",
+    "All 20 source categories independently assessed: real Fleet/MemberVolumes code delegates to fakeProvider, fakeJournal, resizeProvider/retireProvider maps and stub verifier/fencer values. No genuine provider/store/device/process/network boundary supports the asserted targets. Counts exhaust only this allocation."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "kind": "retained_coverage_limit",
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachRequiresDurableOwnership",
+      "detail": "Confirmed author finding: volumeKey data-volume-01 fails canonical entity-ID validation in reobserveVolumeResource before journal ownership. Unit category is supported; the precise missing-journal ownership branch remains unproven and its safety obligation is retained."
+    }
+  ],
+  "reviewer_corrections_required": false,
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "global_count_delta": 0,
+    "retirement_delta": 0,
+    "runtime_qualification_delta": 0,
+    "global_completion": false
+  },
+  "qualification_limits": [
+    "Acceptance applies only to the exact packet SHA256 above and is source-only candidate review.",
+    "No Go/build/test/helper/compiler/formatter/lint/benchmark/runtime/crypto/cloud/TerraBase execution or downloads. Metadata and Git hashes only.",
+    "No actual OCI volume restore, mutation, data retention, writer-stop, durable journal, mounted scratch disk, authority service or restart proof is established.",
+    "No source/test deletion, retirement, count promotion, live qualification or completion authority."
+  ]
+}

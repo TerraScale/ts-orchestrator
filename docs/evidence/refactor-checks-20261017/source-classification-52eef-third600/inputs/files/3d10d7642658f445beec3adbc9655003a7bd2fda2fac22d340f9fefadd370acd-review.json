@@ -1,0 +1,303 @@
+{
+  "schema": "independent-source-only-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2180_2200",
+  "author": "/root/classification_100_dispatch/batch_2200_2220",
+  "accepted_packet": "/tmp/ts-source-2200-2220-e7qq2n_o/classification.json",
+  "accepted_packet_sha256": "bec667c4c37824eec14846a9650e3b0c0ad48fc4dd204ab391bc9b943f756ab9",
+  "accepted_checksum_path": "/tmp/ts-source-2200-2220-e7qq2n_o/SHA256SUMS",
+  "accepted_checksum_sha256": "c158629f7707dc7cef64a9603335f711ae59dabfd39dd97a831fac03a2adef2d",
+  "reviewed_after_own_freeze": {
+    "path": "/tmp/ts-source-2180-2200-yoj6xb8v/classification.json",
+    "sha256": "c93fbf66bf5f4f5ec34afca03d380d357f1bab48286965892918d5d093400abe"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2200:2220]"
+  },
+  "root_ids": [
+    "internal/netbird/rollout/reconcile_test.go::TestLegacyRollbackReturnFailureKeepsRecoveryProofAcrossPinChanges",
+    "internal/netbird/rollout/reconcile_test.go::TestMatchingPinSkipsDrainAndInvalidDaemonVersionHolds",
+    "internal/netbird/rollout/reconcile_test.go::TestMissingPriorDaemonDrainTimeoutReturnsWithoutRollback",
+    "internal/netbird/rollout/reconcile_test.go::TestPendingNodeAnywhereBlocksNewRollout",
+    "internal/netbird/rollout/reconcile_test.go::TestPostConfirmationMeshFailureRollsBackBeforeAnotherNode",
+    "internal/netbird/rollout/reconcile_test.go::TestReconcilerRejectsOldTransactionWithoutEffects",
+    "internal/netbird/rollout/reconcile_test.go::TestReturnPhasesReDrainBeforeDeadlineAndRetryFailedDrain",
+    "internal/netbird/rollout/reconcile_test.go::TestReturnPhasesReDrainInterruptedReturnBeforeHealth",
+    "internal/netbird/rollout/reconcile_test.go::TestReturnRefusesAReportedPendingTransaction",
+    "internal/netbird/rollout/reconcile_test.go::TestRollbackAcknowledgmentWithAnErrorKeepsTheFence",
+    "internal/netbird/rollout/reconcile_test.go::TestRollbackWaitsForAnAcknowledgedEffectInsteadOfFreshPreinstallStatus",
+    "internal/netbird/rollout/reconcile_test.go::TestRollbackWaitsForSafeRedrainAndRenewsAcknowledgmentWindow",
+    "internal/netbird/rollout/reconcile_test.go::TestRolloutDrainsAndConfirmsOneNodeBeforeSelectingAnother",
+    "internal/netbird/rollout/reconcile_test.go::TestSameVersionNeedsTheCompleteAppliedTarget",
+    "internal/netbird/rollout/reconcile_test.go::TestTargetHashIsStableForEquivalentPeerNameMaps",
+    "internal/netbird/rollout/reconcile_test.go::TestUnresolvedRollbackKeepsCellHeldAcrossPinChanges",
+    "internal/netbird/rollout/unjournaled_test.go::TestPreJournalInstallFailureRequiresNoopRollbackAcknowledgment",
+    "internal/netbird/vault_context_test.go::TestInstancePrincipalInitializationRespectsEnrollmentDeadline",
+    "internal/netbird/vault_context_test.go::TestSecretsInitializationReleasesCallerDuringSDKBackoff",
+    "internal/netbird/vault_test.go::TestAdminPATShapeIsSharedAndBounded"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read twenty full canonical roots and actual helper/callback/production paths; accepted categories only after reading source.",
+    "Verified exact literal allocation/accounting/survival mappings, original/current raw declarations and manually inspected bounds against baseline/current Git.",
+    "Verified every cited canonical and baseline file blob, mode, SHA256, byte count; every assertion/callee span text and Git blob.",
+    "Confirmed callbacks terminate in memory/closures/channels and local predicates; no reached service/store/process/protocol supports asserted boundary.",
+    "Verified packet SHA256SUMS and0444files/0555directory; no source/repo/ledger mutation or runtime execution."
+  ],
+  "pin_checks": [
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/rollout/reconcile_test.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/rollout/unjournaled_test.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/vault_context_test.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/vault_test.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/rollout/reconcile.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/netbird/vault.go",
+    "52eef25bad09736d8f0806ecaccaef1a7c86b49e:internal/entityid/id.go",
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/netbird/rollout/reconcile_test.go",
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/netbird/rollout/unjournaled_test.go",
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/netbird/vault_context_test.go",
+    "bfca60368f60d2da67f9016d1d489317ae8749c8:internal/netbird/vault_test.go"
+  ],
+  "connected_spans_verified": 12,
+  "root_checks": [
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLegacyRollbackReturnFailureKeepsRecoveryProofAcrossPinChanges",
+      "category": "unit",
+      "baseline_current_bounds": [
+        846,
+        872
+      ],
+      "raw_declaration_sha256": "3346ff5a0e3d9762808b8c4187f3972adb30c9a3242e741af7429442f2d1c56b",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestMatchingPinSkipsDrainAndInvalidDaemonVersionHolds",
+      "category": "unit",
+      "baseline_current_bounds": [
+        397,
+        414
+      ],
+      "raw_declaration_sha256": "9e01b546928f16eb5bf12765724f4a29baa1ea144ed9c64fea2e4b0a7cfd5c00",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestMissingPriorDaemonDrainTimeoutReturnsWithoutRollback",
+      "category": "unit",
+      "baseline_current_bounds": [
+        752,
+        764
+      ],
+      "raw_declaration_sha256": "b6973082fa84d9264879a0f25e645e2f6233cbabe0dae960f998ea9ab945cdeb",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestPendingNodeAnywhereBlocksNewRollout",
+      "category": "unit",
+      "baseline_current_bounds": [
+        889,
+        900
+      ],
+      "raw_declaration_sha256": "4573c963b09d0bc266eb83a0075ac70d5c858f9f7bc13cba5206415ff9e12e00",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestPostConfirmationMeshFailureRollsBackBeforeAnotherNode",
+      "category": "unit",
+      "baseline_current_bounds": [
+        273,
+        291
+      ],
+      "raw_declaration_sha256": "4928098a85970cb91cb2b25fc838e2144427bbce91473c4dcb14abfe4fa8d752",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestReconcilerRejectsOldTransactionWithoutEffects",
+      "category": "unit",
+      "baseline_current_bounds": [
+        1048,
+        1055
+      ],
+      "raw_declaration_sha256": "3a9788e168e0c4372787784ab66187489e044d95944b754482f28c0847fc1368",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestReturnPhasesReDrainBeforeDeadlineAndRetryFailedDrain",
+      "category": "unit",
+      "baseline_current_bounds": [
+        329,
+        360
+      ],
+      "raw_declaration_sha256": "1c7b50fa76dbbd68132d65ecee1c25f2b9c9bb935b3f88b94774a9bdc5787d52",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestReturnPhasesReDrainInterruptedReturnBeforeHealth",
+      "category": "unit",
+      "baseline_current_bounds": [
+        362,
+        395
+      ],
+      "raw_declaration_sha256": "270693caec30f6a569d547e2d1d82132fb9aeee89b1bd7579dd5f7905c657afe",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestReturnRefusesAReportedPendingTransaction",
+      "category": "unit",
+      "baseline_current_bounds": [
+        1034,
+        1046
+      ],
+      "raw_declaration_sha256": "a98b0d7bd13459929b08b7fc9e715db323a7dabb668da6f8191e2d0c33dfd264",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestRollbackAcknowledgmentWithAnErrorKeepsTheFence",
+      "category": "unit",
+      "baseline_current_bounds": [
+        476,
+        490
+      ],
+      "raw_declaration_sha256": "4f09c1cf0c08dfb8c540ecf217413b7f2cc52020579f465eeddeafd0bbf72a69",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestRollbackWaitsForAnAcknowledgedEffectInsteadOfFreshPreinstallStatus",
+      "category": "unit",
+      "baseline_current_bounds": [
+        447,
+        474
+      ],
+      "raw_declaration_sha256": "a1b274fc1ad8d232025cccfbe5cb52c049bc6651186996d0964a9edb15af4c44",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestRollbackWaitsForSafeRedrainAndRenewsAcknowledgmentWindow",
+      "category": "unit",
+      "baseline_current_bounds": [
+        657,
+        687
+      ],
+      "raw_declaration_sha256": "81e5f993e8c7f1f0bfb94cc558e92ffbc2cdf78ba5cc2f2fa2b56b9b1a90e66e",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestRolloutDrainsAndConfirmsOneNodeBeforeSelectingAnother",
+      "category": "unit",
+      "baseline_current_bounds": [
+        250,
+        271
+      ],
+      "raw_declaration_sha256": "c46ec5522f9c8d0262c0f5e093102faa017df859cc8568c169d074d89ac40055",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestSameVersionNeedsTheCompleteAppliedTarget",
+      "category": "unit",
+      "baseline_current_bounds": [
+        416,
+        445
+      ],
+      "raw_declaration_sha256": "bba7ca52a50a895ad52f08ed67c32e0aada1a1a0dd2ff2376b84ff85c7c78165",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestTargetHashIsStableForEquivalentPeerNameMaps",
+      "category": "unit",
+      "baseline_current_bounds": [
+        235,
+        248
+      ],
+      "raw_declaration_sha256": "de36d53ffaac5874437ac341a727215c6548523080207e15184020836ec4cbb4",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestUnresolvedRollbackKeepsCellHeldAcrossPinChanges",
+      "category": "unit",
+      "baseline_current_bounds": [
+        991,
+        1011
+      ],
+      "raw_declaration_sha256": "3911cb442e02bfb92550973325b0353a8675f74c88502fbebd532acc68c3b6c8",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/rollout/unjournaled_test.go::TestPreJournalInstallFailureRequiresNoopRollbackAcknowledgment",
+      "category": "unit",
+      "baseline_current_bounds": [
+        5,
+        37
+      ],
+      "raw_declaration_sha256": "a564d7610ef77e1b87904eefc8b84fcd4978114f6bfbbcccb892b16e272d4d6c",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/vault_context_test.go::TestInstancePrincipalInitializationRespectsEnrollmentDeadline",
+      "category": "unit",
+      "baseline_current_bounds": [
+        19,
+        39
+      ],
+      "raw_declaration_sha256": "e01aeb63fc31e903d75bb17a9519ecbf1919dd15a8f5da00e6eec1192bafdd71",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/vault_context_test.go::TestSecretsInitializationReleasesCallerDuringSDKBackoff",
+      "category": "unit",
+      "baseline_current_bounds": [
+        41,
+        61
+      ],
+      "raw_declaration_sha256": "83d8e436fb901da94e97889015e48b5618e336ee3112890ea2fbd799a0db7991",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestAdminPATShapeIsSharedAndBounded",
+      "category": "unit",
+      "baseline_current_bounds": [
+        212,
+        231
+      ],
+      "raw_declaration_sha256": "869a8de91cd087eae108d9ea9a66b91fe9fa2a9c625b5cd9094fba851e510e64",
+      "mapping_raw_hash_assertion_spans_verified": true,
+      "whole_root_and_actual_calls_manually_reviewed": true
+    }
+  ],
+  "source_judgment": "Accepted all20 unit. Sixteen reconcile roots and one unjournaled root use local JSON journal/maps/effect hooks. Deadline dispatcher delegates to a test closure without transport. SDK-backoff initializer is a channel-blocked closure. PAT tests local byte predicate. No source-visible blocker or separate real-boundary assertion block found.",
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_count_deletion_retirement_completion_credit": "NONE",
+  "qualification_limits": [
+    "Source acceptance only; no runtime pass/fail or live OCI/NetBird/TerraBase qualification.",
+    "Every safety/recovery/ordering/validation obligation remains retained; separate ledger acceptance is required for any count change."
+  ]
+}

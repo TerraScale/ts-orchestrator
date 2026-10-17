@@ -1,0 +1,689 @@
+{
+  "exact_range": [
+    1900,
+    2500
+  ],
+  "original_records": 600,
+  "unique_root_ids": 600,
+  "missing_ids": [],
+  "extra_ids": [],
+  "excluded_intersection": [],
+  "owners": 30,
+  "distinct_independent_peers": 30,
+  "self_reviews": 0,
+  "original_survival_hash_matches": 600,
+  "canonical_current_hash_records": 600,
+  "missing_current_declaration_mapping": [],
+  "counts": {
+    "integration": 214,
+    "unit": 282,
+    "mixed": 86,
+    "unresolved": 18
+  },
+  "all60_exact_packet_and_receipt_hashes_match": true,
+  "all30_receipts_bind_final_packet_hash": true,
+  "checksum_manifest_entries_verified": 110,
+  "manifest_entry_checks": [
+    {
+      "manifest": "/tmp/ts-source-1900-1920-kswmwght/SHA256SUMS",
+      "file": "/tmp/ts-source-1900-1920-kswmwght/classification.json",
+      "sha256": "cbbab27de2dc566ca42034f7386ec8827776e6f535de2b1d42190d895ded355d",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-1900-1920-kswmwght/SHA256SUMS",
+      "file": "/tmp/ts-source-1900-1920-kswmwght/README",
+      "sha256": "581e08bac83728ce3ceefd632a64b07b5849c485b94896eab9f7ef0985f8e27b",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-1900-1920-by-2480-3eciop4w/SHA256SUMS",
+      "file": "/tmp/ts-peer-1900-1920-by-2480-3eciop4w/review.json",
+      "sha256": "33c5b04269fb098522a6c7a37ca6877e418d65b3f2ffee8dda86bca25722367f",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-1900-1920-by-2480-3eciop4w/SHA256SUMS",
+      "file": "/tmp/ts-peer-1900-1920-by-2480-3eciop4w/README",
+      "sha256": "45e23c6fadf46e4ddaa3c738a6b76acc2aaca0f4cea2400d7bb5c1958da174d3",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/classification.json",
+      "sha256": "c2442b09ad9ee3847fe84b5dd7bff21cea3b6f643739dc9d0f8d0488e59852a0",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/README",
+      "sha256": "5e9defa34cf60ee5a22a3c7b8c6f2740ffb9d44713b70577b2573bbd38a92443",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1920-1940-h9zampx9/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1920-1940-h9zampx9/review.json",
+      "sha256": "1bfdd3895ec0723d57abde1416f7c3996524d08e06807515591a978bb967623c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1920-1940-h9zampx9/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1920-1940-h9zampx9/README",
+      "sha256": "a68ed5ce26bac50972798b0d05f5ade4065ce5fe1cf5eab3d064f3d2bd50b950",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/SHA256SUMS",
+      "file": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/classification.json",
+      "sha256": "2017c27d18fcf495083839777a33fe9aa6edcb67fc1566d8d08842f16bbc397a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/SHA256SUMS",
+      "file": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/README",
+      "sha256": "69cdc977c262766a75ad22a37ff9c1e47888bd50f058b9e88eaa8df1bd43c7cc",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1940-1960-9yqbawog/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1940-1960-9yqbawog/review.json",
+      "sha256": "6771fcf5480ec6940eb1e3bcd658b0cb77394e674262a77a0e44e30e4e15df43",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1940-1960-9yqbawog/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1940-1960-9yqbawog/README",
+      "sha256": "e3a5a5c8b1c901942d0be49ef8232b6364a99d88b87d177f03c4fb1ccb912489",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/classification.json",
+      "sha256": "ab83f94361401192673b8550ee259e920f490357be6edbc9e9c06acf707b31a3",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/README.md",
+      "sha256": "484ab5f036cd7530fcc48ed66d2ae60cd569faf799f6511fd1cde7f92bff96e5",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1960-1980-jj2n_nom/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1960-1980-jj2n_nom/review.json",
+      "sha256": "b8b3f04f44b175b3aac2ed778a47f48922c33a83c6c8b2a4a1e801136255e9a9",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/classification.json",
+      "sha256": "5e5325ac056bbbc292a6e4e43cd60a63d43631e3581bbb238c642eb4ae0b8db6",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/README",
+      "sha256": "215068eb612ef5d40db07fe2c948edcf6c24ec8ae62d2c2206310be15ba45406",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1980-2000-corrected-l8aedsvg/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1980-2000-corrected-l8aedsvg/review.json",
+      "sha256": "2cae9aa53d8a4a031d4a2e6bcf192622663e36f9c9d247d5a671c8a345acd93d",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-1980-2000-corrected-l8aedsvg/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-1980-2000-corrected-l8aedsvg/README",
+      "sha256": "1b437a495bf524a608d9d1cd398d392f0cfb5749b1ac5a06fdff0a6dcf60b627",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2000-2020-final-4ah23val/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2000-2020-final-4ah23val/classification.json",
+      "sha256": "9cf4074a8a808c0e1ee0a48c6f6aee801ca8c2acb844f1a838f63004443e473a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2000-2020-final-4ah23val/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2000-2020-final-4ah23val/README.md",
+      "sha256": "915dd88e39367814dff869218218746a7dbdfd636e929d8097237ed9f7139d08",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2000-2020-by1980-dk724kj8/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2000-2020-by1980-dk724kj8/review.json",
+      "sha256": "e92e761e516d424acedc5aef7f03fd646cb304406de6ac40187be53db63cd066",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2000-2020-by1980-dk724kj8/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2000-2020-by1980-dk724kj8/README",
+      "sha256": "f11149a98bba262bca7e189af92afeab1dfc177689825b53546dd4b9e93f64be",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2020-2040-v3-2npo5_s7/SHA256SUMS",
+      "file": "/tmp/ts-source-2020-2040-v3-2npo5_s7/classification.json",
+      "sha256": "4a7dcb5092a44a4bb2b5c8127995ded7601fa49aba6e6e48f552c3e72fa44e19",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2020-2040-v3-2npo5_s7/SHA256SUMS",
+      "file": "/tmp/ts-source-2020-2040-v3-2npo5_s7/README.md",
+      "sha256": "306026337ff8a04c5cf1d5f64176f2df6f08e1d0367189a0edfbc3249431c815",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2020-2040-by2000-23h6wddj/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2020-2040-by2000-23h6wddj/review.json",
+      "sha256": "9d3147ee9cf9223bfcceab14b5883130ab4d7bcab3aa184dba1ac9a4852697be",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2020-2040-by2000-23h6wddj/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2020-2040-by2000-23h6wddj/README.md",
+      "sha256": "900e1d7aa3585896ec932feb706c9f38b6b9f572fc2ba7c3faeb08abff66be5b",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2040-2060-5_3fwyeb/SHA256SUMS",
+      "file": "/tmp/ts-source-2040-2060-5_3fwyeb/classification.json",
+      "sha256": "a0dfb61433b9aa85eb9b31d52aa32080f0c2b846f2a2104b809d398dfc798502",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2040-2060-5_3fwyeb/SHA256SUMS",
+      "file": "/tmp/ts-source-2040-2060-5_3fwyeb/README",
+      "sha256": "4d49d53010b0f2d88c43055bd4014878831efda33008cde9a2f9be97d9af3764",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2040-2060-by-2020-kzwt1sfd/SHA256SUMS",
+      "file": "/tmp/ts-peer-2040-2060-by-2020-kzwt1sfd/review.json",
+      "sha256": "356b688593955d0227e5c167b7a5f354121572dbb314768be45064470409963e",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2060-2080-dd2do0lj/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2060-2080-dd2do0lj/classification.json",
+      "sha256": "a931b9ac7ebe20822391fde270a7c0d4e6ccd9a5c6df2bd0d3382b76215d81da",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2060-2080-dd2do0lj/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2060-2080-dd2do0lj/README",
+      "sha256": "c3b0ab99b448a5e9688e0643b1cb9fe901ba07f188d037e85b3416715190f45d",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2060-2080-by-2040-k1zd2wxe/SHA256SUMS",
+      "file": "/tmp/ts-peer-2060-2080-by-2040-k1zd2wxe/review.json",
+      "sha256": "08c6706d0513c867b530194e61e652e5b03501d6a41b5b6bf0fa07e5f5a6caad",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2060-2080-by-2040-k1zd2wxe/SHA256SUMS",
+      "file": "/tmp/ts-peer-2060-2080-by-2040-k1zd2wxe/README",
+      "sha256": "eb40a5b5b44b1d075fef7bcf054a9126c86c8782f0895bbe2e633c55f6f0aeb8",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/classification.json",
+      "sha256": "0c3a8d7f2e84c5c500fb61ddf20f4396bc6325b1faf5744a383f57b4258497fa",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2080-2100-peer-corrected-jqnytktk/README",
+      "sha256": "b60480656f9f8ac6091c9fdd638c4496d820d9560928dce71d1b07c331a5c790",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2080-2100-by-2060-gualv8ij/SHA256SUMS",
+      "file": "/tmp/ts-peer-2080-2100-by-2060-gualv8ij/review.json",
+      "sha256": "e02e08ca6fe2d224526d065cfed39d48d3104af1025791fd47d54ac646b5892f",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2080-2100-by-2060-gualv8ij/SHA256SUMS",
+      "file": "/tmp/ts-peer-2080-2100-by-2060-gualv8ij/README",
+      "sha256": "2e143ef02c52d690ea1cef7841a8669c59e83f97863bb37a343b4bb8c627acc5",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2100-2120-67ohug9w/SHA256SUMS",
+      "file": "/tmp/ts-source-2100-2120-67ohug9w/classification.json",
+      "sha256": "4ac99a6be5b278eb0d2e4801910a5d67552bd5fa17507063f44be588bb40465b",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2100-2120-67ohug9w/SHA256SUMS",
+      "file": "/tmp/ts-source-2100-2120-67ohug9w/README",
+      "sha256": "17a55fb76cfd16f5298f1a6601e1c554a51541c969a76e73e424cdb55476f8e7",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-review-2100-2120-by2080-pb7ollka/SHA256SUMS",
+      "file": "/tmp/ts-peer-review-2100-2120-by2080-pb7ollka/review.json",
+      "sha256": "463ad611a54c8f9f7ae379fde1e5a609ae076ab0640637462d82a264065b419c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2120-2140-y8finylt/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2120-2140-y8finylt/classification.json",
+      "sha256": "6c7e7aff3836ca6c0057c9b48e0b40f2fa2231ba28170467b947ce480e0502f7",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2120-2140-y8finylt/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2120-2140-y8finylt/README",
+      "sha256": "d38cf1f455c09aaee80ed46341dca26c3d0c02f56e16865ecb8ed3e8a57c4b27",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2120-2140-by2100-84318d8r/SHA256SUMS",
+      "file": "/tmp/ts-peer-2120-2140-by2100-84318d8r/review.json",
+      "sha256": "2f0bdbd971e8303331eda5d5f10a8dbca7e8c4ddb2dbe3207edc5ea4e60bb6eb",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2140-2160-o90o_96o/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2140-2160-o90o_96o/classification.json",
+      "sha256": "2b0b268a76279067f4376c47749bea388f990009b140e5fbfc6e9f76a04849c3",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2140-2160-o90o_96o/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2140-2160-o90o_96o/README",
+      "sha256": "7f415735af9a7e37b4c9ed701b39117053e65e25525621c7bbd1ceb684976f8a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2140-2160-by2120-coe47xud/SHA256SUMS",
+      "file": "/tmp/ts-peer-2140-2160-by2120-coe47xud/review.json",
+      "sha256": "ce0da090c40cd48a0c344e45b70518aaefa811c7ce5e4061300f4f45f7aee4ef",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2140-2160-by2120-coe47xud/SHA256SUMS",
+      "file": "/tmp/ts-peer-2140-2160-by2120-coe47xud/README",
+      "sha256": "6771f950922a2498afca85d248a7dd3b2700670647227bd4eca8699c67a695d4",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-root2160-2180-source-lga17053/SHA256SUMS",
+      "file": "/tmp/ts-root2160-2180-source-lga17053/classification.json",
+      "sha256": "003ea1ab161b7007f3ca2922fc655c22e18fbce6e3051b00cb13bc41a5fc6914",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-root2160-2180-source-lga17053/SHA256SUMS",
+      "file": "/tmp/ts-root2160-2180-source-lga17053/README.md",
+      "sha256": "af416458c4f0c613d6d84d5701349a9d4ac048890162a3134c8190ca29a2e5ab",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2160-2180-by2140-pimdmjsj/SHA256SUMS",
+      "file": "/tmp/ts-peer-2160-2180-by2140-pimdmjsj/review.json",
+      "sha256": "46b27db4a6c39925651c111f9daa376568bc7d95bd9bc9770d7f0993ef174a2a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2180-2200-yoj6xb8v/SHA256SUMS",
+      "file": "/tmp/ts-source-2180-2200-yoj6xb8v/classification.json",
+      "sha256": "c93fbf66bf5f4f5ec34afca03d380d357f1bab48286965892918d5d093400abe",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2180-2200-yoj6xb8v/SHA256SUMS",
+      "file": "/tmp/ts-source-2180-2200-yoj6xb8v/README",
+      "sha256": "a656e793d29b2b0304e016f510892ff2fbe7b986b39dc9662e0f94b03918802f",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer2180-2200-by2160-ngwzfhne/SHA256SUMS",
+      "file": "/tmp/ts-peer2180-2200-by2160-ngwzfhne/review.json",
+      "sha256": "efa3fc2329b658f59b5ed60486ea42871aa2a6715e927a297d36f880759380b3",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer2180-2200-by2160-ngwzfhne/SHA256SUMS",
+      "file": "/tmp/ts-peer2180-2200-by2160-ngwzfhne/README",
+      "sha256": "ee64b72220a45d70545090e1a83d74efe406c23e404f2a962c30f455e9edb555",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2200-2220-e7qq2n_o/SHA256SUMS",
+      "file": "/tmp/ts-source-2200-2220-e7qq2n_o/classification.json",
+      "sha256": "bec667c4c37824eec14846a9650e3b0c0ad48fc4dd204ab391bc9b943f756ab9",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2200-2220-e7qq2n_o/SHA256SUMS",
+      "file": "/tmp/ts-source-2200-2220-e7qq2n_o/README",
+      "sha256": "441aa9fb280ba858803a444002806e9291e9f844ea25257e80d4325c8776db64",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2180-reviews-2200-nwhg0n6f/SHA256SUMS",
+      "file": "/tmp/ts-peer-2180-reviews-2200-nwhg0n6f/review.json",
+      "sha256": "3d10d7642658f445beec3adbc9655003a7bd2fda2fac22d340f9fefadd370acd",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2180-reviews-2200-nwhg0n6f/SHA256SUMS",
+      "file": "/tmp/ts-peer-2180-reviews-2200-nwhg0n6f/README",
+      "sha256": "26b56c1a302fc93fdea5fc0351dfea3736d7517c6bdd3dfb827164bdec84b2f9",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2220-2240-clxs6ycs/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2220-2240-clxs6ycs/classification.json",
+      "sha256": "71a9a18ae93227b87088b63d175f1a4ed0daffaf44c8820a0600d942a133d057",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2220-2240-clxs6ycs/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2220-2240-clxs6ycs/README",
+      "sha256": "9600b8acf24056781427aaa27dfff04c2c59e58420f81e7893eba6415a09b032",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2220-2240-by2200-c2ytbq_z/SHA256SUMS",
+      "file": "/tmp/ts-peer-2220-2240-by2200-c2ytbq_z/review.json",
+      "sha256": "a33a10b64a67fa50549b7eee443e7223a723b8044dceafb049185cbc1e2e0d78",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2240-2260-btqc_5ri/SHA256SUMS",
+      "file": "/tmp/ts-source-2240-2260-btqc_5ri/classification.json",
+      "sha256": "7acc75bfd402a39499ae1cd67e58bd3799ca693029ee9256438e69badf842725",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2240-2260-btqc_5ri/SHA256SUMS",
+      "file": "/tmp/ts-source-2240-2260-btqc_5ri/README",
+      "sha256": "eafc1cd84789d1f8769cbf2ce2d16e9aec9477fa771b7e937fbf20dec6875088",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2240-2260-by2220-93729s71/SHA256SUMS",
+      "file": "/tmp/ts-peer-2240-2260-by2220-93729s71/review.json",
+      "sha256": "17566ba5eb3255e41c3433007a380351f6d38280a6fee90f6b15f6274186a3b5",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2260-2280-final-vslfv18_/SHA256SUMS",
+      "file": "/tmp/ts-source-2260-2280-final-vslfv18_/classification.json",
+      "sha256": "71eb5748412bef40fafec90771564bde3f7bc770693e17f753be84ebc011b634",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2260-2280-final-vslfv18_/SHA256SUMS",
+      "file": "/tmp/ts-source-2260-2280-final-vslfv18_/README",
+      "sha256": "82cdf4360879afb7dc363ecd3cfe8a02668b59fce122e3b12028050b1d3c359c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2260-2280-by2240-skoavewc/SHA256SUMS",
+      "file": "/tmp/ts-peer-2260-2280-by2240-skoavewc/review.json",
+      "sha256": "19604a1258b39ca89fb5c80d8b7b144aa3683c4f1bd87498887e5879d4f658a8",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2280-2300-da9wg3a6/SHA256SUMS",
+      "file": "/tmp/ts-source-2280-2300-da9wg3a6/classification.json",
+      "sha256": "16c66abc31a141de0397255304ed4928636abb6bc72db17fca8768504f8a8832",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2280-2300-da9wg3a6/SHA256SUMS",
+      "file": "/tmp/ts-source-2280-2300-da9wg3a6/README",
+      "sha256": "ca3547a150ef122f09b5ed0d16269fb11a73b29c42f15a9f8b340dd0415d0389",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2280-2300-by2260-txmd6x32/SHA256SUMS",
+      "file": "/tmp/ts-peer-2280-2300-by2260-txmd6x32/review.json",
+      "sha256": "9b5fb179fa06b5394648e1c6f7e2e55e9830eb0f24c0f78d96258fe1a6a3abb5",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2280-2300-by2260-txmd6x32/SHA256SUMS",
+      "file": "/tmp/ts-peer-2280-2300-by2260-txmd6x32/README",
+      "sha256": "f3209ef786a68780d7a93bb54f673bb69a4ce6b95636282f946c1a7b4d7b4d58",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/classification.json",
+      "sha256": "e4e3c5490a6fe85623ff8ed700426b904f4f83ee0800c4c798cd52c57a8885dd",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2300-2320-final-9k9wl_bv/README",
+      "sha256": "fb01a75a9537cae605f5e75b278b94abe41cec854f5082eae4717c91f578acb0",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2280-review-2300-ssjanu8u/SHA256SUMS",
+      "file": "/tmp/ts-peer-2280-review-2300-ssjanu8u/review.json",
+      "sha256": "356ab1fa15cf170760bc2016abeb9fe900c9d34fc86232bd2f1cbeb96923a30a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2280-review-2300-ssjanu8u/SHA256SUMS",
+      "file": "/tmp/ts-peer-2280-review-2300-ssjanu8u/README",
+      "sha256": "61ac3508bf838ba6aa8919d46086a2d8d63fcdc7449a470e4626ed17400e8e66",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2320-2340-4uljj3r2/SHA256SUMS",
+      "file": "/tmp/ts-source-2320-2340-4uljj3r2/classification.json",
+      "sha256": "1e695dc094ebf3cbcb8d304aa213abed9d6553d7ddcff375a7b57af837499825",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2320-2340-4uljj3r2/SHA256SUMS",
+      "file": "/tmp/ts-source-2320-2340-4uljj3r2/README.md",
+      "sha256": "ea935fe8f5a80e7b4307177864433b7d03bafa7273e275f1b3c12841c289596a",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2320-2340-by-2300-tic4u4au/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2320-2340-by-2300-tic4u4au/review.json",
+      "sha256": "ed24f0b2d585de7efc97e5497234a723e034f0ff2a29806794be20089bf0cf2c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2340-2360-final-2uniddtb/SHA256SUMS",
+      "file": "/tmp/ts-source-2340-2360-final-2uniddtb/classification.json",
+      "sha256": "4c8b83a6a0a1a59ee845df520f665d70ea815feb93122483ce3a0695f553d507",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2340-2360-final-2uniddtb/SHA256SUMS",
+      "file": "/tmp/ts-source-2340-2360-final-2uniddtb/README",
+      "sha256": "3209607c751ece959c90b0b67ffcd2892481a8a59df4f88029bff2681dcaf4ac",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2340-2360-by-2320-7o3obend/SHA256SUMS",
+      "file": "/tmp/ts-peer-2340-2360-by-2320-7o3obend/review.json",
+      "sha256": "43ace8ef918ae3d39dd146dbbe686eac6f71f501b1729de836ffc9d55625d994",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2340-2360-by-2320-7o3obend/SHA256SUMS",
+      "file": "/tmp/ts-peer-2340-2360-by-2320-7o3obend/README.md",
+      "sha256": "848f110806886337ff7412203812668d06369ab7734f315b6eb9ce6a852b9157",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2360-2380-012n1lyl/SHA256SUMS",
+      "file": "/tmp/ts-source-2360-2380-012n1lyl/classification.json",
+      "sha256": "e2660ed8ed89e4b5afaf9c5a30bf772a5a742df76b852a24dbd902d8cee6ed34",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2360-2380-012n1lyl/SHA256SUMS",
+      "file": "/tmp/ts-source-2360-2380-012n1lyl/README.md",
+      "sha256": "6883aa75866f0936a64c66ffa31df3d916ae483f00bf13198a0a805a0e7036da",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2360-2380-by-2340-xhib1luz/SHA256SUMS",
+      "file": "/tmp/ts-peer-2360-2380-by-2340-xhib1luz/review.json",
+      "sha256": "331a399eae689c2aaf2143745e6abc9102e9eb0d1a6553634becfc8f4b637658",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2360-2380-by-2340-xhib1luz/SHA256SUMS",
+      "file": "/tmp/ts-peer-2360-2380-by-2340-xhib1luz/README",
+      "sha256": "e814214e1ffa25fc8c056526de119d9f00643a9dd51cb69ce259675c38ac909c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2380-2400-df5_ri7m/SHA256SUMS",
+      "file": "/tmp/ts-source-2380-2400-df5_ri7m/classification.json",
+      "sha256": "1926c3c34f0f563ac85926fef022ac9f0379175528472bd1b22112be679db7af",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2380-2400-df5_ri7m/SHA256SUMS",
+      "file": "/tmp/ts-source-2380-2400-df5_ri7m/README",
+      "sha256": "fae37eee7ae6de0f9eff2973ae8b1d867e0e1d8fc07677c6d833157e0b391a28",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2380-2400-by-2360-jo9il0br/SHA256SUMS",
+      "file": "/tmp/ts-peer-2380-2400-by-2360-jo9il0br/review.json",
+      "sha256": "d49de434db1d1461d20dac9100b0b32ef22ca3e42248b0d178ad2a8307af3ba9",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/SHA256SUMS",
+      "file": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/classification.json",
+      "sha256": "a8c57b0bf6e42aa0ccb77fb5c6d5d2d088d957f39fe9227422b31e61e4b9b729",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/SHA256SUMS",
+      "file": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/README",
+      "sha256": "656aea454a1c2b4fb1b7b2c5c0c4c0313bbc787b21a6129045541d7048ccb83c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2400-2420-by-2380-xrefeeud/SHA256SUMS",
+      "file": "/tmp/ts-peer-2400-2420-by-2380-xrefeeud/review.json",
+      "sha256": "9ed89a313abfe7d5e9d22e801b25b5a83bbb3a7f40eed7970eeaad30d61723fc",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2400-2420-by-2380-xrefeeud/SHA256SUMS",
+      "file": "/tmp/ts-peer-2400-2420-by-2380-xrefeeud/README",
+      "sha256": "9934deb3f8d1648f31c5dc315cef295fc9161e8418acbf190f5b01b7e8b1c62f",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2420-2440-9fmnc6n1/SHA256SUMS",
+      "file": "/tmp/ts-source-2420-2440-9fmnc6n1/classification.json",
+      "sha256": "8fa40432d77d66dcedc9438b0deab74cc39356e7f940e39108a943bc414f95d7",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2420-2440-9fmnc6n1/SHA256SUMS",
+      "file": "/tmp/ts-source-2420-2440-9fmnc6n1/README",
+      "sha256": "cdef63d6a6becfd92c63b66ad3897ac9ec00ee2f6a14b8883585292207af5205",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2420-2440-by-2400-v0zr2mwo/SHA256SUMS",
+      "file": "/tmp/ts-peer-2420-2440-by-2400-v0zr2mwo/review.json",
+      "sha256": "e634154b4b3b5d2625426be81105af78a248bdeba0ff79678d1f96da4f44335f",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-peer-2420-2440-by-2400-v0zr2mwo/SHA256SUMS",
+      "file": "/tmp/ts-peer-2420-2440-by-2400-v0zr2mwo/README",
+      "sha256": "9a5f9848bcc3eb2a7a49a82248b60e0373dedc84a2cd36e7abbc7bbefa5fe821",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2440-2460-k97cop95/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2440-2460-k97cop95/classification.json",
+      "sha256": "ee6a940b4a8725e180d57406598922eff0462c68f87e6476744f94f38af960a1",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2440-2460-k97cop95/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2440-2460-k97cop95/README",
+      "sha256": "7eb2592bca55df7042e1020a48288a6294f53d6de2b6273ae941293beaa24ef9",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2440-2460-yper0uae/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2440-2460-yper0uae/review.json",
+      "sha256": "ece021716244e15f6edaa45551ff2241c86861f43ae83cc26605fb6cdbb9eef0",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2440-2460-yper0uae/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2440-2460-yper0uae/README",
+      "sha256": "e03c8226cab7842c588af8e3a668fb78e699a667a981403148221534aa81bfc8",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/classification.json",
+      "sha256": "980537da8039ba76ade9937112ee89f12f1816de5524c09b1acc1be59154763c",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/SHA256SUMS",
+      "file": "/tmp/ts-source-classification-2460-2480-final-mse1o4db/README.md",
+      "sha256": "07c17cd10d81f25612c78a176377962f8ca7ff2479c8b643147f918afba99c38",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2460-2480-by2440-2fc2ojt2/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2460-2480-by2440-2fc2ojt2/review.json",
+      "sha256": "3c83d27c973699e9dfeed61a903403e7c8aa335d65a0d763bb57ab62f2698c83",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2460-2480-by2440-2fc2ojt2/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2460-2480-by2440-2fc2ojt2/README",
+      "sha256": "abe3cddb687174fcd56bab86e3026138d2e7ae8583d7dca23c4d8854a51c4c43",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/SHA256SUMS",
+      "file": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/classification.json",
+      "sha256": "57f526b801d35d6b82960336454837c23932897b0c95cdcea8e543b0242a6255",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/SHA256SUMS",
+      "file": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/README",
+      "sha256": "1806a7256c664f959883e00fcd9278c723ef8ba385521e85604c24ec450a9119",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2480-2500-corrected-by2460-tmxj38ii/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2480-2500-corrected-by2460-tmxj38ii/review.json",
+      "sha256": "87929737151c75bdd32eed217c706d39576d6f3483d0ed449a4c12a882ec4f00",
+      "ok": true
+    },
+    {
+      "manifest": "/tmp/ts-source-peer-2480-2500-corrected-by2460-tmxj38ii/SHA256SUMS",
+      "file": "/tmp/ts-source-peer-2480-2500-corrected-by2460-tmxj38ii/README.md",
+      "sha256": "ac5b8b4b92bb71cf01de63bac50a3590c90d158374ca3497c54fa400d603cb9e",
+      "ok": true
+    }
+  ],
+  "verification_limits": "Metadata-only aggregate. Source semantics and explicit spans independently reviewed by named cyclic peers; central QA source validation pending."
+}

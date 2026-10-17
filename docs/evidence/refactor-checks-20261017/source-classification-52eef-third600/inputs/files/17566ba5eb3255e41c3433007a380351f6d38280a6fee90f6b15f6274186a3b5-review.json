@@ -1,0 +1,144 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2220_2240",
+  "author": "/root/classification_100_dispatch/batch_2240_2260",
+  "accepted": true,
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_RETAINED_UNRESOLVED_ROOTS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2240-2260-btqc_5ri/classification.json",
+    "sha256": "7acc75bfd402a39499ae1cd67e58bd3799ca693029ee9256438e69badf842725"
+  },
+  "accepted_checksum": {
+    "path": "/tmp/ts-source-2240-2260-btqc_5ri/SHA256SUMS",
+    "sha256": "0c394684924ea74691284dffd9fa901e2b917cd152d2c25f5bb235d51c9c2b90"
+  },
+  "reviewer_own_frozen_packet": {
+    "path": "/tmp/ts-source-classification-2220-2240-clxs6ycs/classification.json",
+    "sha256": "71a9a18ae93227b87088b63d175f1a4ed0daffaf44c8820a0600d942a133d057",
+    "freeze_preceded_peer_review": true
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2240:2260]"
+  },
+  "root_ids": [
+    "internal/nodescale/capacity_integration_test.go::TestCapacityAdmissionAndLegacyObservationOverOCI",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityPoolProtocolIsolationAndValidation",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityPoolProtocolLifecycle",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityProberUsesTCPAndKeepsLastOnCancel",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityPruningRechecksAdmissionOverOCI",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityScalerRecoveryAndSafety",
+    "internal/nodescale/capacity_integration_test.go::TestCapacityStoreReopenAndFencedWrites",
+    "internal/nodescale/capacity_retry_integration_test.go::TestCapacityAdmissionRechecksEveryHTTPRetry",
+    "internal/nodescale/chosen_pool_integration_test.go::TestCapacityReservationPersistsBeforeOCIWrite",
+    "internal/nodescale/chosen_pool_integration_test.go::TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+    "internal/nodescale/chosen_pool_integration_test.go::TestChosenFallbackKeepsExistingCapacityPools",
+    "internal/nodescale/configuration_authority_integration_test.go::TestCapacityChecksActualConfigurationBeforeGrowth",
+    "internal/nodescale/configuration_authority_integration_test.go::TestCapacityObservesActualInstanceIMDSSecurity",
+    "internal/nodescale/image_qualification_integration_test.go::TestImageQualificationSignedEvidenceHTTP",
+    "internal/nodescale/pool_create_authority_integration_test.go::TestPoolOriginalCreateRecoveryCrossesSDKAndJournal",
+    "internal/nodescale/pool_create_authority_integration_test.go::TestPoolWireFinalAdmissionRunsAfterDurableBegin",
+    "internal/nodescale/selection_integration_test.go::TestCapacityDiscoveryOCIProtocol",
+    "internal/nodescale/swarm_integration_test.go::TestSwarmControlRejectsStaleNodeVersion",
+    "internal/nodescale/swarm_integration_test.go::TestSwarmCordonChecksIdentityAndLeadership"
+  ],
+  "counts": {
+    "unresolved": 13,
+    "integration": 5,
+    "mixed": 2,
+    "unit": 0
+  },
+  "checks_performed": [
+    "Independently manually read every complete literal20 canonical declaration and actual connected fixture/client/store/control paths before comparing packet categories.",
+    "Verified20 literal allocation/mapping records,40 baseline/current raw declarations and hashes,31 complete canonical/baseline file blob/mode/SHA256/byte pins and74 assertion/callee spans including complete text. Baseline/current source equality separately confirmed by read-only Git diff.",
+    "Checked each early guard, fake callback, stub authority and intended boundary. capacityJetStream starts upstream nats-server directly with nats.Connect over loopback TCP; no natscell.Start inference.",
+    "Verified5integration target paths: actual TCP sample retention; JetStream file-backed record/CAS/corruption readback; durable wire begin/outcome with no-send; actual manager control stale-version CAS/readback; actual no-drain state readback across identity/leadership cases.",
+    "Verified2mixed roots retain independent local pre-I/O scope/deadline/spending negatives separately from HTTP evidence/SDK exchanges. Confirmed13 stale OCIPool/chosen roots explicitly unresolved/uncredited with every original assertion retained.",
+    "Verified SHA256SUMS and immutable0444 files/0555 directory; runtimeUNKNOWN, no retirement, safety obligations retained and no count/ledger/completion claims."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "id": "removed-oci-mutators",
+      "affected_roots": [
+        "internal/nodescale/capacity_integration_test.go::TestCapacityAdmissionAndLegacyObservationOverOCI",
+        "internal/nodescale/capacity_integration_test.go::TestCapacityGrowthRechecksAdmissionAndPlacementOverOCI",
+        "internal/nodescale/capacity_integration_test.go::TestCapacityPoolProtocolIsolationAndValidation",
+        "internal/nodescale/capacity_integration_test.go::TestCapacityPoolProtocolLifecycle",
+        "internal/nodescale/capacity_integration_test.go::TestCapacityPruningRechecksAdmissionOverOCI",
+        "internal/nodescale/capacity_integration_test.go::TestCapacityScalerRecoveryAndSafety",
+        "internal/nodescale/capacity_retry_integration_test.go::TestCapacityAdmissionRechecksEveryHTTPRetry",
+        "internal/nodescale/chosen_pool_integration_test.go::TestCapacityReservationPersistsBeforeOCIWrite",
+        "internal/nodescale/chosen_pool_integration_test.go::TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+        "internal/nodescale/chosen_pool_integration_test.go::TestChosenFallbackKeepsExistingCapacityPools",
+        "internal/nodescale/configuration_authority_integration_test.go::TestCapacityChecksActualConfigurationBeforeGrowth",
+        "internal/nodescale/configuration_authority_integration_test.go::TestCapacityObservesActualInstanceIMDSSecurity",
+        "internal/nodescale/pool_create_authority_integration_test.go::TestPoolOriginalCreateRecoveryCrossesSDKAndJournal"
+      ],
+      "evidence": "Canonical pool_oci.go:58-66 complete OCIPool fields and full current file lack legacy mutator/hook fields. Read-only git grep across canonical Go declarations found no OCIPool Ensure/Grow/Name/Remove definitions. protocolPool:500-501 and configureProtocolJournal:508-577 use removed fields; literal original calls have no current production target. No generated replacement or remapping inferred."
+    },
+    {
+      "id": "changed-chosen-constructor",
+      "affected_roots": [
+        "internal/nodescale/chosen_pool_integration_test.go::TestCapacityReservationPersistsBeforeOCIWrite",
+        "internal/nodescale/chosen_pool_integration_test.go::TestChosenCapacitySurvivesRestartAndFencesOCIChanges",
+        "internal/nodescale/chosen_pool_integration_test.go::TestChosenFallbackKeepsExistingCapacityPools"
+      ],
+      "evidence": "chosen_pool.go:27-32 requires observed/store/root client/current selector; allocated tests call NewChosenPool with two arguments. Complete canonical chosen_pool.go has no Ensure or Name methods."
+    }
+  ],
+  "corrections_requested": [],
+  "supplemental_source_evidence": {
+    "reason": "Independently followed manager stale-version assertion beyond controlapi UpdateNode -> store.UpdateNode -> tx.update. Actual version mismatch returns ErrSequenceConflict; MemoryStore.updateAt obtains proposer version and commits/proposes or aborts store transaction. This corroborates the accepted integration boundary.",
+    "source_pin": {
+      "path": "third_party/swarmkit/manager/state/store/memory.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "mode": "100644",
+      "git_blob": "6d3816eb1e710fba110c45b0ee0d32edbcd6b954",
+      "sha256": "57c7ece319b358b6145f9a6a0a295eda4ed248e6ed8172d349dec055d8b62d7c",
+      "bytes": 27405
+    },
+    "spans": [
+      {
+        "path": "third_party/swarmkit/manager/state/store/memory.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6d3816eb1e710fba110c45b0ee0d32edbcd6b954",
+        "line": 332,
+        "end_line": 403,
+        "text": "func (s *MemoryStore) update(proposer state.Proposer, cb func(Tx) error) error {\n\treturn s.updateAt(proposer, nil, cb)\n}\n\nfunc (s *MemoryStore) updateAt(proposer state.Proposer, appliedVersion *api.Version, cb func(Tx) error) error {\n\tdefer metrics.StartTimer(updateLatencyTimer)()\n\ts.updateLock.Lock()\n\tmemDBTx := s.memDB.Txn(true)\n\n\tvar curVersion *api.Version\n\n\tif proposer != nil {\n\t\tcurVersion = proposer.GetVersion()\n\t}\n\n\tvar tx tx\n\ttx.init(memDBTx, curVersion)\n\n\terr := cb(&tx)\n\n\tcommitGuard := make(chan struct{}, 1)\n\tcommitGuard <- struct{}{}\n\n\tif err == nil {\n\t\tif proposer == nil {\n\t\t\tmemDBTx.Commit()\n\t\t\tif len(tx.changelist) != 0 || appliedVersion != nil {\n\t\t\t\ts.appliedVersion = appliedVersion.Copy()\n\t\t\t}\n\t\t} else {\n\t\t\tvar sa []api.StoreAction\n\t\t\tsa, err = tx.changelistStoreActions()\n\n\t\t\tif err == nil {\n\t\t\t\tif len(sa) != 0 {\n\t\t\t\t\terr = proposeAt(proposer, sa, func(version *api.Version) {\n\t\t\t\t\t\tselect {\n\t\t\t\t\t\tcase <-commitGuard:\n\t\t\t\t\t\t\tmemDBTx.Commit()\n\t\t\t\t\t\t\ts.appliedVersion = version.Copy()\n\t\t\t\t\t\tdefault:\n\t\t\t\t\t\t\t// Already Abort()ed.\n\t\t\t\t\t\t}\n\t\t\t\t\t})\n\t\t\t\t} else {\n\t\t\t\t\tmemDBTx.Commit()\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t}\n\n\tif err == nil {\n\t\tfor _, c := range tx.changelist {\n\t\t\ts.queue.Publish(c)\n\t\t}\n\t\tif len(tx.changelist) != 0 {\n\t\t\ts.queue.Publish(state.EventCommit{Version: s.appliedVersion.Copy()})\n\t\t}\n\t} else {\n\t\t// The ProposeValue callback could still have executed, or be\n\t\t// executed in the near future. Guard against racing the\n\t\t// Commit().\n\t\tselect {\n\t\tcase <-commitGuard:\n\t\t\tmemDBTx.Abort()\n\t\tdefault:\n\t\t\t// Already Abort()ed.\n\t\t}\n\t}\n\ts.updateLock.Unlock()\n\treturn err\n}\n",
+        "sha256": "99bb3d0206ac7bd1cd3ade3c265286228a4fdb9a979cf29fba8068973c13a81c"
+      },
+      {
+        "path": "third_party/swarmkit/manager/state/store/memory.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6d3816eb1e710fba110c45b0ee0d32edbcd6b954",
+        "line": 627,
+        "end_line": 653,
+        "text": "func (tx *tx) update(table string, o api.StoreObject) error {\n\toldN := tx.lookup(table, indexID, o.GetID())\n\tif oldN == nil {\n\t\treturn ErrNotExist\n\t}\n\n\tmeta := o.GetMeta()\n\n\tif tx.curVersion != nil {\n\t\tif oldN.GetMeta().Version != meta.Version {\n\t\t\treturn ErrSequenceConflict\n\t\t}\n\t}\n\n\tcp := o.CopyStoreObject()\n\tif err := touchMeta(&meta, tx.curVersion); err != nil {\n\t\treturn err\n\t}\n\tcp.SetMeta(meta)\n\n\terr := tx.memDBTx.Insert(table, cp)\n\tif err == nil {\n\t\ttx.changelist = append(tx.changelist, cp.EventUpdate(oldN))\n\t\to.SetMeta(meta)\n\t}\n\treturn err\n}\n",
+        "sha256": "55960c4b10130ee6fb4f653a71158d4ec7559e7d3d5bab023f89f04a399af8af"
+      }
+    ]
+  },
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "qualification_limits": [
+    "Acceptance is source classification evidence only;13 roots remain unresolved and receive no source-category completion credit.",
+    "Source-visible stale capacity test APIs remain in the package. No compilation or runtime success/failure was inferred for any root.",
+    "Local simulated OCI, test-signed fixture evidence and single-member manager state do not qualify live OCI credentials, production authority, workload isolation or HA.",
+    "No source/repository/ledger mutation, Go/test/helper/scanner/parser/framework/format/probe/cloud/signing/crypto/TerraBase/download execution. Hashing and metadata-only literal-span packaging only."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_count_promotion": false,
+    "global_completion": false
+  }
+}

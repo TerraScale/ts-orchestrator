@@ -1,0 +1,580 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1920_1940",
+  "author": "/root/classification_100_dispatch/batch_1940_1960",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/classification.json",
+    "sha256": "2017c27d18fcf495083839777a33fe9aa6edcb67fc1566d8d08842f16bbc397a",
+    "checksum_path": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/SHA256SUMS",
+    "checksum_sha256": "693bbb48f11d9dca8d47c90631033025ad13d185ebfa6c669c8f64f4e2b37d63"
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-classification-1920-1940-8zxn55h8/classification.json",
+    "sha256": "e0d33be54f8f774ea6cc5c8df97560ec862e666eaa8c47266ebb808f2062b6f6",
+    "current_corrected_accepted_path": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/classification.json",
+    "current_corrected_sha256": "c2442b09ad9ee3847fe84b5dd7bff21cea3b6f643739dc9d0f8d0488e59852a0"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1940:1960]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1920_1940"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/membership/decide_test.go::TestDecideNewTermResumesAdmittedSuccessor",
+    "internal/membership/decide_test.go::TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+    "internal/membership/decide_test.go::TestDecideReplacementLifecycle",
+    "internal/membership/decide_test.go::TestDecideReplacesOneSlotAtATime",
+    "internal/membership/decide_test.go::TestDecideReplacingHoldsWithoutQuorum",
+    "internal/membership/decide_test.go::TestDecideTerminatedButOnlineIsHeld",
+    "internal/membership/decide_test.go::TestDecideTerminatedInstanceSkipsGrace",
+    "internal/membership/evidence_review_test.go::TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+    "internal/membership/evidence_review_test.go::TestFileEvidenceLogsAnIgnoredFileOnce",
+    "internal/membership/reconciler_fence_review_test.go::TestReplacementIsCancelledWhenTheTermEnds",
+    "internal/membership/reconciler_request_review_test.go::TestReconcilerRefreshesAnUnansweredRetirementRequest",
+    "internal/membership/reconciler_test.go::TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+    "internal/membership/reconciler_test.go::TestReconcilerActsOnlyAsFencedLeader",
+    "internal/membership/reconciler_test.go::TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+    "internal/membership/reconciler_test.go::TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+    "internal/membership/reconciler_test.go::TestReconcilerRetriesFailedReplacementAfterBackoff",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardFailsClosedOnAMalformedRecord",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardLockAdmitsOneRefoundAtATime",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardReFoundsOneSlotAtATime",
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+  ],
+  "counts": {
+    "integration": 5,
+    "unit": 14,
+    "mixed": 1,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full pinned roots and actual Decide/fixtures/types/naming/catalog, Reconciler/fakes/authority guard/local decision logging, FileEvidence/bootstrap/trust/protocol, RefoundGuard/health status-file paths; classified asserted observable materiality.",
+    "Verified exact activated allocation order, accounting1940:1960 slice, every literal survival mapping and20 raw baseline/current declaration bounds/hashes; original/current bodies exact.",
+    "Recomputed27 canonical source-file mode/blob/SHA256/bytes pins and checked68 explicit connected spans plus20 complete assertion spans against canonical Git source.",
+    "Verified exact packet/checksum-file handoff hashes and all checksum entries; files0444/directory0555.",
+    "Independently checked fake/delegating boundaries, pre-I/O local blocks, negative/no-follow/owner-mode/preservation guards, exact qualification limits and runtime UNKNOWN. No source/repo/ledger mutation or project execution."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideNewTermResumesAdmittedSuccessor",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 312,
+        "end_line": 342,
+        "function": "TestDecideNewTermResumesAdmittedSuccessor"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 312,
+        "end_line": 342,
+        "function": "TestDecideNewTermResumesAdmittedSuccessor"
+      },
+      "original_declaration_sha256": "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+      "current_declaration_sha256": "104df1c35ec6edba5c97e7d0bf21214988bcf98cc0b93cbe83889a63ab69e49f",
+      "independent_assessment": "Pure Decide resumes the synthetic evidence-bound successor, reserves the other slot and rejects foreign evidence; no durable admission or actuation.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideOfflinePeerWaitsForGraceThenRequiresTermination",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 93,
+        "end_line": 121,
+        "function": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 93,
+        "end_line": 121,
+        "function": "TestDecideOfflinePeerWaitsForGraceThenRequiresTermination"
+      },
+      "original_declaration_sha256": "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+      "current_declaration_sha256": "d667e5917aa7c22813763bf6a0fc7df7097b1e602da486054b60c06a3b637371",
+      "independent_assessment": "Pure Decide uses synthetic timestamps and lifecycle strings for grace/termination action decisions; no OCI query or launch.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacementLifecycle",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 248,
+        "end_line": 296,
+        "function": "TestDecideReplacementLifecycle"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 248,
+        "end_line": 296,
+        "function": "TestDecideReplacementLifecycle"
+      },
+      "original_declaration_sha256": "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+      "current_declaration_sha256": "237d0bbe863d6dac794372e426d2e3d1c973c29353dbb2cb1f3f580678f9c633",
+      "independent_assessment": "Pure Decide returns state/action transitions for synthetic failure, backoff, resume, rejoin and stale evidence; no process/store boundary.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacesOneSlotAtATime",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 229,
+        "end_line": 246,
+        "function": "TestDecideReplacesOneSlotAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 229,
+        "end_line": 246,
+        "function": "TestDecideReplacesOneSlotAtATime"
+      },
+      "original_declaration_sha256": "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+      "current_declaration_sha256": "7e67d749ae160262f3ac1213fbc1abc52fe0de14bc8dcb97d053c687ff92cd5d",
+      "independent_assessment": "Five-slot synthetic maps produce one action and hold another slot locally; no actual concurrent replacement.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideReplacingHoldsWithoutQuorum",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 298,
+        "end_line": 307,
+        "function": "TestDecideReplacingHoldsWithoutQuorum"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 298,
+        "end_line": 307,
+        "function": "TestDecideReplacingHoldsWithoutQuorum"
+      },
+      "original_declaration_sha256": "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+      "current_declaration_sha256": "9016c14fc0367f9a384219bbca44d5b36215d6be512037fc2cac28c84616fa28",
+      "independent_assessment": "Fabricated loss of quorum withholds returned action; no live NATS quorum.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideTerminatedButOnlineIsHeld",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 219,
+        "end_line": 227,
+        "function": "TestDecideTerminatedButOnlineIsHeld"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 219,
+        "end_line": 227,
+        "function": "TestDecideTerminatedButOnlineIsHeld"
+      },
+      "original_declaration_sha256": "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+      "current_declaration_sha256": "54779f5aea2628f69ee8deea9897826e492263790e6377f5a50817127325734e",
+      "independent_assessment": "Online peer plus terminated lifecycle string is held by local state-machine logic.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideTerminatedInstanceSkipsGrace",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 123,
+        "end_line": 130,
+        "function": "TestDecideTerminatedInstanceSkipsGrace"
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 123,
+        "end_line": 130,
+        "function": "TestDecideTerminatedInstanceSkipsGrace"
+      },
+      "original_declaration_sha256": "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+      "current_declaration_sha256": "e1c7063fdc92ab8bcb679b002400e6c6f3f3df30f9409d7a9751ffc1b0d4b79e",
+      "independent_assessment": "Synthetic terminated observation returns an action bound to dummy signed bytes, without signature validation or replacement.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/evidence_review_test.go::TestDefaultEvidenceDirIsUnderTheControllerStateDirectory",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 35,
+        "end_line": 39,
+        "function": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory"
+      },
+      "current_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 35,
+        "end_line": 39,
+        "function": "TestDefaultEvidenceDirIsUnderTheControllerStateDirectory"
+      },
+      "original_declaration_sha256": "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+      "current_declaration_sha256": "65d7e5f797a5db854cf6398e3680562fd0ea61a4f0252bad2e91f1827597be42",
+      "independent_assessment": "Prefix check on DefaultRetirementEvidenceDir is string-only and does not establish deployment writability.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/evidence_review_test.go::TestFileEvidenceLogsAnIgnoredFileOnce",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 14,
+        "end_line": 33,
+        "function": "TestFileEvidenceLogsAnIgnoredFileOnce"
+      },
+      "current_source": {
+        "path": "internal/membership/evidence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "e8edf90c121584ff783a4ef2547f7f1acc0e7992",
+        "line": 14,
+        "end_line": 33,
+        "function": "TestFileEvidenceLogsAnIgnoredFileOnce"
+      },
+      "original_declaration_sha256": "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+      "current_declaration_sha256": "20e66986fb3998098bc093e7d447c4904ce6306d6d5e53d2446ed8881b4ceab0",
+      "independent_assessment": "Actual malformed slot file is reopened by production readEvidenceFile/Evidence; decode rejection drives deduplicated local logs. Read bytes materially support the target.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_fence_review_test.go::TestReplacementIsCancelledWhenTheTermEnds",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_fence_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+        "line": 28,
+        "end_line": 67,
+        "function": "TestReplacementIsCancelledWhenTheTermEnds"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_fence_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "a572a13efa3690d294cdd6568e2ccfdf11eb01a1",
+        "line": 28,
+        "end_line": 67,
+        "function": "TestReplacementIsCancelledWhenTheTermEnds"
+      },
+      "original_declaration_sha256": "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+      "current_declaration_sha256": "4de39eab497dc3ec25f2ebaf2214bbad3285b4e9f146c150d2be3922eece8fb3",
+      "independent_assessment": "Production fence polling/cancellation is driven by fakeLeadership and blockingReplacer channels; this is local concurrency without a live authority lease or process.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_request_review_test.go::TestReconcilerRefreshesAnUnansweredRetirementRequest",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_request_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+        "line": 12,
+        "end_line": 41,
+        "function": "TestReconcilerRefreshesAnUnansweredRetirementRequest"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_request_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2c8b5d7c0ac6a3d4fb1656a023bf7452ab3e5dd0",
+        "line": 12,
+        "end_line": 41,
+        "function": "TestReconcilerRefreshesAnUnansweredRetirementRequest"
+      },
+      "original_declaration_sha256": "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+      "current_declaration_sha256": "e7d10f2af070e8b3ffd95c6cc441dbd4ac10cb1b39a6f23c6e11685d541134cf",
+      "independent_assessment": "Injected clock/fakeCell/recordingRequests assert local refresh scheduling and request observations only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 228,
+        "end_line": 279,
+        "function": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 228,
+        "end_line": 279,
+        "function": "TestFileEvidenceRoutesOnlyWellFormedOwnerOnlyEnvelopes"
+      },
+      "original_declaration_sha256": "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+      "current_declaration_sha256": "7c1602844a5e022ca8007ea9f18e3d23b3271c620481e0077889da1ce1e64d88",
+      "independent_assessment": "Actual slot files, file mode change and symlink are consumed/rejected by production no-follow file reads and candidate routing; fixture signing does not establish signature authorization.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerActsOnlyAsFencedLeader",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 136,
+        "end_line": 176,
+        "function": "TestReconcilerActsOnlyAsFencedLeader"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 136,
+        "end_line": 176,
+        "function": "TestReconcilerActsOnlyAsFencedLeader"
+      },
+      "original_declaration_sha256": "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+      "current_declaration_sha256": "22614e5ce238312585b46a08c1568d5e00fcc23c777dd3f98ba888d0996a6c53",
+      "independent_assessment": "Faked authority and cell feeds control Tick; replaced Action records and Statuses are local return/recorded values, not live replacement effects.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerHoldsWithoutReplacerAndOnPartialObservation",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 178,
+        "end_line": 194,
+        "function": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 178,
+        "end_line": 194,
+        "function": "TestReconcilerHoldsWithoutReplacerAndOnPartialObservation"
+      },
+      "original_declaration_sha256": "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+      "current_declaration_sha256": "e3362277b5d16afd54049db31bf3de3c391fc4583db754ec0d1d35fd796e1e43",
+      "independent_assessment": "Nil replacer and synthetic metadata error exercise local hold and partial-observation guards.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerRequestsRetirementOncePerTerminatedAttempt",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 288,
+        "end_line": 311,
+        "function": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 288,
+        "end_line": 311,
+        "function": "TestReconcilerRequestsRetirementOncePerTerminatedAttempt"
+      },
+      "original_declaration_sha256": "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+      "current_declaration_sha256": "fa59350dcac4b38e9ed27caff719bbbd7f25922c5cda09d95cd4d1a430d80422",
+      "independent_assessment": "Three synthetic ticks append one in-memory retirement request with exact fields; no signer or retirement file writer.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/reconciler_test.go::TestReconcilerRetriesFailedReplacementAfterBackoff",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 196,
+        "end_line": 226,
+        "function": "TestReconcilerRetriesFailedReplacementAfterBackoff"
+      },
+      "current_source": {
+        "path": "internal/membership/reconciler_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "397c82d42befc32a4b6f4bf36cede3479bc1b99c",
+        "line": 196,
+        "end_line": 226,
+        "function": "TestReconcilerRetriesFailedReplacementAfterBackoff"
+      },
+      "original_declaration_sha256": "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+      "current_declaration_sha256": "bfa3a8980f5488639a73081e1a0522fa5ad1d65233daad54b3da3c51a41ed8fd",
+      "independent_assessment": "Fake Replace supplies a synthetic throttle error and clock advances; retry actions/LastError are local recordings.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardFailsClosedOnAMalformedRecord",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 143,
+        "end_line": 168,
+        "function": "TestRefoundGuardFailsClosedOnAMalformedRecord"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 143,
+        "end_line": 168,
+        "function": "TestRefoundGuardFailsClosedOnAMalformedRecord"
+      },
+      "original_declaration_sha256": "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+      "current_declaration_sha256": "fe3090d0ea714b9cc3d917f90bad52959aaa815a959f99b26e52ec60e6ccbc46",
+      "independent_assessment": "Malformed durable record bytes are actually written, opened, decoded and structurally validated by Admit/readPending; no standalone parser-only block.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardLockAdmitsOneRefoundAtATime",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 216,
+        "end_line": 232,
+        "function": "TestRefoundGuardLockAdmitsOneRefoundAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 216,
+        "end_line": 232,
+        "function": "TestRefoundGuardLockAdmitsOneRefoundAtATime"
+      },
+      "original_declaration_sha256": "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+      "current_declaration_sha256": "ff6abb05dae26f377f6e38e28e06c8c488495494cd7001bd7d0b371b6e19a1d6",
+      "independent_assessment": "Lock opens real file descriptors and uses nonblocking flock; second fails while held and succeeds after release. Same-process descriptors only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardReFoundsOneSlotAtATime",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 37,
+        "end_line": 100,
+        "function": "TestRefoundGuardReFoundsOneSlotAtATime"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 37,
+        "end_line": 100,
+        "function": "TestRefoundGuardReFoundsOneSlotAtATime"
+      },
+      "original_declaration_sha256": "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+      "current_declaration_sha256": "db780f161098693565909154b66ff7dbd8e6f9cd59326e74221f05822ed06a2c",
+      "independent_assessment": "Begin writes owner-only pending record; Admit reads pending/health variants and Clear removes it with absence readback. Independent synthetic incomplete-ledger guard returns before readPending: mixed.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardRecoversPendingIdentityAcrossRestart",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 170,
+        "end_line": 212,
+        "function": "TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 170,
+        "end_line": 212,
+        "function": "TestRefoundGuardRecoversPendingIdentityAcrossRestart"
+      },
+      "original_declaration_sha256": "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+      "current_declaration_sha256": "11ff1cc2e5b3088c35b4ad13418ff6f30b57f3612509b18c8f4153554cfebaed",
+      "independent_assessment": "New guard value reopens persisted identity; invalid Begin is coupled to subsequent equality readback showing no overwrite. Actual chmod/symlink paths rejected. Object reconstruction only, no OS process restart.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only acceptance; no runtime receipts, Go/build/test/helper/crypto/signing/cloud execution.",
+    "Only local filesystem/no-follow/permission/readback/flock source paths qualify; no live NATS, OCI, authority lease, verified ledger admission or actual replacement launch.",
+    "RefoundGuard lock uses descriptors in one process; restart means reconstructed guard value, not process or host restart; crash/power-loss durability remains unqualified.",
+    "Refound one-slot root retains independent local-only ledger guard as mixed; invalid Begin plus subsequent identity equality is a coupled persisted-state preservation target.",
+    "All safety assertions and obligations retained; no count promotion, ledger, deletion, retirement or completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion": false,
+  "deletion_credit": false,
+  "completion_credit": false
+}

@@ -1,0 +1,270 @@
+{
+  "schema": "independent-source-only-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2200_2220",
+  "author": "/root/classification_100_dispatch/batch_2220_2240",
+  "accepted_packet": "/tmp/ts-source-classification-2220-2240-clxs6ycs/classification.json",
+  "accepted_packet_sha256": "71a9a18ae93227b87088b63d175f1a4ed0daffaf44c8820a0600d942a133d057",
+  "accepted_checksum_file": "/tmp/ts-source-classification-2220-2240-clxs6ycs/SHA256SUMS",
+  "accepted_checksum_sha256": "8ff4f5b67546ca5784d1fbc3a568413d9c7339b24b914da5e07259b39d89d38a",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+  "allocation_sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+  "root_ids": [
+    "internal/netbird/vault_test.go::TestInstancePrincipalDispatcherClonesNoProxyTransportAndRejectsRedirects",
+    "internal/netbird/vault_test.go::TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess",
+    "internal/netbird/vault_test.go::TestOCIResponseBodyIsBounded",
+    "internal/netbird/vault_test.go::TestVaultDoesNotRetryFinalOrPersistentFailures",
+    "internal/netbird/vault_test.go::TestVaultReadsCurrentSecretWithNoSDKRetriesAndBoundedContext",
+    "internal/netbird/vault_test.go::TestVaultReadsOnlyWellFormedAdminPAT",
+    "internal/netbird/vault_test.go::TestVaultRejectsMismatchedMalformedAndOversizedSecretsWithoutLeaking",
+    "internal/netbird/vault_test.go::TestVaultRetriesTransientFailuresWithinOneDeadline",
+    "internal/networkcheck/check_test.go::TestCheckRejectsFalseCoexistence",
+    "internal/networkcheck/check_test.go::TestConnectedInterfacesDoNotReplaceLiveChecks",
+    "internal/networkcheck/check_test.go::TestFleetContinuesAfterUnreadableHostAndExitsUnsuccessfully",
+    "internal/networkcheck/check_test.go::TestPCIsNotARegionalNode",
+    "internal/networkcheck/check_test.go::TestRegionalProbeIncludesFutureCatalogRegions",
+    "internal/networkcheck/check_test.go::TestServerProbeSkipsSplitCellControllers",
+    "internal/networkcheck/check_test.go::TestServerRequiresNetBirdWithoutTailscaleOrClientDNS",
+    "internal/networkcheck/check_test.go::TestSnapshotSelectsTerraScaleContainerAndRejectsIncompleteReads",
+    "internal/networkcheck/check_test.go::TestTargetIdentityAndBridgeLANCrossCheck",
+    "internal/networkplan/plan_test.go::TestRejectOverlapAndWrongRegionalOwnership",
+    "internal/networkplan/plan_test.go::TestReservationsAreDisjointAndCoverEveryFoundedCell",
+    "internal/nodescale/capacity_demand_integration_test.go::TestFunctionCapacityTracksManagerAndActualPoolSlots"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 1
+  },
+  "roots_checked": [
+    {
+      "root_id": "internal/netbird/vault_test.go::TestInstancePrincipalDispatcherClonesNoProxyTransportAndRejectsRedirects",
+      "category": "unit",
+      "canonical_bounds": [
+        153,
+        177
+      ],
+      "baseline_sha256": "993db032b27a0d295961dd2b69605ed74c515cc59bcdf91276a73cdbe63dedab",
+      "current_sha256": "993db032b27a0d295961dd2b69605ed74c515cc59bcdf91276a73cdbe63dedab"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestOCIOverridesAndVerboseLoggingAreRejectedBeforeMetadataAccess",
+      "category": "unit",
+      "canonical_bounds": [
+        200,
+        210
+      ],
+      "baseline_sha256": "2536c814f6430453eba9f113d4b9044137a66def4df3a5c895ed417442f26e1d",
+      "current_sha256": "2536c814f6430453eba9f113d4b9044137a66def4df3a5c895ed417442f26e1d"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestOCIResponseBodyIsBounded",
+      "category": "unit",
+      "canonical_bounds": [
+        185,
+        198
+      ],
+      "baseline_sha256": "dc6aa117bb90ec8d7b5d1105b8fa508fa53b47777e67cf147f7f37420a54822e",
+      "current_sha256": "dc6aa117bb90ec8d7b5d1105b8fa508fa53b47777e67cf147f7f37420a54822e"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestVaultDoesNotRetryFinalOrPersistentFailures",
+      "category": "unit",
+      "canonical_bounds": [
+        95,
+        118
+      ],
+      "baseline_sha256": "9833fb3c5347b63e936e4c28a605d754e8540198e0d05cbcdf4d04471aafb613",
+      "current_sha256": "9833fb3c5347b63e936e4c28a605d754e8540198e0d05cbcdf4d04471aafb613"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestVaultReadsCurrentSecretWithNoSDKRetriesAndBoundedContext",
+      "category": "unit",
+      "canonical_bounds": [
+        31,
+        47
+      ],
+      "baseline_sha256": "3ec287bc902d89bdf958e4bf53b77a710e660d859ef893383510975b15f254f5",
+      "current_sha256": "3ec287bc902d89bdf958e4bf53b77a710e660d859ef893383510975b15f254f5"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestVaultReadsOnlyWellFormedAdminPAT",
+      "category": "unit",
+      "canonical_bounds": [
+        233,
+        254
+      ],
+      "baseline_sha256": "d7717b330b5a5d5e3dcbf3f64bb6891952bd97f51e7019020151635850c1190c",
+      "current_sha256": "d7717b330b5a5d5e3dcbf3f64bb6891952bd97f51e7019020151635850c1190c"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestVaultRejectsMismatchedMalformedAndOversizedSecretsWithoutLeaking",
+      "category": "unit",
+      "canonical_bounds": [
+        120,
+        151
+      ],
+      "baseline_sha256": "f2930e7b87dfd3321f240ff2c170b58d86fbec103e7576111447f760e2ca8020",
+      "current_sha256": "f2930e7b87dfd3321f240ff2c170b58d86fbec103e7576111447f760e2ca8020"
+    },
+    {
+      "root_id": "internal/netbird/vault_test.go::TestVaultRetriesTransientFailuresWithinOneDeadline",
+      "category": "unit",
+      "canonical_bounds": [
+        64,
+        93
+      ],
+      "baseline_sha256": "f869eecb4c71c9a35e74a55dc3466c24910aadbcd2845d4a684a6bcfc80b0e04",
+      "current_sha256": "f869eecb4c71c9a35e74a55dc3466c24910aadbcd2845d4a684a6bcfc80b0e04"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestCheckRejectsFalseCoexistence",
+      "category": "unit",
+      "canonical_bounds": [
+        41,
+        104
+      ],
+      "baseline_sha256": "f6ed43588e9d51906d909f3e51e9a5bec2921985d8b42888078f85e7631404ef",
+      "current_sha256": "f6ed43588e9d51906d909f3e51e9a5bec2921985d8b42888078f85e7631404ef"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestConnectedInterfacesDoNotReplaceLiveChecks",
+      "category": "unit",
+      "canonical_bounds": [
+        106,
+        120
+      ],
+      "baseline_sha256": "6afe53776ddb4ff175ae5b7c22f7359591c8cb7985cf00dec5f2e6d9637d6f80",
+      "current_sha256": "6afe53776ddb4ff175ae5b7c22f7359591c8cb7985cf00dec5f2e6d9637d6f80"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestFleetContinuesAfterUnreadableHostAndExitsUnsuccessfully",
+      "category": "unit",
+      "canonical_bounds": [
+        142,
+        153
+      ],
+      "baseline_sha256": "15e3d7adc9d95d8cbc543be86118ebbddc18898db2c4acce84651e65c1c68b23",
+      "current_sha256": "15e3d7adc9d95d8cbc543be86118ebbddc18898db2c4acce84651e65c1c68b23"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestPCIsNotARegionalNode",
+      "category": "unit",
+      "canonical_bounds": [
+        225,
+        229
+      ],
+      "baseline_sha256": "368f4382cded956b5727af5e75f110ec7a064c3cb842d01a7e2649934be01d55",
+      "current_sha256": "368f4382cded956b5727af5e75f110ec7a064c3cb842d01a7e2649934be01d55"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestRegionalProbeIncludesFutureCatalogRegions",
+      "category": "unit",
+      "canonical_bounds": [
+        231,
+        247
+      ],
+      "baseline_sha256": "7ac1c2e7642e3cbfca9e7db5fbbbef57d60c90e830c652ec38a6a9bd7c008c91",
+      "current_sha256": "7ac1c2e7642e3cbfca9e7db5fbbbef57d60c90e830c652ec38a6a9bd7c008c91"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestServerProbeSkipsSplitCellControllers",
+      "category": "unit",
+      "canonical_bounds": [
+        249,
+        277
+      ],
+      "baseline_sha256": "91c57b02cd84742acd3edd006ecc570434776ccbeb241ae9d9731449c9ddd70f",
+      "current_sha256": "91c57b02cd84742acd3edd006ecc570434776ccbeb241ae9d9731449c9ddd70f"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestServerRequiresNetBirdWithoutTailscaleOrClientDNS",
+      "category": "unit",
+      "canonical_bounds": [
+        177,
+        223
+      ],
+      "baseline_sha256": "8efd83808534bb8ce603ef5b07cb122dcfc50055bcfc0e3eb6c1886d99ea141b",
+      "current_sha256": "8efd83808534bb8ce603ef5b07cb122dcfc50055bcfc0e3eb6c1886d99ea141b"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestSnapshotSelectsTerraScaleContainerAndRejectsIncompleteReads",
+      "category": "unit",
+      "canonical_bounds": [
+        122,
+        140
+      ],
+      "baseline_sha256": "3b439d01209a478abf27351bed4441122d5c256eb9aee45c1e5652f395a61538",
+      "current_sha256": "3b439d01209a478abf27351bed4441122d5c256eb9aee45c1e5652f395a61538"
+    },
+    {
+      "root_id": "internal/networkcheck/check_test.go::TestTargetIdentityAndBridgeLANCrossCheck",
+      "category": "unit",
+      "canonical_bounds": [
+        155,
+        175
+      ],
+      "baseline_sha256": "02f40c6e1ca447b61e0d04da93709c57014d16c1f02e5bf0c57521a5fd682e89",
+      "current_sha256": "02f40c6e1ca447b61e0d04da93709c57014d16c1f02e5bf0c57521a5fd682e89"
+    },
+    {
+      "root_id": "internal/networkplan/plan_test.go::TestRejectOverlapAndWrongRegionalOwnership",
+      "category": "unit",
+      "canonical_bounds": [
+        30,
+        51
+      ],
+      "baseline_sha256": "de66a017032c9fac7593829699486d21cc023c694bb23640be0d6ef882db1e4c",
+      "current_sha256": "de66a017032c9fac7593829699486d21cc023c694bb23640be0d6ef882db1e4c"
+    },
+    {
+      "root_id": "internal/networkplan/plan_test.go::TestReservationsAreDisjointAndCoverEveryFoundedCell",
+      "category": "unit",
+      "canonical_bounds": [
+        10,
+        28
+      ],
+      "baseline_sha256": "9c77d2e1e2cce3c752d1ca5bc87b615e0887ce8b3f6e8d94cc7af5b7318ef3fa",
+      "current_sha256": "9c77d2e1e2cce3c752d1ca5bc87b615e0887ce8b3f6e8d94cc7af5b7318ef3fa"
+    },
+    {
+      "root_id": "internal/nodescale/capacity_demand_integration_test.go::TestFunctionCapacityTracksManagerAndActualPoolSlots",
+      "category": "unresolved",
+      "canonical_bounds": [
+        19,
+        128
+      ],
+      "baseline_sha256": "6db862307bea993e2c06247683524d237731dd060246468a7ad94f88fe114fe8",
+      "current_sha256": "6db862307bea993e2c06247683524d237731dd060246468a7ad94f88fe114fe8"
+    }
+  ],
+  "checks_performed": [
+    "Independently read every full allocated root and actual setup/helper/callee; nineteen are local predicate/mock/synthetic fetch paths.",
+    "Verified exact allocation/survival mapping, all20 baseline/current raw declaration hashes and canonical bounds; entire assertion text preserved.",
+    "Recomputed all21 canonical/baseline file pins against Git blob/mode/SHA256/bytes and all recorded assertion/callee spans byte-for-byte.",
+    "Confirmed genuine capacity setup is upstream single-node Raft/controlapi over loopback gRPC, direct upstream NATS/JetStream loopback TCP, and OCI SDK httptest protocol simulator; no natscell.Start inferred.",
+    "Confirmed all target capacity assertions are source-blocked/uncredited by obsolete fixture OCIPool fields, NewChosenPool two-versus-four arguments and absent Name; accepted unresolved category.",
+    "Verified packet/checksum hashes and0444/0555 seal; metadata checks only at nice19, no project or runtime execution."
+  ],
+  "span_count_verified": 54,
+  "resolved_findings": [
+    "Constructor mismatch independently reported to author; already retained in accepted packet with other source incompatibilities."
+  ],
+  "remaining_findings": [
+    {
+      "root_id": "internal/nodescale/capacity_demand_integration_test.go::TestFunctionCapacityTracksManagerAndActualPoolSlots",
+      "detail": "Capacity root remains source-unresolved; setup removed fields and constructor/method mismatch block every target assertion. Required safety/capacity obligations retained."
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion_authorized": false,
+  "deletion_credit": false,
+  "completion_credit": false,
+  "result": "ACCEPTED_SOURCE_ONLY_WITH_EXPLICIT_UNRESOLVED_ROOT"
+}

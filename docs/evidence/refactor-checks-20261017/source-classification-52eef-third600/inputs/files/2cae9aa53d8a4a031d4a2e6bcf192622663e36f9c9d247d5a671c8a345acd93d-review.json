@@ -1,0 +1,162 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1960_1980",
+  "author": "/root/classification_100_dispatch/batch_1980_2000",
+  "decision": "ACCEPTED_EXACT_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/classification.json",
+    "sha256": "5e5325ac056bbbc292a6e4e43cd60a63d43631e3581bbb238c642eb4ae0b8db6",
+    "checksum_path": "/tmp/ts-source-classification-1980-2000-bvg5z8cz/SHA256SUMS",
+    "checksum_sha256": "8346748953a36947af80a3bbd6088d3744bec64edf3835fbe35850d99910afbb"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1980:2000]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1960_1980"
+  },
+  "root_ids": [
+    "internal/nativerootoci/client_test.go::TestNativeRootProbeRequiresStaleETagRejectionAndReadback",
+    "internal/nativerootoci/client_test.go::TestNativeRootSignedConfigSelectsOnlyExactTarget",
+    "internal/nativerootoci/client_test.go::TestNativeRootTargetRejectsWrongSignedLocator",
+    "internal/nativerootoci/client_test.go::TestNativeRootUncertaintyLogsStageAndStatusWithoutProviderSecrets",
+    "internal/nativerootoci/client_test.go::TestPublicationDigestUsesEntityULIDsAndOpaqueAdmissionTokens",
+    "internal/natscell/bridge_close_test.go::TestAdditionalBridgeTLSCloseDoesNotDelayPrimaryFence",
+    "internal/natscell/bridge_close_test.go::TestBridgeCannotAcknowledgeRevocationBeforeNATSPathCloses",
+    "internal/natscell/bridge_close_test.go::TestBridgeFenceRevokesEveryNATSPathBeforeTLSShutdown",
+    "internal/natscell/claims_update_test.go::TestClaimsUpdateCannotBypassTheContractCheck",
+    "internal/natscell/client_material_lastgood_review_test.go::TestClientMaterialSourceKeepsTheLastAcceptedRenewal",
+    "internal/natscell/client_material_lastgood_review_test.go::TestClientMaterialSourceKeepsTheLastRenewedCertificate",
+    "internal/natscell/client_material_reload_test.go::TestClientMaterialSourceRejectsCorruptReloadedJWT",
+    "internal/natscell/client_material_reload_test.go::TestClientMaterialSourceTLSFallbackErrorNamesBothCauses",
+    "internal/natscell/client_material_reload_test.go::TestClientOptionsReloadTLSWithoutCredentialsFileAndInLab",
+    "internal/natscell/client_material_test.go::TestClientMaterialSourceRejectsAnotherUserKey",
+    "internal/natscell/client_material_test.go::TestHostClientPresentsRenewedCredentialsAfterExpiry",
+    "internal/natscell/domain_switch_test.go::TestRollingInterRegionMaterialKeepsRegionalDomainAndData",
+    "internal/natscell/dont_listen_cluster_test.go::TestDontListenStartsRoutesWithoutClientSocketAndShutsDown",
+    "internal/natscell/global_grants_test.go::TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials",
+    "internal/natscell/global_grants_test.go::TestOnlyHomeControllersCarryGlobalGrants"
+  ],
+  "source_categories": {
+    "integration": 7,
+    "unit": 9,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own [1960:1980) source packet frozen and handed off before independent peer review.",
+    "Independently read all twenty full current root declarations from pinned Git source, identical baseline blobs and all three full changed baseline declarations; followed actual production, fixture, client, store and vendored lifecycle paths.",
+    "Verified literal twenty-root order against allocation batch and accounting other_unadjudicated[1980:2000), exact survival TSV identities/states and historical hashes, canonical commit/tree, and all five input SHA256 pins.",
+    "Verified all forty explicit raw baseline/current declaration bounds, names, text and hashes; all 41 source-file blob/mode/SHA256/byte pins; all twenty exact assertion spans and 73 exact connected-evidence spans.",
+    "Reviewed category and limits against asserted effects: bridge TLS protocol versus injected paused-close pipes; actual NATS clients versus incidental broker construction; direct production TLS-loader DER/error evidence versus local path predicates; independent unit blocks retained as mixed.",
+    "Verified packet SHA256 and SHA256SUMS entries and immutable 0444 file / 0555 directory modes. Supplemental health/retry/tier paths were independently read; source markers were not accepted as execution evidence.",
+    "Central EOF check corrected supplemental_source[1] end_line282 to281; independently reverified all3 supplemental bounds within EOF, exact quoted bytes/SHA256, canonical blob/mode/file SHA256/bytes and unchanged accepted author packet hash."
+  ],
+  "metadata_checks": {
+    "input_pins": 5,
+    "literal_roots": 20,
+    "raw_declarations": 40,
+    "source_file_pins": 41,
+    "assertion_spans": 20,
+    "connected_spans": 73
+  },
+  "supplemental_source": [
+    {
+      "path": "internal/natscell/health.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "444108aced4c4d13c1e69cd679f40afc26e3eab2",
+      "git_mode": "100644",
+      "file_sha256": "7fd9c2d856f1d564013c9cb1208a9b091221601fdbbafef96b99086bdef818ac",
+      "bytes": 6729,
+      "line": 33,
+      "end_line": 73,
+      "span_sha256": "a1687b3118e1c947dff06dc076e6e78c76738c4dc444fef3c94eac69f3982c29",
+      "text": "func (r *Runtime) ObserveCluster() (ClusterObservation, error) {\n\tif r == nil || r.server == nil {\n\t\treturn ClusterObservation{}, errors.New(\"cluster observation requires an embedded regional NATS server\")\n\t}\n\tobservation := ClusterObservation{ServerName: r.serverName, Running: r.server.Running(),\n\t\tExpectedPeers: slices.Clone(r.brokerNames)}\n\tif !observation.Running {\n\t\treturn observation, nil\n\t}\n\tif routes, err := r.server.Routez(nil); err == nil {\n\t\tfor _, route := range routes.Routes {\n\t\t\tif route != nil && route.RemoteName != \"\" && !slices.Contains(observation.Routes, route.RemoteName) {\n\t\t\t\tobservation.Routes = append(observation.Routes, route.RemoteName)\n\t\t\t}\n\t\t}\n\t\tslices.Sort(observation.Routes)\n\t}\n\tinfo, err := r.server.Jsz(nil)\n\tif err != nil {\n\t\treturn observation, err\n\t}\n\tif info.Disabled {\n\t\t// JetStream was never enabled or was shut down after a store\n\t\t// failure, which also clears JetStreamIsClustered while the NATS\n\t\t// server keeps running. Never present that as a healthy group.\n\t\treturn observation, ErrJetStreamDisabled\n\t}\n\tif info.Meta == nil {\n\t\tif !r.server.JetStreamIsClustered() && len(r.brokerNames) <= 1 {\n\t\t\t// A standalone broker is its own single-member metadata group.\n\t\t\tobservation.MetaLeader, observation.MetaSize, observation.MetaQuorum = r.serverName, 1, 1\n\t\t}\n\t\treturn observation, nil\n\t}\n\tobservation.MetaLeader = info.Meta.Leader\n\tobservation.MetaSize = info.Meta.Size\n\tobservation.MetaQuorum = info.Meta.QuorumNeeded\n\tobservation.MetaPeers = metaReplicas(info.Meta.Replicas)\n\treturn observation, nil\n}\n\n"
+    },
+    {
+      "path": "internal/natscell/cluster_formation_test.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "119125d459102dbd1461d28dcf75634ff539b2f2",
+      "git_mode": "100644",
+      "file_sha256": "01148534acb9c2e338fa02b563149ce1a6e6f51926843b3ae175b3a906728a1e",
+      "bytes": 9724,
+      "line": 273,
+      "end_line": 281,
+      "span_sha256": "5984248f2bf08b01e0bb07665548a671da7fc840479f0063e5a0127187cbb6f5",
+      "text": "func waitUntil(t *testing.T, ctx context.Context, what string, ready func() bool) {\n\tt.Helper()\n\tfor !ready() {\n\t\tif err := ctx.Err(); err != nil {\n\t\t\tt.Fatalf(\"%s: %v\", what, err)\n\t\t}\n\t\ttime.Sleep(50 * time.Millisecond)\n\t}\n}\n"
+    },
+    {
+      "path": "internal/testutil/tier/tier.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "97ef958c65d9ac2b8e09fff7fb408898a2b76848",
+      "git_mode": "100644",
+      "file_sha256": "2896e13f0185848ac1252bfa977827ac382105b49fb70f4405729dd35139f33c",
+      "bytes": 2621,
+      "line": 32,
+      "end_line": 37,
+      "span_sha256": "d90d48655fe4f892f4bef60299434e569bbfef234eee09d09b76e333f3f522a1",
+      "text": "func Integration(t testing.TB) {\n\tt.Helper()\n\tif testing.Short() {\n\t\tt.Skip(\"integration tier: runs without -short on pushes to develop and main\")\n\t}\n}\n"
+    }
+  ],
+  "resolved_review_findings": [],
+  "remaining_review_findings": [],
+  "corrections_requested": [],
+  "retained_source_findings": [
+    {
+      "kind": "canonical_declaration_drift",
+      "root_id": "internal/natscell/client_material_reload_test.go::TestClientMaterialSourceRejectsCorruptReloadedJWT",
+      "original_sha256": "221173e08d1cf74c629b278b35a61537cc65ee4b877aea25558842acad4d6674",
+      "canonical_sha256": "22076b0eeb01fb08f322195ce0b0de4efaf37a744ee1970b99977b169c191d66",
+      "limit": "Preserve original identity and all obligations; no retirement or runtime credit. Historical survival current hash is stale."
+    },
+    {
+      "kind": "canonical_declaration_drift",
+      "root_id": "internal/natscell/client_material_reload_test.go::TestClientOptionsReloadTLSWithoutCredentialsFileAndInLab",
+      "original_sha256": "db6f92f3c93c2339b1f751c0c12b8a1cdb02133d29e28b69d0c0e247c3c505a3",
+      "canonical_sha256": "b2e6b13deb62c5d23f00a0721eefd0af4e5846359feac01ec4509f65669bbbad",
+      "limit": "Preserve original identity and all obligations; no retirement or runtime credit. Historical survival current hash is stale."
+    },
+    {
+      "kind": "canonical_declaration_drift",
+      "root_id": "internal/natscell/global_grants_test.go::TestGlobalHomeNeedsGlobalGrantsUnderRestrictedCredentials",
+      "original_sha256": "ebbbdb3d139057f27e4652e4685c4d21546cc5f15ddb32504ed3a32756610d2b",
+      "canonical_sha256": "dcb959510b709a5e5e01fab01a5e437824396d8f32ba325d51cbbf4e1d1c663a",
+      "limit": "Preserve original identity and all obligations; no retirement or runtime credit. Historical survival current hash is stale."
+    }
+  ],
+  "qualification_limits": [
+    "Three canonical declaration drifts are accurately retained under their original identities; historical survival current hashes are not substituted for canonical raw declaration hashes.",
+    "Bridge shutdown integration proves TLS shutdown ordering over net.Pipe, not NATS-session revocation; the paused-close root remains unit.",
+    "TLS-loader integrations establish actual file-read outputs/errors only; directly invoked callbacks do not establish Dial or network handshakes.",
+    "Rolling regional R3 domain/storage scenario has no running inter-region parent; restricted regional publish assertions do not establish a precise error class.",
+    "Source-only acceptance; no runtime receipt reviewed, no source execution, and no ledger/count/deletion/retirement/completion promotion."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutation_authorized": false,
+  "count_credit_authorized": false,
+  "deletion_authorized": false,
+  "completion_credit_authorized": false,
+  "unresolved_source_blockers": [],
+  "supersedes": {
+    "path": "/tmp/ts-source-peer-1980-2000-rsnovwf1/review.json",
+    "sha256": "0e98fa421a6ffd5e7cb3131e5e12ddf242be3ba4f74eacda4fe4ad5718730d8b",
+    "reason": "Metadata-only correction: supplemental_source[1] end_line282 exceeded file EOF281; quote bytes and SHA256 unchanged."
+  },
+  "receipt_corrections": [
+    {
+      "path": "internal/natscell/cluster_formation_test.go",
+      "line": 273,
+      "old_end_line": 282,
+      "corrected_end_line": 281,
+      "quote_sha256": "5984248f2bf08b01e0bb07665548a671da7fc840479f0063e5a0127187cbb6f5",
+      "status": "resolved",
+      "accepted_author_packet_unchanged": true,
+      "source_categories_and_root_ids_unchanged": true
+    }
+  ]
+}

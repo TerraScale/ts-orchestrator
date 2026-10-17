@@ -1,0 +1,545 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2480_2500",
+  "author": "/root/classification_100_dispatch/batch_1900_1920",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-1900-1920-kswmwght/classification.json",
+    "sha256": "cbbab27de2dc566ca42034f7386ec8827776e6f535de2b1d42190d895ded355d",
+    "checksum_path": "/tmp/ts-source-1900-1920-kswmwght/SHA256SUMS",
+    "checksum_sha256": "64a8b09eb1248829285642c4deb2e46fdd91869107a94e487a4ff0f47f88b799"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_allocation": "original_root_ids_by_disposition.other_unadjudicated[1900:1920]",
+  "root_ids": [
+    "internal/managedmaterial/repository_test.go::TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes",
+    "internal/managedmaterial/repository_test.go::TestRepositoryUnknownPutAndFencingNeverGrantObjectAuthority",
+    "internal/managedmaterial/repository_test.go::TestStoredBundleRejectsSemanticallySubstitutedHostMaterial",
+    "internal/managedmaterial/s3_test.go::TestGenerateInitialBindsNativeOCIRootForBothMembers",
+    "internal/managedmaterial/s3_test.go::TestLiveS3ConfigKeepsGenericWireAndDigest",
+    "internal/managedmaterial/s3_test.go::TestNativeOCIRootConfigAndTargetDigest",
+    "internal/managedmaterial/s3_test.go::TestNativeOCIRootRejectsInvalidNamespaceAndEndpoint",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorAllowsMemberIDReuseWithFreshOrigins",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorBindsCurrentReceiptAndExactSQLArtifacts",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorKeepsCrossedMappingInPredecessorSeatOrder",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorPreservesSQLAbsence",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorRejectsCaseVariantOfOldIncarnation",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorRejectsStaleOrMismatchedMaterial",
+    "internal/managedmaterial/successor_test.go::TestProduceSuccessorRustInterop",
+    "internal/membership/breakglass_review_test.go::TestBackupRefusesASymlinkedDestinationInsideTheStore",
+    "internal/membership/breakglass_review_test.go::TestBrokerChecksFailClosedWithoutListeners",
+    "internal/membership/breakglass_review_test.go::TestBrokerRunningRequiresAnAcceptingListener",
+    "internal/membership/breakglass_review_test.go::TestBrokerStoppedRejectsIndeterminateDials",
+    "internal/membership/breakglass_review_test.go::TestConfirmRequiresANewline",
+    "internal/membership/breakglass_review_test.go::TestFailedBackupRemovesItsDestination"
+  ],
+  "counts": {
+    "integration": 3,
+    "unit": 15,
+    "mixed": 0,
+    "unresolved": 2
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_WITH_RETAINED_UNRESOLVED_ROOTS",
+  "checks_performed": [
+    "Independently read all twenty whole canonical roots (repository_test, s3_test, successor_test, breakglass_review_test) and actual reached production/fixture paths; did not copy classifications from names.",
+    "Matched all twenty literal original IDs to activated allocation and exact accounting slice, and all twenty survival rows to their exact original/current name and hash obligations.",
+    "Recomputed baseline/current raw declaration hashes from explicit source line bounds (func through column-zero closing brace excluding following LF), verified starts/ends, full current text and canonical Git blobs. All twenty agree.",
+    "Verified every assertion evidence span/text and all 57 connected callee spans/text against canonical Git; checked all cited paths have file pins.",
+    "Verified all 27 canonical file Git blobs, modes, SHA256 and byte lengths; verified packet hash, checksum hash and both checksum entries; files0444 and directory0555.",
+    "Independently traced GenerateInitial/PrepareInitial/CurrentBundle/ProduceSuccessor through fake object client, fake receipt store, accepting native validator and local signatures/encoding; no real OCI/KMS/R3/member boundary credited.",
+    "Independently traced Backup symlink resolution and cleanup through EvalSymlinks/Mkdir/copyFile/Open/RemoveAll/Lstat, and BrokerRunning through actual loopback DialContext. Incidental store setup and pre-I/O listener guards remain unit.",
+    "Reconciled counts to all twenty roots: 3 integration, 15 unit, 0 mixed, 2 unresolved; reviewed independent-block distinction, fixture conditions and runtime limitations."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorRustInterop",
+      "status": "unresolved_uncredited",
+      "reason": "Conditional process branch executes externally supplied Rust binary without bound source/digest. Artifact-only branch writes public files without verifier/readback. Missing-input tier gate remains explicit; no uniform boundary credit."
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestBrokerStoppedRejectsIndeterminateDials",
+      "status": "unresolved_uncredited",
+      "reason": "Cancellation branch is local; hostname error reaches real net.Dialer but no resolver fixture establishes the actual error-producing OS/DNS path. Preserve author conservative unresolved treatment pending boundary adjudication."
+    }
+  ],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source-only classification is not a test pass/fail result.",
+    "The three integration roots establish only source evidence for filesystem alias rejection/failed-copy cleanup and TCP connection acceptance. No live NATS protocol, quorum, cloud restore or production safety qualification.",
+    "FailedBackupRemovesItsDestination skips under root; effective unreadability and stable closed ports remain runtime conditions.",
+    "All original obligations and safety coverage remain retained. No repository/source/ledger mutation, count promotion, deletion, retirement, deployment or completion credit."
+  ],
+  "roots": [
+    {
+      "root_id": "internal/managedmaterial/repository_test.go::TestRepositoryCreateOnlyPinsKMSVersionETagAndBytes",
+      "category": "unit",
+      "original_declaration_sha256": "7cb650c7baceb264c4953b4b4edec563218132ed236d563ee6e81f61c1195c57",
+      "current_declaration_sha256": "7cb650c7baceb264c4953b4b4edec563218132ed236d563ee6e81f61c1195c57",
+      "baseline_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 134,
+        "end_line": 241
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 134,
+        "end_line": 241
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/repository_test.go::TestRepositoryUnknownPutAndFencingNeverGrantObjectAuthority",
+      "category": "unit",
+      "original_declaration_sha256": "d2fba5e14bc22dc22f8463590eb0beee461f598d0a3dce6f8dbf717b2e51fdd7",
+      "current_declaration_sha256": "d2fba5e14bc22dc22f8463590eb0beee461f598d0a3dce6f8dbf717b2e51fdd7",
+      "baseline_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 243,
+        "end_line": 270
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 243,
+        "end_line": 270
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/repository_test.go::TestStoredBundleRejectsSemanticallySubstitutedHostMaterial",
+      "category": "unit",
+      "original_declaration_sha256": "74eb8a958b66e6af2c43a0b1a36a4ea5746b6d45a57a6186d4a05dd603b696b8",
+      "current_declaration_sha256": "74eb8a958b66e6af2c43a0b1a36a4ea5746b6d45a57a6186d4a05dd603b696b8",
+      "baseline_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 101,
+        "end_line": 132
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/repository_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2e5d8ba57791d4bb8af62a8d815866f7de794dc4",
+        "line": 101,
+        "end_line": 132
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/s3_test.go::TestGenerateInitialBindsNativeOCIRootForBothMembers",
+      "category": "unit",
+      "original_declaration_sha256": "65dfa3517295113e6078d5a2a1c7dbc128b15462e6546e0ab58b012b62f3b2a0",
+      "current_declaration_sha256": "65dfa3517295113e6078d5a2a1c7dbc128b15462e6546e0ab58b012b62f3b2a0",
+      "baseline_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 121,
+        "end_line": 143
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 121,
+        "end_line": 143
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/s3_test.go::TestLiveS3ConfigKeepsGenericWireAndDigest",
+      "category": "unit",
+      "original_declaration_sha256": "2f9da29e54d3f27f07c3a0db3b0dcf8b35e39d8ab4aebcb3d1af9130846e2f2d",
+      "current_declaration_sha256": "2f9da29e54d3f27f07c3a0db3b0dcf8b35e39d8ab4aebcb3d1af9130846e2f2d",
+      "baseline_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 29,
+        "end_line": 50
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 29,
+        "end_line": 50
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/s3_test.go::TestNativeOCIRootConfigAndTargetDigest",
+      "category": "unit",
+      "original_declaration_sha256": "b9fba68297f2adce6cf3d6c83733e8535fe656aabff2d1105e9d39cb3ef1076e",
+      "current_declaration_sha256": "b9fba68297f2adce6cf3d6c83733e8535fe656aabff2d1105e9d39cb3ef1076e",
+      "baseline_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 52,
+        "end_line": 75
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 52,
+        "end_line": 75
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/s3_test.go::TestNativeOCIRootRejectsInvalidNamespaceAndEndpoint",
+      "category": "unit",
+      "original_declaration_sha256": "116c474465ddcc1507eebc9efed3fdbc4be72fe6eb96a711c456453c1ae81ead",
+      "current_declaration_sha256": "116c474465ddcc1507eebc9efed3fdbc4be72fe6eb96a711c456453c1ae81ead",
+      "baseline_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 77,
+        "end_line": 119
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/s3_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "2725e4d63ab5cb6a24061cbc8f82ba8f4ef73d8b",
+        "line": 77,
+        "end_line": 119
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorAllowsMemberIDReuseWithFreshOrigins",
+      "category": "unit",
+      "original_declaration_sha256": "94e327fd4733c957cbd68b44b48eafee13bcdd8e6cb2d74842405f41928fd113",
+      "current_declaration_sha256": "94e327fd4733c957cbd68b44b48eafee13bcdd8e6cb2d74842405f41928fd113",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 173,
+        "end_line": 206
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 173,
+        "end_line": 206
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorBindsCurrentReceiptAndExactSQLArtifacts",
+      "category": "unit",
+      "original_declaration_sha256": "384307090f842073fde4a61a859e7a01e1d1a67082d40d58d7389251f39e00dc",
+      "current_declaration_sha256": "384307090f842073fde4a61a859e7a01e1d1a67082d40d58d7389251f39e00dc",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 56,
+        "end_line": 136
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 56,
+        "end_line": 136
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorKeepsCrossedMappingInPredecessorSeatOrder",
+      "category": "unit",
+      "original_declaration_sha256": "f06c652c4b36f45b5585ab8a78152f4aca9aebee74c6fed43230b6741dcb457c",
+      "current_declaration_sha256": "f06c652c4b36f45b5585ab8a78152f4aca9aebee74c6fed43230b6741dcb457c",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 138,
+        "end_line": 171
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 138,
+        "end_line": 171
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorPreservesSQLAbsence",
+      "category": "unit",
+      "original_declaration_sha256": "c313332760f25c681cc01dae616097a69d3c8c0d323cc4a9fe53dc04c66452b2",
+      "current_declaration_sha256": "c313332760f25c681cc01dae616097a69d3c8c0d323cc4a9fe53dc04c66452b2",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 282,
+        "end_line": 299
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 282,
+        "end_line": 299
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorRejectsCaseVariantOfOldIncarnation",
+      "category": "unit",
+      "original_declaration_sha256": "955312e35f667388cfe80b17feec113c2d4a1366b36a42b9e08169783b927dbb",
+      "current_declaration_sha256": "955312e35f667388cfe80b17feec113c2d4a1366b36a42b9e08169783b927dbb",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 208,
+        "end_line": 225
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 208,
+        "end_line": 225
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorRejectsStaleOrMismatchedMaterial",
+      "category": "unit",
+      "original_declaration_sha256": "ddd1e3141ede5ba279b80735b9703f57d048216e5e50c16c371db52cee99c1d3",
+      "current_declaration_sha256": "ddd1e3141ede5ba279b80735b9703f57d048216e5e50c16c371db52cee99c1d3",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 240,
+        "end_line": 280
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 240,
+        "end_line": 280
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/managedmaterial/successor_test.go::TestProduceSuccessorRustInterop",
+      "category": "unresolved",
+      "original_declaration_sha256": "6651e63d64a427d7b10ef46142e54fa4065b3833ed1b823985982a1b45dd3c7d",
+      "current_declaration_sha256": "6651e63d64a427d7b10ef46142e54fa4065b3833ed1b823985982a1b45dd3c7d",
+      "baseline_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 304,
+        "end_line": 408
+      },
+      "current_source": {
+        "path": "internal/managedmaterial/successor_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "cb3ef35bfd4568ee4b1711ce78afcd67ef16edeb",
+        "line": 304,
+        "end_line": 408
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only; no execution or pass/fail claim; unresolved root assertions receive no boundary credit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestBackupRefusesASymlinkedDestinationInsideTheStore",
+      "category": "integration",
+      "original_declaration_sha256": "b02655dab22cc578af5d3539f18e3a044717b42ae9165785fee0a2151fc8e547",
+      "current_declaration_sha256": "b02655dab22cc578af5d3539f18e3a044717b42ae9165785fee0a2151fc8e547",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 68,
+        "end_line": 82
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 68,
+        "end_line": 82
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestBrokerChecksFailClosedWithoutListeners",
+      "category": "unit",
+      "original_declaration_sha256": "78a9549135a190acfdedf19e5fb1213ab044e0de16699c160e522e5dc3bd4321",
+      "current_declaration_sha256": "78a9549135a190acfdedf19e5fb1213ab044e0de16699c160e522e5dc3bd4321",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 15,
+        "end_line": 28
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 15,
+        "end_line": 28
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestBrokerRunningRequiresAnAcceptingListener",
+      "category": "integration",
+      "original_declaration_sha256": "f8caa15477f8f97a088b17f9cefb1a69c71dde782c1a9a73e18410efce6ae173",
+      "current_declaration_sha256": "f8caa15477f8f97a088b17f9cefb1a69c71dde782c1a9a73e18410efce6ae173",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 43,
+        "end_line": 57
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 43,
+        "end_line": 57
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestBrokerStoppedRejectsIndeterminateDials",
+      "category": "unresolved",
+      "original_declaration_sha256": "0dd493885e0961e4fc6a8ba83b24a7e43f23b604ad62fe3fd6ce46b4e816666b",
+      "current_declaration_sha256": "0dd493885e0961e4fc6a8ba83b24a7e43f23b604ad62fe3fd6ce46b4e816666b",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 30,
+        "end_line": 41
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 30,
+        "end_line": 41
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only; no execution or pass/fail claim; unresolved root assertions receive no boundary credit",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestConfirmRequiresANewline",
+      "category": "unit",
+      "original_declaration_sha256": "b18e322fa1e499ce3402bd171a66d509f51e81f4380cc342096ea030e163ad1c",
+      "current_declaration_sha256": "b18e322fa1e499ce3402bd171a66d509f51e81f4380cc342096ea030e163ad1c",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 59,
+        "end_line": 66
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 59,
+        "end_line": 66
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestFailedBackupRemovesItsDestination",
+      "category": "integration",
+      "original_declaration_sha256": "a2f0bebec81741c61d632e6681b66191f529c2a6a617ec340546f6b53b303e2f",
+      "current_declaration_sha256": "a2f0bebec81741c61d632e6681b66191f529c2a6a617ec340546f6b53b303e2f",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 84,
+        "end_line": 102
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 84,
+        "end_line": 102
+      },
+      "decision": "accepted_source_category_with_qualification_limits",
+      "assertion_qualification": "source-only category; all runtime obligations retained",
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "completion_credit": false
+  }
+}

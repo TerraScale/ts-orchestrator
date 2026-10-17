@@ -1,0 +1,551 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1900_1920",
+  "author": "/root/classification_100_dispatch/batch_1920_1940",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/classification.json",
+    "sha256": "c2442b09ad9ee3847fe84b5dd7bff21cea3b6f643739dc9d0f8d0488e59852a0",
+    "checksum_path": "/tmp/ts-source-classification-1920-1940-corrected-ggc_ogqo/SHA256SUMS",
+    "checksum_sha256": "fc77259ddbf5eb9ff0daa6b4c4bf0b6b30f4a90d2facabf424f540ee6e7339c5"
+  },
+  "rejected_superseded_packet": {
+    "path": "/tmp/ts-source-classification-1920-1940-8zxn55h8/classification.json",
+    "sha256": "e0d33be54f8f774ea6cc5c8df97560ec862e666eaa8c47266ebb808f2062b6f6",
+    "reason": "Root1923 mixed rationale claimed independent local-only guards but asserted production calls cross material physical filesystem checks/readback."
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-1900-1920-kswmwght/classification.json",
+    "sha256": "cbbab27de2dc566ca42034f7386ec8827776e6f535de2b1d42190d895ded355d"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      1920,
+      1940
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1900_1920"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/membership/breakglass_review_test.go::TestVerifyBackupForBindsSurvivorAndAge",
+    "internal/membership/breakglass_review_test.go::TestVerifyBackupNameRules",
+    "internal/membership/breakglass_test.go::TestBackupRejectsSymlinksInStore",
+    "internal/membership/breakglass_test.go::TestBackupRequiresExactConfirmationAndVerifies",
+    "internal/membership/breakglass_test.go::TestPreflightRefusesLiveBrokerAndInventoriesStore",
+    "internal/membership/breakglass_test.go::TestRunbookNamesEverySafetyStep",
+    "internal/membership/clusterhealth/status_review_test.go::TestLeaderTreatsStaleContactAsLaggingWithinLagThreshold",
+    "internal/membership/clusterhealth/status_test.go::TestEvaluateClassifiesClusterStates",
+    "internal/membership/clusterhealth/status_test.go::TestSupervisorLogsTransitionsAndReportsEveryTick",
+    "internal/membership/clusterhealth/status_test.go::TestSupervisorRemindsWhileDegraded",
+    "internal/membership/clusterhealth/status_test.go::TestSupervisorRunStopsOnCancel",
+    "internal/membership/clusterhealth/statusfile_test.go::TestPeerCurrentRequiresPositiveCatchUpEvidence",
+    "internal/membership/clusterhealth/statusfile_test.go::TestStatusFileRoundTripsOwnerOnlyAndRejectsLinks",
+    "internal/membership/confirm_cancel_review_test.go::TestConfirmAbortsWhenTheContextIsCancelled",
+    "internal/membership/decide_gate_review_test.go::TestDecideAbandonedUnadmittedReplacementReleasesTheGate",
+    "internal/membership/decide_gate_review_test.go::TestDecideAdmittedSuccessorReservesTheGateWithoutEvidence",
+    "internal/membership/decide_test.go::TestAcceptedControllerWithoutLaunchHistoryRemainsObservedAndHeld",
+    "internal/membership/decide_test.go::TestDecideHealthyCellTakesNoAction",
+    "internal/membership/decide_test.go::TestDecideHoldReasons",
+    "internal/membership/decide_test.go::TestDecideNeverReplacesSeedOrSelf"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full pinned roots, actual fixtures and connected production functions, including breakglass FS/TCP copy/readback, health evaluator/supervisor/statusfile, Confirm and Decide/types/naming/catalog paths.",
+    "Verified exact literal activated allocation order and20 survival mappings; manually confirmed baseline/current raw declaration bounds and SHA256. All20 raw bodies baseline/current exact; no mapping/body drift.",
+    "Recomputed24 canonical file blob/mode/SHA256/byte pins and checked85 exact connected citations plus20 full assertion/declaration spans against pinned Git blobs.",
+    "Verified corrected packet and SHA256SUMS exact handoff hashes, all checksum entries, files0444/directory0555.",
+    "Independently assessed category materiality, synthetic fakes/recorders, independent unit blocks, source-visible blockers and qualification limits."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestVerifyBackupForBindsSurvivorAndAge",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 104,
+        "end_line": 123
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 104,
+        "end_line": 123
+      },
+      "original_declaration_sha256": "890c3dd8a4579f744676f6343c2c6eb2858b33701008e488feba03b3b6e21eba",
+      "current_declaration_sha256": "890c3dd8a4579f744676f6343c2c6eb2858b33701008e488feba03b3b6e21eba",
+      "independent_assessment": "Backup/VerifyBackupFor writes and reopens real copied files, hashes them, then checks provenance and age; wrong-survivor/stale branches retain the same readback path.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_review_test.go::TestVerifyBackupNameRules",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 125,
+        "end_line": 141
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "c01026e8e1e1391ea8999124c65b8a888d06c341",
+        "line": 125,
+        "end_line": 141
+      },
+      "original_declaration_sha256": "7e379f5918ca6389a4ceb5a990e2f7fd2ae4e5536896e427003343338ba29d28",
+      "current_declaration_sha256": "7e379f5918ca6389a4ceb5a990e2f7fd2ae4e5536896e427003343338ba29d28",
+      "independent_assessment": "Direct validBackupName table is local; independent duplicate on-disk manifest scenario uses production VerifyBackup readback. Mixed retained.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_test.go::TestBackupRejectsSymlinksInStore",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 101,
+        "end_line": 109
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 101,
+        "end_line": 109
+      },
+      "original_declaration_sha256": "bfb147af7d2545c12f797608ec97e39d4005a89d173880b275f1f92fd2225308",
+      "current_declaration_sha256": "bfb147af7d2545c12f797608ec97e39d4005a89d173880b275f1f92fd2225308",
+      "independent_assessment": "Preflight uses real refused loopback ports and WalkDir entry types to reject the actual symlink. No valid JetStream contents or broker protocol are implied.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_test.go::TestBackupRequiresExactConfirmationAndVerifies",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 68,
+        "end_line": 99
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 68,
+        "end_line": 99
+      },
+      "original_declaration_sha256": "661f6d9ebef2afb730f232af4a25d4e1e9357f8ca6fa7aebf98a383f08d7dabd",
+      "current_declaration_sha256": "661f6d9ebef2afb730f232af4a25d4e1e9357f8ca6fa7aebf98a383f08d7dabd",
+      "independent_assessment": "Wrong-phrase refusal crosses real Preflight and asserts absent destination with os.Stat; within-store refusal uses EvalSymlinks physical paths; successful copy/hash readback and tamper refusal use real filesystem. Integration after correction.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_test.go::TestPreflightRefusesLiveBrokerAndInventoriesStore",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 45,
+        "end_line": 66
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 45,
+        "end_line": 66
+      },
+      "original_declaration_sha256": "f530318d245da673c6173ad3c2445713c6db8b911227dd5225d1363c6bce7826",
+      "current_declaration_sha256": "f530318d245da673c6173ad3c2445713c6db8b911227dd5225d1363c6bce7826",
+      "independent_assessment": "Actual loopback acceptance causes BrokerStopped/Preflight refusal; after close the real store inventory is asserted. Integration limited to TCP/FS.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/breakglass_test.go::TestRunbookNamesEverySafetyStep",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 111,
+        "end_line": 119
+      },
+      "current_source": {
+        "path": "internal/membership/breakglass_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "0de7b27ecf7d5b78545519be45b1217adfbf4598",
+        "line": 111,
+        "end_line": 119
+      },
+      "original_declaration_sha256": "84fddc76dd4ed98ca80d50c2ca03252e616c10a6be0d9b8e4be35fb3e54e2b36",
+      "current_declaration_sha256": "84fddc76dd4ed98ca80d50c2ca03252e616c10a6be0d9b8e4be35fb3e54e2b36",
+      "independent_assessment": "Runbook assertions compare formatted text; no operator command executes.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/status_review_test.go::TestLeaderTreatsStaleContactAsLaggingWithinLagThreshold",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/status_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "047321bc0296309e632454f133e64e5a0e287fcc",
+        "line": 11,
+        "end_line": 28
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/status_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "047321bc0296309e632454f133e64e5a0e287fcc",
+        "line": 11,
+        "end_line": 28
+      },
+      "original_declaration_sha256": "997ef88b62e6fdab13a70597a4338177913b6b0f4188d2a6e66fdc3edd45737a",
+      "current_declaration_sha256": "997ef88b62e6fdab13a70597a4338177913b6b0f4188d2a6e66fdc3edd45737a",
+      "independent_assessment": "Stale contact/lag thresholds apply to synthetic Observation and fixed timestamps only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/status_test.go::TestEvaluateClassifiesClusterStates",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 24,
+        "end_line": 137
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 24,
+        "end_line": 137
+      },
+      "original_declaration_sha256": "35e38156299cef45a729a1e6c4c70bb4b9d1580371f0a415221e60ed75808cd4",
+      "current_declaration_sha256": "35e38156299cef45a729a1e6c4c70bb4b9d1580371f0a415221e60ed75808cd4",
+      "independent_assessment": "Every Evaluate table case consumes fresh constructed snapshots; no production broker observation is invoked.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/status_test.go::TestSupervisorLogsTransitionsAndReportsEveryTick",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 150,
+        "end_line": 187
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 150,
+        "end_line": 187
+      },
+      "original_declaration_sha256": "a783dac38699191298b58473cde6746b6161043e9bf9ab5cc3e17bf7bb5ff48a",
+      "current_declaration_sha256": "a783dac38699191298b58473cde6746b6161043e9bf9ab5cc3e17bf7bb5ff48a",
+      "independent_assessment": "Supervisor Observe/Now closures, recordingReporter and bytes.Buffer make transitions, current state and logs unit-only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/status_test.go::TestSupervisorRemindsWhileDegraded",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 189,
+        "end_line": 205
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 189,
+        "end_line": 205
+      },
+      "original_declaration_sha256": "1d498fdc46b686a6375a15bc4db1d32f0943415b70c4901a4c94834c37c3d000",
+      "current_declaration_sha256": "1d498fdc46b686a6375a15bc4db1d32f0943415b70c4901a4c94834c37c3d000",
+      "independent_assessment": "Synthetic degraded observation and fake clock drive reminder logging; local-only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/status_test.go::TestSupervisorRunStopsOnCancel",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 207,
+        "end_line": 234
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/status_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "acde04a73e7add8b4bfeab23681cd46cd7f8d27d",
+        "line": 207,
+        "end_line": 234
+      },
+      "original_declaration_sha256": "9238b3b7e33a99a07e698ea5dbc20879292547982192ca93281665708e19be55",
+      "current_declaration_sha256": "9238b3b7e33a99a07e698ea5dbc20879292547982192ca93281665708e19be55",
+      "independent_assessment": "Run timer/context and local synthetic observer establish local cancellation; missing-observer guard is also unit.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/statusfile_test.go::TestPeerCurrentRequiresPositiveCatchUpEvidence",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/statusfile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "22213561cf03169afd7a7c2b248ecbf9e8db503d",
+        "line": 46,
+        "end_line": 77
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/statusfile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "22213561cf03169afd7a7c2b248ecbf9e8db503d",
+        "line": 46,
+        "end_line": 77
+      },
+      "original_declaration_sha256": "c31819294fcb130b4b90d8d2ba77e5b07f3e4db4d27808a344615834abc10080",
+      "current_declaration_sha256": "c31819294fcb130b4b90d8d2ba77e5b07f3e4db4d27808a344615834abc10080",
+      "independent_assessment": "Constructed leader/follower observations and PeerCurrent cutoff/catchup predicates are local-only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/clusterhealth/statusfile_test.go::TestStatusFileRoundTripsOwnerOnlyAndRejectsLinks",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/membership/clusterhealth/statusfile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "22213561cf03169afd7a7c2b248ecbf9e8db503d",
+        "line": 10,
+        "end_line": 41
+      },
+      "current_source": {
+        "path": "internal/membership/clusterhealth/statusfile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "22213561cf03169afd7a7c2b248ecbf9e8db503d",
+        "line": 10,
+        "end_line": 41
+      },
+      "original_declaration_sha256": "92a914fa2335ba74505ad0c4b98a05b16f08cfe5960d30bfc78625ab84f06883",
+      "current_declaration_sha256": "92a914fa2335ba74505ad0c4b98a05b16f08cfe5960d30bfc78625ab84f06883",
+      "independent_assessment": "WriteStatusFile actual temporary file/chmod/rename and ReadStatusFile real readback/symlink rejection are integration; relative-path guard returns before I/O and remains an independent unit block.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/confirm_cancel_review_test.go::TestConfirmAbortsWhenTheContextIsCancelled",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/confirm_cancel_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5e8891617a07e0acd6ee2b307b491c4309c5141d",
+        "line": 15,
+        "end_line": 37
+      },
+      "current_source": {
+        "path": "internal/membership/confirm_cancel_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5e8891617a07e0acd6ee2b307b491c4309c5141d",
+        "line": 15,
+        "end_line": 37
+      },
+      "original_declaration_sha256": "334e9fb65e17825785707c6e18bfa6cdc16e6c08dea3d965df393d0263027d2a",
+      "current_declaration_sha256": "334e9fb65e17825785707c6e18bfa6cdc16e6c08dea3d965df393d0263027d2a",
+      "independent_assessment": "Immediate cancellation may precede Confirm read entry; os.Pipe setup is incidental with no handshake/data assertion. Second pre-cancelled in-memory call is local. Unit and source limitation retained.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_gate_review_test.go::TestDecideAbandonedUnadmittedReplacementReleasesTheGate",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_gate_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9c2b933f78ddf072a35f421cacf64999342b3371",
+        "line": 45,
+        "end_line": 78
+      },
+      "current_source": {
+        "path": "internal/membership/decide_gate_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9c2b933f78ddf072a35f421cacf64999342b3371",
+        "line": 45,
+        "end_line": 78
+      },
+      "original_declaration_sha256": "35c3a4cf8f3f2b0774de543a8991f0690b9e5b5540264a462bfc17f30d53544b",
+      "current_declaration_sha256": "35c3a4cf8f3f2b0774de543a8991f0690b9e5b5540264a462bfc17f30d53544b",
+      "independent_assessment": "Decide clones local state and synthetic observation; action structs never reach an actuator. Abandoned gate/retry assertions are unit.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_gate_review_test.go::TestDecideAdmittedSuccessorReservesTheGateWithoutEvidence",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_gate_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "9c2b933f78ddf072a35f421cacf64999342b3371",
+        "line": 12,
+        "end_line": 40
+      },
+      "current_source": {
+        "path": "internal/membership/decide_gate_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "9c2b933f78ddf072a35f421cacf64999342b3371",
+        "line": 12,
+        "end_line": 40
+      },
+      "original_declaration_sha256": "d6a460780ecd1b2fe4aaa52c03d72576c7e0e39b9b1ec386faaf8b838ac4932e",
+      "current_declaration_sha256": "d6a460780ecd1b2fe4aaa52c03d72576c7e0e39b9b1ec386faaf8b838ac4932e",
+      "independent_assessment": "Synthetic admitted HEAD reserves gate; missing/foreign evidence routing uses local structs only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestAcceptedControllerWithoutLaunchHistoryRemainsObservedAndHeld",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 16,
+        "end_line": 31
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 16,
+        "end_line": 31
+      },
+      "original_declaration_sha256": "406fe3632fc1bea6611066188cfd79b729f811f3d832fe8a8a52a3c98c95df37",
+      "current_declaration_sha256": "406fe3632fc1bea6611066188cfd79b729f811f3d832fe8a8a52a3c98c95df37",
+      "independent_assessment": "Accepted synthetic ledger record with zero launch attempt is locally observed/held; no launch history service fetched.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideHealthyCellTakesNoAction",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 78,
+        "end_line": 91
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 78,
+        "end_line": 91
+      },
+      "original_declaration_sha256": "9e044dd47d3dc3ad9d6b948a9037dfa9a97b34bd77b866fcb2e0c4422a019161",
+      "current_declaration_sha256": "9e044dd47d3dc3ad9d6b948a9037dfa9a97b34bd77b866fcb2e0c4422a019161",
+      "independent_assessment": "Synthetic healthy observation yields local phases/actions; no cluster health service used.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideHoldReasons",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 132,
+        "end_line": 199
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 132,
+        "end_line": 199
+      },
+      "original_declaration_sha256": "05b4110c57c8808670669c50432e476359003e9977314765a9092ecaa1fd47cc",
+      "current_declaration_sha256": "05b4110c57c8808670669c50432e476359003e9977314765a9092ecaa1fd47cc",
+      "independent_assessment": "Hold reason tables use synthetic lifecycle/evidence/ledger and dummy signed bytes; no signature verification/OCI/R3 boundary.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/decide_test.go::TestDecideNeverReplacesSeedOrSelf",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 205,
+        "end_line": 217
+      },
+      "current_source": {
+        "path": "internal/membership/decide_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "61be66c717562d1ceb7a6343afcd1be4559d0f9b",
+        "line": 205,
+        "end_line": 217
+      },
+      "original_declaration_sha256": "6d92c0257aea0c1d7d022369ab73bd2ecdd0c9296e90759be11aaa5e3d625d95",
+      "current_declaration_sha256": "6d92c0257aea0c1d7d022369ab73bd2ecdd0c9296e90759be11aaa5e3d625d95",
+      "independent_assessment": "Seed/self prohibition is a local Decide result over constructed topology/observation; no replacement executes.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/membership/breakglass_test.go::TestBackupRequiresExactConfirmationAndVerifies",
+      "finding": "Mixed classification did not identify an independent local-only block; actual physical-path checks and no-destination readback materially support assertions.",
+      "resolution": "Fresh corrected packet reclassifies integration and corrects connected-source limits. Exact corrected packet hash accepted; prior bytes preserved."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source candidate acceptance only; no runtime receipts reviewed or test/helper/build execution.",
+    "Loopback TCP/file effects do not qualify NATS/JetStream, OCI, broker correctness, crash durability or live operator recovery.",
+    "Confirm cancel case has no read-entry handshake; real blocking pipe read is not established.",
+    "Classifications retain all assertions and safety obligations; no deletion/retirement/ledger/count/completion authorization."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion": false,
+  "deletion_credit": false,
+  "completion_credit": false
+}

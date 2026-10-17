@@ -1,0 +1,10 @@
+Source-only candidate, literal other_unadjudicated[2060:2080), twenty roots.
+Owner: /root/classification_100_dispatch/batch_2060_2080
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Counts: 13 integration, 4 unit, 3 mixed, 0 unresolved. Counts describe this packet only; no ledger promotion.
+Manually reviewed complete roots and connected actual paths; explicit spans pin raw declarations, assertions, callees and full files.
+One canonical body drift: unavailable root replaces old Lab fixture with production TLS/JWT config; historical hash and original obligation retained.
+Qualification limits: wrong-artifact fixture stops at minimum file size; old-transaction is an invalid ULID; TLS peer config rebuilt each attempt; injected NetBird effects never execute.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No tests/Go/helper/cloud/signing/crypto/runtime execution.
+No repository/source/ledger mutation, deletion/retirement, count promotion or global completion credit. All safety obligations retained.
+Independent peer required: /root/classification_100_dispatch/batch_2040_2060.

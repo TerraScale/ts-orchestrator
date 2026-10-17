@@ -1,0 +1,283 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2000_2020",
+  "author": "/root/classification_100_dispatch/batch_2020_2040",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2020-2040-v3-2npo5_s7/classification.json",
+    "sha256": "4a7dcb5092a44a4bb2b5c8127995ded7601fa49aba6e6e48f552c3e72fa44e19",
+    "checksum_path": "/tmp/ts-source-2020-2040-v3-2npo5_s7/SHA256SUMS",
+    "checksum_sha256": "b6a8bc5ac84b5dc822c1625931311e39b9f5feb98ad2da28e7f7e6c787edf6fe"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2020:2040)",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2000_2020"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/natscell/interregion_config_test.go::TestResolverRefusesCellClaimThatWidensInterRegionContract",
+    "internal/natscell/interregion_config_test.go::TestSingleRegionTopologyKeepsProductionDomain",
+    "internal/natscell/interregion_topology_test.go::TestInterRegionConfigMatchesItsTopology",
+    "internal/natscell/jwt_bridge_test.go::TestProductionJWTBridgeClosedApplyOpenAndFence",
+    "internal/natscell/leaf_isolation_test.go::TestSiblingLeafCannotInterceptAnotherChild",
+    "internal/natscell/leaf_scope_test.go::TestChildLeafPermissionsAreScopedToTheSubtree",
+    "internal/natscell/link_test.go::TestIssueLinkUserCarriesOnlyTheLinkClaim",
+    "internal/natscell/link_test.go::TestLinkScopeIsOneTemplateForEveryRegion",
+    "internal/natscell/link_test.go::TestLinkStarRelaysEveryRegionThroughTheHome",
+    "internal/natscell/link_test.go::TestLinkValidationRefusesMisconfiguredRegions",
+    "internal/natscell/logger_test.go::TestClientErrorsLogAtTheirSeverity",
+    "internal/natscell/logger_test.go::TestNATSServerOutputMapsToLevels",
+    "internal/natscell/metrics_replicas_review_test.go::TestStreamViewReportsTheConfiguredReplicationFactor",
+    "internal/natscell/metrics_test.go::TestObservabilityTelemetryIsControllerOnly",
+    "internal/natscell/metrics_test.go::TestObserveReportsEmbeddedJetStreamHealth",
+    "internal/natscell/nodeidentity_cluster_test.go::TestPrepareNodeIdentityPreservesR3State",
+    "internal/natscell/nodeidentity_test.go::TestNodeIdentityConcurrentPinsCannotReplaceAnOwner",
+    "internal/natscell/nodeidentity_test.go::TestNodeIdentityExistingPinCannotBypassConcurrentDirectorySync",
+    "internal/natscell/nodeidentity_test.go::TestNodeIdentityPinsCellSlotAndRaftID",
+    "internal/natscell/nodeidentity_test.go::TestNodeIdentityRejectsCorruptOrIndirectPins"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 10,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full current roots, all three changed baseline roots and connected actual production/fixture/client/store paths; unchanged baseline declarations verified by exact raw identity.",
+    "Verified exact activated allocation/literal root order, accounting and survival mapping identities and input hashes; all20 assigned roots retained.",
+    "Verified40 baseline/current declaration bounds/full-span hashes/raw hashes/bytes,45 file Git blob/mode/SHA256/byte pins and85 assertion/local-block/connected spans with exact bounds/text/hashes/blob fields.",
+    "Verified categories, independent local-only blocks, connected evidence IDs, three canonical body drifts, source findings and runtime/retirement limitations.",
+    "Compared corrected v3 to v2: only three root2022 end_line fields66\u219260 and metadata_revision changed; all source hashes/text/categories identical. Rechecked all125 explicit spans including declarations with strict end<=file line count.",
+    "Verified exact final JSON/SHA256SUMS hashes, all listed checksums and immutable files0444/directory0555; metadata-only checks used nice19/login:false."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/natscell/interregion_config_test.go::TestResolverRefusesCellClaimThatWidensInterRegionContract",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Resolver Store checks decoded JWT claims and in-memory map state; file fixtures do not establish the asserted boundary.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_config_test.go::TestSingleRegionTopologyKeepsProductionDomain",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Both regional topology branches start the real project broker and read its production JetStream domain through AccountInfo.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_topology_test.go::TestInterRegionConfigMatchesItsTopology",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Topology and configuration guards compare local graph values; fixture certificate/JWT files are incidental, without broker startup.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/jwt_bridge_test.go::TestProductionJWTBridgeClosedApplyOpenAndFence",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Actual TLS TCP/native CONNECT/PING admission, revocation and closure coexist with independent nonmesh-address and closed-listener guards.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/leaf_isolation_test.go::TestSiblingLeafCannotInterceptAnotherChild",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Project GRU/SFO broker query and health traffic crosses actual TLS leaves; native FRA leaf wire reads support permission refusal and own health delivery.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/leaf_scope_test.go::TestChildLeafPermissionsAreScopedToTheSubtree",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Constructed subtree permission and claim mutation tables remain local comparisons without a broker/client exchange.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/link_test.go::TestIssueLinkUserCarriesOnlyTheLinkClaim",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "IssueLinkUser decodes locally generated claims and checks scopes/permissions without protocol admission.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/link_test.go::TestLinkScopeIsOneTemplateForEveryRegion",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "LinkScope compares locally constructed template subjects across regions.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/link_test.go::TestLinkStarRelaysEveryRegionThroughTheHome",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual project brokers and native client request/reply relay through the home support the star topology assertions.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/link_test.go::TestLinkValidationRefusesMisconfiguredRegions",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Link contract validation mutates and compares local configuration/claim data before any broker/client boundary.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/logger_test.go::TestClientErrorsLogAtTheirSeverity",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Synthetic client errors reach slog and an in-memory JSON buffer; no actual NATS connection emits them.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/logger_test.go::TestNATSServerOutputMapsToLevels",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Direct logger method calls format records into an in-memory buffer without a running server.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/metrics_replicas_review_test.go::TestStreamViewReportsTheConfiguredReplicationFactor",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Synthetic StreamDetail/PeerInfo inputs exercise the local streamView transformation.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/metrics_test.go::TestObservabilityTelemetryIsControllerOnly",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Telemetry assertions inspect permission objects; the fixture-created seed file is unused by the asserted predicates.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/metrics_test.go::TestObserveReportsEmbeddedJetStreamHealth",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Actual broker/store publish, consumer creation and monitoring readback coexist with a distinct nil-runtime local guard.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/nodeidentity_cluster_test.go::TestPrepareNodeIdentityPreservesR3State",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Three project brokers retain R3 stream/consumer stores over stop/restart, with TLS route identity and full payload/consumer readback.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/nodeidentity_test.go::TestNodeIdentityConcurrentPinsCannotReplaceAnOwner",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Concurrent production pin publication and conflicting-owner refusal traverse the actual filesystem hard-link/readback/sync boundary.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/nodeidentity_test.go::TestNodeIdentityExistingPinCannotBypassConcurrentDirectorySync",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Injected sync failure surrounds a real published pin; the second caller reads committed state and must propagate the sync error.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/nodeidentity_test.go::TestNodeIdentityPinsCellSlotAndRaftID",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Persisted pin creation/reopen/conflict readback coexists with independent bad/id!! rejection before Lstat or file read.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/nodeidentity_test.go::TestNodeIdentityRejectsCorruptOrIndirectPins",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Each corrupt/indirect case alters an actual created pin and production reopen checks its bytes, modes, path, or schema.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/natscell/interregion_topology_test.go::TestInterRegionConfigMatchesItsTopology",
+      "finding": "v2 baseline/current/assertion end_line66 exceeded actual60-line file; hashes matched because slicing truncated silently.",
+      "resolution": "Fresh v3 changes those three end bounds to60; independently verified baseline/current declaration lines11\u201360 and assertion lines11\u201360, with unchanged bytes/hashes/categories.",
+      "prior_packet_path": "/tmp/ts-source-2020-2040-v2-neqfkptw/classification.json",
+      "prior_packet_sha256": "27ba7f54e6e308b9f3d1a75f6623290ecd09412ce1c3af7e8c944a22c607999b"
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only classification agreement does not establish any runtime pass/fail or qualification.",
+    "Three canonical body drifts and all original source obligations remain explicit and retained.",
+    "JWT/schema/permission/logging/synthetic predicate roots remain unit despite incidental file/key fixture setup.",
+    "Actual protocol/store assertions and independent local guard blocks remain mixed where present.",
+    "Loopback/embedded broker and filesystem scenarios do not qualify live deployment, VM/TAP/session, installed service or production cluster behavior."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "no_ledger_count_deletion_retirement_completion_credit": true,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "execution_performed": false,
+  "repository_mutations": false,
+  "ledger_mutations": false
+}

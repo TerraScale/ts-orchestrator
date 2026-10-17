@@ -1,0 +1,6 @@
+Source-only candidate: literal other_unadjudicated[2100:2120], 20 roots.
+17 integration / 1 unit / 1 mixed / 1 unresolved conditional child helper.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+All root bodies preserved exactly; full assertion bodies and explicit callee spans pinned.
+No runtime execution or repository/ledger mutation; runtime UNKNOWN, no retirement or promotion credit.
+Independent peer: /root/classification_100_dispatch/batch_2080_2100.

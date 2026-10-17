@@ -1,0 +1,233 @@
+{
+  "schema": "independent-source-only-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2140_2160",
+  "author": "/root/classification_100_dispatch/batch_2160_2180",
+  "accepted": true,
+  "accepted_packet_path": "/tmp/ts-root2160-2180-source-lga17053/classification.json",
+  "accepted_packet_sha256": "003ea1ab161b7007f3ca2922fc655c22e18fbce6e3051b00cb13bc41a5fc6914",
+  "accepted_checksum_path": "/tmp/ts-root2160-2180-source-lga17053/SHA256SUMS",
+  "accepted_checksum_sha256": "e198f6de12b7437263ff959768b472fea89242ec5b73ae3ef958f6a4b64d35a8",
+  "allocation_path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+  "allocation_sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/netbird/enroll_test.go::TestConnectedIdentityAppliesServerSettingsWithoutVault",
+    "internal/netbird/enroll_test.go::TestConnectedServerDoesNotReadPeerNameMetadata",
+    "internal/netbird/enroll_test.go::TestDifferentManagerRequiresFreshEnrollmentAndVerification",
+    "internal/netbird/enroll_test.go::TestEffectiveConfigurationWithoutSSHFieldsIsRejected",
+    "internal/netbird/enroll_test.go::TestEnrollmentDoesNotConsumeKeyDuringNetworkOutage",
+    "internal/netbird/enroll_test.go::TestEnrollmentKeyIsFileOnlyAndRemovedOnSuccessOrFailure",
+    "internal/netbird/enroll_test.go::TestEnrollmentRejectsStatusFailureWithoutReadingKey",
+    "internal/netbird/enroll_test.go::TestEnrollmentWaitsForDaemonSocketInsteadOfFailing",
+    "internal/netbird/enroll_test.go::TestFirstRegistrationUsesStableSlotPeerName",
+    "internal/netbird/enroll_test.go::TestFreshDaemonEnrollsWithoutRedundantDown",
+    "internal/netbird/enroll_test.go::TestObserveBacksOffExponentiallyWithinLimit",
+    "internal/netbird/enroll_test.go::TestPeerNameMetadataFailureDoesNotConsumeSetupKey",
+    "internal/netbird/enroll_test.go::TestPeerNameMetadataFailureKeepsConnectedIdentityUp",
+    "internal/netbird/enroll_test.go::TestPinnedClientDebugConfigFixtureSatisfiesServerSettings",
+    "internal/netbird/enroll_test.go::TestPrimaryPrivateIPReadsFirstOCIVNIC",
+    "internal/netbird/enroll_test.go::TestSavedIdentityReconnectDoesNotReadSetupKey",
+    "internal/netbird/enroll_test.go::TestSubprocessEnvironmentCannotOverrideFlags",
+    "internal/netbird/filesystem_test.go::TestAtomicHostsUpdatePreservesModeAndRejectsSymlinks",
+    "internal/netbird/filesystem_test.go::TestHostsUpdateOwnsOnlyExactTaggedEntry",
+    "internal/netbird/filesystem_test.go::TestRuntimeLockAndTransientKeyCannotFollowSymlinks"
+  ],
+  "counts": {
+    "unit": 14,
+    "mixed": 2,
+    "integration": 4,
+    "unresolved": 0
+  },
+  "reviewed_roots": [
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestConnectedIdentityAppliesServerSettingsWithoutVault",
+      "category": "unit",
+      "baseline_declaration_sha256": "029756083aa8b1f78dafff60a48e6064a32eb47abdf92291e069342443a189d2",
+      "current_declaration_sha256": "029756083aa8b1f78dafff60a48e6064a32eb47abdf92291e069342443a189d2",
+      "start_line": 191,
+      "end_line": 231
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestConnectedServerDoesNotReadPeerNameMetadata",
+      "category": "unit",
+      "baseline_declaration_sha256": "f8bd944e48cfb5f29bbf04e5d4037f74b9bb060bddfa3aa43e1ad8bc00d31fab",
+      "current_declaration_sha256": "f8bd944e48cfb5f29bbf04e5d4037f74b9bb060bddfa3aa43e1ad8bc00d31fab",
+      "start_line": 584,
+      "end_line": 601
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestDifferentManagerRequiresFreshEnrollmentAndVerification",
+      "category": "unit",
+      "baseline_declaration_sha256": "50411b364142e941caaf21d4be53b3951615c02d64ab7b06133e24f862cd9053",
+      "current_declaration_sha256": "50411b364142e941caaf21d4be53b3951615c02d64ab7b06133e24f862cd9053",
+      "start_line": 257,
+      "end_line": 291
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestEffectiveConfigurationWithoutSSHFieldsIsRejected",
+      "category": "unit",
+      "baseline_declaration_sha256": "011c5546545519ebc36046b96564e503447f59442906ae0c1933386de5ce7830",
+      "current_declaration_sha256": "011c5546545519ebc36046b96564e503447f59442906ae0c1933386de5ce7830",
+      "start_line": 233,
+      "end_line": 244
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestEnrollmentDoesNotConsumeKeyDuringNetworkOutage",
+      "category": "unit",
+      "baseline_declaration_sha256": "2f605b802e33fa30925520ac134af527f6f8700bf5e7291f6ec9666d1b70e90b",
+      "current_declaration_sha256": "2f605b802e33fa30925520ac134af527f6f8700bf5e7291f6ec9666d1b70e90b",
+      "start_line": 174,
+      "end_line": 189
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestEnrollmentKeyIsFileOnlyAndRemovedOnSuccessOrFailure",
+      "category": "mixed",
+      "baseline_declaration_sha256": "b2d35e70cf99ac10fdba421ca66048a421a7b7f062fde4f23dda9e75cc400d11",
+      "current_declaration_sha256": "b2d35e70cf99ac10fdba421ca66048a421a7b7f062fde4f23dda9e75cc400d11",
+      "start_line": 108,
+      "end_line": 172
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestEnrollmentRejectsStatusFailureWithoutReadingKey",
+      "category": "unit",
+      "baseline_declaration_sha256": "c368ad3f205b0df03d53b532e07a5d12215177ed4a4fe8a924dc2a2a7e7515f5",
+      "current_declaration_sha256": "c368ad3f205b0df03d53b532e07a5d12215177ed4a4fe8a924dc2a2a7e7515f5",
+      "start_line": 246,
+      "end_line": 255
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestEnrollmentWaitsForDaemonSocketInsteadOfFailing",
+      "category": "mixed",
+      "baseline_declaration_sha256": "918b684508dc0bfda4126620803507e5430c5a9508a5d8bc17f5c3014a2340ff",
+      "current_declaration_sha256": "918b684508dc0bfda4126620803507e5430c5a9508a5d8bc17f5c3014a2340ff",
+      "start_line": 305,
+      "end_line": 358
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestFirstRegistrationUsesStableSlotPeerName",
+      "category": "unit",
+      "baseline_declaration_sha256": "f93fc587f7d08fee9637019c68e1132d1572be7805a0213323b783e255afba91",
+      "current_declaration_sha256": "f93fc587f7d08fee9637019c68e1132d1572be7805a0213323b783e255afba91",
+      "start_line": 530,
+      "end_line": 566
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestFreshDaemonEnrollsWithoutRedundantDown",
+      "category": "unit",
+      "baseline_declaration_sha256": "d93a27209f344008a64107d855acb276a29cf76c939d4aba3c13784f3524adcc",
+      "current_declaration_sha256": "d93a27209f344008a64107d855acb276a29cf76c939d4aba3c13784f3524adcc",
+      "start_line": 360,
+      "end_line": 388
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestObserveBacksOffExponentiallyWithinLimit",
+      "category": "unit",
+      "baseline_declaration_sha256": "6ee83e94d32d16334111bdf25fb48313f227e9f4a10ec3906c1f1a9baf3ed8b3",
+      "current_declaration_sha256": "6ee83e94d32d16334111bdf25fb48313f227e9f4a10ec3906c1f1a9baf3ed8b3",
+      "start_line": 416,
+      "end_line": 438
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestPeerNameMetadataFailureDoesNotConsumeSetupKey",
+      "category": "unit",
+      "baseline_declaration_sha256": "7b2018f100996c2fb995010835122a9dae60e7077d67b6400e65e60d6c7c62f0",
+      "current_declaration_sha256": "7b2018f100996c2fb995010835122a9dae60e7077d67b6400e65e60d6c7c62f0",
+      "start_line": 568,
+      "end_line": 582
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestPeerNameMetadataFailureKeepsConnectedIdentityUp",
+      "category": "unit",
+      "baseline_declaration_sha256": "2b2cba68a5ccffad1bf15f88dc5d3b5feae63d2e1f7de04918e3e0365cdb7268",
+      "current_declaration_sha256": "2b2cba68a5ccffad1bf15f88dc5d3b5feae63d2e1f7de04918e3e0365cdb7268",
+      "start_line": 643,
+      "end_line": 661
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestPinnedClientDebugConfigFixtureSatisfiesServerSettings",
+      "category": "unit",
+      "baseline_declaration_sha256": "82412713f4030f3ce247a6721044217cf1f87eb1c564d03a5eac2ecda0fa9617",
+      "current_declaration_sha256": "82412713f4030f3ce247a6721044217cf1f87eb1c564d03a5eac2ecda0fa9617",
+      "start_line": 505,
+      "end_line": 528
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestPrimaryPrivateIPReadsFirstOCIVNIC",
+      "category": "integration",
+      "baseline_declaration_sha256": "1c7bc6527132e4f8e1db37348de092265c65060ace9dbdca9da118acb7ae239a",
+      "current_declaration_sha256": "1c7bc6527132e4f8e1db37348de092265c65060ace9dbdca9da118acb7ae239a",
+      "start_line": 603,
+      "end_line": 641
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestSavedIdentityReconnectDoesNotReadSetupKey",
+      "category": "unit",
+      "baseline_declaration_sha256": "5ff13bd9f00daf171cc9dbbde988e64e8fac329aa02b990c900f98d74b141f4f",
+      "current_declaration_sha256": "5ff13bd9f00daf171cc9dbbde988e64e8fac329aa02b990c900f98d74b141f4f",
+      "start_line": 79,
+      "end_line": 106
+    },
+    {
+      "root_id": "internal/netbird/enroll_test.go::TestSubprocessEnvironmentCannotOverrideFlags",
+      "category": "integration",
+      "baseline_declaration_sha256": "57a79efd0992bd2c6f4fae689abd5c10bcc4c12a4716281e5d33d370ceac29d2",
+      "current_declaration_sha256": "57a79efd0992bd2c6f4fae689abd5c10bcc4c12a4716281e5d33d370ceac29d2",
+      "start_line": 293,
+      "end_line": 303
+    },
+    {
+      "root_id": "internal/netbird/filesystem_test.go::TestAtomicHostsUpdatePreservesModeAndRejectsSymlinks",
+      "category": "integration",
+      "baseline_declaration_sha256": "11122ce74f96fb01fd596f12d0c8dbba2d5dd3ac696a86ee0ff8a518b9cad80b",
+      "current_declaration_sha256": "11122ce74f96fb01fd596f12d0c8dbba2d5dd3ac696a86ee0ff8a518b9cad80b",
+      "start_line": 41,
+      "end_line": 61
+    },
+    {
+      "root_id": "internal/netbird/filesystem_test.go::TestHostsUpdateOwnsOnlyExactTaggedEntry",
+      "category": "unit",
+      "baseline_declaration_sha256": "e6aae7458eca29c2125e27009441385d204514625463aaf9089c7316cc80edb8",
+      "current_declaration_sha256": "e6aae7458eca29c2125e27009441385d204514625463aaf9089c7316cc80edb8",
+      "start_line": 12,
+      "end_line": 39
+    },
+    {
+      "root_id": "internal/netbird/filesystem_test.go::TestRuntimeLockAndTransientKeyCannotFollowSymlinks",
+      "category": "integration",
+      "baseline_declaration_sha256": "d9fe206e8bce8686b502858aa0c1272251de34bc3cb0f51f1e6b8861e30a4bbf",
+      "current_declaration_sha256": "d9fe206e8bce8686b502858aa0c1272251de34bc3cb0f51f1e6b8861e30a4bbf",
+      "start_line": 63,
+      "end_line": 90
+    }
+  ],
+  "checks_performed": [
+    "Independently read all twenty entire roots from canonical Git and followed actual connected production setup, runner, client, filesystem and process paths; no source/test/helper execution.",
+    "Verified literal allocation/mapped reviewer, survival rows, baseline/current explicit declaration bounds/raw bytes/SHA256 and original obligations; all twenty remain retained_body_exact.",
+    "Recomputed every supplied canonical/baseline cited source file Git mode/blob, byte length and SHA256; recomputed every assertion and connected callee explicit span/raw text/hash.",
+    "Confirmed candidate category partitions:14 unit local/mock/predicate,4 integration actual loopback HTTP/subprocess/filesystem/lock paths,2 mixed real setup-key/socket-inode effects plus independent local-only assertions.",
+    "Verified frozen packet/checksum identity and owner0444/0555 sealing; no source/ledger/count/retirement mutation."
+  ],
+  "boundary_limits": [
+    "NetBird runner/keyReader/primaryIP hooks are injected; no real manager/daemon/Vault enrollment, outage or registration is qualified.",
+    "Delayed Unix listener scenario proves socket-inode observation only; synthetic connection-refused retry assertion stays unit within mixed.",
+    "primaryPrivateIP uses an actual loopback HTTP client/server; live OCI IMDS and production readPrimaryPrivateIP transport restrictions remain untested.",
+    "runCommand source launches /usr/bin/env; binary existence/portability and runtime pass remain UNKNOWN.",
+    "Real setup-key file mode/content/deletion and hosts/lock/symlink effects materially support their exact assertions; unrelated setup filesystem does not promote command/predicate roots."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "source_only_candidate": true,
+    "ledger_mutated": false,
+    "repository_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "runtime_qualification": false,
+    "global_completion": false
+  }
+}

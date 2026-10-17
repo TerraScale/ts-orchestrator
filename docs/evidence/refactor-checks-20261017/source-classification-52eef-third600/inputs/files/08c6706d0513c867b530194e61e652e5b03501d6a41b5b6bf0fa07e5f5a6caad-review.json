@@ -1,0 +1,205 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2040_2060",
+  "author": "/root/classification_100_dispatch/batch_2060_2080",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2060-2080-dd2do0lj/classification.json",
+    "sha256": "a931b9ac7ebe20822391fde270a7c0d4e6ccd9a5c6df2bd0d3382b76215d81da",
+    "checksum_path": "/tmp/ts-source-classification-2060-2080-dd2do0lj/SHA256SUMS",
+    "checksum_sha256": "915a730d959be43a2466bc2b1f190947150291c3919f7b6139076995b1c955d6"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2060:2080]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2040_2060"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSChecksTheStartupSet",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSConcurrentRenewals",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSDoesNotWaitForAReloadInFlight",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSKeepsTheRoleUsages",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSKeepsTheWholeSubject",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSPeerConfig",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSPeerDropsACAAtOnce",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSRollsOverTheCA",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSSeesAnInPlaceRewrite",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSServesRenewedLeafOnly",
+    "internal/natscell/unavailable_test.go::TestStartMarksOnlyUnreachableBrokersUnavailable",
+    "internal/netbird/agent/agent_test.go::TestRelayRejectsWrongArtifactBeforeSpoolingInstall",
+    "internal/netbird/agent/agent_test.go::TestRelaySpoolsConfirmationWithoutFetchingBinary",
+    "internal/netbird/agent/agent_test.go::TestSignedNetBirdStepRejectsRetargetingAndTampering",
+    "internal/netbird/agent/agent_test.go::TestSpoolReadRejectsUnsafeFilesWithoutBlocking",
+    "internal/netbird/agent/agent_test.go::TestVerifyRejectsSignedOldTransactionID",
+    "internal/netbird/agent/agent_test.go::TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation",
+    "internal/netbird/agent/agent_test.go::TestWorkerFailedInstallCannotBeConfirmed",
+    "internal/netbird/agent/agent_test.go::TestWorkerMissingRequiresExecutableAbsence",
+    "internal/netbird/agent/agent_test.go::TestWorkerPrivateLedgerSurvivesForgedDeletedRelayResultAndRestart"
+  ],
+  "counts": {
+    "integration": 13,
+    "unit": 4,
+    "mixed": 3,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own2040:2060 packet was sealed and handed off before beginning independent2060:2080 review. Exact mapped cyclic peer and twenty literal allocated IDs verified against pinned activated allocation.",
+    "Independently read all twenty complete canonical test declarations and actual relevant fixture/callee paths via read-only Git/file inspection. Baseline exactness verified by raw declarations and reviewed three-file baseline/current Git diff; full changed unavailable root baseline body independently read.",
+    "All twenty baseline/current function bounds, raw declaration text and SHA256 verified from exact Git commits; historical original/current survival identities and stale-current unavailable body drift preserved.",
+    "All24 canonical/baseline source-file blob/mode/SHA256/byte pins verified; all81 explicit connected source spans and every assertion text span matched exact canonical bytes.",
+    "Reviewed10 TLS roots: startup predicate stays unit, actual file reload/readback or TLS echo supports integration, manually injected loading guard and unknown-role block preserve mixed obligations. PeerConfig reconstructs RootCAs snapshots per call; no unsupported stable dialer root-pool lifetime guarantee inferred.",
+    "Reviewed unavailable Start external-client actual TLS/TCP failure and independent config guard blocks as mixed. Fixture creates Config without starting broker; production Start uses nats.Connect/custom tlsFirstDialer on this selected external path.",
+    "Reviewed9 NetBird agent roots: actual held-directory spool/ledger write and readback or OS executable search supports integration; envelope/grant/identity predicates and in-memory failed-install guard remain unit. Injected privileged effect callbacks do not prove installation/enrollment.",
+    "Verified counts13integration/4unit/3mixed/0unresolved sum only own peer allocation20; runtime UNKNOWN, retained safety obligations and no retirement authorization checked for every root. Immutable modes0555/0444 and SHA256SUMS independently checked at nice19."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSChecksTheStartupSet",
+      "category": "unit",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSConcurrentRenewals",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSDoesNotWaitForAReloadInFlight",
+      "category": "mixed",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSKeepsTheRoleUsages",
+      "category": "mixed",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSKeepsTheWholeSubject",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSPeerConfig",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSPeerDropsACAAtOnce",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSRollsOverTheCA",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSSeesAnInPlaceRewrite",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSServesRenewedLeafOnly",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/natscell/unavailable_test.go::TestStartMarksOnlyUnreachableBrokersUnavailable",
+      "category": "mixed",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": true
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestRelayRejectsWrongArtifactBeforeSpoolingInstall",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestRelaySpoolsConfirmationWithoutFetchingBinary",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestSignedNetBirdStepRejectsRetargetingAndTampering",
+      "category": "unit",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestSpoolReadRejectsUnsafeFilesWithoutBlocking",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestVerifyRejectsSignedOldTransactionID",
+      "category": "unit",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerAppliedTargetRequiresSuccessfulInstallAndConfirmation",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerFailedInstallCannotBeConfirmed",
+      "category": "unit",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerMissingRequiresExecutableAbsence",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    },
+    {
+      "root_id": "internal/netbird/agent/agent_test.go::TestWorkerPrivateLedgerSurvivesForgedDeletedRelayResultAndRestart",
+      "category": "integration",
+      "verdict": "source-category-and-explicit-boundary-supported",
+      "canonical_body_drift": false
+    }
+  ],
+  "resolved_findings": [],
+  "corrections_requested": [],
+  "remaining_findings": [],
+  "retained_qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No Go/tests/helpers/scanners/parsers/frameworks/probes, cloud/signing/crypto/TerraBase/download execution. This receipt is source evidence only.",
+    "TLS roots using material() observe file-backed accepted state, not actual handshakes; handshake roots use local TLS echo fixtures, not embedded NATS unless source explicitly shows Start. Concurrent/in-flight tests do not establish a real blocked-read handshake schedule.",
+    "PeerConfig root reconstructs config each route call; only its exact one-attempt sequence is supported. Same-size rewrite may skip. No production rollout is qualified.",
+    "Relay wrong artifact supplied bytes are shorter than64 and reach file-size rejection, not ELF/digest mismatch comparison. Signed old-transaction fixture fails canonical identity format, not old-valid-transaction replay.",
+    "Worker effect functions are injected; persisted ledger root restart is loadLedger readback, not an OS process restart. Failed-install root asserts only in-memory fields and callback guard.",
+    "Unavailable root contains baseline/current body drift; original obligation is retained. Missing credential path absence and closed-port availability have external runtime conditions."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "source_mutated": false,
+    "ledger_mutated": false,
+    "runtime_qualification": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "completion_credit": false
+  }
+}

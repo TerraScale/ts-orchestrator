@@ -1,0 +1,684 @@
+{
+  "accepted_package_classifications": {
+    "internal/authority": {
+      "baseline_rows": 93,
+      "classification_sha256": "084e17bc2f2575099b16f730cd5100b277d5693f330a6aa7406154c2da38e2c0",
+      "corrected_root": {
+        "accepted_classification": "unit",
+        "author_concurrence": "storage_compare independently reread the same paths, agreed, and sealed corrected successor; prior artifact unchanged.",
+        "cause": "Empty subject inventory and zero watermark mean no asserted Seed/Window/Advance broker read occurs; broker setup is incidental.",
+        "correction_is_packet_only": true,
+        "evidence": [
+          {
+            "lines": [
+              88,
+              99,
+              103,
+              107,
+              110,
+              113,
+              116
+            ],
+            "path": "internal/authority/host_history_test.go"
+          },
+          {
+            "function": "Seed",
+            "path": "internal/authority/host_history.go",
+            "span": [
+              45,
+              83
+            ]
+          },
+          {
+            "function": "Window",
+            "path": "internal/authority/host_history.go",
+            "span": [
+              86,
+              120
+            ]
+          },
+          {
+            "function": "advance",
+            "path": "internal/authority/host_history.go",
+            "span": [
+              134,
+              181
+            ]
+          }
+        ],
+        "original_classification": "mixed",
+        "root": "TestHostHistoryExpiresAndReseedsWithoutLifetimeReplay",
+        "source_or_test_rewrite_required": false,
+        "test_path": "internal/authority/host_history_test.go",
+        "test_span": [
+          87,
+          119
+        ]
+      },
+      "independent_review": "/tmp/ts-authority-d4ac-classification-peer-1pd2stsh/review.json",
+      "independent_review_sha256": "7e021d206217d320c0a06edd87b9fac019a868243857f9381d1c2dfec8106372",
+      "integration": 72,
+      "limits": [
+        "All93 runtime qualifications remain UNKNOWN. No Go, formatter, build, test, lint, benchmark, runtime or receipt qualification was performed.",
+        "Embedded NATS/R3 and loopback HTTP source paths do not establish production/cloud/native execution, real host stopped/volume state, external OCI IAM/ACL responses or NetBird vendor behavior.",
+        "Every original safety assertion and suite obligation remains. Unit/mixed classifications authorize no deletion, replacement or retirement.",
+        "This acceptance is bound only to the pinned corrected packet and d4ac source. It does not qualify later commits or mutate any adopted ledger.",
+        "No source, Git history, AGENTS.md or human working tree was modified; only this exclusive immutable temporary evidence directory was created."
+      ],
+      "mixed": 1,
+      "package": "internal/authority",
+      "packet": "/tmp/ts-authority-d4ac-classification-corrected-8e5nz_tg/review.json",
+      "prior_retired_rows_excluded": 0,
+      "retained_originals_classified": 93,
+      "retirement_delta": 0,
+      "runtime_qualified_by_this_classification": 0,
+      "unit": 20,
+      "unresolved_within_classified_package": 0
+    },
+    "internal/functions": {
+      "batch_id": "functions14",
+      "classification_sha256": "9510b271f01831ed0d0b8607f14d62f841a2e248bf1bcb491f2878e40154caf2",
+      "independent_peer": "/tmp/ts-functions14-d4ac-independent-peer-kqfl7tyr/review.json",
+      "independent_peer_sha256": "89aef0faa2318141b40091c99f45ada9b2dc8828593eceaaaa88aff96f07905c",
+      "integration": 6,
+      "mixed": 7,
+      "original_root_ids": [
+        "internal/functions/admission_integration_test.go::TestSignedReleaseWorkerLifecycle",
+        "internal/functions/broker_integration_test.go::TestWorkerBrokerJWTAndTLSIsolation",
+        "internal/functions/process_integration_test.go::TestFunctionWorkerProcess",
+        "internal/functions/process_integration_test.go::TestFunctionWorkerRejectsExpiredMaterial",
+        "internal/functions/runtime_integration_test.go::TestWorkerCancellationAndCapacity",
+        "internal/functions/runtime_integration_test.go::TestWorkerFixedDeadlineAndConcurrentClose",
+        "internal/functions/runtime_integration_test.go::TestWorkerGuestExecutionAndIsolation",
+        "internal/functions/runtime_integration_test.go::TestWorkerResourceAndImportBoundaries",
+        "internal/functions/runtime_limits_integration_test.go::TestWorkerRejectsUnboundedDecoderResources",
+        "internal/functions/transports_integration_test.go::TestHTTPBoundsPendingBodiesBeforeGuestExecution",
+        "internal/functions/transports_integration_test.go::TestHTTPRealWorkerAuthenticationScopeAndLimits",
+        "internal/functions/transports_integration_test.go::TestHTTPRealWorkerTimeoutAndGuestFailure",
+        "internal/functions/transports_integration_test.go::TestQueueRealWorkerReceiptsReplayPoisonAndScope",
+        "internal/functions/transports_integration_test.go::TestQueueRealWorkerRetriesTimedOutInvocation"
+      ],
+      "packet": "/tmp/ts-functions14-d4ac-source-classification-o5y_ymin/classification.json",
+      "retained_originals_classified": 14,
+      "retirement_delta": 0,
+      "reviewed_unresolved_original_root_ids": [],
+      "reviewed_unresolved_retained_originals": 0,
+      "runtime_qualified_by_this_classification": 0,
+      "selection_scope": "all14 original internal/functions roots",
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+      "state": "PROPOSED_NOT_APPLIED",
+      "unit": 1
+    },
+    "internal/natscell": {
+      "batch_id": "natscell20",
+      "classification_sha256": "b21ae142cb4d24e3bd64a2ba70ee920c87f765c734652ef0c3bd38a2efb54b50",
+      "independent_peer": "/tmp/ts-natscell20-d4ac-independent-peer-b_bio5m1/review.json",
+      "independent_peer_sha256": "e87bafa1ba1a80a5dabe467f73ee52676d2c6e5a956edea6522521794cf42034",
+      "integration": 1,
+      "mixed": 1,
+      "original_root_ids": [
+        "internal/natscell/cluster_formation_test.go::TestPeerRoutesOmitsOnlySelf",
+        "internal/natscell/fabric_test.go::TestRelayedCellSpecReachesTheSpokeThroughPartitions",
+        "internal/natscell/interregion_test.go::TestGlobalMirrorContractExportsNoConsumerCreation",
+        "internal/natscell/interregion_test.go::TestInterRegionContractIsExplicitAndExact",
+        "internal/natscell/interregion_test.go::TestInterRegionLeafFailsOverToTheNextURLInOrder",
+        "internal/natscell/interregion_test.go::TestLeafTopologyIsARootedTree",
+        "internal/natscell/membership_test.go::TestMembershipAPIErrorDecoding",
+        "internal/natscell/membership_test.go::TestMembershipCredentialsAreNarrowlyScoped",
+        "internal/natscell/runtime_test.go::TestEmbeddedStoreLimit",
+        "internal/natscell/runtime_test.go::TestLabTerminalPermissionsAreRoleScoped"
+      ],
+      "packet": "/tmp/ts-natscell20-d4ac-source-classification-nzhpx105/classification.json",
+      "retained_originals_classified": 10,
+      "retirement_delta": 0,
+      "reviewed_unresolved_original_root_ids": [
+        "internal/natscell/cluster_formation_test.go::TestCloseHandsOffStreamLeadership",
+        "internal/natscell/cluster_formation_test.go::TestColdRestartWithTwoOfThreeBrokers",
+        "internal/natscell/cluster_formation_test.go::TestObserveStandaloneBroker",
+        "internal/natscell/cluster_formation_test.go::TestStagedFormationWithProductionRouteShape",
+        "internal/natscell/cluster_formation_test.go::TestWaitForClusterFailsFastWhenEmbeddedServerStopped",
+        "internal/natscell/runtime_test.go::TestControllerNKeyDurablyAcknowledgesDeliveryIntent",
+        "internal/natscell/runtime_test.go::TestEmbeddedClusterAdvertisesClientPeers",
+        "internal/natscell/runtime_test.go::TestEmbeddedSingleNodeDurableRestart",
+        "internal/natscell/runtime_test.go::TestHostNKeyCannotCrossNodeOrUseJetStream",
+        "internal/natscell/runtime_test.go::TestOperatorNKeyCanUseClientAPIsButCannotWriteControllerState"
+      ],
+      "reviewed_unresolved_retained_originals": 10,
+      "runtime_qualified_by_this_classification": 0,
+      "selection_scope": "selected roots only; no whole-package qualification",
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+      "state": "PROPOSED_NOT_APPLIED",
+      "unit": 8
+    },
+    "internal/oci": {
+      "batch_id": "oci_boundaries15",
+      "classification_sha256": "ad3bbfee8f3e1af9cd72abe484ec91f656f623a0fa55e56525cc5869967aa29a",
+      "independent_peer": "/tmp/ts-oci15-d4ac-classification-independent-storage-review-fa7eepf1/review.json",
+      "independent_peer_sha256": "433fa228c6fe371b9d175d9bac76944facf9f4464f1e8f52be9c9c896fe81de8",
+      "integration": 7,
+      "mixed": 3,
+      "original_root_ids": [
+        "internal/oci/capacity_request_integration_test.go::TestCapacityRequestSurvivesDiskRestartWithoutRenewingIdentity",
+        "internal/oci/inventory_test.go::TestCompleteObserveSweepPublishesTheFleetByLifecycleState",
+        "internal/oci/inventory_test.go::TestInventoryCountsOnlyVerifiedHosts",
+        "internal/oci/inventory_test.go::TestInventoryZeroesStatesThatEmptied",
+        "internal/oci/journal_test.go::TestJournalBootBindingSurvivesReopenAndRejectsRebinding",
+        "internal/oci/journal_test.go::TestJournalConcurrentConflictingResultsHaveOneImmutableWinner",
+        "internal/oci/journal_test.go::TestJournalDistinguishesFreshIntentFromUnknownProviderOutcome",
+        "internal/oci/journal_test.go::TestJournalOperationLookupRecoversPersistedAttachmentDevice",
+        "internal/oci/journal_test.go::TestJournalPinsSignedPlacementComputeProfile",
+        "internal/oci/journal_test.go::TestJournalRepairsInterruptedAttachmentProjectionWithoutRebinding",
+        "internal/oci/journal_test.go::TestJournalRepairsOwnershipProjectionAfterPartialFailure",
+        "internal/oci/journal_test.go::TestRegionIntentUsesFixedProductMapping",
+        "internal/oci/pool_receipt_integration_test.go::TestPoolReceiptsRetainOriginalSDKResultsAfterDiskRestartWithoutMintingAdmission",
+        "internal/oci/static_host_test.go::TestObserveStaticHostAcceptsOnlyAnUnmanagedRunningFleetInstance",
+        "internal/oci/volume_observer_integration_test.go::TestVolumeMountObserverUsesSignedSDKAndDurableOwnershipWithoutEffects"
+      ],
+      "packet": "/tmp/ts-oci-boundaries15-d4ac-source-b8ro_u0v/classification.json",
+      "retained_originals_classified": 15,
+      "retirement_delta": 0,
+      "reviewed_unresolved_original_root_ids": [],
+      "reviewed_unresolved_retained_originals": 0,
+      "runtime_qualified_by_this_classification": 0,
+      "selection_scope": "selected roots only; no whole-package qualification",
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+      "state": "PROPOSED_NOT_APPLIED",
+      "unit": 5
+    },
+    "internal/ociclient": {
+      "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+      "as_of": "2026-10-17T14:23:37.413945+00:00",
+      "baseline_rows": 14,
+      "classification_sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+      "classification_unadjudicated_remaining": 4291,
+      "independent_review": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+      "independent_review_sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+      "integration": 6,
+      "limits": [
+        "Source classification verifies the connected setup and assertions; it does not establish runtime qualification.",
+        "Six existing genuine local HTTP/SDK integration originals are retained unchanged. Three unit roots remain safety obligations for later migration.",
+        "Five prior retirement dispositions are not classified or retired again. Other package classifications remain pending."
+      ],
+      "mixed": 0,
+      "package_groups": [
+        "internal/ociclient"
+      ],
+      "packet": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+      "prior_retired_rows_excluded": 5,
+      "retained_originals_classified": 9,
+      "retained_originals_total": 4300,
+      "retirement_delta": 0,
+      "retirements_total": 19,
+      "runtime_qualified_by_this_classification": 0,
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+      "state": "INDEPENDENTLY_ACCEPTED_SOURCE_CLASSIFICATIONS_NO_RUNTIME_CREDIT",
+      "unit": 3,
+      "unresolved_within_classified_package": 0
+    },
+    "internal/region": {
+      "batch_id": "region30",
+      "classification_sha256": "0253d55a2fd2467198fca1287004ecc20a2c888fe2f8341536bdeb4ca7549002",
+      "independent_peer": "/tmp/ts-qa-region30-d4ac-source-peer-7fda186bcce1/review.json",
+      "independent_peer_sha256": "06e0955ab81f69141ad43401a1ad333d18541e724112961a2c6accdde19a2d69",
+      "integration": 8,
+      "mixed": 16,
+      "original_root_ids": [
+        "internal/region/access_integration_test.go::TestSignedReadAccessRequiresCurrentOwnedFoundation",
+        "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryHTTPDurableAuthority",
+        "internal/region/discovery_current_integration_test.go::TestCurrentFoundationDiscoveryLockProcess",
+        "internal/region/foundation_integration_test.go::TestFoundationRecordsPersistAndFenceConcurrentWriters",
+        "internal/region/foundation_integration_test.go::TestSignedFoundationScopeRequiresExplicitBootstrapAuthority",
+        "internal/region/foundation_recovery_integration_test.go::TestFoundationAcceptedCreateRecoversFromDurablePendingRequest",
+        "internal/region/foundation_recovery_integration_test.go::TestFoundationAuxiliaryIdentityCheckpointsPersistSeparately",
+        "internal/region/netbird_manager_integration_test.go::TestNetBirdManagerSignedLaunchAndStoreRecovery",
+        "internal/region/netbird_network_integration_test.go::TestNetBirdNetworkRecoversLostCreatesAndRejectsDrift",
+        "internal/region/region_test.go::TestCreatePeersWithTheHome",
+        "internal/region/region_test.go::TestCreateReadsTheTokensOnceForItsSteps",
+        "internal/region/region_test.go::TestCreateRefusesBeforeSpending",
+        "internal/region/region_test.go::TestCreateRetriesFabricBeforeImageWithoutReplacingStoredKey",
+        "internal/region/region_test.go::TestCreateRunsEveryStepOnceAndResumes",
+        "internal/region/region_test.go::TestDeriveRefuses",
+        "internal/region/region_test.go::TestDeriveRoundTripsTheReviewedPlan",
+        "internal/region/region_test.go::TestNetworkFollowsTheCatalog",
+        "internal/region/region_test.go::TestRegionProfileKeepsOnlyDefaultInTheRegion",
+        "internal/region/region_test.go::TestResolveRegionAcceptsTokensAndRefusesHomeAndUnknown",
+        "internal/region/region_test.go::TestRunRefusesBadArguments",
+        "internal/region/region_test.go::TestSubscribeCreatesThenPollsUntilReady",
+        "internal/region/region_test.go::TestSubscribeRefusesATerminalStatusAndAnEndedWait",
+        "internal/region/region_test.go::TestSubscribeReusesAReadySubscription",
+        "internal/region/region_test.go::TestVerifierPassesOnlyAServingRegion",
+        "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPFilesystemOffline",
+        "internal/region/retained_integration_test.go::TestRetainedFoundationHTTPRejectsInvalidAndRollback",
+        "internal/region/source_policy_integration_test.go::TestSourcePolicyJournalPreservesOriginalRecipientAndRejectsWidening",
+        "internal/region/spend_bindings_integration_test.go::TestLogicalSpendingBindingsRetainSignedAuthority",
+        "internal/region/worker_instance_integration_test.go::TestWorkerInstanceSDKObservationsRequireProtectedCreation",
+        "internal/region/worker_profile_integration_test.go::TestWorkerProfileAuthorityRequiresIndependentCurrentSources"
+      ],
+      "packet": "/tmp/ts-region30-d4ac-source-classification-k5k2eh_b/classification.json",
+      "retained_originals_classified": 30,
+      "retirement_delta": 0,
+      "reviewed_unresolved_original_root_ids": [],
+      "reviewed_unresolved_retained_originals": 0,
+      "runtime_qualified_by_this_classification": 0,
+      "selection_scope": "all30 original internal/region roots",
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+      "state": "PROPOSED_NOT_APPLIED",
+      "unit": 6
+    }
+  },
+  "all_original_root_accounting_proposal": {
+    "path": "/tmp/ts-qa-next300-full-composed-proposal-0hwlp02a/original-root-accounting.json",
+    "sha256": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "as_of": "2026-10-17T20:01:18.521942+00:00",
+  "baseline_originals_total": 4319,
+  "baseline_rows": 2986,
+  "classification_unadjudicated_remaining": 1443,
+  "first800_source_adjudication": {
+    "accepted_classifications": 789,
+    "central_source_acceptance_sha256": "4e3e91e7ffa22bd5132ef6d43a9de69ed181d75c444be085fe12ea25981afc75",
+    "inherited_evidence": "Prior695 retain original exact evidence scope and accepted first100/root200 applications unchanged.",
+    "integration": 252,
+    "literal_roots": 800,
+    "manifest_sha256": "7945e94559d4a7e56e117ab6534633e966a62304fa08192698ef838ac1c28906",
+    "mixed": 145,
+    "original_root_accounting": "composition/original-root-accounting.json",
+    "preserved_prior_hold": {
+      "hold_receipt": "/tmp/ts-root800-aggregate-review-8502aee6-fixture-source-review-next.json",
+      "hold_receipt_sha256": "b04d46c4bd0a61345d7ff97eca58456fc115ce6e1bc2ce750b9c5fb07212fae5",
+      "manifest": "/tmp/ts-root800-final-source-handoff-vqkusi10/manifest.json",
+      "reason": "Sole author1020:1040 callee evidence end_line455 corrected to actual EOF451; exact text, all800 root records/categories/identities and39 other owner/peer packets unchanged. Distinct prior peer independently accepted fresh owner hash.",
+      "sha256": "8502aee68eb1ebddd326eef1d40f41c04a9e52527758b7805996067045516c78"
+    },
+    "qualification_transfer": false,
+    "results": "inputs/aggregate/combined-roots.json",
+    "retirement_delta": 0,
+    "reviewed_unresolved": 11,
+    "runtime": "UNKNOWN_NO_EXECUTION",
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+    "unit": 392
+  },
+  "integration": 1019,
+  "limits": [
+    "Cumulative source classifications only; no runtime/main/global/production/native/cloud/financial qualification.",
+    "Ociclient nine retained originals (6 integration/3 unit) and authority 93 retained originals (72 integration/20 unit/1 mixed) are disjoint baseline roots.",
+    "The corrected HostHistory expiry/reseed root is unit; incidental broker setup receives no integration credit.",
+    "All unit/mixed safety assertions and suite obligations remain; no source rewrite, replacement, deletion or retirement is authorized.",
+    "Five previously retired ociclient rows are excluded. Frozen lexical scans and historical receipts are unchanged; other retained originals remain unadjudicated.",
+    "Proposed source-only delta69 roots=22integration20unit27mixed. Ten NATS roots reviewed-unresolved remain inside4129 globallyunadjudicated; they receive no classification credit.",
+    "Original functions14 author packet preserved; expiry-only material test peer-corrected integration\u2192unit. NATS ten stale-Lab/NKey roots peer-corrected integration\u2192unresolved with intended integration retained separately.",
+    "d4ac source anchor only. Local7330 bridge NOTQUALIFIED; unchanged selected declarations do not transfer connected-source or runtime qualification.",
+    "Next300 adds proposed238 source classifications and62 reviewed-unresolved only; all300 runtimeUNKNOWN; no current bde/feature-union qualification transfer. Full ledger composition remains unapplied pending independent exact review and separate promotion.",
+    "New100 exact52eef source classifications add22integration/52unit/21mixed and retain5unresolved. All100runtimeUNKNOWN. No new retirement, deletion, compile/runtime or completion credit; inherited classifications retain original exact source scope.",
+    "New200 exact52eef classifications add52integration/103unit/36mixed, retain9unresolved and all200runtimeUNKNOWN. Prior504 evidence scope unchanged. No new retirement/deletion/compile/runtime/completion credit.",
+    "New first800 exact52eef classifications add252integration/392unit/145mixed, retain11unresolved and all800 runtimeUNKNOWN. Prior695 evidence scope unchanged. No new retirement/deletion/compile/runtime/completion credit.",
+    "New second800 exact52eef classifications add295integration/405unit/91mixed, retain9unresolved and all800 runtimeUNKNOWN. Prior1484 evidence scope unchanged. No new retirement/deletion/compile/runtime/completion credit.",
+    "New third600 exact52eef classifications add214integration/282unit/86mixed, retain18unresolved and all600runtimeUNKNOWN. Prior2275classification scope unchanged. No retirement/deletion/compile/runtime/completion credit."
+  ],
+  "mixed": 444,
+  "next300_controlling_evidence": {
+    "author_and_peer_packets": "Preserved unchanged; corrected peer rationale/spans and acceptance supplemental loci control this proposal.",
+    "citation_limit": "CORE narrow spans in the original delta omit literal callback return65 and assertion82-83; independent acceptance supplies precise61-66 and80-84 loci. Full declaration and controlling no-Vault/no-rotation rationale remain decisive.",
+    "correction_source": {
+      "bytes": 391960,
+      "mode": "0444",
+      "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+      "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+    },
+    "exact_independent_citation_disposition": {
+      "disposition": "Supplement precise actual source loci in this immutable independent review; no schema/category/count correction or raw history rewrite required.",
+      "root_id": "internal/swarmruntime/registry_integration_test.go::TestRegistryResolverAuthenticatedHTTPIntegration",
+      "scope": "Copied peer narrow-span metadata is incomplete for literal-return and byte/counter assertion claims; fullroot/controlannotation remain correct and decisive.",
+      "supplemental_loci": [
+        {
+          "bytes": 208,
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "end_line": 66,
+          "path": "internal/swarmruntime/registry_integration_test.go",
+          "purpose": "literal credential callback including literal return65",
+          "sha256": "88e5ed9d8e51ca85f7d5d7a39e1aa09f9612074db7172cca4e5f8f74342363bf",
+          "start_line": 61
+        },
+        {
+          "bytes": 283,
+          "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "end_line": 84,
+          "path": "internal/swarmruntime/registry_integration_test.go",
+          "purpose": "read/close/manifest byte equality and authenticated request counter assertion82-83",
+          "sha256": "9844f70b3ac89d9e03e66549ded5bc2c5642b633c0e3bfde0207ee8dd0c6405a",
+          "start_line": 80
+        }
+      ]
+    },
+    "independent_delta_acceptance": {
+      "bytes": 9185,
+      "mode": "0444",
+      "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+      "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+    },
+    "json_pointer": "/controlling_corrections"
+  },
+  "next300_delta_proposal": {
+    "bytes": 391960,
+    "mode": "0444",
+    "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+    "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+  },
+  "next300_independent_delta_acceptance": {
+    "bytes": 9185,
+    "mode": "0444",
+    "path": "/tmp/ts-next300-final-delta-independent-storage-review-rilgr3fa/review.json",
+    "sha256": "842cec513f6cb3c82f9e189317aba6c8d85d403a4b72cc0ab6a7b2d8ecdd30fd"
+  },
+  "package_groups": [
+    "internal/ociclient",
+    "internal/authority",
+    "internal/functions",
+    "internal/natscell",
+    "internal/oci",
+    "internal/region",
+    "internal/delivery",
+    "internal/swarmruntime",
+    "internal/workload",
+    "internal/workloadspec",
+    "internal/autoscale",
+    "internal/budget",
+    "internal/capacity",
+    "internal/capacitysim",
+    "internal/globalcontrol",
+    "internal/globalview",
+    "internal/netbird/dns",
+    "internal/netbird/foundation",
+    "internal/netbird/manager",
+    "internal/netbird/pathaudit",
+    "internal/netbird/sshlogin"
+  ],
+  "prior171_actual_application_receipt": {
+    "bytes": 1893,
+    "mode": "0444",
+    "path": "/tmp/ts-qa-classification69-actual-apply-9wr2zuyd/receipt.json",
+    "sha256": "71738603201ae4863b725c2f843f085f2db929ff3dde1ad4fd982292cd5f209d"
+  },
+  "prior_ociclient_promotion_audit": {
+    "path": "/tmp/ts-qa-ociclient9-classification-promotion-audit-c599f2cb1212.json",
+    "sha256": "897c48c1fe901898d5aa6e71b5a71cf2a761e05d52f9056c1b6fa28eae6c31bb"
+  },
+  "prior_retired_rows_excluded": 5,
+  "proposed_next300_batch_classifications": {
+    "CAP57": {
+      "candidate": {
+        "bytes": 1458917,
+        "mode": "0444",
+        "path": "/tmp/ts-cap57-d4ac-source-classification-r9lqashl/classification.json",
+        "sha256": "e72f6069898051c2a1d22160d476f99583d89c60c936bca66376b1f807e685a0"
+      },
+      "counts": {
+        "integration": 8,
+        "mixed": 2,
+        "unit": 46,
+        "unresolved": 1
+      },
+      "exact_root_dispositions": {
+        "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+        "selection": {
+          "batch_id": "CAP57"
+        },
+        "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+      },
+      "independent_peer": {
+        "bytes": 851348,
+        "mode": "0444",
+        "path": "/tmp/ts-cap57-d4ac-independent-material-wb20g8i_/review.json",
+        "sha256": "c5a83215a0f7e5fae1bd1b5c746290b921d5b38e781162201585115caf263c0b"
+      },
+      "retained_originals_classified": 56,
+      "retirement_delta": 0,
+      "reviewed_unresolved_retained_originals": 1,
+      "runtime_qualified_by_this_classification": 0,
+      "selected_originals": 57,
+      "state": "PROPOSED_NOT_APPLIED"
+    },
+    "CORE65": {
+      "candidate": {
+        "bytes": 4140297,
+        "mode": "0444",
+        "path": "/tmp/ts-core65-d4ac-source-classification-Yz6avQIW/classification.json",
+        "sha256": "0639658db2c0974d670483f31a4a644f7de32c97f7bb574f08d661975577612f"
+      },
+      "counts": {
+        "integration": 13,
+        "mixed": 15,
+        "unit": 36,
+        "unresolved": 1
+      },
+      "exact_root_dispositions": {
+        "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+        "selection": {
+          "batch_id": "CORE65"
+        },
+        "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+      },
+      "independent_peer": {
+        "bytes": 4190047,
+        "mode": "0444",
+        "path": "/tmp/ts-core65-d4ac-peer-net-sgmlxjwy/review.json",
+        "sha256": "ab0fc18b3aa358c5ad989ec3fdcf60d73007f11e198bbd147d24e1f58f4d6bcb"
+      },
+      "retained_originals_classified": 64,
+      "retirement_delta": 0,
+      "reviewed_unresolved_retained_originals": 1,
+      "runtime_qualified_by_this_classification": 0,
+      "selected_originals": 65,
+      "state": "PROPOSED_NOT_APPLIED"
+    },
+    "DATA75": {
+      "candidate": {
+        "bytes": 1958211,
+        "mode": "0444",
+        "path": "/tmp/ts-data75-d4ac-source-classification-y9dqe8af/classification.json",
+        "sha256": "5bd4d6d007d17894ee7f7957086841199e1075455fff49e36ba47399473fdf5f"
+      },
+      "counts": {
+        "integration": 2,
+        "unit": 16,
+        "unresolved": 57
+      },
+      "exact_root_dispositions": {
+        "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+        "selection": {
+          "batch_id": "DATA75"
+        },
+        "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+      },
+      "independent_peer": {
+        "bytes": 1085012,
+        "mode": "0444",
+        "path": "/tmp/ts-data75-d4ac-independent-peer-Do1wRkzl/peer-review.json",
+        "sha256": "a54e54c099ecae201f1028505e7d53d48a443a3a2396117d312f7b0c7ca6133a"
+      },
+      "retained_originals_classified": 18,
+      "retirement_delta": 0,
+      "reviewed_unresolved_retained_originals": 57,
+      "runtime_qualified_by_this_classification": 0,
+      "selected_originals": 75,
+      "state": "PROPOSED_NOT_APPLIED"
+    },
+    "MESH55": {
+      "candidate": {
+        "bytes": 733869,
+        "mode": "0444",
+        "path": "/tmp/ts-mesh55-d4ac-source-classification-pfjjhj7x/classification.json",
+        "sha256": "0bf0127bcc7915a633fe2ca78ab918703408eb69dd4c06dd554b86d3b72d3893"
+      },
+      "counts": {
+        "integration": 35,
+        "mixed": 11,
+        "unit": 8,
+        "unresolved": 1
+      },
+      "exact_root_dispositions": {
+        "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+        "selection": {
+          "batch_id": "MESH55"
+        },
+        "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+      },
+      "independent_peer": {
+        "bytes": 820976,
+        "mode": "0444",
+        "path": "/tmp/ts-mesh55-d4ac-independent-peer-v7epgz07/review.json",
+        "sha256": "6cf7954430a4add049ee59149825b259e639419d2a3a4bbccb9960cf67636117"
+      },
+      "retained_originals_classified": 54,
+      "retirement_delta": 0,
+      "reviewed_unresolved_retained_originals": 1,
+      "runtime_qualified_by_this_classification": 0,
+      "selected_originals": 55,
+      "state": "PROPOSED_NOT_APPLIED"
+    },
+    "NET48": {
+      "candidate": {
+        "bytes": 852352,
+        "mode": "0444",
+        "path": "/tmp/ts-net48-d4ac-source-classification-k9shja9e/classification.json",
+        "sha256": "c89d6e3558298634ed2f902d0a55fa2d95496e26800be31b283dbf4da3b409e2"
+      },
+      "counts": {
+        "integration": 26,
+        "mixed": 9,
+        "unit": 11,
+        "unresolved": 2
+      },
+      "exact_root_dispositions": {
+        "path": "/tmp/ts-d4ac-next300-final-source-delta-proposal-5o750lk9/proposal.json",
+        "selection": {
+          "batch_id": "NET48"
+        },
+        "sha256": "f26ebe8d0abedc04a1b1b1a745da98665390dc09e015523fbc56298c284ded6a"
+      },
+      "independent_peer": {
+        "bytes": 884164,
+        "mode": "0444",
+        "path": "/tmp/ts-net48-d4ac-independent-peer-z4u7bbzz/review.json",
+        "sha256": "5134c9fb091bf707943dec174a6b16d1416a6246440816201ed601ee048228ce"
+      },
+      "retained_originals_classified": 46,
+      "retirement_delta": 0,
+      "reviewed_unresolved_retained_originals": 2,
+      "runtime_qualified_by_this_classification": 0,
+      "selected_originals": 48,
+      "state": "PROPOSED_NOT_APPLIED"
+    }
+  },
+  "remaining_other_unadjudicated": 1319,
+  "retained_originals_classified": 2857,
+  "retained_originals_total": 4300,
+  "retirement_delta": 0,
+  "retirements_total": 19,
+  "reviewed_unresolved_included_in_global_unadjudicated": true,
+  "reviewed_unresolved_retained_originals": 124,
+  "root100_source_adjudication": {
+    "accepted_classifications": 95,
+    "central_source_acceptance_sha256": "ddbe349fe9929bb0d507c0b360def363e7038c061c4af37458c4187c51ee598c",
+    "inherited_evidence": "Earlier accepted classifications retain original source pins and original runtime evidence unchanged.",
+    "integration": 22,
+    "literal_roots": 100,
+    "manifest_sha256": "bfbef84fe8540e67cfb4813c4bae1d91e104d2bd62a5848cfebcf0c8ea605409",
+    "mixed": 21,
+    "original_root_accounting": "composition/original-root-accounting.json",
+    "qualification_transfer": false,
+    "results": "inputs/aggregate/classification-results.json",
+    "retirement_delta": 0,
+    "reviewed_unresolved": 5,
+    "runtime": "UNKNOWN_NO_EXECUTION",
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+    "unit": 52
+  },
+  "root200_source_adjudication": {
+    "accepted_classifications": 191,
+    "central_source_acceptance_sha256": "f77ff16ec4a1382d224de2b0eb17381e6568d8680970b9b5936b8f6b068b0bf9",
+    "inherited_evidence": "Prior504 retain exact original source/runtime evidence and accepted first100 application unchanged.",
+    "integration": 52,
+    "literal_roots": 200,
+    "manifest_sha256": "fc036cddde5f9c3236cba7659a1b92f983ed3e2931bcf1271b445590729f3f19",
+    "mixed": 36,
+    "original_root_accounting": "composition/original-root-accounting.json",
+    "qualification_transfer": false,
+    "results": "inputs/aggregate/classification-results.json",
+    "retirement_delta": 0,
+    "reviewed_unresolved": 9,
+    "runtime": "UNKNOWN_NO_EXECUTION",
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+    "unit": 103
+  },
+  "runtime_qualified_by_this_classification": 0,
+  "second800_source_adjudication": {
+    "accepted_classifications": 791,
+    "central_source_acceptance_sha256": "61588357e67df008b3ae46af7e964cd3a34355681268d159fd20f374f74c966c",
+    "inherited_evidence": "Prior1484 retain original exact evidence scope and accepted first100/root200/first800 applications unchanged.",
+    "integration": 295,
+    "literal_roots": 800,
+    "manifest_sha256": "a71a05858a7c1c58ed5c5213a7e08ae9b7095693dcfb52415340b11947146e56",
+    "mixed": 91,
+    "original_root_accounting": "composition/original-root-accounting.json",
+    "preserved_prior_hold": {
+      "hold_receipt": "/tmp/ts-second800-aggregate-review-2aff808b-35oe5sr5.json",
+      "hold_receipt_sha256": "c5eccf14b151b71571862d1cb41b2cb2bfce5ec115fd03bf4a93fd924414e979",
+      "manifest": "/tmp/ts-root800-second-final-source-handoff-vegpl6aa/manifest.json",
+      "reason": "Sole peer1260 supplemental citation end161 corrected to actualEOF154; quoted bytes/hash, all800original records/categories/identities and all40owner packets plus39other peer receipts unchanged.",
+      "sha256": "2aff808b9719b72e54c68c141655a192ef5ea878dd0ff0fd2ffc5b8308754b90"
+    },
+    "qualification_transfer": false,
+    "results": "inputs/aggregate/combined-roots.json",
+    "retirement_delta": 0,
+    "reviewed_unresolved": 9,
+    "runtime": "UNKNOWN_NO_EXECUTION",
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+    "unit": 405
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "state": "PROPOSED_FULL_COMPOSITION_NOT_APPLIED_PENDING_INDEPENDENT_COMPOSITION_REVIEW",
+  "third600_source_adjudication": {
+    "accepted_classifications": 582,
+    "central_source_acceptance_sha256": "218ace10736e0caf7e77fa13f9da7be2f1903fca727e519d83299f54ffa36fb6",
+    "inherited_evidence": "Prior2275classifications/106reviewed-unresolved retain original exact evidence scope, historical applications and holds unchanged.",
+    "integration": 214,
+    "literal_roots": 600,
+    "manifest_sha256": "8182d93d6ef500ff67304dc8be97d16901e6cb5f519adac76624a5a05d51764f",
+    "mixed": 86,
+    "original_root_accounting": "composition/original-root-accounting.json",
+    "preserved_prior_hold": {
+      "all600_original_records_verbatim_unchanged": true,
+      "central_hold": "/tmp/ts-third600-aggregate-review-94da2d8f-03qffbgj.json",
+      "central_hold_sha256": "fdc99d5f987ef2a8e934a7e3fbb1f7b095abc851786379351710ad9efc694398",
+      "corrections": [
+        "Peer1980 supplemental_source[1].end_line282 to281(actualEOF); exact quoted bytes and accepted author unchanged.",
+        "Author2480 terminal.spans[11].end_line759 to757(actualEOF); exact quoted bytes unchanged; fresh peer2480 receipt rebinds corrected author hash."
+      ],
+      "counts_unchanged": true,
+      "manifest": "/tmp/ts-root600-third-final-source-handoff-usx7hyw9/manifest.json",
+      "prior_artifacts_preserved": true,
+      "sha256": "94da2d8f49dda0cdb1777ee88f0952128c594ee21d643ebfa28857d3fe32dd30"
+    },
+    "qualification_transfer": false,
+    "results": "inputs/aggregate/combined-roots.json",
+    "retirement_delta": 0,
+    "reviewed_unresolved": 18,
+    "runtime": "UNKNOWN_NO_EXECUTION",
+    "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+    "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+    "unit": 282
+  },
+  "unit": 1394,
+  "unresolved_within_classified_package": 124
+}

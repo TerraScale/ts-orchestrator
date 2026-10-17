@@ -1,0 +1,4 @@
+Independent source-only acceptance of literal other_unadjudicated[2000:2020].
+Accepted packet /tmp/ts-source-classification-2000-2020-final-4ah23val/classification.json SHA256 9cf4074a8a808c0e1ee0a48c6f6aee801ca8c2acb844f1a838f63004443e473a.
+Counts12integration6unit2mixed0unresolved. All20 full roots and connected paths reviewed. No corrections or remaining findings.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no tests/helpers/services executed and no source/ledger mutation, count/deletion/retirement/completion credit.

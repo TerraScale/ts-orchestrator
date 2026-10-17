@@ -1,0 +1,237 @@
+{
+  "schema": "independent-source-only-peer-review-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2300_2320",
+  "author": "/root/classification_100_dispatch/batch_2320_2340",
+  "accepted": true,
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2320-2340-4uljj3r2/classification.json",
+    "sha256": "1e695dc094ebf3cbcb8d304aa213abed9d6553d7ddcff375a7b57af837499825",
+    "checksum_path": "/tmp/ts-source-2320-2340-4uljj3r2/SHA256SUMS",
+    "checksum_sha256": "0155d2151c419f2084c80719df3f3bd41e8ab1673ead387f414ab3e1c4836205"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "owner": "/root/classification_100_dispatch/batch_2320_2340",
+    "range": [
+      2320,
+      2340
+    ],
+    "root_ids": [
+      "internal/observability/host_history_replay_loss_test.go::TestHostMetricStreamReplayFailuresConsumerRecreation",
+      "internal/observability/host_history_stream_test.go::TestBoundHostMetricBatch",
+      "internal/observability/host_history_stream_test.go::TestHostMetricBatchSizeAndMalformedRecords",
+      "internal/observability/host_history_stream_test.go::TestHostMetricBatchValidation",
+      "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemIdentityValidation",
+      "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemPrefixesRemainValid",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamCannotConfirmIdenticalBatchFromAnotherGeneration",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamCaughtUpReplayRejectsRecreation",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentOpenUsesWinningGeneration",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentPublishAndReplay",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamConfigAndQuota",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamConsumerRecreationAndEmptyReadiness",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamIdleEmptyReplayReadiness",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamOpenPreservesGenerationAndRejectsOldContract",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishLostAck",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishRetryBound",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamRecreationResumesV1Publication",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamRejectsInFlightWritesAcrossRecreation",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayBoundsManagementRequests",
+      "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayDiscardsBufferedChunkAcrossRecreation"
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2300_2320",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "fork_turns_for_new": "none",
+    "reused_confirmed_agent": false
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/observability/host_history_replay_loss_test.go::TestHostMetricStreamReplayFailuresConsumerRecreation",
+    "internal/observability/host_history_stream_test.go::TestBoundHostMetricBatch",
+    "internal/observability/host_history_stream_test.go::TestHostMetricBatchSizeAndMalformedRecords",
+    "internal/observability/host_history_stream_test.go::TestHostMetricBatchValidation",
+    "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemIdentityValidation",
+    "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemPrefixesRemainValid",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamCannotConfirmIdenticalBatchFromAnotherGeneration",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamCaughtUpReplayRejectsRecreation",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentOpenUsesWinningGeneration",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentPublishAndReplay",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamConfigAndQuota",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamConsumerRecreationAndEmptyReadiness",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamIdleEmptyReplayReadiness",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamOpenPreservesGenerationAndRejectsOldContract",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishLostAck",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishRetryBound",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamRecreationResumesV1Publication",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamRejectsInFlightWritesAcrossRecreation",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayBoundsManagementRequests",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayDiscardsBufferedChunkAcrossRecreation"
+  ],
+  "counts": {
+    "integration": 15,
+    "unit": 1,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Own2300:2320 source packet froze and was handed off before this distinct cyclic peer review; own requested baseline-pin correction completed first.",
+    "Independently read all20 complete current roots at canonical commit, plus full actual fixture helpers, delegating fault wrappers, synthetic contention wrapper, archive accept/reject helpers, production Open/Publish/codec/Tail/replay and reached History operations. Baseline root files have same Git blobs as canonical root files.",
+    "Verified exact literal allocation/root order and survival raw identity rows;40 baseline/current raw declarations with independently transcribed start/end bounds, column-zero closing brace, full text and SHA256; each root matches original survival hashes.",
+    "Verified every emitted assertion span and connected-callee span against exact canonical Git bytes and declared blob; verified all seven baseline/current source-file pins including Git blob/mode/SHA256/bytes.",
+    "Verified all five input file hashes, accepted packet/hash/checksum exact bytes, checksum contents, files0444/directory0555, category counts exhausting only these20 roots, runtime UNKNOWN, safety obligations and no retirement authorization.",
+    "Independently adjudicated15integration/1unit/4mixed: real upstream NATS FileStorage plus loopback TCP supports actual commit/readback/replay; local bound/guard blocks remain mixed; PublishRetryBound fabricated CAS errors never write and remain unit despite real Info calls."
+  ],
+  "category_notes": {
+    "unit": [
+      "TestHostMetricStreamPublishRetryBound: only mock CAS errors drive attempt-bound result; real broker setup and Info are incidental."
+    ],
+    "mixed": [
+      "TestBoundHostMetricBatch: independent local prefix/drop/nil/invalid-sample checks plus real accepted archive replay.",
+      "TestHostMetricBatchSizeAndMalformedRecords: independent local size/bounding checks plus real retained-record replay/rejection.",
+      "TestHostMetricStreamConfigAndQuota: broker config/quota effect/readback plus local nil/replica/cell guards and initial readiness.",
+      "TestHostMetricStreamConsumerRecreationAndEmptyReadiness: actual consumer/replay/resume assertions plus local Tail(nil) guard."
+    ],
+    "integration_limits": [
+      "Fault injection wrappers delegate to real broker before altering acknowledgment or generation timing; raw retained bytes and actual replay support assertions.",
+      "Reject helper skips raw replay for nonserializable NaN/Inf; publication rejection and real empty durable-state readback remain explicit.",
+      "No independent live OCI, natscell identity/TLS, regional federation, quorum, production host filesystem or crash safety qualification."
+    ]
+  },
+  "root_attestations": [
+    {
+      "root_id": "internal/observability/host_history_replay_loss_test.go::TestHostMetricStreamReplayFailuresConsumerRecreation",
+      "original_declaration_sha256": "cfda27ab10d92bc60271751e92088994f37e9af126983c5d72dffcdb9e27d166",
+      "current_declaration_sha256": "cfda27ab10d92bc60271751e92088994f37e9af126983c5d72dffcdb9e27d166",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestBoundHostMetricBatch",
+      "original_declaration_sha256": "6885b5271124da825473319edffac46948ad5eeb931033efa2c71fc8a1822bd9",
+      "current_declaration_sha256": "6885b5271124da825473319edffac46948ad5eeb931033efa2c71fc8a1822bd9",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricBatchSizeAndMalformedRecords",
+      "original_declaration_sha256": "37c20dd85a26187105591098856c6e3cc42f6ec9d2b1b358fcd0953587a4115c",
+      "current_declaration_sha256": "37c20dd85a26187105591098856c6e3cc42f6ec9d2b1b358fcd0953587a4115c",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricBatchValidation",
+      "original_declaration_sha256": "3fe16e8b0f4ce05afe4b01cc519c4881599a179a7c5be41dc8ab4335b8ea14a8",
+      "current_declaration_sha256": "3fe16e8b0f4ce05afe4b01cc519c4881599a179a7c5be41dc8ab4335b8ea14a8",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemIdentityValidation",
+      "original_declaration_sha256": "d756231ecf7e84dbe4038d9f21b2d784cbbf6ba83492b8533cc283b3331ae10a",
+      "current_declaration_sha256": "d756231ecf7e84dbe4038d9f21b2d784cbbf6ba83492b8533cc283b3331ae10a",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricFilesystemPrefixesRemainValid",
+      "original_declaration_sha256": "ecb0857bd49bc63a3f9760801db29750d50912639ea5711b77ef90394bf161ab",
+      "current_declaration_sha256": "ecb0857bd49bc63a3f9760801db29750d50912639ea5711b77ef90394bf161ab",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamCannotConfirmIdenticalBatchFromAnotherGeneration",
+      "original_declaration_sha256": "807ac57cbf87d0c7348933f83a9ede00cd504b17109266707f86f96c6f23b876",
+      "current_declaration_sha256": "807ac57cbf87d0c7348933f83a9ede00cd504b17109266707f86f96c6f23b876",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamCaughtUpReplayRejectsRecreation",
+      "original_declaration_sha256": "26ccaeabb3f5f3c7d6a44d8c5283b08f6e8b3b9e2604306f23ebb0db5000dfe7",
+      "current_declaration_sha256": "26ccaeabb3f5f3c7d6a44d8c5283b08f6e8b3b9e2604306f23ebb0db5000dfe7",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentOpenUsesWinningGeneration",
+      "original_declaration_sha256": "c4facb6f2f4fd548935bd9212bd23132646d1b0bd30e92a98f451f0f9a8d49a6",
+      "current_declaration_sha256": "c4facb6f2f4fd548935bd9212bd23132646d1b0bd30e92a98f451f0f9a8d49a6",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamConcurrentPublishAndReplay",
+      "original_declaration_sha256": "4fc662a09b209371fa9943dd2cd60b5c2c67022539ebea81965dc87759c2ff20",
+      "current_declaration_sha256": "4fc662a09b209371fa9943dd2cd60b5c2c67022539ebea81965dc87759c2ff20",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamConfigAndQuota",
+      "original_declaration_sha256": "0248e656f5fcd25d6230042e5e83158d86e7e33b85fed134dc572bb9c68698c9",
+      "current_declaration_sha256": "0248e656f5fcd25d6230042e5e83158d86e7e33b85fed134dc572bb9c68698c9",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamConsumerRecreationAndEmptyReadiness",
+      "original_declaration_sha256": "ede6ff37dea3a48bdfc47c58cf399db2cafe3d187098ecaf043fabaed8fdeccb",
+      "current_declaration_sha256": "ede6ff37dea3a48bdfc47c58cf399db2cafe3d187098ecaf043fabaed8fdeccb",
+      "category": "mixed"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamIdleEmptyReplayReadiness",
+      "original_declaration_sha256": "d892fc3c1f257b26b0c0f3056620624ee110648a9bf036c9ecf7bd99098b416a",
+      "current_declaration_sha256": "d892fc3c1f257b26b0c0f3056620624ee110648a9bf036c9ecf7bd99098b416a",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamOpenPreservesGenerationAndRejectsOldContract",
+      "original_declaration_sha256": "b6591ff05b1b56cc90e679268ea6f8c4dc08f3cca5a1247171fa8c9ec4665516",
+      "current_declaration_sha256": "b6591ff05b1b56cc90e679268ea6f8c4dc08f3cca5a1247171fa8c9ec4665516",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishLostAck",
+      "original_declaration_sha256": "b3f58eb5d76a07d85482117274c4757c495a5a992190ba16d9d47a01bb742352",
+      "current_declaration_sha256": "b3f58eb5d76a07d85482117274c4757c495a5a992190ba16d9d47a01bb742352",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamPublishRetryBound",
+      "original_declaration_sha256": "532d0264f9c85071e3bc3232cdb1f4bd3dfd77cd8a2222b2a2736f75c9885bdf",
+      "current_declaration_sha256": "532d0264f9c85071e3bc3232cdb1f4bd3dfd77cd8a2222b2a2736f75c9885bdf",
+      "category": "unit"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamRecreationResumesV1Publication",
+      "original_declaration_sha256": "2f2a6de51454ff4a74af587bb55c5d2c982ac7640d57b4c5b469bd999da83946",
+      "current_declaration_sha256": "2f2a6de51454ff4a74af587bb55c5d2c982ac7640d57b4c5b469bd999da83946",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamRejectsInFlightWritesAcrossRecreation",
+      "original_declaration_sha256": "607a4774c8108d78191ae5f39abede02e2e0370a8d312ac05b7460abc338ecbd",
+      "current_declaration_sha256": "607a4774c8108d78191ae5f39abede02e2e0370a8d312ac05b7460abc338ecbd",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayBoundsManagementRequests",
+      "original_declaration_sha256": "c2b026428c011bc07908aace8b9af952d25d360a8be4feb59f4b6c4f37c75eea",
+      "current_declaration_sha256": "c2b026428c011bc07908aace8b9af952d25d360a8be4feb59f4b6c4f37c75eea",
+      "category": "integration"
+    },
+    {
+      "root_id": "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayDiscardsBufferedChunkAcrossRecreation",
+      "original_declaration_sha256": "2acc76c66eeb712e235727abaea879628a2e73842f304058c3cd943c0fdabdec",
+      "current_declaration_sha256": "2acc76c66eeb712e235727abaea879628a2e73842f304058c3cd943c0fdabdec",
+      "category": "integration"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_blockers": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "source_only_candidate": true,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_count_promotion_credit": 0,
+  "deletion_credit": 0,
+  "retirement_credit": 0,
+  "completion_credit": 0,
+  "execution_performed": false
+}

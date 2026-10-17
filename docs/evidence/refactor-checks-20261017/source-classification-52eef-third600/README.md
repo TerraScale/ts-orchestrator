@@ -1,0 +1,1 @@
+Source-only THIRD600 evidence and prospective accounting. Exact52eef source classifications. Live ledgers unchanged; all five gates OPEN. See manifest.json, composition/receipt.json and inputs/copy-index.json.

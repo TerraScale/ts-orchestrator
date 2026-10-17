@@ -1,0 +1,79 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2080_2100",
+  "author": "/root/classification_100_dispatch/batch_2100_2120",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2100-2120-67ohug9w/classification.json",
+    "sha256": "4ac99a6be5b278eb0d2e4801910a5d67552bd5fa17507063f44be588bb40465b",
+    "checksum_path": "/tmp/ts-source-2100-2120-67ohug9w/SHA256SUMS",
+    "checksum_sha256": "c6b4a7271bdb22c62b6343f88e462880712f374bc54674625b321dd2431fdfee"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2100:2120]"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapEnrollmentLoadsCurrentConfigAndRetainsLock",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapEnrollmentRejectsEveryPendingTransaction",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapEnrollmentRejectsIncompletePublication",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapPublicationCancellationHoldsReadersAndFreshSnapshots",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapPublicationWriteFailureRemainsHeldUntilRetry",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapReaderRejectsFIFOWithoutHoldingLock",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapReaderRejectsUntrustedPins",
+    "internal/netbird/client/bootstrap_test.go::TestManagedBootstrapReaderSharesInstallationLock",
+    "internal/netbird/client/managed_deadline_test.go::TestManagedInstallResumesWithinPersistedDeadlineAndReleasesRecoveryLock",
+    "internal/netbird/client/managed_deadline_test.go::TestManagedNewInstallPropagatesItsDeadlineAndPreservesEarlierCallerDeadline",
+    "internal/netbird/client/managed_deadline_test.go::TestManagedRollbackCalendarNeverPrecedesFractionalDeadline",
+    "internal/netbird/client/managed_deletion_test.go::TestManagedRollbackBeforeConfigurationToleratesMissingStateParents",
+    "internal/netbird/client/managed_deletion_test.go::TestManagedRollbackDeletionSyncFailureKeepsPendingAndRetries",
+    "internal/netbird/client/managed_journal_test.go::TestManagedJournalReadDoesNotFollowConcurrentSymlinkReplacement",
+    "internal/netbird/client/managed_journal_test.go::TestManagedJournalReadKeepsPrivateBoundsAndAbsence",
+    "internal/netbird/client/managed_retention_test.go::TestManagedPendingRecoveryDoesNotDependOnSnapshotCleanup",
+    "internal/netbird/client/managed_retention_test.go::TestManagedRetainedExecutableRunsRollbackAfterReleasePruning",
+    "internal/netbird/client/managed_retention_test.go::TestManagedRollbackExecutableHelper",
+    "internal/netbird/client/managed_retention_test.go::TestManagedSnapshotCleanupRejectsUnsafeParent",
+    "internal/netbird/client/managed_retention_test.go::TestManagedSnapshotRetentionWaitsForDurableSuccessor"
+  ],
+  "counts": {
+    "integration": 17,
+    "unit": 1,
+    "mixed": 1,
+    "unresolved": 1
+  },
+  "decision": "ACCEPTED_SOURCE_ONLY_WITH_RETAINED_UNRESOLVED_HELPER",
+  "checks_performed": [
+    "Independently read all twenty full root declarations and actual fixture/callback/storage/flock/process paths; compared each claimed category against core assertion and independent local-only blocks.",
+    "Verified literal allocation and cyclic peer mapping; survival original/current name/hash mapping; all twenty baseline/current raw declaration bounds/hashes/text against canonical Git bytes.",
+    "Verified18 canonical/baseline file Git blob,mode,SHA256,byte pins;82 exact assertion and connected production/helper citation spans match pinned source.",
+    "Manually traced bootstrap publication/enrollment locks and marker holds; deadline hook versus persisted-journal recovery; protected file/FIFO/symlink/owner paths; executable retention/prune/conditional helper process.",
+    "Verified packet/checksum hashes,counts exhaustion and0444/0555 modes. No Go/test/helper/scanner/parser/probe/lock/privilege/cloud/signing/crypto/TerraBase/download execution."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "root_id": "internal/netbird/client/managed_retention_test.go::TestManagedRollbackExecutableHelper",
+      "status": "retained_unresolved",
+      "reason": "Conditional child requires parent-provided environment and owns no independent final process/readback assertions; parent linkage retained, no standalone category credit without established rule."
+    }
+  ],
+  "category_assessment": "17integration/1unit/1mixed/1unresolved supported. Calendar string generation is unit; independent transaction deadline hook block plus caller journal/OS-lock assertions makes new-install deadline root mixed. Mock calls coupled to concrete storage/order scenarios do not create separate independent unit blocks.",
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "No compilation or execution result inferred from source.",
+    "Mock systemctl/status/enroll do not qualify real services; procfs,ownership,GOARCH and helper environment are runtime conditions.",
+    "Actual executable parent is a test-helper process, not production CLI/systemd acceptance.",
+    "No ledger/global count/deletion/retirement/completion credit; all safety obligations retained."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "runtime_qualification_delta": 0,
+    "retirement_delta": 0,
+    "global_completion": false
+  }
+}

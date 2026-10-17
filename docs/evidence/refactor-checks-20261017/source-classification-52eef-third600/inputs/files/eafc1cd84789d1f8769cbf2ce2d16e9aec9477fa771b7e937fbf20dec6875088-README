@@ -1,0 +1,5 @@
+Source-only candidate packet: original other_unadjudicated[2240:2260], exact20 roots.
+Counts: 5 integration, 0 unit, 2 mixed, 13 unresolved.
+All20 complete root declarations and assertion bodies manually reviewed; baseline/current raw declaration hashes retain exact mapping. Connected evidence uses current canonical source only.
+Thirteen stale pool API roots have missing current paths. Three also use old NewChosenPool constructor. No callee replacement inferred and no blocked later assertions credited.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source/repo/ledger mutations; no Go/tests/helpers/process/cloud/signing/crypto execution. No count/deletion/retirement/completion credit. All safety obligations retained.

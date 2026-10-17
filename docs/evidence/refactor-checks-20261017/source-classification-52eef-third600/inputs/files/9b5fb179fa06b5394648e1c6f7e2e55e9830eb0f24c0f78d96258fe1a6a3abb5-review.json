@@ -1,0 +1,267 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2260_2280",
+  "owner": "/root/classification_100_dispatch/batch_2280_2300",
+  "allocation_range": [
+    2280,
+    2300
+  ],
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2280-2300-da9wg3a6/classification.json",
+    "sha256": "16c66abc31a141de0397255304ed4928636abb6bc72db17fca8768504f8a8832",
+    "checksum_path": "/tmp/ts-source-2280-2300-da9wg3a6/SHA256SUMS",
+    "checksum_sha256": "4fe8d9260ee40167871be3d1e4f6b20ce2c886c1b2b31da4d3ba1fd9167c58ee"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/observability/events_test.go::TestEventBusRingKeepsNewestInOrder",
+    "internal/observability/events_test.go::TestEventBusSubscriberDropsInsteadOfBlocking",
+    "internal/observability/events_test.go::TestLoggerLogfmtAndValidation",
+    "internal/observability/events_test.go::TestLoggerTeesWarningsAndMarkedEvents",
+    "internal/observability/filesystems_test.go::TestStatFilesystemReportsTheDevice",
+    "internal/observability/history_http_test.go::TestHistoryHTTPDisclosesGapsLossFreshnessAndRateSupport",
+    "internal/observability/history_http_test.go::TestHistoryHTTPQueryValidationAndAuthentication",
+    "internal/observability/history_retention_test.go::TestHistoryExpiredSeriesAreNotQueriedOrSnapshotted",
+    "internal/observability/history_retention_test.go::TestHistoryRetainsFourteenDaysAndRestoresHourlyRollups",
+    "internal/observability/history_retention_test.go::TestHistorySnapshotPrefersHourlyCoverageWhenSizeLimited",
+    "internal/observability/history_retention_test.go::TestHourlyCounterRollupKeepsResetGrowthAfterRestore",
+    "internal/observability/history_review_test.go::TestCounterResetInsideABucketKeepsItsGrowth",
+    "internal/observability/history_review_test.go::TestEmptySeriesDoNotTakeResultSlots",
+    "internal/observability/history_review_test.go::TestHistoryHTTPDoesNotInventLiveCoverage",
+    "internal/observability/history_review_test.go::TestHistoryHTTPKeepsFreshResolutionAcrossHourBoundary",
+    "internal/observability/history_review_test.go::TestHistoryIncompleteLiveCoverageKeepsMinuteRates",
+    "internal/observability/history_review_test.go::TestRestoredHistoryIsQueryableAndResumesItsOpenBucket",
+    "internal/observability/history_review_test.go::TestRollupRatesUseSampleTimes",
+    "internal/observability/history_review_test.go::TestSamplerCountersSurviveAMissingMember",
+    "internal/observability/history_review_test.go::TestSamplerPrefersTheStreamLeadersReport"
+  ],
+  "counts": {
+    "integration": 16,
+    "unit": 0,
+    "mixed": 4,
+    "unresolved": 0
+  },
+  "reviewed_roots": 20,
+  "independent_review": true,
+  "checks_performed": [
+    "Read all20 full actual canonical test roots independently; followed events/logging HTTP and file sinks, Linux statFilesystem/device observation, authenticated history HTTP, production Catalog/History range, in-memory gzip export/import and sampler-to-HTTP paths.",
+    "Verified exact literal activated allocation IDs/order/exhaustion and distinct cyclic peer ownership; mapped original/current names and retained survival hashes for all20.",
+    "Verified all20 baseline/current raw declaration bodies, full manual start/end bounds, text and SHA256; all assertion and independent-local block exact spans/text.",
+    "Verified all24 source file canonical Git blob/mode/SHA256/byte pins and all connected evidence span text/bounds against immutable commit.",
+    "Verified packet/checksum SHA256 and SHA256SUMS entries plus files0444/directory0555.",
+    "Assessed each root category against its actual asserted observable. Real HTTP/file/OS paths materially support integration; independent Stats/channel/constructor validation/gzip budget blocks remain mixed.",
+    "Confirmed gzip-memory restore cannot qualify persistence or process restart; sampler synthetic OCI/NATS views cannot qualify collectors, live OCI or NATS; filesystem classification remains Linux-conditional.",
+    "Confirmed source candidate and runtime/no mutation/no retirement safety limitations retained. No source contradiction or missing mapping identified within this peer allocation."
+  ],
+  "root_checks": [
+    {
+      "root_id": "internal/observability/events_test.go::TestEventBusRingKeepsNewestInOrder",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/events_test.go::TestEventBusSubscriberDropsInsteadOfBlocking",
+      "category_accepted": "mixed",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/events_test.go::TestLoggerLogfmtAndValidation",
+      "category_accepted": "mixed",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/events_test.go::TestLoggerTeesWarningsAndMarkedEvents",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/filesystems_test.go::TestStatFilesystemReportsTheDevice",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_http_test.go::TestHistoryHTTPDisclosesGapsLossFreshnessAndRateSupport",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_http_test.go::TestHistoryHTTPQueryValidationAndAuthentication",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_retention_test.go::TestHistoryExpiredSeriesAreNotQueriedOrSnapshotted",
+      "category_accepted": "mixed",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_retention_test.go::TestHistoryRetainsFourteenDaysAndRestoresHourlyRollups",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_retention_test.go::TestHistorySnapshotPrefersHourlyCoverageWhenSizeLimited",
+      "category_accepted": "mixed",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_retention_test.go::TestHourlyCounterRollupKeepsResetGrowthAfterRestore",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestCounterResetInsideABucketKeepsItsGrowth",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestEmptySeriesDoNotTakeResultSlots",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestHistoryHTTPDoesNotInventLiveCoverage",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestHistoryHTTPKeepsFreshResolutionAcrossHourBoundary",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestHistoryIncompleteLiveCoverageKeepsMinuteRates",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestRestoredHistoryIsQueryableAndResumesItsOpenBucket",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestRollupRatesUseSampleTimes",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestSamplerCountersSurviveAMissingMember",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/observability/history_review_test.go::TestSamplerPrefersTheStreamLeadersReport",
+      "category_accepted": "integration",
+      "mapping": "verified",
+      "raw_baseline_current_declarations": "verified",
+      "assertions_and_connected_path": "independently_read_and_verified",
+      "source_findings": [],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "result": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No builds, tests, runtime receipts or execution reviewed.",
+    "HTTP evidence is the source-visible loopback httptest server -> actual project handler -> history/event source -> JSON response path. No direct-recorder-only credit.",
+    "History Append/Range, gzip Export/Import and synthetic snapshots remain local operations. No persistence, process restart, JetStream KV, live OCI/member collector or live NATS stream claim follows.",
+    "File logging assertions cross the real os.File sink and os.ReadFile readback. No journald ingestion, crash durability or production sink acceptance is inferred.",
+    "Filesystem device evidence is conditional on Linux, and reaches read-only unix.Statfs/unix.Stat; no volume provisioning, mount manipulation or cloud store is exercised.",
+    "All safety/negative/authentication/correctness obligations retained. No source/ledger mutation, deletion, retirement, runtime qualification or completion/count promotion. Distinct independent peer review required."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_delta": 0,
+    "deletion_delta": 0,
+    "retirement_delta": 0,
+    "runtime_qualification_delta": 0,
+    "completion_credit": false
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-source-2260-2280-final-vslfv18_/classification.json",
+    "sha256": "71eb5748412bef40fafec90771564bde3f7bc770693e17f753be84ebc011b634"
+  }
+}

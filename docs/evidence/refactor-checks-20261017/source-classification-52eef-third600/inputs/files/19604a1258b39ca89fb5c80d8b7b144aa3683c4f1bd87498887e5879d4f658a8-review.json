@@ -1,0 +1,128 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2240_2260",
+  "author": "/root/classification_100_dispatch/batch_2260_2280",
+  "accepted": true,
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE_WITH_RETAINED_BLOCKED_ASSERTIONS",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2260-2280-final-vslfv18_/classification.json",
+    "sha256": "71eb5748412bef40fafec90771564bde3f7bc770693e17f753be84ebc011b634"
+  },
+  "accepted_checksum": {
+    "path": "/tmp/ts-source-2260-2280-final-vslfv18_/SHA256SUMS",
+    "sha256": "07a40640db87b22609d0e77fa66b607b83befc735a631cabfca58f95032b3721"
+  },
+  "reviewer_own_frozen_packet": {
+    "path": "/tmp/ts-source-2240-2260-btqc_5ri/classification.json",
+    "sha256": "7acc75bfd402a39499ae1cd67e58bd3799ca693029ee9256438e69badf842725",
+    "freeze_preceded_peer_review": true
+  },
+  "reviewer_own_independent_acceptance": {
+    "path": "/tmp/ts-peer-2240-2260-by2220-93729s71/review.json",
+    "sha256": "17566ba5eb3255e41c3433007a380351f6d38280a6fee90f6b15f6274186a3b5"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2260,
+      2280
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2240_2260"
+  },
+  "input_pins": {
+    "survival": {
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv",
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+    },
+    "protocol": {
+      "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/PEER-PROTOCOL.md",
+      "sha256": "d4ade0b11037513eab70eb09b1d017612a9242e50609c771e61e110d71a50cc6"
+    }
+  },
+  "root_ids": [
+    "internal/nodescale/swarm_integration_test.go::TestSwarmDrainWaitsForObservedStopAndBackends",
+    "internal/nodescale/swarm_integration_test.go::TestSwarmPoolBindingUsesOCIIdentityInsteadOfCanonicalHostID",
+    "internal/nodescale/swarm_integration_test.go::TestSwarmRetainsProtectedAndUnprovenWorkers",
+    "internal/nodescale/swarm_integration_test.go::TestSwarmRetirementRechecksAfterDrainAndLaunchTimeout",
+    "internal/observability/aggregate_test.go::TestAggregatorGathersMembersAndReportsMissing",
+    "internal/observability/aggregate_test.go::TestSnapshotResponderIgnoresMalformedRequests",
+    "internal/observability/catalog_integration_test.go::TestMetricCatalogHTTPBoundedExpositionIntegration",
+    "internal/observability/catalog_integration_test.go::TestMetricCatalogHTTPRegistryAndHistoryIntegration",
+    "internal/observability/collector_test.go::TestCollectorHTTPMetricsTruncateCompleteLinesAndEscapeLabels",
+    "internal/observability/collector_test.go::TestCollectorHTTPRequestsShareLoadAcrossCancellation",
+    "internal/observability/collector_test.go::TestCollectorIncludesCurrentKVSnapshotMetadata",
+    "internal/observability/collector_test.go::TestCollectorPreservesOriginalLinkEvidence",
+    "internal/observability/collector_test.go::TestCollectorReportsFailedSectionByClass",
+    "internal/observability/collector_test.go::TestCollectorReportsPartialCredentials",
+    "internal/observability/collector_test.go::TestCollectorSnapshotAndCachedSections",
+    "internal/observability/events_review_test.go::TestEventAttrTruncationKeepsValidUTF8",
+    "internal/observability/events_review_test.go::TestEventBusReceivesEventsBelowConfiguredLogLevel",
+    "internal/observability/events_review_test.go::TestRepeatedWarningsDoNotFloodEventRing",
+    "internal/observability/events_review_test.go::TestZeroValueEventBusPublishesAndSubscribes",
+    "internal/observability/events_test.go::TestEventBusConcurrentPublishAndSubscribe"
+  ],
+  "counts": {
+    "integration": 14,
+    "mixed": 6,
+    "unit": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "checks_performed": [
+    "Independently manually read all20 complete canonical roots and actual connected fixture/helper/production/client/store paths before accepting categories. Reviewed pre-I/O guards and independent local assertion blocks separately from real boundaries.",
+    "Metadata-only verification passed: exact allocation20 and original accounting slice; literal survival mapping rows;40 baseline/current declaration bounds, complete raw text and SHA256;40 whole-file Git blob/mode/SHA256/byte pins;134 assertion/callee spans with exact text and hashes where supplied.",
+    "Swarm fixture reaches actual loopback TCP gRPC control API backed by single upstream Raft manager/store. Checked identity, drain, task-state, protected-load and retirement paths. Injected leadership/backend/retirement predicates do not qualify live workloads, OCI or load balancing.",
+    "NATS fixture starts upstream nats-server directly and uses loopback TCP clients. HTTP fixtures reach production observability handlers via loopback httptest server/client; synthetic collector providers do not qualify live upstream data.",
+    "Direct catalog/history/recorder, local event subscription/Stats and malformed-region/missing-proof pre-I/O assertions remain explicit unit blocks in six mixed roots. Event logger file assertions reach production file writes and readback; attribute-only event assertions receive no file credit.",
+    "Independently confirmed missing PoolInstance Birth fixture contradicts nonduplicate worker-binding assertion; retained exact blocker and unreachable later assertions. Earlier real manager API assertion supports integration category only, with no full-root completion claim.",
+    "Verified exact final packet and checksum hashes, every checksum entry and immutable0444 files/0555 directory. Runtime and safety/accounting constraints remain unchanged."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [
+    {
+      "kind": "source_contradiction",
+      "root_id": "internal/nodescale/swarm_integration_test.go::TestSwarmPoolBindingUsesOCIIdentityInsteadOfCanonicalHostID",
+      "detail": "Pool Birth is absent in swarmScaler at183/185; scaler.observe270 requires it. Nonduplicate assertion422-423 contradicts source, blocking425-458. Earlier real API manager assertion419-421 still supports root integration; no full-root completion/runtime credit.",
+      "blocked_assertions": [
+        {
+          "condition": "duplicate=false",
+          "line": 422,
+          "end_line": 458,
+          "status": "UNRESOLVED_UNCREDITED",
+          "detail": "swarmScaler pool instances at183,185 contain no Birth. scaler.observe:270 requires in.Birth!=nil for live/count worker. Therefore root422 sees false==duplicate(false), calls Fatalf at423. 425-458 is unreachable in that subtest and receives no assertion credit. Earlier419-421 manager assertion reads real ListNodes. duplicate=true can still check false worker binding, one manager load and worker duplicate rejection at425-440; no nonduplicate candidate/drain claim follows."
+        }
+      ]
+    }
+  ],
+  "corrections_requested": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no receipts reviewed and no tests or helpers run.",
+    "Candidate source categories only; no ledger/count/retirement/deletion/qualification/completion promotion.",
+    "Swarm fixture uses a single upstream Raft manager and real TCP gRPC control API/store; no worker executor, actual workload process, OCI or load balancer boundary is qualified. CanRetire/Backends/leader are injected.",
+    "NATS fixture directly starts upstream server and connects via loopback TCP; it does not call natscell.Start or qualify production JWT/TLS/regional formation.",
+    "HTTP fixtures use real loopback httptest server/client and production handlers; direct recorder remains unit. Collection data providers are injected; no live NATS/OCI/Vault/credentials/links/KV data qualification.",
+    "Event log file assertions use real production logger writes and os.ReadFile readback; attr-only event root has no log-file readback credit. Local stream/Stats blocks remain unit.",
+    "All safety/negative/error/data identity obligations retained, including blocked pool Birth assertions."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "global_completion": false
+  },
+  "execution": {
+    "go_tests_helpers_scanners_parsers_formatters_probes_cloud_signing_crypto_downloads": false,
+    "ordinary_read_only_git_file_hash_inspection": true,
+    "metadata_only_packaging_over_explicit_manually_reviewed_spans": true
+  }
+}

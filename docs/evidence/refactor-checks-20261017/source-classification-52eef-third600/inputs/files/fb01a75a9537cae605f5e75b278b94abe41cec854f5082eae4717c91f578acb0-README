@@ -1,0 +1,5 @@
+Source-only candidate for literal other_unadjudicated[2300:2320), 20 roots.
+Counts {"integration": 11, "mixed": 8, "unit": 1, "unresolved": 0}.
+Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION. No source, ledger, runtime, count, deletion, retirement or completion credit.
+All raw baseline/current identities, assertions, connected source spans and file pins retained. Two canonical root-body drifts are explicit; historical mapping preserved.
+Distinct cyclic peer review required.

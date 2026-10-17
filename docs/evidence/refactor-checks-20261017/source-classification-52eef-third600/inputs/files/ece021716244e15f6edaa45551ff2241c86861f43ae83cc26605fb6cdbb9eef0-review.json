@@ -1,0 +1,428 @@
+{
+  "schema": "independent-source-only-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2420_2440",
+  "author": "/root/classification_100_dispatch/batch_2440_2460",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2440-2460-k97cop95/classification.json",
+    "sha256": "ee6a940b4a8725e180d57406598922eff0462c68f87e6476744f94f38af960a1",
+    "checksum_path": "/tmp/ts-source-classification-2440-2460-k97cop95/SHA256SUMS",
+    "checksum_sha256": "6122786cf30c00d8ab87f3a4565125fd97bcc13c66d04486efad4348b34bac27"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2440,
+      2460
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2420_2440"
+  },
+  "root_ids": [
+    "internal/oci/fleet_test.go::TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt",
+    "internal/oci/fleet_test.go::TestEnsureHostWithholdsNilOrMismatchedObservedSizing",
+    "internal/oci/fleet_test.go::TestFakeJournalRetryPreservesOriginalIntentTimestamp",
+    "internal/oci/fleet_test.go::TestFleetKeepsHostsOfAllowedEarlierImages",
+    "internal/oci/fleet_test.go::TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect",
+    "internal/oci/fleet_test.go::TestFleetVerifyHostImageIsPublicReadinessGate",
+    "internal/oci/fleet_test.go::TestOCIShapeRejectionCannotConfirmOrAdoptInstance",
+    "internal/oci/fleet_test.go::TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch",
+    "internal/oci/fleet_test.go::TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState",
+    "internal/oci/fleet_test.go::TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances",
+    "internal/oci/fleet_test.go::TestObserveWithholdsLegacyLaunchWithoutBootDescriptor",
+    "internal/oci/fleet_test.go::TestObserveWithholdsOnlySDKBootDrift",
+    "internal/oci/fleet_test.go::TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost",
+    "internal/oci/fleet_test.go::TestObserveWithholdsOwnedInstanceAfterComputeProfileDrift",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachConfirmsExactObservationAfterRetryWindow",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachConfirmsTheSettledAttachment",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome",
+    "internal/oci/fleet_test.go::TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard"
+  ],
+  "counts": {
+    "integration": 1,
+    "unit": 19,
+    "mixed": 0,
+    "unresolved": 0,
+    "total": 20
+  },
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "checks_performed": [
+    "Read all twenty complete canonical roots independently before comparing author rationale; read shared actual helper/provider/journal/fencer/verifier, production host/create/cordon/attach/observe and SDK paths.",
+    "Verified exact activated literal IDs/range/cyclic reviewer; allocation/accounting/survival/protocol SHA256 pins and each original/current raw survival mapping.",
+    "Verified forty baseline/current raw declarations at manually inspected literal bounds, excluding following LF; original/current hashes and text match canonical Git and original survival rows. All twenty bodies exact; no drift.",
+    "Verified all thirteen cited source-file commit/path/Git blob/mode/SHA256/byte pins against canonical Git; all twenty assertion spans and all124 connected source spans/text match exact pinned bytes.",
+    "Independently traced ETag root to real KVJournal intent/result/ownership create/CAS/readback over external mTLS JWT bridge into embedded NATS JetStream FileStorage. Fake OCI ETag updates and new Fleet struct provide no live cloud/process-crash qualification.",
+    "Independently traced remaining nineteen roots to local policy over fake maps/counters/callbacks; SDKBootDrift official SDK dispatches into handwritten observeSDKReadback.Do and synthetic HTTP responses without real network transport. No independent real boundary assertion hidden in these roots.",
+    "Checked no mixed roots: the one integration root is a connected persisted launch-receipt recovery scenario; no separate local-only block. No conditional helper roots, missing mappings or assertion-blocking source contradictions identified.",
+    "Verified category total20, runtime UNKNOWN and retained safety/negative/trust/no-repeat obligations; exact packet checksum file matches and packet files0444/directory0555."
+  ],
+  "verification_counts": {
+    "literal_roots": 20,
+    "raw_declarations": 40,
+    "assertion_spans": 20,
+    "connected_source_spans": 124,
+    "source_file_pins": 13
+  },
+  "per_root_checks": [
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostReturnsCurrentETagWithoutRewritingCreateReceipt",
+      "allocation_index": 2440,
+      "category": "integration",
+      "baseline_bounds": [
+        815,
+        856
+      ],
+      "current_bounds": [
+        815,
+        856
+      ],
+      "baseline_raw_sha256": "5c618bfd1732ab9d593a108a04aee29f9660f0c0e774e04599973480d18d1594",
+      "current_raw_sha256": "5c618bfd1732ab9d593a108a04aee29f9660f0c0e774e04599973480d18d1594",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestEnsureHostWithholdsNilOrMismatchedObservedSizing",
+      "allocation_index": 2441,
+      "category": "unit",
+      "baseline_bounds": [
+        500,
+        536
+      ],
+      "current_bounds": [
+        500,
+        536
+      ],
+      "baseline_raw_sha256": "2a94422988928750191d50b28fe0616d3773006cc72b577dae46c680734f7e6c",
+      "current_raw_sha256": "2a94422988928750191d50b28fe0616d3773006cc72b577dae46c680734f7e6c",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestFakeJournalRetryPreservesOriginalIntentTimestamp",
+      "allocation_index": 2442,
+      "category": "unit",
+      "baseline_bounds": [
+        671,
+        692
+      ],
+      "current_bounds": [
+        671,
+        692
+      ],
+      "baseline_raw_sha256": "1ba4d3c34d3619cda73d7a3e034905fe89faed5dff33d7c1be0ca8680564d8c1",
+      "current_raw_sha256": "1ba4d3c34d3619cda73d7a3e034905fe89faed5dff33d7c1be0ca8680564d8c1",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestFleetKeepsHostsOfAllowedEarlierImages",
+      "allocation_index": 2443,
+      "category": "unit",
+      "baseline_bounds": [
+        252,
+        298
+      ],
+      "current_bounds": [
+        252,
+        298
+      ],
+      "baseline_raw_sha256": "8c0b8de3bb0d6cc754443a4931e657e02483244a20bb2b7b02527de8f76641a7",
+      "current_raw_sha256": "8c0b8de3bb0d6cc754443a4931e657e02483244a20bb2b7b02527de8f76641a7",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestFleetRejectsNamesOutsideItsCellBeforeAnyEffect",
+      "allocation_index": 2444,
+      "category": "unit",
+      "baseline_bounds": [
+        91,
+        114
+      ],
+      "current_bounds": [
+        91,
+        114
+      ],
+      "baseline_raw_sha256": "51142ba23d71635e7358c425a98f3754e735a1be8f79d3d7f155405d2b8486b4",
+      "current_raw_sha256": "51142ba23d71635e7358c425a98f3754e735a1be8f79d3d7f155405d2b8486b4",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestFleetVerifyHostImageIsPublicReadinessGate",
+      "allocation_index": 2445,
+      "category": "unit",
+      "baseline_bounds": [
+        1435,
+        1465
+      ],
+      "current_bounds": [
+        1435,
+        1465
+      ],
+      "baseline_raw_sha256": "41c33d3aa133b19ca8fbfc850b270278f097f987c673de8e5b8401a8cfd6f7c7",
+      "current_raw_sha256": "41c33d3aa133b19ca8fbfc850b270278f097f987c673de8e5b8401a8cfd6f7c7",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestOCIShapeRejectionCannotConfirmOrAdoptInstance",
+      "allocation_index": 2446,
+      "category": "unit",
+      "baseline_bounds": [
+        467,
+        498
+      ],
+      "current_bounds": [
+        467,
+        498
+      ],
+      "baseline_raw_sha256": "283c5eb3f5c541f05e59b610f6513715ea32c60dd463c328183fa33ebff9f22d",
+      "current_raw_sha256": "283c5eb3f5c541f05e59b610f6513715ea32c60dd463c328183fa33ebff9f22d",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveAllowsEnsureHostToRecoverDurableUnknownLaunch",
+      "allocation_index": 2447,
+      "category": "unit",
+      "baseline_bounds": [
+        1801,
+        1846
+      ],
+      "current_bounds": [
+        1801,
+        1846
+      ],
+      "baseline_raw_sha256": "37f1a7c51c59ab9275bcfe6c8cfd498d500afe04a61c4b4b1de32d1a5a32c24a",
+      "current_raw_sha256": "37f1a7c51c59ab9275bcfe6c8cfd498d500afe04a61c4b4b1de32d1a5a32c24a",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveReturnsOnlyDurablyOwnedInstancesAndTerminalState",
+      "allocation_index": 2448,
+      "category": "unit",
+      "baseline_bounds": [
+        1573,
+        1602
+      ],
+      "current_bounds": [
+        1573,
+        1602
+      ],
+      "baseline_raw_sha256": "e9da646f4bea37433ecb32855225442653d2f1a229c0b97418ea1c473686e2b6",
+      "current_raw_sha256": "e9da646f4bea37433ecb32855225442653d2f1a229c0b97418ea1c473686e2b6",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveSkipsUnverifiedIdentitiesWithoutBlockingOwnedInstances",
+      "allocation_index": 2449,
+      "category": "unit",
+      "baseline_bounds": [
+        1626,
+        1660
+      ],
+      "current_bounds": [
+        1626,
+        1660
+      ],
+      "baseline_raw_sha256": "b2f33794e4be9f4297dd88f433a08fca32b0861107e1926aa29c80cfd99fc5d8",
+      "current_raw_sha256": "b2f33794e4be9f4297dd88f433a08fca32b0861107e1926aa29c80cfd99fc5d8",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveWithholdsLegacyLaunchWithoutBootDescriptor",
+      "allocation_index": 2450,
+      "category": "unit",
+      "baseline_bounds": [
+        390,
+        421
+      ],
+      "current_bounds": [
+        390,
+        421
+      ],
+      "baseline_raw_sha256": "cdec5eba274eee256c867cb4ccd027626f8e5c77aa86add843f133c150283d1d",
+      "current_raw_sha256": "cdec5eba274eee256c867cb4ccd027626f8e5c77aa86add843f133c150283d1d",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveWithholdsOnlySDKBootDrift",
+      "allocation_index": 2451,
+      "category": "unit",
+      "baseline_bounds": [
+        2135,
+        2188
+      ],
+      "current_bounds": [
+        2135,
+        2188
+      ],
+      "baseline_raw_sha256": "a38eeb088f7f39c59d3c42f9528624b9f7bfed29159774c7ca36fc7446781aec",
+      "current_raw_sha256": "a38eeb088f7f39c59d3c42f9528624b9f7bfed29159774c7ca36fc7446781aec",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveWithholdsOnlyUnverifiedRetainedVolumeHost",
+      "allocation_index": 2452,
+      "category": "unit",
+      "baseline_bounds": [
+        1662,
+        1769
+      ],
+      "current_bounds": [
+        1662,
+        1769
+      ],
+      "baseline_raw_sha256": "53da451d73738626a30c43b009538937593a39e460ca6cbda071129a5476a093",
+      "current_raw_sha256": "53da451d73738626a30c43b009538937593a39e460ca6cbda071129a5476a093",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestObserveWithholdsOwnedInstanceAfterComputeProfileDrift",
+      "allocation_index": 2453,
+      "category": "unit",
+      "baseline_bounds": [
+        1604,
+        1624
+      ],
+      "current_bounds": [
+        1604,
+        1624
+      ],
+      "baseline_raw_sha256": "4aafeeda5b9f27c8cda7074de634dac0e51f58e3c4807aec1003d3cb5333e3ad",
+      "current_raw_sha256": "4aafeeda5b9f27c8cda7074de634dac0e51f58e3c4807aec1003d3cb5333e3ad",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachConfirmsExactObservationAfterRetryWindow",
+      "allocation_index": 2454,
+      "category": "unit",
+      "baseline_bounds": [
+        1312,
+        1346
+      ],
+      "current_bounds": [
+        1312,
+        1346
+      ],
+      "baseline_raw_sha256": "ed90cf628957ef4c1510da9006d2c4607ce7e8c480c034e8313b579f2dda8a4a",
+      "current_raw_sha256": "ed90cf628957ef4c1510da9006d2c4607ce7e8c480c034e8313b579f2dda8a4a",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachConfirmsTheSettledAttachment",
+      "allocation_index": 2455,
+      "category": "unit",
+      "baseline_bounds": [
+        1492,
+        1515
+      ],
+      "current_bounds": [
+        1492,
+        1515
+      ],
+      "baseline_raw_sha256": "50a72714357419a4c68c220fb25cd1badde7bc9074ebd3fedd93f8fd87bcd31a",
+      "current_raw_sha256": "50a72714357419a4c68c220fb25cd1badde7bc9074ebd3fedd93f8fd87bcd31a",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachHoldsExistingAttachmentWithoutOperation",
+      "allocation_index": 2456,
+      "category": "unit",
+      "baseline_bounds": [
+        1213,
+        1238
+      ],
+      "current_bounds": [
+        1213,
+        1238
+      ],
+      "baseline_raw_sha256": "8250a50a3b75dab7082f04c8e514aa5b919db6a872b0b5701f400682559a48ec",
+      "current_raw_sha256": "8250a50a3b75dab7082f04c8e514aa5b919db6a872b0b5701f400682559a48ec",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachHoldsExpiredPendingAndUnknownIntents",
+      "allocation_index": 2457,
+      "category": "unit",
+      "baseline_bounds": [
+        1272,
+        1310
+      ],
+      "current_bounds": [
+        1272,
+        1310
+      ],
+      "baseline_raw_sha256": "997b051bfd8c4914d8c38c1da1ad681093b2dd0fa16ce956fb25173f3e091b83",
+      "current_raw_sha256": "997b051bfd8c4914d8c38c1da1ad681093b2dd0fa16ce956fb25173f3e091b83",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachPersistsDeviceAndRecoversAmbiguousOutcome",
+      "allocation_index": 2458,
+      "category": "unit",
+      "baseline_bounds": [
+        1158,
+        1211
+      ],
+      "current_bounds": [
+        1158,
+        1211
+      ],
+      "baseline_raw_sha256": "d0249b60457b8ea6dc2bda94d3e5e65b8378cb0e0bb2e80d4e42dfcc77392a99",
+      "current_raw_sha256": "d0249b60457b8ea6dc2bda94d3e5e65b8378cb0e0bb2e80d4e42dfcc77392a99",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    },
+    {
+      "root_id": "internal/oci/fleet_test.go::TestRetainedVolumeAttachRechecksRetryWindowAfterAuthorityGuard",
+      "allocation_index": 2459,
+      "category": "unit",
+      "baseline_bounds": [
+        1348,
+        1387
+      ],
+      "current_bounds": [
+        1348,
+        1387
+      ],
+      "baseline_raw_sha256": "2a426601c6534a5a4055d8ada9c801e82eb7a06a03c73b57f14954df166d2d46",
+      "current_raw_sha256": "2a426601c6534a5a4055d8ada9c801e82eb7a06a03c73b57f14954df166d2d46",
+      "mapping_identity_assertions_callees_pins_category": "verified independently",
+      "remaining_findings": []
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source-only classification candidate; no Go/build/test/helpers/scanners/parsers/frameworks/lint/format/benchmark/process/resource/cloud/signing/crypto/TerraBase execution or downloads. Only pinned source/Git/hash reads and metadata packaging of explicit manually reviewed spans.",
+    "Real boundary category is local authenticated single-broker NATS/JetStream journal only; no live OCI, real signed placement/image admission, process restart, R3 quorum, power-loss or crash-durability acceptance.",
+    "No repository/source/shared ledger mutation, count promotion, deletion, retirement, completion or runtime qualification credit. Every safety obligation remains retained."
+  ],
+  "retirement_authorized": false,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

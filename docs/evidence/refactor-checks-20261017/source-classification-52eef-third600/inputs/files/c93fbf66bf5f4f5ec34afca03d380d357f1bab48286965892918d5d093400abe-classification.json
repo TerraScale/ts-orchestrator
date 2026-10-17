@@ -1,0 +1,1337 @@
+{
+  "schema": "source-only-classification-explicit-spans-v1",
+  "owner": "/root/classification_100_dispatch/batch_2180_2200",
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2180:2200]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2160_2180"
+  },
+  "input_pins": {
+    "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+    "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261017/source-classification-d4ac-409/composition/original-root-accounting.json": "e19db067abedf5c791122c991468fe5e92587d28ed34589402d0f3ba26720513"
+  },
+  "method": "Read whole twenty roots and actual connected declarations from pinned canonical Git; baseline test files equal canonical blobs. Manually reviewed explicit bounds and metadata-only serialization/hash, no source scanner/parser/helper or runtime execution.",
+  "classification_definitions": {
+    "integration": "Core assertion traverses actual service/API/protocol/process/store/runtime boundary.",
+    "unit": "Local predicate/state-machine/clock/JSON and synthetic dependency callbacks; incidental fixture I/O does not promote.",
+    "mixed": "Separate material real-boundary and local-only assertion blocks.",
+    "unresolved": "Connected source or mapping insufficient for category."
+  },
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "root_ids": [
+    "internal/netbird/observe_limit_review_test.go::TestObserveBoundsEveryStatusQueryByItsLimit",
+    "internal/netbird/observe_limit_review_test.go::TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+    "internal/netbird/rollout/reconcile_test.go::TestCompareVersionsUsesNumericStableComponents",
+    "internal/netbird/rollout/reconcile_test.go::TestConfirmationRequiresTheAppliedTargetIdentity",
+    "internal/netbird/rollout/reconcile_test.go::TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+    "internal/netbird/rollout/reconcile_test.go::TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedLBReturnReDrainsBeforeRollback",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+    "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRecoveryRejectsUnprovenAbsence",
+    "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRollbackReturnsRestoredAbsence",
+    "internal/netbird/rollout/reconcile_test.go::TestLateMeshHealthGetsASeparateConfirmationWindow",
+    "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+    "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+    "internal/netbird/rollout/reconcile_test.go::TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges"
+  ],
+  "roots": [
+    {
+      "root_id": "internal/netbird/observe_limit_review_test.go::TestObserveBoundsEveryStatusQueryByItsLimit",
+      "path": "internal/netbird/observe_limit_review_test.go",
+      "original_name": "TestObserveBoundsEveryStatusQueryByItsLimit",
+      "current_name": "TestObserveBoundsEveryStatusQueryByItsLimit",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "620719b153b17d66f589ba2c109fdc0516310a254ed552199feeae93a2e008c5",
+      "current_declaration_sha256": "620719b153b17d66f589ba2c109fdc0516310a254ed552199feeae93a2e008c5",
+      "historical_survival_current_sha256": "620719b153b17d66f589ba2c109fdc0516310a254ed552199feeae93a2e008c5",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 12,
+        "end_line": 31
+      },
+      "current_source": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 12,
+        "end_line": 31
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestObserveBoundsEveryStatusQueryByItsLimit(t *testing.T) {\n\te := testEnroller(t)\n\te.poll = 2 * time.Millisecond\n\tqueries := 0\n\te.run = func(ctx context.Context, _ string, _ ...string) ([]byte, error) {\n\t\tif queries++; queries == 1 {\n\t\t\treturn statusJSON(\"Connecting\", DefaultManagementURL, false), nil\n\t\t}\n\t\t<-ctx.Done()\n\t\treturn nil, ctx.Err()\n\t}\n\tstarted := time.Now()\n\tstatus, done, err := e.observe(t.Context(), 100*time.Millisecond, nil, func(daemonStatus) bool { return false })\n\tif elapsed := time.Since(started); elapsed > 5*time.Second {\n\t\tt.Fatalf(\"a hung status query ran %v past a 100ms limit\", elapsed)\n\t}\n\tif err != nil || done || status.DaemonStatus != \"Connecting\" {\n\t\tt.Fatalf(\"observe = %v %t %v; want the last observation at the limit\", status, done, err)\n\t}\n}",
+      "current_declaration_text": "func TestObserveBoundsEveryStatusQueryByItsLimit(t *testing.T) {\n\te := testEnroller(t)\n\te.poll = 2 * time.Millisecond\n\tqueries := 0\n\te.run = func(ctx context.Context, _ string, _ ...string) ([]byte, error) {\n\t\tif queries++; queries == 1 {\n\t\t\treturn statusJSON(\"Connecting\", DefaultManagementURL, false), nil\n\t\t}\n\t\t<-ctx.Done()\n\t\treturn nil, ctx.Err()\n\t}\n\tstarted := time.Now()\n\tstatus, done, err := e.observe(t.Context(), 100*time.Millisecond, nil, func(daemonStatus) bool { return false })\n\tif elapsed := time.Since(started); elapsed > 5*time.Second {\n\t\tt.Fatalf(\"a hung status query ran %v past a 100ms limit\", elapsed)\n\t}\n\tif err != nil || done || status.DaemonStatus != \"Connecting\" {\n\t\tt.Fatalf(\"observe = %v %t %v; want the last observation at the limit\", status, done, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "The asserted timeout bound and retained last observation come from observe calling status/command with an injected runner. Its first call returns synthetic Connecting JSON; subsequent calls wait on ctx.Done. The clock/context behavior is local. testEnroller writes a hosts fixture, but observe neither reads nor modifies that file; no NetBird CLI or daemon boundary supports these assertions.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/observe_limit_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+          "line": 25,
+          "end_line": 30,
+          "text": "\tif elapsed := time.Since(started); elapsed > 5*time.Second {\n\t\tt.Fatalf(\"a hung status query ran %v past a 100ms limit\", elapsed)\n\t}\n\tif err != nil || done || status.DaemonStatus != \"Connecting\" {\n\t\tt.Fatalf(\"observe = %v %t %v; want the last observation at the limit\", status, done, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "observe"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/observe_limit_review_test.go::TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+      "path": "internal/netbird/observe_limit_review_test.go",
+      "original_name": "TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+      "current_name": "TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "28e183f18ac8a0b22549c23ec10cd787496611021014756edab8433fdc81648a",
+      "current_declaration_sha256": "28e183f18ac8a0b22549c23ec10cd787496611021014756edab8433fdc81648a",
+      "historical_survival_current_sha256": "28e183f18ac8a0b22549c23ec10cd787496611021014756edab8433fdc81648a",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 36,
+        "end_line": 46
+      },
+      "current_source": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 36,
+        "end_line": 46
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit(t *testing.T) {\n\te := testEnroller(t)\n\te.run = func(ctx context.Context, _ string, _ ...string) ([]byte, error) {\n\t\t<-ctx.Done()\n\t\treturn nil, ctx.Err()\n\t}\n\tstatus, done, err := e.observe(t.Context(), 50*time.Millisecond, nil, func(daemonStatus) bool { return false })\n\tif err == nil || done || status != (daemonStatus{}) {\n\t\tt.Fatalf(\"observe = %v %t %v; want an error with no observation\", status, done, err)\n\t}\n}",
+      "current_declaration_text": "func TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit(t *testing.T) {\n\te := testEnroller(t)\n\te.run = func(ctx context.Context, _ string, _ ...string) ([]byte, error) {\n\t\t<-ctx.Done()\n\t\treturn nil, ctx.Err()\n\t}\n\tstatus, done, err := e.observe(t.Context(), 50*time.Millisecond, nil, func(daemonStatus) bool { return false })\n\tif err == nil || done || status != (daemonStatus{}) {\n\t\tt.Fatalf(\"observe = %v %t %v; want an error with no observation\", status, done, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "The zero-status/error result is produced by observe/status/command against an injected runner that waits on ctx.Done. This exercises local deadline and error propagation. The hosts file created by testEnroller is incidental and is not read by observe; no CLI/daemon or Vault call is reached.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/observe_limit_review_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+          "line": 43,
+          "end_line": 45,
+          "text": "\tif err == nil || done || status != (daemonStatus{}) {\n\t\tt.Fatalf(\"observe = %v %t %v; want an error with no observation\", status, done, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "observe"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestCompareVersionsUsesNumericStableComponents",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestCompareVersionsUsesNumericStableComponents",
+      "current_name": "TestCompareVersionsUsesNumericStableComponents",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "a884ef49214fd2d6fd3af5727558747a378e75a0ad51120a7a9ee649a5419727",
+      "current_declaration_sha256": "a884ef49214fd2d6fd3af5727558747a378e75a0ad51120a7a9ee649a5419727",
+      "historical_survival_current_sha256": "a884ef49214fd2d6fd3af5727558747a378e75a0ad51120a7a9ee649a5419727",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 216,
+        "end_line": 233
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 216,
+        "end_line": 233
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestCompareVersionsUsesNumericStableComponents(t *testing.T) {\n\tfor _, test := range []struct {\n\t\ta, b string\n\t\twant int\n\t}{\n\t\t{\"0.79.0\", \"0.80.0\", -1}, {\"v0.80.0\", \"0.80.0\", 0}, {\" 0.80.0 \", \"v0.80.0\", 0},\n\t\t{\"0.80.9\", \"0.80.10\", -1}, {\"0.80.10\", \"0.80.9\", 1}, {\"1.0.0\", \"0.80.99\", 1},\n\t} {\n\t\tif got, err := CompareVersions(test.a, test.b); err != nil || got != test.want {\n\t\t\tt.Errorf(\"CompareVersions(%q,%q)=%d,%v; want %d\", test.a, test.b, got, err, test.want)\n\t\t}\n\t}\n\tfor _, version := range []string{\"\", \"0.80\", \"0.80.0-rc.1\", \"0.080.0\", \"0.80.-1\", \"0.80.4294967296\"} {\n\t\tif _, err := CompareVersions(version, \"0.80.0\"); err == nil {\n\t\t\tt.Errorf(\"invalid version %q accepted\", version)\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestCompareVersionsUsesNumericStableComponents(t *testing.T) {\n\tfor _, test := range []struct {\n\t\ta, b string\n\t\twant int\n\t}{\n\t\t{\"0.79.0\", \"0.80.0\", -1}, {\"v0.80.0\", \"0.80.0\", 0}, {\" 0.80.0 \", \"v0.80.0\", 0},\n\t\t{\"0.80.9\", \"0.80.10\", -1}, {\"0.80.10\", \"0.80.9\", 1}, {\"1.0.0\", \"0.80.99\", 1},\n\t} {\n\t\tif got, err := CompareVersions(test.a, test.b); err != nil || got != test.want {\n\t\t\tt.Errorf(\"CompareVersions(%q,%q)=%d,%v; want %d\", test.a, test.b, got, err, test.want)\n\t\t}\n\t}\n\tfor _, version := range []string{\"\", \"0.80\", \"0.80.0-rc.1\", \"0.080.0\", \"0.80.-1\", \"0.80.4294967296\"} {\n\t\tif _, err := CompareVersions(version, \"0.80.0\"); err == nil {\n\t\t\tt.Errorf(\"invalid version %q accepted\", version)\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "The positive and invalid-version vectors exercise CompareVersions string normalization, uint parsing and local component ordering only. No rollout fixture, store, protocol or process is reached.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 217,
+          "end_line": 232,
+          "text": "\tfor _, test := range []struct {\n\t\ta, b string\n\t\twant int\n\t}{\n\t\t{\"0.79.0\", \"0.80.0\", -1}, {\"v0.80.0\", \"0.80.0\", 0}, {\" 0.80.0 \", \"v0.80.0\", 0},\n\t\t{\"0.80.9\", \"0.80.10\", -1}, {\"0.80.10\", \"0.80.9\", 1}, {\"1.0.0\", \"0.80.99\", 1},\n\t} {\n\t\tif got, err := CompareVersions(test.a, test.b); err != nil || got != test.want {\n\t\t\tt.Errorf(\"CompareVersions(%q,%q)=%d,%v; want %d\", test.a, test.b, got, err, test.want)\n\t\t}\n\t}\n\tfor _, version := range []string{\"\", \"0.80\", \"0.80.0-rc.1\", \"0.080.0\", \"0.80.-1\", \"0.80.4294967296\"} {\n\t\tif _, err := CompareVersions(version, \"0.80.0\"); err == nil {\n\t\t\tt.Errorf(\"invalid version %q accepted\", version)\n\t\t}\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "versions"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestConfirmationRequiresTheAppliedTargetIdentity",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestConfirmationRequiresTheAppliedTargetIdentity",
+      "current_name": "TestConfirmationRequiresTheAppliedTargetIdentity",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "7bdb5c8990a8666120f1561f1d7d436f236999de8611dd627f9b0952c20f24e1",
+      "current_declaration_sha256": "7bdb5c8990a8666120f1561f1d7d436f236999de8611dd627f9b0952c20f24e1",
+      "historical_survival_current_sha256": "7bdb5c8990a8666120f1561f1d7d436f236999de8611dd627f9b0952c20f24e1",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 874,
+        "end_line": 887
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 874,
+        "end_line": 887
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestConfirmationRequiresTheAppliedTargetIdentity(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"confirm\")\n\tf.deferActions = true\n\tnode := f.record().Node\n\tstatus := f.statuses[node]\n\tstatus.ActionID, status.Pending = CommandID(f.record().ID, \"confirm\"), \"\"\n\tstatus.AppliedTargetHash = Hash(rolloutTarget(\"0.80.1\"))\n\tf.statuses[node] = status\n\tif err := f.tick(target); err != nil || f.record().Phase != \"confirm\" || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"confirmation for another target released the node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "current_declaration_text": "func TestConfirmationRequiresTheAppliedTargetIdentity(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"confirm\")\n\tf.deferActions = true\n\tnode := f.record().Node\n\tstatus := f.statuses[node]\n\tstatus.ActionID, status.Pending = CommandID(f.record().ID, \"confirm\"), \"\"\n\tstatus.AppliedTargetHash = Hash(rolloutTarget(\"0.80.1\"))\n\tf.statuses[node] = status\n\tif err := f.tick(target); err != nil || f.record().Phase != \"confirm\" || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"confirmation for another target released the node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "A synthetic Status carries a confirm action ID and the wrong applied target hash. Tick must stay in confirm and keep the synthetic drain; every status/send/effect is an in-memory fixture callback, and Hash is local serialization/digest computation.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 884,
+          "end_line": 886,
+          "text": "\tif err := f.tick(target); err != nil || f.record().Phase != \"confirm\" || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"confirmation for another target released the node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+      "current_name": "TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "c29b042e91c92db6ea48511ce33218b93a7e56907e57331059125eb061798a4c",
+      "current_declaration_sha256": "c29b042e91c92db6ea48511ce33218b93a7e56907e57331059125eb061798a4c",
+      "historical_survival_current_sha256": "c29b042e91c92db6ea48511ce33218b93a7e56907e57331059125eb061798a4c",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 642,
+        "end_line": 655
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 642,
+        "end_line": 655
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\tr := f.reconciler()\n\tdrain := r.Drain\n\tr.Drain = func(ctx context.Context, node string) error {\n\t\tf.now = f.now.Add(5 * time.Minute)\n\t\treturn drain(ctx, node)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err != nil || f.record().Phase != \"install\" || f.record().Deadline != f.now.Add(3*time.Minute) {\n\t\tt.Fatalf(\"long drain consumed install window: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "current_declaration_text": "func TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\tr := f.reconciler()\n\tdrain := r.Drain\n\tr.Drain = func(ctx context.Context, node string) error {\n\t\tf.now = f.now.Add(5 * time.Minute)\n\t\treturn drain(ctx, node)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err != nil || f.record().Phase != \"install\" || f.record().Deadline != f.now.Add(3*time.Minute) {\n\t\tt.Fatalf(\"long drain consumed install window: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "category": "unit",
+      "reason": "A wrapper advances the fixture clock by five minutes inside its synthetic Drain callback. Tick must begin a fresh three-minute install deadline in its in-memory journal; no actual draining or worker installation occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 648,
+          "end_line": 654,
+          "text": "\tr.Drain = func(ctx context.Context, node string) error {\n\t\tf.now = f.now.Add(5 * time.Minute)\n\t\treturn drain(ctx, node)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err != nil || f.record().Phase != \"install\" || f.record().Deadline != f.now.Add(3*time.Minute) {\n\t\tt.Fatalf(\"long drain consumed install window: record=%+v error=%v\", f.record(), err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+      "current_name": "TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "2ab62cc95b47d2d3f58b854bc86c2e515429718ba442a7f45f389b031637dcc1",
+      "current_declaration_sha256": "2ab62cc95b47d2d3f58b854bc86c2e515429718ba442a7f45f389b031637dcc1",
+      "historical_survival_current_sha256": "2ab62cc95b47d2d3f58b854bc86c2e515429718ba442a7f45f389b031637dcc1",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 627,
+        "end_line": 640
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 627,
+        "end_line": 640
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\trecord := f.record()\n\tif record.RollbackRequired == nil || *record.RollbackRequired || len(f.commands) != 0 {\n\t\tt.Fatal(\"a pre-install timeout unexpectedly required a worker rollback\")\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"no-mutation timeout could not be retried: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "current_declaration_text": "func TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\trecord := f.record()\n\tif record.RollbackRequired == nil || *record.RollbackRequired || len(f.commands) != 0 {\n\t\tt.Fatal(\"a pre-install timeout unexpectedly required a worker rollback\")\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"no-mutation timeout could not be retried: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "category": "unit",
+      "reason": "The fixture clock expires a synthetic drain before any command. The local Record must mark rollback unnecessary and allow a changed target. Journal bytes, command count and phase observations are all in memory.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 634,
+          "end_line": 639,
+          "text": "\tif record.RollbackRequired == nil || *record.RollbackRequired || len(f.commands) != 0 {\n\t\tt.Fatal(\"a pre-install timeout unexpectedly required a worker rollback\")\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"no-mutation timeout could not be retried: record=%+v error=%v\", f.record(), err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+      "current_name": "TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "b207d16cc55b1effdec9fb9b64a333f94e4b4a87c8b4ff970afc77111265506e",
+      "current_declaration_sha256": "b207d16cc55b1effdec9fb9b64a333f94e4b4a87c8b4ff970afc77111265506e",
+      "historical_survival_current_sha256": "b207d16cc55b1effdec9fb9b64a333f94e4b4a87c8b4ff970afc77111265506e",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 716,
+        "end_line": 750
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 716,
+        "end_line": 750
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval(t *testing.T) {\n\tfor _, amendment := range []string{\"same\", \"changed\", \"removed\"} {\n\t\tt.Run(amendment, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\tnode := f.nodes[0]\n\t\t\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\tf.deferActions = true\n\t\t\tf.now = f.record().Deadline.Add(time.Second)\n\t\t\tf.advance(target, \"rollback-check\")\n\t\t\tf.now = f.record().Deadline.Add(time.Second)\n\t\t\tf.advance(target, \"failed\")\n\t\t\tfailed := f.record()\n\t\t\tdesired, nodes := target, f.nodes\n\t\t\tif amendment == \"changed\" {\n\t\t\t\tdesired = rolloutTarget(\"0.80.1\")\n\t\t\t} else if amendment == \"removed\" {\n\t\t\t\tdesired, nodes = Target{}, nil\n\t\t\t}\n\t\t\tbefore := len(f.effects)\n\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); err == nil || len(f.effects) != before || !f.drained[node] {\n\t\t\t\tt.Fatalf(\"%s pin released unacknowledged absence: record=%+v effects=%v error=%v\", amendment, f.record(), f.effects, err)\n\t\t\t}\n\t\t\tf.apply(node, f.commands[len(f.commands)-1])\n\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); amendment == \"same\" && err == nil || amendment != \"same\" && err != nil {\n\t\t\t\tt.Fatalf(\"%s pin could not recover acknowledged absence: record=%+v error=%v\", amendment, f.record(), err)\n\t\t\t}\n\t\t\tif f.drained[node] || amendment == \"changed\" && (f.record().Phase != \"drain\" || f.record().ID == failed.ID) ||\n\t\t\t\tamendment != \"changed\" && (!f.record().RecoveryComplete || f.record().ID != failed.ID) {\n\t\t\t\tt.Fatalf(\"%s pin did not retain completed recovery or select changed target: record=%+v effects=%v\", amendment, f.record(), f.effects)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval(t *testing.T) {\n\tfor _, amendment := range []string{\"same\", \"changed\", \"removed\"} {\n\t\tt.Run(amendment, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\tnode := f.nodes[0]\n\t\t\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\tf.deferActions = true\n\t\t\tf.now = f.record().Deadline.Add(time.Second)\n\t\t\tf.advance(target, \"rollback-check\")\n\t\t\tf.now = f.record().Deadline.Add(time.Second)\n\t\t\tf.advance(target, \"failed\")\n\t\t\tfailed := f.record()\n\t\t\tdesired, nodes := target, f.nodes\n\t\t\tif amendment == \"changed\" {\n\t\t\t\tdesired = rolloutTarget(\"0.80.1\")\n\t\t\t} else if amendment == \"removed\" {\n\t\t\t\tdesired, nodes = Target{}, nil\n\t\t\t}\n\t\t\tbefore := len(f.effects)\n\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); err == nil || len(f.effects) != before || !f.drained[node] {\n\t\t\t\tt.Fatalf(\"%s pin released unacknowledged absence: record=%+v effects=%v error=%v\", amendment, f.record(), f.effects, err)\n\t\t\t}\n\t\t\tf.apply(node, f.commands[len(f.commands)-1])\n\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); amendment == \"same\" && err == nil || amendment != \"same\" && err != nil {\n\t\t\t\tt.Fatalf(\"%s pin could not recover acknowledged absence: record=%+v error=%v\", amendment, f.record(), err)\n\t\t\t}\n\t\t\tif f.drained[node] || amendment == \"changed\" && (f.record().Phase != \"drain\" || f.record().ID == failed.ID) ||\n\t\t\t\tamendment != \"changed\" && (!f.record().RecoveryComplete || f.record().ID != failed.ID) {\n\t\t\t\tt.Fatalf(\"%s pin did not retain completed recovery or select changed target: record=%+v effects=%v\", amendment, f.record(), f.effects)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "For same, changed and removed targets, synthetic first-install rollback statuses hold the map-backed drain until f.apply supplies an acknowledgment. Tick reads/writes JSON bytes and fixture maps only; the modeled removal is not filesystem/binary removal.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 737,
+          "end_line": 747,
+          "text": "\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); err == nil || len(f.effects) != before || !f.drained[node] {\n\t\t\t\tt.Fatalf(\"%s pin released unacknowledged absence: record=%+v effects=%v error=%v\", amendment, f.record(), f.effects, err)\n\t\t\t}\n\t\t\tf.apply(node, f.commands[len(f.commands)-1])\n\t\t\tif err := f.reconciler().Tick(t.Context(), desired, nodes); amendment == \"same\" && err == nil || amendment != \"same\" && err != nil {\n\t\t\t\tt.Fatalf(\"%s pin could not recover acknowledged absence: record=%+v error=%v\", amendment, f.record(), err)\n\t\t\t}\n\t\t\tif f.drained[node] || amendment == \"changed\" && (f.record().Phase != \"drain\" || f.record().ID == failed.ID) ||\n\t\t\t\tamendment != \"changed\" && (!f.record().RecoveryComplete || f.record().ID != failed.ID) {\n\t\t\t\tt.Fatalf(\"%s pin did not retain completed recovery or select changed target: record=%+v effects=%v\", amendment, f.record(), f.effects)\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedLBReturnReDrainsBeforeRollback",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedLBReturnReDrainsBeforeRollback",
+      "current_name": "TestFailedLBReturnReDrainsBeforeRollback",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "a35223c4c7fc7105b5496dc0c7f0efeb2f17a94625d2284f9812cf88b6a7482d",
+      "current_declaration_sha256": "a35223c4c7fc7105b5496dc0c7f0efeb2f17a94625d2284f9812cf88b6a7482d",
+      "historical_survival_current_sha256": "a35223c4c7fc7105b5496dc0c7f0efeb2f17a94625d2284f9812cf88b6a7482d",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 293,
+        "end_line": 313
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 293,
+        "end_line": 313
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedLBReturnReDrainsBeforeRollback(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"return\")\n\tnode := f.record().Node\n\tf.returnError[node] = errors.New(\"LB health failed after backends returned\")\n\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatal(\"failed LB return was not immediately re-drained\")\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"rollback\" {\n\t\tt.Fatalf(\"failed LB return did not initiate rollback: %v\", err)\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.statuses[node].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"rollback restarted an undrained node: %v\", err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.drained[node] {\n\t\tt.Fatalf(\"failed rollback return did not hold node drained: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "current_declaration_text": "func TestFailedLBReturnReDrainsBeforeRollback(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"return\")\n\tnode := f.record().Node\n\tf.returnError[node] = errors.New(\"LB health failed after backends returned\")\n\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatal(\"failed LB return was not immediately re-drained\")\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"rollback\" {\n\t\tt.Fatalf(\"failed LB return did not initiate rollback: %v\", err)\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.statuses[node].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"rollback restarted an undrained node: %v\", err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.drained[node] {\n\t\tt.Fatalf(\"failed rollback return did not hold node drained: record=%+v error=%v\", f.record(), err)\n\t}\n}",
+      "category": "unit",
+      "reason": "A map-backed Return callback clears the synthetic drain then returns an injected LB-health error. Tick must re-drain, roll back the synthetic version and hold failed return. No load-balancer API, binary restart or network health boundary is called.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 299,
+          "end_line": 312,
+          "text": "\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatal(\"failed LB return was not immediately re-drained\")\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"rollback\" {\n\t\tt.Fatalf(\"failed LB return did not initiate rollback: %v\", err)\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.statuses[node].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"rollback restarted an undrained node: %v\", err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.drained[node] {\n\t\tt.Fatalf(\"failed rollback return did not hold node drained: record=%+v error=%v\", f.record(), err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+      "current_name": "TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "f8e47bcf4b92d0d7f130617d6ac3338d93cec2a9a746df535b562551a73a4ae8",
+      "current_declaration_sha256": "f8e47bcf4b92d0d7f130617d6ac3338d93cec2a9a746df535b562551a73a4ae8",
+      "historical_survival_current_sha256": "f8e47bcf4b92d0d7f130617d6ac3338d93cec2a9a746df535b562551a73a4ae8",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 960,
+        "end_line": 989
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 960,
+        "end_line": 989
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tnode := f.record().Node\n\tf.healthError[node] = errors.New(\"TerraBase is unavailable over mesh\")\n\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatalf(\"failed health released the node: drained=%t error=%v\", f.drained[node], err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tif f.statuses[node].Version != \"0.79.0\" || f.statuses[node].Pending != \"\" {\n\t\tt.Fatalf(\"previous binary not restored: %#v\", f.statuses[node])\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.record().Phase != \"rollback-check\" {\n\t\tt.Fatalf(\"unhealthy rollback released drain: %#v %v\", f.record(), err)\n\t}\n\tdelete(f.healthError, node)\n\tf.advance(target, \"failed\")\n\tif f.drained[node] {\n\t\tt.Fatal(\"healthy rollback was not returned\")\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.statuses[f.nodes[1]].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"failed pin continued to another node: %v %v\", f.effects, err)\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"recovered rollback did not permit an explicit new pin: %#v %v\", f.record(), err)\n\t}\n}",
+      "current_declaration_text": "func TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tnode := f.record().Node\n\tf.healthError[node] = errors.New(\"TerraBase is unavailable over mesh\")\n\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatalf(\"failed health released the node: drained=%t error=%v\", f.drained[node], err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tif f.statuses[node].Version != \"0.79.0\" || f.statuses[node].Pending != \"\" {\n\t\tt.Fatalf(\"previous binary not restored: %#v\", f.statuses[node])\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.record().Phase != \"rollback-check\" {\n\t\tt.Fatalf(\"unhealthy rollback released drain: %#v %v\", f.record(), err)\n\t}\n\tdelete(f.healthError, node)\n\tf.advance(target, \"failed\")\n\tif f.drained[node] {\n\t\tt.Fatal(\"healthy rollback was not returned\")\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.statuses[f.nodes[1]].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"failed pin continued to another node: %v %v\", f.effects, err)\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"recovered rollback did not permit an explicit new pin: %#v %v\", f.record(), err)\n\t}\n}",
+      "category": "unit",
+      "reason": "Synthetic Healthy errors model unavailable mesh/TerraBase, while f.apply models restoration of the previous version. Assertions inspect fixture versions, phase and drain maps; no TerraBase, mesh, binary or service boundary is reached.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 966,
+          "end_line": 988,
+          "text": "\tif err := f.tick(target); err == nil || !f.drained[node] {\n\t\tt.Fatalf(\"failed health released the node: drained=%t error=%v\", f.drained[node], err)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tif f.statuses[node].Version != \"0.79.0\" || f.statuses[node].Pending != \"\" {\n\t\tt.Fatalf(\"previous binary not restored: %#v\", f.statuses[node])\n\t}\n\tif err := f.tick(target); err != nil || !f.drained[node] || f.record().Phase != \"rollback-check\" {\n\t\tt.Fatalf(\"unhealthy rollback released drain: %#v %v\", f.record(), err)\n\t}\n\tdelete(f.healthError, node)\n\tf.advance(target, \"failed\")\n\tif f.drained[node] {\n\t\tt.Fatal(\"healthy rollback was not returned\")\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.statuses[f.nodes[1]].Version != \"0.79.0\" {\n\t\tt.Fatalf(\"failed pin continued to another node: %v %v\", f.effects, err)\n\t}\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err != nil || f.record().Phase != \"drain\" {\n\t\tt.Fatalf(\"recovered rollback did not permit an explicit new pin: %#v %v\", f.record(), err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+      "current_name": "TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "72fa6276f04f3df1fb5205d1c4d00b733d215b53258fc5f5a3b95c31128ca6c2",
+      "current_declaration_sha256": "72fa6276f04f3df1fb5205d1c4d00b733d215b53258fc5f5a3b95c31128ca6c2",
+      "historical_survival_current_sha256": "72fa6276f04f3df1fb5205d1c4d00b733d215b53258fc5f5a3b95c31128ca6c2",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 541,
+        "end_line": 585
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 541,
+        "end_line": 585
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedRecoveryPersistsCompletionAfterReturnSucceeds(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\trecord := f.record()\n\trecord.Phase, record.RollbackRequired = \"failed\", new(true)\n\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstatus := f.statuses[record.Node]\n\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\tf.statuses[record.Node] = status\n\tf.returnError[record.Node] = errors.New(\"LB return incomplete\")\n\tif err := f.tick(target); !errors.Is(err, f.returnError[record.Node]) || f.record().RecoveryComplete || !f.drained[record.Node] {\n\t\tt.Fatalf(\"failed Return did not preserve the fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tif got := f.effects[len(f.effects)-2:]; !slices.Equal(got, []string{\"return:\" + record.Node, \"drain:\" + record.Node}) {\n\t\tt.Fatalf(\"failed Return was not immediately re-drained: %v\", got)\n\t}\n\tf.healthError[record.Node] = errors.New(\"recovered agent became unhealthy\")\n\tbefore := len(f.effects)\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err == nil || !f.drained[record.Node] || f.record().RecoveryComplete || len(f.effects) != before {\n\t\tt.Fatalf(\"unhealthy recovery after failed Return released the fence: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.healthError, record.Node)\n\tdelete(f.returnError, record.Node)\n\tr := f.reconciler()\n\tsave := r.Save\n\tr.Save = func(ctx context.Context, record Record) error {\n\t\tif record.RecoveryComplete {\n\t\t\treturn errors.New(\"leader lost authority before recovery journal\")\n\t\t}\n\t\treturn save(ctx, record)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"lost recovery journal disabled future recovery: record=%+v error=%v\", f.record(), err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete {\n\t\tt.Fatalf(\"new leader did not persist the successful return: record=%+v error=%v\", f.record(), err)\n\t}\n\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node, \"return:\" + record.Node}) {\n\t\tt.Fatalf(\"new leader did not fence the interrupted return before retry: %v\", got)\n\t}\n}",
+      "current_declaration_text": "func TestFailedRecoveryPersistsCompletionAfterReturnSucceeds(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\trecord := f.record()\n\trecord.Phase, record.RollbackRequired = \"failed\", new(true)\n\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tstatus := f.statuses[record.Node]\n\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\tf.statuses[record.Node] = status\n\tf.returnError[record.Node] = errors.New(\"LB return incomplete\")\n\tif err := f.tick(target); !errors.Is(err, f.returnError[record.Node]) || f.record().RecoveryComplete || !f.drained[record.Node] {\n\t\tt.Fatalf(\"failed Return did not preserve the fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tif got := f.effects[len(f.effects)-2:]; !slices.Equal(got, []string{\"return:\" + record.Node, \"drain:\" + record.Node}) {\n\t\tt.Fatalf(\"failed Return was not immediately re-drained: %v\", got)\n\t}\n\tf.healthError[record.Node] = errors.New(\"recovered agent became unhealthy\")\n\tbefore := len(f.effects)\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err == nil || !f.drained[record.Node] || f.record().RecoveryComplete || len(f.effects) != before {\n\t\tt.Fatalf(\"unhealthy recovery after failed Return released the fence: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.healthError, record.Node)\n\tdelete(f.returnError, record.Node)\n\tr := f.reconciler()\n\tsave := r.Save\n\tr.Save = func(ctx context.Context, record Record) error {\n\t\tif record.RecoveryComplete {\n\t\t\treturn errors.New(\"leader lost authority before recovery journal\")\n\t\t}\n\t\treturn save(ctx, record)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"lost recovery journal disabled future recovery: record=%+v error=%v\", f.record(), err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete {\n\t\tt.Fatalf(\"new leader did not persist the successful return: record=%+v error=%v\", f.record(), err)\n\t}\n\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node, \"return:\" + record.Node}) {\n\t\tt.Fatalf(\"new leader did not fence the interrupted return before retry: %v\", got)\n\t}\n}",
+      "category": "unit",
+      "reason": "Injected Return/Healthy/Save failures test recovery ordering and interrupted-return replay through fresh Reconciler instances. Persistence is json.Marshal to f.journal, and new-leader behavior is another local object; assertions inspect bytes, effects and flags without an actual durable store or authority boundary.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 554,
+          "end_line": 584,
+          "text": "\tif err := f.tick(target); !errors.Is(err, f.returnError[record.Node]) || f.record().RecoveryComplete || !f.drained[record.Node] {\n\t\tt.Fatalf(\"failed Return did not preserve the fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tif got := f.effects[len(f.effects)-2:]; !slices.Equal(got, []string{\"return:\" + record.Node, \"drain:\" + record.Node}) {\n\t\tt.Fatalf(\"failed Return was not immediately re-drained: %v\", got)\n\t}\n\tf.healthError[record.Node] = errors.New(\"recovered agent became unhealthy\")\n\tbefore := len(f.effects)\n\tif err := f.tick(rolloutTarget(\"0.80.1\")); err == nil || !f.drained[record.Node] || f.record().RecoveryComplete || len(f.effects) != before {\n\t\tt.Fatalf(\"unhealthy recovery after failed Return released the fence: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.healthError, record.Node)\n\tdelete(f.returnError, record.Node)\n\tr := f.reconciler()\n\tsave := r.Save\n\tr.Save = func(ctx context.Context, record Record) error {\n\t\tif record.RecoveryComplete {\n\t\t\treturn errors.New(\"leader lost authority before recovery journal\")\n\t\t}\n\t\treturn save(ctx, record)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"lost recovery journal disabled future recovery: record=%+v error=%v\", f.record(), err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete {\n\t\tt.Fatalf(\"new leader did not persist the successful return: record=%+v error=%v\", f.record(), err)\n\t}\n\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node, \"return:\" + record.Node}) {\n\t\tt.Fatalf(\"new leader did not fence the interrupted return before retry: %v\", got)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+      "current_name": "TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "503c4a8f8279ea5a7ab27ea9f3f8768cb99231547d226cf71bcf87b25b2c5121",
+      "current_declaration_sha256": "503c4a8f8279ea5a7ab27ea9f3f8768cb99231547d226cf71bcf87b25b2c5121",
+      "historical_survival_current_sha256": "503c4a8f8279ea5a7ab27ea9f3f8768cb99231547d226cf71bcf87b25b2c5121",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 587,
+        "end_line": 625
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 587,
+        "end_line": 625
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus(t *testing.T) {\n\tfor _, observation := range []string{\"status\", \"health\"} {\n\t\tt.Run(observation, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\trecord := f.record()\n\t\t\trecord.Phase, record.RollbackRequired = \"failed\", new(true)\n\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tstatus := f.statuses[record.Node]\n\t\t\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\t\t\tf.statuses[record.Node] = status\n\t\t\treturnErr, drainErr := errors.New(\"LB health check failed\"), errors.New(\"quorum unavailable\")\n\t\t\tf.returnError[record.Node] = returnErr\n\t\t\tr := f.reconciler()\n\t\t\tr.Drain = func(context.Context, string) error { return drainErr }\n\t\t\tif err := r.Tick(t.Context(), target, f.nodes); !errors.Is(err, returnErr) || !errors.Is(err, drainErr) ||\n\t\t\t\t!f.record().RecoveryReturning || f.record().RecoveryComplete || f.drained[record.Node] {\n\t\t\t\tt.Fatalf(\"failed re-drain lost retry intent: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tbefore := len(f.effects)\n\t\t\tr = f.reconciler()\n\t\t\tif observation == \"status\" {\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return Status{}, errors.New(\"worker unavailable\") }\n\t\t\t} else {\n\t\t\t\tf.healthError[record.Node] = errors.New(\"mesh unhealthy\")\n\t\t\t}\n\t\t\tif err := r.Tick(t.Context(), rolloutTarget(\"0.80.1\"), f.nodes); err == nil || !f.drained[record.Node] ||\n\t\t\t\tf.record().RecoveryReturning || f.record().RecoveryComplete || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"unhealthy recovery blocked re-drain retry: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node}) {\n\t\t\t\tt.Fatalf(\"recovery did not retry only the held-node drain: %v\", got)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus(t *testing.T) {\n\tfor _, observation := range []string{\"status\", \"health\"} {\n\t\tt.Run(observation, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\trecord := f.record()\n\t\t\trecord.Phase, record.RollbackRequired = \"failed\", new(true)\n\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tstatus := f.statuses[record.Node]\n\t\t\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\t\t\tf.statuses[record.Node] = status\n\t\t\treturnErr, drainErr := errors.New(\"LB health check failed\"), errors.New(\"quorum unavailable\")\n\t\t\tf.returnError[record.Node] = returnErr\n\t\t\tr := f.reconciler()\n\t\t\tr.Drain = func(context.Context, string) error { return drainErr }\n\t\t\tif err := r.Tick(t.Context(), target, f.nodes); !errors.Is(err, returnErr) || !errors.Is(err, drainErr) ||\n\t\t\t\t!f.record().RecoveryReturning || f.record().RecoveryComplete || f.drained[record.Node] {\n\t\t\t\tt.Fatalf(\"failed re-drain lost retry intent: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tbefore := len(f.effects)\n\t\t\tr = f.reconciler()\n\t\t\tif observation == \"status\" {\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return Status{}, errors.New(\"worker unavailable\") }\n\t\t\t} else {\n\t\t\t\tf.healthError[record.Node] = errors.New(\"mesh unhealthy\")\n\t\t\t}\n\t\t\tif err := r.Tick(t.Context(), rolloutTarget(\"0.80.1\"), f.nodes); err == nil || !f.drained[record.Node] ||\n\t\t\t\tf.record().RecoveryReturning || f.record().RecoveryComplete || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"unhealthy recovery blocked re-drain retry: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node}) {\n\t\t\t\tt.Fatalf(\"recovery did not retry only the held-node drain: %v\", got)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Status and health variants inject synthetic return/drain/observation failures. RecoveryReturning must retain retry intent and drain before the next local health/status gate. The effect list and status/drain maps are local callbacks, not provider/network effects.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 605,
+          "end_line": 622,
+          "text": "\t\t\tif err := r.Tick(t.Context(), target, f.nodes); !errors.Is(err, returnErr) || !errors.Is(err, drainErr) ||\n\t\t\t\t!f.record().RecoveryReturning || f.record().RecoveryComplete || f.drained[record.Node] {\n\t\t\t\tt.Fatalf(\"failed re-drain lost retry intent: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tbefore := len(f.effects)\n\t\t\tr = f.reconciler()\n\t\t\tif observation == \"status\" {\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return Status{}, errors.New(\"worker unavailable\") }\n\t\t\t} else {\n\t\t\t\tf.healthError[record.Node] = errors.New(\"mesh unhealthy\")\n\t\t\t}\n\t\t\tif err := r.Tick(t.Context(), rolloutTarget(\"0.80.1\"), f.nodes); err == nil || !f.drained[record.Node] ||\n\t\t\t\tf.record().RecoveryReturning || f.record().RecoveryComplete || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"unhealthy recovery blocked re-drain retry: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t\tif got := f.effects[before:]; !slices.Equal(got, []string{\"drain:\" + record.Node}) {\n\t\t\t\tt.Fatalf(\"recovery did not retry only the held-node drain: %v\", got)\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+      "current_name": "TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "685b65ab2af7b76d8a31f76dc591f34ad173e90b00f8c1877972975d09eec644",
+      "current_declaration_sha256": "685b65ab2af7b76d8a31f76dc591f34ad173e90b00f8c1877972975d09eec644",
+      "historical_survival_current_sha256": "685b65ab2af7b76d8a31f76dc591f34ad173e90b00f8c1877972975d09eec644",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 492,
+        "end_line": 515
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 492,
+        "end_line": 515
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\tf.deferActions = true\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\tfailed := f.record()\n\tif failed.RollbackRequired == nil || !*failed.RollbackRequired {\n\t\tt.Fatal(\"failed rollback lost its persisted acknowledgment requirement\")\n\t}\n\tnode := failed.Node\n\tbefore := len(f.effects)\n\tchanged := rolloutTarget(\"0.80.1\")\n\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"pin change released a rollback the worker never applied: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(node, f.commands[len(f.commands)-1])\n\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == failed.ID {\n\t\tt.Fatalf(\"acknowledged recovered rollback did not allow the new target: record=%+v status=%+v error=%v\", f.record(), f.statuses[node], err)\n\t}\n}",
+      "current_declaration_text": "func TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\tf.deferActions = true\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\tfailed := f.record()\n\tif failed.RollbackRequired == nil || !*failed.RollbackRequired {\n\t\tt.Fatal(\"failed rollback lost its persisted acknowledgment requirement\")\n\t}\n\tnode := failed.Node\n\tbefore := len(f.effects)\n\tchanged := rolloutTarget(\"0.80.1\")\n\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"pin change released a rollback the worker never applied: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(node, f.commands[len(f.commands)-1])\n\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == failed.ID {\n\t\tt.Fatalf(\"acknowledged recovered rollback did not allow the new target: record=%+v status=%+v error=%v\", f.record(), f.statuses[node], err)\n\t}\n}",
+      "category": "unit",
+      "reason": "The deferred synthetic rollback must retain RollbackRequired and its transaction across a target change until f.apply supplies the expected map-backed acknowledgment. JSON journal and all effects are in memory, with no real rollback or durable store.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 502,
+          "end_line": 514,
+          "text": "\tif failed.RollbackRequired == nil || !*failed.RollbackRequired {\n\t\tt.Fatal(\"failed rollback lost its persisted acknowledgment requirement\")\n\t}\n\tnode := failed.Node\n\tbefore := len(f.effects)\n\tchanged := rolloutTarget(\"0.80.1\")\n\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"pin change released a rollback the worker never applied: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(node, f.commands[len(f.commands)-1])\n\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == failed.ID {\n\t\tt.Fatalf(\"acknowledged recovered rollback did not allow the new target: record=%+v status=%+v error=%v\", f.record(), f.statuses[node], err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+      "current_name": "TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "f8fc5fc73478ede95eb5813874ef75311268f36512a1d7246907b7874048551c",
+      "current_declaration_sha256": "f8fc5fc73478ede95eb5813874ef75311268f36512a1d7246907b7874048551c",
+      "historical_survival_current_sha256": "f8fc5fc73478ede95eb5813874ef75311268f36512a1d7246907b7874048551c",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 517,
+        "end_line": 539
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 517,
+        "end_line": 539
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedSamePinRecoversFenceWithoutRetryingThePin(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\tf.deferActions = true\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\tfailed := f.record()\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || f.record().RecoveryComplete || !f.drained[failed.Node] || len(f.effects) != before {\n\t\tt.Fatalf(\"same pin abandoned unacknowledged rollback: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(failed.Node, f.commands[len(f.commands)-1])\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete || f.drained[failed.Node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"repaired worker did not release its fence while keeping pin held: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"completed recovery returned or retried again: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "current_declaration_text": "func TestFailedSamePinRecoversFenceWithoutRetryingThePin(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"install\")\n\tf.deferActions = true\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"failed\")\n\tfailed := f.record()\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || f.record().RecoveryComplete || !f.drained[failed.Node] || len(f.effects) != before {\n\t\tt.Fatalf(\"same pin abandoned unacknowledged rollback: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(failed.Node, f.commands[len(f.commands)-1])\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete || f.drained[failed.Node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"repaired worker did not release its fence while keeping pin held: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"completed recovery returned or retried again: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "Same-pin recovery is modeled by withholding then applying a fixture command. Assertions inspect RecoveryComplete, effect count, transaction and drain maps to ensure no retry; no actual worker or fence boundary is crossed.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 528,
+          "end_line": 538,
+          "text": "\tif err := f.tick(target); err == nil || f.record().RecoveryComplete || !f.drained[failed.Node] || len(f.effects) != before {\n\t\tt.Fatalf(\"same pin abandoned unacknowledged rollback: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tf.apply(failed.Node, f.commands[len(f.commands)-1])\n\tif err := f.tick(target); err == nil || !f.record().RecoveryComplete || f.drained[failed.Node] || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"repaired worker did not release its fence while keeping pin held: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore = len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before || f.record().ID != failed.ID {\n\t\tt.Fatalf(\"completed recovery returned or retried again: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+      "current_name": "TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "6f4d367f429c1549b7d000ca71b8fe443225cb4a5a48852e1359d672d2b94dc1",
+      "current_declaration_sha256": "6f4d367f429c1549b7d000ca71b8fe443225cb4a5a48852e1359d672d2b94dc1",
+      "historical_survival_current_sha256": "6f4d367f429c1549b7d000ca71b8fe443225cb4a5a48852e1359d672d2b94dc1",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 1013,
+        "end_line": 1032
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 1013,
+        "end_line": 1032
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"confirm\")\n\tnode := f.record().Node\n\tf.actionError[\"confirm\"], f.confirmClears = \"watchdog timer cancellation failed\", true\n\tfor range 2 {\n\t\tif err := f.tick(target); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif !f.drained[node] || f.record().Phase != \"confirm\" || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"failed confirmation released serving traffic: %#v %v\", f.record(), f.effects)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback\")\n\tif !f.drained[node] {\n\t\tt.Fatal(\"confirmation timeout released drain before rollback\")\n\t}\n}",
+      "current_declaration_text": "func TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"confirm\")\n\tnode := f.record().Node\n\tf.actionError[\"confirm\"], f.confirmClears = \"watchdog timer cancellation failed\", true\n\tfor range 2 {\n\t\tif err := f.tick(target); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif !f.drained[node] || f.record().Phase != \"confirm\" || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"failed confirmation released serving traffic: %#v %v\", f.record(), f.effects)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback\")\n\tif !f.drained[node] {\n\t\tt.Fatal(\"confirmation timeout released drain before rollback\")\n\t}\n}",
+      "category": "unit",
+      "reason": "f.actionError and confirmClears synthesize a watchdog cancellation failure with a cleared Pending field. Tick must retain synthetic drain and advance to rollback on the fixture clock. No watchdog timer, process or worker API is used.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 1020,
+          "end_line": 1031,
+          "text": "\t\tif err := f.tick(target); err != nil {\n\t\t\tt.Fatal(err)\n\t\t}\n\t}\n\tif !f.drained[node] || f.record().Phase != \"confirm\" || slices.Contains(f.effects, \"return:\"+node) {\n\t\tt.Fatalf(\"failed confirmation released serving traffic: %#v %v\", f.record(), f.effects)\n\t}\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback\")\n\tif !f.drained[node] {\n\t\tt.Fatal(\"confirmation timeout released drain before rollback\")\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRecoveryRejectsUnprovenAbsence",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFirstInstallRecoveryRejectsUnprovenAbsence",
+      "current_name": "TestFirstInstallRecoveryRejectsUnprovenAbsence",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "d7c8cd3d5af5d5a84fbb96d82096fa4133d45d1a9ab4b06ec4841b8e61713cd0",
+      "current_declaration_sha256": "d7c8cd3d5af5d5a84fbb96d82096fa4133d45d1a9ab4b06ec4841b8e61713cd0",
+      "historical_survival_current_sha256": "d7c8cd3d5af5d5a84fbb96d82096fa4133d45d1a9ab4b06ec4841b8e61713cd0",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 766,
+        "end_line": 809
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 766,
+        "end_line": 809
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFirstInstallRecoveryRejectsUnprovenAbsence(t *testing.T) {\n\tfor _, phase := range []string{\"rollback-check\", \"failed\"} {\n\t\tfor _, invalid := range []string{\"not-missing\", \"installed\", \"stale\", \"future\", \"zero-time\", \"wrong-action\", \"error\", \"pending\"} {\n\t\t\tt.Run(phase+\"/\"+invalid, func(t *testing.T) {\n\t\t\t\tf := newRolloutFixture(t)\n\t\t\t\tnode := f.nodes[0]\n\t\t\t\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\t\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\t\tf.advance(target, \"install\")\n\t\t\t\trecord := f.record()\n\t\t\t\trecord.Phase, record.RollbackRequired = phase, new(true)\n\t\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t\tstatus := Status{Missing: true, ActionID: CommandID(record.ID, \"rollback\"), ObservedAt: f.now}\n\t\t\t\tswitch invalid {\n\t\t\t\tcase \"not-missing\":\n\t\t\t\t\tstatus.Missing = false\n\t\t\t\tcase \"installed\":\n\t\t\t\t\tstatus.Version = target.Pin.Version\n\t\t\t\tcase \"stale\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(-16 * time.Second)\n\t\t\t\tcase \"future\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(3 * time.Second)\n\t\t\t\tcase \"zero-time\":\n\t\t\t\t\tstatus.ObservedAt = time.Time{}\n\t\t\t\tcase \"wrong-action\":\n\t\t\t\t\tstatus.ActionID = CommandID(\"2VP7F78J0ZNFE8BE3RYC7BNX9T\", \"rollback\")\n\t\t\t\tcase \"error\":\n\t\t\t\t\tstatus.Error = \"rollback failed\"\n\t\t\t\tcase \"pending\":\n\t\t\t\t\tstatus.Pending = record.ID\n\t\t\t\t}\n\t\t\t\tr := f.reconciler()\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return status, nil }\n\t\t\t\tf.deferActions = true\n\t\t\t\t_ = r.Tick(t.Context(), target, f.nodes)\n\t\t\t\tif f.record().RecoveryComplete || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\t\t\t\tt.Fatalf(\"%s accepted %s absence proof: record=%+v effects=%v\", phase, invalid, f.record(), f.effects)\n\t\t\t\t}\n\t\t\t})\n\t\t}\n\t}\n}",
+      "current_declaration_text": "func TestFirstInstallRecoveryRejectsUnprovenAbsence(t *testing.T) {\n\tfor _, phase := range []string{\"rollback-check\", \"failed\"} {\n\t\tfor _, invalid := range []string{\"not-missing\", \"installed\", \"stale\", \"future\", \"zero-time\", \"wrong-action\", \"error\", \"pending\"} {\n\t\t\tt.Run(phase+\"/\"+invalid, func(t *testing.T) {\n\t\t\t\tf := newRolloutFixture(t)\n\t\t\t\tnode := f.nodes[0]\n\t\t\t\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\t\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\t\tf.advance(target, \"install\")\n\t\t\t\trecord := f.record()\n\t\t\t\trecord.Phase, record.RollbackRequired = phase, new(true)\n\t\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\t\tt.Fatal(err)\n\t\t\t\t}\n\t\t\t\tstatus := Status{Missing: true, ActionID: CommandID(record.ID, \"rollback\"), ObservedAt: f.now}\n\t\t\t\tswitch invalid {\n\t\t\t\tcase \"not-missing\":\n\t\t\t\t\tstatus.Missing = false\n\t\t\t\tcase \"installed\":\n\t\t\t\t\tstatus.Version = target.Pin.Version\n\t\t\t\tcase \"stale\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(-16 * time.Second)\n\t\t\t\tcase \"future\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(3 * time.Second)\n\t\t\t\tcase \"zero-time\":\n\t\t\t\t\tstatus.ObservedAt = time.Time{}\n\t\t\t\tcase \"wrong-action\":\n\t\t\t\t\tstatus.ActionID = CommandID(\"2VP7F78J0ZNFE8BE3RYC7BNX9T\", \"rollback\")\n\t\t\t\tcase \"error\":\n\t\t\t\t\tstatus.Error = \"rollback failed\"\n\t\t\t\tcase \"pending\":\n\t\t\t\t\tstatus.Pending = record.ID\n\t\t\t\t}\n\t\t\t\tr := f.reconciler()\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return status, nil }\n\t\t\t\tf.deferActions = true\n\t\t\t\t_ = r.Tick(t.Context(), target, f.nodes)\n\t\t\t\tif f.record().RecoveryComplete || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\t\t\t\tt.Fatalf(\"%s accepted %s absence proof: record=%+v effects=%v\", phase, invalid, f.record(), f.effects)\n\t\t\t\t}\n\t\t\t})\n\t\t}\n\t}\n}",
+      "category": "unit",
+      "reason": "Rollback-check and failed phases consume hand-built Status records with each invalid absence-proof field. An overridden Status callback and deferred f.apply test local acknowledgment/freshness guards; no installed binary or absence observation is obtained from the OS.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 780,
+          "end_line": 805,
+          "text": "\t\t\t\tstatus := Status{Missing: true, ActionID: CommandID(record.ID, \"rollback\"), ObservedAt: f.now}\n\t\t\t\tswitch invalid {\n\t\t\t\tcase \"not-missing\":\n\t\t\t\t\tstatus.Missing = false\n\t\t\t\tcase \"installed\":\n\t\t\t\t\tstatus.Version = target.Pin.Version\n\t\t\t\tcase \"stale\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(-16 * time.Second)\n\t\t\t\tcase \"future\":\n\t\t\t\t\tstatus.ObservedAt = f.now.Add(3 * time.Second)\n\t\t\t\tcase \"zero-time\":\n\t\t\t\t\tstatus.ObservedAt = time.Time{}\n\t\t\t\tcase \"wrong-action\":\n\t\t\t\t\tstatus.ActionID = CommandID(\"2VP7F78J0ZNFE8BE3RYC7BNX9T\", \"rollback\")\n\t\t\t\tcase \"error\":\n\t\t\t\t\tstatus.Error = \"rollback failed\"\n\t\t\t\tcase \"pending\":\n\t\t\t\t\tstatus.Pending = record.ID\n\t\t\t\t}\n\t\t\t\tr := f.reconciler()\n\t\t\t\tr.Status = func(context.Context, string) (Status, error) { return status, nil }\n\t\t\t\tf.deferActions = true\n\t\t\t\t_ = r.Tick(t.Context(), target, f.nodes)\n\t\t\t\tif f.record().RecoveryComplete || !f.drained[node] || slices.Contains(f.effects, \"return:\"+node) {\n\t\t\t\t\tt.Fatalf(\"%s accepted %s absence proof: record=%+v effects=%v\", phase, invalid, f.record(), f.effects)\n\t\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRollbackReturnsRestoredAbsence",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestFirstInstallRollbackReturnsRestoredAbsence",
+      "current_name": "TestFirstInstallRollbackReturnsRestoredAbsence",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "6db7232f865d0c8979155646221d0435766c15756ee9ac8d05d1436d5dfb6763",
+      "current_declaration_sha256": "6db7232f865d0c8979155646221d0435766c15756ee9ac8d05d1436d5dfb6763",
+      "historical_survival_current_sha256": "6db7232f865d0c8979155646221d0435766c15756ee9ac8d05d1436d5dfb6763",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 689,
+        "end_line": 714
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 689,
+        "end_line": 714
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestFirstInstallRollbackReturnsRestoredAbsence(t *testing.T) {\n\tf := newRolloutFixture(t)\n\tnode := f.nodes[0]\n\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tf.healthError[node] = errors.New(\"new enrollment failed mesh checks\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\trolledBack := f.statuses[node]\n\tif !rolledBack.Missing || rolledBack.Version != \"\" || rolledBack.ActionID != CommandID(f.record().ID, \"rollback\") {\n\t\tt.Fatalf(\"first install did not restore acknowledged absence: %+v\", rolledBack)\n\t}\n\tf.returnError[node] = errors.New(\"ordinary role/LB health is not ready\")\n\tif err := f.tick(target); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"restored absence bypassed the ordinary return gate: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.returnError, node)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.record().RecoveryComplete || f.drained[node] {\n\t\tt.Fatalf(\"acknowledged absence could not release bootstrap fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before {\n\t\tt.Fatalf(\"failed first-install pin retried another node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "current_declaration_text": "func TestFirstInstallRollbackReturnsRestoredAbsence(t *testing.T) {\n\tf := newRolloutFixture(t)\n\tnode := f.nodes[0]\n\tf.statuses[node], f.previous[node] = Status{Missing: true}, \"\"\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tf.healthError[node] = errors.New(\"new enrollment failed mesh checks\")\n\tf.now = f.record().Deadline.Add(time.Second)\n\tf.advance(target, \"rollback-check\")\n\trolledBack := f.statuses[node]\n\tif !rolledBack.Missing || rolledBack.Version != \"\" || rolledBack.ActionID != CommandID(f.record().ID, \"rollback\") {\n\t\tt.Fatalf(\"first install did not restore acknowledged absence: %+v\", rolledBack)\n\t}\n\tf.returnError[node] = errors.New(\"ordinary role/LB health is not ready\")\n\tif err := f.tick(target); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"restored absence bypassed the ordinary return gate: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.returnError, node)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.record().RecoveryComplete || f.drained[node] {\n\t\tt.Fatalf(\"acknowledged absence could not release bootstrap fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before {\n\t\tt.Fatalf(\"failed first-install pin retried another node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n}",
+      "category": "unit",
+      "reason": "f.apply synthesizes missing previous installation and the rollback action acknowledgment. An injected Return error and subsequent map changes test ordinary return gating and same-pin hold; no actual binary removal, LB or host status boundary is exercised.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 699,
+          "end_line": 713,
+          "text": "\tif !rolledBack.Missing || rolledBack.Version != \"\" || rolledBack.ActionID != CommandID(f.record().ID, \"rollback\") {\n\t\tt.Fatalf(\"first install did not restore acknowledged absence: %+v\", rolledBack)\n\t}\n\tf.returnError[node] = errors.New(\"ordinary role/LB health is not ready\")\n\tif err := f.tick(target); err == nil || f.record().RecoveryComplete {\n\t\tt.Fatalf(\"restored absence bypassed the ordinary return gate: record=%+v error=%v\", f.record(), err)\n\t}\n\tdelete(f.returnError, node)\n\tif err := f.tick(target); err != nil || f.record().Phase != \"failed\" || !f.record().RecoveryComplete || f.drained[node] {\n\t\tt.Fatalf(\"acknowledged absence could not release bootstrap fence: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n\tbefore := len(f.effects)\n\tif err := f.tick(target); err == nil || len(f.effects) != before {\n\t\tt.Fatalf(\"failed first-install pin retried another node: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLateMeshHealthGetsASeparateConfirmationWindow",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestLateMeshHealthGetsASeparateConfirmationWindow",
+      "current_name": "TestLateMeshHealthGetsASeparateConfirmationWindow",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "3a39acab568366246048923bd3587e58a71c87e7c344f4845da767151d0751d1",
+      "current_declaration_sha256": "3a39acab568366246048923bd3587e58a71c87e7c344f4845da767151d0751d1",
+      "historical_survival_current_sha256": "3a39acab568366246048923bd3587e58a71c87e7c344f4845da767151d0751d1",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 190,
+        "end_line": 214
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 190,
+        "end_line": 214
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestLateMeshHealthGetsASeparateConfirmationWindow(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tf.now = f.record().Deadline.Add(-time.Second)\n\tr := f.reconciler()\n\thealthy := r.Healthy\n\tr.Healthy = func(ctx context.Context, node string, status Status, since time.Time) error {\n\t\tf.now = f.now.Add(2 * time.Second)\n\t\treturn healthy(ctx, node, status, since)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || !record.Deadline.Equal(f.now.Add(2*time.Minute)) {\n\t\tt.Fatalf(\"late health did not start a fresh confirmation window: %+v\", record)\n\t}\n\tf.now = f.now.Add(2 * time.Second)\n\tif err := f.tick(target); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || f.commands[len(f.commands)-1].Action != \"confirm\" {\n\t\tt.Fatalf(\"healthy agent rolled back before confirmation was sent: %+v commands=%v\", record, f.commands)\n\t}\n}",
+      "current_declaration_text": "func TestLateMeshHealthGetsASeparateConfirmationWindow(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"check\")\n\tf.now = f.record().Deadline.Add(-time.Second)\n\tr := f.reconciler()\n\thealthy := r.Healthy\n\tr.Healthy = func(ctx context.Context, node string, status Status, since time.Time) error {\n\t\tf.now = f.now.Add(2 * time.Second)\n\t\treturn healthy(ctx, node, status, since)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || !record.Deadline.Equal(f.now.Add(2*time.Minute)) {\n\t\tt.Fatalf(\"late health did not start a fresh confirmation window: %+v\", record)\n\t}\n\tf.now = f.now.Add(2 * time.Second)\n\tif err := f.tick(target); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || f.commands[len(f.commands)-1].Action != \"confirm\" {\n\t\tt.Fatalf(\"healthy agent rolled back before confirmation was sent: %+v commands=%v\", record, f.commands)\n\t}\n}",
+      "category": "unit",
+      "reason": "A Healthy wrapper advances only the fake clock. Tick must persist a fresh confirmation deadline and send a synthetic confirm command. All health/status/journal effects terminate in the local fixture; no mesh health query occurs.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 201,
+          "end_line": 213,
+          "text": "\tif err := r.Tick(t.Context(), target, f.nodes); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || !record.Deadline.Equal(f.now.Add(2*time.Minute)) {\n\t\tt.Fatalf(\"late health did not start a fresh confirmation window: %+v\", record)\n\t}\n\tf.now = f.now.Add(2 * time.Second)\n\tif err := f.tick(target); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif record := f.record(); record.Phase != \"confirm\" || f.commands[len(f.commands)-1].Action != \"confirm\" {\n\t\tt.Fatalf(\"healthy agent rolled back before confirmation was sent: %+v commands=%v\", record, f.commands)\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+      "current_name": "TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "ce6580dcfa4bb90eb4ed331b4b98d95d6d3712659db1d9c7e1fd09eaea33d912",
+      "current_declaration_sha256": "ce6580dcfa4bb90eb4ed331b4b98d95d6d3712659db1d9c7e1fd09eaea33d912",
+      "historical_survival_current_sha256": "ce6580dcfa4bb90eb4ed331b4b98d95d6d3712659db1d9c7e1fd09eaea33d912",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 935,
+        "end_line": 958
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 935,
+        "end_line": 958
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\toriginal := f.record()\n\tr := f.reconciler()\n\tsave := r.Save\n\tr.Save = func(ctx context.Context, record Record) error {\n\t\tif record.Phase == \"install\" {\n\t\t\treturn errors.New(\"leader lost KV authority after draining\")\n\t\t}\n\t\treturn save(ctx, record)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err == nil {\n\t\tt.Fatal(\"lost authority was not simulated\")\n\t}\n\tif !f.drained[original.Node] || f.record().Phase != \"drain\" || len(f.commands) != 0 {\n\t\tt.Fatalf(\"install happened without persisted intent: %#v %v\", f.record(), f.effects)\n\t}\n\tf.advance(target, \"check\")\n\tif f.record().ID != original.ID || f.record().Node != original.Node {\n\t\tt.Fatalf(\"new leader selected a second node: %#v\", f.record())\n\t}\n}",
+      "current_declaration_text": "func TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails(t *testing.T) {\n\tf := newRolloutFixture(t)\n\ttarget := rolloutTarget(\"0.80.0\")\n\tf.advance(target, \"drain\")\n\toriginal := f.record()\n\tr := f.reconciler()\n\tsave := r.Save\n\tr.Save = func(ctx context.Context, record Record) error {\n\t\tif record.Phase == \"install\" {\n\t\t\treturn errors.New(\"leader lost KV authority after draining\")\n\t\t}\n\t\treturn save(ctx, record)\n\t}\n\tif err := r.Tick(t.Context(), target, f.nodes); err == nil {\n\t\tt.Fatal(\"lost authority was not simulated\")\n\t}\n\tif !f.drained[original.Node] || f.record().Phase != \"drain\" || len(f.commands) != 0 {\n\t\tt.Fatalf(\"install happened without persisted intent: %#v %v\", f.record(), f.effects)\n\t}\n\tf.advance(target, \"check\")\n\tif f.record().ID != original.ID || f.record().Node != original.Node {\n\t\tt.Fatalf(\"new leader selected a second node: %#v\", f.record())\n\t}\n}",
+      "category": "unit",
+      "reason": "An injected Save error on install phase models lost journal authority after synthetic drain. A fresh Reconciler then resumes the same in-memory record/node. No KV service, leader election, actual drain or installation boundary is called.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 948,
+          "end_line": 957,
+          "text": "\tif err := r.Tick(t.Context(), target, f.nodes); err == nil {\n\t\tt.Fatal(\"lost authority was not simulated\")\n\t}\n\tif !f.drained[original.Node] || f.record().Phase != \"drain\" || len(f.commands) != 0 {\n\t\tt.Fatalf(\"install happened without persisted intent: %#v %v\", f.record(), f.effects)\n\t}\n\tf.advance(target, \"check\")\n\tif f.record().ID != original.ID || f.record().Node != original.Node {\n\t\tt.Fatalf(\"new leader selected a second node: %#v\", f.record())\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+      "current_name": "TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "0d4dc80ac5dde291eff7489fa285d29046d7bc791eb40dab6426d0a73c551f46",
+      "current_declaration_sha256": "0d4dc80ac5dde291eff7489fa285d29046d7bc791eb40dab6426d0a73c551f46",
+      "historical_survival_current_sha256": "0d4dc80ac5dde291eff7489fa285d29046d7bc791eb40dab6426d0a73c551f46",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 902,
+        "end_line": 933
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 902,
+        "end_line": 933
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost(t *testing.T) {\n\tf := newRolloutFixture(t)\n\tbefore, after := rolloutTarget(\"0.80.0\"), rolloutTarget(\"0.80.1\")\n\tf.advance(before, \"install\")\n\toriginal := f.record()\n\tf.loseReply = \"install\"\n\tif err := f.tick(after); err == nil {\n\t\tt.Fatal(\"lost installation response was not simulated\")\n\t}\n\tif f.record().ID != original.ID || f.record().Phase != \"install\" || f.commands[0].Target.Pin.Version != before.Pin.Version {\n\t\tt.Fatalf(\"pin change replaced in-flight intent: %#v %#v\", f.record(), f.commands)\n\t}\n\tf.advance(after, \"done\")\n\tinstalls := 0\n\tfor _, command := range f.commands {\n\t\tif command.Transaction != original.ID || command.Target.Pin.Version != before.Pin.Version {\n\t\t\tt.Fatalf(\"resumed leader changed transaction/pin: %#v\", command)\n\t\t}\n\t\tif command.Action == \"install\" {\n\t\t\tinstalls++\n\t\t}\n\t}\n\tif installs != 1 {\n\t\tt.Fatalf(\"lost reply caused repeated install: %v\", f.commands)\n\t}\n\tif err := f.tick(after); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif f.record().Target.Pin.Version != after.Pin.Version || f.record().ID == original.ID {\n\t\tt.Fatalf(\"new pin was not selected after prior return: %#v\", f.record())\n\t}\n}",
+      "current_declaration_text": "func TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost(t *testing.T) {\n\tf := newRolloutFixture(t)\n\tbefore, after := rolloutTarget(\"0.80.0\"), rolloutTarget(\"0.80.1\")\n\tf.advance(before, \"install\")\n\toriginal := f.record()\n\tf.loseReply = \"install\"\n\tif err := f.tick(after); err == nil {\n\t\tt.Fatal(\"lost installation response was not simulated\")\n\t}\n\tif f.record().ID != original.ID || f.record().Phase != \"install\" || f.commands[0].Target.Pin.Version != before.Pin.Version {\n\t\tt.Fatalf(\"pin change replaced in-flight intent: %#v %#v\", f.record(), f.commands)\n\t}\n\tf.advance(after, \"done\")\n\tinstalls := 0\n\tfor _, command := range f.commands {\n\t\tif command.Transaction != original.ID || command.Target.Pin.Version != before.Pin.Version {\n\t\t\tt.Fatalf(\"resumed leader changed transaction/pin: %#v\", command)\n\t\t}\n\t\tif command.Action == \"install\" {\n\t\t\tinstalls++\n\t\t}\n\t}\n\tif installs != 1 {\n\t\tt.Fatalf(\"lost reply caused repeated install: %v\", f.commands)\n\t}\n\tif err := f.tick(after); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif f.record().Target.Pin.Version != after.Pin.Version || f.record().ID == original.ID {\n\t\tt.Fatalf(\"new pin was not selected after prior return: %#v\", f.record())\n\t}\n}",
+      "category": "unit",
+      "reason": "f.Send applies its synthetic command then returns a fabricated lost response. Fresh local reconcilers must retain original transaction/pin, avoid repeated install and select the changed pin after completion. Journal, status and command records remain memory-only.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 908,
+          "end_line": 932,
+          "text": "\tif err := f.tick(after); err == nil {\n\t\tt.Fatal(\"lost installation response was not simulated\")\n\t}\n\tif f.record().ID != original.ID || f.record().Phase != \"install\" || f.commands[0].Target.Pin.Version != before.Pin.Version {\n\t\tt.Fatalf(\"pin change replaced in-flight intent: %#v %#v\", f.record(), f.commands)\n\t}\n\tf.advance(after, \"done\")\n\tinstalls := 0\n\tfor _, command := range f.commands {\n\t\tif command.Transaction != original.ID || command.Target.Pin.Version != before.Pin.Version {\n\t\t\tt.Fatalf(\"resumed leader changed transaction/pin: %#v\", command)\n\t\t}\n\t\tif command.Action == \"install\" {\n\t\t\tinstalls++\n\t\t}\n\t}\n\tif installs != 1 {\n\t\tt.Fatalf(\"lost reply caused repeated install: %v\", f.commands)\n\t}\n\tif err := f.tick(after); err != nil {\n\t\tt.Fatal(err)\n\t}\n\tif f.record().Target.Pin.Version != after.Pin.Version || f.record().ID == original.ID {\n\t\tt.Fatalf(\"new pin was not selected after prior return: %#v\", f.record())\n\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges",
+      "path": "internal/netbird/rollout/reconcile_test.go",
+      "original_name": "TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges",
+      "current_name": "TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges",
+      "kind": "test",
+      "state": "retained_body_exact",
+      "original_declaration_sha256": "daeecb3b684c931d1e38cd2199750dfbde1ba5b8e0b60cb6aa0349fed98372c3",
+      "current_declaration_sha256": "daeecb3b684c931d1e38cd2199750dfbde1ba5b8e0b60cb6aa0349fed98372c3",
+      "historical_survival_current_sha256": "daeecb3b684c931d1e38cd2199750dfbde1ba5b8e0b60cb6aa0349fed98372c3",
+      "canonical_body_drift": false,
+      "baseline_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 811,
+        "end_line": 844
+      },
+      "current_source": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 811,
+        "end_line": 844
+      },
+      "declaration_hash_rule": "Raw func through column-zero close, excluding following LF; explicit manually inspected line bounds.",
+      "baseline_declaration_text": "func TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges(t *testing.T) {\n\tfor _, reason := range []string{\n\t\t\"agent did not acknowledge installation; previous binary did not recover (node remains drained)\",\n\t\t\"confirmed NetBird agent failed return health checks; previous binary failed return health checks (node remains drained)\",\n\t\t\"drain timed out\",\n\t} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\trecord := f.record()\n\t\t\trecord.Phase, record.Reason = \"failed\", reason\n\t\t\trecord.RollbackRequired = nil // The field is absent from an old journal.\n\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif strings.Contains(string(f.journal), \"rollback_required\") {\n\t\t\t\tt.Fatal(\"legacy journal unexpectedly contains the new marker\")\n\t\t\t}\n\t\t\tnode := record.Node\n\t\t\tbefore := len(f.effects)\n\t\t\tchanged := rolloutTarget(\"0.80.1\")\n\t\t\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"legacy failure bypassed recovery proof: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t\t\t}\n\t\t\tstatus := f.statuses[node]\n\t\t\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\t\t\tf.statuses[node] = status\n\t\t\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == record.ID {\n\t\t\t\tt.Fatalf(\"acknowledged legacy recovery could not proceed: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "current_declaration_text": "func TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges(t *testing.T) {\n\tfor _, reason := range []string{\n\t\t\"agent did not acknowledge installation; previous binary did not recover (node remains drained)\",\n\t\t\"confirmed NetBird agent failed return health checks; previous binary failed return health checks (node remains drained)\",\n\t\t\"drain timed out\",\n\t} {\n\t\tt.Run(reason, func(t *testing.T) {\n\t\t\tf := newRolloutFixture(t)\n\t\t\ttarget := rolloutTarget(\"0.80.0\")\n\t\t\tf.advance(target, \"install\")\n\t\t\trecord := f.record()\n\t\t\trecord.Phase, record.Reason = \"failed\", reason\n\t\t\trecord.RollbackRequired = nil // The field is absent from an old journal.\n\t\t\tif err := f.reconciler().Save(t.Context(), record); err != nil {\n\t\t\t\tt.Fatal(err)\n\t\t\t}\n\t\t\tif strings.Contains(string(f.journal), \"rollback_required\") {\n\t\t\t\tt.Fatal(\"legacy journal unexpectedly contains the new marker\")\n\t\t\t}\n\t\t\tnode := record.Node\n\t\t\tbefore := len(f.effects)\n\t\t\tchanged := rolloutTarget(\"0.80.1\")\n\t\t\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"legacy failure bypassed recovery proof: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t\t\t}\n\t\t\tstatus := f.statuses[node]\n\t\t\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\t\t\tf.statuses[node] = status\n\t\t\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == record.ID {\n\t\t\t\tt.Fatalf(\"acknowledged legacy recovery could not proceed: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n\t\t})\n\t}\n}",
+      "category": "unit",
+      "reason": "Legacy failed JSON lacks rollback_required and uses three synthetic reasons. Before and after manually assigning ActionID, Tick must hold then permit changed-pin selection. Serialization/decoding and effect/status maps are local, without an actual legacy store or worker rollback.",
+      "assertion_evidence": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 827,
+          "end_line": 841,
+          "text": "\t\t\tif strings.Contains(string(f.journal), \"rollback_required\") {\n\t\t\t\tt.Fatal(\"legacy journal unexpectedly contains the new marker\")\n\t\t\t}\n\t\t\tnode := record.Node\n\t\t\tbefore := len(f.effects)\n\t\t\tchanged := rolloutTarget(\"0.80.1\")\n\t\t\tif err := f.tick(changed); err == nil || len(f.effects) != before || !f.drained[node] || f.record().ID != record.ID {\n\t\t\t\tt.Fatalf(\"legacy failure bypassed recovery proof: record=%+v effects=%v error=%v\", f.record(), f.effects, err)\n\t\t\t}\n\t\t\tstatus := f.statuses[node]\n\t\t\tstatus.ActionID = CommandID(record.ID, \"rollback\")\n\t\t\tf.statuses[node] = status\n\t\t\tif err := f.tick(changed); err != nil || f.drained[node] || f.record().Phase != \"drain\" || f.record().ID == record.ID {\n\t\t\t\tt.Fatalf(\"acknowledged legacy recovery could not proceed: record=%+v error=%v\", f.record(), err)\n\t\t\t}\n"
+        }
+      ],
+      "connected_evidence": [
+        "rollout"
+      ],
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true,
+      "source_blockers": []
+    }
+  ],
+  "connected_source_evidence": {
+    "observe": {
+      "trace": "root -> testEnroller incidental hosts fixture; root overwrites e.run -> observe -> status -> command -> injected closure; statusJSON is synthetic JSON. runCommand/Enroll/Vault are not reached.",
+      "spans": [
+        {
+          "path": "internal/netbird/enroll_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb6f16ffa72aca8d1148cc4e719b3e5ae4888e3",
+          "line": 29,
+          "end_line": 42,
+          "text": "func testEnroller(t *testing.T) enroller {\n\tt.Helper()\n\tdirectory := t.TempDir()\n\thosts := filepath.Join(directory, \"hosts\")\n\tif err := os.WriteFile(hosts, []byte(\"127.0.0.1 localhost\\n# keep this entry\\n10.250.1.2 git.terrascale.tech\\n\"), 0o644); err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn enroller{hostsPath: hosts, runtimePath: filepath.Join(directory, \"run\"), poll: time.Millisecond, pending: 50 * time.Millisecond,\n\t\thostname: func() (string, error) { return \"ts-gru-server-1\", nil },\n\t\treadKey: func(context.Context, Config) ([]byte, error) {\n\t\t\tt.Fatal(\"unexpected OCI secret retrieval\")\n\t\t\treturn nil, nil\n\t\t}}\n}\n",
+          "function": "testEnroller"
+        },
+        {
+          "path": "internal/netbird/enroll_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb6f16ffa72aca8d1148cc4e719b3e5ae4888e3",
+          "line": 44,
+          "end_line": 49,
+          "text": "func statusJSON(state, manager string, connected bool) []byte {\n\tif connected {\n\t\treturn []byte(`{\"daemonStatus\":\"` + state + `\",\"management\":{\"url\":\"` + manager + `\",\"connected\":true},\"signal\":{\"connected\":true},\"publicKey\":\"not-a-credential\",\"netbirdIp\":\"100.100.0.1/16\"}`)\n\t}\n\treturn []byte(`{\"daemonStatus\":\"` + state + `\",\"management\":{\"url\":\"` + manager + `\",\"connected\":false},\"signal\":{\"connected\":false}}`)\n}\n",
+          "function": "statusJSON"
+        },
+        {
+          "path": "internal/netbird/enroll.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "77c3a87d3e7f9f6f1c6d148d80cbf244cae0e4c8",
+          "line": 63,
+          "end_line": 74,
+          "text": "type enroller struct {\n\trun         commandRunner\n\treadKey     keyReader\n\thostname    func() (string, error)\n\tprimaryIP   func(context.Context) (netip.Addr, error)\n\thostsPath   string\n\truntimePath string\n\t// socketPath is the daemon control socket; empty skips the socket probe.\n\tsocketPath string\n\tpoll       time.Duration\n\tpending    time.Duration\n}\n",
+          "function": "enroller dependency fields"
+        },
+        {
+          "path": "internal/netbird/enroll.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "77c3a87d3e7f9f6f1c6d148d80cbf244cae0e4c8",
+          "line": 265,
+          "end_line": 281,
+          "text": "func (e enroller) status(ctx context.Context) (daemonStatus, error) {\n\twire, err := e.command(ctx, \"status\", \"--json\", \"--config\", netbirdConfig)\n\tif err != nil {\n\t\treturn daemonStatus{}, errDaemonUnreachable\n\t}\n\tdefer clear(wire)\n\tvar status daemonStatus\n\tif len(wire) > 1<<20 || json.Unmarshal(wire, &status) != nil {\n\t\treturn daemonStatus{}, errors.New(\"NetBird daemon returned invalid status JSON\")\n\t}\n\tswitch status.DaemonStatus {\n\tcase \"Idle\", \"Connecting\", \"Connected\", \"NeedsLogin\", \"LoginFailed\", \"SessionExpired\":\n\t\treturn status, nil\n\tdefault:\n\t\treturn daemonStatus{}, errors.New(\"NetBird daemon returned an unknown connection state\")\n\t}\n}\n",
+          "function": "enroller.status"
+        },
+        {
+          "path": "internal/netbird/enroll.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "77c3a87d3e7f9f6f1c6d148d80cbf244cae0e4c8",
+          "line": 314,
+          "end_line": 365,
+          "text": "func (e enroller) observe(ctx context.Context, limit time.Duration, first *daemonStatus, done func(daemonStatus) bool) (daemonStatus, bool, error) {\n\tdeadline := time.Now().Add(limit)\n\t// Every status query is bounded by the limit too: the CLI's own command\n\t// timeout is far longer, and a poll started near the limit must not run\n\t// past it and consume the budget of later enrollment steps.\n\tlimited, cancel := context.WithDeadline(ctx, deadline)\n\tdefer cancel()\n\tdelay := e.poll\n\tvar last daemonStatus\n\tobserved := false\n\tfor {\n\t\tvar status daemonStatus\n\t\tif first != nil {\n\t\t\tstatus, first = *first, nil\n\t\t} else {\n\t\t\tvar err error\n\t\t\tif status, err = e.status(limited); err != nil {\n\t\t\t\t// A query cut short by cancellation reports the cancellation,\n\t\t\t\t// not an unreachable daemon.\n\t\t\t\tif ctxErr := ctx.Err(); ctxErr != nil {\n\t\t\t\t\treturn daemonStatus{}, false, ctxErr\n\t\t\t\t}\n\t\t\t\t// A query cut short by the limit is the limit elapsing. With\n\t\t\t\t// no observation yet there is nothing to report: a zero\n\t\t\t\t// status would read as a daemon bound to no manager.\n\t\t\t\tif limited.Err() != nil {\n\t\t\t\t\tif !observed {\n\t\t\t\t\t\treturn daemonStatus{}, false, errors.Join(errors.New(\"NetBird status did not answer within its observation limit\"), err)\n\t\t\t\t\t}\n\t\t\t\t\treturn last, false, nil\n\t\t\t\t}\n\t\t\t\treturn daemonStatus{}, false, err\n\t\t\t}\n\t\t}\n\t\tlast, observed = status, true\n\t\tif done(status) {\n\t\t\treturn status, true, nil\n\t\t}\n\t\tremaining := time.Until(deadline)\n\t\tif remaining <= 0 {\n\t\t\treturn status, false, nil\n\t\t}\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\t// Cancellation is not the limit elapsing: report its cause so\n\t\t\t// callers do not keep acting on a stale observation.\n\t\t\treturn status, false, ctx.Err()\n\t\tcase <-time.After(min(delay, remaining)):\n\t\t}\n\t\tdelay = min(2*delay, maxPoll)\n\t}\n}\n",
+          "function": "enroller.observe"
+        },
+        {
+          "path": "internal/netbird/enroll.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "77c3a87d3e7f9f6f1c6d148d80cbf244cae0e4c8",
+          "line": 395,
+          "end_line": 405,
+          "text": "func (e enroller) command(ctx context.Context, args ...string) ([]byte, error) {\n\tcommandCtx, cancel := context.WithTimeout(ctx, commandLimit)\n\tdefer cancel()\n\twire, err := e.run(commandCtx, netbirdBinary, append(args,\n\t\t\"--daemon-addr\", \"unix:///var/run/netbird.sock\", \"--log-file\", \"console\", \"--log-level\", \"error\")...)\n\tif args[0] != \"status\" && !(args[0] == \"debug\" && args[1] == \"config\") || err != nil {\n\t\tclear(wire)\n\t\treturn nil, err\n\t}\n\treturn wire, nil\n}\n",
+          "function": "enroller.command"
+        }
+      ]
+    },
+    "versions": {
+      "trace": "root -> CompareVersions -> local trim/split/ParseUint/numeric compare; no effect dependency.",
+      "spans": [
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 98,
+          "end_line": 131,
+          "text": "func CompareVersions(a, b string) (int, error) {\n\tparse := func(s string) ([3]uint64, error) {\n\t\tvar out [3]uint64\n\t\tparts := strings.Split(strings.TrimPrefix(strings.TrimSpace(s), \"v\"), \".\")\n\t\tif len(parts) != 3 {\n\t\t\treturn out, errors.New(\"NetBird version must have three numeric components\")\n\t\t}\n\t\tfor i, part := range parts {\n\t\t\tvalue, err := strconv.ParseUint(part, 10, 32)\n\t\t\tif err != nil || part == \"\" || len(part) > 1 && part[0] == '0' {\n\t\t\t\treturn out, errors.New(\"invalid NetBird version\")\n\t\t\t}\n\t\t\tout[i] = value\n\t\t}\n\t\treturn out, nil\n\t}\n\tx, err := parse(a)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\ty, err := parse(b)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tfor i := range x {\n\t\tif x[i] < y[i] {\n\t\t\treturn -1, nil\n\t\t}\n\t\tif x[i] > y[i] {\n\t\t\treturn 1, nil\n\t\t}\n\t}\n\treturn 0, nil\n}\n",
+          "function": "CompareVersions"
+        }
+      ]
+    },
+    "rollout": {
+      "trace": "root -> newRolloutFixture/rolloutTarget -> advance/tick -> freshly constructed Reconciler.Tick -> fixture Load/Save/Status/Preflight/Drain/Healthy/Return/Send -> f.apply. Journal is a []byte field serialized with JSON; status/drain/effects are maps/slices. Production Hash/CommandID/version/ULID helpers are local. Clock/entropy used for identity is incidental, not a materially asserted service/runtime boundary. No production KV/NATS/worker/LB/NetBird/OCI/TerraBase implementation is delegated to by fixture callbacks.",
+      "spans": [
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 19,
+          "end_line": 35,
+          "text": "type rolloutFixture struct {\n\tt             *testing.T\n\tnow           time.Time\n\tjournal       []byte\n\tstatuses      map[string]Status\n\tprevious      map[string]string\n\tdrained       map[string]bool\n\thealthError   map[string]error\n\treturnError   map[string]error\n\tactionError   map[string]string\n\teffects       []string\n\tcommands      []Command\n\tnodes         []string\n\tconfirmClears bool\n\tdeferActions  bool\n\tloseReply     string\n}\n",
+          "function": "rolloutFixture fields"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 37,
+          "end_line": 47,
+          "text": "func rolloutTarget(version string) Target {\n\ttarget := Target{Pin: client.Pin{Version: version}, Enrollment: netbird.Config{ManagementURL: netbird.DefaultManagementURL,\n\t\tRegion: netbird.DefaultRegion, SetupKeySecretID: \"ocid1.vaultsecret.oc1.sa-saopaulo-1.aaaaaaaa.testsecret\",\n\t\tPeerNames: map[string]string{\"10.251.0.11\": \"gru-1-ctl-1\", \"10.251.0.12\": \"gru-1-ctl-2\", \"10.251.0.13\": \"gru-1-ctl-3\"}}}\n\tarchive := func(arch string) client.Archive {\n\t\treturn client.Archive{URL: fmt.Sprintf(\"https://github.com/netbirdio/netbird/releases/download/v%s/netbird_%s_linux_%s.tar.gz\", version, version, arch),\n\t\t\tBytes: 100, SHA256: strings.Repeat(\"a\", 64), BinarySHA256: strings.Repeat(\"b\", 64)}\n\t}\n\ttarget.Pin.Archives.Arm64, target.Pin.Archives.AMD64 = archive(\"arm64\"), archive(\"amd64\")\n\treturn target\n}\n",
+          "function": "rolloutTarget"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 49,
+          "end_line": 59,
+          "text": "func newRolloutFixture(t *testing.T) *rolloutFixture {\n\tt.Helper()\n\tf := &rolloutFixture{t: t, now: time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC),\n\t\tstatuses: map[string]Status{}, previous: map[string]string{}, drained: map[string]bool{},\n\t\thealthError: map[string]error{}, returnError: map[string]error{}, actionError: map[string]string{}, nodes: []string{\"gru-1-ctl-1\", \"gru-1-ctl-2\", \"gru-1-ctl-3\"}}\n\tfor i, node := range f.nodes {\n\t\tf.statuses[node] = Status{Version: \"0.79.0\", Connected: true, IP: fmt.Sprintf(\"100.87.0.%d\", i+1), DNS: node + \".nb.ts.internal\"}\n\t\tf.previous[node] = \"0.79.0\"\n\t}\n\treturn f\n}\n",
+          "function": "newRolloutFixture"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 61,
+          "end_line": 70,
+          "text": "func (f *rolloutFixture) record() Record {\n\tf.t.Helper()\n\tvar record Record\n\tif len(f.journal) != 0 {\n\t\tif err := json.Unmarshal(f.journal, &record, json.RejectUnknownMembers(true)); err != nil {\n\t\t\tf.t.Fatal(err)\n\t\t}\n\t}\n\treturn record\n}\n",
+          "function": "rolloutFixture.record"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 74,
+          "end_line": 145,
+          "text": "func (f *rolloutFixture) reconciler() *Reconciler {\n\treturn &Reconciler{\n\t\tNow:  func() time.Time { return f.now },\n\t\tLoad: func(context.Context) (Record, error) { return f.record(), nil },\n\t\tSave: func(_ context.Context, record Record) error {\n\t\t\twire, err := json.Marshal(record)\n\t\t\tif err == nil {\n\t\t\t\tf.journal = wire\n\t\t\t}\n\t\t\treturn err\n\t\t},\n\t\tStatus: func(_ context.Context, node string) (Status, error) {\n\t\t\tstatus := f.statuses[node]\n\t\t\tstatus.ObservedAt = f.now\n\t\t\treturn status, nil\n\t\t},\n\t\tPreflight: func(_ context.Context, node string) error {\n\t\t\tf.effects = append(f.effects, \"preflight:\"+node)\n\t\t\treturn nil\n\t\t},\n\t\tDrain: func(_ context.Context, node string) error {\n\t\t\tfor other, drained := range f.drained {\n\t\t\t\tif drained && other != node {\n\t\t\t\t\tf.t.Fatalf(\"drained %s while %s is still drained\", node, other)\n\t\t\t\t}\n\t\t\t}\n\t\t\tf.drained[node] = true\n\t\t\tf.effects = append(f.effects, \"drain:\"+node)\n\t\t\treturn nil\n\t\t},\n\t\tHealthy: func(_ context.Context, node string, status Status, _ time.Time) error {\n\t\t\tif err := f.healthError[node]; err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif !status.Connected || status.IP == \"\" || status.DNS == \"\" {\n\t\t\t\treturn errors.New(\"mesh and application probes failed\")\n\t\t\t}\n\t\t\treturn nil\n\t\t},\n\t\tReturn: func(_ context.Context, node string) error {\n\t\t\t// Restored absence needs ordinary role/LB return checks, not mesh.\n\t\t\tif !f.statuses[node].Missing && (f.healthError[node] != nil || !f.statuses[node].Connected) {\n\t\t\t\tf.t.Fatalf(\"returned unhealthy node %s\", node)\n\t\t\t}\n\t\t\tf.drained[node] = false\n\t\t\tf.effects = append(f.effects, \"return:\"+node)\n\t\t\treturn f.returnError[node]\n\t\t},\n\t\tSend: func(_ context.Context, node string, command Command) error {\n\t\t\tif !f.drained[node] {\n\t\t\t\tf.t.Fatalf(\"sent %s to serving node %s without a drain\", command.Action, node)\n\t\t\t}\n\t\t\trecord := f.record()\n\t\t\tif !entityid.Valid(record.ID) || !entityid.Valid(command.ID) || command.ID != CommandID(record.ID, command.Action) {\n\t\t\t\tf.t.Fatalf(\"invalid transaction/command identity: %+v %+v\", record, command)\n\t\t\t}\n\t\t\tif record.Node != node || record.ID != command.Transaction || !reflect.DeepEqual(record.Target, command.Target) {\n\t\t\t\tf.t.Fatalf(\"effect did not use persisted transaction: %#v %#v\", record, command)\n\t\t\t}\n\t\t\tf.commands = append(f.commands, command)\n\t\t\tf.effects = append(f.effects, command.Action+\":\"+node)\n\t\t\tif !f.deferActions {\n\t\t\t\tf.apply(node, command)\n\t\t\t}\n\t\t\tif f.loseReply == command.Action {\n\t\t\t\tf.loseReply = \"\"\n\t\t\t\treturn errors.New(\"controller lost the worker response\")\n\t\t\t}\n\t\t\treturn nil\n\t\t},\n\t}\n}\n",
+          "function": "rolloutFixture.reconciler"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 147,
+          "end_line": 171,
+          "text": "func (f *rolloutFixture) apply(node string, command Command) {\n\tstatus := f.statuses[node]\n\tstatus.ActionID, status.Error = command.ID, f.actionError[command.Action]\n\tswitch command.Action {\n\tcase \"install\":\n\t\tstatus.Version, status.Pending = command.Target.Pin.Version, command.Transaction\n\t\tstatus.Missing = false\n\tcase \"confirm\":\n\t\tif status.Error == \"\" || f.confirmClears {\n\t\t\tstatus.Pending = \"\"\n\t\t}\n\t\tif status.Error == \"\" {\n\t\t\tstatus.AppliedTargetHash = Hash(command.Target)\n\t\t}\n\tcase \"rollback\":\n\t\tif status.Error == \"\" {\n\t\t\tstatus.Version, status.Pending, status.AppliedTargetHash = f.previous[node], \"\", \"\"\n\t\t\tstatus.Missing = status.Version == \"\"\n\t\t\tif status.Missing {\n\t\t\t\tstatus.Connected, status.IP, status.DNS = false, \"\", \"\"\n\t\t\t}\n\t\t}\n\t}\n\tf.statuses[node] = status\n}\n",
+          "function": "rolloutFixture.apply"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 173,
+          "end_line": 175,
+          "text": "func (f *rolloutFixture) tick(target Target) error {\n\treturn f.reconciler().Tick(f.t.Context(), target, f.nodes)\n}\n",
+          "function": "rolloutFixture.tick"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile_test.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+          "line": 177,
+          "end_line": 188,
+          "text": "func (f *rolloutFixture) advance(target Target, phase string) {\n\tf.t.Helper()\n\tfor range 24 {\n\t\tif f.record().Phase == phase {\n\t\t\treturn\n\t\t}\n\t\tif err := f.tick(target); err != nil {\n\t\t\tf.t.Fatalf(\"advance to %s failed in %s: %v\", phase, f.record().Phase, err)\n\t\t}\n\t}\n\tf.t.Fatalf(\"did not reach %s; record=%#v effects=%v\", phase, f.record(), f.effects)\n}\n",
+          "function": "rolloutFixture.advance"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 55,
+          "end_line": 57,
+          "text": "func CommandID(transaction, action string) string {\n\treturn entityid.Derive(\"netbird-command\", transaction, action)\n}\n",
+          "function": "CommandID"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 79,
+          "end_line": 89,
+          "text": "type Reconciler struct {\n\tLoad      func(context.Context) (Record, error)\n\tSave      func(context.Context, Record) error\n\tStatus    func(context.Context, string) (Status, error)\n\tPreflight func(context.Context, string) error\n\tDrain     func(context.Context, string) error\n\tHealthy   func(context.Context, string, Status, time.Time) error\n\tReturn    func(context.Context, string) error\n\tSend      func(context.Context, string, Command) error\n\tNow       func() time.Time\n}\n",
+          "function": "Reconciler dependency fields"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 91,
+          "end_line": 95,
+          "text": "func Hash(target Target) string {\n\twire, _ := json.Marshal(target, json.Deterministic(true))\n\tsum := sha256.Sum256(wire)\n\treturn hex.EncodeToString(sum[:])\n}\n",
+          "function": "Hash"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 98,
+          "end_line": 131,
+          "text": "func CompareVersions(a, b string) (int, error) {\n\tparse := func(s string) ([3]uint64, error) {\n\t\tvar out [3]uint64\n\t\tparts := strings.Split(strings.TrimPrefix(strings.TrimSpace(s), \"v\"), \".\")\n\t\tif len(parts) != 3 {\n\t\t\treturn out, errors.New(\"NetBird version must have three numeric components\")\n\t\t}\n\t\tfor i, part := range parts {\n\t\t\tvalue, err := strconv.ParseUint(part, 10, 32)\n\t\t\tif err != nil || part == \"\" || len(part) > 1 && part[0] == '0' {\n\t\t\t\treturn out, errors.New(\"invalid NetBird version\")\n\t\t\t}\n\t\t\tout[i] = value\n\t\t}\n\t\treturn out, nil\n\t}\n\tx, err := parse(a)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\ty, err := parse(b)\n\tif err != nil {\n\t\treturn 0, err\n\t}\n\tfor i := range x {\n\t\tif x[i] < y[i] {\n\t\t\treturn -1, nil\n\t\t}\n\t\tif x[i] > y[i] {\n\t\t\treturn 1, nil\n\t\t}\n\t}\n\treturn 0, nil\n}\n",
+          "function": "CompareVersions"
+        },
+        {
+          "path": "internal/netbird/rollout/reconcile.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+          "line": 135,
+          "end_line": 376,
+          "text": "func (r *Reconciler) Tick(ctx context.Context, target Target, nodes []string) error {\n\tcurrentTime := func() time.Time {\n\t\tif r.Now != nil {\n\t\t\treturn r.Now().UTC()\n\t\t}\n\t\treturn time.Now().UTC()\n\t}\n\tnow := currentTime()\n\trecord, err := r.Load(ctx)\n\tif err != nil {\n\t\treturn err\n\t}\n\tif record.Phase != \"\" && !entityid.Valid(record.ID) {\n\t\treturn errors.New(\"invalid NetBird rollout identity\")\n\t}\n\tif record.RecoveryReturning && !record.RecoveryComplete {\n\t\t// Fence an interrupted return before any status or health gate.\n\t\tif err := r.Drain(ctx, record.Node); err != nil {\n\t\t\treturn err\n\t\t}\n\t\trecord.RecoveryReturning = false\n\t\tif err := r.Save(ctx, record); err != nil {\n\t\t\treturn err\n\t\t}\n\t}\n\treturnNode := func() error {\n\t\trecord.RecoveryReturning = true\n\t\tif err := r.Save(ctx, record); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := r.Return(ctx, record.Node); err != nil {\n\t\t\t// Return may clear backend flags before its health check fails.\n\t\t\tif drainErr := r.Drain(ctx, record.Node); drainErr != nil {\n\t\t\t\treturn errors.Join(err, drainErr)\n\t\t\t}\n\t\t\trecord.RecoveryReturning = false\n\t\t\treturn errors.Join(err, r.Save(ctx, record))\n\t\t}\n\t\trecord.RecoveryReturning = false\n\t\treturn nil\n\t}\n\trollbackAcknowledged := func(status Status) bool {\n\t\treturn status.ActionID == CommandID(record.ID, \"rollback\") && status.Error == \"\" && status.Version == record.Previous && status.Pending == \"\"\n\t}\n\trecovered := func(status Status, since time.Time) error {\n\t\tif record.Previous == \"\" {\n\t\t\t// First-install rollback restores absence, so mesh probes cannot run.\n\t\t\tif !status.Missing || status.Version != \"\" || status.ObservedAt.IsZero() ||\n\t\t\t\tnow.Sub(status.ObservedAt) > 15*time.Second || status.ObservedAt.Sub(now) > 2*time.Second {\n\t\t\t\treturn errors.New(\"previous NetBird absence has not been freshly observed\")\n\t\t\t}\n\t\t\treturn nil\n\t\t}\n\t\treturn r.Healthy(ctx, record.Node, status, since)\n\t}\n\thash := Hash(target)\n\tif record.Phase == \"failed\" {\n\t\t// Recover the held node even when this pin stays failed or is removed.\n\t\t// The completion marker is written only after our fence is released.\n\t\tif !record.RecoveryComplete {\n\t\t\tstatus, err := r.Status(ctx, record.Node)\n\t\t\t// Older journals lack the marker. Require proof of recovery unless\n\t\t\t// this controller explicitly recorded that no agent mutation began.\n\t\t\tif err != nil || status.Pending != \"\" || status.Error != \"\" || (record.RollbackRequired == nil || *record.RollbackRequired) && !rollbackAcknowledged(status) {\n\t\t\t\treturn errors.New(\"previous NetBird rollback is unresolved\")\n\t\t\t}\n\t\t\tif err := recovered(status, time.Time{}); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif err := returnNode(); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\trecord.RecoveryComplete = true\n\t\t\tif err := r.Save(ctx, record); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t\tif record.PinHash == hash {\n\t\t\treturn fmt.Errorf(\"NetBird rollout held on %s: %s\", record.Node, record.Reason)\n\t\t}\n\t}\n\tif record.Phase == \"\" || record.Phase == \"done\" || record.Phase == \"failed\" {\n\t\tstatuses := make(map[string]Status, len(nodes))\n\t\tfor _, node := range nodes {\n\t\t\tstatus, err := r.Status(ctx, node)\n\t\t\tif err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\tif status.Pending != \"\" || status.Error != \"\" {\n\t\t\t\treturn fmt.Errorf(\"NetBird transaction still pending on %s\", node)\n\t\t\t}\n\t\t\tstatuses[node] = status\n\t\t}\n\t\tfor _, node := range nodes {\n\t\t\tstatus := statuses[node]\n\t\t\tif status.Version != \"\" {\n\t\t\t\tcomparison, err := CompareVersions(status.Version, target.Pin.Version)\n\t\t\t\tif err != nil {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tif comparison == 0 && status.AppliedTargetHash == hash {\n\t\t\t\t\tcontinue\n\t\t\t\t}\n\t\t\t}\n\t\t\tif err := r.Preflight(ctx, node); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\trecord = Record{ID: entityid.New(), Node: node, Previous: status.Version,\n\t\t\t\tTarget: target, PinHash: hash, Phase: \"drain\", StartedAt: now, Deadline: now.Add(10 * time.Minute)}\n\t\t\treturn r.Save(ctx, record)\n\t\t}\n\t\treturn nil\n\t}\n\ttransition := func(phase string) error { record.Phase = phase; return r.Save(ctx, record) }\n\tcommand := func(action string) error {\n\t\treturn r.Send(ctx, record.Node, Command{ID: CommandID(record.ID, action), Generation: uint64(record.StartedAt.UnixNano()), Transaction: record.ID, Action: action, Target: record.Target})\n\t}\n\trollback := func(reason string) error {\n\t\trecord.RollbackRequired = new(true)\n\t\trecord.Reason = reason\n\t\trecord.Deadline = now.Add(6 * time.Minute)\n\t\treturn transition(\"rollback\")\n\t}\n\tswitch record.Phase {\n\tcase \"drain\":\n\t\tif now.After(record.Deadline) {\n\t\t\trecord.RollbackRequired = new(false)\n\t\t\trecord.Reason = \"drain timed out\"\n\t\t\treturn transition(\"failed\")\n\t\t}\n\t\tif err := r.Preflight(ctx, record.Node); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := r.Drain(ctx, record.Node); err != nil {\n\t\t\treturn err\n\t\t}\n\t\trecord.Deadline = currentTime().Add(3 * time.Minute)\n\t\treturn transition(\"install\")\n\tcase \"install\":\n\t\tif now.After(record.Deadline) {\n\t\t\treturn rollback(\"agent did not acknowledge installation\")\n\t\t}\n\t\tstatus, err := r.Status(ctx, record.Node)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif status.ActionID == CommandID(record.ID, \"install\") {\n\t\t\tif status.Error != \"\" {\n\t\t\t\treturn rollback(status.Error)\n\t\t\t}\n\t\t\trecord.Deadline = now.Add(2 * time.Minute)\n\t\t\treturn transition(\"check\")\n\t\t}\n\t\treturn command(\"install\")\n\tcase \"check\":\n\t\tstatus, err := r.Status(ctx, record.Node)\n\t\tif err == nil && status.Version == record.Target.Pin.Version && status.Pending == record.ID {\n\t\t\terr = r.Healthy(ctx, record.Node, status, record.StartedAt)\n\t\t\tif err == nil {\n\t\t\t\trecord.Deadline = currentTime().Add(2 * time.Minute)\n\t\t\t\treturn transition(\"confirm\")\n\t\t\t}\n\t\t}\n\t\tif now.After(record.Deadline) {\n\t\t\treturn rollback(\"new NetBird agent failed mesh health checks\")\n\t\t}\n\t\treturn err\n\tcase \"confirm\":\n\t\tif now.After(record.Deadline) {\n\t\t\treturn rollback(\"new NetBird agent was not confirmed\")\n\t\t}\n\t\tstatus, err := r.Status(ctx, record.Node)\n\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif status.ActionID == CommandID(record.ID, \"confirm\") && status.Error == \"\" && status.Pending == \"\" && status.Version == record.Target.Pin.Version && status.AppliedTargetHash == record.PinHash {\n\t\t\trecord.Deadline = now.Add(2 * time.Minute)\n\t\t\treturn transition(\"return\")\n\t\t}\n\t\treturn command(\"confirm\")\n\tcase \"return\":\n\t\tfailedReturn := func(err error) error {\n\t\t\tif now.After(record.Deadline) {\n\t\t\t\treturn rollback(\"confirmed NetBird agent failed return health checks\")\n\t\t\t}\n\t\t\treturn err\n\t\t}\n\t\tstatus, err := r.Status(ctx, record.Node)\n\t\tif err != nil {\n\t\t\treturn failedReturn(err)\n\t\t}\n\t\tif status.Pending != \"\" || status.Version != record.Target.Pin.Version || status.AppliedTargetHash != record.PinHash || status.ActionID != CommandID(record.ID, \"confirm\") || status.Error != \"\" {\n\t\t\treturn failedReturn(errors.New(\"confirmed NetBird transaction changed before return\"))\n\t\t}\n\t\tif err := r.Healthy(ctx, record.Node, status, record.StartedAt); err != nil {\n\t\t\treturn failedReturn(err)\n\t\t}\n\t\tif err := returnNode(); err != nil {\n\t\t\treturn failedReturn(err)\n\t\t}\n\t\treturn transition(\"done\")\n\tcase \"rollback\":\n\t\t// Return may have put backends online before an LB health check\n\t\t// failed. Re-establish the same fence before restarting the old agent.\n\t\tif err := r.Drain(ctx, record.Node); err != nil {\n\t\t\treturn err\n\t\t}\n\t\tif err := command(\"rollback\"); err != nil {\n\t\t\treturn err\n\t\t}\n\t\t// Safe re-draining can wait for repaired quorum across many ticks.\n\t\t// Allow a full acknowledgment window once the command is sent.\n\t\trecord.Deadline = currentTime().Add(6 * time.Minute)\n\t\treturn transition(\"rollback-check\")\n\tcase \"rollback-check\":\n\t\tstatus, err := r.Status(ctx, record.Node)\n\t\tif err == nil && rollbackAcknowledged(status) && recovered(status, record.StartedAt) == nil {\n\t\t\tif err := returnNode(); err != nil {\n\t\t\t\tif record.RecoveryReturning {\n\t\t\t\t\treturn err\n\t\t\t\t}\n\t\t\t\tif now.After(record.Deadline) {\n\t\t\t\t\trecord.Reason += \"; previous binary failed return health checks (node remains drained)\"\n\t\t\t\t\treturn transition(\"failed\")\n\t\t\t\t}\n\t\t\t\treturn err\n\t\t\t}\n\t\t\trecord.RecoveryComplete = true\n\t\t\treturn transition(\"failed\")\n\t\t}\n\t\tif now.After(record.Deadline) {\n\t\t\tif err := r.Drain(ctx, record.Node); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t\trecord.Reason += \"; previous binary did not recover (node remains drained)\"\n\t\t\treturn transition(\"failed\")\n\t\t}\n\t\treturn command(\"rollback\")\n\tdefault:\n\t\treturn errors.New(\"unknown NetBird rollout phase\")\n\t}\n}\n",
+          "function": "Reconciler.Tick"
+        },
+        {
+          "path": "internal/entityid/id.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "beb814978d3ceef2c76616c0e2d72359ed86b2b4",
+          "line": 16,
+          "end_line": 30,
+          "text": "var (\n\tentropy = ulid.Monotonic(rand.Reader, 0)\n\tmu      sync.Mutex\n)\n\n// New returns a cryptographically random ULID, monotonic within a millisecond.\nfunc New() string { return NewAt(time.Now()) }\n\n// NewAt stamps an ID with the record's time. The entropy reader is shared and\n// serialized because the library's monotonic reader is not concurrency-safe.\nfunc NewAt(at time.Time) string {\n\tmu.Lock()\n\tdefer mu.Unlock()\n\treturn ulid.MustNew(ulid.Timestamp(at), entropy).String()\n}\n",
+          "function": "entropy and New/NewAt"
+        },
+        {
+          "path": "internal/entityid/id.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "beb814978d3ceef2c76616c0e2d72359ed86b2b4",
+          "line": 33,
+          "end_line": 44,
+          "text": "func Parse(value string) (ulid.ULID, error) {\n\tid, err := ulid.ParseStrict(value)\n\tif err != nil || id == (ulid.ULID{}) || id.String() != value {\n\t\treturn ulid.ULID{}, errors.New(\"entity ID must be a canonical uppercase ULID\")\n\t}\n\treturn id, nil\n}\n\nfunc Valid(value string) bool {\n\t_, err := Parse(value)\n\treturn err == nil\n}\n",
+          "function": "Parse/Valid"
+        },
+        {
+          "path": "internal/entityid/id.go",
+          "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+          "git_blob": "beb814978d3ceef2c76616c0e2d72359ed86b2b4",
+          "line": 49,
+          "end_line": 58,
+          "text": "func Derive(domain string, values ...string) string {\n\th := sha256.New()\n\tfor _, value := range append([]string{domain}, values...) {\n\t\tvar size [8]byte\n\t\tbinary.BigEndian.PutUint64(size[:], uint64(len(value)))\n\t\th.Write(size[:])\n\t\th.Write([]byte(value))\n\t}\n\treturn ulid.MustNew(0, bytes.NewReader(h.Sum(nil)[:10])).String()\n}\n",
+          "function": "Derive"
+        }
+      ]
+    }
+  },
+  "source_pins": {
+    "internal/netbird/observe_limit_review_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+      "mode": "100644",
+      "sha256": "971a02f1b81120d7ea89a7606cb5e203c80fa05c9c40b8e591c6a2d9618a06bd",
+      "bytes": 1703
+    },
+    "internal/netbird/rollout/reconcile_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+      "mode": "100644",
+      "sha256": "5350f95fc0218fd5e3bad961f2f50b780594db7d6acf587e543738563df325aa",
+      "bytes": 43397
+    },
+    "internal/netbird/rollout/reconcile.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "cc737b7697e5397b7bc2ca52e3e5d5b378899554",
+      "mode": "100644",
+      "sha256": "e6ab931289cbea05fa3e39f9c7d1528af941547d5192fce21077cee692908f8b",
+      "bytes": 12696
+    },
+    "internal/netbird/enroll.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "77c3a87d3e7f9f6f1c6d148d80cbf244cae0e4c8",
+      "mode": "100644",
+      "sha256": "85784f2424ca755e4b4f520a5ddc31ff1551a3182be9d17b494f64d91493ad02",
+      "bytes": 13889
+    },
+    "internal/netbird/enroll_test.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "6bb6f16ffa72aca8d1148cc4e719b3e5ae4888e3",
+      "mode": "100644",
+      "sha256": "586be1b7dd9231dac8a721ae42140aa9b92c4c69248a3c7df496ce6aaaed5874",
+      "bytes": 23922
+    },
+    "internal/entityid/id.go": {
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "beb814978d3ceef2c76616c0e2d72359ed86b2b4",
+      "mode": "100644",
+      "sha256": "e16d87bfe94500bfbc922d008ea3ce5412b7ac4201aa700bd0b40aed79e3982e",
+      "bytes": 1637
+    }
+  },
+  "baseline_file_pins": {
+    "internal/netbird/observe_limit_review_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+      "mode": "100644",
+      "sha256": "971a02f1b81120d7ea89a7606cb5e203c80fa05c9c40b8e591c6a2d9618a06bd",
+      "bytes": 1703
+    },
+    "internal/netbird/rollout/reconcile_test.go": {
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+      "mode": "100644",
+      "sha256": "5350f95fc0218fd5e3bad961f2f50b780594db7d6acf587e543738563df325aa",
+      "bytes": 43397
+    }
+  },
+  "findings": [
+    {
+      "kind": "qualification_limit",
+      "root_ids": [
+        "internal/netbird/observe_limit_review_test.go::TestObserveBoundsEveryStatusQueryByItsLimit",
+        "internal/netbird/observe_limit_review_test.go::TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+        "internal/netbird/rollout/reconcile_test.go::TestCompareVersionsUsesNumericStableComponents",
+        "internal/netbird/rollout/reconcile_test.go::TestConfirmationRequiresTheAppliedTargetIdentity",
+        "internal/netbird/rollout/reconcile_test.go::TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+        "internal/netbird/rollout/reconcile_test.go::TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedLBReturnReDrainsBeforeRollback",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+        "internal/netbird/rollout/reconcile_test.go::TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+        "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRecoveryRejectsUnprovenAbsence",
+        "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRollbackReturnsRestoredAbsence",
+        "internal/netbird/rollout/reconcile_test.go::TestLateMeshHealthGetsASeparateConfirmationWindow",
+        "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+        "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+        "internal/netbird/rollout/reconcile_test.go::TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges"
+      ],
+      "detail": "No source-visible mapping/body drift or blocking contradiction found in the assigned roots. Synthetic persistence/worker/LB/mesh/absence/leadership claims do not establish actual production boundary coverage."
+    }
+  ],
+  "qualification_limits": [
+    "SOURCE_ONLY_CANDIDATE; independent peer review and separate ledger acceptance required.",
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no test/helper/Go/build/lint/format/benchmark/runtime/cloud/signing/crypto/TerraBase execution.",
+    "No source/repo/ledger mutation, deletion, retirement, runtime qualification or completion/count promotion.",
+    "Unit category preserves every original safety/recovery/ordering/validation obligation for owning-boundary integration migration."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": "NONE; counts exhaust only this assigned20 and are candidate source categories."
+}

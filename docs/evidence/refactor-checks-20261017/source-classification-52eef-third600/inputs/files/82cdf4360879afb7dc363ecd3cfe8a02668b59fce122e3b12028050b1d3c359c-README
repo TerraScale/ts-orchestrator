@@ -1,0 +1,5 @@
+SOURCE_ONLY_CANDIDATE: literal other_unadjudicated[2260:2280), 20 roots.
+Counts {"integration": 14, "mixed": 6, "unit": 0, "unresolved": 0, "total": 20}
+Runtime UNKNOWN; no execution or ledger/count/deletion/retirement/completion credit.
+One source contradiction: missing PoolInstance.Birth blocks nonduplicate binding assertion and later path.
+Independent review required; upstream control API/NATS and local HTTP evidence limits retained per root.

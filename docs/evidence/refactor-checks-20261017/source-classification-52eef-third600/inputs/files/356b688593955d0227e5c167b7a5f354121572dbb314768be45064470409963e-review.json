@@ -1,0 +1,196 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2020_2040",
+  "author": "/root/classification_100_dispatch/batch_2040_2060",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2040-2060-5_3fwyeb/classification.json",
+    "sha256": "a0dfb61433b9aa85eb9b31d52aa32080f0c2b846f2a2104b809d398dfc798502",
+    "checksums_path": "/tmp/ts-source-2040-2060-5_3fwyeb/SHA256SUMS",
+    "checksums_sha256": "85ba527d29bb18ef4803bb8766c011641b6a9340835d6d1ee99b1a885bfb407d"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2040:2060]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2020_2040"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_root_ids": [
+    "internal/natscell/nodeidentity_test.go::TestStartRejectsConflictingNodeIdentityBeforeListening",
+    "internal/natscell/observability_contract_test.go::TestObservabilityContractIsExactRequestReply",
+    "internal/natscell/operator_forward_test.go::TestOperatorForwardSelectsOnlyConfiguredPrivateControllers",
+    "internal/natscell/operator_forward_test.go::TestOperatorForwardTLSVerifiesOriginalControllerIPAndClientCert",
+    "internal/natscell/preflight_test.go::TestBrokerControllerCredentialReadErrorHasContext",
+    "internal/natscell/preflight_test.go::TestControllerCredentialsRequireScopedTerminalSubscription",
+    "internal/natscell/preflight_test.go::TestOperatorCredentialsRequireExactTerminalPublishes",
+    "internal/natscell/preflight_test.go::TestProductionCredentialPreflightEnforcesTLSKeyPurposes",
+    "internal/natscell/preflight_test.go::TestProductionCredentialPreflightIsReadOnlyAndCurrent",
+    "internal/natscell/preflight_test.go::TestProductionCredentialPreflightRejectsUntrustedTLS",
+    "internal/natscell/reconnect_test.go::TestReconnectInterRegionRejectsUnavailableRuntime",
+    "internal/natscell/reconnect_test.go::TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState",
+    "internal/natscell/route_metrics_test.go::TestEmbeddedRouteRTTFlowsToMetricsAndHistory",
+    "internal/natscell/route_metrics_test.go::TestObserveRoutesGroupsPoolingAndPreservesCoverage",
+    "internal/natscell/route_metrics_test.go::TestObserveRoutesSortsBeforeBoundingPeers",
+    "internal/natscell/shutdown_review_test.go::TestSuccessorsElectedWaitsThroughLeaderlessGroups",
+    "internal/natscell/storeidentity_test.go::TestServerOptionsRefusesAStoreOfAnotherServerName",
+    "internal/natscell/storeidentity_test.go::TestStartRefusesAPreSchemeStore",
+    "internal/natscell/tls_dialer_test.go::TestTLSFirstDialerReturnsNilConnectionOnFailedReconnect",
+    "internal/natscell/tls_reload_test.go::TestReloadingTLSChecksAtMostEveryInterval"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 11,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 complete canonical root declarations and actual connected production/fixture paths; reused already manually reviewed canonical fixture/runtime/store paths only where identical and applicable.",
+    "Verified literal activated allocation array and all20 survival mappings/original hashes; full baseline/current raw declarations through column-zero close excluding LF match independent Git-derived hashes and text. Four current-body drifts remain explicit.",
+    "Verified every exact assertion/connected evidence span text and SHA256 against canonical Git blobs, including file-bound limits. Verified every source-file commit/path/blob/mode/SHA256/bytes pin and all input hashes.",
+    "Manually followed Start/serverOptions/real store pin, credential preflight, scoped grants, TLS dialer/reload, reconnect leaf/route/file streams and metrics/history chains; distinguished setup file I/O and local guards from actual material boundaries.",
+    "Checked category counts exhaust only these20 roots, qualification limits retain runtimeUNKNOWN/no execution, SHA256SUMS verifies, packet directory0555/files0444 including README."
+  ],
+  "per_root_reviews": [
+    {
+      "root_id": "internal/natscell/nodeidentity_test.go::TestStartRejectsConflictingNodeIdentityBeforeListening",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Actual production node pin is created and then read by Start before server.Start; the integration boundary is persisted filesystem identity, not a live listener."
+    },
+    {
+      "root_id": "internal/natscell/observability_contract_test.go::TestObservabilityContractIsExactRequestReply",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Only local CellExports/ChildLeafPermissions structures are asserted; the sibling network fixture is not called."
+    },
+    {
+      "root_id": "internal/natscell/operator_forward_test.go::TestOperatorForwardSelectsOnlyConfiguredPrivateControllers",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Forward URL/role mapping and removed-lab decoding are local validation, with no credential file read or dial."
+    },
+    {
+      "root_id": "internal/natscell/operator_forward_test.go::TestOperatorForwardTLSVerifiesOriginalControllerIPAndClientCert",
+      "category": "mixed",
+      "accepted": true,
+      "review_note": "Real loopback mTLS validates original controller address and client certificate; unmapped address and UDP checks are independent pre-dial blocks, so mixed."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestBrokerControllerCredentialReadErrorHasContext",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Missing credentials reaches actual O_NOFOLLOW file open; os.ErrNotExist and wrapping context are the asserted I/O outcome."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestControllerCredentialsRequireScopedTerminalSubscription",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "JWT files are incidental vectors for exact controller grant predicates; no live authorization exchange."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestOperatorCredentialsRequireExactTerminalPublishes",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "JWT files are incidental vectors for exact operator grant predicates; no live authorization exchange."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestProductionCredentialPreflightEnforcesTLSKeyPurposes",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Certificate key-purpose table is local x509 validation; no TLS handshake."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestProductionCredentialPreflightIsReadOnlyAndCurrent",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Current/expired credential predicates and absence of unintended store setup do not exercise production persistence or serving."
+    },
+    {
+      "root_id": "internal/natscell/preflight_test.go::TestProductionCredentialPreflightRejectsUntrustedTLS",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Unrelated CA vector is rejected by local chain verification."
+    },
+    {
+      "root_id": "internal/natscell/reconnect_test.go::TestReconnectInterRegionRejectsUnavailableRuntime",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Nil/unstarted runtime and nil context guards precede Leafz/disconnection."
+    },
+    {
+      "root_id": "internal/natscell/reconnect_test.go::TestReconnectInterRegionRepairsLeavesWithoutRestartingRegionalState",
+      "category": "mixed",
+      "accepted": true,
+      "review_note": "Real regional routes, TLS leaves, file streams and TCP proxies support repair/readback. Constructed nil/empty resolver cases are independent local guards, so mixed."
+    },
+    {
+      "root_id": "internal/natscell/route_metrics_test.go::TestEmbeddedRouteRTTFlowsToMetricsAndHistory",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Live route telemetry is read from actual embedded brokers then rendered and retained through in-memory history; disconnect/Close assertions remain derived from those same real services."
+    },
+    {
+      "root_id": "internal/natscell/route_metrics_test.go::TestObserveRoutesGroupsPoolingAndPreservesCoverage",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Synthetic Routez records exercise only grouping/transformation."
+    },
+    {
+      "root_id": "internal/natscell/route_metrics_test.go::TestObserveRoutesSortsBeforeBoundingPeers",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Synthetic Routez records exercise only deterministic bounds/sorting."
+    },
+    {
+      "root_id": "internal/natscell/shutdown_review_test.go::TestSuccessorsElectedWaitsThroughLeaderlessGroups",
+      "category": "unit",
+      "accepted": true,
+      "review_note": "Supplied maps exercise successorsElected without actual stepdown or election."
+    },
+    {
+      "root_id": "internal/natscell/storeidentity_test.go::TestServerOptionsRefusesAStoreOfAnotherServerName",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Production server-name pin publication/read/refusal uses actual filesystem state; no broker start is claimed."
+    },
+    {
+      "root_id": "internal/natscell/storeidentity_test.go::TestStartRefusesAPreSchemeStore",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Actual JetStream state is committed before restart refusal; absent pin readback and lab-store preparation are real filesystem paths."
+    },
+    {
+      "root_id": "internal/natscell/tls_dialer_test.go::TestTLSFirstDialerReturnsNilConnectionOnFailedReconnect",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Actual TLS/TCP dial fails against a released loopback port. Port reuse is a retained runtime limit; no full reconnect is claimed."
+    },
+    {
+      "root_id": "internal/natscell/tls_reload_test.go::TestReloadingTLSChecksAtMostEveryInterval",
+      "category": "integration",
+      "accepted": true,
+      "review_note": "Production material reload reads replaced files and publishes an exact renewed serial after forced checkedAt expiration. No TLS handshake is claimed."
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_blockers": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; no compile, test or helper executed. Source acceptance is not a runtime pass.",
+    "No source/repository/ledger mutations or qualification/count/deletion/retirement/completion credit. All original safety obligations remain retained.",
+    "No cloud, privileged/process/resource probe, signing/crypto execution, TerraBase or download occurred. Ordinary Git/file/hash inspection and metadata packaging only.",
+    "Local TLS/socket/storage source boundaries do not qualify production OCI/NetBird networks; full NATS reconnect and real-time reload timing remain unexecuted."
+  ],
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

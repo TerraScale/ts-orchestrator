@@ -1,0 +1,88 @@
+{
+  "schema": "source-only-independent-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2380_2400",
+  "author": "/root/classification_100_dispatch/batch_2400_2420",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/classification.json",
+    "sha256": "a8c57b0bf6e42aa0ccb77fb5c6d5d2d088d957f39fe9227422b31e61e4b9b729",
+    "checksum_path": "/tmp/ts-source-2400-2420-corrected-ruxi_ens/SHA256SUMS",
+    "checksum_sha256": "b8b9a6a20e5b50e881ac44b17d49c95a05694cd20d636bc3423bfd4ebba03318"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "range": [
+      2400,
+      2420
+    ],
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e"
+  },
+  "root_ids": [
+    "internal/observability/session_test.go::TestUncontendedLoginDoesNotEnumerateSessions",
+    "internal/observability/system_test.go::TestReadNetDevSumsNonLoopbackInterfaces",
+    "internal/observability/system_test.go::TestReadSystemFromProcFixture",
+    "internal/observability/system_test.go::TestReadSystemOnThisHost",
+    "internal/observability/system_test.go::TestReadSystemWithoutNetDevKeepsReadings",
+    "internal/observability/system_test.go::TestSystemMalformedProcFilesAreReportedBySnapshotAPI",
+    "internal/observability/trace_test.go::TestTracePropagatesAcrossHTTPNATSAndLogFile",
+    "internal/oci/config_test.go::TestRegionConfigRequiresExplicitCostAndPrivateNetworkBounds",
+    "internal/oci/console_history_test.go::TestConsoleHistoryAmbiguousRetryUsesOnlySameTokenAndTimestamp",
+    "internal/oci/console_history_test.go::TestConsoleHistoryCaptureEvidenceAndExactDelete",
+    "internal/oci/console_history_test.go::TestConsoleHistoryExpiredUnknownIntentCannotRetryWithFreshTimestamp",
+    "internal/oci/console_history_test.go::TestConsoleHistoryMarksMismatchedCaptureAsUnknownWithoutCleanup",
+    "internal/oci/console_history_test.go::TestConsoleHistoryPollingHonorsCallerDeadline",
+    "internal/oci/console_history_test.go::TestConsoleHistoryRefusesForeignInstanceBeforeCapture",
+    "internal/oci/console_history_test.go::TestConsoleHistoryRejectsOversizeAndTruncatedContent",
+    "internal/oci/console_history_test.go::TestConsoleHistoryTerminalFailureDeletesOnlyExactHistory",
+    "internal/oci/fleet_test.go::TestConfirmedMissingHostRequiresOperatorReconciliation",
+    "internal/oci/fleet_test.go::TestConfirmedMissingVolumeRequiresOperatorReconciliation",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeDoesNotReplayAfterAuthorityIsFenced",
+    "internal/oci/fleet_test.go::TestCreateRetainedVolumeEnforcesFleetSizeCeilingBeforeOCI"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 10,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full current roots and connected actual fixture/production paths; verified exact literal mapping against activated allocation and survival TSV.",
+    "Verified40 raw baseline/current declaration line bounds/name/hash identities using explicit reviewed slices, excluding following LF; all original/current body hashes match and no drift.",
+    "Verified all34 Git blob/mode/SHA256/bytes file pins against canonical immutable Git objects; no working-tree source used as reviewed basis.",
+    "Verified104 exact assertion/callee spans against immutable Git line slices; read target behavior and helper branches, not fixture names alone.",
+    "Checked actual TCP versus direct handler boundaries: session upstream loopback TCP broker, trace upstream TCP and HTTP/log-file readback, snapshot real HTTP endpoint; authenticated journal fixture uses natscell.Start and external mTLS bridge client, embedded broker itself uses InProcessServer.",
+    "Reviewed category scope individually: parser fixture filesystem and mock-only pre-I/O/content/terminal guards remain unit; OS proc/statfs/adjtimex root is conditional Linux integration source only; confirmed-missing host/volume roots materially read real stored results; entirely fake fenced/ceiling fleet roots unit.",
+    "Verified independent mixed blocks: capture evidence root local config sanity separately from durable journal readback; polling root direct synctest/fake API timing separately from durable result readback.",
+    "Verified final packet/checksum hashes and SHA256SUMS contents; files0444/directory0555; fresh correction preserves old bytes and all source pins/spans."
+  ],
+  "resolved_findings": [
+    {
+      "root_id": "internal/oci/console_history_test.go::TestConsoleHistoryAmbiguousRetryUsesOnlySameTokenAndTimestamp",
+      "prior_packet": "/tmp/ts-source-2400-2420-lf8e64c0/classification.json",
+      "prior_sha256": "5b59fa977c6ad2acad6b9c1f6b4e23b4d3ffe510247f4f703decd1ed14ac45f1",
+      "finding": "Initial mixed category treated fake API token/type/count assertions as independent local block, but these are linked consequences of same actual journal recovery path.",
+      "resolution": "Author changed only category/reason for root8 to integration and resulting counts in fresh final packet; actual fake Compute limitations retained."
+    }
+  ],
+  "remaining_findings": [],
+  "source_blocked_assertions": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "No builds/tests/helpers/runtime, cloud, signing/crypto or TerraBase execution performed; no receipts reviewed.",
+    "Acceptance binds exact final source packet only and does not qualify compilation/runtime success, live OCI, real authority, quorum, failure recovery, machine-crash durability or host-state correctness.",
+    "Single-replica local authenticated journal; fake Compute responses/call counters and fake fleet providers/journals/fencers remain synthetic.",
+    "All original assertion and safety obligations retained; no ledger/count promotion, deletion, retirement, runtime qualification or global completion credit."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "retirement_authorized": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "global_completion": false
+  }
+}

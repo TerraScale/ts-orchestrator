@@ -1,0 +1,6 @@
+Source-only candidate: literal other_unadjudicated[1940:1960], 20 membership roots.
+5 integration / 14 unit / 1 mixed / 0 unresolved.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Real production file/readback/flock paths are scoped to local source assertions; reconciler dependencies remain synthetic.
+No execution or runtime receipts reviewed; runtime UNKNOWN. No ledger/count/promotion/deletion/retirement/completion credit.
+Independent reviewer: /root/classification_100_dispatch/batch_1920_1940

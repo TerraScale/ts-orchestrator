@@ -1,0 +1,578 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1940_1960",
+  "author": "/root/classification_100_dispatch/batch_1960_1980",
+  "status": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/classification.json",
+    "sha256": "ab83f94361401192673b8550ee259e920f490357be6edbc9e9c06acf707b31a3",
+    "checksum_path": "/tmp/ts-source-classification-1960-1980-tf9vnsk_/SHA256SUMS",
+    "checksum_sha256": "0b986d909e5e5eb289e0b5d6225625408d5bd688533258be8d0e9a6c9984572c"
+  },
+  "own_packet_frozen_before_peer_review": {
+    "path": "/tmp/ts-membership-1940-1960-source-v2-ly46dyx4/classification.json",
+    "sha256": "2017c27d18fcf495083839777a33fe9aa6edcb67fc1566d8d08842f16bbc397a"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[1960:1980]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1940_1960"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/membership/refoundguard_integration_test.go::TestRefoundGuardWaitsUntilTheSlotIsCurrent",
+    "internal/membership/seedroute_test.go::TestNonSeedLeaderRoutesReplacementToTheSeed",
+    "internal/membership/seedroute_test.go::TestSeedNeverReplacesAPriorInstanceThatMayStillRun",
+    "internal/membership/seedroute_test.go::TestSeedRefusesRequestsOutsideTheCurrentTermOrScope",
+    "internal/membership/seedroute_test.go::TestSeedRoutedReplacementEndsWithTheRequestingTerm",
+    "internal/membership/seedroute_test.go::TestSeedRoutedReplacerRefusesAfterItsTermEnds",
+    "internal/membership/seedroute_test.go::TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce",
+    "internal/membership/seedroute_test.go::TestSeedServerRequiresTheSeedSlot",
+    "internal/memberstatus/completion_integration_test.go::TestRetainedCompleteDrainAfterProcessStopIntegration",
+    "internal/memberstatus/lifecycle_integration_test.go::TestMemberLifecycleIntegration",
+    "internal/memberstatus/lifecycle_integration_test.go::TestMemberPIDNamespaceIntegration",
+    "internal/memberstatus/lifecycle_integration_test.go::TestMemberServingIntegration",
+    "internal/memberstatus/lifecycle_integration_test.go::TestMemberSocketBindingIntegration",
+    "internal/naming/naming_test.go::TestCellAndServerNames",
+    "internal/naming/naming_test.go::TestGenerationRejectsOutOfSchemeInput",
+    "internal/naming/naming_test.go::TestNATSServerNamesControllerSlotsByTheScheme",
+    "internal/naming/naming_test.go::TestValidateRejectsReleaseDerivedAndLegacyNames",
+    "internal/nativerootoci/client_test.go::TestNativeRootConditionalPutAndUncertainFailure",
+    "internal/nativerootoci/client_test.go::TestNativeRootGetReturnsOneResponseBytesAndETag",
+    "internal/nativerootoci/client_test.go::TestNativeRootProbeRepeatsConditionalCreateOnExistingKey"
+  ],
+  "counts": {
+    "integration": 4,
+    "unit": 14,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read20 full canonical roots and actual refound health/pending files, direct seed Handle/fake lease/founder, member self-exec simulator/Unix HTTP/SO_PEERCRED/proc/PID namespace/client/drain/FileStore/retained receipt/report/load, naming/catalog and native-root ObjectClient stub paths.",
+    "Verified exact activated allocation and accounting1960:1980 slice order plus all20 frozen literal survival rows. Recomputed40 baseline/current raw declaration bounds and hashes; complete assertion body spans byte-exact.",
+    "Recomputed37 canonical file Git blobs/modes/SHA256/bytes and checked52 explicit connected source spans plus20 assertion spans against Git. Metadata-only packaging of manually reviewed explicit spans, no source parser/scanner.",
+    "Verified handoff packet/checksum hashes and SHA256SUMS entries; files0444/directory0555.",
+    "Independently checked4integration/14unit/2mixed/0unresolved classification materiality, direct-call fakes, pre-I/O guards, actual file/protocol/process effects and all qualification limits. Runtime UNKNOWN."
+  ],
+  "per_root_review": [
+    {
+      "root_id": "internal/membership/refoundguard_integration_test.go::TestRefoundGuardWaitsUntilTheSlotIsCurrent",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "function": "TestRefoundGuardWaitsUntilTheSlotIsCurrent",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 102,
+        "end_line": 141
+      },
+      "current_source": {
+        "path": "internal/membership/refoundguard_integration_test.go",
+        "function": "TestRefoundGuardWaitsUntilTheSlotIsCurrent",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "5ffd5e028aec26c577e9643d62e95aa051401398",
+        "line": 102,
+        "end_line": 141
+      },
+      "original_declaration_sha256": "4024ab0c4775753fad96a378d5f1ad4c13a83e2cae2e0989233c31febe220e69",
+      "current_declaration_sha256": "4024ab0c4775753fad96a378d5f1ad4c13a83e2cae2e0989233c31febe220e69",
+      "independent_assessment": "Begin writes pending; WaitCurrent reads actual changing health files, preserves pending on timeout, clears on current status with Stat absence. No live cluster.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestNonSeedLeaderRoutesReplacementToTheSeed",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestNonSeedLeaderRoutesReplacementToTheSeed",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 157,
+        "end_line": 214
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestNonSeedLeaderRoutesReplacementToTheSeed",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 157,
+        "end_line": 214
+      },
+      "original_declaration_sha256": "77386cb81bfb87a7442c5f802f663645d71784d095a5e07e0554b8ac046b418d",
+      "current_declaration_sha256": "77386cb81bfb87a7442c5f802f663645d71784d095a5e07e0554b8ac046b418d",
+      "independent_assessment": "Injected request closure directly invokes SeedServer.Handle; fake lease, lifecycle and founder channels supply all asserted actions and replay state. No NATS/OCI boundary.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedNeverReplacesAPriorInstanceThatMayStillRun",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedNeverReplacesAPriorInstanceThatMayStillRun",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 327,
+        "end_line": 347
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedNeverReplacesAPriorInstanceThatMayStillRun",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 327,
+        "end_line": 347
+      },
+      "original_declaration_sha256": "514585ab75a70619662823acf47252c90703830ac483a07fb85e65ad81aea38a",
+      "current_declaration_sha256": "514585ab75a70619662823acf47252c90703830ac483a07fb85e65ad81aea38a",
+      "independent_assessment": "Fake lifecycle RUNNING blocks stub founder actions and sets in-memory job error; no provider read.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedRefusesRequestsOutsideTheCurrentTermOrScope",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRefusesRequestsOutsideTheCurrentTermOrScope",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 216,
+        "end_line": 244
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRefusesRequestsOutsideTheCurrentTermOrScope",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 216,
+        "end_line": 244
+      },
+      "original_declaration_sha256": "c8ece15769fc7bb623162a76bafc68ba11b28af4cdc0de70a682f33ec772eb56",
+      "current_declaration_sha256": "c8ece15769fc7bb623162a76bafc68ba11b28af4cdc0de70a682f33ec772eb56",
+      "independent_assessment": "Mutated payload vectors and direct Handle refusal use fake lease/founder observations; signed fixture is local input construction.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedRoutedReplacementEndsWithTheRequestingTerm",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRoutedReplacementEndsWithTheRequestingTerm",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 246,
+        "end_line": 291
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRoutedReplacementEndsWithTheRequestingTerm",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 246,
+        "end_line": 291
+      },
+      "original_declaration_sha256": "2ee262d9ce0d80e9a11688885814e7fdf298876a35e365bcbc34b66c96297c90",
+      "current_declaration_sha256": "2ee262d9ce0d80e9a11688885814e7fdf298876a35e365bcbc34b66c96297c90",
+      "independent_assessment": "Changing fake lease drives production timer/context cancellation and channel observation. No real authority lease or process.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedRoutedReplacerRefusesAfterItsTermEnds",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRoutedReplacerRefusesAfterItsTermEnds",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 349,
+        "end_line": 368
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRoutedReplacerRefusesAfterItsTermEnds",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 349,
+        "end_line": 368
+      },
+      "original_declaration_sha256": "cc7596483e7094ae5b79e5ae8e914e39f1ee1579d6c6416a4d21c5079e41d768",
+      "current_declaration_sha256": "cc7596483e7094ae5b79e5ae8e914e39f1ee1579d6c6416a4d21c5079e41d768",
+      "independent_assessment": "Fake snapshot/request closures test pre-route guards and a synthetic refused JSON reply.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 293,
+        "end_line": 325
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedRunsOneRoutedReplacementAtATimeAndReportsFailuresOnce",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 293,
+        "end_line": 325
+      },
+      "original_declaration_sha256": "36cee8383ee90498bd6f732860cf4840909ccb117245781a65c92af9f780398e",
+      "current_declaration_sha256": "36cee8383ee90498bd6f732860cf4840909ccb117245781a65c92af9f780398e",
+      "independent_assessment": "Direct Handle requests, fake lease/lifecycle and founder channels test in-memory single-job/failure/retry logic.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/membership/seedroute_test.go::TestSeedServerRequiresTheSeedSlot",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedServerRequiresTheSeedSlot",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 370,
+        "end_line": 377
+      },
+      "current_source": {
+        "path": "internal/membership/seedroute_test.go",
+        "function": "TestSeedServerRequiresTheSeedSlot",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "193d0a267511b11b14851c4f92b2eebd05e076c1",
+        "line": 370,
+        "end_line": 377
+      },
+      "original_declaration_sha256": "11bf2c3039aec65d6e4908f43e07659c5ebfa31f93e6d9adb3b049eb2626e9a9",
+      "current_declaration_sha256": "11bf2c3039aec65d6e4908f43e07659c5ebfa31f93e6d9adb3b049eb2626e9a9",
+      "independent_assessment": "Non-seed topology fails local constructor validation before any external effect.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/memberstatus/completion_integration_test.go::TestRetainedCompleteDrainAfterProcessStopIntegration",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/memberstatus/completion_integration_test.go",
+        "function": "TestRetainedCompleteDrainAfterProcessStopIntegration",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "673350e139d746307c17b86636c7a5b278873049",
+        "line": 9,
+        "end_line": 54
+      },
+      "current_source": {
+        "path": "internal/memberstatus/completion_integration_test.go",
+        "function": "TestRetainedCompleteDrainAfterProcessStopIntegration",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "673350e139d746307c17b86636c7a5b278873049",
+        "line": 9,
+        "end_line": 54
+      },
+      "original_declaration_sha256": "3b511c722eac214ef1ec03b7ddb44433ab950f9a42bf297333f763a7b0e11f44",
+      "current_declaration_sha256": "3b511c722eac214ef1ec03b7ddb44433ab950f9a42bf297333f763a7b0e11f44",
+      "independent_assessment": "Unix child Drain and actual retained receipt write/reopen/permission/corrupt-byte reads support integration. Independent envelope.verified=false guard returns before lock/read/write: mixed.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/memberstatus/lifecycle_integration_test.go::TestMemberLifecycleIntegration",
+      "category": "mixed",
+      "baseline_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberLifecycleIntegration",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 462,
+        "end_line": 538
+      },
+      "current_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberLifecycleIntegration",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 462,
+        "end_line": 538
+      },
+      "original_declaration_sha256": "7787e8cf5fc0c11632db28ca75dd2d9b92278d3e8315aa63496c597f4a71358b",
+      "current_declaration_sha256": "7787e8cf5fc0c11632db28ca75dd2d9b92278d3e8315aa63496c597f4a71358b",
+      "independent_assessment": "Lost/replayed POST, actual process restart, unchanged request log and FileStore cross real Unix/process/file boundaries. Pending and raised-frontier direct VerifyReportedDrain assertions form independent local blocks: mixed.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/memberstatus/lifecycle_integration_test.go::TestMemberPIDNamespaceIntegration",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberPIDNamespaceIntegration",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 354,
+        "end_line": 401
+      },
+      "current_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberPIDNamespaceIntegration",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 354,
+        "end_line": 401
+      },
+      "original_declaration_sha256": "7867a751eec6af158cee1be3bc7deb2ffa98d4181a79ca6b8098dc3c20b47863",
+      "current_declaration_sha256": "7867a751eec6af158cee1be3bc7deb2ffa98d4181a79ca6b8098dc3c20b47863",
+      "independent_assessment": "Actual PID/mount namespace child, /proc witness, Unix SO_PEERCRED and persistent request bind host PID to wire PID1. Negative BindPIDNamespace cases read actual kernel state; no synthetic-only independent block.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/memberstatus/lifecycle_integration_test.go::TestMemberServingIntegration",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberServingIntegration",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 540,
+        "end_line": 583
+      },
+      "current_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberServingIntegration",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 540,
+        "end_line": 583
+      },
+      "original_declaration_sha256": "695912dab1491ae2ebf6c18ab1e0b60227d363b9d202029b0f39c5aa25ff9cbf",
+      "current_declaration_sha256": "695912dab1491ae2ebf6c18ab1e0b60227d363b9d202029b0f39c5aa25ff9cbf",
+      "independent_assessment": "Status/load/proof mutations originate from a real Unix child exchange; valid VerifyReportedServing reuses the received proof and adds no independent changed-input vector. Simulator only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/memberstatus/lifecycle_integration_test.go::TestMemberSocketBindingIntegration",
+      "category": "integration",
+      "baseline_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberSocketBindingIntegration",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 585,
+        "end_line": 615
+      },
+      "current_source": {
+        "path": "internal/memberstatus/lifecycle_integration_test.go",
+        "function": "TestMemberSocketBindingIntegration",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4abde6a8629d81b07e573f23eeaee3ceb895d705",
+        "line": 585,
+        "end_line": 615
+      },
+      "original_declaration_sha256": "d89ee2524ff95c787747b628c7e5308d75dfa93a890ec8d115015f5f119f36b2",
+      "current_declaration_sha256": "d89ee2524ff95c787747b628c7e5308d75dfa93a890ec8d115015f5f119f36b2",
+      "independent_assessment": "Fake observer changes are checked against actual socket peer credentials, actual before/after request state and real socket mode. All target binding assertions depend on OS/socket state.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/naming/naming_test.go::TestCellAndServerNames",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestCellAndServerNames",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 8,
+        "end_line": 37
+      },
+      "current_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestCellAndServerNames",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 8,
+        "end_line": 37
+      },
+      "original_declaration_sha256": "409134272e6b1fa8b8c7fce2527145a33057e7339609b010f07cabc4dd983136",
+      "current_declaration_sha256": "409134272e6b1fa8b8c7fce2527145a33057e7339609b010f07cabc4dd983136",
+      "independent_assessment": "Cell/Node/Server/Slot/API/Data generation checks only local strings/regex/catalog.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/naming/naming_test.go::TestGenerationRejectsOutOfSchemeInput",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestGenerationRejectsOutOfSchemeInput",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 39,
+        "end_line": 68
+      },
+      "current_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestGenerationRejectsOutOfSchemeInput",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 39,
+        "end_line": 68
+      },
+      "original_declaration_sha256": "69979192f68934b90572f734e302ba9bcb099d653a7192aef2e30ad1e39327d0",
+      "current_declaration_sha256": "69979192f68934b90572f734e302ba9bcb099d653a7192aef2e30ad1e39327d0",
+      "independent_assessment": "Out-of-scheme input table checks local ErrName and empty string outcomes.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/naming/naming_test.go::TestNATSServerNamesControllerSlotsByTheScheme",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestNATSServerNamesControllerSlotsByTheScheme",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 93,
+        "end_line": 104
+      },
+      "current_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestNATSServerNamesControllerSlotsByTheScheme",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 93,
+        "end_line": 104
+      },
+      "original_declaration_sha256": "568213e1da5a9996a4a4373004695497fb383c965c426ae03ec219edab423a7a",
+      "current_declaration_sha256": "568213e1da5a9996a4a4373004695497fb383c965c426ae03ec219edab423a7a",
+      "independent_assessment": "NATSServer naming invokes local controller naming/fallback concatenation; no server starts.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/naming/naming_test.go::TestValidateRejectsReleaseDerivedAndLegacyNames",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestValidateRejectsReleaseDerivedAndLegacyNames",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 70,
+        "end_line": 91
+      },
+      "current_source": {
+        "path": "internal/naming/naming_test.go",
+        "function": "TestValidateRejectsReleaseDerivedAndLegacyNames",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "97ff866c0ca907c14a99cc3ccfbf27e55530370b",
+        "line": 70,
+        "end_line": 91
+      },
+      "original_declaration_sha256": "a430055a80a96db09ee400403fedcac1d44527719980af606c8267f122f9df95",
+      "current_declaration_sha256": "a430055a80a96db09ee400403fedcac1d44527719980af606c8267f122f9df95",
+      "independent_assessment": "Allowed and forbidden vectors check local regex/catalog predicates only.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/nativerootoci/client_test.go::TestNativeRootConditionalPutAndUncertainFailure",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootConditionalPutAndUncertainFailure",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 238,
+        "end_line": 291
+      },
+      "current_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootConditionalPutAndUncertainFailure",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 238,
+        "end_line": 291
+      },
+      "original_declaration_sha256": "2ef6562e343b3692b281409841caa7e6063b23fd39c208efb24cfce519913adf",
+      "current_declaration_sha256": "2ef6562e343b3692b281409841caa7e6063b23fd39c208efb24cfce519913adf",
+      "independent_assessment": "ObjectClient stub consumes bytes.Reader PUT body and injects ETags/412/deadline. Wrong digest is a local guard; no transport or conditional store.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/nativerootoci/client_test.go::TestNativeRootGetReturnsOneResponseBytesAndETag",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootGetReturnsOneResponseBytesAndETag",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 213,
+        "end_line": 236
+      },
+      "current_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootGetReturnsOneResponseBytesAndETag",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 213,
+        "end_line": 236
+      },
+      "original_declaration_sha256": "c2b3569e09e7d315d702dbe6d0e65176c4d6073321ea0a9a6caa6bd0d77113c7",
+      "current_declaration_sha256": "c2b3569e09e7d315d702dbe6d0e65176c4d6073321ea0a9a6caa6bd0d77113c7",
+      "independent_assessment": "ObjectClient stub GET returns in-memory bytes.Reader and ETag; exact request/call count checks remain synthetic.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "root_id": "internal/nativerootoci/client_test.go::TestNativeRootProbeRepeatsConditionalCreateOnExistingKey",
+      "category": "unit",
+      "baseline_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootProbeRepeatsConditionalCreateOnExistingKey",
+        "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 355,
+        "end_line": 428
+      },
+      "current_source": {
+        "path": "internal/nativerootoci/client_test.go",
+        "function": "TestNativeRootProbeRepeatsConditionalCreateOnExistingKey",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "061acf57641e22eb3ed8b9049620725484b27a87",
+        "line": 355,
+        "end_line": 428
+      },
+      "original_declaration_sha256": "cb467aabfefda393354bcc197037a9291ccb82422cfe3622fdac8d2f110353f9",
+      "current_declaration_sha256": "cb467aabfefda393354bcc197037a9291ccb82422cfe3622fdac8d2f110353f9",
+      "independent_assessment": "Probe GET/PUT sequence uses stub fixed bodies/ETags/synthetic statuses. Local state machine does not exercise actual OCI conditional-create/readback.",
+      "accepted_source_category": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION; source review does not establish compilation or any test pass.",
+    "Member executable is a self-exec protocol simulator; no TerraBase runtime/database drain/replication/object durability or production namespace privilege qualification. No privilege/process/socket/lock/project test execution occurred during review.",
+    "Seed routing tests use injected direct Go calls and fake lease/lifecycle/founder; native root tests use ObjectClient stubs, with no actual OCI/NATS service or storage conditional operation.",
+    "Local file/process/Unix boundary evidence does not establish crash/power-loss durability, real cloud behavior or production acceptance. Independent local guards remain explicit in mixed roots.",
+    "All original safety assertions/negative/fencing/retry/byte-preservation obligations retained; no ledger/count promotion/deletion/retirement/completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "ledger_mutated": false,
+  "count_promotion": false,
+  "deletion_credit": false,
+  "completion_credit": false
+}

@@ -1,0 +1,92 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2320_2340",
+  "owner": "/root/classification_100_dispatch/batch_2340_2360",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2340-2360-final-2uniddtb/classification.json",
+    "sha256": "4c8b83a6a0a1a59ee845df520f665d70ea815feb93122483ce3a0695f553d507",
+    "checksum_file": "/tmp/ts-source-2340-2360-final-2uniddtb/SHA256SUMS",
+    "checksum_sha256": "1c4c9e6c726e3c5d677698534c05ba5e5b9ed7c6cabaf8143b0101f74cca9056"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": [
+      2340,
+      2360
+    ],
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2320_2340"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayRestartAndResume",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayResumesAfterInterruptedChunk",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamReplayTimeoutWaitsForRetainedRecord",
+    "internal/observability/host_history_stream_test.go::TestHostMetricStreamTwoWritersCAS",
+    "internal/observability/host_history_wan_test.go::TestHostMetricWANPublishesAndReplaysOriginalScrapeBatches",
+    "internal/observability/host_history_wan_test.go::TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness",
+    "internal/observability/log_redaction_test.go::TestLogRedactionBoundsAndBoundaryCredentials",
+    "internal/observability/log_redaction_test.go::TestLogRedactionCountDepthAndMetadata",
+    "internal/observability/log_redaction_test.go::TestLogRedactionCredentialsBothSinks",
+    "internal/observability/log_redaction_test.go::TestLogRedactionFrozenScopesAndConcurrency",
+    "internal/observability/log_redaction_test.go::TestLogRedactionMapRepeatSuppression",
+    "internal/observability/log_redaction_test.go::TestLogRedactionNormalSemantics",
+    "internal/observability/log_redaction_test.go::TestLogRedactionOversizedMapKeys",
+    "internal/observability/log_redaction_test.go::TestLogRedactionRecordMetadataOrder",
+    "internal/observability/log_redaction_test.go::TestLogRedactionRecordTimeLevelAndSource",
+    "internal/observability/log_redaction_test.go::TestLogRedactionScopeOrderAndNames",
+    "internal/observability/log_redaction_test.go::TestLogRedactionSnapshotDepthConsumesBudget",
+    "internal/observability/log_redaction_time_test.go::TestLogRedactionTypedTimeZones",
+    "internal/observability/log_redaction_url_test.go::TestLogRedactionURLFragmentCredentials",
+    "internal/observability/logging_test.go::TestJournalOutputStartsEachRecordWithItsPriority"
+  ],
+  "counts": {
+    "integration": 10,
+    "unit": 0,
+    "mixed": 10,
+    "unresolved": 0,
+    "total": 20
+  },
+  "acceptance": "SOURCE_ONLY_ACCEPTED_FOR_COORDINATOR_ADJUDICATION",
+  "checks_performed": {
+    "full_roots_independently_read": 20,
+    "raw_baseline_current_declarations_verified": 40,
+    "survival_rows_verified": 20,
+    "canonical_source_file_pins_verified": 20,
+    "exact_assertion_and_callee_span_texts_verified": 85,
+    "packet_checksum_and_immutable_modes": "Verified all checksum entries, all packet files0444 and directory0555.",
+    "manual_boundary_review": "Read every full root plus connected actual fixture and production source. Host fixture directly starts repository vendored upstream NATS server, connects loopback TCP, and production creates FileStorage JetStream/publishes/replays real retained data. Delegating CAS/replay-fault hooks preserve real backing operations. Logger fixture embeds os.File; production slog handlers write it and output assertions read via os.ReadFile. EventBus-only, caller-record and canceled-context assertion blocks are independently local and classified mixed. Combined file/event assertions remain one coupled sink scenario.",
+    "mapping_and_count_conservation": "All20 literal IDs match activated allocation; distinct cyclic reviewer mapping verified. Baseline/current raw declaration identities equal survival mapping; no canonical body drift. Category counts sum only allocated20."
+  },
+  "resolved_findings": [
+    {
+      "root_id": "internal/observability/host_history_wan_test.go::TestHostMetricWANValidatesLabelsCountsAndOriginalFreshness",
+      "original_packet_sha256": "dd470bfa532bf158887a451dfb702a8cd5bb2149c69d31a2b720f44fa979a73f",
+      "finding": "Mixed classification lacked a separate independent local block. hostMetricRejectArchive invalid-publication assertion and real zero-message Info readback form one no-durable-change scenario. NaN/Inf skip only raw record serialization, retaining actual empty-store readback.",
+      "resolution": "Fresh final changes root to integration; final counts10integration/10mixed. Verified against root28-85 and helper970-989; all required negative assertions and limits retained."
+    },
+    {
+      "kind": "dependency_provenance",
+      "finding": "Original qualification called upstream NATS server implementation not vendored despite go.mod136 local replace.",
+      "resolution": "Fresh final identifies repository vendored upstream server via ./third_party/nats-server and external nats.go v1.54.0; no full upstream implementation/runtime qualification claimed."
+    }
+  ],
+  "remaining_findings": [],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "qualification_limits": [
+    "Source-only category acceptance; no Go/build/test/compiler/lint/helper execution or runtime receipts reviewed.",
+    "Single-server fixture and local file log sink do not qualify regional TLS/auth/quorum, production persistence/crash safety, live journald ingestion or real TerraBase WAN transport.",
+    "All original assertions, rejection and safety obligations retained; no source/test retirement authorized."
+  ],
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": 0,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "deletion_credit": 0,
+    "global_completion": false
+  }
+}

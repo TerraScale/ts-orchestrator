@@ -1,0 +1,77 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2100_2120",
+  "author": "/root/classification_100_dispatch/batch_2120_2140",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2120-2140-y8finylt/classification.json",
+    "sha256": "6c7e7aff3836ca6c0057c9b48e0b40f2fa2231ba28170467b947ce480e0502f7",
+    "checksum_path": "/tmp/ts-source-classification-2120-2140-y8finylt/SHA256SUMS",
+    "checksum_sha256": "eccf28b48e8c9fe54139fcdf5b035e159e0260762b413df6efe17e60608678c1"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "other_unadjudicated[2120:2140]"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/netbird/client/managed_snapshot_test.go::TestManagedFailedEnableQueryPreservesPriorRollbackBeforeMutation",
+    "internal/netbird/client/managed_snapshot_test.go::TestManagedSnapshotAndWatchdogRejectFIFOWithoutHoldingLock",
+    "internal/netbird/client/managed_snapshot_test.go::TestManagedSnapshotRecordsConfirmedEnableState",
+    "internal/netbird/client/managed_snapshot_test.go::TestManagedUnitEnabledResultRequiresStateAndExitStatus",
+    "internal/netbird/client/managed_test.go::TestConfirmedUpdateOnlyRollsBackForAnExplicitControllerAction",
+    "internal/netbird/client/managed_test.go::TestManagedBinaryCopyRejectsCorruptionBeforeReplacingLiveBinary",
+    "internal/netbird/client/managed_test.go::TestManagedBinaryCopyRejectsHostileStagedFiles",
+    "internal/netbird/client/managed_test.go::TestManagedConfirmationSurvivesTimerCancellationFailure",
+    "internal/netbird/client/managed_test.go::TestManagedEnrollmentFailureDoesNotExposeSetupKeyAndCanRollback",
+    "internal/netbird/client/managed_test.go::TestManagedFileLockSerializesLocalOperations",
+    "internal/netbird/client/managed_test.go::TestManagedInstallArmsRollbackBeforeRestartAndPreservesBackup",
+    "internal/netbird/client/managed_test.go::TestManagedInstallEnrollsMissingAgentWithoutReadingOldDaemon",
+    "internal/netbird/client/managed_test.go::TestManagedInstallRejectsChecksumBeforeServiceMutation",
+    "internal/netbird/client/managed_test.go::TestManagedInstallRestartsChangedUnitAtMatchingVersionAndRetriesFailedRestart",
+    "internal/netbird/client/managed_test.go::TestManagedInstallRetriesDoNotReplacePreviousBinaryOrAcceptOtherTransaction",
+    "internal/netbird/client/managed_test.go::TestManagedNextPreparationFailurePreservesConfirmedRollback",
+    "internal/netbird/client/managed_test.go::TestManagedRollbackRejectsCorruptBackupAndLateConfirmation",
+    "internal/netbird/client/managed_test.go::TestManagedRollbackRestoresEnrollmentBeforeOldDaemonRestart",
+    "internal/netbird/client/managed_test.go::TestManagedRollbackSurvivesInstallerRestartAndDoesNotNeedVault",
+    "internal/netbird/client/managed_test.go::TestManagedServiceMatchesImageAndCommentOnlyChangesDoNotRestart"
+  ],
+  "counts": {
+    "integration": 7,
+    "unit": 1,
+    "mixed": 12,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty complete roots from canonical Git source, then actual managed fixture/file assertion helpers, install/backup/configure/restore/lock/journal/binary verification/watchdog/retention/recovery/finish paths and image unit fixture. No source execution.",
+    "Literal allocation IDs/order verified against sealed ROOT map; survival rows/names/hash obligations checked for all twenty.",
+    "Recomputed ten canonical/baseline file pins: Git blob/mode/SHA256/bytes. Baseline/current test files match same immutable blobs.",
+    "Independently entered twenty declaration bounds matched; baseline/current raw declaration text/hash verified from func through column-zero close excluding following LF. Entire assertion and connected evidence text/span/blob verified.",
+    "Manual category review confirms real descriptor/file/flock readbacks and synthetic callbacks are scoped. Decoder sh ExitError fixture is incidental unit target. Mixed roots explicitly retain local return/call-list/order or service-source normalization obligations; no real NetBird/systemd/Vault/restart claims.",
+    "All input pins, counts, root runtime/retirement/safety flags, checksum and0444/0555 seals verified. Qualification limits preserve unknown runtime and no ledger/count/deletion/retirement/completion credit."
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "acceptance": "ACCEPTED_SOURCE_ONLY_CANDIDATE_EXACT_HASH",
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION: source categories are not compile/runtime results; no receipts reviewed.",
+    "All filesystem roots use a temporary fake host root and synthetic minimal ELF headers; no executable artifact or real NetBird daemon is executed by these roots except incidental sh exit-error fixtures in decoder test.",
+    "systemctl/status/enroll are Go closures. No live systemd, Vault, enrollment, OCI, NetBird network, signing or cloud boundary is qualified.",
+    "Actual filesystem operations/readbacks and OS flock support only the explicit local boundaries. No crash/power-loss durability, independent process restart, network formation or cloud behavior is inferred.",
+    "All negative, redaction, ordering, identity, ownership, inode, retry, file-preservation and rollback obligations remain retained; no deletion/retirement/count/global completion promotion authorized."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "repository_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": false,
+    "retirement_credit": false,
+    "runtime_credit": false,
+    "global_completion": false
+  }
+}

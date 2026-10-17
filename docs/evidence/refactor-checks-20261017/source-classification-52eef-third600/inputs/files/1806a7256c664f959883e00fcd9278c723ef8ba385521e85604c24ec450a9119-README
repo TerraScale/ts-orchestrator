@@ -1,0 +1,6 @@
+Source-only candidate: original other_unadjudicated[2480:2500].
+20 roots: 2 integration, 18 unit, 0 mixed, 0 unresolved.
+Canonical 52eef25bad09736d8f0806ecaccaef1a7c86b49e; baseline bfca60368f60d2da67f9016d1d489317ae8749c8.
+Manual whole-root and actual connected boundary review; explicit spans and exact declaration/file pins in classification.json.
+Runtime UNKNOWN; no execution, source/repo/ledger writes, promotion, deletion, retirement or completion credit.
+Independent peer acceptance is separate.

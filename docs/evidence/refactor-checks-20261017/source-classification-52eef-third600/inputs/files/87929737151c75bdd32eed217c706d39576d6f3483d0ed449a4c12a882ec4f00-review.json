@@ -1,0 +1,347 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2460_2480",
+  "author": "/root/classification_100_dispatch/batch_2480_2500",
+  "decision": "ACCEPT_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/classification.json",
+    "sha256": "57f526b801d35d6b82960336454837c23932897b0c95cdcea8e543b0242a6255",
+    "checksum_path": "/tmp/ts-source-2480-2500-corrected-r6akvkaz/SHA256SUMS",
+    "checksum_sha256": "dc8afcee519c7c843efc31005438958c7ea7a783ec62e65ebc4ed30acdccca4d"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2480:2500]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_2460_2480"
+  },
+  "literal_root_ids": [
+    "internal/oci/member_volume_test.go::TestMemberVolumeLostCreateResponseReplaysOneVolume",
+    "internal/oci/member_volume_test.go::TestMemberVolumeReattachesSameVolumeAfterHostReplacement",
+    "internal/oci/member_volume_test.go::TestMemberVolumeRecordedVolumeIsNeverRecreated",
+    "internal/oci/member_volume_test.go::TestMemberVolumeRefusesToStealLiveAttachment",
+    "internal/oci/member_volume_test.go::TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember",
+    "internal/oci/member_volume_test.go::TestMemberVolumeResizeGrowsOnlyUnderETag",
+    "internal/oci/member_volume_test.go::TestMemberVolumeRestoreDrill",
+    "internal/oci/metrics_test.go::TestFleetUsesSharedAPIRecorder",
+    "internal/oci/observe_cache_admission_review_test.go::TestObserveUsesCachedVerificationOnlyWhenOptedIn",
+    "internal/oci/observe_cache_test.go::TestVerificationCacheIsObserveOnlyETagBoundAndExpires",
+    "internal/oci/observe_selected_review_test.go::TestObserveSelectedVerifiesOnlySelectedHosts",
+    "internal/oci/secret_reference_test.go::TestSecretVersionReferenceRequiresVaultSecretAndExactVersion",
+    "internal/oci/terminal_test.go::TestTerminalExactInventoryAndFinalReadback",
+    "internal/oci/terminal_test.go::TestTerminalTearsDownHostsOfRevokedImages",
+    "internal/oci/terminal_test.go::TestTerminalUnknownCreateAndForeignPinsHold",
+    "internal/oci/terminal_volume_termination_test.go::TestInspectTerminalStatusDoesNotWriteTerminationProof",
+    "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationDuringOwnedReadSkipsDelete",
+    "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofPrecedesPendingInstance",
+    "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofRequiresExactReadback",
+    "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofRetriesBeforeCompletion"
+  ],
+  "counts": {
+    "integration": 2,
+    "unit": 18,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all twenty full canonical roots and connected member, resize, restore, metrics, SDK/cache, terminal, journal and authenticated broker/client paths.",
+    "Verified all twenty original survival rows and exact activated literal allocation identities; current/baseline declaration bodies and hashes match raw Git spans excluding following LF. No body drift.",
+    "Verified every assertion text and all49 connected evidence spans byte-for-byte against canonical Git; verified25 canonical file pins blob/mode/SHA256/bytes.",
+    "Verified owner checksum entries, exact packet/checksum hashes and files0444/directory0555. Added independent baseline file pins and actual TLS client/bridge callee spans.",
+    "Assessed categories independently:18 unit,2 integration,0 mixed,0 unresolved. Counter/error checks in the two real-journal roots support the store fault/order/retry assertion; no independent local-only block warrants mixed.",
+    "Correction re-review: compared full old/new metadata; the sole difference is terminal connected span11 end_line759\u2192757. Rechecked exact20allocation/maps,40raw baseline/current declarations, every assertion span and all49connected spans with explicit start/end bounds within actual canonical file lengths; rechecked25canonical file pins, checksum hashes/entries and immutable modes."
+  ],
+  "independent_root_assessments": [
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeLostCreateResponseReplaysOneVolume",
+      "category": "unit",
+      "basis": "Lost provider response and hidden-list recovery are simulated by map removal/reinsertion and token counters."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeReattachesSameVolumeAfterHostReplacement",
+      "category": "unit",
+      "basis": "Host replacement and detached history are records; the same map volume is attached again without real disk work."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeRecordedVolumeIsNeverRecreated",
+      "category": "unit",
+      "basis": "Recorded volume equality and purged-volume refusal read synthetic maps and create counters."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeRefusesToStealLiveAttachment",
+      "category": "unit",
+      "basis": "Three live-state cases use map state changes; no actual attachment is moved."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeRejectsInstancesAndNamesOutsideTheMember",
+      "category": "unit",
+      "basis": "Bad member/name/host scope/naming/size inputs exit local guards with zero fake mutations."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeResizeGrowsOnlyUnderETag",
+      "category": "unit",
+      "basis": "Fake updater checks ETag and edits volume maps; resize waits read those same maps."
+    },
+    {
+      "root_id": "internal/oci/member_volume_test.go::TestMemberVolumeRestoreDrill",
+      "category": "unit",
+      "basis": "Backup selection, scratch-only attachment, replay and invalid restore cases use fake backup/provider records."
+    },
+    {
+      "root_id": "internal/oci/metrics_test.go::TestFleetUsesSharedAPIRecorder",
+      "category": "unit",
+      "basis": "Instrumentation calls fakeDispatcher directly; NewRequest does not start a server."
+    },
+    {
+      "root_id": "internal/oci/observe_cache_admission_review_test.go::TestObserveUsesCachedVerificationOnlyWhenOptedIn",
+      "category": "unit",
+      "basis": "The real SDK serializes requests into countingReadback, which synthesizes HTTP responses from maps; no network transport."
+    },
+    {
+      "root_id": "internal/oci/observe_cache_test.go::TestVerificationCacheIsObserveOnlyETagBoundAndExpires",
+      "category": "unit",
+      "basis": "Cache context/ETag/clock/pruning assertions use a local mutex/map."
+    },
+    {
+      "root_id": "internal/oci/observe_selected_review_test.go::TestObserveSelectedVerifiesOnlySelectedHosts",
+      "category": "unit",
+      "basis": "Selector branches read countingGetProvider maps; nil selector is local guard."
+    },
+    {
+      "root_id": "internal/oci/secret_reference_test.go::TestSecretVersionReferenceRequiresVaultSecretAndExactVersion",
+      "category": "unit",
+      "basis": "Secret reference validation checks OCID shape and version locally without Vault."
+    },
+    {
+      "root_id": "internal/oci/terminal_test.go::TestTerminalExactInventoryAndFinalReadback",
+      "category": "unit",
+      "basis": "Terminal lifecycle and inventory assertions use fake fencer, journal, provider and map deletion."
+    },
+    {
+      "root_id": "internal/oci/terminal_test.go::TestTerminalTearsDownHostsOfRevokedImages",
+      "category": "unit",
+      "basis": "Image revocation, boot mismatch and terminal completion are synthetic record transitions."
+    },
+    {
+      "root_id": "internal/oci/terminal_test.go::TestTerminalUnknownCreateAndForeignPinsHold",
+      "category": "unit",
+      "basis": "Foreign IDs, unknown create result and extra launch intent are fake-journal/provider state."
+    },
+    {
+      "root_id": "internal/oci/terminal_volume_termination_test.go::TestInspectTerminalStatusDoesNotWriteTerminationProof",
+      "category": "unit",
+      "basis": "Inspection with readOnlyJournal observes fake terminal records and zero fake write counters."
+    },
+    {
+      "root_id": "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationDuringOwnedReadSkipsDelete",
+      "category": "unit",
+      "basis": "Injected second GetVolume changes fake state to TERMINATED; fakeJournal proof and fake delete count are asserted."
+    },
+    {
+      "root_id": "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofPrecedesPendingInstance",
+      "category": "integration",
+      "basis": "Real KV-backed proof persistence gates ReconcileTerminal before pending instance effects; failed Create is injected, retry delegates to live local JetStream then exact proof Get."
+    },
+    {
+      "root_id": "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofRequiresExactReadback",
+      "category": "unit",
+      "basis": "Exact readback cases call fake GetVolume/list attachments and fakeJournal.RecordVolumeTermination only."
+    },
+    {
+      "root_id": "internal/oci/terminal_volume_termination_test.go::TestTerminalVolumeTerminationProofRetriesBeforeCompletion",
+      "category": "integration",
+      "basis": "Both initially terminated and post-delete readback cases cross real JetStream KV: failed proof absence/result state, retry Create and reopened journal exact scoped proof Get. Fake delete counters support this same store assertion."
+    }
+  ],
+  "supplemental_boundary_spans": [
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "line": 260,
+      "end_line": 268,
+      "text": "func (r *Runtime) URL() string {\n\tif r.bridge != nil {\n\t\treturn \"nats://\" + r.bridge.Addr().String()\n\t}\n\tif r.server != nil {\n\t\treturn r.server.ClientURL()\n\t}\n\treturn r.conn.ConnectedUrl()\n}\n"
+    },
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "line": 780,
+      "end_line": 872,
+      "text": "func clientOptions(cfg Config) ([]nats.Option, error) {\n\tconnectTimeout := 12 * time.Second\n\tif cfg.ClientRole == \"host\" {\n\t\tconnectTimeout = 3 * time.Second\n\t}\n\toptions := []nats.Option{nats.Name(\"terrascale-\" + cfg.Cell + \"-\" + cfg.Instance), nats.Timeout(connectTimeout),\n\t\tnats.ErrorHandler(ErrorHandler)}\n\t// Renewal applies to every authentication mode: an NKey-seed client has\n\t// no JWT to reload but must still present a renewed certificate.\n\tvar materials *clientMaterialSource\n\tif cfg.ReloadClientMaterial != nil {\n\t\tmaterials = newClientMaterialSource(cfg, \"\")\n\t}\n\tif cfg.CredentialsFile != \"\" {\n\t\tdata, err := readPrivateFile(cfg.CredentialsFile, 64<<10)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"regional JWT credentials: %w\", err)\n\t\t}\n\t\tpair, err := nkeys.ParseDecoratedUserNKey(data)\n\t\tclear(data)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"regional JWT credentials: %w\", err)\n\t\t}\n\t\tpublic, err := pair.PublicKey()\n\t\tpair.Wipe()\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\toptions = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))\n\t\tsource := materials\n\t\tif source == nil {\n\t\t\tsource = newClientMaterialSource(cfg, public)\n\t\t}\n\t\tsource.user = public\n\t\t// The JWT and its signature come from one resolved file per handshake.\n\t\tvar handshake ClientMaterial\n\t\toptions = append(options, nats.UserJWT(func() (string, error) {\n\t\t\thandshake = source.current()\n\t\t\tdata, err := readPrivateFile(handshake.CredentialsFile, 64<<10)\n\t\t\tif err != nil {\n\t\t\t\treturn \"\", err\n\t\t\t}\n\t\t\tdefer clear(data)\n\t\t\treturn nkeys.ParseDecoratedJWT(data)\n\t\t}, func(nonce []byte) ([]byte, error) {\n\t\t\tpath := handshake.CredentialsFile\n\t\t\tif path == \"\" {\n\t\t\t\tpath = cfg.CredentialsFile\n\t\t\t}\n\t\t\treturn signNKeyFile(path, nonce)\n\t\t}))\n\t}\n\tif cfg.NKeySeedFile != \"\" {\n\t\tdata, err := readPrivateFile(cfg.NKeySeedFile, 4096)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"regional NKey seed: %w\", err)\n\t\t}\n\t\tpair, err := nkeys.ParseDecoratedUserNKey(data)\n\t\tclear(data)\n\t\tif err != nil {\n\t\t\treturn nil, fmt.Errorf(\"regional NKey seed: %w\", err)\n\t\t}\n\t\tpublic, err := pair.PublicKey()\n\t\tpair.Wipe()\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\toptions = append(options, nats.CustomInboxPrefix(inboxPrefix(cfg.Cell, public)))\n\t\toptions = append(options, nats.Nkey(public, func(nonce []byte) ([]byte, error) {\n\t\t\treturn signNKeyFile(cfg.NKeySeedFile, nonce)\n\t\t}))\n\t}\n\tif cfg.TLS.complete() && cfg.Embedded == nil {\n\t\ttlsConfig, err := loadTLS(cfg.TLS, false)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tdialer := &tlsFirstDialer{config: tlsConfig, timeout: connectTimeout}\n\t\tif materials != nil {\n\t\t\tdialer.reload = materials.tlsConfig\n\t\t}\n\t\tif len(cfg.OperatorForward) != 0 {\n\t\t\t_, destinations, err := operatorForwarding(cfg)\n\t\t\tif err != nil {\n\t\t\t\treturn nil, err\n\t\t\t}\n\t\t\tdialer.forward = destinations\n\t\t\toptions = append(options, nats.IgnoreDiscoveredServers())\n\t\t}\n\t\toptions = append(options, nats.SetCustomDialer(dialer))\n\t}\n\treturn options, nil\n}\n"
+    },
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "line": 925,
+      "end_line": 949,
+      "text": "func loadTLS(files TLSFiles, serverSide bool) (*tls.Config, error) {\n\tkey, err := readPrivateFile(files.KeyFile, 64<<10)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"NATS TLS private key: %w\", err)\n\t}\n\tclear(key)\n\tcertificate, err := tls.LoadX509KeyPair(files.CertFile, files.KeyFile)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"load NATS certificate: %w\", err)\n\t}\n\tca, err := os.ReadFile(files.CAFile)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"load NATS CA: %w\", err)\n\t}\n\troots := x509.NewCertPool()\n\tif !roots.AppendCertsFromPEM(ca) {\n\t\treturn nil, errors.New(\"NATS CA file has no certificates\")\n\t}\n\tconfig := &tls.Config{MinVersion: tls.VersionTLS13, Certificates: []tls.Certificate{certificate}, RootCAs: roots}\n\tif serverSide {\n\t\tconfig.ClientCAs = roots\n\t\tconfig.ClientAuth = tls.RequireAndVerifyClientCert\n\t}\n\treturn config, nil\n}\n"
+    },
+    {
+      "path": "internal/natscell/tls_dialer.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "d14d83ee9248efc3c3d911ad725b20fb73357c27",
+      "line": 26,
+      "end_line": 71,
+      "text": "func (d *tlsFirstDialer) Dial(network, address string) (net.Conn, error) {\n\tdestination, config := address, d.config\n\tif d.reload != nil {\n\t\tif current, err := d.reload(); err == nil {\n\t\t\tconfig = current\n\t\t}\n\t}\n\tif len(d.forward) != 0 {\n\t\tif network != \"tcp\" {\n\t\t\treturn nil, errors.New(\"operator forward requires TCP\")\n\t\t}\n\t\tmapped, ok := d.forward[address]\n\t\tif !ok {\n\t\t\treturn nil, fmt.Errorf(\"NATS controller %q has no operator forward\", address)\n\t\t}\n\t\thost, _, err := net.SplitHostPort(address)\n\t\tif err != nil {\n\t\t\treturn nil, err\n\t\t}\n\t\tdestination = mapped\n\t\tconfig = config.Clone()\n\t\tconfig.ServerName = host\n\t}\n\tconn, err := tls.DialWithDialer(&net.Dialer{Timeout: d.timeout}, network, destination, config)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\treturn conn, nil\n}\n\nfunc (*tlsFirstDialer) SkipTLSHandshake() bool { return true }\n\n// nats.go treats tls:// as an instruction to wrap TLS after INFO even with a\n// custom dialer. Keep every configured endpoint but prevent that second wrap.\nfunc bridgeClientURLs(raw string) string {\n\tparts := strings.Split(raw, \",\")\n\tfor index, part := range parts {\n\t\ttrimmed := strings.TrimSpace(part)\n\t\tif rest, ok := strings.CutPrefix(trimmed, \"tls://\"); ok {\n\t\t\tparts[index] = \"nats://\" + rest\n\t\t} else {\n\t\t\tparts[index] = trimmed\n\t\t}\n\t}\n\treturn strings.Join(parts, \",\")\n}\n"
+    },
+    {
+      "path": "internal/natscell/bridge.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "43d0a9518b40d3e88eda0cf3287775cb0a63517a",
+      "line": 78,
+      "end_line": 89,
+      "text": "func startBridge(s *server.Server, address string, tlsConfig *tls.Config, account string) (*Bridge, error) {\n\tif s == nil || tlsConfig == nil || account == \"\" {\n\t\treturn nil, errors.New(\"production broker bridge is incomplete\")\n\t}\n\tlistener, err := tls.Listen(\"tcp\", address, tlsConfig)\n\tif err != nil {\n\t\treturn nil, fmt.Errorf(\"listen for regional broker clients: %w\", err)\n\t}\n\tb := &Bridge{server: s, listener: listener, account: account, pairs: make(map[*bridgePair]struct{}), listeners: make(map[net.Listener]struct{})}\n\tgo b.accept(listener)\n\treturn b, nil\n}\n"
+    },
+    {
+      "path": "internal/natscell/bridge.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "43d0a9518b40d3e88eda0cf3287775cb0a63517a",
+      "line": 243,
+      "end_line": 299,
+      "text": "func (b *Bridge) accept(listener net.Listener) {\n\tdefer func() {\n\t\tb.mu.Lock()\n\t\tdelete(b.listeners, listener)\n\t\tb.mu.Unlock()\n\t}()\n\tfor {\n\t\texternal, err := listener.Accept()\n\t\tif err != nil {\n\t\t\treturn\n\t\t}\n\t\tb.mu.Lock()\n\t\tallowed := b.open && time.Now().Before(b.deadline) && !b.closed\n\t\tb.mu.Unlock()\n\t\tif !allowed {\n\t\t\t_ = external.Close()\n\t\t\tcontinue\n\t\t}\n\t\tgo b.serve(external, listener)\n\t}\n}\n\nfunc (b *Bridge) serve(external net.Conn, listener net.Listener) {\n\tdefer external.Close()\n\tif err := external.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {\n\t\treturn\n\t}\n\tif err := external.(*tls.Conn).Handshake(); err != nil {\n\t\treturn\n\t}\n\tif err := external.SetDeadline(time.Time{}); err != nil {\n\t\treturn\n\t}\n\tinternal, err := b.server.InProcessConnForAccount(b.account)\n\tif err != nil {\n\t\treturn\n\t}\n\tpair := &bridgePair{external: external, internal: internal, listener: listener}\n\tb.mu.Lock()\n\t_, additional := b.listeners[listener]\n\tif b.closed || listener != b.listener && !additional || !b.open || !time.Now().Before(b.deadline) {\n\t\tb.mu.Unlock()\n\t\tpair.close()\n\t\treturn\n\t}\n\tb.pairs[pair] = struct{}{}\n\tb.mu.Unlock()\n\tdone := make(chan struct{}, 2)\n\tgo func() { _, _ = io.Copy(internal, external); done <- struct{}{} }()\n\tgo func() { _, _ = io.Copy(external, internal); done <- struct{}{} }()\n\t<-done\n\tpair.close()\n\t<-done\n\tb.mu.Lock()\n\tdelete(b.pairs, pair)\n\tb.mu.Unlock()\n}\n"
+    }
+  ],
+  "supplemental_source_pins": [
+    {
+      "path": "internal/natscell/runtime.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "b7d9b16bf34c966d722a17bea21a3ccb76cc396b",
+      "mode": "100644",
+      "sha256": "44804d1b0692d1b47fb37f4a9e1d99bfe7235d3fb317fc7c81c9090d80dc57cf",
+      "bytes": 35509
+    },
+    {
+      "path": "internal/natscell/tls_dialer.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "d14d83ee9248efc3c3d911ad725b20fb73357c27",
+      "mode": "100644",
+      "sha256": "d6e9d24d0e04e725333d52d14422b07af22ef0cb6ddbf98b1dece4c002625e5a",
+      "bytes": 2073
+    },
+    {
+      "path": "internal/natscell/bridge.go",
+      "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+      "git_blob": "43d0a9518b40d3e88eda0cf3287775cb0a63517a",
+      "mode": "100644",
+      "sha256": "c0c839e5b9a2d147a9b90ee402ff68af9e3aba4b05ac86f4d33c221c8179a6e3",
+      "bytes": 7657
+    }
+  ],
+  "baseline_test_file_pins": [
+    {
+      "path": "internal/oci/member_volume_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "199f9b3aaacabd508a7a1c3435c8ac6dfb2b49ce",
+      "mode": "100644",
+      "sha256": "b13a573d84d207803414b260e8c1e5bb7eca9c2f48e3520a53cdddfff0851b48",
+      "bytes": 29200
+    },
+    {
+      "path": "internal/oci/metrics_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "3627ac9b0cc371d9a89b16a3ece15681064d4815",
+      "mode": "100644",
+      "sha256": "9a488b6e898247f3e9d67f71557469c0cf2d028b772d278f9b7a51cb625b5a17",
+      "bytes": 1350
+    },
+    {
+      "path": "internal/oci/observe_cache_admission_review_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "9e58867e445e4e8716b1f1bfcb43667fe2d1c22e",
+      "mode": "100644",
+      "sha256": "a09872965f46ce6b6971530683af4e4a2d97ff3bb08860c6aa3cc47402ff2909",
+      "bytes": 2862
+    },
+    {
+      "path": "internal/oci/observe_cache_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "8a2a7cdcd16c0d08b60e8c29675c60777f2b6499",
+      "mode": "100644",
+      "sha256": "29fecc660cf3b9daba4bcaf7dd5fcf87301e6e3e7d56517430152c26cdff99f7",
+      "bytes": 1346
+    },
+    {
+      "path": "internal/oci/observe_selected_review_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "9317ca31e89172cf20d49271524174f61b02b86a",
+      "mode": "100644",
+      "sha256": "7a460a45e5ed5d8ffcc72a1a58176e29ceccdbec3b771aa3a0b51113e71179ea",
+      "bytes": 2497
+    },
+    {
+      "path": "internal/oci/secret_reference_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "00da7c2faf901345f3f5c79ef400b2356ac5b0a0",
+      "mode": "100644",
+      "sha256": "257712ba350d576186a0be4645e888959db1b33cd2b1e22820e65bfcc91dd006",
+      "bytes": 721
+    },
+    {
+      "path": "internal/oci/terminal_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "be22354e37c67ee2026e3d59c05b36c8e3c7f468",
+      "mode": "100644",
+      "sha256": "0c72533fa0d2f1adf4cc748f9a0cae860abf1e08664ec77ba5e4874f48d358d1",
+      "bytes": 8953
+    },
+    {
+      "path": "internal/oci/terminal_volume_termination_test.go",
+      "commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+      "git_blob": "6a394fbe146078c4509345fc2bd30cdc8ea60e45",
+      "mode": "100644",
+      "sha256": "74b2c3bc27d694766ad2f7e423baeb003b4f0a9e7e4feafde9bf2cf9797f7393",
+      "bytes": 8867
+    }
+  ],
+  "resolved_findings": [
+    {
+      "kind": "metadata_end_bound",
+      "path": "connected_source_evidence.terminal.spans[11].end_line",
+      "prior": 759,
+      "corrected": 757,
+      "detail": "Actual pinned terminal.go ends at757; existing quote already exact614:757. Fresh corrected author packet accepted; no source/category/assertion change."
+    }
+  ],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Runtime UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION: no build, Go/test/helper, crypto/signing, cloud or TerraBase execution. Source classification does not assert runtime success.",
+    "Integration scope is one real local authenticated NATS/JetStream file-backed journal. Separate external client traverses actual TLS socket/bridge to broker; no restart, R3 quorum, production storage or OCI authority qualified.",
+    "All OCI provider/fencer behavior stays synthetic, including disk termination/deletion/restore and writer-stop facts. All safety obligations stay retained.",
+    "No repository/ledger/count/deletion/retirement/completion credit; receipt binds only exact accepted candidate packet."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_authorized": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "completion_credit": false
+  },
+  "supersedes_review": {
+    "path": "/tmp/ts-source-peer-2480-2500-by2460-mtvjxcf6/review.json",
+    "sha256": "7b83aaa8be514776013846bb15a62f5bb4c5a10d45f07d38a328ca9b188bf7dd",
+    "checksum_path": "/tmp/ts-source-peer-2480-2500-by2460-mtvjxcf6/SHA256SUMS",
+    "checksum_sha256": "f98ce3640bd2838de60d095cd1c45c76eb8928b6c43418a5f9d6ea49580cdbcd",
+    "reason": "Central QA identified an end-bound metadata overrun: quoted canonical terminal.go614:757 was correct, but end_line stated759. Fresh author successor changes only that end_line to actual EOF757. Earlier receipt remains preserved but final acceptance binds this corrected packet."
+  },
+  "correction_review": {
+    "only_packet_difference": "/connected_source_evidence/terminal/spans/11/end_line:759\u2192757",
+    "canonical_path": "internal/oci/terminal.go",
+    "canonical_git_blob": "bd58ac2917f4dd6713a9db379cf97e7620e74b34",
+    "start_line": 614,
+    "end_line": 757,
+    "actual_file_lines": 757,
+    "quote_changed": false,
+    "root_ids_categories_raw_hashes_assertions_other_spans_unchanged": true,
+    "metadata_and_source_span_bounds_reverified": true
+  }
+}

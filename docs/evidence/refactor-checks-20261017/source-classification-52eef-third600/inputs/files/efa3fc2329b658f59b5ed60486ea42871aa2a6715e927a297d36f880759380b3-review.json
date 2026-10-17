@@ -1,0 +1,333 @@
+{
+  "schema": "source-only-independent-peer-receipt-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2160_2180",
+  "author": "/root/classification_100_dispatch/batch_2180_2200",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2180-2200-yoj6xb8v/classification.json",
+    "sha256": "c93fbf66bf5f4f5ec34afca03d380d357f1bab48286965892918d5d093400abe",
+    "checksum_path": "/tmp/ts-source-2180-2200-yoj6xb8v/SHA256SUMS",
+    "checksum_sha256": "b2425a4413e8b3fce093073acd13caf1af5d93148984337b2532af93d56333a0"
+  },
+  "allocation_range": [
+    2180,
+    2200
+  ],
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/netbird/observe_limit_review_test.go::TestObserveBoundsEveryStatusQueryByItsLimit",
+    "internal/netbird/observe_limit_review_test.go::TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+    "internal/netbird/rollout/reconcile_test.go::TestCompareVersionsUsesNumericStableComponents",
+    "internal/netbird/rollout/reconcile_test.go::TestConfirmationRequiresTheAppliedTargetIdentity",
+    "internal/netbird/rollout/reconcile_test.go::TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+    "internal/netbird/rollout/reconcile_test.go::TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedLBReturnReDrainsBeforeRollback",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+    "internal/netbird/rollout/reconcile_test.go::TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+    "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRecoveryRejectsUnprovenAbsence",
+    "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRollbackReturnsRestoredAbsence",
+    "internal/netbird/rollout/reconcile_test.go::TestLateMeshHealthGetsASeparateConfirmationWindow",
+    "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+    "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+    "internal/netbird/rollout/reconcile_test.go::TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges"
+  ],
+  "counts": {
+    "integration": 0,
+    "unit": 20,
+    "mixed": 0,
+    "unresolved": 0
+  },
+  "reviewed_roots": [
+    {
+      "root_id": "internal/netbird/observe_limit_review_test.go::TestObserveBoundsEveryStatusQueryByItsLimit",
+      "category": "unit",
+      "baseline_sha256": "620719b153b17d66f589ba2c109fdc0516310a254ed552199feeae93a2e008c5",
+      "current_sha256": "620719b153b17d66f589ba2c109fdc0516310a254ed552199feeae93a2e008c5",
+      "bounds": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 12,
+        "end_line": 31
+      }
+    },
+    {
+      "root_id": "internal/netbird/observe_limit_review_test.go::TestObserveFailsWhenTheFirstStatusQueryHitsTheLimit",
+      "category": "unit",
+      "baseline_sha256": "28e183f18ac8a0b22549c23ec10cd787496611021014756edab8433fdc81648a",
+      "current_sha256": "28e183f18ac8a0b22549c23ec10cd787496611021014756edab8433fdc81648a",
+      "bounds": {
+        "path": "internal/netbird/observe_limit_review_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "4dafa35dd69b1072a3f6ec8f58ac9cde13652736",
+        "line": 36,
+        "end_line": 46
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestCompareVersionsUsesNumericStableComponents",
+      "category": "unit",
+      "baseline_sha256": "a884ef49214fd2d6fd3af5727558747a378e75a0ad51120a7a9ee649a5419727",
+      "current_sha256": "a884ef49214fd2d6fd3af5727558747a378e75a0ad51120a7a9ee649a5419727",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 216,
+        "end_line": 233
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestConfirmationRequiresTheAppliedTargetIdentity",
+      "category": "unit",
+      "baseline_sha256": "7bdb5c8990a8666120f1561f1d7d436f236999de8611dd627f9b0952c20f24e1",
+      "current_sha256": "7bdb5c8990a8666120f1561f1d7d436f236999de8611dd627f9b0952c20f24e1",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 874,
+        "end_line": 887
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestDrainGraceDoesNotConsumeInstallationAcknowledgmentWindow",
+      "category": "unit",
+      "baseline_sha256": "c29b042e91c92db6ea48511ce33218b93a7e56907e57331059125eb061798a4c",
+      "current_sha256": "c29b042e91c92db6ea48511ce33218b93a7e56907e57331059125eb061798a4c",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 642,
+        "end_line": 655
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestDrainTimeoutWithoutMutationNeedsNoRollbackAcknowledgment",
+      "category": "unit",
+      "baseline_sha256": "2ab62cc95b47d2d3f58b854bc86c2e515429718ba442a7f45f389b031637dcc1",
+      "current_sha256": "2ab62cc95b47d2d3f58b854bc86c2e515429718ba442a7f45f389b031637dcc1",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 627,
+        "end_line": 640
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedFirstInstallRecoveryKeepsProofAcrossPinChangesAndRemoval",
+      "category": "unit",
+      "baseline_sha256": "b207d16cc55b1effdec9fb9b64a333f94e4b4a87c8b4ff970afc77111265506e",
+      "current_sha256": "b207d16cc55b1effdec9fb9b64a333f94e4b4a87c8b4ff970afc77111265506e",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 716,
+        "end_line": 750
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedLBReturnReDrainsBeforeRollback",
+      "category": "unit",
+      "baseline_sha256": "a35223c4c7fc7105b5496dc0c7f0efeb2f17a94625d2284f9812cf88b6a7482d",
+      "current_sha256": "a35223c4c7fc7105b5496dc0c7f0efeb2f17a94625d2284f9812cf88b6a7482d",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 293,
+        "end_line": 313
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedMeshHealthRollsBackAndKeepsDrainUntilPreviousBinaryIsHealthy",
+      "category": "unit",
+      "baseline_sha256": "f8e47bcf4b92d0d7f130617d6ac3338d93cec2a9a746df535b562551a73a4ae8",
+      "current_sha256": "f8e47bcf4b92d0d7f130617d6ac3338d93cec2a9a746df535b562551a73a4ae8",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 960,
+        "end_line": 989
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryPersistsCompletionAfterReturnSucceeds",
+      "category": "unit",
+      "baseline_sha256": "72fa6276f04f3df1fb5205d1c4d00b733d215b53258fc5f5a3b95c31128ca6c2",
+      "current_sha256": "72fa6276f04f3df1fb5205d1c4d00b733d215b53258fc5f5a3b95c31128ca6c2",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 541,
+        "end_line": 585
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRecoveryRetriesDrainBeforeUnhealthyStatus",
+      "category": "unit",
+      "baseline_sha256": "503c4a8f8279ea5a7ab27ea9f3f8768cb99231547d226cf71bcf87b25b2c5121",
+      "current_sha256": "503c4a8f8279ea5a7ab27ea9f3f8768cb99231547d226cf71bcf87b25b2c5121",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 587,
+        "end_line": 625
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedRollbackKeepsAcknowledgmentRequirementAcrossPinChanges",
+      "category": "unit",
+      "baseline_sha256": "685b65ab2af7b76d8a31f76dc591f34ad173e90b00f8c1877972975d09eec644",
+      "current_sha256": "685b65ab2af7b76d8a31f76dc591f34ad173e90b00f8c1877972975d09eec644",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 492,
+        "end_line": 515
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedSamePinRecoversFenceWithoutRetryingThePin",
+      "category": "unit",
+      "baseline_sha256": "f8fc5fc73478ede95eb5813874ef75311268f36512a1d7246907b7874048551c",
+      "current_sha256": "f8fc5fc73478ede95eb5813874ef75311268f36512a1d7246907b7874048551c",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 517,
+        "end_line": 539
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFailedWatchdogConfirmationDoesNotReleaseDrainEvenWhenPendingClears",
+      "category": "unit",
+      "baseline_sha256": "6f4d367f429c1549b7d000ca71b8fe443225cb4a5a48852e1359d672d2b94dc1",
+      "current_sha256": "6f4d367f429c1549b7d000ca71b8fe443225cb4a5a48852e1359d672d2b94dc1",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 1013,
+        "end_line": 1032
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRecoveryRejectsUnprovenAbsence",
+      "category": "unit",
+      "baseline_sha256": "d7c8cd3d5af5d5a84fbb96d82096fa4133d45d1a9ab4b06ec4841b8e61713cd0",
+      "current_sha256": "d7c8cd3d5af5d5a84fbb96d82096fa4133d45d1a9ab4b06ec4841b8e61713cd0",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 766,
+        "end_line": 809
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestFirstInstallRollbackReturnsRestoredAbsence",
+      "category": "unit",
+      "baseline_sha256": "6db7232f865d0c8979155646221d0435766c15756ee9ac8d05d1436d5dfb6763",
+      "current_sha256": "6db7232f865d0c8979155646221d0435766c15756ee9ac8d05d1436d5dfb6763",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 689,
+        "end_line": 714
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLateMeshHealthGetsASeparateConfirmationWindow",
+      "category": "unit",
+      "baseline_sha256": "3a39acab568366246048923bd3587e58a71c87e7c344f4845da767151d0751d1",
+      "current_sha256": "3a39acab568366246048923bd3587e58a71c87e7c344f4845da767151d0751d1",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 190,
+        "end_line": 214
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesDrainedNodeWhenPersistingInstallPhaseFails",
+      "category": "unit",
+      "baseline_sha256": "ce6580dcfa4bb90eb4ed331b4b98d95d6d3712659db1d9c7e1fd09eaea33d912",
+      "current_sha256": "ce6580dcfa4bb90eb4ed331b4b98d95d6d3712659db1d9c7e1fd09eaea33d912",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 935,
+        "end_line": 958
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLeaderResumesOriginalPinAfterPinChangesAndInstallReplyIsLost",
+      "category": "unit",
+      "baseline_sha256": "0d4dc80ac5dde291eff7489fa285d29046d7bc791eb40dab6426d0a73c551f46",
+      "current_sha256": "0d4dc80ac5dde291eff7489fa285d29046d7bc791eb40dab6426d0a73c551f46",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 902,
+        "end_line": 933
+      }
+    },
+    {
+      "root_id": "internal/netbird/rollout/reconcile_test.go::TestLegacyFailedRecordsRequireRollbackAcknowledgmentOnPinChanges",
+      "category": "unit",
+      "baseline_sha256": "daeecb3b684c931d1e38cd2199750dfbde1ba5b8e0b60cb6aa0349fed98372c3",
+      "current_sha256": "daeecb3b684c931d1e38cd2199750dfbde1ba5b8e0b60cb6aa0349fed98372c3",
+      "bounds": {
+        "path": "internal/netbird/rollout/reconcile_test.go",
+        "commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+        "git_blob": "6bb03ebb5799cd7579b16c683a30ba62fd1d56af",
+        "line": 811,
+        "end_line": 844
+      }
+    }
+  ],
+  "checks_performed": [
+    "Independently read20entire current roots and their exact actual fixture/callee declarations from canonical Git. No category copied without actual call-path review.",
+    "Verified allocation/accounting literal identities, survival original/current names/state/hashes;40baseline/current raw declaration texts,bounds,hashes and blobs. Baseline test blobs equal canonical.",
+    "Verified8source/baseline file blob/mode/SHA256/byte pins and43exact assertion/connected source spans against canonical Git.",
+    "Verified packet SHA256,checksum SHA256 and sha256sum-c output; immutable directory0555/files0444.",
+    "Followed observe->status->command->stub runner; incidental hosts data is untouched by observe. Followed rollout Tick->fixture callbacks, memory JSON journal/status/effects, target/version predicates, entity IDs. No actual store,daemon,LB,worker,mesh,TerraBase or host executable supports target assertions."
+  ],
+  "source_findings": [],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Accepted as source-only category evidence only. No runtime receipts reviewed and no execution.",
+    "All20unit roots retain original safety/negative/order/recovery obligations; no deletion or retirement authority.",
+    "No ledger mutation, count promotion, qualification transfer or global completion credit."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "ledger_mutated": false,
+    "retirement_delta": 0,
+    "qualification_delta": 0,
+    "count_promotion": false,
+    "global_completion": false
+  }
+}

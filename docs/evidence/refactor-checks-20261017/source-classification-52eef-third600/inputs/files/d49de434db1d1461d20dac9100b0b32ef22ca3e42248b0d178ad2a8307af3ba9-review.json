@@ -1,0 +1,80 @@
+{
+  "schema": "independent-source-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_2360_2380",
+  "author": "/root/classification_100_dispatch/batch_2380_2400",
+  "decision": "ACCEPT_EXACT_SOURCE_ONLY_PACKET",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-2380-2400-df5_ri7m/classification.json",
+    "sha256": "1926c3c34f0f563ac85926fef022ac9f0379175528472bd1b22112be679db7af",
+    "checksum_path": "/tmp/ts-source-2380-2400-df5_ri7m/SHA256SUMS",
+    "checksum_sha256": "89e2e12dd28ff79f4f0ccbe03eac3dd937630f5f1e38d5cf6e58a2dec89a31b2"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "literal_range": [
+    2380,
+    2400
+  ],
+  "root_ids": [
+    "internal/observability/session_test.go::TestFailedTokenRotationPreservesActiveSessions",
+    "internal/observability/session_test.go::TestFinalGenerationReadOutageFailsClosed",
+    "internal/observability/session_test.go::TestGuardedPagesRedirectBrowsersButNotBearerOrStreams",
+    "internal/observability/session_test.go::TestHandleLoginAfterServingDoesNotRace",
+    "internal/observability/session_test.go::TestListenerRetriesDeferredCollectionAndStopsOnCloseOrCancellation",
+    "internal/observability/session_test.go::TestLoginExchangesTokenForSessionCookie",
+    "internal/observability/session_test.go::TestLoginRestrictsRedirectsToLocalPaths",
+    "internal/observability/session_test.go::TestLogoutUnknownCookiesNeverWritesAndReusedSlotsRemainValid",
+    "internal/observability/session_test.go::TestLostAllocationAcknowledgmentRollsBackCommittedWrite",
+    "internal/observability/session_test.go::TestRotationBetweenReconciliationAndAllocationRejectsLoginAndRemovesRecord",
+    "internal/observability/session_test.go::TestSameOriginForms",
+    "internal/observability/session_test.go::TestSessionCapacityIsSharedAndRotationReclaimsIt",
+    "internal/observability/session_test.go::TestSessionCookieIgnoredWithoutDashboardLogin",
+    "internal/observability/session_test.go::TestSessionReadOutagesReturn503WithoutLosingTheCookie",
+    "internal/observability/session_test.go::TestSessionReadsHonorRequestCancellation",
+    "internal/observability/session_test.go::TestSessionStorageFailuresFailClosed",
+    "internal/observability/session_test.go::TestSessionsPersistAndTokenRotationRevokesPermanently",
+    "internal/observability/session_test.go::TestSessionsSurviveBrokerRestart",
+    "internal/observability/session_test.go::TestSteadyStateSessionValidationUsesTwoLeaderReads",
+    "internal/observability/session_test.go::TestTokenRotationBetweenSessionReadsRejectsOldGeneration"
+  ],
+  "counts": {
+    "integration": 8,
+    "unit": 6,
+    "mixed": 6,
+    "unresolved": 0
+  },
+  "checks_performed": {
+    "independent_full_root_reads": 20,
+    "actual_connected_paths_read": true,
+    "literal_allocation_and_survival_mappings": 20,
+    "baseline_current_raw_declarations_and_hashes": 40,
+    "exact_text_spans_checked": 113,
+    "git_blob_mode_sha256_byte_file_pins_checked": 5,
+    "input_hashes_verified": true,
+    "assertion_and_callee_text_exact": true,
+    "categories_independently_reviewed": 20,
+    "packet_checksum_and_immutable_modes_verified": true
+  },
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "source_review_notes": [
+    "The single-replica session fixture starts upstream NATS directly with file-backed JetStream and nats.Connect over loopback TCP; no natscell.Start, production TLS/JWT or in-process transport claimed.",
+    "Direct request recorders alone remain unit. Guard-only and synthetic-only cancellation/storage paths are unit even with real fixture setup.",
+    "Mixed roots identify separate local guard/cookie/shape/bearer/cancellation blocks alongside actual store-dependent issue/revoke/readback. Same-origin accepted issuance/revocation traverses the shared store; its rejected requests remain local guards.",
+    "Rotation, revision reuse, lost acknowledgment, broker restart and two-read ordering categories are tied to actual delegated operations and stored-state responses. Hook-synthesized errors and local wait branches are expressly limited.",
+    "No contradictory source blocker, stale mapping, missing allocation ID or unsupported runtime success claim identified."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "accounting_effect": {
+    "repository_mutated": false,
+    "ledger_mutated": false,
+    "count_promotion": false,
+    "deletion_credit": 0,
+    "retirement_credit": 0,
+    "runtime_qualification_credit": 0,
+    "global_completion_credit": false
+  }
+}

@@ -1,0 +1,273 @@
+{
+  "schema": "source-only-independent-peer-review-v1",
+  "reviewer": "/root/classification_100_dispatch/batch_1980_2000",
+  "author": "/root/classification_100_dispatch/batch_2000_2020",
+  "decision": "ACCEPTED_SOURCE_ONLY_CANDIDATE",
+  "accepted_packet": {
+    "path": "/tmp/ts-source-classification-2000-2020-final-4ah23val/classification.json",
+    "sha256": "9cf4074a8a808c0e1ee0a48c6f6aee801ca8c2acb844f1a838f63004443e473a",
+    "checksum_path": "/tmp/ts-source-classification-2000-2020-final-4ah23val/SHA256SUMS",
+    "checksum_sha256": "d453c0fb9dec340ab08624eef1893f6a62d8b6a183b2bb7fc94f1a889609cda0"
+  },
+  "allocation": {
+    "path": "/tmp/ts-root600-third-source-dispatch-ayuyl5l9/allocation-and-exclusions.json",
+    "sha256": "0a58f484e3713e2b63febbae62637ce90101086dcee3c0ec1b2fe21459f9e09e",
+    "range": "original_root_ids_by_disposition.other_unadjudicated[2000:2020]",
+    "independent_peer_owner": "/root/classification_100_dispatch/batch_1980_2000"
+  },
+  "source_commit": "52eef25bad09736d8f0806ecaccaef1a7c86b49e",
+  "source_tree": "425f29503c1880f68c0499a8372e08b466f370de",
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "root_ids": [
+    "internal/natscell/global_grants_test.go::TestSubjectCoversMatchesNATSWildcards",
+    "internal/natscell/global_grants_test.go::TestSubjectsIntersect",
+    "internal/natscell/health_review_test.go::TestObserveClusterReportsDisabledJetStream",
+    "internal/natscell/health_review_test.go::TestStreamHealthReportsUnreplicatedStreamsOnThisBroker",
+    "internal/natscell/health_review_test.go::TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports",
+    "internal/natscell/host_reconnect_test.go::TestHostClientLeavesBlackholedPeerBeforeSessionReserve",
+    "internal/natscell/identity_rekey_installation_test.go::TestIdentityRekeyNodeObservationRejectsForeignAndIndirectPins",
+    "internal/natscell/identity_rekey_installation_test.go::TestIdentityRekeyPinsObservedNodeWithoutReplacingStore",
+    "internal/natscell/installation_identity_test.go::TestInstallationPinPublicationCannotReplaceConcurrentOwner",
+    "internal/natscell/installation_identity_test.go::TestInstallationPinPublicationUsesHeldDirectory",
+    "internal/natscell/installation_identity_test.go::TestObserveInstalledIdentityDoesNotCreateOrRepairPins",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityChecksBothPinsBeforePublishing",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityPreservesCurrentStore",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRecoversPinsOnlyOnEmptyStore",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRefusesUnpinnedJetStreamState",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRejectsIndirectDirectories",
+    "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRejectsUnsafePinsWithoutMutation",
+    "internal/natscell/interregion_config_test.go::TestInterRegionConfigFailsClosed",
+    "internal/natscell/interregion_config_test.go::TestInterRegionRejectsRemovedEnabledField",
+    "internal/natscell/interregion_config_test.go::TestLeafCredentialsMustBeLeafOnlyPeerUsers"
+  ],
+  "counts": {
+    "integration": 12,
+    "unit": 6,
+    "mixed": 2,
+    "unresolved": 0
+  },
+  "checks_performed": [
+    "Independently read all20 full current root declarations and all four changed baseline declarations; unchanged baseline raw identity verified against canonical blobs.",
+    "Followed actual production fixtures into natscell.Start, embedded in-process protocol clients, external mTLS bridge/proxy, JetStream APIs, installation descriptor-based publication/readback, and local validation paths.",
+    "Verified exact activated allocation/literal root order and original survival identities; all20 roots retained with no scope expansion.",
+    "Verified40baseline/current raw declaration bounds/text/SHA256 (excluding closing LF),29canonical source-file blob/mode/SHA256/byte pins, and143exact assertion/connected excerpt texts/hashes/bounds/blob fields.",
+    "Verified input hashes, packet and SHA256SUMS hashes, listed checksums, files0444 and directory0555; metadata checks ran nice19/login:false."
+  ],
+  "root_reviews": [
+    {
+      "root_id": "internal/natscell/global_grants_test.go::TestSubjectCoversMatchesNATSWildcards",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Literal wildcard coverage vector only; subjectCovers local booleans.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/global_grants_test.go::TestSubjectsIntersect",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Constructed wildcard intersection/allow/deny patterns only; no server or storage.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/health_review_test.go::TestObserveClusterReportsDisabledJetStream",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual embedded JetStream is shut down and runtime monitoring APIs inspect disabled state.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/health_review_test.go::TestStreamHealthReportsUnreplicatedStreamsOnThisBroker",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Actual CreateKeyValue and StreamHealth readback plus separate nil Runtime pre-I/O guard.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/health_review_test.go::TestStreamLaggingJudgesEveryReplicaAsItsLeaderReports",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Constructed StreamInfo/PeerInfo data reaches only StreamLagging predicate.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/host_reconnect_test.go::TestHostClientLeavesBlackholedPeerBeforeSessionReserve",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Host mTLS/JWT NATS traffic crosses loopback proxy to actual production brokers; blackhole drops bytes before reconnect endpoint/timing readback.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/identity_rekey_installation_test.go::TestIdentityRekeyNodeObservationRejectsForeignAndIndirectPins",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual installation reads reject foreign/missing/indirect pins; pin bytes retained on refusal. No serving-process identity proof.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/identity_rekey_installation_test.go::TestIdentityRekeyPinsObservedNodeWithoutReplacingStore",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual missing pin publication, production readback, retry inode/owner checks and serving byte preservation.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestInstallationPinPublicationCannotReplaceConcurrentOwner",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Concurrent no-replace pin publications and winning owner readback through held directory descriptor.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestInstallationPinPublicationUsesHeldDirectory",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual renamed directory retains descriptor authority; moved pin bytes read back and symlink victim remains empty.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestObserveInstalledIdentityDoesNotCreateOrRepairPins",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Read-only installed identity observation leaves missing directories/pins absent and metadata unchanged.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityChecksBothPinsBeforePublishing",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Production checks both on-disk pins before missing-pin creation or ownership mutation; directory entries/stat readback unchanged.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityPreservesCurrentStore",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Production nested/current-store preparation writes/reads pins; identity, modes, owners, inodes and serving bytes checked.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRecoversPinsOnlyOnEmptyStore",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual empty store missing pin repaired and original Raft ID re-observed by production.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRefusesUnpinnedJetStreamState",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual populated/symlink JetStream directory refuses pin adoption; surviving bytes/stat and missing pins read back.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRejectsIndirectDirectories",
+      "category": "mixed",
+      "decision": "accepted",
+      "independent_evidence": "Actual no-follow descriptor operations plus separate lexical unclean/relative/create-root guards; mixed scope correct.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/installation_identity_test.go::TestPrepareInitialInstallationIdentityRejectsUnsafePinsWithoutMutation",
+      "category": "integration",
+      "decision": "accepted",
+      "independent_evidence": "Actual unsafe pin file modes/types/links/bytes reach no-follow reads and before/after inode metadata assertions.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_config_test.go::TestInterRegionConfigFailsClosed",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "In-memory interregion config/URL/topology validation and strict removed-lab JSON rejection; setup files incidental.",
+      "canonical_body_drift": true,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_config_test.go::TestInterRegionRejectsRemovedEnabledField",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Literal enabled JSON member rejection through strict schema decode.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    },
+    {
+      "root_id": "internal/natscell/interregion_config_test.go::TestLeafCredentialsMustBeLeafOnlyPeerUsers",
+      "category": "unit",
+      "decision": "accepted",
+      "independent_evidence": "Credential fixture bytes parsed and permission/issuer predicates checked locally; no peer leaf server/client admission.",
+      "canonical_body_drift": false,
+      "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+      "retirement_authorized": false,
+      "safety_obligations_retained": true
+    }
+  ],
+  "resolved_findings": [],
+  "remaining_findings": [],
+  "qualification_limits": [
+    "Source-only acceptance; independent classification agreement does not provide runtime results.",
+    "All original assertions/obligations preserved, including four canonical declaration drifts.",
+    "Filesystem pin scenarios prove actual publication/readback/refusal but do not qualify a serving deployment; fixture Raft IDs come from prepared unstarted server.",
+    "Credential/schema/predicate fixtures remain unit even when read from files; nil runtime and lexical pre-I/O guards remain mixed local obligations.",
+    "Blackhole scenario models loopback sockets, not a live VM/TAP/signed-session deployment."
+  ],
+  "runtime": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION",
+  "no_ledger_count_deletion_retirement_completion_credit": true,
+  "retirement_authorized": false,
+  "safety_obligations_retained": true,
+  "execution_performed": false,
+  "repository_mutations": false
+}
