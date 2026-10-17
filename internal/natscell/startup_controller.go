@@ -13,11 +13,12 @@ import (
 	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/server"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
 )
 
-// Pin the claim actually authenticated by this broker, never a later read of
-// the controller's writable credential path or a caller-supplied identity.
-func (r *Runtime) captureStartupController() error {
+// Pin the actual native JWT before retaining its matching root-owned key.
+// Remote probes never reread the original credential path.
+func (r *Runtime) captureStartupController(cfg Config) error {
 	cid, err := r.conn.GetClientID()
 	if err != nil {
 		return err
@@ -31,7 +32,25 @@ func (r *Runtime) captureStartupController() error {
 	if err != nil || claim.Subject != connection.AuthorizedUser || credentialAccount(claim) != r.resolver.cell {
 		return errors.New("private startup requires the original native controller JWT")
 	}
-	r.controllerJWT = connection.JWT
+	material, err := readPrivateFile(cfg.CredentialsFile, 64<<10)
+	if err != nil {
+		return err
+	}
+	defer clear(material)
+	raw, err := nkeys.ParseDecoratedJWT(material)
+	if err != nil || raw != connection.JWT {
+		return errors.New("root controller credential differs from its authenticated original JWT")
+	}
+	pair, err := nkeys.ParseDecoratedUserNKey(material)
+	if err != nil {
+		return err
+	}
+	public, err := pair.PublicKey()
+	if err != nil || public != claim.Subject {
+		pair.Wipe()
+		return errors.New("root controller key differs from its authenticated original subject")
+	}
+	r.controllerJWT, r.controllerKey = connection.JWT, pair
 	return nil
 }
 

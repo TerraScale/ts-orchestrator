@@ -169,6 +169,10 @@ func rootBrokerReaderContext(parent, original context.Context) (context.Context,
 }
 
 func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBrokerOperation, timeout time.Duration) (response rootBrokerResponse, err error) {
+	return reader.invokeRequest(parent, rootBrokerRequest{Operation: operation}, timeout)
+}
+
+func (reader *rootBrokerReader) invokeRequest(parent context.Context, request rootBrokerRequest, timeout time.Duration) (response rootBrokerResponse, err error) {
 	if reader == nil || reader.ctx == nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
@@ -189,7 +193,7 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 	if ctx.Err() != nil {
 		return rootBrokerResponse{}, context.Cause(ctx)
 	}
-	wire, err := json.Marshal(rootBrokerRequest{Operation: operation})
+	wire, err := json.Marshal(request)
 	if err != nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
@@ -222,7 +226,7 @@ func (reader *rootBrokerReader) invoke(parent context.Context, operation rootBro
 	if err != nil {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable
 	}
-	response, err = decodeRootBrokerResponse(reply, operation)
+	response, err = decodeRootBrokerResponse(reply, request.Operation)
 	if err := reader.verify(socket); err != nil {
 		return rootBrokerResponse{}, err
 	}
@@ -321,6 +325,8 @@ func decodeRootBrokerResponse(wire []byte, operation rootBrokerOperation) (rootB
 		valid = response.Account != nil
 	case rootBrokerCredentials:
 		valid = response.Credentials != nil
+	case rootBrokerNetBirdProbe:
+		valid = response.NetBirdProbe != nil
 	}
 	if !valid {
 		return rootBrokerResponse{}, rootoci.ErrUnavailable

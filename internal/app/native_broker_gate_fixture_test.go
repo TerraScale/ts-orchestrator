@@ -354,3 +354,7 @@ type fixtureBrokerNative struct{ *natscell.Runtime }
 func (fixtureBrokerNative) CredentialExpiries(ctx context.Context) ([]observability.CredentialView, error) {
 	return []observability.CredentialView{}, ctx.Err()
 }
+
+func (fixtureBrokerNative) ProbeNetBirdController(context.Context, rootBrokerNetBirdProbeRequest) error {
+	return errors.New("native fixture has no authenticated remote NetBird probe")
+}

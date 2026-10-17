@@ -164,6 +164,8 @@ type Runtime struct {
 	bridge          *Bridge
 	brokerTLS       *ReloadingTLS
 	controllerJWT   string
+	controllerKeyMu sync.Mutex
+	controllerKey   nkeys.KeyPair
 	claimMu         sync.Mutex
 	appliedSequence uint64
 	serverName      string
@@ -313,6 +315,12 @@ func (r *Runtime) Close() error {
 		return nil
 	}
 	r.once.Do(func() {
+		r.controllerKeyMu.Lock()
+		if r.controllerKey != nil {
+			r.controllerKey.Wipe()
+			r.controllerKey = nil
+		}
+		r.controllerKeyMu.Unlock()
 		if r.bridge != nil {
 			r.bridge.Close()
 		}
@@ -464,7 +472,7 @@ func start(ctx context.Context, cfg Config, identityRekey bool, initial net.Conn
 		return nil, unavailable{err}
 	}
 	if cfg.Embedded != nil {
-		if err := r.captureStartupController(); err != nil {
+		if err := r.captureStartupController(cfg); err != nil {
 			return nil, err
 		}
 		systemCfg := cfg

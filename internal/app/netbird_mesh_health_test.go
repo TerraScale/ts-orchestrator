@@ -43,8 +43,10 @@ func TestNetBirdMeshConfirmationRequiresSelectedIPTraffic(t *testing.T) {
 	// carries no traffic. Keep the real health path and provide only DNS.
 	netbirdMeshDNS(t, [4]byte{10, 200, 1, 2})
 	for _, test := range []struct {
-		name  string
-		hosts netbirdMeshHosts
+		name       string
+		hosts      netbirdMeshHosts
+		controller bool
+		want       string
 	}{
 		{name: "no roles"},
 		{name: "all roles withdrawn", hosts: netbirdMeshHosts{
@@ -58,14 +60,23 @@ func TestNetBirdMeshConfirmationRequiresSelectedIPTraffic(t *testing.T) {
 			roles:   []string{"worker"},
 			desired: []host.Desired{{Node: "joining-node", Role: "worker", Generation: 1}},
 		}},
+		{name: "controller without a root remote probe", controller: true, want: "root-owned remote NATS probe is unavailable", hosts: netbirdMeshHosts{
+			roles:   []string{"controller"},
+			desired: []host.Desired{{Node: "joining-node", Role: "controller", Generation: 1}},
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			r := netbirdRollout{fence: &releaseFence{hosts: test.hosts,
 				spec: func() (*cellspec.ReleaseFence, map[string]string) {
 					return &cellspec.ReleaseFence{}, map[string]string{}
 				}}}
+			r.nodes = &nodeOps{controllers: func(string) bool { return test.controller }}
 			status := network.Status{Connected: true, IP: "10.200.1.2", DNS: "joining-node.nb.ts.internal"}
-			if err := r.healthy(t.Context(), "joining-node", status, time.Time{}); err == nil || !strings.Contains(err.Error(), "no active service endpoint") {
+			want := test.want
+			if want == "" {
+				want = "no active service endpoint"
+			}
+			if err := r.healthy(t.Context(), "joining-node", status, time.Time{}); err == nil || !strings.Contains(err.Error(), want) {
 				t.Fatalf("management, DNS and host reports confirmed an unprobed mesh IP: %v", err)
 			}
 		})

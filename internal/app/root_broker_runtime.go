@@ -241,7 +241,14 @@ func (broker *rootBrokerRuntime) serveObservations(parent context.Context, conn 
 	if guard() != nil {
 		return
 	}
-	response, err := broker.observe(ctx, request.Operation)
+	var response rootBrokerResponse
+	if request.Operation == rootBrokerNetBirdProbe && request.NetBirdProbe != nil {
+		response.NetBirdProbe, err = broker.probeNetBirdController(ctx, *request.NetBirdProbe, guard)
+	} else if request.NetBirdProbe != nil || request.Operation == rootBrokerNetBirdProbe {
+		err = rootoci.ErrInvalid
+	} else {
+		response, err = broker.observe(ctx, request.Operation)
+	}
 	if err != nil && !(request.Operation == rootBrokerCluster && response.Cluster != nil && errors.Is(err, natscell.ErrEmbeddedServerStopped)) {
 		response = rootBrokerResponse{Error: rootBrokerErrorCode(err)}
 	}

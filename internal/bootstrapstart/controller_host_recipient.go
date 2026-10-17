@@ -74,6 +74,7 @@ func (proof *ControllerHostRecipient) PrivateIP() string      { return proof.pri
 func (proof *ControllerHostRecipient) OCIRegion() string      { return proof.region }
 func (proof *ControllerHostRecipient) Environment() string    { return proof.issuer.Environment }
 func (proof *ControllerHostRecipient) SpecSHA256() string     { return digestWire(proof.spec) }
+func (proof *ControllerHostRecipient) ExpiresAt() time.Time   { return proof.validUntil }
 
 // Valid is a cheap final check after task reads. Verification never extends the
 // constructor's fixed observation interval or any signed authority deadline.
