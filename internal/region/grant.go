@@ -35,20 +35,21 @@ var ErrFoundationGrantPending = errors.New("authenticated foundation grant is pe
 // FoundationGrant is a separate root authorization. A bootstrap anchor, region
 // subscription or permission to read OCI never authorizes foundation spending.
 type FoundationGrant struct {
-	WorkerProfiles      []WorkerProfile                   `json:"workerProfiles,omitempty"`
-	ReleaseAuthorities  []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
-	InstallationID      string                            `json:"installationId"`
-	SchemaVersion       int                               `json:"schemaVersion"`
-	Generation          uint64                            `json:"generation"`
-	TenancyID           string                            `json:"tenancyId"`
-	ParentCompartmentID string                            `json:"parentCompartmentId"`
-	SharedCompartmentID string                            `json:"sharedCompartmentId"`
-	Currency            string                            `json:"currency"`
-	MonthlyLimitMinor   int64                             `json:"monthlyLimitMinor"`
-	CleanupOwner        string                            `json:"cleanupOwner"`
-	Regions             []FoundationIntent                `json:"regions"`
-	InfrastructureSpend *InfrastructureSpendIntent        `json:"infrastructureSpend,omitempty"`
-	OCIRIssuances       []OCIRIssuerIntent                `json:"ocirIssuances,omitempty"`
+	RootOperationJournals []RootOperationJournalPurpose     `json:"rootOperationJournals,omitempty"`
+	WorkerProfiles        []WorkerProfile                   `json:"workerProfiles,omitempty"`
+	ReleaseAuthorities    []ContainerReleaseAuthorityIntent `json:"releaseAuthorities,omitempty"`
+	InstallationID        string                            `json:"installationId"`
+	SchemaVersion         int                               `json:"schemaVersion"`
+	Generation            uint64                            `json:"generation"`
+	TenancyID             string                            `json:"tenancyId"`
+	ParentCompartmentID   string                            `json:"parentCompartmentId"`
+	SharedCompartmentID   string                            `json:"sharedCompartmentId"`
+	Currency              string                            `json:"currency"`
+	MonthlyLimitMinor     int64                             `json:"monthlyLimitMinor"`
+	CleanupOwner          string                            `json:"cleanupOwner"`
+	Regions               []FoundationIntent                `json:"regions"`
+	InfrastructureSpend   *InfrastructureSpendIntent        `json:"infrastructureSpend,omitempty"`
+	OCIRIssuances         []OCIRIssuerIntent                `json:"ocirIssuances,omitempty"`
 }
 
 // BootstrapMaterialIntent explicitly authorizes credential generation. Its
@@ -461,6 +462,9 @@ func (s *SignedFootprint) verifyGrant(wire []byte) (ApprovedFootprint, time.Time
 		return ApprovedFootprint{}, time.Time{}, errors.New("foundation scope schema invalid")
 	}
 	if err := validateNetBirdJournalPurpose(grant, envelope.ExpiresAt); err != nil {
+		return ApprovedFootprint{}, time.Time{}, err
+	}
+	if err := validateRootOperationJournals(grant, envelope.ExpiresAt); err != nil {
 		return ApprovedFootprint{}, time.Time{}, err
 	}
 	if grant.InstallationID != s.home.InstallationID || (grant.SchemaVersion != 1 && grant.SchemaVersion != 2) || grant.Generation != s.home.GrantGeneration || grant.TenancyID != s.tenancy || grant.MonthlyLimitMinor <= 0 ||

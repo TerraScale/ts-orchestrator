@@ -108,6 +108,54 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(prepared.Grant.RootOperationJournals) != 3 {
+		t.Fatal("preparation omitted the explicit future own-cell root operation purposes")
+	}
+	for _, purpose := range prepared.Grant.RootOperationJournals {
+		if purpose.Storage != approval.HomeStorageDomain || purpose.RecordLimit != RootOperationJournalRecordLimit ||
+			purpose.ObjectPrefix != rootOperationJournalPrefix+prepared.Grant.InstallationID+"/"+purpose.Cell+"/" ||
+			purpose.BucketRole != "immutable-ledger" || purpose.Access != "conditional-create-exact-read-no-overwrite-delete-list-or-phase-v1" ||
+			purpose.Authority != "original-writer-birth-grant-only-no-renewal-v1" {
+			t.Fatal("prepared root operation purpose widened its fixed storage or immutable access")
+		}
+	}
+	t.Run("root_operation_purpose_is_explicit_and_exact", func(t *testing.T) {
+		for _, field := range []string{"storage", "writer", "prefix", "limit", "phase", "renewal", "duplicate"} {
+			t.Run(field, func(t *testing.T) {
+				changed := prepared.Grant
+				changed.RootOperationJournals = slices.Clone(prepared.Grant.RootOperationJournals)
+				purpose := &changed.RootOperationJournals[0]
+				switch field {
+				case "storage":
+					purpose.Storage.LedgerBucket = purpose.Storage.HeadBucket
+				case "writer":
+					purpose.WriterProfile = strings.Repeat("a", 64)
+				case "prefix":
+					purpose.ObjectPrefix += "other/"
+				case "limit":
+					purpose.RecordLimit++
+				case "phase":
+					purpose.Access = "overwrite-phase"
+				case "renewal":
+					purpose.Authority = "renew-under-new-grant"
+				case "duplicate":
+					changed.RootOperationJournals[1] = *purpose
+				}
+				if validateRootOperationJournals(changed, time.Time{}) == nil {
+					t.Fatal("changed root operation purpose was accepted")
+				}
+			})
+		}
+		if validateRootOperationJournals(prepared.Grant, prepared.Grant.RootOperationJournals[0].ExpiresAt.Add(-time.Second)) == nil {
+			t.Fatal("purpose outlived the final signed grant")
+		}
+		historical := prepared.Grant
+		historical.RootOperationJournals = nil
+		if err := validateRootOperationJournals(historical, time.Time{}); err != nil {
+			t.Fatal("historical grant became unreadable", err)
+		}
+
+	})
 	// The pure preparation helper leaves worker policy to its caller; the SDK
 	// producer normally fills this same finite policy before offline signing.
 	for _, region := range prepared.Grant.Regions {

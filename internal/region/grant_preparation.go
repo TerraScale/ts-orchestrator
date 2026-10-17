@@ -279,6 +279,10 @@ func PrepareFoundationGrant(ctx context.Context, input FoundationPreparationInpu
 	if err != nil {
 		return FoundationPreparation{}, err
 	}
+	grant.RootOperationJournals, err = preparedRootOperationJournals(grant, journalExpiry)
+	if err != nil {
+		return FoundationPreparation{}, err
+	}
 	grant.OCIRIssuances, err = prepareFoundationOCIRIssuers(grant)
 	if err != nil {
 		return FoundationPreparation{}, err
@@ -587,5 +591,8 @@ func ValidatePreparedFoundation(grant FoundationGrant) error {
 			return errors.New("NetBird allocation differs from its exact signed startup recipe")
 		}
 	}
-	return validateNetBirdJournalPurpose(grant, time.Time{})
+	if err := validateNetBirdJournalPurpose(grant, time.Time{}); err != nil {
+		return err
+	}
+	return validateRootOperationJournals(grant, time.Time{})
 }
