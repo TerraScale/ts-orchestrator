@@ -80,3 +80,44 @@ func TestFoundationPublicationCLIRejectsInputBeforeOCI(t *testing.T) {
 		t.Fatalf("canceled publication: %v", err)
 	}
 }
+
+func TestFoundationProvisionCLIRejectsInputBeforeOCI(t *testing.T) {
+	directory := t.TempDir()
+	malformed := filepath.Join(directory, "malformed.json")
+	invalid := filepath.Join(directory, "invalid.json")
+	oversized := filepath.Join(directory, "oversized.json")
+	link := filepath.Join(directory, "symlink.json")
+	writeFixture(t, malformed, []byte(`{"unknown":true}`), 0o644)
+	writeFixture(t, invalid, []byte(`{}`), 0o644)
+	writeFixture(t, oversized, bytes.Repeat([]byte(" "), maxFoundationBundleBytes+1), 0o644)
+	if err := os.Symlink(invalid, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "missing bundle", args: []string{"foundation", "provision"}, want: "exactly one signed BUNDLE"},
+		{name: "extra argument", args: []string{"foundation", "provision", invalid, "extra"}, want: "exactly one signed BUNDLE"},
+		{name: "unknown field", args: []string{"foundation", "provision", malformed}, want: "unknown"},
+		{name: "invalid authority", args: []string{"foundation", "provision", invalid}, want: "retained foundation has invalid locators or document bounds"},
+		{name: "symlink", args: []string{"foundation", "provision", link}, want: "must be a regular file"},
+		{name: "oversized", args: []string{"foundation", "provision", oversized}, want: "exceeds the"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var output bytes.Buffer
+			if err := Run(t.Context(), scenario.args, &output); err == nil || !strings.Contains(err.Error(), scenario.want) {
+				t.Fatalf("input did not fail before OCI credential loading: %v", err)
+			}
+			if output.Len() != 0 {
+				t.Fatalf("rejected provisioning wrote output: %q", output.String())
+			}
+		})
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := Run(ctx, []string{"foundation", "provision", invalid}, &bytes.Buffer{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled provisioning: %v", err)
+	}
+}

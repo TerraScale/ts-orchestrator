@@ -111,3 +111,33 @@ func (c command) publishFoundation(args []string) error {
 	_, err = fmt.Fprintln(c.output, "published exact signed foundation bundle")
 	return err
 }
+
+func (c command) provisionFoundation(args []string) error {
+	if len(args) != 2 || args[0] != "provision" || args[1] == "" {
+		return errors.New("foundation provision requires exactly one signed BUNDLE path")
+	}
+	wire, err := c.readBoundedRegular(args[1], maxFoundationBundleBytes)
+	if err != nil {
+		return err
+	}
+	var bundle region.RetainedFoundation
+	if err := protocol.DecodeStrict(wire, &bundle, maxFoundationBundleBytes); err != nil {
+		return err
+	}
+	roots, err := trust.DiscoveryGenesis()
+	if err != nil {
+		return err
+	}
+	if err := region.VerifyFoundationProvisionBundle(c.ctx, roots, bundle); err != nil {
+		return err
+	}
+	factory, err := ociclient.OperatorConfig("sa-saopaulo-1")
+	if err != nil {
+		return err
+	}
+	if err := region.ProvisionFoundationBundle(c.ctx, factory, roots, bundle); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(c.output, "provisioned signed foundation and published discovery")
+	return err
+}

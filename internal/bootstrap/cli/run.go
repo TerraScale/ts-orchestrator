@@ -19,6 +19,7 @@ Commands:
   sign-foundation
   prepare-foundation
   publish-foundation
+  foundation provision BUNDLE
   sign-manifest
   sign-material-generation
   sign-accepted-identity-checkpoint
