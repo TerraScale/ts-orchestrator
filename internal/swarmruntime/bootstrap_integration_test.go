@@ -48,7 +48,7 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	})
 	start := func(directory string, binding bootstrapstart.RuntimeIdentity) *Node {
 		t.Helper()
-		n, err := startAcceptedNodeAt(ctx, directory, binding, target, vaultClient, bundles, bootstrapHostExecutor{}, refresh)
+		n, err := startAcceptedNodeAt(ctx, directory, binding, target, vaultClient, bundles, bootstrapHostExecutor{}, refresh, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,12 +98,12 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	if creates != 1 {
 		t.Fatalf("restart regenerated Vault material: %d creates", creates)
 	}
-	if _, err := startAcceptedNodeAt(ctx, t.TempDir(), identity, target, vaultClient, bundles, nodeIdleExecutor{}, refresh); err == nil {
+	if _, err := startAcceptedNodeAt(ctx, t.TempDir(), identity, target, vaultClient, bundles, nodeIdleExecutor{}, refresh, nil); err == nil {
 		t.Fatal("empty replacement disk re-founded an existing Vault-bound cluster")
 	}
 	changed := identity
 	changed.ClusterID = "0000000000NBCYX286D4RHE6ZP"
-	if _, err := startAcceptedNodeAt(ctx, founderDir, changed, target, vaultClient, bundles, nodeIdleExecutor{}, refresh); err == nil {
+	if _, err := startAcceptedNodeAt(ctx, founderDir, changed, target, vaultClient, bundles, nodeIdleExecutor{}, refresh, nil); err == nil {
 		t.Fatal("existing node accepted another signed cluster scope")
 	}
 
@@ -115,7 +115,7 @@ func TestBootstrapVaultIntegration(t *testing.T) {
 	fixture.mu.Lock()
 	fixture.denyCreate = true
 	fixture.mu.Unlock()
-	if _, err := startAcceptedNodeAt(ctx, interruptedDir, interrupted, target, vaultClient, bundles, nodeIdleExecutor{}, refresh); err == nil {
+	if _, err := startAcceptedNodeAt(ctx, interruptedDir, interrupted, target, vaultClient, bundles, nodeIdleExecutor{}, refresh, nil); err == nil {
 		t.Fatal("interrupted Vault publication reported success")
 	}
 	caPath := filepath.Join(interruptedDir, "node", "certificates", "swarm-root-ca.crt")
