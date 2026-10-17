@@ -23,13 +23,13 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 )
 
-const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|regions|region|nodes|node|services|service|functions|function|volumes|volume> [flags]
+const observeHelp = `Usage: ts-orch observe <metrics|history|snapshot|cluster|events|decisions|insights|summary|logs|regions|region|nodes|node|services|service|functions|function|volumes|volume> [flags]
 
 Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --region REGION        Select an admitted region; authenticated discovery supplies endpoints
   --cell CELL            Resource region; defaults to the authenticated endpoint's local region
   --node NAME            Node selector; omit for regional SwarmKit services
-  --service ID           Managed service ID; node-local role when --node is given
+  --service ID           Managed service ID; node-local role with --node; log service filter
   --tenant ID            Tenant selector for one admitted function
   --function ID          Function selector; requires --tenant
   --volume ID            Managed volume selector
@@ -41,6 +41,11 @@ Read the same authenticated APIs as the dashboard. JSON output has version 1.
   --rate                 History counter rate per second
   --max 64               History series bound (1..512)
   --limit 200            Recent events bound (1..2048); --after SEQUENCE resumes
+                        Decisions allow 1..1000; log classes allow 1..500
+  --since TIME           Decision start: RFC3339 or a duration such as 1h
+  --subject-id ID        Match a decision's exact subject identity
+  --window 1h            Summary duration (1m..168h); logs accept 1h or 24h
+  --min-level DEBUG      Log threshold: DEBUG, INFO, WARN or ERROR
   --url ORIGIN           Diagnostic endpoint; requires --token-file
   --token-file FILE      Private diagnostic token file; requires --url
 
@@ -48,6 +53,7 @@ Endpoints and read credentials resolve from admitted OCI authority and Vault.
 Missing authority remains pending. No token is accepted as a command argument.
 Requests have a fixed 15-second deadline and 8 MiB limit.
 Partial or truncated results are printed and return an error.
+Logs contain aggregated classes; the API does not report source coverage or operation correlation.
 `
 
 func runObserve(ctx context.Context, args []string, out io.Writer) error {
@@ -56,7 +62,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	view := args[0]
-	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view) {
+	if !slices.Contains([]string{"metrics", "history", "snapshot", "cluster", "events", "decisions", "insights", "summary", "logs", "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume"}, view) {
 		return fmt.Errorf("unknown observe view %q; use ts-orch observe --help", view)
 	}
 	flags := flag.NewFlagSet("observe "+view, flag.ContinueOnError)
@@ -81,6 +87,8 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 	maximum := flags.Int("max", 64, "history series limit")
 	limit := flags.Int("limit", 200, "event limit")
 	after := flags.Uint64("after", 0, "event sequence")
+	feature := observeFeatureFlags{}
+	feature.register(flags)
 	labels := url.Values{}
 	flags.Func("label", "history label NAME=VALUE", func(value string) error {
 		name, value, ok := strings.Cut(value, "=")
@@ -112,7 +120,7 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 				wrongFlag = f.Name
 			}
 		case "service":
-			if view != "service" {
+			if view != "service" && view != "logs" {
 				wrongFlag = f.Name
 			}
 		case "volume":
@@ -131,8 +139,24 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 			if view != "history" {
 				wrongFlag = f.Name
 			}
-		case "after", "limit":
+		case "after":
 			if view != "events" {
+				wrongFlag = f.Name
+			}
+		case "limit":
+			if view != "events" && view != "decisions" && view != "logs" {
+				wrongFlag = f.Name
+			}
+		case "since", "subject-id":
+			if view != "decisions" {
+				wrongFlag = f.Name
+			}
+		case "window":
+			if view != "summary" && view != "logs" {
+				wrongFlag = f.Name
+			}
+		case "min-level":
+			if view != "logs" {
 				wrongFlag = f.Name
 			}
 		}
@@ -168,6 +192,12 @@ func runObserve(ctx context.Context, args []string, out io.Writer) error {
 		}
 		query.Set("limit", strconv.Itoa(*limit))
 		query.Set("after", strconv.FormatUint(*after, 10))
+	case "decisions", "summary", "logs":
+		var err error
+		query, err = feature.query(view, *limit, *service)
+		if err != nil {
+			return err
+		}
 	}
 	if isObserveResource(view) {
 		var err error
@@ -368,6 +398,12 @@ func writeObserve(out io.Writer, view, format, source, search string, data []byt
 	partial := false
 	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	switch view {
+	case "decisions", "insights", "summary", "logs":
+		var err error
+		value, partial, err = writeObserveFeature(table, view, format, data)
+		if err != nil {
+			return false, err
+		}
 	case "regions", "region", "nodes", "node", "services", "service", "functions", "function", "volumes", "volume":
 		var err error
 		value, partial, err = writeObserveResource(table, view, format, data)
