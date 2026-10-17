@@ -169,6 +169,28 @@ func (proof VerifiedNetBirdJournalPurpose) TemplateDigest() string {
 }
 func (proof VerifiedNetBirdJournalPurpose) ExpiresAt() time.Time { return proof.expires }
 
+// CheckOriginal checks retained lifetimes only; it performs no current reads.
+func (proof VerifiedNetBirdJournalPurpose) CheckOriginal() error {
+	if !proof.IsVerified() {
+		return ErrManifestInvalid
+	}
+	if err := proof.originalError(); err != nil {
+		return err
+	}
+	if bindings := proof.startup.bindings; bindings != nil {
+		if bindings.original == nil {
+			return ErrManifestInvalid
+		}
+		if err := bindings.original.Err(); err != nil {
+			return err
+		}
+	}
+	if !time.Now().Before(proof.expires) {
+		return ErrManifestInvalid
+	}
+	return nil
+}
+
 func (startup VerifiedStartupTemplate) NetBirdJournalPurpose(ctx context.Context) (VerifiedNetBirdJournalPurpose, error) {
 	return startup.NetBirdJournalPurposeForOperation(ctx, ctx)
 }
