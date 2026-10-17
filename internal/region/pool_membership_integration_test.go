@@ -123,16 +123,25 @@ func TestPoolMembershipUsesSignedPermissionAndOriginalProtectedBirth(t *testing.
 	if _, err := resolver.PoolMembership(ctx, "GRU", "ocid1.instancepool.oc1.sa-saopaulo-1.discovered", configurationID); err == nil {
 		t.Fatal("adopted a discovered pool")
 	}
-	encoded, err := json.Marshal(proof)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := json.Marshal(proof); err == nil {
+		t.Fatal("opaque membership authority serialized")
 	}
 	var fabricated VerifiedPoolMembership
-	if err := json.Unmarshal(encoded, &fabricated); err != nil {
-		t.Fatal(err)
+	if err := json.Unmarshal([]byte("{}"), &fabricated); err == nil {
+		t.Fatal("opaque membership authority deserialized")
 	}
 	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
 		t.Fatal("JSON minted membership authority")
+	}
+	bindingWire, err := json.Marshal(proof.Binding())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(bindingWire, &fabricated); err == nil {
+		t.Fatal("public membership binding deserialized into authority")
+	}
+	if fabricated.IsVerified() || fabricated.Revalidate(ctx) == nil {
+		t.Fatal("public binding JSON minted membership authority")
 	}
 	original, revoke := context.WithCancel(ctx)
 	retained, err := resolver.PoolMembership(original, "GRU", poolID, configurationID)
