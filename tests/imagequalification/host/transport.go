@@ -264,6 +264,12 @@ func (p *Session) ProbeHTTP(ctx context.Context) error {
 	return probeHTTP(ctx, "http://127.0.0.1:18080/readyz", p.client.DialContext)
 }
 
+// ProbeManagedHTTP observes the signed TSAuth host-published endpoint independently
+// of the worker protocol, so a runtime restart cannot hide an outage.
+func (p *Session) ProbeManagedHTTP(ctx context.Context) error {
+	return probeHTTP(ctx, "http://127.0.0.1:8080/readyz", p.client.DialContext)
+}
+
 func probeHTTP(ctx context.Context, url string, dial func(context.Context, string, string) (net.Conn, error)) error {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
