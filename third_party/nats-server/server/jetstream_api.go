@@ -3440,7 +3440,7 @@ func (s *Server) jsLeaderAccountPurgeRequest(sub *subscription, c *client, _ *Ac
 		return
 	}
 
-	if s.terraScaleControlLogAccount(accName) {
+	if controlAccount, regional := s.terraScaleControlLogAccount(); regional && (controlAccount == "" || controlAccount == accName) {
 		s.denyTerraScaleControlLogAPI(ci, acc, terraScaleControlLog, subject, reply, msg)
 		return
 	}
@@ -3498,11 +3498,6 @@ func (s *Server) jsLeaderAccountPurgeRequest(sub *subscription, c *client, _ *Ac
 	}
 
 	js.mu.Lock()
-	if js.streamAssignmentOrInflight(accName, terraScaleControlLog) != nil {
-		js.mu.Unlock()
-		s.denyTerraScaleControlLogAPI(ci, acc, terraScaleControlLog, subject, reply, msg)
-		return
-	}
 	ns, nc := 0, 0
 	for osa := range js.streamAssignmentsOrInflightSeq(accName) {
 		for oca := range js.consumerAssignmentsOrInflightSeq(accName, osa.Config.Name) {

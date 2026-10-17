@@ -46,6 +46,14 @@ func newAccountResolver(system, systemJWT, cell, cellJWT string) *accountResolve
 		claims: map[string]string{system: systemJWT, cell: cellJWT}}
 }
 
+// TerraScaleControlLogAccount exposes the immutable configured regional identity.
+func (r *accountResolver) TerraScaleControlLogAccount() string {
+	if r == nil {
+		return ""
+	}
+	return r.cell
+}
+
 func (r *accountResolver) Fetch(name string) (string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

@@ -143,7 +143,7 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if err := r.Bridge().OpenUntil(1, cellRaw, time.Now().Add(5*time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	testProtectedControlLogACL(t, ctx, r, cfg, cellKey, cellID, root)
+	testProtectedControlLogACL(t, ctx, r, cfg, cellKey, cellID, root, systemKey)
 	controllerWire, err := os.ReadFile(controllerCredentials)
 	if err != nil {
 		t.Fatal(err)
@@ -516,7 +516,7 @@ func testProtectedControllerCredentials(t *testing.T, root string, account nkeys
 }
 
 func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runtime, cfg Config,
-	account nkeys.KeyPair, accountID, root string,
+	account nkeys.KeyPair, accountID, root string, system nkeys.KeyPair,
 ) {
 	t.Helper()
 	rootCredentials := testJWTUserCredentials(t, root, "root-control-log.creds", account, accountID, nil, nil)
@@ -528,6 +528,27 @@ func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runt
 	rootJS, err := jetstream.New(rootClient)
 	if err != nil {
 		t.Fatal(err)
+	}
+	systemID, err := system.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	systemCredentials := testJWTUserCredentials(t, root, "system-control-log.creds", system, systemID, nil, nil)
+	systemClient, err := nats.Connect("", nats.InProcessServer(runtime.server), nats.UserCredentials(systemCredentials))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer systemClient.Close()
+	purgeSubject := "$JS.API.ACCOUNT.PURGE." + accountID
+	purgeReply, err := systemClient.RequestWithContext(ctx, purgeSubject, nil)
+	if err != nil {
+		t.Fatalf("native system account purge before protected birth: %v", err)
+	}
+	var purgeResult struct {
+		Error *jetstream.APIError `json:"error"`
+	}
+	if err := json.Unmarshal(purgeReply.Data, &purgeResult); err != nil || purgeResult.Error == nil || purgeResult.Error.Code != 403 {
+		t.Fatalf("configured regional account purge was not refused before protected birth: %s %v", purgeReply.Data, err)
 	}
 	// This genuine root owns a fresh test store; production birth custody is separate.
 	refused := errors.New("original root source was lost")
@@ -565,6 +586,14 @@ func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runt
 	subject := protocol.Control("gru", "acl", "retained")
 	if ack, err := ordinary.JetStream().Publish(ctx, subject, []byte("original")); err != nil || ack.Sequence != 1 {
 		t.Fatalf("ordinary control-log append: %+v %v", ack, err)
+	}
+	purgeReply, err = systemClient.RequestWithContext(ctx, purgeSubject, nil)
+	if err != nil {
+		t.Fatalf("native system account purge after protected append: %v", err)
+	}
+	purgeResult.Error = nil
+	if err := json.Unmarshal(purgeReply.Data, &purgeResult); err != nil || purgeResult.Error == nil || purgeResult.Error.Code != 403 {
+		t.Fatalf("configured regional account purge was not refused after protected append: %s %v", purgeReply.Data, err)
 	}
 	fixedConfig, err := json.Marshal(before.Config)
 	if err != nil {

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"reflect"
 	"time"
+
+	"github.com/nats-io/nkeys"
 )
 
 const terraScaleControlLog = "TS_CONTROL_LOG"
@@ -18,6 +20,10 @@ func (s *Server) EnsureTerraScaleControlLog(ctx context.Context, account *Accoun
 	if _, finite := ctx.Deadline(); !finite {
 		return errors.New("fixed control-log initialization requires its original finite lifetime")
 	}
+	controlAccount, regional := s.terraScaleControlLogAccount()
+	if !regional || controlAccount == "" || account.Name != controlAccount {
+		return errors.New("fixed control-log initialization requires the installed regional account pin")
+	}
 	account.mu.RLock()
 	owned := account.srv == s
 	account.mu.RUnlock()
@@ -26,6 +32,9 @@ func (s *Server) EnsureTerraScaleControlLog(ctx context.Context, account *Accoun
 		return errors.New("fixed control-log initialization requires this server's actual regional account")
 	}
 	guard := func() error {
+		if current, regional := s.terraScaleControlLogAccount(); !regional || current != controlAccount {
+			return errors.New("original regional account pin is unavailable")
+		}
 		if ctx.Err() != nil || !s.Running() {
 			return errors.New("original root control-log initialization ended")
 		}
@@ -129,26 +138,15 @@ func (s *Server) denyTerraScaleControlLogAPI(ci *ClientInfo, account *Account, s
 	return true
 }
 
-func (s *Server) terraScaleControlLogAccount(account string) bool {
-	if actual, found := s.accounts.Load(account); found {
-		acc := actual.(*Account)
-		if _, err := acc.lookupStream(terraScaleControlLog); err == nil {
-			return true
-		}
-		acc.mu.RLock()
-		jsa := acc.js
-		acc.mu.RUnlock()
-		if jsa != nil {
-			if _, pending := jsa.inflight.Load(terraScaleControlLog); pending {
-				return true
-			}
-		}
+// Generic NATS resolvers keep native behavior; a regional resolver must pin a valid account.
+func (s *Server) terraScaleControlLogAccount() (string, bool) {
+	resolver, regional := s.AccountResolver().(interface{ TerraScaleControlLogAccount() string })
+	if !regional {
+		return "", false
 	}
-	if js, cc := s.getJetStreamCluster(); js != nil && cc != nil {
-		js.mu.RLock()
-		protected := js.streamAssignmentOrInflight(account, terraScaleControlLog) != nil
-		js.mu.RUnlock()
-		return protected
+	account := resolver.TerraScaleControlLogAccount()
+	if !nkeys.IsValidPublicAccountKey(account) {
+		return "", true
 	}
-	return false
+	return account, true
 }
