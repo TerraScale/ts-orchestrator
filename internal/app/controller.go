@@ -1230,6 +1230,7 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	linkSupervisor.source = regions
 	startRegionSuggestions(runCtx, cfg, runtime.JetStream(), global, telemetry.regionRollups, fullClusterReady, capacitySource)
 	workers.Go(func() { workerErrors <- linkSupervisor.Run(runCtx) })
+	workers.Go(func() { workerErrors <- newGlobalSourceLinks(workloadRoot, global).Run(runCtx) })
 	workers.Go(func() { workerErrors <- hostController.Run(runCtx) })
 	workers.Go(func() { workerErrors <- service.Run(runCtx) })
 	if backupRuntime != nil {
