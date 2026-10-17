@@ -94,21 +94,12 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 		if err := previous.retainNetBirdBrokerPolicies(record); err != nil {
 			return "", err
 		}
-	}
-	if err := record.validate(); err != nil {
-		return "", err
-	}
-	if etag != "" {
-		previous, held, err := s.Load(ctx, record.Cell)
-		if err != nil {
-			return "", err
-		}
-		if held != etag {
-			return "", ErrFoundationConflict
-		}
 		if err := retainRuntimeLineage(previous.RuntimeLineage, record.RuntimeLineage); err != nil {
 			return "", err
 		}
+	}
+	if err := record.validate(); err != nil {
+		return "", err
 	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {

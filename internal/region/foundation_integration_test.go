@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,9 +124,23 @@ func foundationProtocolStore(t *testing.T) (*ObjectFoundationStore, FoundationOb
 	return store, &client, write
 }
 
+type foundationRecordReadCounter struct {
+	next  common.HTTPRequestDispatcher
+	reads atomic.Int32
+}
+
+func (c *foundationRecordReadCounter) Do(request *http.Request) (*http.Response, error) {
+	if request.Method == http.MethodGet {
+		c.reads.Add(1)
+	}
+	return c.next.Do(request)
+}
+
 func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	t.Run("provision_originals", foundationProvisionSDKScenario)
 	store, client, raw := foundationProtocolStore(t)
+	requests := &foundationRecordReadCounter{next: client.HTTPClient}
+	client.HTTPClient = requests
 	now := time.Now().UTC()
 	record := FoundationRecord{SchemaVersion: 1, Cell: "GRU", OCIRegion: "sa-saopaulo-1", TenancyID: "ocid1.tenancy.oc1..test",
 		ParentCompartmentID: "ocid1.compartment.oc1..parent", SharedCompartmentID: "ocid1.compartment.oc1..shared",
@@ -144,8 +159,12 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 		t.Fatalf("read=%+v etag=%s err=%v", got, actual, err)
 	}
 	got.Epoch = 2
+	requests.reads.Store(0)
 	if _, err := restarted.CompareAndSwap(t.Context(), got, actual); err != nil {
 		t.Fatal(err)
+	}
+	if requests.reads.Load() != 1 {
+		t.Fatalf("conditional whole-record update read %d originals, want 1", requests.reads.Load())
 	}
 	if _, err := store.CompareAndSwap(t.Context(), record, etag); err != ErrFoundationConflict {
 		t.Fatalf("stale writer: %v", err)
