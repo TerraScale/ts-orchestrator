@@ -55,4 +55,7 @@ func TestSessionRuntimeDeliversMaterialAndFencesRevokedHostWithoutNativeRunner(t
 	if _, _, err := agent.CurrentFunctionFiles(t.Context(), fixture.binding); err == nil {
 		t.Fatal("revoked session still delivered function material")
 	}
+	if _, err := agent.RuntimeWorkerIdentity("accepted-instance", "accepted-node"); err == nil {
+		t.Fatal("revoked session still exposed a runtime identity lease")
+	}
 }
