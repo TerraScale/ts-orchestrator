@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -28,6 +29,8 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/tenant"
+	"github.com/TerraScale/ts-orchestrator/internal/trust"
+	"github.com/TerraScale/ts-orchestrator/internal/workload"
 	"github.com/moby/swarmkit/v2/api"
 	"github.com/moby/swarmkit/v2/api/genericresource"
 	"github.com/nats-io/nats.go/jetstream"
@@ -51,10 +54,37 @@ func TestMachinesManagerAuthenticatedHTTPIntegration(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = control.Close() })
 	resources := placement.Resources{CPU: 1, MemoryBytes: 64 << 20, DiskBytes: 1 << 30}
-	specs := &specRegistry{cell: identity.Cell, identity: identity, fixed: map[string]WorkloadProfile{"api": {Resources: resources}}}
+	keys := newTestSpecTrust(t, t.TempDir(), identity)
+	specs := &specRegistry{cell: identity.Cell, identity: identity, fixed: map[string]WorkloadProfile{}}
+	if err := specs.openRoots(keys.roots, trust.RootChain{Version: 1}, ""); err != nil {
+		t.Fatal(err)
+	}
+	specs.kv, err = broker.JetStream().CreateKeyValue(ctx, jetstream.KeyValueConfig{Bucket: cellSpecBucket, Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := workload.ServiceSpec{Role: "api", Environment: identity.Environment, Kind: workload.KindStateless, Replicas: workload.ReplicaBounds{Min: 1, Max: 2}}
+	signed := keys.signRoot(t, t.TempDir(), cellspec.Spec{Schema: cellspec.Schema, Identity: identity, Generation: 1, RequiresBinary: cellspec.BinaryLevel, Services: []cellspec.Service{{Role: "api", Profile: WorkloadProfile{Resources: resources}, Spec: &policy}}})
+	wire, err := os.ReadFile(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := specs.kv.Put(ctx, cellSpecKey, wire); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := specs.kv.Get(ctx, cellSpecKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := specs.load(entry); err != nil {
+		t.Fatal(err)
+	}
 	manager := startGenericRuntimeNode(t, ctx, genericRuntimeNodeConfig(t, "generic-manager", "manager"), &genericRuntimeExecutor{controllers: map[string]*genericRuntimeTask{}})
 	client, err := manager.ControlClient(ctx)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := swarmruntime.AdmitNode(ctx, client, manager.ID(), genericRuntimeNodeConfigAdmission("generic-manager", "manager")); err != nil {
 		t.Fatal(err)
 	}
 	var ready atomic.Bool

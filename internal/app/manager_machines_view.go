@@ -81,7 +81,7 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 			if labels["terrascale.stateful"] != "true" || !entityid.Valid(labels["terrascale.database-id"]) || !entityid.Valid(labels["terrascale.partition-id"]) || !entityid.Valid(labels["terrascale.member-id"]) {
 				return nil, errors.New("machines stateful member identity is invalid")
 			}
-			if intent != entityid.Derive("stateful-service", m.specs.identity.Environment, strings.ToUpper(m.specs.cell), labels["terrascale.database-id"], labels["terrascale.partition-id"], labels["terrascale.member-id"]) {
+			if intent != entityid.Derive("stateful-service", m.specs.identity.Environment, m.specs.cell, labels["terrascale.database-id"], labels["terrascale.partition-id"], labels["terrascale.member-id"]) {
 				return nil, errors.New("machines stateful service ownership is invalid")
 			}
 			name = "db-" + strings.ToLower(intent)
@@ -126,6 +126,9 @@ func (view *managerMachinesView) Snapshot(ctx context.Context) ([]machinesapi.Ap
 					return nil, errors.New("machines task host is unavailable")
 				}
 				node := response.Node
+				if node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
+					return nil, errors.New("machines task host is outside the admitted region")
+				}
 				nodes[node.ID] = node.Meta.Version.Index
 				machine.Host = node.Spec.Annotations.Name
 				machine.FailureDomain = node.Spec.Annotations.Labels["terrascale.failure-domain"]

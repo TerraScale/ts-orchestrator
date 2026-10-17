@@ -72,9 +72,9 @@ A controller serves the API when its config has `controller.machines_api`:
 }
 ```
 
-- Every read uses the replicated `TS_APPS`, `TS_MACHINES`, `TS_MACHINE_STATUS` and
-  `TS_TENANTS` buckets, which every controller can read, so any controller
-  answers.
+- Each authenticated read uses a fresh, authority-checked SwarmKit manager
+  snapshot. The replicated tenant store controls organization visibility.
+  Manager or authority failures return 503 without cached inventory.
 - Off loopback the listener requires `tls_cert_file` and `tls_key_file`:
   protected routes require bearer tokens.
 - Each controller accepts at most 256 connections. The load balancer brings
