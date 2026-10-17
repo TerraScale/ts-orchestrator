@@ -3,6 +3,7 @@ package machinesapi
 import (
 	"context"
 	"encoding/json/v2"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 
-	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/machines"
 	"github.com/TerraScale/ts-orchestrator/internal/placement"
 	"github.com/TerraScale/ts-orchestrator/internal/tenant"
@@ -21,19 +21,18 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 )
 
-// leader is a fence that always holds epoch 1.
-type leader struct{}
-
-func (leader) Current() authority.Snapshot {
-	return authority.Snapshot{DeploymentID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Ready: true, Leader: true, Epoch: 1, Revision: 1, ExpiresAt: time.Now().Add(time.Hour)}
+type fixtureApps struct {
+	snapshots []AppSnapshot
+	err       error
 }
-func (leader) Guard(context.Context, uint64) error { return nil }
+
+func (f *fixtureApps) Snapshot(context.Context) ([]AppSnapshot, error) { return f.snapshots, f.err }
 
 type fixture struct {
 	server  *Server
 	issuer  *issuer
 	nats    *server.Server
-	apps    *machines.Store
+	apps    *fixtureApps
 	machine machines.Machine
 }
 
@@ -60,10 +59,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	ctx := t.Context()
-	apps, err := machines.OpenStore(ctx, js, "gru", 1, leader{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	apps := &fixtureApps{}
 	tenants, err := tenant.OpenStore(ctx, js, 1)
 	if err != nil {
 		t.Fatal(err)
@@ -81,26 +77,16 @@ func newFixture(t *testing.T) *fixture {
 	config := machines.MachineConfig{Role: "terrabase", Digest: digest,
 		Resources: placement.Resources{CPU: 1, MemoryBytes: 1 << 30, DiskBytes: 1 << 30}}
 	put := func(name string, class machines.Class, owner string) machines.App {
-		app, err := apps.PutApp(ctx, 1, machines.App{Name: name, Class: class, Tenant: owner, Config: config,
-			Regions: map[string]int{"gru": 1}})
-		if err != nil {
-			t.Fatal(err)
-		}
+		app := machines.App{Name: name, ID: entityid.New(), Version: 1, Class: class, Tenant: owner, Config: config, Regions: map[string]int{"gru": 1}}
+		apps.snapshots = append(apps.snapshots, AppSnapshot{App: app})
 		return app
 	}
 	put("ts-auth", machines.ClassPlatform, "")
 	acme := put("t-acme-db", machines.ClassTenant, "0000000000MNX6KE9QZGK3VB63")
 	put("t-globex-db", machines.ClassTenant, "0000000000E8KV3X6DYHPWSWC1")
 	put("t-gone-db", machines.ClassTenant, "000000000050XVKQQF0BK88ENZ")
-	machine, err := apps.PutMachine(ctx, 1, machines.Machine{ID: machines.NewMachineID(), App: acme.Name, AppID: acme.ID,
-		Region: "gru", Version: 1, Config: config, Desired: machines.DesiredStarted})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := apps.PutStatus(ctx, 1, machines.Status{ID: machine.ID, App: acme.Name, State: machines.StateStarted,
-		UpdatedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
+	machine := machines.Machine{ID: entityid.New(), App: acme.Name, AppID: acme.ID, Region: "gru", Version: 1, Config: config, Desired: machines.DesiredStarted}
+	apps.snapshots[1].Machines = []MachineView{{Machine: machine, Status: &machines.Status{ID: machine.ID, App: acme.Name, State: machines.StateStarted, UpdatedAt: time.Now()}}}
 	i := newIssuer(t)
 	s, err := NewServer(Config{ListenAddress: "127.0.0.1:0", Issuer: testIssuer, Audience: testAudience,
 		JWKSURLs: []string{i.server.URL}, Clients: []string{"00000000006HEQR9ARBF6BV9X9"},
@@ -237,11 +223,10 @@ func TestAuthorizationFailures(t *testing.T) {
 	}
 }
 
-func TestStoreOutageIsUnavailable(t *testing.T) {
+func TestSnapshotOutageIsUnavailable(t *testing.T) {
 	f := newFixture(t)
 	token := f.token("0000000000FT4JKN5QV2BGQ38B")
-	f.nats.Shutdown()
-	f.nats.WaitForShutdown()
+	f.apps.err = errors.New("manager unavailable")
 	for _, path := range []string{"/v1/apps", "/v1/apps/ts-auth"} {
 		code, body, _ := call(t, f.server, token, path)
 		if code != http.StatusServiceUnavailable || body["error"] != "unavailable" {

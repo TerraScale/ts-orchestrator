@@ -1,6 +1,5 @@
-// Package machines owns the shared orchestration model: apps, the machines
-// that run them and their observed status, and their store in the regional
-// KV buckets TS_APPS, TS_MACHINES and TS_MACHINE_STATUS. See docs/apps-machines.md.
+// Package machines owns the public app, machine and status model projected
+// from current regional SwarmKit services and tasks. See docs/apps-machines.md.
 package machines
 
 import (
@@ -46,13 +45,11 @@ const (
 // App is one service run as machines.
 type App struct {
 	Name string `json:"name"`
-	// ID is set by the store at creation and names this incarnation of the
-	// app: a machine of an earlier app of the same name is an orphan.
+	// ID names the current manager service incarnation.
 	ID     string `json:"id"`
 	Class  Class  `json:"class"`
 	Tenant string `json:"tenant,omitempty"`
-	// Version is set by the store: 1 at creation and one more on every
-	// Config change.
+	// Version is the current manager object version.
 	Version uint64        `json:"version"`
 	Config  MachineConfig `json:"config"`
 	// Regions pins the app to catalog regions and holds its machine count in
@@ -301,9 +298,9 @@ type Machine struct {
 	ID    string `json:"id"`
 	App   string `json:"app"`
 	AppID string `json:"app_id"`
-	// Region is the store's own region.
+	// Region is the manager's catalog region.
 	Region string `json:"region"`
-	// Host is empty until the scheduler places the machine. FailureDomain is
+	// Host is empty until SwarmKit places the task. FailureDomain is
 	// the host's, in lower case as placement sees it.
 	Host          string        `json:"host,omitempty"`
 	FailureDomain string        `json:"failure_domain,omitempty"`

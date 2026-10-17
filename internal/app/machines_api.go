@@ -10,7 +10,6 @@ import (
 
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/cellspec"
-	"github.com/TerraScale/ts-orchestrator/internal/machines"
 	"github.com/TerraScale/ts-orchestrator/internal/machinesapi"
 	"github.com/TerraScale/ts-orchestrator/internal/natscell"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
@@ -18,33 +17,24 @@ import (
 )
 
 // startMachinesAPI serves the Machines REST API on every controller whose
-// config enables it. Reads come from the replicated app and tenant buckets,
-// so any controller answers them.
+// signed configuration carries it. Apps come from the current manager;
+// tenant organization membership comes from the replicated tenant bucket.
 func startMachinesAPI(ctx context.Context, cfg Config, runtime *natscell.Runtime, control authority.Fencer,
-	fullClusterReady func() bool,
+	fullClusterReady func() bool, apps machinesapi.AppSource,
 	links observability.ClusterSource,
 ) (<-chan error, error) {
 	settings := cfg.Controller.MachinesAPI
 	if settings == nil {
 		return nil, nil
 	}
-	type stores struct {
-		apps    *machines.Store
-		tenants *tenant.Store
-	}
-	opened, _, err := retryControllerOpen(ctx, "open the machines API stores", fullClusterReady, false,
-		func(attempt context.Context) (stores, error) {
-			apps, err := machines.OpenStore(attempt, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas, control)
-			if err != nil {
-				return stores{}, err
-			}
-			tenants, err := tenant.OpenStore(attempt, runtime.JetStream(), cfg.NATS.Replicas)
-			return stores{apps: apps, tenants: tenants}, err
+	tenants, _, err := retryControllerOpen(ctx, "open the machines API tenant store", fullClusterReady, false,
+		func(attempt context.Context) (*tenant.Store, error) {
+			return tenant.OpenStore(attempt, runtime.JetStream(), cfg.NATS.Replicas)
 		}, nil)
 	if err != nil {
 		return nil, err
 	}
-	server, err := machinesapi.NewServer(*settings, opened.apps, opened.tenants, links)
+	server, err := machinesapi.NewServer(*settings, apps, tenants, links)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +56,9 @@ var machinesAPICheck = 5 * time.Second
 // controller restart. A listener that fails to start or stops is retried at
 // the next check; the API never stops the controller.
 func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime, control authority.Fencer,
-	fullClusterReady func() bool, current func() *cellspec.MachinesAPI,
+	fullClusterReady func() bool, current func() *cellspec.MachinesAPI, apps machinesapi.AppSource,
 	links observability.ClusterSource,
 ) error {
-	var apps *machines.Store
 	var tenants *tenant.Store
 	var running *cellspec.MachinesAPI
 	var serving <-chan error
@@ -83,14 +72,8 @@ func machinesAPILoop(ctx context.Context, cfg Config, runtime *natscell.Runtime,
 			stop()
 			running, serving = nil, nil
 			err := error(nil)
-			if want != nil && apps == nil {
-				apps, err = machines.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Cell, cfg.NATS.Replicas, control)
-				if err == nil {
-					tenants, err = tenant.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
-				}
-				if err != nil {
-					apps = nil
-				}
+			if want != nil && tenants == nil {
+				tenants, err = tenant.OpenStore(ctx, runtime.JetStream(), cfg.NATS.Replicas)
 			}
 			if want != nil && err == nil && fullClusterReady() {
 				var server *machinesapi.Server

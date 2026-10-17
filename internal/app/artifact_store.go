@@ -9,7 +9,6 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/authority"
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
-	"github.com/TerraScale/ts-orchestrator/internal/machines"
 	"github.com/TerraScale/ts-orchestrator/internal/observability"
 	"github.com/TerraScale/ts-orchestrator/internal/storage/capacity"
 )
@@ -27,10 +26,6 @@ const controlStoreHeadroomBytes int64 = 1536<<20 + observability.HostMetricStrea
 // refuses every stream update, even a shrink, once reservations pass
 // store_max_bytes (TS-662).
 const specStoreHeadroomBytes int64 = 2048<<20 + observability.HostMetricStreamBytes
-
-// machinesAPIStoreBytes is what the Machines API's two buckets reserve
-// beside them while the cell spec carries machines_api.
-const machinesAPIStoreBytes int64 = 3 * machines.BucketMaxBytes
 
 const (
 	artifactStoreKeeperInterval = time.Minute

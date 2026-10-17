@@ -129,11 +129,22 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Server serves the API from the region's app store and the cell's tenants.
+// AppSnapshot joins one manager service with its current tasks.
+type AppSnapshot struct {
+	App      machines.App
+	Machines []MachineView
+}
+
+// AppSource reads one current snapshot per authenticated request.
+type AppSource interface {
+	Snapshot(context.Context) ([]AppSnapshot, error)
+}
+
+// Server serves current manager apps scoped by the cell's tenants.
 type Server struct {
 	config   Config
 	verifier *Verifier
-	apps     *machines.Store
+	apps     AppSource
 	tenants  *tenant.Store
 	// orgs maps a subject to its organization.
 	orgs      map[string]string
@@ -144,12 +155,12 @@ type Server struct {
 }
 
 // NewServer builds the routes. It does not bind; Start does.
-func NewServer(config Config, apps *machines.Store, tenants *tenant.Store, links observability.ClusterSource) (*Server, error) {
+func NewServer(config Config, apps AppSource, tenants *tenant.Store, links observability.ClusterSource) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 	if apps == nil || tenants == nil {
-		return nil, errors.New("machines API requires the app and tenant stores")
+		return nil, errors.New("machines API requires current apps and the tenant store")
 	}
 	s := &Server{config: config, apps: apps, tenants: tenants, mux: http.NewServeMux(), orgs: map[string]string{},
 		links: links, linkCache: observability.Cache[observability.ClusterSnapshot]{TTL: 3 * time.Second},
@@ -282,14 +293,15 @@ func (s *Server) visible(ctx context.Context, c caller, app machines.App, owners
 }
 
 func (s *Server) listApps(w http.ResponseWriter, r *http.Request, c caller) {
-	apps, err := s.apps.Apps(r.Context())
+	apps, err := s.apps.Snapshot(r.Context())
 	if err != nil {
 		s.unavailable(w, err)
 		return
 	}
 	owners := map[string]string{}
 	visible := []machines.App{}
-	for _, app := range apps {
+	for _, snapshot := range apps {
+		app := snapshot.App
 		ok, err := s.visible(r.Context(), c, app, owners)
 		if err != nil {
 			s.unavailable(w, err)
@@ -305,22 +317,30 @@ func (s *Server) listApps(w http.ResponseWriter, r *http.Request, c caller) {
 // withApp resolves the {app} path value to an app the caller may see. An
 // app of another organization is reported missing, so names do not leak
 // across tenants.
-func (s *Server) withApp(next func(http.ResponseWriter, *http.Request, caller, machines.App)) func(http.ResponseWriter, *http.Request, caller) {
+func (s *Server) withApp(next func(http.ResponseWriter, *http.Request, caller, AppSnapshot)) func(http.ResponseWriter, *http.Request, caller) {
 	return func(w http.ResponseWriter, r *http.Request, c caller) {
 		name := r.PathValue("app")
 		if !appRE.MatchString(name) {
 			writeError(w, http.StatusBadRequest, "invalid_name", "app names are DNS labels")
 			return
 		}
-		app, err := s.apps.App(r.Context(), name)
-		if errors.Is(err, machines.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not_found", "app "+name+" not found")
-			return
-		}
+		apps, err := s.apps.Snapshot(r.Context())
 		if err != nil {
 			s.unavailable(w, err)
 			return
 		}
+		var snapshot *AppSnapshot
+		for i := range apps {
+			if apps[i].App.Name == name {
+				snapshot = &apps[i]
+				break
+			}
+		}
+		if snapshot == nil {
+			writeError(w, http.StatusNotFound, "not_found", "app "+name+" not found")
+			return
+		}
+		app := snapshot.App
 		ok, err := s.visible(r.Context(), c, app, map[string]string{})
 		if err != nil {
 			s.unavailable(w, err)
@@ -330,12 +350,12 @@ func (s *Server) withApp(next func(http.ResponseWriter, *http.Request, caller, m
 			writeError(w, http.StatusNotFound, "not_found", "app "+name+" not found")
 			return
 		}
-		next(w, r, c, app)
+		next(w, r, c, *snapshot)
 	}
 }
 
-func (s *Server) getApp(w http.ResponseWriter, _ *http.Request, _ caller, app machines.App) {
-	writeJSON(w, http.StatusOK, app)
+func (s *Server) getApp(w http.ResponseWriter, _ *http.Request, _ caller, snapshot AppSnapshot) {
+	writeJSON(w, http.StatusOK, snapshot.App)
 }
 
 // MachineView is a machine with its observed status, absent until the
@@ -345,57 +365,31 @@ type MachineView struct {
 	Status *machines.Status `json:"status,omitempty"`
 }
 
-func (s *Server) listMachines(w http.ResponseWriter, r *http.Request, _ caller, app machines.App) {
-	list, err := s.apps.Machines(r.Context(), app.Name)
-	if err != nil {
-		s.unavailable(w, err)
-		return
-	}
-	statuses, err := s.apps.Statuses(r.Context(), app.Name)
-	if err != nil {
-		s.unavailable(w, err)
-		return
-	}
-	byID := make(map[string]*machines.Status, len(statuses))
-	for index := range statuses {
-		byID[statuses[index].ID] = &statuses[index]
-	}
-	views := make([]MachineView, 0, len(list))
-	for _, machine := range list {
-		views = append(views, MachineView{Machine: machine, Status: byID[machine.ID]})
+func (s *Server) listMachines(w http.ResponseWriter, _ *http.Request, _ caller, snapshot AppSnapshot) {
+	views := snapshot.Machines
+	if views == nil {
+		views = []MachineView{}
 	}
 	writeJSON(w, http.StatusOK, map[string][]MachineView{"machines": views})
 }
 
-func (s *Server) getMachine(w http.ResponseWriter, r *http.Request, _ caller, app machines.App) {
+func (s *Server) getMachine(w http.ResponseWriter, r *http.Request, _ caller, snapshot AppSnapshot) {
 	id := r.PathValue("id")
 	if !entityid.Valid(id) {
 		writeError(w, http.StatusBadRequest, "invalid_name", "machine IDs must be canonical uppercase ULIDs")
 		return
 	}
-	machine, err := s.apps.Machine(r.Context(), app.Name, id)
-	if errors.Is(err, machines.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "not_found", "machine "+id+" not found")
-		return
+	for _, machine := range snapshot.Machines {
+		if machine.ID == id {
+			writeJSON(w, http.StatusOK, machine)
+			return
+		}
 	}
-	if err != nil {
-		s.unavailable(w, err)
-		return
-	}
-	view := MachineView{Machine: machine}
-	status, err := s.apps.Status(r.Context(), app.Name, id)
-	switch {
-	case err == nil:
-		view.Status = &status
-	case !errors.Is(err, machines.ErrNotFound):
-		s.unavailable(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, view)
+	writeError(w, http.StatusNotFound, "not_found", "machine "+id+" not found")
 }
 
 func (s *Server) unavailable(w http.ResponseWriter, err error) {
-	slog.Error("machines API store read failed", observability.ComponentKey, "machinesapi", "error", err)
+	slog.Error("machines API current state read failed", observability.ComponentKey, "machinesapi", "error", err)
 	writeError(w, http.StatusServiceUnavailable, "unavailable", "the controller cannot read the cell state")
 }
 

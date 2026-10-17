@@ -437,9 +437,6 @@ func (r *specRegistry) validate(spec cellspec.Spec) error {
 		}
 	}
 	limit, headroom := r.artifactStoreLimit, specStoreHeadroomBytes
-	if spec.MachinesAPI != nil {
-		limit, headroom = limit-machinesAPIStoreBytes, headroom+machinesAPIStoreBytes
-	}
 	if store := spec.ArtifactStore; store != nil && store.MaxBytes > limit {
 		return fmt.Errorf("artifact_store max_bytes %d exceeds this controller's %d: its embedded NATS store_max_bytes less %d bytes for control state",
 			store.MaxBytes, max(limit, 0), headroom)

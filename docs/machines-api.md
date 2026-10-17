@@ -226,9 +226,8 @@ Responses carry `Cache-Control: no-store`.
 
 ## Changes (slices 3 and 4)
 
-The design follows the apps model's trust rule: `TS_APPS` is not signed,
-only the authority leader writes it, and nothing in an app can widen
-authority. The signed cell spec stays the envelope, holding Vault secrets,
+The following mutation design is unimplemented; the current API is read-only.
+Any future mutation must use the current manager and cannot widen authority. The signed cell spec stays the envelope, holding Vault secrets,
 releasers, host grants, TerraBase's profile and the admitted artifacts.
 
 - **Envelope check.** An API change is checked on the authority leader

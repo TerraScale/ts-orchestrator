@@ -35,18 +35,17 @@ func TestArtifactStoreQuotaFromTheCellSpec(t *testing.T) {
 	if err := registry.validate(set); err != nil {
 		t.Fatal(err)
 	}
-	// The Machines API's buckets reserve their room too: sfo-1 went past
-	// store_max_bytes with both (TS-662).
+	// Manager-backed Machines reads reserve no additional JetStream buckets.
 	withAPI := set
 	withAPI.RequiresBinary, withAPI.MachinesAPI = 16, &cellspec.MachinesAPI{Issuer: "https://gru.auth.terrascale.tech/terrascale",
 		Audience: "https://gru.orch.terrascale.tech", JWKSURLs: []string{"https://gru.auth.terrascale.tech/terrascale/.well-known/jwks.json"}, Clients: []string{"ts-orch-cli"}}
-	withAPI.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: cfg.NATS.Embedded.StoreMaxBytes - specStoreHeadroomBytes - machinesAPIStoreBytes + 1}
+	withAPI.ArtifactStore = &cellspec.ArtifactStore{MaxBytes: cfg.NATS.Embedded.StoreMaxBytes - specStoreHeadroomBytes + 1}
 	if err := registry.validate(withAPI); err == nil || !strings.Contains(err.Error(), "store_max_bytes") {
-		t.Fatalf("quota leaving no room for the Machines API: %v", err)
+		t.Fatalf("quota beyond control-state headroom with the Machines API: %v", err)
 	}
 	withAPI.ArtifactStore.MaxBytes--
 	if err := registry.validate(withAPI); err != nil {
-		t.Fatalf("quota exactly leaving Machines API headroom: %v", err)
+		t.Fatalf("quota exactly leaving control-state headroom with the Machines API: %v", err)
 	}
 	registry.adopt(set, 1)
 	if quota := registry.artifactStoreMaxBytes(); quota != 2<<30 {
