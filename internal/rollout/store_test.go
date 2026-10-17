@@ -563,6 +563,18 @@ func TestReleasePinsIncludesHistoryActivePredecessorAndDurableKnownBad(t *testin
 		!slices.Equal(knownBad, []string{bad}) {
 		t.Fatalf("pins: rollback=%v known_bad=%v err=%v", rollback, knownBad, err)
 	}
+	reader, err := BindReader(store.kv, "gru")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readRollback, readBad, err := reader.ReleasePins(ctx)
+	if err != nil || !slices.Equal(readRollback, rollback) || !slices.Equal(readBad, knownBad) {
+		t.Fatalf("read-only retained inventory differs: %v %v %v", readRollback, readBad, err)
+	}
+	retained, err := reader.Retained(ctx)
+	if err != nil || !slices.ContainsFunc(retained, func(r Release) bool { return r.Digest == strings.Repeat("c", 64) }) || !slices.ContainsFunc(retained, func(r Release) bool { return r.Digest == strings.Repeat("d", 64) }) {
+		t.Fatalf("read-only retained generations missing: %v %v", retained, err)
+	}
 	if err := store.kv.Delete(ctx, knownBadKey(bad)); err != nil {
 		t.Fatal(err)
 	}
