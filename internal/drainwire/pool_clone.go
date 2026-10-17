@@ -6,6 +6,8 @@ import (
 )
 
 func (r PoolReceipt) Clone() PoolReceipt {
+	r.CellSpecWire = bytes.Clone(r.CellSpecWire)
+	r.RootChainWire = bytes.Clone(r.RootChainWire)
 	r.ClusterCAPEM = bytes.Clone(r.ClusterCAPEM)
 	r.WorkerCertificate = bytes.Clone(r.WorkerCertificate)
 	r.ManagerCertificates = cloneCertificates(r.ManagerCertificates)

@@ -62,6 +62,8 @@ type PoolTask struct {
 type PoolReceipt struct {
 	Child               PoolChild            `json:"child"`
 	Source              PoolSource           `json:"source"`
+	CellSpecWire        []byte               `json:"cell_spec_wire"`
+	RootChainWire       []byte               `json:"root_chain_wire"`
 	Host                HostSession          `json:"host"`
 	NodeID              string               `json:"node_id"`
 	ClusterID           string               `json:"cluster_id"`
@@ -104,11 +106,16 @@ func (r PoolReceipt) Validate() error {
 		r.ExpiresAt.After(source.ExpiresAt) || r.ClusterID == "" || r.NodeID == "" || r.NodeID == source.ManagerNodeID ||
 		len(r.ClusterCAPEM) == 0 || len(r.ClusterCAPEM) > 32<<10 || len(r.WorkerCertificate) == 0 || len(r.WorkerCertificate) > 16<<10 ||
 		len(r.ManagerCertificates) == 0 || len(r.ManagerCertificates) > 3 ||
+		len(r.CellSpecWire) == 0 || len(r.CellSpecWire) > 48<<10 || len(r.RootChainWire) == 0 || len(r.RootChainWire) > 64<<10 ||
 		r.Host.Cell != strings.ToLower(r.Child.Cell) || r.Host.InstanceID != r.Child.InstanceID ||
 		r.Host.HostNode == "" || !entityid.Valid(r.Host.RegistrationID) || !entityid.Valid(r.Host.HostSessionID) || r.Host.RegistrationGeneration == 0 ||
 		r.Host.HostEpoch == 0 || r.ExpiresAt.After(r.Host.ExpiresAt) ||
 		len(r.Tasks) > MaxDrainTasks || len(r.Holds) > MaxDrainTasks || len(r.Challenges) != len(r.Holds) || len(r.Stops) > len(r.Holds) {
 		return errors.New("pool drain capture lacks bounded original root, session, lease or task evidence")
+	}
+	if fmt.Sprintf("%x", sha256.Sum256(r.CellSpecWire)) != source.CellSpecSHA256 ||
+		fmt.Sprintf("%x", sha256.Sum256(r.RootChainWire)) != source.RootSHA256 {
+		return errors.New("pool drain signed source differs from its retained exact bytes")
 	}
 	for _, certificate := range r.ManagerCertificates {
 		if len(certificate) == 0 || len(certificate) > 16<<10 {

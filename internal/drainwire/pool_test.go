@@ -1,6 +1,8 @@
 package drainwire
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +13,7 @@ import (
 func poolReceiptFixture() PoolReceipt {
 	now := time.Now().UTC()
 	digest := strings.Repeat("a", 64)
+	specWire, rootWire := []byte("signed spec"), []byte("signed root chain")
 	child := PoolChild{Cell: "GRU", BirthOperationID: entityid.New(), RemovalOperationID: entityid.New(),
 		InstanceID: "ocid1.instance.original", PoolID: "ocid1.instancepool.original", ConfigurationID: "ocid1.instanceconfiguration.original",
 		RecipeSHA256: digest, GrantSHA256: digest, Generation: 1}
@@ -18,9 +21,10 @@ func poolReceiptFixture() PoolReceipt {
 		HostSessionID: entityid.New(), RegistrationGeneration: 1, HostEpoch: 41, ExpiresAt: now.Add(time.Minute)}
 	hold := ExecutionHold{HostSession: host, OriginalEpoch: 2, NodeID: "worker", TaskID: "task", ServiceID: "service",
 		TaskSHA256: digest, ExecutionSHA256: digest, ExecutionSessionID: entityid.New(), IssuedAt: now.Add(-time.Second)}
-	return PoolReceipt{Child: child, Source: PoolSource{ControllerConfigSHA256: digest, CellSpecSHA256: digest, CellSpecGeneration: 1,
-		RootSHA256: digest, ManagerInstanceID: "ocid1.instance.manager", ManagerNodeID: "manager", DeploymentID: entityid.New(),
-		CandidateID: entityid.New(), OwnerID: entityid.New(), Epoch: 3, LeaseRevision: 1, ExpiresAt: host.ExpiresAt},
+	return PoolReceipt{Child: child, CellSpecWire: specWire, RootChainWire: rootWire,
+		Source: PoolSource{ControllerConfigSHA256: digest, CellSpecSHA256: fmt.Sprintf("%x", sha256.Sum256(specWire)), CellSpecGeneration: 1,
+			RootSHA256: fmt.Sprintf("%x", sha256.Sum256(rootWire)), ManagerInstanceID: "ocid1.instance.manager", ManagerNodeID: "manager", DeploymentID: entityid.New(),
+			CandidateID: entityid.New(), OwnerID: entityid.New(), Epoch: 3, LeaseRevision: 1, ExpiresAt: host.ExpiresAt},
 		Host: host, NodeID: "worker", ClusterID: "cluster", ClusterCAPEM: []byte("ca"), ManagerCertificates: [][]byte{[]byte("manager")},
 		WorkerCertificate: []byte("worker"), CapturedAt: now, ExpiresAt: host.ExpiresAt, Phase: PoolCaptured,
 		Tasks: []PoolTask{{TaskID: hold.TaskID, ServiceID: hold.ServiceID, TaskSHA256: digest, ExecutionSHA256: digest}},
