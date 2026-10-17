@@ -203,12 +203,23 @@ func TestFoundationRecordsPersistAndFenceConcurrentWriters(t *testing.T) {
 	if current.FoundationWriter.InstanceID != original || current.FoundationWriter.Policy.RequestDigest != policyDigest {
 		t.Fatal("restart transferred the original writer or IAM reservation")
 	}
+	discoveryReads := 0
 	for _, statement := range current.FoundationWriter.Policy.Request.Statements {
+		if strings.Contains(statement, "orchestrator/foundation/v1/") && !strings.Contains(statement, homeIAMObject) {
+			if statement != fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {request.principal.type='instance', request.principal.id='%s', target.bucket.name='%s', target.object.name='%s', request.permission='OBJECT_READ'}", writer.BucketCompartment, original, writer.Bucket, foundationDiscoveryObject) &&
+				statement != fmt.Sprintf("Allow any-user to manage objects in compartment id %s where all {request.principal.type='instance', request.principal.id='%s', target.bucket.name='%s', target.object.name='%s', request.permission='OBJECT_READ'}", writer.BucketCompartment, original, writer.Bucket, foundationRootChainObject) {
+				t.Fatalf("discovery read escaped original writer scope: %s", statement)
+			}
+			discoveryReads++
+		}
 		if strings.Contains(statement, "SFO.json") || strings.Contains(statement, "FRA.json") {
 			if strings.Contains(statement, "OBJECT_CREATE") || strings.Contains(statement, "OBJECT_OVERWRITE") {
 				t.Fatal("cross-cell writer permission")
 			}
 		}
+	}
+	if discoveryReads != 2 {
+		t.Fatalf("original writer discovery reads=%d, want 2", discoveryReads)
 	}
 	current.FoundationWriter.Policy.Request.Statements = append(current.FoundationWriter.Policy.Request.Statements, "Allow any-user to manage objects in tenancy")
 	corrupt, err := json.Marshal(current, json.Deterministic(true))

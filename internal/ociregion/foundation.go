@@ -412,6 +412,11 @@ func storageStatements(plan, ids Object, prefix string, ledgerKey ...string) []s
 	for _, role := range []string{"ledger", "head", "backup", "material"} {
 		r = append(r, fmt.Sprintf("Allow dynamic-group %s to read buckets in compartment %s where target.bucket.name='%s'", dg, control, str(buckets[role])))
 	}
+	if plan["cell"] == "GRU" && plan["region"] == "sa-saopaulo-1" && str(buckets["head"]) == "gru-1-head" {
+		for _, key := range []string{"orchestrator/foundation/v1/anchor.json", "orchestrator/foundation/v1/root-chain.json"} {
+			r = append(r, fmt.Sprintf("Allow dynamic-group %s to manage objects in compartment %s where all {target.bucket.name='%s', target.object.name='%s', request.permission='OBJECT_READ'}", dg, control, str(buckets["head"]), key))
+		}
+	}
 	for _, role := range []string{"ledger", "head"} {
 		permissions := "request.permission='OBJECT_CREATE'"
 		if role == "head" {
