@@ -74,7 +74,7 @@ func (n *Node) loadAndStart(ctx context.Context, forceNewCluster bool) error {
 	n.Config.ID = raftNode.RaftID
 
 	if snapshot != nil {
-		snapCluster, err := n.clusterSnapshot(snapshot.Data)
+		snapCluster, err := n.clusterSnapshotAt(snapshot.Data, snapshot.Metadata.Index)
 		if err != nil {
 			return err
 		}
@@ -249,6 +249,10 @@ func (n *Node) triggerSnapshot(ctx context.Context, raftConfig api.RaftConfig) {
 }
 
 func (n *Node) clusterSnapshot(data []byte) (api.ClusterSnapshot, error) {
+	return n.clusterSnapshotAt(data, 0)
+}
+
+func (n *Node) clusterSnapshotAt(data []byte, index uint64) (api.ClusterSnapshot, error) {
 	var snapshot api.Snapshot
 	if err := snapshot.Unmarshal(data); err != nil {
 		return snapshot.Membership, err
@@ -257,7 +261,7 @@ func (n *Node) clusterSnapshot(data []byte) (api.ClusterSnapshot, error) {
 		return snapshot.Membership, fmt.Errorf("unrecognized snapshot version %d", snapshot.Version)
 	}
 
-	if err := n.memoryStore.Restore(&snapshot.Store); err != nil {
+	if err := n.memoryStore.RestoreAt(&snapshot.Store, api.Version{Index: index}); err != nil {
 		return snapshot.Membership, err
 	}
 
