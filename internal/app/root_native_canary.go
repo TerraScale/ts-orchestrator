@@ -143,6 +143,7 @@ func (producer *rootMaterialAdmission) nativeCanary(ctx context.Context, call ro
 		return nil, err
 	}
 	config := controller.config
+	ctx = config.credentialContext
 	if !config.releaseDeadline.IsZero() {
 		var cancel context.CancelFunc
 		original := ctx
@@ -256,7 +257,8 @@ func (admitted *rootNativeCanaryAdmission) guard(ctx context.Context) error {
 	stop := context.AfterFunc(admitted.original, cancel)
 	defer cancel()
 	defer stop()
-	if admitted.lease.Guard(ctx) != nil || admitted.session.Guard(ctx) != nil ||
+	if admitted.config.credentialSource == nil || admitted.config.credentialSource.Guard(ctx) != nil ||
+		admitted.lease.Guard(ctx) != nil || admitted.session.Guard(ctx) != nil ||
 		rootTrustChainCurrent(ctx, admitted.config.JS, admitted.rootChain) != nil ||
 		controllerHostSpecCurrent(ctx, admitted.config.JS, admitted.config.Specs, admitted.spec, admitted.rootHead) != nil {
 		return rootoci.ErrUnauthorized
@@ -320,7 +322,8 @@ func (admitted *rootNativeCanaryAdmission) guard(ctx context.Context) error {
 			return rootoci.ErrUnauthorized
 		}
 	}
-	if admitted.session.Guard(ctx) != nil || admitted.lease.Guard(ctx) != nil || admitted.original.Err() != nil || !time.Now().Before(admitted.deadline) {
+	if admitted.session.Guard(ctx) != nil || admitted.lease.Guard(ctx) != nil || admitted.config.credentialSource.Guard(ctx) != nil ||
+		admitted.original.Err() != nil || !time.Now().Before(admitted.deadline) {
 		return rootoci.ErrUnauthorized
 	}
 	return ctx.Err()

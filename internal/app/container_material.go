@@ -31,23 +31,25 @@ import (
 )
 
 type containerMaterialConfig struct {
-	Root             *rootoci.Client
-	releaseDeadline  time.Time
-	Factory          *ociclient.Factory
-	Hosts            seatrollout.Hosts
-	Authority        authority.Fencer
-	ReadLease        *authority.LeaseAdmission
-	Client           api.ControlClient
-	Specs            *specRegistry
-	Delivery         *delivery.Service
-	Evidence         func(context.Context, string, string) (io.ReadCloser, error)
-	Founders         *bootstrapstart.CurrentFounderAuthorityReader
-	Accepted         bootstrapstart.AcceptedIdentity
-	JS               jetstream.JetStream
-	Mutations        *authority.Reader
-	Registrations    *host.Reader
-	ResponsePublic   ed25519.PublicKey
-	WorkerMembership func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error)
+	Root              *rootoci.Client
+	releaseDeadline   time.Time
+	credentialSource  containermaterial.ControllerCredentials
+	credentialContext context.Context
+	Factory           *ociclient.Factory
+	Hosts             seatrollout.Hosts
+	Authority         authority.Fencer
+	ReadLease         *authority.LeaseAdmission
+	Client            api.ControlClient
+	Specs             *specRegistry
+	Delivery          *delivery.Service
+	Evidence          func(context.Context, string, string) (io.ReadCloser, error)
+	Founders          *bootstrapstart.CurrentFounderAuthorityReader
+	Accepted          bootstrapstart.AcceptedIdentity
+	JS                jetstream.JetStream
+	Mutations         *authority.Reader
+	Registrations     *host.Reader
+	ResponsePublic    ed25519.PublicKey
+	WorkerMembership  func(context.Context, string) (swarmruntime.VerifiedWorkerMembership, error)
 }
 
 type containerMaterialController struct{ config containerMaterialConfig }

@@ -51,6 +51,7 @@ func (producer *rootMaterialAdmission) container(ctx context.Context, call rooto
 	if err != nil {
 		return containermaterial.Admission{}, err
 	}
+	ctx = controller.config.credentialContext
 	session, err := controller.config.Registrations.AdmitContainerMaterialSession(ctx, evidence)
 	if err != nil {
 		return containermaterial.Admission{}, err
@@ -92,6 +93,7 @@ func (producer *rootMaterialAdmission) generation(ctx context.Context, call root
 	if err != nil {
 		return containermaterial.GenerationAdmission{}, err
 	}
+	ctx = controller.config.credentialContext
 	task, err := controller.config.Client.GetTask(ctx, &api.GetTaskRequest{TaskID: taskID})
 	if err != nil || task == nil || task.Task == nil {
 		return containermaterial.GenerationAdmission{}, containermaterial.ErrPending
@@ -170,10 +172,28 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	}
 	// The connector independently authenticates the fixed current config and
 	// derives controller credentials from signed accepted Vault generations.
-	conn, err := rootsecret.ConnectControllerReader(ctx)
+	credentials, err := rootsecret.OpenControllerReader(ctx)
 	if err != nil {
 		return fail(err)
 	}
+	conn, credentialContext := credentials.Conn(), credentials.Context()
+	if credentialContext == nil || credentialContext.Done() == nil || credentialContext.Err() != nil {
+		conn.Close()
+		return fail(rootoci.ErrUnauthorized)
+	}
+	credentialDeadline, ok := credentialContext.Deadline()
+	if !ok || !time.Now().Before(credentialDeadline) {
+		conn.Close()
+		return fail(rootoci.ErrUnauthorized)
+	}
+	ctx, credentialCancel := context.WithDeadline(ctx, credentialDeadline)
+	context.AfterFunc(credentialContext, credentialCancel)
+	ctx = ociclient.WithRequestGuard(ctx, func(ctx context.Context) error {
+		if call.Guard(ctx) != nil || credentials.Guard(ctx) != nil || call.Guard(ctx) != nil {
+			return rootoci.ErrUnauthorized
+		}
+		return nil
+	})
 	closeOnFailure := true
 	defer func() {
 		if closeOnFailure {
@@ -219,6 +239,7 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 	}
 	channel := instancePrincipalChannel(producer.factory.Region(), strings.ToUpper(cfg.NATS.Cell))
 	controller := &containerMaterialController{config: containerMaterialConfig{Factory: producer.factory, Hosts: registrations, Client: client,
+		credentialSource: credentials, credentialContext: ctx,
 		Specs: services, Delivery: service, Founders: reader, Accepted: accepted, JS: js, Mutations: mutations, Registrations: registrations, ResponsePublic: public,
 		Evidence: func(ctx context.Context, role, digest string) (io.ReadCloser, error) {
 			location, err := channel.get(ctx)
@@ -231,9 +252,9 @@ func (producer *rootMaterialAdmission) readers(ctx context.Context, call rootoci
 		controller.config.releaseDeadline = delegated.expires
 	}
 	sources := containermaterial.CurrentTaskSources{Client: client, JS: js, Delivery: service, Mutations: mutations,
-		Genesis: services.roots.genesis, RootIdentity: services.roots.identity, RootHead: services.roots.reply("").Head, ResponsePublic: public}
-	if err := call.Guard(ctx); err != nil {
-		return fail(err)
+		Genesis: services.roots.genesis, RootIdentity: services.roots.identity, RootHead: services.roots.reply("").Head, ResponsePublic: public, Credentials: credentials}
+	if call.Guard(ctx) != nil || credentials.Guard(ctx) != nil || call.Guard(ctx) != nil {
+		return fail(rootoci.ErrUnauthorized)
 	}
 	closeOnFailure = false
 	context.AfterFunc(ctx, conn.Close)
