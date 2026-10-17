@@ -144,15 +144,17 @@ func openControllerReaderLease(ctx context.Context) (*ControllerReader, error) {
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	factory, err := ociclient.InstancePrincipal(region)
+	readCtx, stopReads := snapshot.readContext(ctx)
+	defer stopReads()
+	factory, err := ociclient.InstancePrincipalContext(readCtx, region)
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	client, err := vaultsecret.SecretsClient(factory)
+	client, err := vaultsecret.SecretsClientContext(readCtx, factory)
 	if err != nil {
 		return nil, ErrDelivery
 	}
-	return connectControllerReaderLease(ctx, snapshot, client)
+	return connectControllerReaderLease(ctx, readCtx, snapshot, client)
 }
 
 func controllerReaderConnectionSnapshot(ctx context.Context) (controllerReaderSnapshot, error) {
@@ -186,17 +188,25 @@ func (snapshot controllerReaderSnapshot) guard(ctx context.Context) error {
 	return nil
 }
 
-func connectControllerReaderLease(ctx context.Context, snapshot controllerReaderSnapshot, client secrets.SecretsClient) (*ControllerReader, error) {
+// readContext bounds acquisition without replacing the original connection lifetime.
+func (snapshot controllerReaderSnapshot) readContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(30 * time.Second)
+	if !snapshot.expires.IsZero() && snapshot.expires.Before(deadline) {
+		deadline = snapshot.expires
+	}
+	bounded, cancel := context.WithDeadline(ctx, deadline)
+	return ociclient.WithCredentialSourceGuard(bounded, snapshot.guard), cancel
+}
+
+func connectControllerReaderLease(ctx, readCtx context.Context, snapshot controllerReaderSnapshot, client secrets.SecretsClient) (*ControllerReader, error) {
 	guard := func() error { return snapshot.guard(ctx) }
 	if guard() != nil {
 		return nil, ErrDelivery
 	}
-	readDeadline := time.Now().Add(30 * time.Second)
-	if !snapshot.expires.IsZero() && snapshot.expires.Before(readDeadline) {
-		readDeadline = snapshot.expires
+	readDeadline, bounded := readCtx.Deadline()
+	if !bounded || readCtx.Err() != nil {
+		return nil, ErrDelivery
 	}
-	readCtx, stopReads := context.WithDeadline(ctx, readDeadline)
-	defer stopReads()
 	client.HTTPClient = Dispatcher{Next: client.HTTPClient, Guard: func() error {
 		if readCtx.Err() != nil {
 			return ErrDelivery
@@ -288,7 +298,7 @@ func connectControllerReaderLease(ctx context.Context, snapshot controllerReader
 		cancel()
 		return nil, ErrDelivery
 	}
-	if guard() != nil || !expires.IsZero() && !time.Now().Before(expires) {
+	if guard() != nil || readCtx.Err() != nil || !expires.IsZero() && !time.Now().Before(expires) {
 		conn.Close()
 		cancel()
 		return nil, ErrDelivery

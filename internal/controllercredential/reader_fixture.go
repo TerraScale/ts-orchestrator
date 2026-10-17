@@ -19,7 +19,9 @@ func OpenControllerReaderFromSDKFixture(ctx context.Context, client *secrets.Sec
 	if err != nil {
 		return nil, err
 	}
-	reader, err := connectControllerReaderLease(ctx, snapshot, *client)
+	readCtx, stopReads := snapshot.readContext(ctx)
+	defer stopReads()
+	reader, err := connectControllerReaderLease(ctx, readCtx, snapshot, *client)
 	if err != nil {
 		return nil, err
 	}
