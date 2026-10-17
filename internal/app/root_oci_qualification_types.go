@@ -17,8 +17,9 @@ type RootOCIQualificationResult struct {
 }
 
 type RootOCIQualificationObservation struct {
-	SHA256 string `json:"sha256"`
-	Bytes  int64  `json:"bytes"`
+	SHA256   string `json:"sha256"`
+	Bytes    int64  `json:"bytes"`
+	Response []byte `json:"response,omitempty"`
 }
 
 type RootOCIQualificationReaders struct {

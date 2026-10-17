@@ -130,6 +130,10 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 	if json.Unmarshal(readWire, &result, json.RejectUnknownMembers(true)) != nil {
 		return errors.New("qualification reader child returned invalid observations")
 	}
+	localWire, err := json.Marshal(local, json.Deterministic(true))
+	if err != nil || !bytes.Equal(localWire, result.Readers.LocalInstance.Response) {
+		return errors.New("qualification child local observation differs from the root observation")
+	}
 	probeWire, err := runRootOCIQualificationChild(ctx, "root-oci-qualification-probe", uid, gid,
 		rootOCIQualificationChild{}, nil)
 	if err != nil {
@@ -143,7 +147,8 @@ func RunRootOCIQualification(ctx context.Context, args []string, input io.Reader
 	result.SchemaVersion, result.RootUID, result.PeerUID = 1, uint32(os.Geteuid()), uid
 	result.InstanceID, result.ImageID = admission.InstanceID(), admission.ImageID()
 	result.BinarySHA256, result.NamespaceSHA256 = admission.BinarySHA256(), admission.NamespaceSHA256()
-	result.SourceSHA256, result.Socket = admission.BindingSHA256(), rootoci.SocketPath
+	proofDigest := sha256.Sum256(wire)
+	result.SourceSHA256, result.Socket = hex.EncodeToString(proofDigest[:]), rootoci.SocketPath
 	result.Negative.SameUIDProcessDenied, result.Negative.IMDSDenied = probes.SameUIDProcessDenied, probes.IMDSDenied
 	if err := admission.Guard(ctx); err != nil || parent.Verify() != nil {
 		return errors.New("root qualification authority changed before publication")
@@ -271,6 +276,9 @@ func RunRootOCIQualificationReader(ctx context.Context, command string, args []s
 			}
 			sum := sha256.Sum256(canonical)
 			*reader.into = RootOCIQualificationObservation{SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(canonical))}
+			if reader.into == &observed.Readers.LocalInstance {
+				reader.into.Response = canonical
+			}
 		}
 		_, err := client.ReconcileFoundation(ctx, rootoci.ReconcileFoundationRequest{Cell: "GRU"})
 		observed.Negative.ProtectedWriteDenied = errors.Is(err, rootoci.ErrInvalid) || errors.Is(err, rootoci.ErrUnauthorized)
