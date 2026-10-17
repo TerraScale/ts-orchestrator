@@ -17,6 +17,20 @@ type VerifiedCapacityLedger struct {
 	ledger   capacityledger.Ledger
 }
 
+type capacityChild struct {
+	OperationID       string    `json:"operationId"`
+	RecipeSHA256      string    `json:"recipeSha256"`
+	InstanceID        string    `json:"instanceId"`
+	BootVolumeID      string    `json:"bootVolumeId"`
+	BornAt            time.Time `json:"bornAt"`
+	InstanceRetiredAt time.Time `json:"instanceRetiredAt"`
+	BootRetiredAt     time.Time `json:"bootRetiredAt"`
+	Launch            struct {
+		RequestSHA256  string    `json:"requestSha256"`
+		FirstAttemptAt time.Time `json:"firstAttemptAt"`
+	} `json:"launch"`
+}
+
 // CapacityLedger rereads the current grant and protected FoundationRecord.
 // Regional KV entries, tags and caller-provided records never enter this path.
 func (v VerifiedBindings) CapacityLedger(ctx context.Context) (VerifiedCapacityLedger, error) {
@@ -32,12 +46,30 @@ func (v VerifiedBindings) CapacityLedger(ctx context.Context) (VerifiedCapacityL
 	if current.capacityLedger == nil {
 		return VerifiedCapacityLedger{}, errors.New("protected root capacity ledger is absent")
 	}
+	children := map[string]capacityChild{}
+	if len(current.capacityChildren) != 0 && string(current.capacityChildren) != "null" {
+		if err := json.Unmarshal(current.capacityChildren, &children); err != nil {
+			return VerifiedCapacityLedger{}, errors.New("protected child provenance has invalid schema")
+		}
+	}
 	for _, host := range current.capacityLedger.Hosts {
 		r := host.Receipt
 		if r.TenancyID != current.authority.TenancyID || r.Quote.Cell != current.authority.Cell || r.Quote.Currency != current.capacityCurrency || r.GrantGeneration > current.authority.Generation ||
 			r.GrantGeneration == current.authority.Generation && r.GrantSHA256 != current.authority.GrantSHA256 ||
 			!slices.Contains(current.capacityCompartments, r.Quote.CompartmentID) {
 			return VerifiedCapacityLedger{}, errors.New("protected financial history differs from its authenticated foundation scope")
+		}
+		if host.RequestSHA256 != "" {
+			child, ok := children[r.OperationID]
+			if !ok || child.OperationID != r.OperationID || child.RecipeSHA256 != r.RecipeSHA256 ||
+				child.Launch.RequestSHA256 != host.RequestSHA256 || !child.Launch.FirstAttemptAt.Equal(host.StartedAt) {
+				return VerifiedCapacityLedger{}, errors.New("protected liability differs from the exact original launch provenance")
+			}
+			if !host.BornAt.IsZero() && (child.InstanceID != host.InstanceID || child.BootVolumeID != host.BootVolumeID || !child.BornAt.Equal(host.BornAt)) ||
+				!host.InstanceRetiredAt.IsZero() && !host.InstanceRetiredAt.Equal(child.InstanceRetiredAt) ||
+				!host.BootRetiredAt.IsZero() && !host.BootRetiredAt.Equal(child.BootRetiredAt) {
+				return VerifiedCapacityLedger{}, errors.New("protected liability differs from its positive child, boot or terminal result")
+			}
 		}
 	}
 	return VerifiedCapacityLedger{bindings: current, ledger: current.capacityLedger.Clone()}, nil
