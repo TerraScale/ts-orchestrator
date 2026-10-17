@@ -46,17 +46,68 @@ func ConnectControllerReader(ctx context.Context) (*nats.Conn, error) {
 // ConnectControllerReaderLease retains the exact original credential lifetime.
 // Root composition carries it through every protected operation and receipt.
 func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Context, error) {
+	reader, err := OpenControllerReader(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return reader.conn, reader.lease, nil
+}
+
+// ControllerReader retains the actual connection, original lifetime and signed
+// credential snapshot together. Its private fields cannot admit caller sources.
+type ControllerReader struct {
+	conn     *nats.Conn
+	lease    context.Context
+	snapshot controllerReaderSnapshot
+}
+
+// OpenControllerReader independently opens the fixed accepted credential source.
+func OpenControllerReader(ctx context.Context) (*ControllerReader, error) {
+	conn, lease, snapshot, err := openControllerReaderLease(ctx)
+	if err != nil {
+		return nil, err
+	}
+	reader := &ControllerReader{conn: conn, lease: lease, snapshot: snapshot}
+	if err := reader.Guard(ctx); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return reader, nil
+}
+
+func (reader *ControllerReader) Conn() *nats.Conn         { return reader.conn }
+func (reader *ControllerReader) Context() context.Context { return reader.lease }
+
+// Guard rejects credential drift synchronously before and after protected work.
+func (reader *ControllerReader) Guard(ctx context.Context) error {
+	if os.Geteuid() != 0 || reader == nil || reader.conn == nil || reader.lease == nil ||
+		ctx == nil || ctx.Err() != nil || reader.lease.Err() != nil || reader.conn.IsClosed() {
+		return ErrDelivery
+	}
+	deadline, ok := reader.lease.Deadline()
+	if !ok || reader.lease.Done() == nil || !time.Now().Before(deadline) {
+		return ErrDelivery
+	}
+	current, err := loadControllerReaderSnapshot()
+	if err != nil || !reflect.DeepEqual(reader.snapshot, current) || ctx.Err() != nil || reader.lease.Err() != nil || reader.conn.IsClosed() ||
+		!time.Now().Before(deadline) || !reader.snapshot.expires.IsZero() && !time.Now().Before(reader.snapshot.expires) {
+		return ErrDelivery
+	}
+	return nil
+}
+
+func openControllerReaderLease(ctx context.Context) (*nats.Conn, context.Context, controllerReaderSnapshot, error) {
 	if os.Geteuid() != 0 || ctx == nil || ctx.Err() != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	for _, name := range ociclient.SecretUnsafeEnv {
 		if _, set := os.LookupEnv(name); set {
-			return nil, nil, ErrDelivery
+			return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 		}
 	}
 	snapshot, err := loadControllerReaderSnapshot()
 	if err != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	guard := func() error {
 		if ctx.Err() != nil || !snapshot.expires.IsZero() && !time.Now().Before(snapshot.expires) {
@@ -71,15 +122,15 @@ func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Cont
 	}
 	region, err := snapshot.acceptedRegion()
 	if err != nil || guard() != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	factory, err := ociclient.InstancePrincipal(region)
 	if err != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	client, err := vaultsecret.SecretsClient(factory)
 	if err != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	readCtx, stopReads := context.WithTimeout(ctx, 30*time.Second)
 	defer stopReads()
@@ -100,11 +151,11 @@ func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Cont
 	for index, path := range paths {
 		reference, ok := snapshot.refs[filepath.Base(path)]
 		if !ok || path != filepath.Join(bootstrap.MaterialDirectory, reference.TargetFile) || guard() != nil {
-			return nil, nil, ErrDelivery
+			return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 		}
 		value, deadline, err := readExact(readCtx, &client, reference)
 		if err != nil {
-			return nil, nil, ErrDelivery
+			return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 		}
 		values[index] = value
 		if !deadline.IsZero() && (expires.IsZero() || deadline.Before(expires)) {
@@ -112,24 +163,24 @@ func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Cont
 		}
 	}
 	if natscell.ValidateBrokerControllerCredentialBytes(values[0], snapshot.nats.Cell, snapshot.nats.Instance) != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	raw, err := jwt.ParseDecoratedJWT(values[0])
 	if err != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	claim, err := jwt.DecodeUserClaims(raw)
 	if err != nil || claim.IssuerAccount != snapshot.accepted.Broker.CellAccount &&
 		(claim.IssuerAccount != "" || claim.Issuer != snapshot.accepted.Broker.CellAccount) {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	certificate, err := tls.X509KeyPair(values[2], values[3])
 	if err != nil {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(values[1]) || guard() != nil || readCtx.Err() != nil || !expires.IsZero() && !time.Now().Before(expires) {
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	connectionCtx, cancel := context.WithCancel(ctx)
 	if !expires.IsZero() {
@@ -142,12 +193,12 @@ func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Cont
 		&tls.Config{MinVersion: tls.VersionTLS13, RootCAs: roots, Certificates: []tls.Certificate{certificate}})
 	if err != nil {
 		cancel()
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	if guard() != nil || !expires.IsZero() && !time.Now().Before(expires) {
 		conn.Close()
 		cancel()
-		return nil, nil, ErrDelivery
+		return nil, nil, controllerReaderSnapshot{}, ErrDelivery
 	}
 	go func() {
 		defer cancel()
@@ -166,7 +217,7 @@ func ConnectControllerReaderLease(ctx context.Context) (*nats.Conn, context.Cont
 			}
 		}
 	}()
-	return conn, lease, nil
+	return conn, lease, snapshot, nil
 }
 
 func (snapshot controllerReaderSnapshot) acceptedRegion() (string, error) {
