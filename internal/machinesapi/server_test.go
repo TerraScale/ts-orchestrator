@@ -190,6 +190,42 @@ func TestTenancy(t *testing.T) {
 	if code, _, _ := call(t, f.server, f.token("0000000000Z4WVDND9E6R945JB"), "/v1/apps/t-acme-db/machines/00000000000000000000000009"); code != http.StatusNotFound {
 		t.Fatalf("missing machine: %d", code)
 	}
+
+	public := httptest.NewServer(f.server)
+	t.Cleanup(public.Close)
+	client := public.Client()
+	client.Timeout = 2 * time.Second
+	getPublic := func(path string) (int, map[string]any) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, public.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		var body map[string]any
+		if err := json.UnmarshalRead(response.Body, &body); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		return response.StatusCode, body
+	}
+	if code, body := getPublic("/healthz"); code != http.StatusOK || body["status"] != "ok" {
+		t.Fatalf("healthz over TCP: %d %v", code, body)
+	}
+	code, body = getPublic("/v1/openapi.json")
+	paths, _ := body["paths"].(map[string]any)
+	if code != http.StatusOK || body["openapi"] != "3.1.0" {
+		t.Fatalf("openapi over TCP: %d %v", code, body)
+	}
+	for _, path := range []string{"/healthz", "/v1/openapi.json", "/v1/apps", "/v1/apps/{app}", "/v1/apps/{app}/machines",
+		"/v1/apps/{app}/machines/{id}"} {
+		if paths[path] == nil {
+			t.Fatalf("openapi over TCP lacks %s", path)
+		}
+	}
 }
 
 func TestAuthorizationFailures(t *testing.T) {
