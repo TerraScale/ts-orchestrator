@@ -125,7 +125,7 @@ func (proof VerifiedRuntimeCreation) read(ctx context.Context) (region.RuntimeLi
 	}
 	origin, creation := *record.RuntimeLineage, *record.RuntimeLineage.Creation
 	genesis := *creation.Genesis
-	origin.Creation, creation.Genesis = nil, nil
+	origin, creation.Genesis = origin.Original(), nil
 	digest, err := proof.accepted.AcceptanceSHA256()
 	if err != nil {
 		return fail(err)

@@ -122,7 +122,7 @@ func prepareRuntimeCreation(ctx context.Context, home *HomeIAMAuthority, reader 
 		HostID: identity.Slot, InstanceID: identity.InstanceID, AcceptanceSHA256: acceptance,
 		AnchorSHA256: authority.Anchor().Digest(), StartedAt: now, ExpiresAt: expires}
 	permit := &RuntimeCreationPermit{ctx: ctx, factory: factory, home: home, reader: reader, accepted: accepted.Clone(),
-		identity: identity, creation: creation, origin: *record.RuntimeLineage, expires: expires}
+		identity: identity, creation: creation, origin: record.RuntimeLineage.Original(), expires: expires}
 	operation, finish, err := permit.bound(operation)
 	if err != nil {
 		return nil, err
@@ -285,9 +285,7 @@ func (permit *RuntimeCreationPermit) current(ctx context.Context) error {
 	if !sameRuntimeFoundation(record, approved) || lineage == nil || lineage.Creation == nil || *lineage.Creation != permit.creation {
 		return errors.New("protected original runtime creation changed or completed")
 	}
-	origin := *lineage
-	origin.Creation = nil
-	if origin != permit.origin {
+	if lineage.Original() != permit.origin {
 		return errors.New("protected original runtime foundation changed")
 	}
 	return nil
