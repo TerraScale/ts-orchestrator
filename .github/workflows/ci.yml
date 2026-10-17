@@ -45,6 +45,7 @@ jobs:
             ZERO_CONFIG_BASE=$(git rev-parse "$ZERO_CONFIG_HEAD^")
           fi
           python3 scripts/ci/zero-config-check.py "$ZERO_CONFIG_BASE" "$ZERO_CONFIG_HEAD"
+          python3 scripts/ci/test_zero_config_check.py -v
 
   build:
     permissions:

@@ -1,0 +1,32 @@
+{
+  "created_utc": "2026-10-17T03:23:38.217232+00:00",
+  "state": "QA ACCEPTS rank1 guard source and exact first Python runtime PASS",
+  "source": "7f504383cc8e8703031e1bb901fbac99223f05ae",
+  "tree": "00fcaa65e0544a967a04c6d656470e4585414fc0",
+  "base": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+  "changed_files": [
+    "scripts/ci/zero-config-check.py",
+    "scripts/ci/test_zero_config_check.py"
+  ],
+  "receipt_sha256": "156feea9fd25e3449120ffc128821d0d6898071f60dedc4b6180241c1a3a7e36",
+  "tool_session": 6836,
+  "terminal_exit": 0,
+  "seconds": 1.9772989409975708,
+  "passed_test_methods": [
+    "test_customer_and_authority_state_in_split_file_stay_out_of_scope",
+    "test_declaration_comment_brace_does_not_end_config",
+    "test_exception_needs_a_reason_and_only_exempts_its_line",
+    "test_existing_config_and_env_surfaces_remain_checked",
+    "test_go_tests_stay_out_of_scope",
+    "test_host_telemetry_is_an_operator_switch",
+    "test_inline_config_does_not_capture_following_state",
+    "test_removing_switch_is_allowed",
+    "test_split_config_fields_use_unchanged_head_context",
+    "test_unchanged_switch_is_not_reported"
+  ],
+  "source_counted_sequential_temp_git_scenarios": 16,
+  "skips": 0,
+  "Go_executed": false,
+  "source_unchanged": true,
+  "limits": "Named Config/*Config declarations in internal/app, existing config/env surfaces and explicit HostTelemetry only; not a Go grammar parser or global existing-switch removal. Source-only first2813 comment-brace defect corrected before any runner; first runtime candidate7f PASS. CI test registration pending separate one-line wiring."
+}

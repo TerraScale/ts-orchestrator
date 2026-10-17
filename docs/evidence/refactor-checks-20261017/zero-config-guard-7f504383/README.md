@@ -1,0 +1,7 @@
+# Split application configuration guard
+
+The guard now examines added fields inside named `Config`/`*Config` structs in split `internal/app/*.go` files and detects `HostTelemetry` switches. Existing environment/config surfaces, added-line scope, customer/authority state exclusions, test-code exclusions and reasoned line-only vendor exceptions are preserved. This is a narrow source-policy guard, not a Go grammar parser or evidence that existing runtime switches have all been removed.
+
+Exact source `7f504383cc8e8703031e1bb901fbac99223f05ae`, tree `00fcaa65e0544a967a04c6d656470e4585414fc0`: the first Python runtime passed ten methods, covering sixteen sequential temporary Git scenarios, without skips. Wrapper wall time 1.977298941 seconds; tool session 6836 exited 0. Raw stdout/stderr, original request, wrapper, source pre/post hashes and actual tool launch/terminal records are retained unchanged. No Go, listeners, cloud or host-service work ran. A declaration-comment brace false-negative was corrected before this first run; no failed runtime is implied.
+
+Separate one-line CI wiring `6efec6fff0c99bd46f33d6e66d26c6dae7d5f4ae` runs this test suite after the existing guard command. Python source is byte-identical to the qualified candidate, so no runtime was repeated for CI-only adoption. No CI workflow was dispatched. Main and the seven original human-modified paths remain protected; broader refactor qualification remains open.

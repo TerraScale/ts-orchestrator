@@ -1,0 +1,55 @@
+{
+  "state": "PASS",
+  "source": "7f504383cc8e8703031e1bb901fbac99223f05ae",
+  "tree": "00fcaa65e0544a967a04c6d656470e4585414fc0",
+  "argv": [
+    "/run/current-system/sw/bin/timeout",
+    "--signal=TERM",
+    "--kill-after=5s",
+    "60s",
+    "/run/current-system/sw/bin/nice",
+    "-n",
+    "19",
+    "/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15",
+    "-I",
+    "-B",
+    "scripts/ci/test_zero_config_check.py",
+    "-v"
+  ],
+  "environment": {
+    "HOME": "/home/mariogk",
+    "PATH": "/home/mariogk/.local/share/mise/installs/go/1.27.1/bin:/run/current-system/sw/bin",
+    "LANG": "C.UTF-8",
+    "GOMAXPROCS": "2",
+    "GOFLAGS": "-p=2",
+    "GOTOOLCHAIN": "local"
+  },
+  "cwd": "/tmp/ts-qa-zero-config-rank1-dd22a8d0",
+  "started_utc": "2026-10-17T03:21:26.020245+00:00",
+  "finished_utc": "2026-10-17T03:21:28.030091+00:00",
+  "seconds": 1.9772989409975708,
+  "exit_code": 0,
+  "pre": {
+    "scripts/ci/zero-config-check.py": "861c77947e7258efc512e7b57993fe7e4c724917d66b84da5999843a7cb9bb99",
+    "scripts/ci/test_zero_config_check.py": "10e5ae6c5e5fd44d3cd47172a92c7f4f56889833172d7710a80a5eae55111b28"
+  },
+  "post": {
+    "scripts/ci/zero-config-check.py": "861c77947e7258efc512e7b57993fe7e4c724917d66b84da5999843a7cb9bb99",
+    "scripts/ci/test_zero_config_check.py": "10e5ae6c5e5fd44d3cd47172a92c7f4f56889833172d7710a80a5eae55111b28"
+  },
+  "gate_exclusive_nonblocking": true,
+  "Python_executable_sha256": "71c06b34ffee909d39e88c70c317e7e4f02dd43a491932d1ce165c0b291f433f",
+  "expected_test_methods": 10,
+  "source_counted_temp_git_scenarios": 16,
+  "Go_executed": false,
+  "logs": {
+    "stdout.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stderr.log": {
+      "bytes": 1437,
+      "sha256": "d77cfc01ce82167bf5374fe27fd0a8176ae08c21c77684006d1ee1e2b3f7e109"
+    }
+  }
+}
