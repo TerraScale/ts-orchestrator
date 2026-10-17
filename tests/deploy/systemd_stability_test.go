@@ -12,7 +12,7 @@ import (
 func TestHostSetupNeverRestartsTheHostRuntime(t *testing.T) {
 	service := string(read(t, filepath.Join(deployRoot(t), "deploy/systemd/terrascale-orchestrator-host-setup.service")))
 	directives := unitDirectives(service, "Service")
-	equal(t, directives["ExecStartPost"], "-/usr/bin/systemctl --no-block start terrascale-orchestrator-host.service")
+	equal(t, directives["ExecStartPost"], "-/usr/bin/systemctl --no-block start terrascale-orchestrator-managed-runtime.service")
 	for line := range strings.SplitSeq(service, "\n") {
 		if !strings.HasPrefix(strings.TrimSpace(line), "#") && strings.Contains(line, "restart") {
 			t.Fatalf("host setup restarts a unit: %q", line)
