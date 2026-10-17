@@ -1,7 +1,9 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"maps"
@@ -28,7 +30,7 @@ func managerExpectedUsage(context.Context, time.Time, time.Time) ([]hostload.Usa
 // recordManaged retains native DATA reservations and replaces migrated roles
 // with each host's actual admitted task resources, including rollback tasks.
 func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistory, usage *runtimeObservability,
-	client api.ControlClient, owns func(string) bool, verify func(context.Context, host.Registration, *api.Task) error,
+	client api.ControlClient, observer swarmruntime.ManagementObservationClient, owns func(string) bool, verify func(context.Context, host.Registration, *api.Task) error,
 	origin hostload.Origin, report hostload.Report,
 ) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -60,13 +62,36 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		return err
 	}
 	requests := loadRequests(resources)
-	tasks, err := telemetryTasks(ctx, history.services, client, registration)
+	t.mu.Lock()
+	if !t.current() {
+		t.mu.Unlock()
+		return authority.ErrFenced
+	}
+	previous := slices.Clone(t.usagePoints[origin])
+	t.mu.Unlock()
+	snapshot, source, continuous, err := readUsageSnapshot(ctx, observer, previous)
+	if err != nil {
+		return err
+	}
+	spec, err := history.services.kv.Get(ctx, cellSpecKey)
+	if err != nil {
+		return err
+	}
+	history.services.mu.Lock()
+	adopted := history.services.revision
+	history.services.mu.Unlock()
+	if spec.Revision() != adopted {
+		return errors.New("usage spec is not the adopted signed revision")
+	}
+	specDigest := fmt.Sprintf("%x", sha256.Sum256(spec.Value()))
+	tasks, err := telemetrySnapshotTasks(history.services, snapshot.Nodes, snapshot.Tasks, registration)
 	if err != nil {
 		return err
 	}
 	managed := make(map[string]hostload.Request)
 	pins := make(map[string][]hostload.TaskPin)
 	var accepted []*api.Task
+	var allocations []host.UsageTask
 	for _, task := range tasks {
 		role := task.ServiceAnnotations.Labels[swarmruntime.LabelRole]
 		if !owns(role) {
@@ -82,11 +107,15 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		if err != nil {
 			return err
 		}
-		pins[role] = append(pins[role], hostload.TaskPin{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, Fingerprint: fingerprint})
+		pin := hostload.TaskPin{TaskID: task.ID, ServiceID: task.ServiceID, NodeID: task.NodeID, Fingerprint: fingerprint}
+		pins[role] = append(pins[role], pin)
 		requirements := task.Spec.Resources
 		if requirements.Reservations == nil || !proto.Equal(requirements.Reservations, requirements.Limits) {
 			return errors.New("manager task reservations differ from its executable limits")
 		}
+		allocations = append(allocations, host.UsageTask{Role: role, Task: pin,
+			Request:       hostload.Request{CPUCores: float64(requirements.Reservations.NanoCPUs) / 1_000_000_000, MemoryBytes: requirements.Reservations.MemoryBytes},
+			ReleaseSHA256: task.ServiceAnnotations.Labels["terrascale.release-fingerprint"], SpecSHA256: specDigest})
 		request := managed[role]
 		request.CPUCores += float64(requirements.Reservations.NanoCPUs) / 1_000_000_000
 		memory := requirements.Reservations.MemoryBytes
@@ -130,51 +159,109 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		}
 		report.Roles = append(report.Roles, value)
 	}
-	// Assignment or enrollment changes during the read invalidate this sample;
-	// prior accounting history remains retained, never rewritten to new requests.
-	for _, task := range accepted {
-		latest, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+	recheck := func(ctx context.Context) error {
+		// Recheck inside the same authority CAS retry as the durable append.
+		for _, task := range accepted {
+			latest, err := client.GetTask(ctx, &api.GetTaskRequest{TaskID: task.ID})
+			if err != nil {
+				return err
+			}
+			if latest == nil || latest.Task == nil || latest.Task.NodeID != task.NodeID || latest.Task.DesiredState != task.DesiredState ||
+				!proto.Equal(&latest.Task.Spec, &task.Spec) || !proto.Equal(&latest.Task.ServiceAnnotations, &task.ServiceAnnotations) {
+				return errors.New("manager allocation changed while reading host telemetry")
+			}
+			if err := verify(ctx, registration, latest.Task); err != nil {
+				return err
+			}
+		}
+		confirmedTasks, err := telemetryTasks(ctx, history.services, client, registration)
 		if err != nil {
 			return err
 		}
-		if latest == nil || latest.Task == nil || latest.Task.NodeID != task.NodeID || latest.Task.DesiredState != task.DesiredState ||
-			!proto.Equal(&latest.Task.Spec, &task.Spec) || !proto.Equal(&latest.Task.ServiceAnnotations, &task.ServiceAnnotations) {
-			return errors.New("manager allocation changed while reading host telemetry")
+		remaining := make(map[string]*api.Task)
+		for _, task := range accepted {
+			remaining[task.ID] = task
 		}
-		if err := verify(ctx, registration, latest.Task); err != nil {
-			return err
+		for _, task := range confirmedTasks {
+			if !owns(task.ServiceAnnotations.Labels[swarmruntime.LabelRole]) {
+				continue
+			}
+			before, exists := remaining[task.ID]
+			if !exists || !proto.Equal(task, before) {
+				return errors.New("manager task set changed while reading host telemetry")
+			}
+			if err := verify(ctx, registration, task); err != nil {
+				return err
+			}
+			delete(remaining, task.ID)
 		}
-	}
-	confirmedTasks, err := telemetryTasks(ctx, history.services, client, registration)
-	if err != nil {
-		return err
-	}
-	remaining := make(map[string]*api.Task)
-	for _, task := range accepted {
-		remaining[task.ID] = task
-	}
-	for _, task := range confirmedTasks {
-		if !owns(task.ServiceAnnotations.Labels[swarmruntime.LabelRole]) {
-			continue
-		}
-		before, exists := remaining[task.ID]
-		if !exists || !proto.Equal(task, before) {
+		if len(remaining) != 0 {
 			return errors.New("manager task set changed while reading host telemetry")
 		}
-		if err := verify(ctx, registration, task); err != nil {
+		current, err := telemetryRegistration(ctx, history, origin)
+		if err != nil {
 			return err
 		}
-		delete(remaining, task.ID)
+		if !reflect.DeepEqual(current, registration) {
+			return errors.New("host registration changed while reading task resources")
+		}
+		currentDesired, err := history.hosts.ListDesired(ctx, "")
+		if err != nil {
+			return err
+		}
+		currentDesired = slices.DeleteFunc(currentDesired, func(d host.Desired) bool { return owns(d.Role) })
+		if !reflect.DeepEqual(currentDesired, desired) {
+			return errors.New("native allocations changed while reading host telemetry")
+		}
+		currentProfiles := profileResources(history.services.profiles())
+		for role := range currentProfiles {
+			if owns(role) {
+				delete(currentProfiles, role)
+			}
+		}
+		currentResources, err := history.resources(ctx, currentDesired, currentProfiles)
+		if err != nil {
+			return err
+		}
+		if !maps.Equal(resources, currentResources) {
+			return errors.New("native signed resources changed while reading host telemetry")
+		}
+		latestSpec, err := history.services.kv.Get(ctx, cellSpecKey)
+		if err != nil {
+			return err
+		}
+		history.services.mu.Lock()
+		adopted := history.services.revision
+		history.services.mu.Unlock()
+		if latestSpec.Revision() != spec.Revision() || adopted != spec.Revision() || !bytes.Equal(latestSpec.Value(), spec.Value()) {
+			return errors.New("adopted signed spec changed while reading host telemetry")
+		}
+		return nil
 	}
-	if len(remaining) != 0 {
-		return errors.New("manager task set changed while reading host telemetry")
+	if err := recheck(ctx); err != nil {
+		return err
 	}
-	current, err := telemetryRegistration(ctx, history, origin)
+	// Only allocated roles belong to this recipient's historical requests.
+	for role := range requests {
+		if !slices.ContainsFunc(report.Roles, func(value hostload.RoleUsage) bool { return value.Role == role }) {
+			delete(requests, role)
+		}
+	}
+	slices.SortFunc(allocations, func(a, b host.UsageTask) int { return strings.Compare(a.Task.TaskID, b.Task.TaskID) })
+	observation := host.UsageObservation{Registration: registration, DeploymentID: t.fencer.Current().DeploymentID, Epoch: epoch,
+		Source: host.UsageSource{Version: source.Version, NodeID: source.NodeID, ClusterID: source.ClusterID, ServerEpoch: source.ServerEpoch, Term: source.Term, Leader: source.Leader},
+		Tasks:  allocations, Requests: requests, Report: report}
+	if continuous && len(previous) == 2 {
+		observation.PriorSequence = previous[1].Entry.Sequence
+		observation.PreviousSequence, observation.CoveredSequence = previous[0].Entry.Sequence, previous[1].Entry.Sequence
+	}
+	committed, err := history.hosts.CommitUsageObservation(ctx, observation, recheck)
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(current, registration) {
-		return errors.New("host registration changed while reading task resources")
+	// Recover retained points before appending a live point, including on the first report after restart.
+	if _, err := t.restoreManagedUsage(ctx, history.hosts, usage); err != nil && !errors.Is(err, authority.ErrUsageHistoryTruncated) {
+		return err
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -195,6 +282,7 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		for candidate := range t.managedRequests {
 			if !slices.ContainsFunc(nodes, func(node hostload.NodeLoad) bool { return node.Origin == candidate }) {
 				delete(t.managedRequests, candidate)
+				delete(t.usagePoints, candidate)
 			}
 		}
 		if _, exists := t.managedRequests[origin]; !exists && len(t.managedRequests) >= 4096 {
@@ -202,9 +290,15 @@ func (t *hostTelemetry) recordManaged(ctx context.Context, history *nativeHistor
 		}
 	}
 	t.managedRequests[origin] = maps.Clone(requests)
-	return usage.recordHostLoad(func(origin hostload.Origin, report hostload.Report) error {
-		return t.load.RecordRequests(origin, report, requests)
-	}, origin, report, requests)
+	if t.usagePoints == nil {
+		t.usagePoints = make(map[hostload.Origin][]host.CommittedUsage)
+	}
+	points := append(previous, committed)
+	if len(points) > 2 {
+		points = points[len(points)-2:]
+	}
+	t.usagePoints[origin] = points
+	return t.load.RecordRequests(origin, report, requests)
 }
 
 func telemetryRegistration(ctx context.Context, history *nativeHistory, origin hostload.Origin) (host.Registration, error) {
@@ -237,9 +331,23 @@ func telemetryTasks(ctx context.Context, specs *specRegistry, client api.Control
 	if response == nil {
 		return nil, errors.New("manager node inventory is unavailable")
 	}
+	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{})
+	if err != nil {
+		return nil, err
+	}
+	if listed == nil {
+		return nil, errors.New("manager task inventory is unavailable")
+	}
+	return telemetrySnapshotTasks(specs, response.Nodes, listed.Tasks, registration)
+}
+
+func telemetrySnapshotTasks(specs *specRegistry, nodes []*api.Node, allTasks []*api.Task, registration host.Registration) ([]*api.Task, error) {
+	if len(nodes) > 4096 || len(allTasks) > 4096 {
+		return nil, errors.New("manager inventory exceeds telemetry bounds")
+	}
 	region := catalog.OCIRegion(strings.ToUpper(registration.Cell))
 	nodeID := ""
-	for _, node := range response.Nodes {
+	for _, node := range nodes {
 		if node == nil || node.Spec.Membership != api.NodeMembershipAccepted || node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
 			continue
 		}
@@ -258,16 +366,9 @@ func telemetryTasks(ctx context.Context, specs *specRegistry, client api.Control
 	if nodeID == "" {
 		return nil, nil
 	}
-	listed, err := client.ListTasks(ctx, &api.ListTasksRequest{Filters: &api.ListTasksRequest_Filters{NodeIDs: []string{nodeID}}})
-	if err != nil {
-		return nil, err
-	}
-	if listed == nil || len(listed.Tasks) > 4096 {
-		return nil, errors.New("manager task inventory is unavailable or oversized")
-	}
 	var tasks []*api.Task
-	for _, task := range listed.Tasks {
-		if task == nil || task.Status.State >= api.TaskStateCompleted {
+	for _, task := range allTasks {
+		if task == nil || task.NodeID != nodeID || task.Status.State >= api.TaskStateCompleted {
 			continue
 		}
 		labels := task.ServiceAnnotations.Labels

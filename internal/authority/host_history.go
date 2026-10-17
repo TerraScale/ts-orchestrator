@@ -16,6 +16,8 @@ import (
 
 const hostHistoryLimit = 16384
 
+var ErrUsageHistoryTruncated = errors.New("retained usage exceeds the historical inventory bound")
+
 // HostHistory caches a startup baseline and one hour of incremental changes.
 // Queries never replay mutations preceding the baseline.
 type HostHistory struct {
@@ -249,7 +251,7 @@ func (h *HostHistory) UsageWindow(ctx context.Context, stream jetstream.Stream, 
 			return nil, errors.Join(err, errors.New("retained usage sequence is invalid"))
 		}
 		if len(h.usage) >= hostHistoryLimit {
-			return nil, errors.New("retained usage exceeds the historical inventory bound")
+			return slices.Clone(h.usage), ErrUsageHistoryTruncated
 		}
 		h.usage = append(h.usage, value)
 		h.usageNext = entry.Sequence + 1
