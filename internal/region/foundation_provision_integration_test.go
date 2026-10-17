@@ -105,6 +105,32 @@ func foundationProvisionSDKScenario(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The pure preparation helper leaves worker policy to its caller; the SDK
+	// producer normally fills this same finite policy before offline signing.
+	for _, region := range prepared.Grant.Regions {
+		cell, _ := region.Plan["cell"].(string)
+		bucket, err := releasechannel.BucketName(cell)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := func(key string) string {
+			value, err := FoundationResourceReference(cell, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return value
+		}
+		for _, role := range []string{"container", "wasm"} {
+			for _, architecture := range []string{"arm64", "amd64"} {
+				shape := "VM.Standard.A1.Flex"
+				if architecture == "amd64" {
+					shape = "VM.Standard.E4.Flex"
+				}
+				prepared.Grant.WorkerProfiles = append(prepared.Grant.WorkerProfiles, WorkerProfile{Cell: cell, Environment: "production", Role: role, Architecture: architecture, Shape: shape, OCPUs: 2, MemoryGB: 12, BootGB: 50, AvailabilityDomains: []string{"scenario:AD-1"}, CompartmentRef: ref("workload_compartment"), SubnetRef: ref("subnet"), NSGRef: ref("workload_network_security_group"), Runtime: release.ProductionRuntime,
+					ImageSource: WorkerImageSource{OCIRegion: catalog.OCIRegion(cell), Namespace: approval.HomeStorageDomain.Namespace, Bucket: bucket, CurrentObject: releasechannel.CurrentImageObject(role, architecture, "production"), ImageDomain: release.ImageDomain, QualificationDomain: release.ProductionQualificationDomain}, Bootstrap: WorkerBootstrapTemplate{Derivation: WorkerBootstrapDerivationV1, MaterialPlanSHA256: region.BootstrapMaterial.PlanSHA256, VaultRef: ref("vault"), KMSKeyRef: ref("key"), RecipientPermission: "SECRET_BUNDLE_READ"}})
+			}
+		}
+	}
 	chain, err := trust.EncodeRootChain(trust.RootChain{Version: 1})
 	if err != nil {
 		t.Fatal(err)
