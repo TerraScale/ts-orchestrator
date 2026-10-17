@@ -4,13 +4,14 @@ import (
 	"encoding/json/jsontext"
 	"encoding/json/v2"
 	"errors"
+	"github.com/TerraScale/ts-orchestrator/internal/rootociwire"
 	"strings"
 )
 
-const SocketPath = "/run/terrascale-orchestrator/oci.sock"
+const SocketPath = rootociwire.SocketPath
 
 // The existing five MiB public signed chain expands under JSON base64.
-const maxFrameBytes = 8 << 20
+const maxFrameBytes = rootociwire.MaxFrameBytes
 
 var (
 	ErrInvalid        = errors.New("root OCI request invalid")
@@ -75,6 +76,8 @@ func validDigest(value string) bool {
 
 func errorStatus(err error) string {
 	switch {
+	case errors.Is(err, ErrOutcomeUnknown):
+		return "outcome_unknown"
 	case err == nil:
 		return "ok"
 	case errors.Is(err, ErrInvalid):
@@ -98,7 +101,14 @@ func statusError(status string) error {
 		return ErrUnauthorized
 	case "pending":
 		return ErrPending
+	case "outcome_unknown":
+		return errors.Join(ErrUnavailable, ErrOutcomeUnknown)
 	default:
 		return ErrUnavailable
 	}
+}
+
+// observationOnly does not grant the six-operation startup exemption.
+func (operation Operation) observationOnly() bool {
+	return operation.ReadOnly() || operation == OperationObservePoolChild
 }
