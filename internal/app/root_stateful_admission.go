@@ -90,7 +90,7 @@ func (a *rootStatefulAuthorizer) WithStatefulService(ctx context.Context, spec *
 	if node == nil {
 		return rootoci.ErrUnauthorized
 	}
-	client, err := node.ControlClient(ctx)
+	client, err := node.ReadOnlyControlClient(ctx)
 	if err != nil {
 		return err
 	}

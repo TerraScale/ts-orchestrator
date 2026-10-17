@@ -16,13 +16,13 @@ import (
 
 // VerifyRegistryTask binds current signed release authority to the manager's
 // actual assignment and ordering floor. Operation labels are locators only.
-func VerifyRegistryTask(ctx context.Context, client api.ControlClient, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
+func VerifyRegistryTask(ctx context.Context, client api.ControlReader, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring) error {
 	return verifyServiceTask(ctx, client, task, intent, verified, roots, func(assignment *api.Task) bool {
 		return assignment.DesiredState <= api.TaskStateRunning
 	})
 }
 
-func verifyServiceTask(ctx context.Context, client api.ControlClient, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, assignmentAllowed func(*api.Task) bool) error {
+func verifyServiceTask(ctx context.Context, client api.ControlReader, task *api.Task, intent ServiceIntent, verified release.VerifiedContainer, roots trust.Keyring, assignmentAllowed func(*api.Task) bool) error {
 	if client == nil || task == nil || task.ID == "" || task.ServiceID == "" || task.NodeID == "" || !verified.Valid(time.Now().UTC()) {
 		return errors.New("registry requires current release and assigned task")
 	}

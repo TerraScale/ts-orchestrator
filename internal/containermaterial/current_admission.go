@@ -33,7 +33,7 @@ import (
 // CurrentTaskSources are root-owned concrete readers, never ordinary-process
 // callbacks. The genesis and candidate lease come from independent admission.
 type CurrentTaskSources struct {
-	Client         api.ControlClient
+	Client         api.ControlReader
 	JS             jetstream.JetStream
 	Delivery       *delivery.Service
 	Mutations      *authority.Reader
