@@ -280,6 +280,11 @@ func SecretsClient(factory *ociclient.Factory) (ocisecrets.SecretsClient, error)
 	return client, nil
 }
 
+// SecretsClientContext includes cold credential validation in the caller's read budget.
+func SecretsClientContext(ctx context.Context, factory *ociclient.Factory) (ocisecrets.SecretsClient, error) {
+	return factory.SecretsContext(ctx)
+}
+
 // readValue reads a secret file, a pipe or /dev/stdin, as it is.
 func readValue(path string) ([]byte, error) {
 	file, err := os.Open(path)

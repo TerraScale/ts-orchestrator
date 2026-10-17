@@ -1,0 +1,408 @@
+diff --git a/common/auth/certificate_retriever.go b/common/auth/certificate_retriever.go
+index 128dddb827c695ce9d0cac7b67ec5211810b76b2..1eeb5f91797ed43851fe5470c2a0660040002766 100644
+--- a/common/auth/certificate_retriever.go
++++ b/common/auth/certificate_retriever.go
+@@ -7,0 +8 @@ import (
++	"context"
+@@ -35 +36 @@ type urlBasedX509CertificateRetriever struct {
+-	mux               sync.Mutex
++	mux               contextMutex
+@@ -44 +45 @@ func newURLBasedX509CertificateRetriever(dispatcher common.HTTPRequestDispatcher
+-		mux:           sync.Mutex{},
++		mux:           contextMutex{},
+@@ -51,0 +53,4 @@ func (r *urlBasedX509CertificateRetriever) Refresh() error {
++	return r.RefreshContext(context.Background())
++}
++
++func (r *urlBasedX509CertificateRetriever) RefreshContext(ctx context.Context) error {
+@@ -54 +59,3 @@ func (r *urlBasedX509CertificateRetriever) Refresh() error {
+-	r.mux.Lock()
++	if err := r.mux.LockContext(ctx); err != nil {
++		return err
++	}
+@@ -61,2 +68,2 @@ func (r *urlBasedX509CertificateRetriever) Refresh() error {
+-	if certificatePemRaw, certificate, err = r.renewCertificate(r.certURL); err != nil {
+-		return fmt.Errorf("failed to renew certificate: %s", err.Error())
++	if certificatePemRaw, certificate, err = r.renewCertificateContext(ctx, r.certURL); err != nil {
++		return fmt.Errorf("failed to renew certificate: %w", err)
+@@ -68,2 +75,2 @@ func (r *urlBasedX509CertificateRetriever) Refresh() error {
+-		if privateKeyPemRaw, privateKey, err = r.renewPrivateKey(r.privateKeyURL, r.passphrase); err != nil {
+-			return fmt.Errorf("failed to renew private key: %s", err.Error())
++		if privateKeyPemRaw, privateKey, err = r.renewPrivateKeyContext(ctx, r.privateKeyURL, r.passphrase); err != nil {
++			return fmt.Errorf("failed to renew private key: %w", err)
+@@ -72,0 +80,3 @@ func (r *urlBasedX509CertificateRetriever) Refresh() error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
+@@ -80,0 +91,4 @@ func (r *urlBasedX509CertificateRetriever) renewCertificate(url string) (certifi
++	return r.renewCertificateContext(context.Background(), url)
++}
++
++func (r *urlBasedX509CertificateRetriever) renewCertificateContext(ctx context.Context, url string) (certificatePemRaw []byte, certificate *x509.Certificate, err error) {
+@@ -82,2 +96,2 @@ func (r *urlBasedX509CertificateRetriever) renewCertificate(url string) (certifi
+-	if body, _, err = httpGet(r.dispatcher, url); err != nil {
+-		return nil, nil, fmt.Errorf("failed to get certificate from %s: %s", url, err.Error())
++	if body, _, err = httpGetContext(ctx, r.dispatcher, url); err != nil {
++		return nil, nil, fmt.Errorf("failed to get certificate from %s: %w", url, err)
+@@ -94 +108 @@ func (r *urlBasedX509CertificateRetriever) renewCertificate(url string) (certifi
+-		return nil, nil, fmt.Errorf("failed to parse the new certificate: %s", err.Error())
++		return nil, nil, fmt.Errorf("failed to parse the new certificate: %w", err)
+@@ -100,0 +115,4 @@ func (r *urlBasedX509CertificateRetriever) renewPrivateKey(url, passphrase strin
++	return r.renewPrivateKeyContext(context.Background(), url, passphrase)
++}
++
++func (r *urlBasedX509CertificateRetriever) renewPrivateKeyContext(ctx context.Context, url, passphrase string) (privateKeyPemRaw []byte, privateKey *rsa.PrivateKey, err error) {
+@@ -102,2 +120,2 @@ func (r *urlBasedX509CertificateRetriever) renewPrivateKey(url, passphrase strin
+-	if body, _, err = httpGet(r.dispatcher, url); err != nil {
+-		return nil, nil, fmt.Errorf("failed to get private key from %s: %s", url, err.Error())
++	if body, _, err = httpGetContext(ctx, r.dispatcher, url); err != nil {
++		return nil, nil, fmt.Errorf("failed to get private key from %s: %w", url, err)
+@@ -108 +126 @@ func (r *urlBasedX509CertificateRetriever) renewPrivateKey(url, passphrase strin
+-		return nil, nil, fmt.Errorf("failed to parse the new private key: %s", err.Error())
++		return nil, nil, fmt.Errorf("failed to parse the new private key: %w", err)
+@@ -262,0 +281,11 @@ func (r *staticCertificateRetriever) readPrivateKey() (*rsa.PrivateKey, error) {
++
++func refreshCertificateContext(ctx context.Context, retriever x509CertificateRetriever) error {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	if contextual, ok := retriever.(interface{ RefreshContext(context.Context) error }); ok {
++		return contextual.RefreshContext(ctx)
++	}
++	// Static and test retrievers perform no metadata I/O.
++	return retriever.Refresh()
++}
+diff --git a/common/auth/configuration.go b/common/auth/configuration.go
+index 797411afbc9bc5bb27354eb6bc6478b685926b0e..2901a8db1c3910fb207fc4b3d309df60beee5734 100644
+--- a/common/auth/configuration.go
++++ b/common/auth/configuration.go
+@@ -6,0 +7 @@ import (
++	"context"
+@@ -38,0 +40,6 @@ func newInstancePrincipalConfigurationProvider(region common.Region, modifier fu
++	return InstancePrincipalConfigurationForRegionWithCustomClientContext(context.Background(), region, modifier)
++}
++
++// InstancePrincipalConfigurationForRegionWithCustomClientContext bounds metadata acquisition by ctx.
++// The returned provider retains no construction context; refresh uses each signing request's context.
++func InstancePrincipalConfigurationForRegionWithCustomClientContext(ctx context.Context, region common.Region, modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error)) (common.ConfigurationProvider, error) {
+@@ -41,2 +48,2 @@ func newInstancePrincipalConfigurationProvider(region common.Region, modifier fu
+-	if keyProvider, err = newInstancePrincipalKeyProvider(modifier); err != nil {
+-		return nil, fmt.Errorf("failed to create a new key provider for instance principal: %s", err.Error())
++	if keyProvider, err = newInstancePrincipalKeyProviderContext(ctx, modifier); err != nil {
++		return nil, fmt.Errorf("failed to create a new key provider for instance principal: %w", err)
+@@ -115,0 +123,7 @@ func (p instancePrincipalConfigurationProvider) Refreshable() bool {
++
++func (p instancePrincipalConfigurationProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
++	return p.keyProvider.PrivateRSAKeyContext(ctx)
++}
++func (p instancePrincipalConfigurationProvider) KeyIDContext(ctx context.Context) (string, error) {
++	return p.keyProvider.KeyIDContext(ctx)
++}
+diff --git a/common/auth/federation_client.go b/common/auth/federation_client.go
+index 32390bd4eb7f56096c00b4488dc7106b55f5ffa8..c369aa7c688763be3834e54e1823cf3e31c0df3d 100644
+--- a/common/auth/federation_client.go
++++ b/common/auth/federation_client.go
+@@ -329 +329 @@ type x509FederationClient struct {
+-	mux                               sync.Mutex
++	mux                               contextMutex
+@@ -344 +344 @@ func newX509FederationClient(region common.Region, tenancyID string, leafCertifi
+-		err = fmt.Errorf("failed to modify client: %s", err.Error())
++		err = fmt.Errorf("failed to modify client: %w", err)
+@@ -369 +369 @@ func newX509FederationClientWithCerts(region common.Region, tenancyID string, le
+-		err = fmt.Errorf("failed to modify client: %s", err.Error())
++		err = fmt.Errorf("failed to modify client: %w", err)
+@@ -420 +420,7 @@ func (c *x509FederationClient) PrivateKey() (*rsa.PrivateKey, error) {
+-	c.mux.Lock()
++	return c.PrivateKeyContext(context.Background())
++}
++
++func (c *x509FederationClient) PrivateKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
++	if err := c.mux.LockContext(ctx); err != nil {
++		return nil, err
++	}
+@@ -423 +429 @@ func (c *x509FederationClient) PrivateKey() (*rsa.PrivateKey, error) {
+-	if err := c.renewSecurityTokenIfNotValid(); err != nil {
++	if err := c.renewSecurityTokenIfNotValidContext(ctx); err != nil {
+@@ -430 +436,7 @@ func (c *x509FederationClient) SecurityToken() (token string, err error) {
+-	c.mux.Lock()
++	return c.SecurityTokenContext(context.Background())
++}
++
++func (c *x509FederationClient) SecurityTokenContext(ctx context.Context) (token string, err error) {
++	if err := c.mux.LockContext(ctx); err != nil {
++		return "", err
++	}
+@@ -433 +445 @@ func (c *x509FederationClient) SecurityToken() (token string, err error) {
+-	if err = c.renewSecurityTokenIfNotValid(); err != nil {
++	if err = c.renewSecurityTokenIfNotValidContext(ctx); err != nil {
+@@ -439,0 +452,7 @@ func (c *x509FederationClient) renewSecurityTokenIfNotValid() (err error) {
++	return c.renewSecurityTokenIfNotValidContext(context.Background())
++}
++
++func (c *x509FederationClient) renewSecurityTokenIfNotValidContext(ctx context.Context) (err error) {
++	if err := ctx.Err(); err != nil {
++		return err
++	}
+@@ -441,2 +460,2 @@ func (c *x509FederationClient) renewSecurityTokenIfNotValid() (err error) {
+-		if err = c.renewSecurityToken(); err != nil {
+-			return fmt.Errorf("failed to renew security token: %s", err.Error())
++		if err = c.renewSecurityTokenContext(ctx); err != nil {
++			return fmt.Errorf("failed to renew security token: %w", err)
+@@ -448,0 +468,4 @@ func (c *x509FederationClient) renewSecurityToken() (err error) {
++	return c.renewSecurityTokenContext(context.Background())
++}
++
++func (c *x509FederationClient) renewSecurityTokenContext(ctx context.Context) (err error) {
+@@ -450 +473 @@ func (c *x509FederationClient) renewSecurityToken() (err error) {
+-		return fmt.Errorf("failed to refresh session key: %s", err.Error())
++		return fmt.Errorf("failed to refresh session key: %w", err)
+@@ -453,2 +476,2 @@ func (c *x509FederationClient) renewSecurityToken() (err error) {
+-	if err = c.leafCertificateRetriever.Refresh(); err != nil {
+-		return fmt.Errorf("failed to refresh leaf certificate: %s", err.Error())
++	if err = refreshCertificateContext(ctx, c.leafCertificateRetriever); err != nil {
++		return fmt.Errorf("failed to refresh leaf certificate: %w", err)
+@@ -464,2 +487,2 @@ func (c *x509FederationClient) renewSecurityToken() (err error) {
+-		if err = retriever.Refresh(); err != nil {
+-			return fmt.Errorf("failed to refresh intermediate certificate: %s", err.Error())
++		if err = refreshCertificateContext(ctx, retriever); err != nil {
++			return fmt.Errorf("failed to refresh intermediate certificate: %w", err)
+@@ -470,2 +493,2 @@ func (c *x509FederationClient) renewSecurityToken() (err error) {
+-	if c.securityToken, err = c.getSecurityToken(); err != nil {
+-		return fmt.Errorf("failed to get security token: %s", err.Error())
++	if c.securityToken, err = c.getSecurityTokenContext(ctx); err != nil {
++		return fmt.Errorf("failed to get security token: %w", err)
+@@ -478,0 +502,4 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
++	return c.getSecurityTokenContext(context.Background())
++}
++
++func (c *x509FederationClient) getSecurityTokenContext(ctx context.Context) (securityToken, error) {
+@@ -482 +509 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-	defer common.CloseBodyIfValid(httpResponse)
++	defer func() { common.CloseBodyIfValid(httpResponse) }()
+@@ -488 +515 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-			return nil, fmt.Errorf("failed to make http request: %s", err.Error())
++			return nil, fmt.Errorf("failed to make http request: %w", err)
+@@ -491 +518 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-		if httpResponse, err = c.authClient.Call(context.Background(), &httpRequest); err == nil {
++		if httpResponse, err = c.authClient.Call(ctx, &httpRequest); err == nil {
+@@ -496 +523 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-			return nil, fmt.Errorf("error %s returned by auth service: %s", httpResponse.Status, err.Error())
++			return nil, fmt.Errorf("error %s returned by auth service: %w", httpResponse.Status, err)
+@@ -497,0 +525,2 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
++		common.CloseBodyIfValid(httpResponse)
++		httpResponse = nil
+@@ -499 +528,3 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-		time.Sleep(nextDuration)
++		if waitErr := waitForRetryContext(ctx, nextDuration); waitErr != nil {
++			return nil, waitErr
++		}
+@@ -502 +533 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-		return nil, fmt.Errorf("failed to call: %s", err.Error())
++		return nil, fmt.Errorf("failed to call: %w", err)
+@@ -507 +538 @@ func (c *x509FederationClient) getSecurityToken() (securityToken, error) {
+-		return nil, fmt.Errorf("failed to unmarshal the response: %s", err.Error())
++		return nil, fmt.Errorf("failed to unmarshal the response: %w", err)
+@@ -514 +545,7 @@ func (c *x509FederationClient) GetClaim(key string) (interface{}, error) {
+-	c.mux.Lock()
++	return c.GetClaimContext(context.Background(), key)
++}
++
++func (c *x509FederationClient) GetClaimContext(ctx context.Context, key string) (interface{}, error) {
++	if err := c.mux.LockContext(ctx); err != nil {
++		return nil, err
++	}
+@@ -517 +554 @@ func (c *x509FederationClient) GetClaim(key string) (interface{}, error) {
+-	if err := c.renewSecurityTokenIfNotValid(); err != nil {
++	if err := c.renewSecurityTokenIfNotValidContext(ctx); err != nil {
+diff --git a/common/auth/instance_principal_key_provider.go b/common/auth/instance_principal_key_provider.go
+index 0f365ab4da4d3148b12eaa984c44bf49fa5e3dd4..516c4cb3a24efdfcc243a4bfd25807cc5c2e4ef4 100644
+--- a/common/auth/instance_principal_key_provider.go
++++ b/common/auth/instance_principal_key_provider.go
+@@ -7,0 +8 @@ import (
++	"context"
+@@ -49,0 +51,2 @@ type instancePrincipalError struct {
++func (ipe instancePrincipalError) Unwrap() error { return ipe.err }
++
+@@ -62,0 +66,7 @@ func newInstancePrincipalKeyProvider(modifier func(common.HTTPRequestDispatcher)
++	return newInstancePrincipalKeyProviderContext(context.Background(), modifier)
++}
++
++func newInstancePrincipalKeyProviderContext(ctx context.Context, modifier func(common.HTTPRequestDispatcher) (common.HTTPRequestDispatcher, error)) (provider *instancePrincipalKeyProvider, err error) {
++	if err := ctx.Err(); err != nil {
++		return nil, err
++	}
+@@ -68 +78 @@ func newInstancePrincipalKeyProvider(modifier func(common.HTTPRequestDispatcher)
+-		err = fmt.Errorf("failed to modify client: %s", err.Error())
++		err = fmt.Errorf("failed to modify client: %w", err)
+@@ -74,2 +84,2 @@ func newInstancePrincipalKeyProvider(modifier func(common.HTTPRequestDispatcher)
+-	if region, err = getRegionForFederationClient(client, regionURL); err != nil {
+-		err = fmt.Errorf("failed to get the region name from %s: %s", regionURL, err.Error())
++	if region, err = getRegionForFederationClientContext(ctx, client, regionURL); err != nil {
++		err = fmt.Errorf("failed to get the region name from %s: %w", regionURL, err)
+@@ -88,2 +98,2 @@ func newInstancePrincipalKeyProvider(modifier func(common.HTTPRequestDispatcher)
+-	if err = leafCertificateRetriever.Refresh(); err != nil {
+-		err = fmt.Errorf("failed to refresh the leaf certificate: %s", err.Error())
++	if err = refreshCertificateContext(ctx, leafCertificateRetriever); err != nil {
++		err = fmt.Errorf("failed to refresh the leaf certificate: %w", err)
+@@ -97 +107 @@ func newInstancePrincipalKeyProvider(modifier func(common.HTTPRequestDispatcher)
+-		err = fmt.Errorf("failed to create federation client: %s", err.Error())
++		err = fmt.Errorf("failed to create federation client: %w", err)
+@@ -105,0 +116,4 @@ func getRegionForFederationClient(dispatcher common.HTTPRequestDispatcher, url s
++	return getRegionForFederationClientContext(context.Background(), dispatcher, url)
++}
++
++func getRegionForFederationClientContext(ctx context.Context, dispatcher common.HTTPRequestDispatcher, url string) (r common.Region, err error) {
+@@ -110 +124 @@ func getRegionForFederationClient(dispatcher common.HTTPRequestDispatcher, url s
+-		body, statusCode, err = httpGet(dispatcher, url)
++		body, statusCode, err = httpGetContext(ctx, dispatcher, url)
+@@ -120 +134,3 @@ func getRegionForFederationClient(dispatcher common.HTTPRequestDispatcher, url s
+-		time.Sleep(nextDuration)
++		if waitErr := waitForRetryContext(ctx, nextDuration); waitErr != nil {
++			return "", waitErr
++		}
+@@ -169,0 +186,28 @@ func getMetadataBaseURL() string {
++
++type contextFederationClient interface {
++	PrivateKeyContext(context.Context) (*rsa.PrivateKey, error)
++	SecurityTokenContext(context.Context) (string, error)
++}
++
++func (p *instancePrincipalKeyProvider) PrivateRSAKeyContext(ctx context.Context) (*rsa.PrivateKey, error) {
++	client, ok := p.FederationClient.(contextFederationClient)
++	if !ok {
++		return nil, fmt.Errorf("instance principal federation client does not support context")
++	}
++	key, err := client.PrivateKeyContext(ctx)
++	if err != nil {
++		return nil, instancePrincipalError{err: fmt.Errorf("failed to get private key: %w", err)}
++	}
++	return key, nil
++}
++func (p *instancePrincipalKeyProvider) KeyIDContext(ctx context.Context) (string, error) {
++	client, ok := p.FederationClient.(contextFederationClient)
++	if !ok {
++		return "", fmt.Errorf("instance principal federation client does not support context")
++	}
++	token, err := client.SecurityTokenContext(ctx)
++	if err != nil {
++		return "", instancePrincipalError{err: fmt.Errorf("failed to get security token: %w", err)}
++	}
++	return fmt.Sprintf("ST$%s", token), nil
++}
+diff --git a/common/auth/utils.go b/common/auth/utils.go
+index 7c20fad46afbe060bf83155f90144981e6628d17..b51b1d6023952f048d6549dcf6dceb9a51f14194 100644
+--- a/common/auth/utils.go
++++ b/common/auth/utils.go
+@@ -7,0 +8 @@ import (
++	"context"
+@@ -15,0 +17,2 @@ import (
++	"sync"
++	"time"
+@@ -22,0 +26,4 @@ func httpGet(dispatcher common.HTTPRequestDispatcher, url string) (body bytes.Bu
++	return httpGetContext(context.Background(), dispatcher, url)
++}
++
++func httpGetContext(ctx context.Context, dispatcher common.HTTPRequestDispatcher, url string) (body bytes.Buffer, statusCode int, err error) {
+@@ -24 +31,4 @@ func httpGet(dispatcher common.HTTPRequestDispatcher, url string) (body bytes.Bu
+-	request, err := http.NewRequest(http.MethodGet, url, nil)
++	request, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
++	if err != nil {
++		return
++	}
+@@ -114,0 +125,35 @@ func privateToPublicDERBase64(pk *rsa.PrivateKey) (string, error) {
++
++// contextMutex keeps acquisition cancellable without leaving a lock-waiting goroutine.
++type contextMutex struct {
++	once  sync.Once
++	token chan struct{}
++}
++
++func (m *contextMutex) LockContext(ctx context.Context) error {
++	m.once.Do(func() { m.token = make(chan struct{}, 1) })
++	if err := ctx.Err(); err != nil {
++		return err
++	}
++	select {
++	case m.token <- struct{}{}:
++		if err := ctx.Err(); err != nil {
++			m.Unlock()
++			return err
++		}
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
++func (m *contextMutex) Lock()   { _ = m.LockContext(context.Background()) }
++func (m *contextMutex) Unlock() { <-m.token }
++func waitForRetryContext(ctx context.Context, duration time.Duration) error {
++	timer := time.NewTimer(duration)
++	defer timer.Stop()
++	select {
++	case <-ctx.Done():
++		return ctx.Err()
++	case <-timer.C:
++		return ctx.Err()
++	}
++}
+diff --git a/common/client.go b/common/client.go
+index 43e1d4d02190d2c393826730c15a7f2e911c8a48..d2c5aed1b044ea1f1c4cd379338f60af84ee2cbd 100644
+--- a/common/client.go
++++ b/common/client.go
+@@ -371 +371 @@ func NewClientWithConfig(configProvider ConfigurationProvider) (client BaseClien
+-		err = fmt.Errorf("can not create client, bad configuration: %s", err.Error())
++		err = fmt.Errorf("can not create client, bad configuration: %w", err)
+@@ -756,0 +757,13 @@ func (client BaseClient) RefreshableTokenWrappedCallWithDetails(ctx context.Cont
++	// The interceptor may restore an operation context detached by an outer retry coordinator.
++	effectiveContext := ctx
++	previousInterceptor := client.Interceptor
++	client.Interceptor = func(request *http.Request) error {
++		if previousInterceptor != nil {
++			if err := previousInterceptor(request); err != nil {
++				return err
++			}
++		}
++		effectiveContext = request.Context()
++		return nil
++	}
++
+@@ -802 +815,10 @@ func (client BaseClient) RefreshableTokenWrappedCallWithDetails(ctx context.Cont
+-		time.Sleep(1 * time.Second)
++		timer := time.NewTimer(time.Second)
++		select {
++		case <-effectiveContext.Done():
++			timer.Stop()
++			return response, effectiveContext.Err()
++		case <-timer.C:
++			if err := effectiveContext.Err(); err != nil {
++				return response, err
++			}
++		}
+diff --git a/common/http_signer.go b/common/http_signer.go
+index 087f5495ef196aca6db09afad7163212dda405a8..01029a9b3fb7744937c98a4f719cfc2e9581bd9a 100644
+--- a/common/http_signer.go
++++ b/common/http_signer.go
+@@ -7,0 +8 @@ import (
++	"context"
+@@ -30,0 +32,6 @@ type KeyProvider interface {
++// ContextKeyProvider optionally bounds credential acquisition and refresh by the signing request.
++type ContextKeyProvider interface {
++	KeyIDContext(context.Context) (string, error)
++	PrivateRSAKeyContext(context.Context) (*rsa.PrivateKey, error)
++}
++
+@@ -292 +299,5 @@ func (signer ociRequestSigner) computeSignature(request *http.Request) (signatur
+-		privateKey, err = signer.KeyProvider.PrivateRSAKey()
++		if provider, ok := signer.KeyProvider.(ContextKeyProvider); ok {
++			privateKey, err = provider.PrivateRSAKeyContext(request.Context())
++		} else {
++			privateKey, err = signer.KeyProvider.PrivateRSAKey()
++		}
+@@ -335 +346,6 @@ func (signer ociRequestSigner) Sign(request *http.Request) (err error) {
+-	if keyID, err = signer.KeyProvider.KeyID(); err != nil {
++	if provider, ok := signer.KeyProvider.(ContextKeyProvider); ok {
++		keyID, err = provider.KeyIDContext(request.Context())
++	} else {
++		keyID, err = signer.KeyProvider.KeyID()
++	}
++	if err != nil {

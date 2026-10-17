@@ -1,0 +1,140 @@
+[
+  {
+    "path": "common/circuit_breaker_test.go",
+    "bytes": 6453,
+    "sha256": "f376910526a39ec3e07930f6db49010f4245ca318da8b95570539e02040d7059",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/client_test.go",
+    "bytes": 35358,
+    "sha256": "2d5049636f8a3625d6e2cc76d6682d408ec02b17c21796238f3216b577f50d61",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/common_test.go",
+    "bytes": 28628,
+    "sha256": "cee39be02edc7f911485ddebf9595bea5a9c70872e4311c886a6c86e89c3011a",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/configuration_test.go",
+    "bytes": 29857,
+    "sha256": "9a259fb219fbc4b4a461c4f287f21e10f53a50bfcb1208e1bd29f05ad931fbd6",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/errors_test.go",
+    "bytes": 5087,
+    "sha256": "ff44eac715a1f24aa5f117018fc2a890624080a0ab60e3aef7e6b442e99ddefc",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/eventual_consistency_test.go",
+    "bytes": 19444,
+    "sha256": "91f70f0e5a433d75b8281d361b576ac1c2ce4af46aa39d7c42c277fd45c20f09",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/helpers_test.go",
+    "bytes": 5993,
+    "sha256": "b0048db2f86a00030d672dacd8bc44ea552ba35683dfb6308cd63b4b5792df3e",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/http_signer_test.go",
+    "bytes": 18752,
+    "sha256": "03c1436d3f0f0ae45e4db3b93dbb7f186f891098cd87ef24e4efa348731b52d2",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/http_test.go",
+    "bytes": 56242,
+    "sha256": "6b4ea5ee663d4ac22c8e7027a52a97b22ee409993d88b4dd69e2fce733eb1365",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/log_test.go",
+    "bytes": 6979,
+    "sha256": "b29ee91540b68b2c367b5246b536fd744f81241df115a90734185da3133fcb1b",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/regions.json",
+    "bytes": 13938,
+    "sha256": "9e651b0b2a3074aaf544a5bc28b530db1ea12cb0e3a95b1bf8a1cfa82e270cb5",
+    "reason": "test-only fixture read only by common/common_test.go:67; no production reference"
+  },
+  {
+    "path": "common/retry_test.go",
+    "bytes": 62878,
+    "sha256": "45a69e5fdba38de5ccfad4a9f34ba5721296174a5d4d9a8cc3c038aa9b738b35",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/certificate_retriever_test.go",
+    "bytes": 9743,
+    "sha256": "b2a5ef31e915e3351d8eb925e3e624565723a1a3d3715a61055795779e4394f5",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/dispatcher_modifier_test.go",
+    "bytes": 1791,
+    "sha256": "2b49be988674ffe436494fc8f1402458f064a8fd1fc42c06059c46df163667df",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/federation_client_test.go",
+    "bytes": 56221,
+    "sha256": "52edf01a3b4100fef2488cf3567c595f6ac95e9c84f81ae7d48c9cc54f032d77",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/instance_principal_delegation_token_provider_test.go",
+    "bytes": 1345,
+    "sha256": "8dabae930f0cef6dfe71419d5f7f756c499982a95ffb632064e15d5526289834",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/instance_principal_key_provider_test.go",
+    "bytes": 10938,
+    "sha256": "b6003d04b320a4339d56cdd64ad3305d4ceaaec466fb62090e33a24cabf7b5bb",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/jwt_test.go",
+    "bytes": 2770,
+    "sha256": "f9ed1bc04bd85ae42b3b29bae2c7bdcaff3d7523f6c2d2b37f16484225f8ddc9",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/resource_principal_delegation_token_provider_test.go",
+    "bytes": 1345,
+    "sha256": "ec2832592fa579cc3616682bf4d9b928bd3cbc177792012946a391ee1af7065a",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/resource_principal_key_provider_test.go",
+    "bytes": 13215,
+    "sha256": "a5db32a9a3dc7db7572baaf23cdfbba78ff322b1a35a8bdf6459e313c7eca5db",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/resource_principal_token_path_provider_test.go",
+    "bytes": 3810,
+    "sha256": "6f306bda2715cbee9110199658e621b83748881baa202f52e6cca71ff68425ad",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/resource_principals_v1_test.go",
+    "bytes": 7072,
+    "sha256": "026ef64293d4e14a5cc04b3212fa2dc17373c60730a554f7109f92072350988b",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  },
+  {
+    "path": "common/auth/resource_principals_v3_test.go",
+    "bytes": 6326,
+    "sha256": "453c5d1989684a593953ff6c052115d20d43ade1d1e0c61cfec84d697b334aad",
+    "reason": "upstream Go test excluded by ROOT integration-only policy"
+  }
+]

@@ -5,6 +5,9 @@ go 1.27.0
 // The read-only applied snapshot/watch contract is maintained with upstream provenance.
 replace github.com/moby/swarmkit/v2 => ./third_party/swarmkit
 
+// Pinned OCI runtime snapshot carries caller cancellation through instance-principal acquisition and signing.
+replace github.com/oracle/oci-go-sdk/v65 => ./third_party/oci-go-sdk
+
 require (
 	github.com/VictoriaMetrics/metrics v1.44.1
 	github.com/a-h/templ v0.3.1020
