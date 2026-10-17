@@ -68,8 +68,20 @@ func TestNetBirdPublicSourcesAuthenticatedR3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var created [2]time.Time
+	for index, name := range []string{"KV_TS_SERVICE_SET", "KV_TS_TRUST_ROOTS"} {
+		stream, err := js.Stream(ctx, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		info, err := stream.Info(ctx)
+		if err != nil || info.Created.IsZero() {
+			t.Fatalf("public stream creation %s: %v", name, err)
+		}
+		created[index] = info.Created
+	}
 	spec, roots, err := reader.Read(ctx)
-	if err != nil || spec.Revision != specRevision || roots.Revision != rootRevision || !bytes.Equal(spec.Wire, []byte("public-spec-v1")) || !bytes.Equal(roots.Wire, []byte("public-roots-v1")) {
+	if err != nil || !spec.Created.Equal(created[0]) || !roots.Created.Equal(created[1]) || spec.Revision != specRevision || roots.Revision != rootRevision || !bytes.Equal(spec.Wire, []byte("public-spec-v1")) || !bytes.Equal(roots.Wire, []byte("public-roots-v1")) {
 		t.Fatalf("current public sources = %+v %+v %v", spec, roots, err)
 	}
 	if _, err := ConnectNetBirdSourceRead(ctx, managerJS, nonce); err == nil {

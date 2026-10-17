@@ -98,6 +98,7 @@ func verifyNetBirdSourceConsumer(info *jetstream.ConsumerInfo, source netBirdPub
 
 // NetBirdSourceRecord is public signed material authenticated by its exact broker key.
 type NetBirdSourceRecord struct {
+	Created  time.Time
 	Revision uint64
 	Wire     []byte
 }
@@ -229,7 +230,7 @@ func (r *netBirdSourceCursor) read(ctx context.Context) (NetBirdSourceRecord, er
 			r.latest.Header.Get("KV-Operation") != "" || r.latest.Header.Get(jetstream.MarkerReasonHeader) != "" || len(r.latest.Data) == 0 {
 			return NetBirdSourceRecord{}, ErrConflict
 		}
-		return NetBirdSourceRecord{Revision: r.latest.Sequence, Wire: bytes.Clone(r.latest.Data)}, ctx.Err()
+		return NetBirdSourceRecord{Created: after.Created, Revision: r.latest.Sequence, Wire: bytes.Clone(r.latest.Data)}, ctx.Err()
 	}
 	return NetBirdSourceRecord{}, ErrConflict
 }

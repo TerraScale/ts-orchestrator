@@ -51,6 +51,8 @@ type NetBirdIntent struct {
 	SpecSHA256             string              `json:"spec_sha256"`
 	SpecRevision           uint64              `json:"spec_revision"`
 	RootRevision           uint64              `json:"root_revision"`
+	SpecStreamCreated      time.Time           `json:"spec_stream_created"`
+	RootStreamCreated      time.Time           `json:"root_stream_created"`
 	SubnetCIDR             string              `json:"subnet_cidr"`
 	Hosts                  []NetBirdIntentHost `json:"hosts"`
 	SignedSpec             []byte              `json:"signed_spec"`
