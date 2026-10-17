@@ -239,6 +239,9 @@ func (p *Producer) Resolve(ctx context.Context, requested *api.Task, caller host
 	if err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
 	}
+	if err := observed.Revalidate(ctx); err != nil {
+		return executionwire.WorkerGrantMaterial{}, err
+	}
 	material := executionwire.WorkerGrantMaterial{Desired: desiredBytes, Registration: registered, RuntimeRoot: manifest.ManagedRuntimeRoot, BootDescriptorSHA256: observed.BootDescriptorSHA256(), Scope: memberstatus.Scope(launch.Member.Scope), MemberAuthority: memberstatus.Authority(launch.Authority), Volume: volume, Mount: hostvolume.MountPins{DevicePath: volume.Device, MountPath: launch.Runtime.MountPath, FileSystemUUID: volume.FileSystemUUID, FileSystemType: volume.FileSystemType, UID: uid, GID: gid}, Container: *deployment.Container, RetainedContainer: previous, Retained: retained, DesiredGeneration: desired.Generation, PlacementGeneration: intent.Generation, MemberRevision: versioned.Revision, HostAttempt: state.HostAttempt, PlacementSHA256: intent.PayloadDigest(), RosterSHA256: state.CanonicalRosterDigest, MemberSHA256: fmt.Sprintf("%x", sha256.Sum256(memberBytes)), OperationID: operationID, Survivor: survivor}
 	if err := p.authority.Guard(ctx, caller.Epoch()); err != nil {
 		return executionwire.WorkerGrantMaterial{}, err
