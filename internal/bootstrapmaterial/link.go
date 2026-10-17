@@ -413,6 +413,8 @@ func provisionLink(ctx context.Context, directory string, target VaultTarget, ma
 	if err != nil || management == nil || bundles == nil || ctx.Err() != nil || target.validate(record.Config.Region) != nil {
 		return Publication{}, ErrProvision
 	}
+	ctx, cancel := context.WithDeadline(ctx, record.ExpiresAt)
+	defer cancel()
 	fd, err := syscall.Open(filepath.Join(directory, journalLockName), syscall.O_RDWR|syscall.O_CREAT|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
 		return Publication{}, ErrProvision
@@ -430,7 +432,7 @@ func provisionLink(ctx context.Context, directory string, target VaultTarget, ma
 	if err != nil {
 		return Publication{}, ErrProvision
 	}
-	state, err := loadJournal(directory, record.Record, target, materialDigest, checkpoint)
+	state, err := loadJournal(ctx, directory, record.Record, target, materialDigest, checkpoint)
 	if err != nil {
 		return Publication{}, err
 	}

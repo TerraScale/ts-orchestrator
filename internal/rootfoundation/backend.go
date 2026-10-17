@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
@@ -153,6 +154,7 @@ func checkCall(ctx context.Context, call rootoci.Call, operation rootoci.Operati
 // Admission is independent of the domain's WithAuthority guard, so nested
 // source/foundation operations cannot replace the live root caller check.
 func effectContext(ctx context.Context, guard func(context.Context) error) context.Context {
+	ctx = bootstrapmaterial.WithPublicationGuard(ctx, guard)
 	return ociclient.WithAdmission(ctx, func(ctx context.Context) (func(), error) {
 		if err := guard(ctx); err != nil {
 			return nil, err
