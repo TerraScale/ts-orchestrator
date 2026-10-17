@@ -325,6 +325,49 @@ func TestMemberPinReaderOpensExistingDurableStateWithoutWrites(t *testing.T) {
 	if count, _, err := direct.Pending(); err != nil || count != 0 || reads != 3 {
 		t.Fatalf("member reader bypassed leader: leader=%d, direct=%d, error=%v", reads, count, err)
 	}
+
+	lookupIntent := validIntent(oci.RegionGRU)
+	lookupIntent.PartitionID = "00000000001WFHC56Q8NB0X6T8"
+	lookupState := testMemberState(t, committedTestIntent(t, lookupIntent), Seat{
+		MemberID: permanentMember(oci.RegionGRU), Region: oci.RegionGRU,
+		FailureDomain: "FAULT-DOMAIN-1", Kind: MemberPermanent,
+	}, StagePreparedHost)
+	lookupKey := memberStateKey(lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID)
+	if lookupKey == memberStateKey(state.DatabaseID, state.PartitionID, state.MemberID) {
+		t.Fatal("fresh partition lookup reused the written member key")
+	}
+	if _, err := kv.Get(t.Context(), lookupKey); !errors.Is(err, jetstream.ErrKeyNotFound) {
+		t.Fatalf("never-written native member key = %v, want ErrKeyNotFound", err)
+	}
+	lookupStore := &jetStreamStore{state: kv}
+	if _, err := lookupStore.ReadMember(t.Context(), lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID); !errors.Is(err, ErrMemberNotFound) {
+		t.Fatalf("never-written exact member lookup = %v, want ErrMemberNotFound", err)
+	}
+	lookupWire, err := protocol.EncodeJSON(lookupState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookupRevision, err := kv.Put(t.Context(), lookupKey, lookupWire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err = lookupStore.ReadMember(t.Context(), lookupState.DatabaseID, lookupState.PartitionID, lookupState.MemberID)
+	if err != nil || member.Revision != lookupRevision || !reflect.DeepEqual(member.State, lookupState) {
+		t.Fatalf("native exact member lookup = %+v, %v; want revision %d and original state", member, err, lookupRevision)
+	}
+	if err := observer.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if count, _, err := direct.Pending(); err != nil || count != 3 {
+		t.Fatalf("native exact member lookup requests = %d, %v; want 3", count, err)
+	}
+	wantSubject := prefix + ".DIRECT.GET.KV_" + stateBucketName + ".$KV." + stateBucketName + "." + lookupKey
+	for range 3 {
+		request, err := direct.NextMsgWithContext(t.Context())
+		if err != nil || request.Subject != wantSubject {
+			t.Fatalf("native exact member request = %+v, %v; want subject %q", request, err, wantSubject)
+		}
+	}
 }
 
 func TestMemberStateKeyIncludesPartitionIdentity(t *testing.T) {
