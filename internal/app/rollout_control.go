@@ -355,11 +355,7 @@ func (c *rolloutControl) binarySources(js jetstream.JetStream) []rolloutexec.Bin
 	}}
 	if c.channel != nil {
 		sources = append(sources, func(ctx context.Context, digest string, dst io.Writer) error {
-			location, err := c.channel.get(ctx)
-			if err != nil {
-				return err
-			}
-			return releasechannel.ReadBinary(ctx, location, digest, dst)
+			return c.channel.readBinary(ctx, digest, dst)
 		})
 	}
 	return sources
