@@ -240,6 +240,35 @@ func (proof VerifiedNetBirdJournalPurpose) Limit(ctx context.Context, deadline t
 	return proof, nil
 }
 
+// LimitForOperation also retains an enclosing original lifecycle, never a
+// temporary read context, without dropping the purpose's existing cancellation.
+func (proof VerifiedNetBirdJournalPurpose) LimitForOperation(ctx, original context.Context, deadline time.Time) (VerifiedNetBirdJournalPurpose, error) {
+	if ctx == nil || original == nil || original.Err() != nil || deadline.IsZero() || !proof.IsVerified() {
+		return VerifiedNetBirdJournalPurpose{}, ErrManifestInvalid
+	}
+	if deadline.Before(proof.expires) {
+		proof.expires = deadline
+	}
+	if enclosing, ok := original.Deadline(); ok && enclosing.Before(proof.expires) {
+		proof.expires = enclosing
+	}
+	retained, cancel := context.WithDeadline(proof.original, proof.expires)
+	stop := context.AfterFunc(original, cancel)
+	context.AfterFunc(retained, func() { stop(); cancel() })
+	proof.original = retained
+	if err := proof.Revalidate(ctx); err != nil {
+		stop()
+		cancel()
+		return VerifiedNetBirdJournalPurpose{}, err
+	}
+	if err := original.Err(); err != nil {
+		stop()
+		cancel()
+		return VerifiedNetBirdJournalPurpose{}, err
+	}
+	return proof, nil
+}
+
 // MatchesStartup binds issuance to the genuine original writer's installed
 // source; sharing a cell or signer is insufficient.
 func (proof VerifiedNetBirdJournalPurpose) MatchesStartup(ctx context.Context, authority DerivedStartupAuthority) error {
