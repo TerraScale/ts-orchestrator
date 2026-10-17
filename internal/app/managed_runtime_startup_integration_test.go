@@ -53,10 +53,11 @@ import (
 	"github.com/oracle/oci-go-sdk/v65/vault"
 )
 
-// This is a composition boundary: genuine Gate authority, signed SDK/CAS,
-// upstream manager/Raft/Vault and one signed NATS Agent session. HomeIAM, the
-// production session wrapper/observer, native execution and material delivery
-// remain separate; deferred providers must stay closed throughout this test.
+// This is a composition boundary: genuine Gate authority and measured test
+// executable, signed SDK/CAS, upstream manager/Raft/Vault and one signed NATS
+// Agent session. HomeIAM, the production session wrapper/observer, native
+// execution and material delivery remain separate; deferred providers must stay
+// closed throughout this test.
 func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 	if os.Getenv("TS_MANAGER_STARTUP_NAMESPACE") != "1" {
 		runManagerStartupNamespace(t)
@@ -118,7 +119,7 @@ func TestManagedRuntimeReadyBeforeSingleOwnHostSession(t *testing.T) {
 	}
 	defer clear(root)
 	foundation, grantWire, intent := managerStartupFoundation(t, root)
-	fixture := bootstrapstart.NewControllerManagerStartupFixture(t, enrollment, broker, root, foundation)
+	fixture := bootstrapstart.NewMeasuredControllerManagerStartupFixture(t, enrollment, broker, root, foundation)
 	foundations := managerStartupFoundationResolver(t, fixture, grantWire, intent)
 	vaultClient, bundles := managerStartupVault(t)
 	admitted, err := swarmruntime.ReadAcceptedManagerAdmission(ctx, fixture.Reader, fixture.Accepted)
