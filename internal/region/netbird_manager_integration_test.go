@@ -363,8 +363,8 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var afterBinary func()
-	admit := func() (VerifiedNetBirdManager, error) {
-		return admitNetBirdManager(t.Context(), resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
+	admitContext := func(ctx context.Context) (VerifiedNetBirdManager, error) {
+		return admitNetBirdManager(ctx, resolver, reader, netBirdObservedInstance{factory: factory, resolver: resolver, reader: reader, observer: observer}, idFor("instance"), func(image release.VerifiedImage) (bootstrapstart.RunningBinary, error) {
 			if !image.IsVerified() {
 				return bootstrapstart.RunningBinary{}, errors.New("unverified image")
 			}
@@ -374,6 +374,7 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 			return bootstrapstart.RunningBinary{}, nil
 		})
 	}
+	admit := func() (VerifiedNetBirdManager, error) { return admitContext(t.Context()) }
 	claim, err := admit()
 	if err != nil {
 		t.Fatal(err)
@@ -383,6 +384,21 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	if claim.ExpiresAt().IsZero() || claim.ExpiresAt().After(now.Add(30*time.Minute)) {
 		t.Fatal("manager admission did not retain the minimum signed expiry")
+	}
+	ownerDeadline := time.Now().Add(time.Minute)
+	ownerContext, cancelOwner := context.WithDeadline(t.Context(), ownerDeadline)
+	ownedClaim, err := admitContext(ownerContext)
+	if err != nil {
+		cancelOwner()
+		t.Fatal(err)
+	}
+	if !ownedClaim.ExpiresAt().Equal(ownerDeadline) {
+		cancelOwner()
+		t.Fatal("manager admission discarded its original caller deadline")
+	}
+	cancelOwner()
+	if err := ownedClaim.Check(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("fresh context revived canceled original manager authority: %v", err)
 	}
 	probe, cancelProbe := context.WithCancel(t.Context())
 	afterBinary = cancelProbe
@@ -407,6 +423,28 @@ func TestNetBirdManagerSignedLaunchAndStoreRecovery(t *testing.T) {
 	}
 	if err := claim.Check(t.Context()); err == nil {
 		t.Fatal("same-store foundation epoch replacement retained the original admission")
+	}
+	currentRecord.Epoch = originalEpoch
+	if _, err := store.CompareAndSwap(t.Context(), currentRecord, currentETag); err != nil {
+		t.Fatal(err)
+	}
+	afterBinary = func() {
+		afterBinary = nil
+		latest, etag, err := store.Load(t.Context(), "GRU")
+		if err != nil {
+			t.Fatal(err)
+		}
+		latest.Epoch++
+		if _, err := store.CompareAndSwap(t.Context(), latest, etag); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := claim.Check(t.Context()); err == nil {
+		t.Fatal("foundation replaced during final binary observation retained manager authority")
+	}
+	currentRecord, currentETag, err = store.Load(t.Context(), "GRU")
+	if err != nil {
+		t.Fatal(err)
 	}
 	currentRecord.Epoch = originalEpoch
 	if _, err := store.CompareAndSwap(t.Context(), currentRecord, currentETag); err != nil {
