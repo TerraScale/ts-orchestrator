@@ -80,8 +80,15 @@ func (v VerifiedCapacityLedger) TenancyID() string             { return v.bindin
 func (v VerifiedCapacityLedger) Currency() string              { return v.bindings.capacityCurrency }
 func (v VerifiedCapacityLedger) GrantSHA256() string           { return v.bindings.authority.GrantSHA256 }
 func (v VerifiedCapacityLedger) Generation() uint64            { return v.bindings.authority.Generation }
-func (v VerifiedCapacityLedger) ExpiresAt() time.Time          { return v.bindings.expires }
 func (v VerifiedCapacityLedger) Ledger() capacityledger.Ledger { return v.ledger.Clone() }
+
+func (v VerifiedCapacityLedger) ExpiresAt() time.Time {
+	freshUntil := v.bindings.observedAt.Add(2 * time.Minute)
+	if v.bindings.expires.Before(freshUntil) {
+		return v.bindings.expires
+	}
+	return freshUntil
+}
 
 func (v VerifiedCapacityLedger) ValidAt(now time.Time) bool {
 	return v.bindings.factory != nil && !v.bindings.observedAt.After(now) && now.Sub(v.bindings.observedAt) <= 2*time.Minute && now.Before(v.ExpiresAt())
