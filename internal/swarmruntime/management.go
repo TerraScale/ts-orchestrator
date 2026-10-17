@@ -286,7 +286,7 @@ func (s *managementServer) scoped(a api.Annotations) bool {
 	return a.Labels[LabelRegion] == s.region && a.Labels[LabelEnvironment] == s.environment && entityid.Valid(a.Labels[LabelIntentID]) && intentName.MatchString(a.Labels[LabelRole])
 }
 func (s *managementServer) floor(spec *api.ConfigSpec) bool {
-	if spec == nil || spec.Templating != nil || !s.scoped(spec.Annotations) {
+	if spec == nil || spec.Templating != nil || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) {
 		return false
 	}
 	sequence, err := strconv.ParseUint(spec.Annotations.Labels["terrascale.release-sequence"], 10, 64)
@@ -295,7 +295,7 @@ func (s *managementServer) floor(spec *api.ConfigSpec) bool {
 	}
 	labels := spec.Annotations.Labels
 	if strings.HasPrefix(spec.Annotations.Name, "ts-worker-family-") {
-		migration := labels["terrascale.release-migration"]
+		migration := labels[labelReleaseMigration]
 		digest, err := hex.DecodeString(migration)
 		if labels[LabelRole] != "function-worker" || err != nil || len(digest) != sha256.Size || migration != strings.ToLower(migration) {
 			return false
@@ -315,6 +315,28 @@ func (s *managementServer) floor(spec *api.ConfigSpec) bool {
 }
 func denied() error {
 	return status.Error(codes.PermissionDenied, "management operation outside admitted scope")
+}
+
+func validIntentLabels(labels map[string]string) bool {
+	stored, hasGeneration := labels[LabelIntentGeneration]
+	fingerprint, hasFingerprint := labels[labelIntentFingerprint]
+	if !hasGeneration && !hasFingerprint {
+		return true
+	}
+	generation, err := strconv.ParseUint(stored, 10, 64)
+	if err != nil || generation == 0 || strconv.FormatUint(generation, 10) != stored {
+		return false
+	}
+	digest, err := hex.DecodeString(fingerprint)
+	return err == nil && len(digest) == sha256.Size && fingerprint == strings.ToLower(fingerprint)
+}
+
+func retainsIntentGeneration(before, after map[string]string) bool {
+	if !validIntentLabels(before) || !validIntentLabels(after) {
+		return false
+	}
+	generation, _ := strconv.ParseUint(after[LabelIntentGeneration], 10, 64)
+	return checkIntentGeneration(before, ServiceIntent{Generation: generation, intentFingerprint: after[labelIntentFingerprint]}) == nil
 }
 
 func (s *managementServer) GetNode(ctx context.Context, req *api.GetNodeRequest) (*api.GetNodeResponse, error) {
@@ -368,7 +390,7 @@ func (s *managementServer) ListServices(ctx context.Context, req *api.ListServic
 	return result, nil
 }
 func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
-	if spec == nil || !s.scoped(spec.Annotations) || spec.GetReplicated() == nil || spec.GetReplicated().Replicas > autoscale.MaxReplicas || len(spec.Networks) != 0 {
+	if spec == nil || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) || spec.GetReplicated() == nil || spec.GetReplicated().Replicas > autoscale.MaxReplicas || len(spec.Networks) != 0 {
 		return false
 	}
 	placement := spec.Task.Placement
@@ -407,6 +429,9 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 	effective := req.Spec
 	switch req.Rollback {
 	case api.UpdateServiceRequest_NONE:
+		if !retainsIntentGeneration(current.Service.Spec.Annotations.Labels, effective.Annotations.Labels) {
+			return nil, denied()
+		}
 	case api.UpdateServiceRequest_PREVIOUS:
 		effective = current.Service.PreviousSpec
 	default:
@@ -471,12 +496,20 @@ func (s *managementServer) UpdateConfig(ctx context.Context, req *api.UpdateConf
 		return nil, denied()
 	}
 	before, after := current.Config.Spec.Annotations.Labels, req.Spec.Annotations.Labels
-	if len(before) != len(after) {
+	if !retainsIntentGeneration(before, after) {
 		return nil, denied()
 	}
+	for key := range after {
+		if _, exists := before[key]; !exists && key != LabelIntentGeneration && key != labelIntentFingerprint {
+			return nil, denied()
+		}
+	}
 	for key, value := range before {
+		if _, exists := after[key]; !exists {
+			return nil, denied()
+		}
 		switch key {
-		case "terrascale.release-sequence", "terrascale.release-fingerprint", "terrascale.release-baseline":
+		case "terrascale.release-sequence", "terrascale.release-fingerprint", "terrascale.release-baseline", LabelIntentGeneration, labelIntentFingerprint:
 		default:
 			if after[key] != value {
 				return nil, denied()
