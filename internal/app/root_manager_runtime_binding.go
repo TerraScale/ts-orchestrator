@@ -196,7 +196,8 @@ func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Con
 func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Context, process *rootOCIProcess,
 	binding *swarmruntime.ControllerHostBinding, identity host.HostRuntimeIdentity, current bootstrapstart.RuntimeAuthority,
 ) error {
-	return authority.withManagerRuntimeObservation(ctx, process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
+	var predecessor *rootManagerRuntimeBinding
+	err := authority.withManagerRuntimeObservation(ctx, process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
 		if retained := process.managerBinding; retained != nil {
 			old, expected := retained.signed.Binding, observation.payload
 			if retained.session == authority.ownhost.session {
@@ -207,7 +208,11 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 				}
 				ctx, cancel := context.WithDeadline(observation.ctx, old.ExpiresAt)
 				defer cancel()
-				return observation.readback(ctx, retained.signed)
+				if err := observation.readback(ctx, retained.signed); err != nil {
+					return err
+				}
+				predecessor = retained
+				return nil
 			}
 			// Only an independently admitted new ownhost session may replace it.
 			if retained.session == nil || retained.session.Err() == nil ||
@@ -219,6 +224,8 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 			// Lost local publication state cannot grant this observation a new lifetime.
 			return rootoci.ErrUnauthorized
 		}
+		originalDeadline, _ := observation.ctx.Deadline()
+		observation.payload.ExpiresAt = earlier(observation.payload.ExpiresAt, originalDeadline)
 		signed, err := authority.ownhost.node.SignManagerRuntimeBinding(observation.ctx, observation.payload, observation.guard)
 		if err != nil {
 			return err
@@ -237,6 +244,88 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 			return err
 		}
 		return observation.readback(observation.ctx, signed)
+	})
+	if err != nil || predecessor == nil {
+		return err
+	}
+	return authority.renewManagerRuntimeBinding(ctx, process, binding, predecessor)
+}
+
+func (authority *rootOCIAuthority) renewManagerRuntimeBinding(ctx context.Context, process *rootOCIProcess,
+	binding *swarmruntime.ControllerHostBinding, predecessor *rootManagerRuntimeBinding,
+) error {
+	source, sources := authority.ownhost, authority.sources
+	if predecessor == nil || process.managerBinding != predecessor || predecessor.session != source.session || ctx.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	handoff, err := sources.hosts.BeginManagerRuntimeRenewal(ctx, source.agent, predecessor.signed)
+	if err != nil {
+		return err
+	}
+	defer handoff.Close()
+	proof := handoff.Proof()
+	if proof == nil || proof.Digest() == "" || proof.SourceRevision() <= predecessor.signed.Binding.SourceRevision {
+		return rootoci.ErrUnauthorized
+	}
+	identity, err := source.agent.RuntimeWorkerIdentity(binding.Identity().InstanceID, source.nodeID)
+	if err != nil {
+		return err
+	}
+	current, err := source.reader.ReadRuntimeAuthority(handoff.Context(), authority.accepted, time.Now().UTC())
+	if err != nil || current.Identity() != binding.Identity() {
+		return rootoci.ErrUnauthorized
+	}
+	return authority.withManagerRuntimeObservation(handoff.Context(), process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
+		originalDeadline, _ := observation.ctx.Deadline()
+		observation.payload.ExpiresAt = earlier(observation.payload.ExpiresAt, originalDeadline)
+		old, expected := predecessor.signed.Binding, observation.payload
+		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
+		if old != expected || observation.existing == nil || !reflect.DeepEqual(*observation.existing, predecessor.signed) ||
+			observation.payload.SourceRevision != proof.SourceRevision() || !observation.payload.IssuedAt.After(old.IssuedAt) ||
+			!observation.payload.ExpiresAt.After(old.ExpiresAt) || observation.payload.ExpiresAt.After(proof.ExpiresAt()) {
+			return rootoci.ErrUnauthorized
+		}
+		guard := func(effect context.Context) error {
+			if ctx.Err() != nil || handoff.Context().Err() != nil || process.managerBinding != predecessor || source.session != predecessor.session {
+				return rootoci.ErrUnauthorized
+			}
+			if err := proof.Revalidate(effect); err != nil {
+				return err
+			}
+			if err := observation.guard(effect); err != nil {
+				return err
+			}
+			return proof.Revalidate(effect)
+		}
+		signed, err := source.node.SignManagerRuntimeBinding(observation.ctx, observation.payload, guard)
+		if err != nil {
+			return err
+		}
+		if err := guard(observation.ctx); err != nil {
+			return err
+		}
+		wire, err := json.Marshal(signed, json.Deterministic(true))
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(wire)
+		// Retain before the only dispatch; ambiguous installation is never retried.
+		process.managerBinding = &rootManagerRuntimeBinding{signed: signed, session: source.session, digest: hex.EncodeToString(digest[:])}
+		published, err := handoff.Install(observation.ctx, signed)
+		if err != nil {
+			return err
+		}
+		// Install cancels its handoff context; final reads keep the original call.
+		readbackCtx, cancel := context.WithDeadline(ctx, signed.Binding.ExpiresAt)
+		defer cancel()
+		actual, found := published.SignedBinding()
+		if !found || !reflect.DeepEqual(actual, signed) || published.SourceRevision() <= proof.SourceRevision() {
+			return rootoci.ErrUnauthorized
+		}
+		if err := published.Revalidate(readbackCtx); err != nil {
+			return err
+		}
+		return observation.readback(readbackCtx, signed)
 	})
 }
 
