@@ -56,7 +56,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return materialScope{}, rootoci.ErrUnauthorized
 	}
-	rootEntry, err := s.Roots.Get(ctx, "chain")
+	rootEntry, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
 	if err != nil {
 		return materialScope{}, err
 	}
@@ -72,7 +72,7 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		call.Expected().OperationID != "" && call.Expected().OperationID != intent.OperationID || call.Expected().Epoch != 0 && call.Expected().Epoch != intent.AuthorityEpoch {
 		return materialScope{}, rootoci.ErrUnauthorized
 	}
-	specEntry, err := s.Specs.Get(ctx, "current")
+	specEntry, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
 		return materialScope{}, err
 	}
@@ -223,11 +223,11 @@ func (b *Backend) material(ctx context.Context, call rootoci.Call, operation roo
 		if err != nil || current.Identity() != identity || !time.Now().Before(current.ExpiresAt()) {
 			return errors.Join(ErrPending, err)
 		}
-		rootNow, err := s.Roots.Get(ctx, "chain")
+		rootNow, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
 		if err != nil || rootNow.Revision() != rootEntry.Revision() || !bytes.Equal(rootNow.Value(), rootEntry.Value()) {
 			return errors.Join(ErrPending, err)
 		}
-		specNow, err := s.Specs.Get(ctx, "current")
+		specNow, err := s.current(ctx, "TS_SERVICE_SET", "current")
 		if err != nil || specNow.Revision() != specEntry.Revision() || !bytes.Equal(specNow.Value(), specEntry.Value()) {
 			return errors.Join(ErrPending, err)
 		}

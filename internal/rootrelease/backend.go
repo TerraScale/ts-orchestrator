@@ -44,6 +44,7 @@ type Backend struct {
 // Sources are actual root-created regional readers, never child pointers or
 // child-provided callbacks. Bind is called once after the root broker opens.
 type Sources struct {
+	JS        jetstream.JetStream
 	Fleet     oci.FleetObserver
 	Node      *swarmruntime.Node
 	Intents   *delivery.Service
@@ -65,7 +66,7 @@ func New(factory *ociclient.Factory) (*Backend, error) {
 }
 
 func (b *Backend) Bind(s Sources) error {
-	if os.Geteuid() != 0 || b == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil {
+	if os.Geteuid() != 0 || b == nil || s.JS == nil || s.JS.Conn() == nil || s.Node == nil || s.Intents == nil || s.Specs == nil || s.Roots == nil || s.Leases == nil || s.Hosts == nil || s.Fleet == nil || s.Authority == nil || s.Accepted.Validate() != nil {
 		return ErrPending
 	}
 	if s.Specs.Bucket() != "TS_SERVICE_SET" || s.Roots.Bucket() != "TS_TRUST_ROOTS" {
@@ -115,7 +116,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if identity.OCIRegion != b.factory.Region() || call.Expected().Cell != "" && !strings.EqualFold(call.Expected().Cell, identity.Cell) {
 		return pending(rootoci.ErrUnauthorized)
 	}
-	rootsEntry, err := s.Roots.Get(ctx, "chain")
+	rootsEntry, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
 	if err != nil {
 		return pending(err)
 	}
@@ -139,7 +140,7 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 	if err != nil {
 		return pending(err)
 	}
-	specEntry, err := s.Specs.Get(ctx, "current")
+	specEntry, err := s.current(ctx, "TS_SERVICE_SET", "current")
 	if err != nil {
 		return pending(err)
 	}
@@ -245,11 +246,11 @@ func (b *Backend) ReconcileContainerStatus(ctx context.Context, call rootoci.Cal
 		if err != nil || current.Identity() != identity || !time.Now().Before(current.ExpiresAt()) {
 			return errors.Join(ErrPending, err)
 		}
-		rootNow, err := s.Roots.Get(ctx, "chain")
+		rootNow, err := s.current(ctx, "TS_TRUST_ROOTS", "chain")
 		if err != nil || rootNow.Revision() != rootsEntry.Revision() || !bytes.Equal(rootNow.Value(), rootsEntry.Value()) {
 			return errors.Join(ErrPending, err)
 		}
-		specNow, err := s.Specs.Get(ctx, "current")
+		specNow, err := s.current(ctx, "TS_SERVICE_SET", "current")
 		if err != nil || specNow.Revision() != specEntry.Revision() || !bytes.Equal(specNow.Value(), specEntry.Value()) {
 			return errors.Join(ErrPending, err)
 		}
