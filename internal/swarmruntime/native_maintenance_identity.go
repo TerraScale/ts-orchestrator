@@ -26,7 +26,7 @@ const maxNativeMaintenanceIdentityFileBytes = 64 << 10
 // NativeMaintenanceIdentity retains root's exact native identity, not permission
 // to maintain a node. Its key never leaves this package.
 type NativeMaintenanceIdentity struct {
-	original                          context.Context
+	lifetime                          context.Context
 	node                              *Node
 	local                             *ControllerHostBinding
 	control                           *manager.ControlReader
@@ -47,7 +47,14 @@ func (n *Node) ReadNativeMaintenanceIdentity(ctx context.Context, local *Control
 	if ctx == nil || ctx.Err() != nil || !nativeMaintenanceNodeMatches(n, local) {
 		return nil, errors.New("native maintenance requires the root-owned accepted local manager")
 	}
-	current, err := local.reader.ReadRuntimeAuthority(ctx, local.accepted, time.Now().UTC())
+	lifetime, cancel := nativeMaintenanceLifetime(ctx, n.done)
+	retained := false
+	defer func() {
+		if !retained {
+			cancel()
+		}
+	}()
+	current, err := local.reader.ReadRuntimeAuthority(lifetime, local.accepted, time.Now().UTC())
 	if err != nil || current.Identity() != local.identity {
 		return nil, errors.New("native maintenance local authority unavailable")
 	}
@@ -55,8 +62,8 @@ func (n *Node) ReadNativeMaintenanceIdentity(ctx context.Context, local *Control
 	if outer, ok := ctx.Deadline(); ok && outer.Before(deadline) {
 		deadline = outer
 	}
-	readCtx, cancel := context.WithDeadline(ctx, deadline)
-	defer cancel()
+	readCtx, readCancel := context.WithDeadline(lifetime, deadline)
+	defer readCancel()
 	if _, err := local.currentRegistration(readCtx); err != nil {
 		return nil, err
 	}
@@ -65,7 +72,7 @@ func (n *Node) ReadNativeMaintenanceIdentity(ctx context.Context, local *Control
 		return nil, err
 	}
 	defer clear(files[0].wire)
-	key, chain, err := parseNodeSigningKey(n.ID(), files[0].wire, files[1].wire, files[2].wire)
+	key, chain, certificateExpiry, err := parseNodeSigningKey(n.ID(), files[0].wire, files[1].wire, files[2].wire)
 	if err != nil {
 		return nil, err
 	}
@@ -73,24 +80,29 @@ func (n *Node) ReadNativeMaintenanceIdentity(ctx context.Context, local *Control
 	if err != nil || !slices.Contains(leaf.Subject.OrganizationalUnit, "swarm-manager") {
 		return nil, errors.New("native maintenance identity is not a manager certificate")
 	}
-	if leaf.NotAfter.Before(deadline) {
-		deadline = leaf.NotAfter
+	if certificateExpiry.Before(deadline) {
+		deadline = certificateExpiry
 	}
-	readCtx, certificateCancel := context.WithDeadline(readCtx, deadline)
-	defer certificateCancel()
-	if err := readCtx.Err(); err != nil {
+	identityCtx, certificateCancel := context.WithDeadline(lifetime, deadline)
+	defer func() {
+		if !retained {
+			certificateCancel()
+		}
+	}()
+	context.AfterFunc(identityCtx, cancel)
+	if err := identityCtx.Err(); err != nil {
 		return nil, err
 	}
-	control, err := n.ReadOnlyControlClient(readCtx)
+	control, err := n.ReadOnlyControlClient(identityCtx)
 	if err != nil {
 		return nil, err
 	}
-	cluster, err := control.ClusterIdentity(readCtx)
+	cluster, err := control.ClusterIdentity(identityCtx)
 	if err != nil || cluster == nil || cluster.ID == "" || !bytes.Equal(cluster.RootCACert, files[2].wire) ||
 		!slices.Equal(leaf.Subject.Organization, []string{cluster.ID}) {
 		return nil, errors.New("native maintenance identity differs from the live native cluster")
 	}
-	proof := &NativeMaintenanceIdentity{original: ctx, node: n, local: local, control: control, key: key, chain: chain,
+	proof := &NativeMaintenanceIdentity{lifetime: identityCtx, node: n, local: local, control: control, key: key, chain: chain,
 		directories: directories, nodeID: n.ID(), clusterID: cluster.ID, source: current.ManagerSourceSHA256(), anchor: current.Anchor().Digest(), deadline: deadline}
 	for i := range files {
 		proof.files[i] = files[i].pin
@@ -98,10 +110,24 @@ func (n *Node) ReadNativeMaintenanceIdentity(ctx context.Context, local *Control
 	if proof.source == "" || proof.anchor == "" {
 		return nil, errors.New("native maintenance accepted source unavailable")
 	}
-	if err := proof.Revalidate(readCtx); err != nil {
+	if err := proof.Revalidate(identityCtx); err != nil {
 		return nil, err
 	}
+	retained = true
 	return proof, nil
+}
+
+// The retained source must cancel blocked reads when the actual node stops.
+func nativeMaintenanceLifetime(ctx context.Context, done <-chan struct{}) (context.Context, context.CancelFunc) {
+	lifetime, cancel := context.WithCancel(ctx)
+	go func() {
+		select {
+		case <-done:
+			cancel()
+		case <-lifetime.Done():
+		}
+	}()
+	return lifetime, cancel
 }
 
 func nativeMaintenanceNodeMatches(n *Node, local *ControllerHostBinding) bool {
@@ -121,12 +147,12 @@ func nativeMaintenanceNodeMatches(n *Node, local *ControllerHostBinding) bool {
 // Revalidate never adopts a replaced inode, rotated certificate, renewed source
 // or successor manager. The caller must also guard its original Call/R3 source.
 func (p *NativeMaintenanceIdentity) Revalidate(ctx context.Context) error {
-	if p == nil || ctx == nil || ctx.Err() != nil || p.original == nil || p.original.Err() != nil ||
+	if p == nil || ctx == nil || ctx.Err() != nil || p.lifetime == nil || p.lifetime.Err() != nil ||
 		p.control == nil || p.key == nil || !nativeMaintenanceNodeMatches(p.node, p.local) || p.node.ID() != p.nodeID || !time.Now().Before(p.deadline) {
 		return errors.New("original native maintenance identity ended")
 	}
 	ctx, cancel := context.WithDeadline(ctx, p.deadline)
-	stop := context.AfterFunc(p.original, cancel)
+	stop := context.AfterFunc(p.lifetime, cancel)
 	defer cancel()
 	defer stop()
 	if _, err := p.local.currentRegistration(ctx); err != nil {
@@ -150,7 +176,7 @@ func (p *NativeMaintenanceIdentity) Revalidate(ctx context.Context) error {
 			return errors.New("original native maintenance key or certificate changed")
 		}
 	}
-	if _, _, err := parseNodeSigningKey(p.nodeID, files[0].wire, files[1].wire, files[2].wire); err != nil {
+	if _, _, _, err := parseNodeSigningKey(p.nodeID, files[0].wire, files[1].wire, files[2].wire); err != nil {
 		return err
 	}
 	got, err := p.control.GetNode(ctx, &api.GetNodeRequest{NodeID: p.node.ID()})
@@ -189,7 +215,7 @@ func (p *NativeMaintenanceIdentity) Revalidate(ctx context.Context) error {
 	confirmed, err := p.local.reader.ReadRuntimeAuthority(ctx, p.local.accepted, time.Now().UTC())
 	if err != nil || confirmed.Identity() != current.Identity() || confirmed.ExpiresAt().Before(p.deadline) ||
 		confirmed.ManagerSourceSHA256() != p.source || confirmed.Anchor().Digest() != p.anchor ||
-		!nativeMaintenanceNodeMatches(p.node, p.local) || !time.Now().Before(p.deadline) || p.original.Err() != nil {
+		!nativeMaintenanceNodeMatches(p.node, p.local) || !time.Now().Before(p.deadline) || p.lifetime.Err() != nil {
 		return errors.New("original native maintenance source changed during identity verification")
 	}
 	return ctx.Err()

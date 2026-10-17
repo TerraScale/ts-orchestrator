@@ -4,9 +4,11 @@ package swarmruntime
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -94,5 +96,39 @@ func TestNativeMaintenanceIdentityFilePinsOriginalInode(t *testing.T) {
 	}
 	if replacement.pin == original.pin {
 		t.Fatal("identical bytes in a successor inode adopted the original identity")
+	}
+}
+
+func TestNativeMaintenanceLifetimeCancelsBlockedReads(t *testing.T) {
+	for _, cause := range []string{"node-stopped", "parent-cancelled", "deadline"} {
+		t.Run(cause, func(t *testing.T) {
+			parent, cancelParent := context.WithCancel(t.Context())
+			defer cancelParent()
+			done := make(chan struct{})
+			lifetime, cancel := nativeMaintenanceLifetime(parent, done)
+			defer cancel()
+			if err := lifetime.Err(); err != nil {
+				t.Fatalf("live native source was cancelled: %v", err)
+			}
+			read, cancelRead := context.WithCancel(t.Context())
+			defer cancelRead()
+			stop := context.AfterFunc(lifetime, cancelRead)
+			defer stop()
+			switch cause {
+			case "node-stopped":
+				close(done)
+			case "parent-cancelled":
+				cancelParent()
+			case "deadline":
+				bounded, cancelDeadline := context.WithDeadline(lifetime, time.Now().Add(-time.Second))
+				defer cancelDeadline()
+				context.AfterFunc(bounded, cancel)
+			}
+			select {
+			case <-read.Done():
+			case <-time.After(5 * time.Second):
+				t.Fatal("native source termination did not cancel its blocked read")
+			}
+		})
 	}
 }
