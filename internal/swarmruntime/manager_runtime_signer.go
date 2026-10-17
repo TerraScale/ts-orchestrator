@@ -48,6 +48,10 @@ func (n *Node) SignManagerRuntimeBinding(ctx context.Context, binding host.Manag
 	if err != nil || cluster == nil || cluster.ID != binding.SwarmClusterID || len(cluster.RootCACert) == 0 {
 		return empty, errors.New("manager runtime binding differs from the actual native cluster")
 	}
+	clusterDigest := sha256.Sum256(cluster.RootCACert)
+	if binding.ClusterCASHA256 != hex.EncodeToString(clusterDigest[:]) {
+		return empty, errors.New("manager runtime binding differs from the actual native cluster authority")
+	}
 	key, chain, err := n.nodeSigningKey()
 	if err != nil {
 		return empty, err
