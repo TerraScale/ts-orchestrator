@@ -39,6 +39,11 @@ func completedControllerEnrollment(ctx context.Context, config containerMaterial
 	if err != nil {
 		return fail(err)
 	}
+	ctx, cancel := context.WithDeadline(ctx, response.ExpiresAt)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return fail(err)
+	}
 	snapshot, err := currentWorkerRegistration(ctx, config.Mutations, config.Registrations, config.JS, query, instanceID, descriptor.Node, registration.Cell)
 	if err != nil || snapshot.Pending {
 		return fail(errors.New("controller material registration is not currently completed"))
