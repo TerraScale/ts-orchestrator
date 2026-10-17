@@ -89,6 +89,40 @@ func VerifyIdentityRekeyCompletionProcessBinary(ctx context.Context, pid int, ac
 	return err
 }
 
+// VerifyIdentityRekeyCompletionRelease authenticates the exact selected child
+// release before execution, independently of its cleanup parent's predecessor.
+func VerifyIdentityRekeyCompletionRelease(ctx context.Context, digest string, accepted AcceptedIdentity, layout selfupdate.Layout, roots trust.Keyring) error {
+	if ctx == nil {
+		return ErrAdmission
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if os.Geteuid() != 0 || os.Getegid() != 0 || accepted.Validate() != nil {
+		return ErrAdmission
+	}
+	current, err := layout.Current()
+	if err != nil || current != digest || digest == "" {
+		return ErrRunningBinaryMismatch
+	}
+	bad, err := layout.KnownBad()
+	if err != nil || bad[digest] {
+		return ErrRunningBinaryMismatch
+	}
+	if _, err := verifyRecoveryRelease(layout.BinaryPath(digest), layout, digest, roots, accepted); err != nil {
+		return err
+	}
+	current, err = layout.Current()
+	if err != nil || current != digest {
+		return ErrRunningBinaryMismatch
+	}
+	bad, err = layout.KnownBad()
+	if err != nil || bad[digest] {
+		return ErrRunningBinaryMismatch
+	}
+	return ctx.Err()
+}
+
 type processBinaryChecker struct {
 	executableBinaryChecker
 	pid int

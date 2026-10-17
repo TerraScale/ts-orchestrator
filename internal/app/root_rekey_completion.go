@@ -19,6 +19,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
+	selfupdatecli "github.com/TerraScale/ts-orchestrator/internal/selfupdate/cli"
 	"golang.org/x/sys/unix"
 )
 
@@ -158,35 +159,38 @@ func verifyRootRekeyCleanupParent(parent *rootoci.ProcessWitness) error {
 }
 
 // Open every ancestor without following links, then hash the inode passed to exec.
-func openRootRekeyCompletionBinary(ctx context.Context, current string) (*os.File, error) {
+func openRootRekeyCompletionBinary(ctx context.Context, current string) (*os.File, unix.Stat_t, error) {
 	layout := selfupdate.NewLayout(selfupdate.DefaultRoot)
 	if ctx == nil || ctx.Err() != nil || layout.VerifyRelease(current) != nil {
-		return nil, rootoci.ErrUnauthorized
+		return nil, unix.Stat_t{}, rootoci.ErrUnauthorized
 	}
 	directory, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, err
+		return nil, unix.Stat_t{}, err
 	}
 	for component := range strings.SplitSeq(strings.TrimPrefix(filepath.Dir(layout.BinaryPath(current)), "/"), "/") {
 		next, err := unix.Openat(directory, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		unix.Close(directory)
 		if err != nil {
-			return nil, err
+			return nil, unix.Stat_t{}, err
 		}
 		directory = next
 		var stat unix.Stat_t
 		if unix.Fstat(directory, &stat) != nil || stat.Uid != 0 || stat.Gid != 0 || stat.Mode&0o022 != 0 {
 			unix.Close(directory)
-			return nil, rootoci.ErrUnauthorized
+			return nil, unix.Stat_t{}, rootoci.ErrUnauthorized
 		}
 	}
 	defer unix.Close(directory)
 	fd, err := unix.Openat(directory, selfupdate.BinaryName, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC|unix.O_NONBLOCK, 0)
 	if err != nil {
-		return nil, err
+		return nil, unix.Stat_t{}, err
 	}
 	file := os.NewFile(uintptr(fd), selfupdate.BinaryName)
-	fail := func() (*os.File, error) { _ = file.Close(); return nil, rootoci.ErrUnauthorized }
+	fail := func() (*os.File, unix.Stat_t, error) {
+		_ = file.Close()
+		return nil, unix.Stat_t{}, rootoci.ErrUnauthorized
+	}
 	var before, after unix.Stat_t
 	if unix.Fstat(fd, &before) != nil || before.Mode&unix.S_IFMT != unix.S_IFREG || before.Uid != 0 || before.Gid != 0 ||
 		before.Nlink != 1 || before.Mode&0o6022 != 0 || before.Mode&0o111 == 0 || before.Size <= 0 || before.Size > selfupdate.MaxBinaryBytes {
@@ -201,7 +205,7 @@ func openRootRekeyCompletionBinary(ctx context.Context, current string) (*os.Fil
 	if before != after {
 		return fail()
 	}
-	return file, nil
+	return file, after, nil
 }
 
 func checkRootRekeySharedCompletion(original context.Context) error {
@@ -215,7 +219,25 @@ func checkRootRekeySharedCompletion(original context.Context) error {
 		return err
 	}
 	defer scope.parent.Close()
-	binary, err := openRootRekeyCompletionBinary(ctx, scope.current)
+	inputs, err := bootstrapstart.LoadTrustInputs(scope.accepted)
+	if err != nil {
+		return err
+	}
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	// Bind the full compatibility validation to this already captured selection.
+	if err := selfupdatecli.VerifyIdentityRekeyBinaries(ctx, scope.accepted, inputs); err != nil {
+		return err
+	}
+	if err := scope.guard(ctx); err != nil {
+		return err
+	}
+	if err := bootstrapstart.VerifyIdentityRekeyCompletionRelease(ctx, scope.current, scope.accepted,
+		selfupdate.NewLayout(selfupdate.DefaultRoot), inputs.Roots.Historical); err != nil {
+		return err
+	}
+	binary, pinned, err := openRootRekeyCompletionBinary(ctx, scope.current)
 	if err != nil {
 		return err
 	}
@@ -244,6 +266,17 @@ func checkRootRekeySharedCompletion(original context.Context) error {
 	if err := original.Err(); err != nil {
 		return err
 	}
+	var launch unix.Stat_t
+	if unix.Fstat(int(binary.Fd()), &launch) != nil {
+		return rootoci.ErrUnauthorized
+	}
+	launch.Atim = unix.Timespec{}
+	if launch != pinned {
+		return rootoci.ErrUnauthorized
+	}
+	if err := original.Err(); err != nil {
+		return err
+	}
 	if err := command.Start(); err != nil {
 		return err
 	}
@@ -256,10 +289,12 @@ func checkRootRekeySharedCompletion(original context.Context) error {
 	defer witness.Close() // Release only after the actual child's Wait.
 	childInfo, childErr := os.Stat(witness.ExecutablePath())
 	targetInfo, targetErr := binary.Stat()
-	var pinned unix.Stat_t
+	var started unix.Stat_t
+	statErr := unix.Fstat(int(binary.Fd()), &started)
+	started.Atim = unix.Timespec{}
 	if witness.Peer().UID != 0 || witness.Peer().GID != 0 || witness.ParentPID() != os.Getpid() ||
 		witness.Cgroup() != scope.parent.Cgroup() || childErr != nil || targetErr != nil || !os.SameFile(childInfo, targetInfo) ||
-		unix.Fstat(int(binary.Fd()), &pinned) != nil || witness.Verify() != nil || scope.guard(ctx) != nil || original.Err() != nil {
+		statErr != nil || started != pinned || witness.Verify() != nil || scope.guard(ctx) != nil || original.Err() != nil {
 		cancel()
 		_ = command.Wait()
 		return rootoci.ErrUnauthorized
@@ -290,7 +325,7 @@ func checkRootRekeySharedCompletion(original context.Context) error {
 	if unix.Fstat(int(binary.Fd()), &final) != nil {
 		return rootoci.ErrUnauthorized
 	}
-	pinned.Atim, final.Atim = unix.Timespec{}, unix.Timespec{}
+	final.Atim = unix.Timespec{}
 	currentInfo, currentErr := os.Stat(selfupdate.NewLayout(selfupdate.DefaultRoot).BinaryPath(scope.current))
 	if pinned != final || currentErr != nil || !os.SameFile(targetInfo, currentInfo) {
 		return rootoci.ErrUnauthorized
@@ -344,7 +379,7 @@ func runRootRekeyCompletionChild(original context.Context, args []string) error 
 	defer stopDeadline()
 	// The parent's earlier finite deadline remains the original source ceiling.
 	scope.original = ctx
-	target, err := openRootRekeyCompletionBinary(ctx, scope.current)
+	target, _, err := openRootRekeyCompletionBinary(ctx, scope.current)
 	if err != nil {
 		return err
 	}
