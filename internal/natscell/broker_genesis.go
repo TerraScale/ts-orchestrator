@@ -121,6 +121,15 @@ func (p VerifiedBrokerGenesis) Revalidate(ctx context.Context) error {
 	if err != nil || string(marker) != string(g.marker) {
 		return errors.Join(ErrStoreIdentity, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := g.ctx.Err(); err != nil {
+		return err
+	}
+	if !time.Now().Before(g.expires) || !r.server.Running() || !r.conn.IsConnected() {
+		return errors.New("original broker lifetime ended during observation")
+	}
 	return nil
 }
 
