@@ -15,15 +15,18 @@ type Pool interface {
 }
 
 type PoolChildExpectation struct {
-	Cell            string `json:"cell"`
-	OperationID     string `json:"operation_id"`
-	ReservationID   string `json:"reservation_id"`
-	RecipeSHA256    string `json:"recipe_sha256"`
-	PoolID          string `json:"pool_id,omitempty"`
-	ConfigurationID string `json:"configuration_id,omitempty"`
-	GrantSHA256     string `json:"grant_sha256"`
-	Generation      uint64 `json:"generation"`
-	Epoch           uint64 `json:"epoch"`
+	Cell          string `json:"cell"`
+	OperationID   string `json:"operation_id"`
+	ReservationID string `json:"reservation_id"`
+	RecipeSHA256  string `json:"recipe_sha256"`
+	// Public recipe selectors are independently checked against the signed source.
+	PublicCAPEM         []byte   `json:"public_ca_pem"`
+	AvailabilityDomains []string `json:"availability_domains"`
+	PoolID              string   `json:"pool_id,omitempty"`
+	ConfigurationID     string   `json:"configuration_id,omitempty"`
+	GrantSHA256         string   `json:"grant_sha256"`
+	Generation          uint64   `json:"generation"`
+	Epoch               uint64   `json:"epoch"`
 }
 
 type PoolRetirementExpectation struct {
