@@ -12,6 +12,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/sdnotify"
+	"github.com/TerraScale/ts-orchestrator/internal/selfupdate"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/TerraScale/ts-orchestrator/internal/vaultsecret"
 	"github.com/moby/swarmkit/v2/api"
@@ -31,6 +32,9 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	} else if err != nil {
 		return fmt.Errorf("inspect accepted runtime role: %w", err)
 	}
+	parentCtx := ctx
+	ctx, stopRuntime := context.WithCancelCause(parentCtx)
+	defer stopRuntime(nil)
 	if err := runRestoreControllerMaterial(ctx, nil, output); err != nil {
 		return fmt.Errorf("restore accepted controller runtime credentials: %w", err)
 	}
@@ -63,7 +67,7 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 	if err != nil {
 		return err
 	}
-	uid, _, err := controllerServiceIdentity()
+	uid, gid, err := controllerServiceIdentity()
 	if err != nil {
 		return err
 	}
@@ -120,7 +124,16 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		defer cancel()
 		_ = node.Stop(stopCtx)
 	}()
-	management, err := swarmruntime.StartManagementServer(ctx, node, reader, accepted)
+	authority, err := newRootOCIAuthority(ctx, accepted, ownhost, selfupdate.NewLayout(selfUpdateRoot(cfg.Host.SelfUpdateRoot)), uid, gid)
+	if err != nil {
+		return err
+	}
+	defer authority.Close()
+	stateful, err := newRootStatefulAuthorizer(cfg, authority, local.factory)
+	if err != nil {
+		return err
+	}
+	management, err := swarmruntime.StartManagementServer(ctx, node, reader, accepted, stateful)
 	if err != nil {
 		return err
 	}
@@ -143,11 +156,23 @@ func RunManagedRuntime(ctx context.Context, args []string, output io.Writer) err
 		runManagedRuntimeOwnHost(ownhostCtx, cfg, reader, accepted, node, admitted, ownhost)
 	}()
 	defer func() { stopOwnhost(); <-ownhostDone }()
+	// The ordinary controller starts its broker only after this unit is ready.
+	sourcesCtx, stopSources := context.WithCancel(authority.ctx)
+	sourcesDone := make(chan struct{})
+	go func() {
+		defer close(sourcesDone)
+		err := runManagedRuntimeRootSources(sourcesCtx, cfg, local.factory, ownhost, authority)
+		stopRuntime(fmt.Errorf("root runtime source authority ended: %w", err))
+	}()
+	defer func() { stopSources(); <-sourcesDone }()
 	if err := node.Wait(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}
 	if ctx.Err() == nil {
 		return errors.New("embedded regional runtime stopped unexpectedly")
 	}
-	return nil
+	if errors.Is(parentCtx.Err(), context.Canceled) {
+		return nil
+	}
+	return context.Cause(ctx)
 }
