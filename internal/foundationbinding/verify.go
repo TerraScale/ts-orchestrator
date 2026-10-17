@@ -146,6 +146,7 @@ type provenance struct {
 // These private wire views avoid importing the region/bootstrap packages:
 // their consumers must be able to call this verifier without an import cycle.
 type record struct {
+	FoundationWriter    jsontext.Value           `json:"foundationWriter,omitempty"`
 	SourcePolicyIDs     jsontext.Value           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      jsontext.Value           `json:"netbirdManager,omitempty"`
 	SchemaVersion       int                      `json:"schemaVersion"`
