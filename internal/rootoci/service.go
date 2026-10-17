@@ -68,10 +68,12 @@ func (service *Service) validRequest(request wireRequest) bool {
 	if request.Operation.ReadOnly() {
 		return validReadRequest(request)
 	}
-	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration && request.Operation != OperationMaterializeContainer {
+	if len(request.Payload) > 16<<10 && request.Operation != OperationDeliverControllerGeneration && request.Operation != OperationMaterializeContainer && request.Operation != OperationStorePoolDrainStop {
 		return false
 	}
 	switch request.Operation {
+	case OperationBeginPoolDrain, OperationRefreshPoolDrain, OperationPoolDrainChallenges, OperationStorePoolDrainStop, OperationGuardPoolExecution:
+		return validPoolDrainRequest(request)
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		return decodePayload(request.Payload, &input) == nil && validSelector(input.Cell) &&
@@ -214,6 +216,12 @@ func (service *Service) dispatch(ctx context.Context, call Call, request wireReq
 		return dispatchRead(ctx, service.backends.Readers, call, request)
 	}
 	switch request.Operation {
+	case OperationBeginPoolDrain, OperationRefreshPoolDrain, OperationPoolDrainChallenges, OperationStorePoolDrainStop, OperationGuardPoolExecution:
+		backend, ok := service.backends.Foundations.(PoolDrains)
+		if !ok || !validDependency(backend) {
+			return nil, ErrUnavailable
+		}
+		return dispatchPoolDrain(ctx, backend, call, request)
 	case OperationReconcileFoundation:
 		var input ReconcileFoundationRequest
 		if err := decodePayload(request.Payload, &input); err != nil {
