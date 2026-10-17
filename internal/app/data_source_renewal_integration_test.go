@@ -26,6 +26,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/hostboot"
 	"github.com/TerraScale/ts-orchestrator/internal/managedmaterial"
 	"github.com/TerraScale/ts-orchestrator/internal/memberstatus"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
@@ -43,6 +44,7 @@ import (
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/containerd/v2/pkg/cio"
 	"github.com/containerd/containerd/v2/pkg/namespaces"
+	"github.com/nats-io/nats.go/jetstream"
 	digest "github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	runtimespec "github.com/opencontainers/runtime-spec/specs-go"
@@ -55,6 +57,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1188,4 +1191,254 @@ func renewalQualifyImage(t *testing.T, cloud *renewalCloud, storage objectstorag
 	}
 	return renewalSignedRelease{bundle: bundle, roots: roots, root: root, signer: signer,
 		allocations: allocations, evidence: evidence}
+}
+
+// renewalOwnedFleet uses retained launch records plus exact signed SDK reads;
+// neither OCI tags alone nor an accepting image/registration callback suffice.
+func renewalOwnedFleet(t *testing.T, cloud *renewalCloud, js jetstream.JetStream,
+	state *placement.MemberState,
+) (oci.RegionConfig, *oci.VolumeMountObserver, oci.FleetObserver) {
+	t.Helper()
+	images, now := managedImageVerifierFixture(t, runtime.GOARCH)
+	config := images.region
+	config.Generation, config.Endpoint, config.Owner = 1, "https://"+renewalFixtureCompute, "source-renewal"
+	config.Shape = state.ManagedHostProfile.Compute.Shape
+	config.FaultDomains = []string{"FAULT-DOMAIN-1", "FAULT-DOMAIN-2"}
+	config.SubnetID = "ocid1.subnet.oc1.sa-saopaulo-1.sourcerenewal"
+	config.NetworkSecurityGroupIDs = []string{"ocid1.networksecuritygroup.oc1.sa-saopaulo-1.sourcerenewal"}
+	config.BootVolumeGB, config.BootVolumeVPUsPerGB, config.DataVolumeVPUsPerGB, config.MaxDataVolumeGB = 50, 10, 10, 32768
+	images.region = config
+	proof, err := independentManagedImageProof(config, oci.RegionGRU, "production", images.roots, images.receiptWire, images.delegationWire, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.images, err = newManagedImageReadback(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.now = time.Now
+	intent := oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU,
+		Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}}
+	if err := config.Validate(intent); err != nil {
+		t.Fatal(err)
+	}
+	hasher := sha256.New()
+	for _, value := range []string{config.Owner, string(config.Region), "1", state.CreateKey} {
+		_, _ = hasher.Write([]byte{0})
+		_, _ = hasher.Write([]byte(value))
+	}
+	state.HostNode = fmt.Sprintf("host-%x", hasher.Sum(nil)[:12])
+	descriptor := hostboot.Descriptor{SchemaVersion: 1, Cell: "gru", Region: "GRU", Node: state.HostNode,
+		Owner: config.Owner, FleetGeneration: 1, CreateKey: state.CreateKey, ImageID: config.ImageID,
+		DatabaseID: state.DatabaseID, PartitionID: state.PartitionID, SeatID: state.MemberID, HostAttempt: state.HostAttempt,
+		IntentGeneration: state.IntentGeneration, IntentPayloadDigest: state.IntentPayloadDigest,
+		CanonicalRosterDigest: state.CanonicalRosterDigest, ManagedHostProfileDigest: state.ManagedHostProfileDigest,
+		RuntimeManifestDigest: state.RuntimeManifestDigest}
+	wire, err := descriptor.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptorSHA, err := descriptor.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := oci.OpenJournal(t.Context(), js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := func(operation oci.OperationIntent, id, etag string) {
+		t.Helper()
+		if err := journal.RecordIntent(t.Context(), operation); err != nil {
+			t.Fatal(err)
+		}
+		if err := journal.RecordResult(t.Context(), oci.OperationResult{Intent: operation, ResourceID: id, ETag: etag, RecordedAt: now}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hostIP, _, err := net.SplitHostPort(state.RuntimeManifest.ReplicationListenAddress)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compute := state.ManagedHostProfile.Compute
+	record(oci.OperationIntent{Action: "launch", Key: state.CreateKey, CreateKey: state.CreateKey,
+		Region: config.Region, Generation: 1, Owner: config.Owner, CreatedAt: now, FaultDomain: state.FailureDomain,
+		PrivateIP: hostIP, Shape: config.Shape, WholeOCPUs: compute.WholeOCPUs, MemoryInGBs: compute.MemoryInGBs,
+		PlacementProfileDigest: state.ManagedHostProfileDigest, PlacementGeneration: state.IntentGeneration,
+		ImageID: config.ImageID, BootDescriptor: string(wire), BootDescriptorSHA256: descriptorSHA}, state.InstanceID, state.InstanceETag)
+	volumeKey := entityid.New()
+	record(oci.OperationIntent{Action: "volume-create", Key: volumeKey, CreateKey: volumeKey, Region: config.Region,
+		Generation: 1, Owner: config.Owner, CreatedAt: now, AvailabilityDomain: config.AvailabilityDomain, SizeGB: 50}, state.VolumeID, "volume-v1")
+	record(oci.OperationIntent{Action: "volume-attach", Key: entityid.New(), CreateKey: state.CreateKey, ResourceID: state.InstanceID,
+		VolumeID: state.VolumeID, Region: config.Region, Generation: 1, Owner: config.Owner, CreatedAt: now,
+		Device: state.AttachmentDevice, IsPvEncryptionInTransitEnabled: true}, state.AttachmentID, state.AttachmentETag)
+	put := func(path, etag string, body any) {
+		cloud.putJSON(t, renewalFixtureCompute, path, body)
+		if etag != "" {
+			cloud.mu.Lock()
+			route := cloud.routes[renewalFixtureCompute+path]
+			route.etag = etag
+			cloud.routes[renewalFixtureCompute+path] = route
+			cloud.mu.Unlock()
+		}
+	}
+	query := func(path string, fields ...string) string {
+		values := url.Values{}
+		for index := 0; index < len(fields); index += 2 {
+			values.Set(fields[index], fields[index+1])
+		}
+		return "/20160918/" + path + "?" + values.Encode()
+	}
+	tags := map[string]string{"terrascale-managed-by": "ts-orchestrator", "terrascale-owner": config.Owner,
+		"terrascale-region": "GRU", "terrascale-component": "terrabase", "terrascale-generation": "1",
+		"terrascale-resource": "member-host", "terrascale-create-key": state.CreateKey, "terrascale-host-node": state.HostNode,
+		"terrascale-placement-profile-digest": state.ManagedHostProfileDigest, "terrascale-placement-generation": fmt.Sprint(state.IntentGeneration)}
+	instance := map[string]any{"id": state.InstanceID, "compartmentId": config.CompartmentID,
+		"availabilityDomain": config.AvailabilityDomain, "faultDomain": state.FailureDomain, "lifecycleState": "RUNNING",
+		"shape": config.Shape, "shapeConfig": map[string]any{"ocpus": compute.WholeOCPUs, "memoryInGBs": compute.MemoryInGBs},
+		"imageId": config.ImageID, "metadata": map[string]string{hostboot.MetadataKey: string(wire)}, "freeformTags": tags}
+	put("/20160918/instances/"+state.InstanceID, state.InstanceETag, instance)
+	put(query("instances", "compartmentId", config.CompartmentID, "limit", "100"), "", []any{instance})
+	boot, vnic := "ocid1.bootvolume.oc1.sa-saopaulo-1.sourcerenewal", "ocid1.vnic.oc1.sa-saopaulo-1.sourcerenewal"
+	put(query("bootVolumeAttachments", "compartmentId", config.CompartmentID, "availabilityDomain", config.AvailabilityDomain, "instanceId", state.InstanceID), "",
+		[]any{map[string]any{"instanceId": state.InstanceID, "bootVolumeId": boot, "lifecycleState": "ATTACHED"}})
+	put("/20160918/bootVolumes/"+boot, "boot-v1", map[string]any{"id": boot, "compartmentId": config.CompartmentID,
+		"availabilityDomain": config.AvailabilityDomain, "imageId": config.ImageID, "sizeInGBs": 50, "vpusPerGB": 10, "lifecycleState": "AVAILABLE"})
+	put(query("vnicAttachments", "compartmentId", config.CompartmentID, "instanceId", state.InstanceID), "",
+		[]any{map[string]any{"instanceId": state.InstanceID, "vnicId": vnic, "lifecycleState": "ATTACHED"}})
+	put("/20160918/vnics/"+vnic, "", map[string]any{"id": vnic, "subnetId": config.SubnetID, "privateIp": hostIP,
+		"lifecycleState": "AVAILABLE", "nsgIds": config.NetworkSecurityGroupIDs})
+	volumeTags := maps.Clone(tags)
+	delete(volumeTags, "terrascale-host-node")
+	delete(volumeTags, "terrascale-placement-profile-digest")
+	delete(volumeTags, "terrascale-placement-generation")
+	volumeTags["terrascale-resource"], volumeTags["terrascale-create-key"], volumeTags["terrascale-volume-size-gib"] = "member-data", volumeKey, "50"
+	put("/20160918/volumes/"+state.VolumeID, "volume-v1", map[string]any{"id": state.VolumeID, "compartmentId": config.CompartmentID,
+		"availabilityDomain": config.AvailabilityDomain, "lifecycleState": "AVAILABLE", "sizeInGBs": 50, "vpusPerGB": 10, "freeformTags": volumeTags})
+	attachment := map[string]any{"id": state.AttachmentID, "instanceId": state.InstanceID, "volumeId": state.VolumeID,
+		"device": state.AttachmentDevice, "lifecycleState": "ATTACHED", "attachmentType": "paravirtualized",
+		"isReadOnly": false, "isShareable": false, "isPvEncryptionInTransitEnabled": true}
+	put("/20160918/volumeAttachments/"+state.AttachmentID, state.AttachmentETag, attachment)
+	put(query("volumeAttachments", "compartmentId", config.CompartmentID, "instanceId", state.InstanceID, "limit", "100"), "", []any{attachment})
+	put(query("volumeAttachments", "compartmentId", config.CompartmentID, "availabilityDomain", config.AvailabilityDomain, "volumeId", state.VolumeID, "limit", "100"), "", []any{attachment})
+	put("/20160918/images/"+config.ImageID, "", map[string]any{"id": config.ImageID, "compartmentId": config.ImageCompartmentID, "lifecycleState": "AVAILABLE"})
+	put("/20160918/images/"+config.ImageID+"/shapes/"+config.Shape, "", map[string]any{"imageId": config.ImageID, "shape": config.Shape})
+	processor := "AMD EPYC"
+	if runtime.GOARCH == "arm64" {
+		processor = "AmpereOne ARM"
+	}
+	put(query("shapes", "compartmentId", config.CompartmentID, "availabilityDomain", config.AvailabilityDomain, "imageId", config.ImageID, "shape", config.Shape), "",
+		[]any{map[string]any{"shape": config.Shape, "processorDescription": processor}})
+	if err := proof.VerifyImageQualified(t.Context(), config.Region, config.ImageID); err != nil {
+		t.Fatalf("genuine signed image and instance-principal readback: %v", err)
+	}
+	factory, err := ociclient.InstancePrincipal("sa-saopaulo-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	volumes, err := oci.NewVolumeMountObserver(factory, config, intent, journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := oci.OpenJournalReader(t.Context(), js, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleet, err := oci.NewFleetObserver(config, intent, factory, reader, proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pins := oci.VolumeInitializationPins{DatabaseID: state.DatabaseID, PartitionID: state.PartitionID,
+		InstanceID: state.InstanceID, HostCreateKey: state.CreateKey, VolumeID: state.VolumeID, AttachmentID: state.AttachmentID,
+		AttachmentETag: state.AttachmentETag, Device: state.AttachmentDevice,
+		FileSystemUUID: state.RuntimeManifest.FileSystemUUID, FileSystemType: state.RuntimeManifest.FileSystemType}
+	observation, err := volumes.InspectVolumeMount(t.Context(), pins, "")
+	if err != nil || !observation.IsVerified() || observation.Pins() != pins || observation.BootDescriptorSHA256() != descriptorSHA {
+		t.Fatalf("actual volume observer and retained ownership: %v", err)
+	}
+	observed, err := fleet.Observe(t.Context())
+	if err != nil || len(observed) != 1 || observed[0].BootDescriptorSHA256 != descriptorSHA || observed[0].Node != state.HostNode {
+		t.Fatalf("actual fleet observer and signed image: %v", err)
+	}
+	return config, volumes, fleet
+}
+
+func renewalPlacement(t *testing.T, material renewalMaterial, artifact, source string) placement.Intent {
+	t.Helper()
+	baseline := testManagedPlacementIntent()
+	baseline.DatabaseID, baseline.PartitionID = material.deployment.PlacementDatabaseID, material.deployment.PartitionID
+	for index := range baseline.RuntimeManifests {
+		manifest := &baseline.RuntimeManifests[index]
+		manifest.ArtifactDigest, manifest.SourceDigest = artifact, source
+		manifest.ManagedRuntimeRoot = material.deployment.ManagedRuntimeRoot
+		for _, member := range material.deployment.Members {
+			if member.SeatID == manifest.SeatID {
+				manifest.FileSystemUUID = member.FileSystemUUID
+			}
+		}
+	}
+	return backupAdmissionIntent(t, baseline, material.receipt)
+}
+
+func renewalMemberState(t *testing.T, intent placement.Intent, index int) placement.MemberState {
+	t.Helper()
+	row, manifest := intent.CanonicalRoster.Rows[index], intent.RuntimeManifests[index]
+	if row.SeatID != manifest.SeatID {
+		t.Fatal("renewal fixture roster and runtime seat order differs")
+	}
+	manifestSHA, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := intent.ManagedHostProfile(oci.RegionGRU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileSHA, err := profile.ProfileDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rosterSHA, err := intent.CanonicalRosterDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind := placement.MemberPermanent
+	if index == 1 {
+		kind = placement.MemberElastic
+	}
+	state := placement.MemberState{SchemaVersion: 5, DatabaseID: intent.DatabaseID, PartitionID: intent.PartitionID,
+		MemberID: row.SeatID, Region: row.Region, FailureDomain: row.FailureDomain, Kind: kind, Stage: placement.StageServing,
+		CreateKey: entityid.New(), HostNode: "fixture-host", InstanceID: renewalFixtureInstance,
+		InstanceETag: "instance-v1", VolumeID: fmt.Sprintf("ocid1.volume.oc1.sa-saopaulo-1.sourcerenewal%d", index),
+		AttachmentID:     fmt.Sprintf("ocid1.volumeattachment.oc1.sa-saopaulo-1.sourcerenewal%d", index),
+		AttachmentDevice: "/dev/loop0", AttachmentETag: "attachment-v1", HostAttempt: 1,
+		IntentGeneration: intent.Generation, IntentPayloadDigest: intent.PayloadDigest(), ManagedHostProfile: profile,
+		ManagedHostProfileDigest: profileSHA, CanonicalRosterRow: row, CanonicalRosterDigest: rosterSHA,
+		AuthorityReference: intent.CanonicalRoster.Authority, RuntimeManifest: manifest, RuntimeManifestDigest: manifestSHA,
+		DesiredGeneration: 1, HostGeneration: 1, OperationID: entityid.New(), UpdatedAt: time.Now().UTC()}
+	if err := state.Validate(); err != nil {
+		t.Fatalf("retained initial member state: %v", err)
+	}
+	return state
+}
+
+func TestSourceRenewalOwnershipSDKFixtureIntegration(t *testing.T) {
+	if !renewalIsolatedChild(t) {
+		return
+	}
+	cloud := newRenewalCloud(t)
+	js := testRolloutJetStream(t)
+	control, err := authority.Start(t.Context(), js, authority.Config{DeploymentID: entityid.New(), Scope: "gru", CandidateID: entityid.New(), Replicas: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = control.Close() })
+	material := renewalRetainMaterial(t, cloud, renewalStorageClient(t), control, "/srv/source-renewal")
+	intent := renewalPlacement(t, material, strings.Repeat("a", 64), strings.Repeat("b", 64))
+	state := renewalMemberState(t, intent, 0)
+	_, _, _ = renewalOwnedFleet(t, cloud, js, &state)
+	cloud.mu.Lock()
+	defer cloud.mu.Unlock()
+	if cloud.rejected != 0 {
+		t.Fatalf("ownership fixture rejected %d unexpected or unsigned SDK calls", cloud.rejected)
+	}
 }
