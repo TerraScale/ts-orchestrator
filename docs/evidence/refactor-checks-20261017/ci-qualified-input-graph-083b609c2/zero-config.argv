@@ -1,0 +1,1 @@
+/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/timeout --signal=TERM --kill-after=5s 60s /home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15 -I -B scripts/ci/zero-config-check.py 9988b2b8406b4ed808b628ee838d9190d5354a3c HEAD 

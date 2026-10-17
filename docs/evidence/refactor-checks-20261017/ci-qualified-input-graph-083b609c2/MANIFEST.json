@@ -1,0 +1,138 @@
+{
+  "candidate": "083b609c22b49e7e268610840a1e4f19bfdbc2b1",
+  "raw_input_directory": "/tmp/ts-ci-083b609c2-once.objBBl",
+  "copies": [
+    {
+      "path": "diffcheck.argv",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/diffcheck.argv",
+      "bytes": 198,
+      "sha256": "22a3e03cd7184c33e9dcf4f14e3cbddc48275c0a007218b7b49797fcc16e8f78"
+    },
+    {
+      "path": "diffcheck.exit",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/diffcheck.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "diffcheck.log",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/diffcheck.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "diffcheck.markers",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/diffcheck.markers",
+      "bytes": 99,
+      "sha256": "4fcc2b5ac9064255317a58a7068f8f76e1bb7c4ff2c36b82596e452e80bdfd1e"
+    },
+    {
+      "path": "post.sha256",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/post.sha256",
+      "bytes": 1044,
+      "sha256": "c236cc517a5e5800b79253abcce504cff6ad75fce4795975df875c7d1ba1a9ec"
+    },
+    {
+      "path": "pre.sha256",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/pre.sha256",
+      "bytes": 1044,
+      "sha256": "c236cc517a5e5800b79253abcce504cff6ad75fce4795975df875c7d1ba1a9ec"
+    },
+    {
+      "path": "python.argv",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/python.argv",
+      "bytes": 252,
+      "sha256": "ccebd199216514b6efcfdf7ae305f1c9b2d1107f061fba19f9167968661f0063"
+    },
+    {
+      "path": "python.exit",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/python.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "python.log",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/python.log",
+      "bytes": 1640,
+      "sha256": "49cb73194e425579fcf49774a1c84bfbea26faeac0ca7f95b33d94b56250c5a1"
+    },
+    {
+      "path": "python.markers",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/python.markers",
+      "bytes": 93,
+      "sha256": "ed1d9a9decadf466df1bfd3d4a0bd68189a59dce8be5eca45d163101192f345d"
+    },
+    {
+      "path": "shellcheck.argv",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/shellcheck.argv",
+      "bytes": 333,
+      "sha256": "d1d05e241d539328d5bfe897ec16145e14f7a59f45f4aa40780b67b88c244de1"
+    },
+    {
+      "path": "shellcheck.exit",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/shellcheck.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "shellcheck.log",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/shellcheck.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "shellcheck.markers",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/shellcheck.markers",
+      "bytes": 101,
+      "sha256": "e3509d7dd218a90bc25423e8577202456bc8631ea571ddbf036aa28beedc652c"
+    },
+    {
+      "path": "source",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/source",
+      "bytes": 82,
+      "sha256": "b017b1ad1792d3a1f2ce7b2a56495d92a6a66af4fd96e212174f7b32e3742a29"
+    },
+    {
+      "path": "status.post",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/status.post",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "tools.sha256",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/tools.sha256",
+      "bytes": 291,
+      "sha256": "b2ce75ec521747d9d6d1720e7e4a1d65729b646904a88c5d5186f055bd88233d"
+    },
+    {
+      "path": "zero-config.argv",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/zero-config.argv",
+      "bytes": 262,
+      "sha256": "15478569a9ff997fdf167dff3994d330e748675ab7b810ce1828a20340fadcee"
+    },
+    {
+      "path": "zero-config.exit",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/zero-config.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "path": "zero-config.log",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/zero-config.log",
+      "bytes": 67,
+      "sha256": "ac9f9272df4e06f4723d7320bcbdae9cbed4948ac070db203b9ad087b352ade0"
+    },
+    {
+      "path": "zero-config.markers",
+      "original": "/tmp/ts-ci-083b609c2-once.objBBl/zero-config.markers",
+      "bytes": 103,
+      "sha256": "7278f25b7866e58f361990673acf07f9905fe19f80cae0e43eab8674ef790e90"
+    }
+  ],
+  "local_checks": "Ten Python unittest methods with stubbed Go/GH and local Git; shellcheck four shell scripts, zero-config guard and diffcheck passed once.",
+  "limitations": [
+    "No actionlint executable available.",
+    "No actual GitHub Actions, API, network, deployment, real Go or crypto integration executed.",
+    "Prior main CI qualification does not transfer to this candidate."
+  ]
+}

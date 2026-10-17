@@ -1,0 +1,1 @@
+/run/current-system/sw/bin/nice -n 19 /run/current-system/sw/bin/timeout --signal=TERM --kill-after=5s 60s /run/current-system/sw/bin/git diff --check 9988b2b8406b4ed808b628ee838d9190d5354a3c HEAD 
