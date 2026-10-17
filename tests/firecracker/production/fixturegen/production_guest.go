@@ -124,7 +124,7 @@ func validateControllerConfig(wire []byte, slot, instanceOCID, privateIP string,
 	host := cfg.Host
 	host.Roles = nil
 	if !reflect.DeepEqual(host, app.HostConfig{}) || !reflect.DeepEqual(cfg.Operator, app.OperatorConfig{}) ||
-		cfg.NATS.Lab || cfg.NATS.Cell != "gru" || cfg.NATS.Instance != slot ||
+		cfg.NATS.Cell != "gru" || cfg.NATS.Instance != slot ||
 		cfg.NATS.Replicas != 3 || cfg.NATS.ClientRole != "controller" || cfg.NATS.Embedded == nil ||
 		cfg.NATS.NKeySeedFile != "" || cfg.Controller.CandidateID != instanceOCID ||
 		cfg.Controller.OciRegionConfig != "" || cfg.Controller.OciRegionIntentFile != "" ||
