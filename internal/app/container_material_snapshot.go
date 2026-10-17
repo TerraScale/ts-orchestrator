@@ -48,7 +48,7 @@ func containerSnapshotName(serviceID string) string {
 	return "ts-container-material-" + hex.EncodeToString(digest[:16])
 }
 
-func lookupContainerSnapshot(ctx context.Context, client api.ControlClient, serviceID string) (*api.Config, error) {
+func lookupContainerSnapshot(ctx context.Context, client api.ControlReader, serviceID string) (*api.Config, error) {
 	name := containerSnapshotName(serviceID)
 	listed, err := client.ListConfigs(ctx, &api.ListConfigsRequest{Filters: &api.ListConfigsRequest_Filters{Names: []string{name}}})
 	if err != nil {
@@ -63,7 +63,7 @@ func lookupContainerSnapshot(ctx context.Context, client api.ControlClient, serv
 	return listed.Configs[0], nil
 }
 
-func checkContainerSnapshot(ctx context.Context, client api.ControlClient, wanted containerSecretSnapshot) error {
+func checkContainerSnapshot(ctx context.Context, client api.ControlReader, wanted containerSecretSnapshot) error {
 	config, err := lookupContainerSnapshot(ctx, client, wanted.ServiceID)
 	if err != nil {
 		return err

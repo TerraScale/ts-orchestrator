@@ -96,7 +96,7 @@ func VerifyProfile(wire []byte, roots trust.Keyring, identity cellspec.Identity,
 // VerifyTask authenticates the complete signed profile, OCI release and current
 // upstream assignment. Registration must come from the existing ownhost session.
 // Managers additionally require current requested-controller authority.
-func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -128,7 +128,7 @@ func VerifyTask(ctx context.Context, client api.ControlClient, task *api.Task, e
 // VerifyCurrentTask repeats final assignment, certificate and finite authority
 // checks without observing OCI again. Registry pulls may retain PreviousSpec;
 // material callers must additionally require the current service revision.
-func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyCurrentTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -140,7 +140,7 @@ func VerifyCurrentTask(ctx context.Context, client api.ControlClient, task *api.
 
 // VerifyCurrentMaterialTask additionally requires the current service revision
 // before the final task and node reads. It never repeats OCI verification.
-func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
@@ -158,7 +158,7 @@ func VerifyCurrentMaterialTask(ctx context.Context, client api.ControlClient, ta
 	return verifyCurrentRecipient(ctx, client, task, expected, verified, proof, registration, binding, controller)
 }
 
-func verifyCurrentAuthority(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func verifyCurrentAuthority(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, roots trust.Keyring, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 ) error {
 	if client == nil || verifyExpected(proof, expected, verified) != nil || registration.Cell != proof.identity.Cell || registration.Environment != proof.identity.Environment ||
@@ -171,7 +171,7 @@ func verifyCurrentAuthority(ctx context.Context, client api.ControlClient, task 
 	return swarmruntime.VerifyRegistryTask(ctx, client, task, expected, verified, roots)
 }
 
-func verifyCurrentRecipient(ctx context.Context, client api.ControlClient, task *api.Task, expected swarmruntime.ServiceIntent,
+func verifyCurrentRecipient(ctx context.Context, client api.ControlReader, task *api.Task, expected swarmruntime.ServiceIntent,
 	verified release.VerifiedContainer, proof Profile, registration host.Registration, binding host.ContainerMaterialBinding,
 	controller *bootstrapstart.ControllerHostRecipient,
 ) error {
