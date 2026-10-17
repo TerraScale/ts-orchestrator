@@ -1,0 +1,1499 @@
+{
+  "as_of": "2026-10-17T14:23:37.413945+00:00",
+  "main": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+  "feature_branch": "refactor/qa-main-union-20261016",
+  "feature_head": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "feature_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "source_frozen_build_revision": "84553bfd694c6c42987274cd1ae6e236bf03fab6",
+  "builds": [
+    "app-test-compile-PASS",
+    "static-linux-amd64-PASS",
+    "static-linux-arm64-PASS"
+  ],
+  "union_runtime": "Exact9b7releaseadmissionPASS14/no skips/pkg0.710. Wholecurrentunionruntime unqualified.",
+  "capacity": "CAP2444 PASS4 exact pre61cf membership scope complete/released; RELd4ab PASS64 complete/released.",
+  "gate": "All five completion categories OPEN. Accepted d4ac:19 scoped retirements;4300 retained originals include9 independently accepted source classifications(6integration/3unit),4291globallyunadjudicated. Vendor1449present/0retired/0centralclosure. No runtime/main/global credit.",
+  "short_lanes": {
+    "SHORTA": "factoryfa44 three-root compile+conditionalTLS runtime granted test_inventory; original tests retained",
+    "SHORTB": "OBSe19 truecompile-only sequential swarmruntime/containermaterial running OBS; noAPP/runtime"
+  },
+  "backup": "No backup/native/cloud/VM execution authorized.",
+  "qualification_boundary": "AllfiveREFACTORcategoriesopen; no main advancement, cloud, credential or workflow retry.",
+  "capacity_reader": {
+    "state": "REL0d75 PASS41 independently accepted; newer finance source unqualified",
+    "prior_source": "1dc76e29459cfa6491b036e17baf7266124c5697",
+    "prior_result": "PASS correctedone root; independentreview757b20de; originala157fivePASS/oneFAIL retained"
+  },
+  "source_only_union_reader": "First-party inventory complete/frozenbfca6036; archive published feature71356761. Follow-up3OCI source reviews read immutableGit; no freeze.",
+  "first_party_inventory": {
+    "source": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+    "files": 1036,
+    "test_candidates": 4319,
+    "classification": "unclassified",
+    "execution": "unknown",
+    "evidence": "docs/evidence/refactor-checks-20261016/first-party-test-inventory-bfca6036",
+    "current_reconciliation": {
+      "source": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+      "body_exact": 4276,
+      "changed": 23,
+      "renamed_expanded": 1,
+      "qualified_retired": 19,
+      "globally_unadjudicated": 4291,
+      "note": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+      "SHA256SUMS_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+      "independent_review_sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8",
+      "nonretired_original_tests": 4300,
+      "classified_retained": 9,
+      "source_classified_integration": 6,
+      "source_classified_unit": 3,
+      "source_classified_mixed": 0,
+      "source_classification_adjudication": {
+        "state": "INDEPENDENTLY_ACCEPTED_SOURCE_CLASSIFICATIONS_NO_RUNTIME_CREDIT",
+        "as_of": "2026-10-17T14:23:37.413945+00:00",
+        "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+        "packet": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+        "classification_sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+        "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+        "independent_review": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+        "independent_review_sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+        "package_groups": [
+          "internal/ociclient"
+        ],
+        "baseline_rows": 14,
+        "retained_originals_classified": 9,
+        "integration": 6,
+        "unit": 3,
+        "mixed": 0,
+        "unresolved_within_classified_package": 0,
+        "prior_retired_rows_excluded": 5,
+        "retirement_delta": 0,
+        "retirements_total": 19,
+        "retained_originals_total": 4300,
+        "classification_unadjudicated_remaining": 4291,
+        "runtime_qualified_by_this_classification": 0,
+        "limits": [
+          "Source classification verifies the connected setup and assertions; it does not establish runtime qualification.",
+          "Six existing genuine local HTTP/SDK integration originals are retained unchanged. Three unit roots remain safety obligations for later migration.",
+          "Five prior retirement dispositions are not classified or retired again. Other package classifications remain pending."
+        ]
+      }
+    }
+  },
+  "pushed_feature_head": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "app_enrollment": {
+    "source": "92eacab24e601386cf909a1bf7e1929d3913c7d5",
+    "compile_session": 96600,
+    "compile": "PASS",
+    "binary_sha256": "e1428e931502d29ba9b4d042ba700b832e959cc7c2e98e770580da9d542d8be8",
+    "runtime_session": 12983,
+    "runtime": "PASS2.38s/no skips",
+    "imported": [
+      "d34fcb90->71203f70",
+      "92eacab2->9012b9c3"
+    ],
+    "scope": "Lowerboundary publicenrollment/issuedcredentials/currentrecipient only; fullproductionstartup unqualified",
+    "prior_failure": "d34/57352 invalidcanonicalfixtureNode beforeenrollment, preserved",
+    "union_compile": {
+      "source": "9012b9c3d63bbc6f6b4ebf88d7a42525e1c85907",
+      "session": 62575,
+      "result": "PASS",
+      "tests_executed": false,
+      "log": "/tmp/ts-main-union-9012b9c3-fixture-compile.log",
+      "binary_sha256": "c7b0a19154f13babe34e05d60da0233ca0167150cbf2e97fd8d1e86356dcfd07"
+    },
+    "evidence": "docs/evidence/refactor-checks-20261016/main-app-union/enrollment-fixture"
+  },
+  "vendor_evidence": "docs/evidence/refactor-checks-20261016/vendor-scoped-67ec90a3",
+  "vendor_repaired_snapshot": {
+    "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+    "tree": "bac4b5eae4c69633777f8f89291cc032ea69b68c",
+    "source_feature_branch": "refactor/qa-vendor-scoped-dd038410",
+    "published": true,
+    "manifest_sha256": "5eb590536c7455b40e78c68eed885efbea05f1e146557b0814c00f5fd94379a7",
+    "source_change": "Exactly2failedadditivebodieschanged/1923unchanged; no production/module changes",
+    "runs": [
+      {
+        "session": 49007,
+        "selector": "^TestAccountServiceLatencyOverTCP$",
+        "status": "PASS",
+        "package_seconds": 0.049
+      },
+      {
+        "session": 55780,
+        "selector": "^TestClientTCPAuthenticationDiagnosticsIngress$",
+        "status": "PASSall5",
+        "package_seconds": 0.161
+      },
+      {
+        "session": 20969,
+        "selector": "^TestAccountRemoteTrackingLatencyRaceOverTCP$",
+        "status": "PASS one root/no skips",
+        "package_seconds": 0.177,
+        "receipt": "/tmp/ts-vendor-union-dd038410-remote-race-receipt.json",
+        "evidence": "docs/evidence/refactor-checks-20261016/vendor-fifo1-dd038410"
+      },
+      {
+        "session": 92312,
+        "selector": "^TestAccount(ConfiguredImportsExportsOverTCP|StaleActivationExpiryOverTCP)$",
+        "status": "PASS two roots/no skips",
+        "package_seconds": 3.247,
+        "receipt": "/tmp/ts-vendor-union-dd038410-authorization-small-receipt.json"
+      },
+      {
+        "session": 93670,
+        "selector": "^TestAccountImportAuthorizationMatrixOverTCP$/^(5|8|9|10|13|17|18|19|20|21|22|23|24|25|26|27|32|33|38|39|40|41)$",
+        "status": "PASS22TCPlvs+parent/no skips; full49rootunqualified",
+        "package_seconds": 0.134,
+        "receipt": "/tmp/ts-vendor-union-dd038410-authorization-matrix-positive-receipt.json"
+      },
+      {
+        "FIFO": 4,
+        "session": 17084,
+        "selector": "^TestAccountDefaultPermissionsAdmissionRaceOverTCP$",
+        "status": "PASS one root/no skips",
+        "package_seconds": 2.374,
+        "receipt": "/tmp/ts-vendor-union-dd038410-fifo04-default-permissions-admission-receipt.json",
+        "evidence": "docs/evidence/refactor-checks-20261016/vendor-fifo4-dd038410"
+      },
+      {
+        "FIFO": 5,
+        "session": 13200,
+        "selector": "^TestAccountJetStreamRemovalLifecycleOverTCP$",
+        "status": "PASS50leaves+parent/no skips",
+        "package_seconds": 0.549,
+        "receipt": "/tmp/ts-vendor-union-dd038410-fifo05-jetstream-removal-lifecycle-receipt.json",
+        "evidence": "docs/evidence/refactor-checks-20261016/vendor-fifo5-dd038410"
+      },
+      {
+        "FIFO": 6,
+        "session": 32728,
+        "selector": "^TestAccountServiceRemovalConcurrentRefreshOverTCP$",
+        "status": "FAILsvc.0!=svc.1; no retry",
+        "package_seconds": 2.597,
+        "receipt": "/tmp/ts-vendor-union-dd038410-fifo06-service-removal-refresh-receipt.json",
+        "evidence": "docs/evidence/refactor-checks-20261016/vendor-fifo6-dd038410"
+      }
+    ],
+    "main_union_imported": false,
+    "central_closures": 0,
+    "evidence_packet": "/tmp/ts-vendor-scoped-evidence-dd038410",
+    "evidence": "docs/evidence/refactor-checks-20261016/vendor-scoped-dd038410",
+    "remaining_fifo": {
+      "positions": [
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "separate_batches": 8,
+      "never_run_roots_before_FIFO4": 9,
+      "cases_before_FIFO4": 82,
+      "dispatch_review": "/tmp/ts-qa-remaining-fifo-dispatch-review-20261017.json",
+      "runtime_grant": "NONE; FIFO6 retained failure; source diagnosis only; STOP before7",
+      "inventory_checkpoint": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo123-inventory-checkpoint.json",
+      "never_run_positions": [
+        7,
+        8,
+        9,
+        10,
+        11
+      ],
+      "never_run_batches": 5,
+      "never_run_roots": 6,
+      "never_run_cases": 30,
+      "failure": "FIFO6 exactscope all155bindingsmatch; got svc.0 expected svc.1; independent packet retained"
+    }
+  },
+  "first_party_status_correction": {
+    "audit": "/tmp/ts-firstparty-oci-contract-review-bfca6036-20261016/REVIEW.md",
+    "state": "Exact61aa29d6 PASS all4/no skips/package0.273s; feature fast-forward preserves qualified identity; no main advancement.",
+    "source_base": "cbfa626ac257e2c404e3581da1735f8494fabc64",
+    "source": "61aa29d6b4226953308819a62bc5eb341c53b69d",
+    "worktree": "/tmp/ts-qa-attempt-status-current-nodes",
+    "historical_failure": "/tmp/ts-qa-attempt-status-current-nodes-run-18b3ac46-20261016/TERMINAL.md",
+    "runtime_session": 43484,
+    "runtime": "PASS all4/no skips/package0.273s",
+    "integrated": "fast-forward exact61aa29d6",
+    "receipt": "/tmp/ts-qa-attempt-status-current-nodes-run-61aa29d6-20261016",
+    "evidence": "docs/evidence/refactor-checks-20261016/attempt-status-61aa29d6"
+  },
+  "first_party_observer_migration": {
+    "state": "Exactba75 defaultcompilePASS/tagged11entriesPASS; separateQA PATH metadata adjudication; integrated/published; originalunitretirement source-only pending",
+    "base": "c748d540026fe3f2de4dcffbcd32f58bf7108286",
+    "owner": "/root/qa_integrator/artifact_tests",
+    "scope": "Only3existingtestfiles: actualsocket/signedSDK/existingfixtureobserver; baseline+9negatives; originals/helpers/productionunchanged",
+    "plan": "/tmp/ts-f2-f3-migration-plan-6c907595-20261016/PLAN.md",
+    "plan_sha256": "6d6a62f45d11ace3bb5ae495456cf3065131ccd7ec42c0d617ea8c7803a07041",
+    "candidate": "c466da0d2af6c08ecdbd2917773594fd447697e0",
+    "candidate_tree": "7648da22cc89762acb6d22f4ac43dbf840d79ced",
+    "source_review": "/tmp/ts-f2-c466da0d-qa-source-review-20261017.json",
+    "default_compile": {
+      "result": "FAIL",
+      "exit": 1,
+      "wall_seconds": 120.469805595,
+      "tests_executed": false,
+      "receipt": "/tmp/ts-qa-observer-default-compile-c466da0d-20261017T000417Z-081513cf/receipt.json",
+      "receipt_sha256": "961f923a7b4b846ce20a5559798daafe1ab286620efc7e74affd4f6fa4e205c8",
+      "cause": "production_guest.go:127 cfg.NATS.Lab undefined; removed natscell.Config field"
+    },
+    "qualified_source": "ba75b29add6bbeea4d36d5e326cce84b7f6190b7",
+    "qualified_tree": "150a1394a3e405c0b2fe5299015b83cf002d7c7a",
+    "default_compile_pass_receipt": "/tmp/ts-qa-observer-default-compile-ba75b29a-20261017T000830Z-40420d04/receipt.json",
+    "tagged_runtime_receipt": "/tmp/ts-qa-observer-tagged-runtime-ba75b29a-20261017T001016Z-b086adee/receipt.json",
+    "qa_adjudication": "/tmp/ts-f2-ba75b29a-tagged-runtime-qa-adjudication-20261017.json",
+    "runtime_session": 88074,
+    "package_seconds": 7.699,
+    "wall_seconds": 62.029415824,
+    "positive_subcases": 1,
+    "negative_subcases": 9,
+    "service_responses": 59,
+    "evidence": "docs/evidence/refactor-checks-20261016/observer-sdk-socket-ba75b29a",
+    "archive_sha256": "99b79c4f24e4b40b84bc8e63284c21a74b5a38aae5ee49d8336a3592df98c4b5",
+    "limits": "Fixture observer constructor/localHTTP only; normal transport/DNS/TLS/live/admission/native/NSG/F3/global migration unqualified"
+  },
+  "first_party_nsg_migration": {
+    "state": "PUBLISHED e502 SDK replacement runtime and c635 isolated original retirement; separate evidence dd22; no runtime repeat",
+    "owner": "/root/qa_integrator/test_inventory",
+    "worktree": "/tmp/ts-terrabase-nsg-sdk-socket",
+    "claim": "internal/terrabase/oci_live_test.go only",
+    "proposal": "/tmp/ts-f2-nsg-source-proposal-c466da0d-20261016-5bf8f0cd/PROPOSAL.md",
+    "proposed_cases": 5,
+    "service_gets": 35,
+    "ordered_pairs": 10,
+    "limits": "Only isolated test declaration retirement. CIDR nil groups semantic equivalence, not literal-input runtime. Local SDK static ingress only; no cryptographic verification/live peer TCP/F3/full-package/global closure.",
+    "source": "e502eed69cd2c020448b94c6970d9bacd8942cd8",
+    "parent": "7512c426670cef4558c94ee62350fd1f29b850e9",
+    "qa_source_review": "/tmp/ts-qa-nsg-source-review-7e297694-20261017T002315Z-a63c8705.json",
+    "qa_source_review_sha256": "edff615d49a7f23986699defaf1accb48ab4763fb5d33be3606f059a543d5788",
+    "tree": "31d1fd6d1811db28dfa86b1207ab492b02aab2c8",
+    "original_source": "7e2976940436a9e164bc6a5d38fdf7eade7d7b0a",
+    "qa_adoption_review": "/tmp/ts-qa-nsg-adoption-review-e502eed6-20261017T003240Z-b45aa092.json",
+    "default_compile_receipt": "/tmp/ts-terrabase-nsg-first-compile-e502eed6-5tui3_md/receipt.json",
+    "runtime_receipt": "/tmp/ts-terrabase-nsg-first-runtime-e502eed6-lkrfgaqf/receipt.json",
+    "runtime_review": "/tmp/ts-qa-nsg-runtime-review-e502eed6-20261017T004042Z-a0b19e2b.json",
+    "runtime_review_sha256": "fc3131b7428c6b37225a91e3a5ccaa529118bde9888b03598165d5829776e009",
+    "passed_leaves": 5,
+    "successful_GETs": 35,
+    "ordered_assessments": 10,
+    "publication": "cc09b45a359812136c737682bc1fbe923c724c1f",
+    "evidence": "docs/evidence/refactor-checks-20261016/nsg-sdk-socket-e502eed6",
+    "archive_sha256": "3b929a819dc0f28bdf0cd375a077007ef02278edfd27d81a4199fd9fbf3390c9",
+    "archive_members": 101,
+    "qa_packet_review": "/tmp/ts-qa-nsg-packet-review-e502eed6-fd656232.json",
+    "retirement_proposal": "/tmp/ts-nsg-retirement-proposal-e502eed6-20261017-5oev2q__/PROPOSAL.md",
+    "retirement_state": "PUBLISHED c635 exact24-line isolated declaration removal; one compile-only PASS; binary never executed",
+    "retirement_source": "c63524c786521aba2ef5d5d68505d7165b32b4e8",
+    "retirement_source_review": "/tmp/ts-qa-nsg-retirement-source-review-c63524c7-021bc540.json",
+    "retirement_compile_request_review": "/tmp/ts-qa-nsg-retirement-compile-request-review-c63524c7-1a57eb61.json",
+    "retirement_history": [
+      {
+        "state": "sourceQAaccepted c635 exact24linedeclarationremoval; onecompile-onlygranted/running; no runtime repeat",
+        "as_of": "2026-10-17T01:18:42.107988+00:00"
+      }
+    ],
+    "retirement": {
+      "status": "PUBLISHED EXACT ISOLATED DECLARATION RETIREMENT; COMPILE ONLY PASS",
+      "source": "c63524c786521aba2ef5d5d68505d7165b32b4e8",
+      "tree": "b13a0feed004969d4ab07cb55e4cc9b7544f3056",
+      "sole_parent": "c3e6ff7510f1233b3973bb266da4c0f138a67f90",
+      "published_feature": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+      "file": "internal/terrabase/oci_live_test.go",
+      "declaration": "TestPeerPortOpen",
+      "source_delta": {
+        "deleted_lines": 24,
+        "deleted_bytes": 1224,
+        "additions": 0,
+        "remaining_file_bytes_unchanged": true,
+        "all_other_tracked_source_unchanged": true
+      },
+      "compile": {
+        "status": "PASS",
+        "session": 75483,
+        "exit_code": 0,
+        "seconds": 38.275882,
+        "receipt": "/tmp/ts-nsg-retirement-compile-request-c63524c7-kq0mqay6/output/broker-receipt.json",
+        "receipt_sha256": "369acfc145ef982a7f474f905b646150537eb137fa794050199f3a68348c3e59",
+        "qa": "/tmp/ts-qa-nsg-retirement-compile-review-c63524c7-21655e61.json",
+        "qa_sha256": "6375918a20b227eb5db701ca8026ea2bcfbcb3f00d1d66e7fd1aeb2f875f1aed",
+        "binary_bytes": 18851569,
+        "binary_sha256": "a2e4d0db9ece0ca44d09a5876ec6998bf2ffc4188ac443f57919297c515cb6c9",
+        "binary_executed": false
+      },
+      "runtime_repeated": false,
+      "replacement_runtime_source": "e502eed69cd2c020448b94c6970d9bacd8942cd8",
+      "archive": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261016/nsg-retirement-c63524c7/evidence.tar.gz",
+      "archive_sha256": "4efa2a5ef2c1e1b1de1cd124fc3d054ce4a645f4c270c4831892f8693b848917",
+      "members_verified": 59,
+      "original_inputs_verified": 53,
+      "original_files_archived": 52,
+      "binary_bytes_only_omitted": true,
+      "qa_packet_review": "/tmp/ts-refactor-main-union-3d9a933e/docs/evidence/refactor-checks-20261016/nsg-retirement-c63524c7/qa-packet-review.json",
+      "qa_packet_review_sha256": "18d5dda3e15782a792cf87c12c81682af47c9b5d8a9bbe42b68f781f545bc75e",
+      "adoption_review": "/tmp/ts-qa-nsg-retirement-adoption-c63524c7-8de235e1.json",
+      "adoption_review_sha256": "bda1c5086f1844a73ed35cff94621ae9accbdb2e3669a2613ea0d9c15179d504",
+      "limits": "Only isolated test declaration retirement. CIDR nil groups semantic equivalence, not literal-input runtime. Local SDK static ingress only; no cryptographic verification/live peer TCP/F3/full-package/global closure."
+    }
+  },
+  "first_party_observer_retirement": {
+    "state": "PUBLISHED; exact source845; bothcompilePASS;3declarations removed+helpers/lifecycle preserved; no runtime repeated",
+    "owner": "/root/qa_integrator/artifact_tests",
+    "worktree": "/tmp/ts-qa-observer-retirement",
+    "source": "84553bfd694c6c42987274cd1ae6e236bf03fab6",
+    "parent": "69546992515385c8fec88803db4b43decf29fae4",
+    "tree": "983cb348061082733da5aaf894aa090d3c3f2ff3",
+    "handoff": "/tmp/ts-qa-observer-retirement-handoff-20261017T001910Z-70438851/",
+    "default_compile": {
+      "receipt": "/tmp/ts-qa-observer-retirement-default-compile-84553bfd-20261017T002228Z-3869a3d4/receipt.json",
+      "sha256": "8303129b265e830d86b8c1ab326ccfbbc8b91f668dfd72a77cdceb7bc5fb485a",
+      "exit_code": 0,
+      "seconds": 72.56642659101635,
+      "binary_invoked": false,
+      "tests_executed": false,
+      "qa_verified": "receipt/all4artifact hashes/pinned executable bytes/prepost binding"
+    },
+    "fixturetest_compile": {
+      "receipt": "/tmp/ts-qa-observer-retirement-fixturetest-compile-84553bfd-20261017T002420Z-8c3d9971/receipt.json",
+      "sha256": "ec48821cf522564ecc1d6c84fed4f05f74c5cd89d6b6d8085f7762fb798ff4d9",
+      "exit_code": 0,
+      "seconds": 13.436780598,
+      "binary_invoked": false,
+      "tests_executed": false
+    },
+    "qa_compile_review": "/tmp/ts-qa-observer-retirement-compile-review-84553bfd-20261017T002454Z-c3476ab5.json",
+    "qa_compile_review_sha256": "fa3dc652464edf7210c04e3234b02a97d76edc0e4c6dbfa3d9b2c75c9eb6c9e3",
+    "no_runtime_repeat": true,
+    "publication": "7512c426670cef4558c94ee62350fd1f29b850e9",
+    "archive": "docs/evidence/refactor-checks-20261016/observer-retirement-84553bfd/evidence.tar.gz",
+    "archive_sha256": "d02470e83a7c6fb9d54be461f0bf5df6c631826f8eb68846216e40c1f57b5eea",
+    "archive_members": 33,
+    "qa_packet_review": "/tmp/ts-qa-observer-retirement-packet-review-20261017T002805Z-1d55db28.json"
+  },
+  "production_ownhost_next_slice": {
+    "state": "controller-cPUBLISHEDdbe+a1f; exact6dcompile/default34/driver20/tagged11PASS; fullownhostOPEN",
+    "owner": "/root/qa_integrator/app_integrator",
+    "plan": "/tmp/ts-app-production-ownhost-plan-c748d540/plan.md",
+    "blockers": "coherentcontroller-c identity; complete IAMclaims/IMDS/descriptor404; genuine Foundation/HomeIAM lineage; bounded Vault persistence/native/containerd/cgroups/ports; no-task/no-pull window unproven under always-on reconciliation",
+    "supplement": "/tmp/ts-app-controller-c-identity-supplement-ba75-v2/supplement.md",
+    "supplement_sha256": "ccb99df6a9727a98d2a3208eaa87b3f7f522df5763ed968d82870e37deccfd61",
+    "source": "6d4feea434d74e0f344fc7f9ab9bba9ed1e15080",
+    "tree": "02bf1ec703c2591b37f7b0be99d6e71256a3e2f3",
+    "parent": "cc09b45a359812136c737682bc1fbe923c724c1f",
+    "worktree": "/tmp/ts-refactor-controller-c-identity-cc09",
+    "qa_source_review": "/tmp/ts-qa-controller-c-source-review-2eb98358-20261017T003633Z-4763d377.json",
+    "independent_connected_review": "artifact_tests accepted unchanged2eb98358; no concrete blockers; no runners",
+    "qa_adoption_review": "/tmp/ts-qa-controller-c-adoption-review-6d4feea4-c9216570.json",
+    "compile_request": "/tmp/ts-controller-c-identity-compile-request-6d4feea4-v3/request.json",
+    "qa_compile_request_review": "/tmp/ts-qa-controller-c-compile-request-review-6d4feea4-d3e2e2b4.json",
+    "iam_imds_proposal": "/tmp/ts-ownhost-iam-imds-proposal-2eb98358-20261017-3_6r_ril/PROPOSAL.md",
+    "iam_imds_proposal_state": "read-only strictproducercontract; no implementation/ownhostpositive",
+    "compile_v3_setup": {
+      "broker_chunk": "4d8155",
+      "broker_exit": 1,
+      "wall_seconds": 0.185,
+      "go_invocations": 0,
+      "binary_invoked": false,
+      "failure": "nonminimal inherited environment assertion before output directory and subprocess",
+      "disposition": "preserved; no retry; separate v4request/grant required"
+    },
+    "compile_v4_request": "/tmp/ts-controller-c-identity-compile-request-6d4feea4-v4/request.json",
+    "compile_v4_review": "/tmp/ts-qa-controller-c-compile-request-review-v4-6d4feea4-93200d38.json",
+    "compile_v4_session": 67212,
+    "compile_v3_failure_receipt": "/tmp/ts-controller-c-identity-default-compile-stop-6d4feea4-v3/receipt.json",
+    "compile_v3_cause": "systempython3 is mise launcher adding13keys inclGOROOT andchangingPATH; directpinnedPython-I-B probe preserves6keys",
+    "iam_claim_source_followup": "artifact_tests sourceonly isolatedbranch6d: simulator.go+simulator_test.go fixed3claims, no runner",
+    "enrollment_bundle_blocker": "existingJWT fixture lacks scoped signingdelegate/TLSissuer and separatecontrollerresponsekeys do not establish authentic perrun publicbundle; fullIMDSbundle work ungranted",
+    "default_compile_review": "/tmp/ts-qa-controller-c-default-compile-review-6d4feea4-491ec1c3.json",
+    "default_runtime_review": "/tmp/ts-qa-controller-c-default-runtime-review-6d4feea4-a2250bbc.json",
+    "driver_request_review": "/tmp/ts-qa-controller-c-driver-runtime-request-review-6d4feea4-e1d550b6.json",
+    "driver_runtime_review": "/tmp/ts-qa-controller-c-driver-runtime-review-6d4feea4-c67a996c.json",
+    "tagged_runtime_review": "/tmp/ts-qa-controller-c-tagged-owner-runtime-review-6d4feea4-d402c4d9.json",
+    "fresh_tagged_socket_records": 59,
+    "publication": "a1f9244f23d90fd35faa6d0abb9480b8d47f5068",
+    "evidence": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4",
+    "archive_sha256": "f416aaa1285f383fcd0d9429e1588abb67d15acb804b01ed5ebb3abcd1b610c7",
+    "archive_members": 145,
+    "packet_review": "/tmp/ts-qa-controller-c-packet-review-dbe85687-d0a66dcb.json"
+  },
+  "vendor_fifo6_diagnosis": {
+    "state": "diagnosticFAIL + evidencePUBLISHED6ba; originalFAILOPEN/STOP7",
+    "source": "dd03841025c65c0a6c3350b3e8ad7c4d27eea77d",
+    "diagnosis": "/tmp/ts-vendor-union-dd038410-fifo06-source-diagnosis.md",
+    "sha256": "fd0e4e1ac1e937b8a808a3855461b4498164f58060deb5d1ea907b8f1c2fe6dd",
+    "next": "no runner/retry/FIFO7; retainedFAIL/causeunproved",
+    "diagnostic_successor": "13185dcce9ef94f66359f0c5f740db93d5a5cb7e",
+    "diagnostic_tree": "223a8f501d826e6c02d81361ec28724f361b7d07",
+    "qa_dispatch_review": "/tmp/ts-qa-fifo06-diagnostic-dispatch-review-13185dcc-a9da3336.json",
+    "selfcheck_receipt": "/tmp/ts-nats-vendor-migration-20261016/fifo06-diagnostic-parser-selfcheck-13185dcc-v1/selfcheck-receipt.json",
+    "runtime_exception": {
+      "outer_seconds": 240,
+      "test_timeout_seconds": 180,
+      "kill_after_seconds": 5,
+      "count": 1,
+      "scope": "one exact diagnostic13185dcc only"
+    },
+    "runtime_receipt": "/tmp/ts-vendor-diagnostic-13185dcc-fifo06-v3-receipt.json",
+    "runtime_receipt_sha256": "ddefd18a229489fbd1e120563508370fddf3790364635019d0b836c18e392ea2",
+    "runtime_raw": "/tmp/ts-vendor-diagnostic-13185dcc-fifo06-v3.jsonl",
+    "runtime_raw_sha256": "48e9052d62c66bfadfa0176093e45e624507e3df85cf2a59b5839b2b941777e4",
+    "qa_runtime_review": "/tmp/ts-qa-fifo06-diagnostic-runtime-review-13185dcc-4099c6df.json",
+    "qa_runtime_review_sha256": "e32dd10f548aa0ade995cfe9d29c7b38a26ca09b40243cdc7b489fcbf4cd386e",
+    "session": 57605,
+    "exit": 1,
+    "direct_observation": "expectedsvc.1 received duplicatesvc.0;6publicsubscriptions/subject across6distinctCIDs;eachmsgs1",
+    "cause_limit": "exact privatecleanup interleaving andSID ownership unproved",
+    "publication": "6ba1a3108750f984ab4b01eaa485fea71cccb490",
+    "archive": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/evidence.tar.gz",
+    "archive_sha256": "b71d0140ff14879de1e936e1145b46c21731f6ae6afa633e825ce40c8ab05e6f",
+    "archive_members": 99,
+    "qa_packet_review": "/tmp/ts-qa-vendor-diagnostic-packet-review-13185dcc-39b9ab12.json"
+  },
+  "human_preservation_autoabbr_adjudication": {
+    "review": "/tmp/ts-qa-human-preservation-autoabbr-review-20261017T002601Z-3220d2b9.json",
+    "sha256": "36c18889fae03ca424d015160e302a6e12f6722c9788ae95c13991644f1d736c",
+    "cause": "Git autoabbrev grew8to9; only6indexheader extensions; no human bytes/modes/deletions/index/status/cachedpatch change",
+    "successor_helper": "/tmp/ts-qa-preserve-human-v2.py",
+    "original_script_preserved": true
+  },
+  "vendor_fifo56_inventory": {
+    "state": "PUBLISHED metadata reconciliation + bounded source diagnosis; no rerun/no closures",
+    "publication": "7512c426670cef4558c94ee62350fd1f29b850e9",
+    "checkpoint": "/tmp/ts-nats-vendor-migration-20261016/union-dd038410-fifo05-06-inventory-aa3bffa7/checkpoint.json",
+    "checkpoint_sha256": "d69626ce03a36f56e39db6ebf007d7c4fca9c06de16a431917d3a6b6c8ef1fea",
+    "archive": "docs/evidence/refactor-checks-20261016/vendor-fifo56-inventory-dd038410/evidence.tar.gz",
+    "archive_sha256": "b6c773099300475f83a5a3f6987be6090889638d853a06acb59e4a4c9d0ce2c3",
+    "archive_members": 20,
+    "originals": 1449,
+    "removals": 13,
+    "retained": 1436,
+    "closures": 0,
+    "account_fullgroups_pass": 24,
+    "account_fullgroups_total": 27,
+    "matrix_subset_pass": 22,
+    "matrix_fullroot_total": 49,
+    "FIFO6": "FAIL svc.0 !=svc.1; no passcredit",
+    "queue_stopped_before": 7,
+    "remaining_neverrun": {
+      "batches": 5,
+      "roots": 6,
+      "cases": 30
+    }
+  },
+  "first_party_f3_live_witness_proposal": {
+    "path": "/tmp/ts-f3-live-witness-proposal-20261016-qa-runtimepriority.md",
+    "sha256": "8075c367cfd3c0cd4321aa2f968bf1fc1cda20dd537a56511187d384102456c9",
+    "state": "source-only design; no producer/livegrant or execution",
+    "minimum": "two independently admittedhosts, bothorderedstaticingresschecks, twoactualinstance readbacks; extra legacyGRUnamingwitness if needed",
+    "blocker": "owner-authenticated livehostwitness producer contract + realidentities/topology absent"
+  },
+  "simulator_iam_claim_slice": {
+    "state": "PUBLISHEDsource3c8384e8+evidencec3e6ff751; exact2rootsPASS; fullproductionunqualified",
+    "source": "e2e1c4f4df20733b28ebf10b407e82a1dd1202d6",
+    "review": "/tmp/ts-qa-simulator-iam-source-review-e2e1c4f4-d1919ae3.json",
+    "request": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d",
+    "runtime_review": "/tmp/ts-qa-simulator-iam-runtime-review-e2e1c4f4-dec4dea7.json",
+    "adopted_source": "3c8384e8e794fee86808b769f7693fa3021938c7",
+    "publication": "c3e6ff7510f1233b3973bb266da4c0f138a67f90",
+    "evidence": "docs/evidence/refactor-checks-20261016/simulator-iam-claims-e2e1c4f4",
+    "archive_sha256": "407fb030c9d0df008e590301bf9decaec8fa79d14e81203207101d6eb574ced8",
+    "archive_members": 37,
+    "packet_review": "/tmp/ts-qa-simulator-iam-packet-review-e2e1c4f4-4b58a86a.json",
+    "adoption_review": "/tmp/ts-qa-simulator-iam-adoption-review-3c8384e8-85a07497.json",
+    "broker_supplement_review": "/tmp/ts-qa-simulator-iam-broker-supplement-review-21017-d37a1d0a.json"
+  },
+  "ledger_history": [
+    {
+      "prior_snapshot": {
+        "path": "/tmp/ts-qa-main-union-progress-20261016-before-dd22a8d0-20261017T012526Z-9b267d88.json",
+        "sha256": "3444e0b1f6df8533dc107084196fdfbd52e05b269fc2dadad57872bce9f0ab78",
+        "exclusive_created": true
+      },
+      "reason": "NSG exact source and separately reviewed docs now published; no runtime repeated."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-resume-80afc767.json",
+      "sha256": "4acfc359969350a0f75e321d769af6bbf39f3faae9dd778299ac259c375b2308",
+      "reason": "Root resumed full implementation; bounded lease scheduling replaces prior source-only temporary state."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-e8f-netbird-daf2ca7f.json",
+      "prior_sha256": "466582cf856049a24aef8c437a29bd44a83d826e8082c24cb85f0be1fa408a68",
+      "reason": "Independent e8f remote verification, scoped guard publication, NetBird terminal acceptance; preserve historical results/limits"
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-09fb-12781835.json",
+      "prior_sha256": "ee812a95c8115486da93a3e01e8a3f959f51e62aa2c5213c59b605e548ff126f",
+      "reason": "Exact NetBird adoption+evidence/docs packaging publication; two independent compile lanes authorized byroot; counts5/4314"
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-live-refresh-daa1b919.json",
+      "prior_sha256": "2259590bd47b487efb45400db35a9d0e05b9b87548af677b969a5625f2dbe495",
+      "reason": "Live bounded qualification status refresh; preserve all failures and authoritative canonical presence, no globalclosure"
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-vendor900c-588e8342.json",
+      "prior_sha256": "888bddfdcfb7ccefcc1923ca9b6a6fa701687684cf3a0d322a71d553563052a1",
+      "reason": "Vendor exactsource+evidence published and remoteverified; independent terminal QA outcomes and retainedproducerfailures; no globalclosure"
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-118bdd-b56131f0.json",
+      "prior_sha256": "7e158738020f57db6db8eb2ee48b246cf024fb7c47f1fe389aeeb7c06549edf8",
+      "reason": "Remote feature118bdd verified; OCI dispatcher retirement6 and current scoped outcomes/leases refreshed. All five categories remain OPEN."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-6aab-manager-270f780e.json",
+      "prior_sha256": "62d99e94413a134eb0be9147b7f176c21fce776c6c97d1d59acc7e503a179c3f",
+      "reason": "Independent scoped producer/customer/OCI failure acceptance; APP focused PASS, manager started, two separate compile grants."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-three-active-88671bec.json",
+      "prior_sha256": "dc558fe3aa2ea7bc13bfd0e4b50cad3489e24d481e6c570809be0ba117295e13",
+      "reason": "Actual OCI620 and auth97d launches received; three active bounded checks, one daemon fixture."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-b21-functions-62214e40.json",
+      "prior_sha256": "1260fafa409a666fd69b1b4b773119617cb3e9ae132d2206a733f0cea2518b9a",
+      "reason": "Evidence-only featureb21 remote verified; APP6aab final assertion failure retained, FUNCTIONS started, auth compile accepted, backup compile PASS, OCI620 failure and region-only successor grant."
+    },
+    {
+      "prior_snapshot": "/tmp/ts-qa-main-union-progress-before-d0b-baf88d9e.json",
+      "prior_sha256": "4e21466f47efd6efacf54f44e8f614bfa45e0a8056977b66a6d628b382230a90",
+      "reason": "FUNCTIONS complete strict acceptance; OCI region compile accepted; APP corrected test-only successor actual started. Management stricter request and DATA readiness retained."
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-b8c-outcomes-20261017T044628Z.json",
+      "sha256": "42ed792d51da63db325f4fb99cf781019bd5dde14a0f5c83410e31d99edeaf66",
+      "reason": "Remote verified b8c publication and exact local connected outcomes; no count changes"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-management-terminal-20261017T044746Z.json",
+      "sha256": "0866c2be34b3f7296c39285762e5ce3554dba2cc8017dab2f16066e52142cc98",
+      "reason": "Management terminal independentfailure and exact active leases/Attempt observedcompile terminal"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-seat-acceptance-20261017T045133Z.json",
+      "sha256": "29665d78ee42d1a79c7a29cbc7fedf0ae9c1f5daa54082cc3f4fd4670b1ea8f2",
+      "reason": "ExactacceptedDATAseat and Attemptcandidatecompile; management6afactuallease;OCI678observedcompileterminal"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-457-publication-20261017T045723Z.json",
+      "sha256": "2ad7ad0089eb88ca7e42967c1ea7226250b41123b6031cb31dc64240caa25ab6",
+      "reason": "Remote457 evidence-only publication,management6afindependentPASS,OCI678independentcompilePASS/runtimeFAIL,exactpendingleases"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-fac2-failure-20261017T051016Z.json",
+      "sha256": "65d6d5fb47363b7cd99678c22c10647a2a7ddfc091d4f320a7a61875bc1878d5",
+      "reason": "Independent COREfac2 and DATA697 failures,Attempt458/OCI5e compileacceptances and releasedleases; no counts changed"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-60e-adoption-20261017T052055Z.json",
+      "sha256": "ddc1e4afa1eb2c86093eefcfd4bb02f9ba37e67281c09f2a222721fe4e5b85f6",
+      "reason": "Exact60e Attempt source retirement adoption/remote independent verification; OCI5e runtime failure and OCId1ec one compile grant/start; canonical count reconciliation pending"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-60e-reconciliation-20261017T052232Z.json",
+      "sha256": "362ab8c59d3ffaa5bfeac204e14b53a148328d0daeb64e1f83209511b8a8314e",
+      "reason": "Fresh exact60e canonical4319 source reconciliation confirms seventh qualified retirement; no new runtime/global classification"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-d1-compile-acceptance-20261017T052428Z.json",
+      "sha256": "31c1109e57d9cc90abc0521c8c5e785805ff65982e63030cee40d814531364cc",
+      "reason": "Independent d1 exact region-only truecompile acceptance/releasedlease; accepted-adoption-binding reconciliation successor; no runtime credit"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-d64-publication-20261017T052549Z.json",
+      "sha256": "f8d1b67fced07a95e8224ae7e80e6757b9d504d75994b15ef367a56562ea23a0",
+      "reason": "Independentreviewed189filefiveoutcomesevidence-onlypublicationd64pushed/remoteverified; no source/retirement/count changes"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-d1-runtime-reservation-20261017T052756Z.json",
+      "sha256": "6da8fcb1b8d07b1938ca745fee111c0eae80991e70c55683578de18d6641b4bf",
+      "reason": "Independent d1 runtime readiness and one exact local original-scenario grant/reservation; no start/result credit"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-d1-runtime-failure-20261017T053250Z.json",
+      "sha256": "aad5ff18637c14ea66cac31a96e3f6580b9a1617b652378609d08671ccbec59d",
+      "reason": "Independent exactd1 runtimefailure accepted and solefixture/CAPACITY released; no retry/runtimecredit"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-customer-f542-readiness-20261017T053729Z.json",
+      "sha256": "8a9cfd51b6e1f8c7c2f268c6022f8465bdb6ae392c2703e710e951ebd87e5015",
+      "reason": "Customer isolatedf542sourcecandidate+proposedtwo-package truecompilesealed/pushed/unexecuted; d1failureledgerhash refreshed"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-f8ff-publication-20261017T054020Z.json",
+      "sha256": "a2c1f1e2ad075f230d5d40018b4209aaed64af8ffb87e3f1654e1274044fe943",
+      "reason": "f8ff d1compile/runtimefail evidence-only publication; ONE exactf542 two-package truecompile actualstart; no source/countchange"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-f542-compile-acceptance-20261017T054520Z.json",
+      "sha256": "e328e14f7bb2427b73564175a46b8b947926a5d0abd3964500512bc858e7581c",
+      "reason": "Independent exactf542two-package defaultvet truecompileaccepted/ShortBreleased; narrowadoptionpacketpreparing/no8thretirement"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-9988-customer-adoption-20261017T055310Z.json",
+      "sha256": "1211ee070e952bf1e12e0d27ff8297d0e6d80aab95bd531e2cc440a65d1fe62a",
+      "reason": "Exact9988 customer3pathsourceadoption+98evidencefilespushed/remoteverified; actualreview/freshcanonicalreconciliationpending, numericcountsnotadvanced"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-9988-canonical-reconciliation-20261017T055531Z.json",
+      "sha256": "7c1594465cf803688fd0b4e7950ea1083baea8bff0c81eb07bd2dd9feb174875",
+      "reason": "Independent9988actualadoption400c5522 +acceptedcanonicalscanner33624282:8retired4311unadjudicated/4fixturetestbodieschanged; all5OPEN"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-9988-final-ledger-bind-20261017T055652Z.json",
+      "sha256": "3f2ba0205de12f4da9ad3fcd43fcc5db558dfe08e32dd64d3469080b48b140a7",
+      "reason": "Bind final eighth-retirement completionledger b95851ac; no source/count/reference change"
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-nine-retirements-20261017T132834Z.json",
+      "sha256": "f1d70dc65f0c0f56d46caac69799eb75915cc53f4df685fe0df3adb927305ce3",
+      "reason": "Nine-retirement independently accepted reconciliation and current ca1226 feature; no global closure."
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-nine-current-duplicates-20261017T133127Z.json",
+      "sha256": "706d1191301d49ccd8fc51554935df85636db699f71f076a2c5e9b4484bc722f",
+      "reason": "Synchronize current vendor source/evidence duplicate and bind corrected completionledger; no count or qualification change."
+    },
+    {
+      "snapshot": "/tmp/ts-qa-main-union-progress-20261016-before-nine-publication-description-20261017T133227Z.json",
+      "sha256": "bfaf5e18f2a543dff7fc34544dabd10a9bfb1b40b27a77fe25fc17f65e397a2d",
+      "reason": "Bind completion ledger current publication description correction, no counts or qualification change."
+    },
+    {
+      "as_of": "2026-10-17T14:16:18.533123+00:00",
+      "prior_ledger_snapshot": {
+        "path": "/tmp/ts-qa-main-union-progress-20261016-before-d4ac19-20261017T141618Z-351f159b.json",
+        "sha256": "18fdcbb4d46c30622e10e77d57de0922f1d9c7cb425c241c4e28499b0f21c07f",
+        "exclusive_created": true
+      },
+      "prior_feature": "ca1226b9b4011383f39c0753e19be295618accf8",
+      "prior_first_party_current_reconciliation": {
+        "source": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+        "body_exact": 4290,
+        "changed": 19,
+        "renamed_expanded": 1,
+        "qualified_retired": 9,
+        "globally_unadjudicated": 4310,
+        "note": "4319 original tests =4290 declaration/body exact+19 changed+1 retained expanded owner+9 scoped independently accepted adopted retirements. Remaining4310 are globally unadjudicated, never4310 unit tests. Lexical survival is not global unit/integration classification. Exact reconciliation independently accepted. No new runtime or global qualification.",
+        "source_commit": "ca1226b9b4011383f39c0753e19be295618accf8",
+        "summary_sha256": "22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e",
+        "SHA256SUMS_sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0",
+        "independent_review_sha256": "57c1c2e3d3e5302e786287bd89a1aac9553de11b43d9b11a983dfa2b2f34a489"
+      }
+    }
+  ],
+  "legacy_workload_zero_config_review": {
+    "state": "SOURCE-ONLY PROPOSAL; NO IMPLEMENTATION OR RUNNER GRANT",
+    "frozen_source": "c3e6ff7510f1233b3973bb266da4c0f138a67f90",
+    "report": "/tmp/ts-qa-legacy-workload-zero-config-c3e6ff75.md",
+    "sha256": "630e525bc80aaa77be802dcdc485b7c5f85d25366254915527a246f6e019a047",
+    "legacy_deletion": "HOLD: generic ApplySignedService and NewAutoscaler have no production callers; native authority qualification is a separate blocker.",
+    "first_independent_slice": "zero-config guard split application config discovery and focused guard fixture coverage",
+    "ownhost_source": "Bridge exists; current initial-enrollment completion distinction already fixed. No accepted native/runtime authority inferred."
+  },
+  "active_source_ownership": {
+    "base": "dd22a8d05276cf24d050384145b1c4e546a01ef0",
+    "guard": {
+      "owner": "capacity_tests",
+      "files": [
+        "scripts/ci/zero-config-check.py",
+        "scripts/ci/test_zero_config_check.py"
+      ],
+      "ETA_minutes": 20
+    },
+    "application_cutover": {
+      "owner": "app_integrator",
+      "scope": "actual generic signed-service/autoscaler callers and custom writer retirement; signed v2 producer/schema worker separately claimed",
+      "ETA_minutes": [
+        120,
+        180
+      ]
+    },
+    "manager_contract": {
+      "owner": "/root/core",
+      "scope": "manager/service/autoscaler contract+actual manager APP scenario; negotiate exact API/files with APP"
+    },
+    "observations": {
+      "owner": "/root/obs",
+      "scope": "manager view compatibility + committed-resource telemetry normalization; negotiate exact files with APP",
+      "ETA_minutes": [
+        30,
+        45
+      ]
+    },
+    "producer": {
+      "owner": "/root/foundation_grant_producer",
+      "scope": "owned producer leaves/full current CLI fixture; isolated f39016304 from dd22; protected writer caller contract root/OCI pending",
+      "ETA_minutes": 20
+    },
+    "vendor_fifo6": {
+      "owner": "storage_compare",
+      "source_base": "13185dcce9ef94f66359f0c5f740db93d5a5cb7e",
+      "files": [
+        "third_party/nats-server/server/accounts.go",
+        "third_party/nats-server/server/server.go",
+        "third_party/nats-server/server/service_import_lifecycle_test.go"
+      ],
+      "scope": "actual owner-directed cleanup and registration/retirement synchronization correction with focused regression; both original failures retained, STOP7",
+      "ETA_minutes": 30
+    },
+    "test_inventory": {
+      "owner": "test_inventory",
+      "scope": "next narrow firstparty closures and independent lexical classification; existing eight reviewers read-only reused per root"
+    }
+  },
+  "zero_config_guard": {
+    "status": "SCOPED PASS / SOURCE CI AND DIRECT EVIDENCE PUBLISHED",
+    "source": "7f504383cc8e8703031e1bb901fbac99223f05ae",
+    "ci": "6efec6fff0c99bd46f33d6e66d26c6dae7d5f4ae",
+    "published": "e8f20fd44f4dad1ccc85199d6df6fbc35682be22",
+    "methods": 10,
+    "sequential_temp_git_scenarios_source_counted": 16,
+    "qa": "/tmp/ts-qa-zero-config-runtime-review-7f504383-44fa170e.json",
+    "evidence": "docs/evidence/refactor-checks-20261017/zero-config-guard-7f504383",
+    "new_tar_archives": 0,
+    "limits": "Narrow added-line heuristic for named Config/*Config structs/split internal/app/HostTelemetry; no full parser/global switch removal claim"
+  },
+  "netbird_api_boundary": {
+    "status": "SCOPED RUNTIME+ISOLATED RETIREMENT COMPILE ACCEPTED; EXACT SOURCE AND EVIDENCE PUBLISHED",
+    "qualified_source": "44fccacf6535529ccd5f9e56c0a6fab652c6b48c",
+    "tree": "5e002ff76dffe5faaf80302bbdad1ee0dfbfda0c",
+    "session": 1053,
+    "roots": 1,
+    "leaves": 4,
+    "named_passes": 5,
+    "skips": 0,
+    "extras": 0,
+    "wall_seconds": 42.30154653103091,
+    "max_child_rss_kib": 1040624,
+    "qa": "/tmp/ts-qa-netbird-runtime-review-44fccacf-dh9_ot9k.json",
+    "qa_sha256": "6244a41a83711a83f6b1549cdbfa0cb797a90ed21f3f811d4f9bb2ac051e9f44",
+    "replacement_source_in_union": true,
+    "original_in_union": "exact mapped declaration retired",
+    "limits": "Local public HTTP client boundary only; no actual NetBird manager/global NET closure",
+    "adopted_runtime": "00b8ec532",
+    "adopted_retirement": "78763cb30a3fa85d99828945bc13535466683afd",
+    "published": "09fbf0bbac1d54b4ad31d12bcd8c37cf8115ef23",
+    "evidence": "docs/evidence/refactor-checks-20261017/netbird-api-retirement-9bd689bd",
+    "new_tar_archives": 0,
+    "compile": {
+      "session": 22246,
+      "wall_seconds": 6.198541367,
+      "max_child_rss_kib": 514832,
+      "binary_execution_count": 0,
+      "qa": "/tmp/ts-qa-netbird-retirement-review-9bd689bd-f2lxjbwi.json"
+    },
+    "artifact_packaging": "Five copied.go files renamed.go.txt byteexact in09fb to avoidGo package discovery; originalnestedchecksumbytes preserved withname mapping."
+  },
+  "vendor_canonical_presence": {
+    "original_declarations": 1449,
+    "present": 1449,
+    "absent": 0,
+    "canonical_retirements": 0,
+    "central_closures": 0,
+    "globally_unadjudicated": 1449,
+    "ledger_retained_disposition": 1436,
+    "approved_removals_integration_pending": 13,
+    "evidence": "/tmp/ts-nats-vendor-canonical-presence-09fbf0bb-vendor-review-5/evidence.json",
+    "evidence_sha256": "71a634746d347d3df7468c553094c0f7f28863a3b6fd320038c1cc8765c2b0b4",
+    "latest_feature_reconciliation": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+    "latest_feature_source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "latest_counts": "1449present/0absent/0retired/0centralclosures/131originalfilesbyteexact",
+    "latest_feature_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82"
+  },
+  "live_boundary_checks": {
+    "mesh_compile": {
+      "source": "0ba135f2224311d84f8e4a142869ecaf78c83c2a",
+      "state": "PASS truecompileonly",
+      "session": 86096,
+      "qa": "/tmp/ts-qa-mesh-compile-review-0ba135f2-m6yvevec.json"
+    },
+    "net_compile": {
+      "source": "c321d75cf7db418913a0f5bee619b98c2113dfba",
+      "state": "PASS9 truecompileonly independentlyaccepted",
+      "session": 26931,
+      "packet": "/tmp/ts-net-c321-general-7lp0ng56",
+      "qa": "/tmp/ts-qa-net-c321-compile-acceptance-q78t9omp.json"
+    },
+    "management": {
+      "source": "83a4a03fcaa132579871ec251c0df248ac2ddf12",
+      "state": "PASS5 actualRaft/authenticatedUnix independentlyaccepted",
+      "session": 36210,
+      "seal": "/tmp/ts-management-83a4a03fc-final-seal.json",
+      "qa": "/tmp/ts-qa-management-terminal-acceptance-83a4a03f-ber0eep7.json"
+    },
+    "vendor_fix": {
+      "source": "2ef9b8b70826c4f8e0f3ae4e4ae2bc76d6a1158d",
+      "state": "PASS9/race independentlyaccepted and source+evidencePUBLISHED; STOP7",
+      "session": 17364,
+      "packet": "/tmp/ts-vendor-fifo06-fix-2ef9b8b7-v4",
+      "qa": "/tmp/ts-qa-vendor-fifo06-terminal-review-2ef9b8b7-6s702vo8/review.json",
+      "adoption_qa": "/tmp/ts-qa-vendor-fifo06-adoption-review-2c570dcb5-8wpir4lx/review.json",
+      "published": "900cc34ed0866f6d2a0c365b782564e7de407e77",
+      "evidence": "docs/evidence/refactor-checks-20261017/vendor-fifo06-fix-2ef9b8b7"
+    },
+    "oci_dispatcher": {
+      "source": "d45d64d2ca4f07254931258dc2b873f4adea097b",
+      "state": "PASS1 runtime plus isolated retirement default-vet truecompile accepted; source and direct evidence PUBLISHED118bdd",
+      "session": 59523,
+      "packet": "/tmp/ts-ociclient-d45-shortb-sealed-utysan9b",
+      "qa": "/tmp/ts-qa-oci-d45-terminal-review-04qscb2e/review.json",
+      "retirement_source": "5b7d7c96d3699b52a1f66e86f3f8259e2557997d",
+      "compile_session": 64733,
+      "compile_qa": "/tmp/ts-qa-oci-5b7-compile-retirement-review-f9wfgvzi/review.json",
+      "adoption_qa": "/tmp/ts-qa-oci-5b7-adoption-direct-evidence-hua6v4c2/review.json",
+      "evidence": "docs/evidence/refactor-checks-20261017/oci-dispatcher-retirement-5b7d7c96"
+    },
+    "app_runtime": {
+      "source": "6aab710808fddcc45fb15e770369449dfd2d6861",
+      "state": "Focused PASS1; actual manager NOT_QUALIFIED at final retained-native-floor assertion, all preceding ordered assertions reached; no whole PASS",
+      "focused_session": 17407,
+      "focused_pid": 621441,
+      "prior_failures": [
+        {
+          "source": "ce04cc70c",
+          "state": "initial accepted delivery timeout; later phases unreached"
+        },
+        {
+          "source": "aa0d6e5ad",
+          "state": "diagnostic same timeout; exact JSON time.Duration default encoding error captured; later phases unreached"
+        }
+      ],
+      "manager_packet": "/tmp/ts-app-6aab71080-manager-ovykz2r5",
+      "native_or_live_qualification": false,
+      "session": 48088,
+      "pid": 631693,
+      "focused_qa": "/tmp/ts-qa-app-6aab-focused-terminal-tbbq6jx4/review.json",
+      "manager_readiness": "/tmp/ts-qa-app-6aab-manager-readiness-rkn0ohed/review.json",
+      "prior_diagnostic_qa": "/tmp/ts-qa-app-aa0-diagnostic-terminal-ovn7ofxj/review.json",
+      "manager_receipt_sha256": "db8003c4c25b7188c797d2fb11862ed4b941222a14994d62bed7d5970faf9fba",
+      "manager_final_seal_sha256": "112f8e93527e8547a1cb312b2a202dcd1df95315a78f84c29a92af84b90204fd",
+      "final_failure": "After role approval removal, current-policy-gated retainedContainerFloor correctly refuses; test conflates authority and durable bytes",
+      "successor": "d0b972460a0d6413aaa948a967a2c2406b407a4b LOCAL_CONNECTED_PASS independently accepted; raw retained-byte/revision equality and removed-role refusal; see app_d0b_retention",
+      "manager_terminal_qa": "/tmp/ts-qa-app-6aab-manager-terminal-failure-vsvbq1tl/review.json",
+      "successor_session": 93142,
+      "successor_pid": 659458,
+      "successor_readiness": "/tmp/ts-qa-app-d0b-retention-readiness-kvexip8q/review.json"
+    },
+    "producer": {
+      "source": "8f3e9ec45991b63e713c807cf0e0d0764dc915a3",
+      "state": "PASS17 independently accepted; all prior failures retained; no live/protected writer or global qualification",
+      "session": 82325,
+      "receipt_sha256": "5029db44b509dc6cc070232c705a50cc33534b1d1edd721b37461c56ed436a64",
+      "final_seal_sha256": "849a0069e1f2e38235249b24b8d8e8ef9098526dbf34b7bcf383058c48dd9a0e",
+      "qa": "/tmp/ts-qa-producer-terminal-acceptance-8f3e9ec4-j6bz98nn.json"
+    },
+    "ci_image_inputs": {
+      "source": "567b18c88d10016ff1b6d70fa9798e1e64d910bb",
+      "state": "Python5 methods/16 source-counted Git scenarios PASS; shellcheck and diffcheck PASS; source+CI wiring+24direct evidence files published118bdd",
+      "evidence": "docs/evidence/refactor-checks-20261017/image-input-graph-567b18c8",
+      "limits": "Python native0; enclosing login shell1 from unset bash_logout variable; no real Go/network/cloud or workflow dispatch; native broker objects unavailable to independent review."
+    },
+    "cap_access": {
+      "source": "1dc76e29459cfa6491b036e17baf7266124c5697",
+      "state": "PASS1 correctedfailedroot independentlyaccepted; originalfivePASS/oneFAIL retained",
+      "session": 98444,
+      "qa": "/tmp/ts-qa-cap-access-terminal-acceptance-1dc76e29-final-biv0bbj1.json"
+    },
+    "customer": {
+      "source": "67bc9eea1b118c7beff0c62914f20a53c3d3483d",
+      "state": "PASS5 independently accepted; no original retirement or canonical adoption",
+      "session": 61859,
+      "receipt": "/tmp/ts-customer-envelope-67bc-short-b-sealed-56eiaadh/qa-output/receipt.json",
+      "review": "/tmp/ts-customer-67bc-shortb-native-results-eahwwmpb/final-review.json",
+      "review_sha256": "630fe5051d6a7efe8c710f8816c2864607a7aa2387c98dd511216f75fed21bfa",
+      "retirement": false,
+      "qa": "/tmp/ts-qa-customer-67bc-terminal-acceptance-l4e8mbgl/review.json",
+      "native_supplement": "/tmp/ts-qa-customer-67bc-terminal-acceptance-l4e8mbgl/native-supplement.json"
+    },
+    "oci_foundation_compile": {
+      "source": "78e86dd4332cf79ba8eb3dd7bccfd8e62f5c4f44",
+      "state": "NOT_QUALIFIED actual truecompile exit1; import cycle and undefined statement; four of eight binaries emitted0600 never executed; no retry",
+      "session": 41453,
+      "receipt_sha256": "8548d2d1d7adca48f423511ab454a909d23d8c4d80d55e5273711a27addabc76",
+      "successor_source": "620dab4633c50988c800b68ec5d4b7dd1dcbb881",
+      "successor_state": "620 NOT_QUALIFIED: sole unused io import in region integration test; seven0600 partial binaries neverexecuted; prior78e retained",
+      "qa": "/tmp/ts-qa-oci-compile-terminal-failure-78e86dd4-i8eand1i.json",
+      "successor_readiness": "/tmp/ts-qa-oci-620dab463-static-readiness-nbqew878/review.json",
+      "successor_session": 76122,
+      "successor_pid": 633043,
+      "successor_qa": "/tmp/ts-qa-oci-compile-terminal-failure-620dab46-ak5mv_hl.json",
+      "region_only_source": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "region_only_state": "PASS1 region-only current-source truecompile/defaultvet independently accepted; no runtime or nine-package-rerun credit",
+      "region_only_readiness": "/tmp/ts-qa-oci64-region-readiness-dr7grqyi/review.json",
+      "region_only_session": 71908,
+      "region_only_qa": "/tmp/ts-qa-oci64-region-terminal-acceptance-bm6rctne/review.json",
+      "region_only_qa_sha256": "dad850da506b2df65633473aabe971e99639cc3fec704cd579838e05ae24be00"
+    },
+    "rel_root_boundary": {
+      "source": "0d75d435",
+      "state": "PASS41 independently accepted local SDK/crypto admission only",
+      "session": 93651,
+      "qa": "/tmp/ts-qa-rel-0d75-terminal-acceptance-xw9xpbmq.json"
+    },
+    "authenticated_fixture_compile": {
+      "source": "97d30105e6d4c0258d6caf119721045a9851db67",
+      "state": "PASS8 truecompile/defaultvet independently accepted; zero binary execution, no runtime/firecracker/equivalence/retirement credit",
+      "packet": "/tmp/ts-auth-97d-truecompile-short-a-ojvwaclg",
+      "packages": 9,
+      "expected_binaries": 8,
+      "excluded": "tests/firecracker all three Go files have ignore tag; no compile credit. natstest has no tests.",
+      "session": 48662,
+      "pid": 632895,
+      "qa": "/tmp/ts-qa-auth97d-terminal-acceptance-7fijj8b_.json",
+      "qa_sha256": "3d47ab17244d1ee266cc4b265c18375d0ce557c8e0aa19922157dfd7133b1e88"
+    },
+    "rootbackup_compile": {
+      "source": "38645f8f339d7c51b1dc39db749edecefd4d2a4f",
+      "state": "PASS5 truecompile/defaultvet independently accepted; zero binary execution/no runtime credit",
+      "session": 47689,
+      "pid": 643824,
+      "final_seal_sha256": "0bf94e2074daebc1635739083e64d28fd2216f89db8ac8ddb52e37c240ef2290",
+      "packet": "/tmp/ts-rootbackup-38645-defaultvet-gxbnkeej",
+      "qa": "/tmp/ts-qa-rootbackup38645-terminal-acceptance-ug5pndp0.json",
+      "qa_sha256": "bc6fd8522d8ac0f026e4a702dc488608ef6c8f5f52ffb41ae6bd38ff881d2eaf"
+    },
+    "functions": {
+      "source": "afad42a30b651cd7210a094942eaf0f4c5696f1f",
+      "state": "PASS10 independently accepted exact306 raw events/lifecycle/order and actualnativeargs+results; no source adoption",
+      "session": 93328,
+      "pid": 648221,
+      "readiness": "/tmp/ts-qa-functions-afad-readiness-j0wf16cr.json",
+      "native": "/tmp/ts-function-roots-afad-native-toolresults-go4w2yb6",
+      "scope": "Ten exact identities; at most1broker+1TLS, no managers/native/containerd/cloud; vetoff",
+      "qa": "/tmp/ts-qa-functions-afad-terminal-acceptance-ft_fjs6q.json",
+      "qa_sha256": "4985eeabf4ba87fbcf82bc40116b9f4198aea5e13715824e8122478328f3bda4"
+    },
+    "management_observation": {
+      "source": "2d15811884db8036d4c2348cbf1adaa6af1422f3",
+      "state": "NOT_QUALIFIED independently accepted21PASS3FAIL/24observed26expected2unrun; no retry",
+      "request": "/tmp/ts-management-observation-2d158-120-source-fd67jiak/request.json",
+      "readiness": "/tmp/ts-qa-management-2d158-120-delta-readiness-pg34_sn4.json",
+      "scope": "8roots/26outcomes local manager/authUnix/bufconn; possible bounded timeout; terminal-only wrapper requires independent raw-event acceptance",
+      "session": 60404,
+      "pid": 673367,
+      "native": "/tmp/ts-management-observation-2d158-native-4dylvs9v",
+      "sole_fixture_released": true,
+      "qa": "/tmp/ts-qa-management-2d158-terminal-failure-mxqjsifp/review.json",
+      "qa_sha256": "a11137f8eb7e479241ad8864266a415677e83e0d829c5fb1194017b53c807344",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes"
+    },
+    "data_seat_reader": {
+      "source": "70c03e8ca01a9bbe667e489608eb48f62c8762af",
+      "state": "PASS21 independently accepted localwholepackage; no sourceadoption",
+      "readiness": "/tmp/ts-qa-data-seat-reader-70c03-readiness-annhe7_b/review.json",
+      "scope": "12roots+9leaves=21 identities;19 sequential loopback NATS fixtures, no runtime/cloud child; independent raw-event acceptance needed",
+      "request": "/tmp/ts-data-seat-reader-70c03-source-cpeo1dha/request.json",
+      "session": 87822,
+      "pid": 686331,
+      "qa": "/tmp/ts-qa-data-seat70c03-terminal-acceptance-a6in2jhz/review.json",
+      "qa_sha256": "d52666ac99f386f4dc466a2b6b3096635816fd53de6fa9dcb5402b7bb0714d01",
+      "sole_fixture_released": true,
+      "published_evidence": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes"
+    },
+    "app_d0b_retention": {
+      "source": "d0b972460a0d6413aaa948a967a2c2406b407a4b",
+      "state": "LOCAL_CONNECTED_PASS independently accepted; unpublished; no source adoption",
+      "session": 93142,
+      "qa": "/tmp/ts-qa-app-d0b-manager-terminal-acceptance-hbmhdidh/review.json",
+      "qa_sha256": "9c5fe39c0550f27b5bb9b674ea115f29b6e5ab60a1d00d6cf5f2e0583fd3fe39",
+      "scope": "One root/package830events; local authenticated broker3managers; simulated executor/recipient; electionafter0replicas; strictremovedrolerefusal and retainedbyteequality passed; no workloadHA/native/cloud/OBS/global credit",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes"
+    },
+    "oci_provision64_runtime": {
+      "source": "64a55bb2fc0034279732cfb8a99c06b75cf90d6a",
+      "state": "NOT_QUALIFIED_NO_RETRY independently accepted root+leafFAIL; leaf beforefirstProvisionFoundationBundle; parentpendingwriterreloadfailure",
+      "session": 40740,
+      "qa": "/tmp/ts-qa-provision64-terminal-failure-bkps8y8k.json",
+      "qa_sha256": "5ada3a6fd437a6bba4edb6712013ec2c8cce5dcf0fcada784f18cb133081110d",
+      "successor443": "UNUSED/HOLD further SDKCreatePolicy bodydigest discrepancy source-only investigation; no compile/runtimegrant",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes"
+    },
+    "attempt_retirement_b3e1": {
+      "source": "b3e1fde77998257aef756bc02310019aa173a522",
+      "state": "EXACT_CANDIDATE_TRUECOMPILE_PASS_INDEPENDENTLY_ACCEPTED_NO_FEATURE_OR_RETIREMENT_CREDIT",
+      "session": 13168,
+      "pid": 684388,
+      "packet": "/tmp/ts-attempt-b3e1-truecompile-shortb-sealed-5di2rygp",
+      "readiness": "/tmp/ts-qa-attempt-b3e1-truecompile-readiness-kj_ouxl3/review.json",
+      "wall_seconds": 95.506204,
+      "binary_sha256": "56b4cfed63770bf2b42047b1e418fc23a73ba506166e9302fbcbcc7b332432e6",
+      "binary_mode": "0600",
+      "binary_never_executed": true,
+      "qa": "/tmp/ts-qa-attempt-b3e1-truecompile-terminal-e9gh2dqb/review.json",
+      "qa_sha256": "23c5a565c58522d4360c71a96c44ecd008a0223841cf2d230d5b7e8281c2696b",
+      "feature_compatibility": "Currentb8transitiveclosure differs in two NATS productionfiles; narrowcompatibilityreviewpending"
+    },
+    "oci678_compile": {
+      "source": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "tree": "0c9b86cd7076dffeed4543914e5021dc89635b1f",
+      "state": "ACCEPTED_EXACT_REGION_ONLY_TRUECOMPILE_DEFAULTVET",
+      "session": 20194,
+      "packet": "/tmp/ts-oci-region-compile-67854df12-capacity-sealed",
+      "binary_sha256": "7edec5c46e0ef66465940af8e61c488a6e594fc5783ac8e9c879f25a3b21dbb1",
+      "binary_mode": "0600",
+      "binary_never_executed": true,
+      "wall_seconds": 90.89821,
+      "scope": "regiononlytruecompilefixturetest/defaultvet; no runtime/ninepackagererun/globalcredit",
+      "qa": "/tmp/ts-qa-oci678-truecompile-terminal-acceptance-b4lxjiu8.json",
+      "qa_sha256": "33c11074cab88a8572c5f71d7207bb2636ce7eb5ef9cd1e5bbbb1b5d227317f2",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "management6af": {
+      "source": "6afae08d92ce88134a371e4e8f5b6d2dbb2bb530",
+      "tree": "a6d64617ded49c92f85b178ca30bc863f66a0b3b",
+      "state": "PASS27 independentlyacceptedsource-specificselectedscope; publishedd64/no sourceadoption",
+      "session": 51751,
+      "pid": 698796,
+      "readiness": "/tmp/ts-qa-management-6af-readiness-dfi_3ym2/review.json",
+      "readiness_sha256": "dbaabdf7f24227518401086adb017a7d04190b7c0f4021780387d9a7c6768e9a",
+      "native": "/tmp/ts-management-observation-6af-native-j0lriuy7",
+      "limits": "9roots27expected/defaultvet/env6nice19/120-180TERM-KILL5/GATENB/once; no retryextension",
+      "qa": "/tmp/ts-qa-management-6af-terminal-acceptance-t5jiaxa2/review.json",
+      "qa_sha256": "0e4bd39d9c8c817bafca7f33176c11a13aac454757c4ed02428cffcefb10cf77",
+      "sole_fixture_released": true,
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "oci678_runtime": {
+      "source": "67854df1257d31aa9b76dfd754d8075fdf33fd9d",
+      "state": "NOT_QUALIFIED_NO_RETRY independently accepted parent+leafFAIL/zeroPASS/SKIP",
+      "session": 33209,
+      "pid": 705800,
+      "qa": "/tmp/ts-qa-oci678-runtime-terminal-failure-53vxp9c8.json",
+      "qa_sha256": "28d36a36700221471e3cae78e5b335bda46eb9b4004b4619aba7b2a6ac87dac6",
+      "scope": "FirstGRUreconcile invalidresourceidentity beforeoriginalwriterlaunch; parentpersistedwriterreloadvalidationfails; nofixture-onlyclaim/no fullprovisioning/recoverycredit; originalELFneverexec/runtimecopyonce/restored600/CAPACITYreleased",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "data697_compile": {
+      "source": "6978e79b706ffdff2cb52a4ac4c8e3be56d727cf",
+      "tree": "f74fa0cbca7a506a61d885da65b40b0d5dc84d3e",
+      "state": "NOT_QUALIFIED_EXACT_COMPILE_FAILURE_INDEPENDENTLY_ACCEPTED_NO_RETRY",
+      "packet": "/tmp/ts-source-renewal-697-compile-x96611io",
+      "readiness": "/tmp/ts-qa-source-renewal-697-compile-readiness-nx05morw/review.json",
+      "readiness_sha256": "35cd932debbe6addd53f8dd4ed2b6707e2c6a0e8d027e054f8edc3585c4111dd",
+      "scope": "True-c/defaultvet/ShortBNB180TERM-KILL5/env6nice19/0600neverexec; native/containerd/runc/ext4/kernel/runtimeharness UNGRANTED",
+      "session": 67126,
+      "qa": "/tmp/ts-qa-data697-terminal-failure-6z3aofqf/review.json",
+      "qa_sha256": "5aa78729a73a55841d241f4a0f1fcc8518796ee28c55a61e3463c7cb9e9f6b94",
+      "cause": "Production region/provision.go calls missing PublishFoundationBundle and ValidatePreparedFoundation; no binary produced or executed",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "attempt458_compile": {
+      "source": "458ff55c3d78ce4be754094d93d4825f51c67d5d",
+      "tree": "e48c102cf49f21d338a09050d60854217cc70f2d",
+      "parent": "b8c3c96d03f552770f6370097fd89f4cbd406e5e",
+      "state": "EXACT_TRUECOMPILE_PASS_AND_NARROW_SOURCE_RETIREMENT_ADOPTED_PUBLISHED_60E",
+      "packet": "/tmp/ts-attempt-458ff55-truecompile-shortb-sealed-7qtri3ou",
+      "scope": "Exactacceptedfeaturecandidate rootaddition+253Bdeletion only; historicalcc37runtimeunchanged; no wholefeature/global credit",
+      "session": 90912,
+      "qa": "/tmp/ts-qa-attempt-458ff55-truecompile-terminal-oep0fd5m/review.json",
+      "qa_sha256": "f0459155197860afb83e82c5a754a47740fff7d6819821a5c55ac6510a74cd7e",
+      "binary_sha256": "ad1a1e163942da44aa3554d61c17d722926adf3f61bd19f597151808045c2c94",
+      "binary_mode": "0600",
+      "binary_never_executed": true,
+      "publication_packet": "/tmp/ts-attempt-continuity-retirement-458ff55-publication-9wgbgrqp",
+      "incidental_host_output": "Retained login-shell helper output reports successful mise vite-plus1.1.0/claude-code2.1.299 uninstalls; pinnedsource/tools/env unchanged; no independent before/after filesystem proof; no repair performed; later helpers loginfalse",
+      "adoption_qa": "/tmp/ts-qa-attempt458-actual-adoption-a1uiq5zi/review.json",
+      "adoption_qa_sha256": "34a26498b4d0d398f48500e210efd93dd857b8d04ecf84c6e74afeb033cdda54"
+    },
+    "core_fac2_connected": {
+      "source": "fac2a2715dad336cf67fc935d9f6af94c6bac1c2",
+      "tree": "9373511168ee3b5dea80fe61b7cc68a8986550f5",
+      "state": "NOT_QUALIFIED_BUILD_FAILURE_ZERO_TEST_RUN_INDEPENDENTLY_ACCEPTED_NO_RETRY",
+      "packet": "/tmp/ts-core-connected-history-fac2a2715-vn1eo6k0",
+      "old_packet": "nidszcaz UNUSED missing launchdigestarguments",
+      "scope": "FreshoneRoot/context360/Go390/outer540/GENERAL+GATE/solefixture/defaultvet; no native/cloud/externalrecipient/runtimecredit",
+      "session": 36549,
+      "pid": 718926,
+      "qa": "/tmp/ts-qa-core-fac2-terminal-failure-udwxd328/review.json",
+      "qa_sha256": "25550ba81dd7e5a0d589e3991efc07fa7dd820eaefdd62bbc2ae1f365a7c26ab",
+      "cause": "managed_runtime.go117 missing fifth StatefulServiceAuthorizer; genuine root-authority lifecycle source composition prerequisite, no nil/denyall/optional bypass",
+      "sole_fixture_released": true,
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "oci5e_compile": {
+      "source": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "tree": "2036a43d992b6ae83df741518cd412cf3161894a",
+      "state": "ACCEPTED_EXACT_REGION_ONLY_TRUECOMPILE_DEFAULTVET",
+      "session": 67270,
+      "qa": "/tmp/ts-qa-oci5e-truecompile-terminal-acceptance-67pd1y4t.json",
+      "qa_sha256": "48829e2aaa9c1f8555318e76ba8d172e16bc35881d077090ae28ae019c63f493",
+      "binary_sha256": "2585e93e772f613d74ed6689cde2af2b6947dbcfac22fa6381444ed1f17dc529",
+      "binary_bytes": 62909324,
+      "binary_mode": "0600",
+      "binary_never_executed": true,
+      "runtime_packet": "/tmp/ts-oci-provision-runtime-5e678c47a-120-sealed",
+      "runtime_state": "NOT_QUALIFIED_RUNTIME_FAILURE_INDEPENDENTLY_ACCEPTED_NO_RETRY",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "oci5e_runtime": {
+      "source": "5e678c47a1767b52218abf7c08f18741db465d85",
+      "state": "NOT_QUALIFIED_RUNTIME_FAILURE_INDEPENDENTLY_ACCEPTED_NO_RETRY",
+      "session": 53963,
+      "pid": 727769,
+      "qa": "/tmp/ts-qa-oci5e-runtime-terminal-failure-z8dsewxr.json",
+      "qa_sha256": "64989f989c7cc196c8ca1786a1f6d41c5c91011f9046d8d184d52d03c7f57819",
+      "cause": "All3regionalreconcilesnil; firstGRUwriter protected current grant read404 beforepublishphase. Parent no separate assertion diagnostic but parentFAIL/zeroPASS; no runtime/provisioning credit.",
+      "sole_fixture_released": true,
+      "published_evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes"
+    },
+    "ocid1ec_compile": {
+      "source": "d1ec8b56aba84d7c7637504350d218660729b9af",
+      "tree": "8219946143b919a349b56686008251662ac05df9",
+      "state": "ACCEPTED_EXACT_REGION_ONLY_TRUECOMPILE_DEFAULTVET",
+      "packet": "/tmp/ts-oci-region-compile-d1ec8b56a-capacity-sealed",
+      "session": 16194,
+      "pid": 734996,
+      "readiness": "/tmp/ts-qa-oci-d1ec-truecompile-readiness-r0zs_z5l.json",
+      "readiness_sha256": "2ad5a9c9e489df5863fb083365aaee949c1975431f8f4eed01f114f071c3a5da",
+      "security_ack": "/tmp/ts-oci-foundation-d1ec8b56a-security-source-ack.json",
+      "security_ack_sha256": "0afddc386430b23dff462da68683335e0ba7bdefab2767af1777c9ab2b571b91",
+      "grant": "/tmp/ts-qa-oci-d1ec-compile-grant-u3f33u6d.json",
+      "grant_sha256": "db8721f0655d1fb1e61791e27da9efc52aed1310efa8cfff262860bed080240a",
+      "scope": "region-onlytrue-c/defaultvet/fixturetest/pkg1/env6/nice19/240TERM-KILL5/CAPACITYNB/0600ELFneverexec; loginfalse; nofixture/runtime/retry",
+      "wall_seconds": 86.656383,
+      "binary_sha256": "a98469a36e4c8ebe027d1bb297f98ed69a831142e31649ed98cdc2cb75268a22",
+      "binary_bytes": 62920547,
+      "binary_mode": "0600",
+      "binary_never_executed": true,
+      "qa": "/tmp/ts-qa-oci-d1ec-truecompile-terminal-acceptance-d9qc03xh.json",
+      "qa_sha256": "7071104ee37d87cbe4140dd4a3d9433395e8c65944ea135e16c7ca898bc64c1c",
+      "final_seal_sha256": "069c6b4bdae1ee050254c0969945c12a0262bade9e718a7edac6604c3f92e491",
+      "runtime_packet": "/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed",
+      "runtime_state": "NOT_QUALIFIED_INDEPENDENT_RUNTIME_FAILURE_NO_RETRY",
+      "published_evidence": "docs/evidence/refactor-checks-20261017/oci-d1-compile-and-runtime-outcomes",
+      "published": true
+    },
+    "ocid1ec_runtime": {
+      "source": "d1ec8b56aba84d7c7637504350d218660729b9af",
+      "tree": "8219946143b919a349b56686008251662ac05df9",
+      "state": "NOT_QUALIFIED_INDEPENDENT_RUNTIME_FAILURE_NO_RETRY",
+      "packet": "/tmp/ts-oci-provision-runtime-d1ec8b56a-120-sealed",
+      "readiness": "/tmp/ts-qa-oci-d1ec-direct-runtime-readiness-pbx6fadh.json",
+      "readiness_sha256": "a4f21a0465db8bef83f2f51d088e9e284ffd29ee6734b68bae1af9a4311b5cec",
+      "grant": "/tmp/ts-qa-oci-d1ec-runtime-grant-wz_ac53e.json",
+      "grant_sha256": "67dc976cbd522024e0e5ba078e6e65a64b7743f04bcd2651e523bb3926468000",
+      "scope": "Exactfiniteoriginalparent+provision_originals; directacceptedELFcopyonce/no compiler/test2json;2sequentialloopbacklisteners/3ownedtemproots; test120outer180TERM-KILL5/nice19/env6/count1/parallel1/GOMAX2/CAPACITYNB/solefixture; no retry/globalcredit",
+      "session": 71006,
+      "pid": 745278,
+      "exit_code": 1,
+      "wall_seconds": 29.904169155983254,
+      "rss_kib": 119852,
+      "qa": "/tmp/ts-qa-oci-d1ec-runtime-terminal-failure-a7e7e6ba.json",
+      "qa_sha256": "3c2ad95db746e51715c6dd3595fa18af41712ff0c7f529300d7052fbb018ebdf",
+      "final_seal_sha256": "ed3a30fcb6f118778878a12a63ecfc3ac6d8a28d15079a8844b0fb354eecd0a0",
+      "raw_events": "6directtextlines:2RUN/leaf195diagnostic/parentFAIL/bufferedchildFAIL/FAIL;zeroPASS/SKIP",
+      "cause": "foundationvaultlackspersistedcreateprovenance diagnostic is compound foundationbinding/verify.go417 rejection; exactfailedpredicateunknown.3reconciles+newprotectedprerequisitesnilbeforefirstGRUwriterbinding. Expectedlaunchresponseloss/laterleafassertionsnotreached. Parentcontinueswithnoseparatediagnostic, noPASScredit.",
+      "sole_fixture_released": true,
+      "published": true,
+      "published_evidence": "docs/evidence/refactor-checks-20261017/oci-d1-compile-and-runtime-outcomes"
+    }
+  },
+  "pending_superseded_packets": {
+    "oci722": "UNUSED withdrawn known fixtureimportcycle; replacement9ead ungranted",
+    "data111": "UNUSED replacedcea0 sourceDBmappingfix, ungranted",
+    "image6d": "UNUSED replaceda4f5 expiry/resizefix, ungranted",
+    "producer3e50_gate": "UNUSED; separateShortBpacketgranted",
+    "oci9ead": "UNUSED: known distinctledgerkey productiondefect; coherent successor composing e92+138+8a+15",
+    "rootworkload5c82": "UNUSED: known removedConfig.Lab defaulttestcompilebreak; compose authenticatedfixtureprereq first"
+  },
+  "publication_whitespace": {
+    "source_workflow_check": "PASS actual exit0 for900cc\u2192118bdd scoped *.go/*.sh/*.py/*.yml/*.yaml/go.mod/go.sum",
+    "blanket_diff_check": "Nonzero solely for retained raw .patch context whitespace in OCI evidence; do not normalize exact patches or claim blanket PASS."
+  },
+  "scoped_outcome_publication": {
+    "head": "b21d1207db35a893499590efe07088a9c610a72c",
+    "evidence": "docs/evidence/refactor-checks-20261017/producer-customer-oci-scoped-results",
+    "direct_files": 110,
+    "checksum_entries": 109,
+    "original_path_mappings": 116,
+    "unique_original_copies": 105,
+    "qa": "/tmp/ts-qa-three-scopes-publication-review-y6hn33_4/review.json",
+    "source_adoption": false,
+    "retirement": false
+  },
+  "completion_ledger_sha256": "a59581d3ecec9e292c36f86977ab4b8b94851d70379d9c42f0bea6323fd9ccd9",
+  "compile_app_functions_outcome_publication": {
+    "head": "b8c3c96d03f552770f6370097fd89f4cbd406e5e",
+    "evidence": "docs/evidence/refactor-checks-20261017/scoped-compile-and-app-functions-outcomes",
+    "direct_files": 141,
+    "checksum_entries": 140,
+    "original_path_mappings": 149,
+    "unique_original_copies": 138,
+    "excluded_ELF_count": 21,
+    "excluded_ELF_bytes": 902436219,
+    "qa": "/tmp/ts-qa-second-packet-publication-review-0024ugif/review.json",
+    "qa_sha256": "a0b1777c4bb77f2f343c6759e9880e14d2f1156b2012fd9bde5f7dec07a1dbe5",
+    "source_adoption": false,
+    "retirement": false
+  },
+  "connected_outcome_publication": {
+    "head": "457e8960217109666b17817e861db59b8f0d41a6",
+    "evidence": "docs/evidence/refactor-checks-20261017/app-management-oci-seat-connected-outcomes",
+    "direct_files": 112,
+    "checksum_entries": 111,
+    "original_path_mappings": 113,
+    "unique_original_copies": 109,
+    "source_text_snapshots": 18,
+    "excluded_ELF_count": 1,
+    "excluded_ELF_bytes": 62893977,
+    "qa": "/tmp/ts-qa-connected-publication-independent-rfe95q4g/review.json",
+    "qa_sha256": "7659a5cca9958c874ac0f26065958942072ae2809e3e99e7046334d6610d8459",
+    "source_adoption": false,
+    "retirement": false
+  },
+  "attempt_retirement_publication": {
+    "head": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+    "tree": "4b1b80130abc5b9df413c21560869eaceb3c70ec",
+    "evidence": "docs/evidence/refactor-checks-20261017/attempt-continuity-retirement-458ff55",
+    "direct_files": 351,
+    "checksum_entries": 350,
+    "original_copies": 338,
+    "source_paths": 2,
+    "source_deletion_bytes": 253,
+    "source_deletion_lines": 7,
+    "adoption_qa": "/tmp/ts-qa-attempt458-actual-adoption-a1uiq5zi/review.json",
+    "adoption_qa_sha256": "34a26498b4d0d398f48500e210efd93dd857b8d04ecf84c6e74afeb033cdda54",
+    "source_diff_check": "PASS",
+    "full_diff_check": "142 diagnostics confined to exact retained patch context and two external-init source snapshots; evidence not normalized",
+    "canonical_reconciliation": "ACCEPTED_EXACT_60E_7RETIRED_4312_GLOBALLY_UNADJUDICATED"
+  },
+  "five_outcome_publication": {
+    "head": "d64ef0001b05639bc51371e94e7c195846b5ee0a",
+    "tree": "c132cdd91829fce09fe45027845682b5b1259c61",
+    "parent": "60e3843dfb0c7103a83579bc714e9de2a319429d",
+    "evidence": "docs/evidence/refactor-checks-20261017/management-oci-data-core-five-outcomes",
+    "direct_files": 189,
+    "checksum_entries": 188,
+    "bytes": 18479942,
+    "original_path_mappings": 206,
+    "unique_original_copies": 186,
+    "byteequal_aliases": 20,
+    "source_text_snapshots": 34,
+    "accepted_reports": 7,
+    "excluded_ELF_count": 4,
+    "excluded_ELF_bytes": 251621648,
+    "MANIFEST_sha256": "af8a4b6c885cd02752fac043b6617784b26d0ab89d8ca84d6b76a67cc33d4098",
+    "SHA256SUMS_sha256": "b864c1a17591e2dd52fb210f50cc674df3b8f9d3edbf72e85dba0e889aa8bce7",
+    "qa": "/tmp/ts-qa-five-outcomes-independent-rz8kxg3c/review.json",
+    "qa_sha256": "451b6566e30460cebaa91d078e941284955780978253b0021f69179262efdddb",
+    "source_adoption": false,
+    "retirement": false,
+    "diff_check": "PASS",
+    "committed_packet_bytes_match": true
+  },
+  "next_customer_retirement": {
+    "state": "ADOPTED_PUBLISHED_INDEPENDENTLY_VERIFIED_AND_CANONICALLY_RECONCILED_EIGHTH_SCOPED_RETIREMENT",
+    "packet": "/tmp/ts-next-customer-retirement-source-proposal-65k8m7lf",
+    "proposal_sha256": "2d2c21bf8d6aea24a701951ee1837eb1a903f23c0650da5f7d8a86fe8bdda837",
+    "original": "internal/managedmaterial/customer_open_test.go::TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+    "replacement": "internal/bootstrap/cli/customer_open_boundary_integration_test.go::TestCustomerEnvelopeFilesystemBoundary",
+    "limits": "CurrentfeatureD64 unchanged/no8thretirement. Candidate ONLYrootadd+acceptedJWT/TLSfixtureprereq+whole1371B one-testfiledeletion. Historical67bcruntime root+4leaves remain scoped; fixture siblingruntime unqualified.",
+    "source_qa": "/tmp/ts-customer-retirement-source-independent-v64j4p_a/review.json",
+    "source_qa_sha256": "b6c659e2a9f3f12b01ff8fc694302df124f28ad365a14fbfa39d4794384cf940",
+    "candidate": "f542bcee00e93adf636e392900864e05face8aa5",
+    "candidate_tree": "9a0c582da0662395b0979f56f3d12c74cfd37d87",
+    "candidate_parent": "d64ef0001b05639bc51371e94e7c195846b5ee0a",
+    "candidate_worktree": "/tmp/ts-customer-retirement-d64-cysw70m3/source",
+    "candidate_branch": "refactor/customer-envelope-retirement-d64-cysw70m3",
+    "candidate_pushed": true,
+    "compile_packet": "/tmp/ts-customer-f542bcee-truecompile-shortb-sealed-rxyjweze",
+    "request_sha256": "a0a1f36b685c5d0eaff211991ddfeaf7123e4f815007ae24e9a560d1c611455f",
+    "runner_sha256": "9911d000b6e67fabb26cde2f2e42cc6038a587bb9a33083eeaf0a1dbdc7d521a",
+    "seal_sha256": "61712cbc497048d52fff30b02ca00550fda4c644a5d3a3d8ec5ca6955d9125fe",
+    "source_proof_sha256": "3032a5807cce9a47914aef691d8ab939d7219a9dd60e517a80d8c14ece480708",
+    "compile_scope": "ONE truego test-c/defaultvet/defaulttags/bootstrap-cli+managedmaterial/pkg1/env6/nice19/240TERM-KILL5/NBShortB/2ELF600neverexec; notyetgranted",
+    "readiness": "/tmp/ts-qa-customer-f542bcee-readiness-s7_m405c/review.json",
+    "readiness_sha256": "f4b00365361fbe96ae30f54a92efa21a3a88f68fcdcdb5c5b402b9dba8415172",
+    "grant": "/tmp/ts-qa-customer-f542-compile-grant-yw9r08os.json",
+    "grant_sha256": "270e58485bf45f62cc6485551030e435a3218c4cfbd853432583b6c36ff28416",
+    "native_session": 18865,
+    "go_pid": 758591,
+    "timeout_pid": 758590,
+    "native": "/tmp/ts-customer-f542-truecompile-native-results-63mpl6oq",
+    "compile_qa": "/tmp/ts-qa-customer-f542-two-package-terminal-xzy_lubr/review.json",
+    "compile_qa_sha256": "5fa6e9eda88ce6124e5084ee631eb488d0fdf640cfec9ef5f722e8269c57aa19",
+    "wall_seconds": 142.20137609,
+    "rss_kib": 1189008,
+    "cli_ELF_sha256": "0e373283a2e64f056c883aa6e12daa38039157688a0a471419bc08df774fb712",
+    "managedmaterial_ELF_sha256": "48aec81a6999d0c1bca9e664472d1a70e5208c309c556abeed2d68d28b02c3bf",
+    "binary_modes": "0600",
+    "binaries_never_executed": true,
+    "lane_released": true,
+    "adopted_head": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+    "adopted_tree": "e0ad8f64c977020dcec77e9c7c5efa5ddf4b5182",
+    "publication_packet": "/tmp/ts-customer-envelope-retirement-f542bcee-publication-20jejg_8",
+    "publication_qa": "/tmp/ts-qa-customer-f542-source-publication-szl58ulo/review.json",
+    "publication_qa_sha256": "8779470e58aa64a35e2393a249751e91eb32646385c4d85a03a7a2d43b882437",
+    "evidence": "docs/evidence/refactor-checks-20261017/customer-envelope-retirement-f542bcee",
+    "evidence_files": 98,
+    "MANIFEST_sha256": "da866fc4bc16280bb5913fb609870d8ff88f326f17d2c948eacdbed41d6be76d",
+    "SHA256SUMS_sha256": "e32c117ae1aa120cf4a7e280888f1c8506c7a6bf930e97d1eebc961532d1ee25",
+    "source_diff_check": "PASS",
+    "full_diff_check": "106 exactretainedrawpatchcontextdiagnostics; evidenceunchanged",
+    "retirement_count_reconciliation": "ACCEPTED_8_SCOPED_RETIRED_4311_GLOBALLY_UNADJUDICATED",
+    "actual_adoption_qa": "/tmp/ts-qa-customer-9988-actual-adoption-c45sc48f/review.json",
+    "actual_adoption_qa_sha256": "400c5522399ee576bdf80649689be76ba0927279de37a29d6bc221d8da3a2fa7",
+    "reconciliation": "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu",
+    "reconciliation_summary_sha256": "33624282107de6aba8367aff2ea82d1935b88a7bf75e5d725137992fa1dab1a4",
+    "four_original_assertions": [
+      "Success",
+      "WrongRecipient",
+      "FlippedCiphertext",
+      "AlternatePartition"
+    ],
+    "identity_sibling_runtime": "UNQUALIFIED",
+    "source_adoption": true
+  },
+  "oci_d1_outcome_publication": {
+    "head": "f8ffbc444b399bb508e90e130b4f6f0f0e7aa70b",
+    "tree": "338905e215cb983ebe57977caabfe4f7f37f3a88",
+    "evidence": "docs/evidence/refactor-checks-20261017/oci-d1-compile-and-runtime-outcomes",
+    "direct_files": 63,
+    "checksum_entries": 62,
+    "bytes": 1089168,
+    "original_path_mappings": 63,
+    "unique_original_copies": 59,
+    "byteequal_aliases": 4,
+    "source_text_snapshots": 6,
+    "accepted_reports": 2,
+    "excluded_ELF_count": 2,
+    "excluded_ELF_bytes": 125841094,
+    "qa": "/tmp/ts-qa-oci-d1-publication-independent-review-34ce458a.json",
+    "qa_sha256": "4519f44eb1923fdf2beb62f7e3ef4dccbaa04edb40725edc4e8e95debab434a3",
+    "MANIFEST_sha256": "13254dbe0370a3820ffaf435149b4262fe66842a02c3837593d71b58f843fde1",
+    "SHA256SUMS_sha256": "53639c06a61976f4f1b85916765eff3e83c42d36ef4371cac6809d4676eaaf03",
+    "source_adoption": false,
+    "retirement": false,
+    "full_diff_check": "28 retained exact rawpatchcontextdiagnostics/no sourcechange",
+    "committed_bytes_match": true
+  },
+  "core_successor_source": {
+    "source": "f3e6846cdafe4274edfb586a01ce592c1d1a0cac",
+    "tree": "2858dd86499518d8fab22cf8915f1e20fcd15281",
+    "worktree": "/tmp/ts-core-provider-connected-6746",
+    "state": "SOURCE_ONLY_NOT_BUILD_READY_NO_GRANT",
+    "manifest": "/tmp/ts-core-provider-connected-source-manifest-f3e6846cd.json",
+    "manifest_sha256": "c00cd8a004ecef388176d7d38b80de7b855497e0e89127a89a23fedb3f201673",
+    "gap": "ActualfullAPP10backendrootoci.Serviceassembly/CAPRetire-Quarantine/NETsourcebackend/nativeinjectionabsent; requiredproductionproducerdefinitionsnowowner+SECcomposed; CLIoutsideconnectedclosureinventory-only/globalOPEN",
+    "old_fac2_failure_unchanged": true
+  },
+  "oci_missing_pinned_target_producer": {
+    "handoff": "/tmp/ts-oci-startup-pinned-target-missing-producer-source-only.json",
+    "sha256": "a55cea9e24e85892c5afcfe735e53ac3e70befdac65e978c4d8783092443b2c7",
+    "state": "SOURCE_ONLY_NO_IMPLEMENTATION_OR_EXECUTION",
+    "gap": "Finite revalidatable pinnedctrl/Vault/key SDKlivewitness boundtooriginalanchor/currentgrant/selectedoperationlease/lifetimecap absent. Metadata/principalwriteauthority insufficient; no inventedbirthhistory or ambientwholegrantauthority. Also consumedstartupResourceIDsDTO needs actualnestedmap handling."
+  },
+  "customer_retirement_publication": {
+    "head": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+    "tree": "e0ad8f64c977020dcec77e9c7c5efa5ddf4b5182",
+    "evidence": "docs/evidence/refactor-checks-20261017/customer-envelope-retirement-f542bcee",
+    "direct_files": 98,
+    "checksum_entries": 97,
+    "bytes": 4265984,
+    "source_paths": 3,
+    "original_test_file_deleted_bytes": 1371,
+    "MANIFEST_sha256": "da866fc4bc16280bb5913fb609870d8ff88f326f17d2c948eacdbed41d6be76d",
+    "SHA256SUMS_sha256": "e32c117ae1aa120cf4a7e280888f1c8506c7a6bf930e97d1eebc961532d1ee25",
+    "readiness_qa": "/tmp/ts-qa-customer-f542-source-publication-szl58ulo/review.json",
+    "readiness_qa_sha256": "8779470e58aa64a35e2393a249751e91eb32646385c4d85a03a7a2d43b882437",
+    "actual_adoption_qa": "/tmp/ts-qa-customer-9988-actual-adoption-c45sc48f/review.json",
+    "actual_adoption_qa_sha256": "400c5522399ee576bdf80649689be76ba0927279de37a29d6bc221d8da3a2fa7",
+    "source_diff_check": "PASS",
+    "full_diff_check": "106 exactretainedrawpatchcontextdiagnostics/noevidencenormalization",
+    "accepted_compiled_source": "f542bcee00e93adf636e392900864e05face8aa5",
+    "whole_feature_runtime_or_compile_execution": false
+  },
+  "protected_genesis_accounting_source_gap": {
+    "state": "OPEN_CONCRETE_SOURCE_PREMISE_GAP",
+    "future_installation_contract": "/tmp/ts-foundation-future-installation-contract.md",
+    "future_installation_contract_sha256": "be5dc907fdfcf1f6a08146f398e391c68cc5d50cba50301beb2babe5dbdcedf1",
+    "accounting_source_gap": "/tmp/ts-foundation-accounting-inception-source-gap.json",
+    "accounting_source_gap_sha256": "c1c5f778cb79df02fc4b090efa08bfaf7fa52eb8756a9db48ec5766526fd00f3",
+    "limit": "No accepted signed inception/exclusivity/nonnode completeness premise. Delayed mutable OCI usage reports include preexisting/shared spend; protected genesis snapshot remains Pending. No invented positive premise."
+  },
+  "d4ac_promotion": {
+    "packet": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+    "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+    "manifest_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+    "manifest_entries_verified": 18,
+    "readonly_files_verified": 19,
+    "mode": "0400",
+    "feature": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "actual_adoption_independent_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+    "actual_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+    "actual_publication_independent_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+    "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+    "independent_reconciliation_review": "/tmp/ts-qa-d4ac-reconciliation-independent-omel6oda/review.json",
+    "independent_reconciliation_review_sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8",
+    "all_exact_hashes_verified_by_ledger_update": true,
+    "fresh_source_scan_by_inventory_agent": true,
+    "new_runtime": false,
+    "new_source_scan_by_completion_audit": false,
+    "limit": "4319 original tests =4276 declaration/body exact+23 changed+1 retained expanded owner+19 scoped independently accepted adopted retirements. Remaining4300 originals are globally unadjudicated, never4300 unit tests. Lexical survival is not global unit/integration classification. Exact reconciliation independently accepted. No new runtime or global qualification.",
+    "prior_canonical_retirements": 9,
+    "new_canonical_retirements": 19,
+    "prior_globally_unadjudicated": 4310,
+    "new_globally_unadjudicated": 4300,
+    "count_change": 10,
+    "new_execution": false
+  },
+  "classification_work_pending": {
+    "canonical_frozen_source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "groups": {
+      "internal/ociclient": "9 retained original source classifications accepted:6integration/3unit;5prior retirements excluded;no runtime credit",
+      "internal/authority": "93-root candidate72integration/19unit/2mixed under independent review;no counts promoted"
+    },
+    "limit": "Classification counts and retirements are separate. Existing genuine integrations may be retained without rewrite. No blanket remaining-unit classification."
+  },
+  "source_classification_adjudication": {
+    "state": "INDEPENDENTLY_ACCEPTED_SOURCE_CLASSIFICATIONS_NO_RUNTIME_CREDIT",
+    "as_of": "2026-10-17T14:23:37.413945+00:00",
+    "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "packet": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+    "classification_sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+    "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+    "independent_review": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+    "independent_review_sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+    "package_groups": [
+      "internal/ociclient"
+    ],
+    "baseline_rows": 14,
+    "retained_originals_classified": 9,
+    "integration": 6,
+    "unit": 3,
+    "mixed": 0,
+    "unresolved_within_classified_package": 0,
+    "prior_retired_rows_excluded": 5,
+    "retirement_delta": 0,
+    "retirements_total": 19,
+    "retained_originals_total": 4300,
+    "classification_unadjudicated_remaining": 4291,
+    "runtime_qualified_by_this_classification": 0,
+    "limits": [
+      "Source classification verifies the connected setup and assertions; it does not establish runtime qualification.",
+      "Six existing genuine local HTTP/SDK integration originals are retained unchanged. Three unit roots remain safety obligations for later migration.",
+      "Five prior retirement dispositions are not classified or retired again. Other package classifications remain pending."
+    ]
+  },
+  "classification_adjudication_history": [
+    {
+      "as_of": "2026-10-17T14:23:37.413945+00:00",
+      "before_snapshot": {
+        "path": "/tmp/ts-qa-main-union-progress-20261016-before-ociclient9-classification-2810545571.json",
+        "sha256": "7ba445dd3748da3554ff38d194c07829d584aa3b3b410d49f6e0ffc9ef643934"
+      },
+      "adjudicated_retained_delta": 9,
+      "retirement_delta": 0
+    }
+  ]
+}

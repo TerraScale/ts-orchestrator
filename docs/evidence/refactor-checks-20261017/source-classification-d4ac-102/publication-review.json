@@ -1,0 +1,44 @@
+{
+  "state": "ACCEPTED_EXACT_BYTE_COPY_CLASSIFICATION102_PUBLICATION_PACKET_ONLY",
+  "as_of": "2026-10-17T14:43:22.986360+00:00",
+  "packet": "/tmp/ts-classification102-evidence-publication-r47r9mzu",
+  "manifest_sha256": "660757110db22d1464e5314b5cb9b4239fc131c8841d73589b67a58aaa896c54",
+  "SHA256SUMS_sha256": "cd4857b11cbab91dd0c8f6bcc736baae717f14c3b6bce9a51f23947657241a42",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "current_counts": {
+    "baseline_originals": 4319,
+    "retired": 19,
+    "retained": 4300,
+    "classified_retained": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198,
+    "runtime_qualification_delta": 0,
+    "retirement_delta": 0,
+    "completion": false,
+    "open_completion_categories": 5
+  },
+  "verified": {
+    "raw_copies": 39,
+    "all_original_bytes_hashes_sizes_modes": true,
+    "all_copy_bytes_hashes_sizes_modes": true,
+    "checksum_entries": 41,
+    "complete_file_inventory": 42,
+    "packet_files_mode": "0444",
+    "packet_dirs_mode": "0555",
+    "raw_copy_bytes": 5654479,
+    "live_ledger_pins_still_exact": true,
+    "five_categories_open_complete_false": true,
+    "no_copied_scripts_executed": true
+  },
+  "prior_independent_promotion_review": "8530d0ac454abb7701c8073deccb12f2ee96190dfeb094f7fecfa4217b76175d",
+  "findings": [],
+  "limits": [
+    "Source classification is not runtime qualification or retirement credit.",
+    "Historical scan and intermediate promotion counts remain unmodified.",
+    "This review accepts the staged packet only; actual Git publication requires exact-copy verification.",
+    "No build, Go test, runtime, cloud, native, source, main or live-ledger mutation occurred."
+  ]
+}

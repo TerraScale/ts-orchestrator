@@ -1,0 +1,148 @@
+{
+  "artifacts": {
+    "accepted_independent_review": {
+      "path": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+      "sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f"
+    },
+    "classification_packet": {
+      "acceptance_established_by_separate_review": true,
+      "checksum_entries_verified": 2,
+      "directory_mode": "0500",
+      "file_mode": "0400",
+      "files": {
+        "README.md": "f48ea7c7ea02715202f59fab55fe2909c8b271b637f9279b994d658955cd240f",
+        "SHA256SUMS": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+        "classification.json": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5"
+      },
+      "historical_status": "PENDING_INDEPENDENT_ACCEPTANCE",
+      "inventory_files": 3,
+      "path": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv"
+    },
+    "completion_before": {
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016-before-ociclient9-classification-bed5eae616.json",
+      "sha256": "52117ed5cdf43d4b9445b03015365c86ee924914cfed23f6f34a8a933dcb2dc1"
+    },
+    "completion_ledger": {
+      "path": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+      "sha256": "a59581d3ecec9e292c36f86977ab4b8b94851d70379d9c42f0bea6323fd9ccd9"
+    },
+    "frozen_scan": {
+      "SHA256SUMS_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+      "checksum_entries_verified": 18,
+      "inventory_files": 19,
+      "path": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+      "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656"
+    },
+    "prior_canonical19_audit": {
+      "path": "/tmp/ts-qa-d4ac-canonical19-promotion-audit-ee6332bc.json",
+      "sha256": "6b5735aacff8d976ce55312ca749665e95adfde2dd47320fcccf1365b1153a3c"
+    },
+    "progress_before": {
+      "path": "/tmp/ts-qa-main-union-progress-20261016-before-ociclient9-classification-2810545571.json",
+      "sha256": "7ba445dd3748da3554ff38d194c07829d584aa3b3b410d49f6e0ffc9ef643934"
+    },
+    "progress_ledger": {
+      "path": "/tmp/ts-qa-main-union-progress-20261016.json",
+      "sha256": "324c1ab4c63d2605a9863d31614ccf291d3e15c55dbb0b8f476406078d10b1b2"
+    },
+    "promotion_script": {
+      "executed": false,
+      "path": "/tmp/ts-qa-promote-ociclient9-classification.py",
+      "read_and_ast_parsed": true
+    }
+  },
+  "audit": "ociclient9-source-classification-promotion",
+  "counts": {
+    "baseline_original_tests": 4319,
+    "expanded_retained_owner": 1,
+    "globally_unadjudicated": 4291,
+    "identity": "19 + 9 + 4291 = 4319",
+    "integration": 6,
+    "mixed": 0,
+    "newly_source_classified": 9,
+    "ociclient_baseline_rows": 14,
+    "package_unresolved": 0,
+    "previously_retired_ociclient_rows_excluded": 5,
+    "retained": 4300,
+    "retained_body_exact": 4276,
+    "retained_changed": 23,
+    "retired_unchanged": 19,
+    "retirement_delta": 0,
+    "runtime_qualification_delta": 0,
+    "unit": 3
+  },
+  "findings": [],
+  "limits": [
+    "Acceptance is limited to the exact nine-source-classification promotion and pinned artifacts.",
+    "No runtime, global, main, production, live, or financial completeness is inferred.",
+    "The three unit roots retain their safety obligations; no deletion or rewrite is authorized.",
+    "No Go, build, test, compiler, runner, binary, or promotion-script execution occurred in this audit.",
+    "No source, Git, or ledger mutation and no live process, listener, or lock probes occurred; the sole write is this exclusive immutable review artifact."
+  ],
+  "scope": "Independent read-only audit of the nine-root internal/ociclient source-classification promotion; all verification completed before this report was written.",
+  "source": {
+    "baseline": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+    "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "immutable_git_source_pins_verified": 16,
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82"
+  },
+  "verdict": "ACCEPT_EXACT_OCICLIENT_NINE_SOURCE_CLASSIFICATION_PROMOTION_NO_RUNTIME_CREDIT",
+  "verified": {
+    "all_14_original_rows_match_accepted_inventory": true,
+    "all_five_completion_categories": "OPEN",
+    "all_nine_categories_match_accepted_review": true,
+    "all_nine_retained_declaration_hashes_equal_baseline": true,
+    "authoritative_and_progress_histories_unchanged": true,
+    "authority_candidate": {
+      "counts_promoted": 0,
+      "integration": 72,
+      "mixed": 2,
+      "roots": 93,
+      "status": "UNDER_REVIEW",
+      "unit": 19
+    },
+    "classification_copies_deeply_equal": 12,
+    "complete": false,
+    "current_numeric_first_party_unadjudicated_fields_equal_4291": 22,
+    "earlier_verification_history_prefix_preserved": true,
+    "financial_gap_unchanged_in_both_ledgers": true,
+    "frozen_scan_counts": {
+      "TestMain": 4,
+      "all_declarations": 5986,
+      "helpers_changed": 9,
+      "helpers_exact": 1653,
+      "helpers_removed": 1,
+      "vendor_central_closure": 0,
+      "vendor_original_files_exact": 131,
+      "vendor_present": 1449,
+      "vendor_retired": 0
+    },
+    "frozen_scan_packet_unchanged": true,
+    "historical_d4ac_receipts_unchanged": [
+      "accepted_d4ac_authoritative_reconciliation",
+      "d4ac_promotion"
+    ],
+    "historical_lexical_scan_unadjudicated_before_classification_fields_equal_4300": 2,
+    "main_published_main_ci_build_and_union_runtime_records_unchanged": true,
+    "notes_distinguish_retained_4300_from_unadjudicated_4291": true,
+    "old_top_level_fields_preserved": true,
+    "previous_latest_verification_appended_exactly_to_read_only_verification_history": true,
+    "prior_canonical19_audit_unchanged": true,
+    "progress_completion_ledger_sha256_matches": true,
+    "root_and_category3_first_party_inventory_equal": true,
+    "row_fields_checked": [
+      "path",
+      "original_name",
+      "kind",
+      "original_hash",
+      "current_name",
+      "current_hash",
+      "state"
+    ],
+    "source_pins_checked": [
+      "git_object_id",
+      "byte_length",
+      "sha256"
+    ]
+  }
+}

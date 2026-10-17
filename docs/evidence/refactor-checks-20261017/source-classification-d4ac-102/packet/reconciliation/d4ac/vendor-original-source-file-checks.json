@@ -1,0 +1,788 @@
+[
+  {
+    "byte_exact": true,
+    "current_sha256": "e2656cea411fb89f2ce24c65f3401d76cf930264d61d245fb7ed6abc97bdfeb3",
+    "frozen_sha256": "e2656cea411fb89f2ce24c65f3401d76cf930264d61d245fb7ed6abc97bdfeb3",
+    "path": "third_party/nats-server/conf/lex_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "602704282ca05215522f0658c2e219534448512fb1a36fc54e92bc7e56117e9a",
+    "frozen_sha256": "602704282ca05215522f0658c2e219534448512fb1a36fc54e92bc7e56117e9a",
+    "path": "third_party/nats-server/conf/parse_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8219e094403ba81803294f1faa9e031b7450575ce0833ca615b98f637fb4431c",
+    "frozen_sha256": "8219e094403ba81803294f1faa9e031b7450575ce0833ca615b98f637fb4431c",
+    "path": "third_party/nats-server/internal/ldap/dn_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "0a3e1bfe6b3f992893814a6d26500f7eada21e6a39d7e78170722a2e76db7ccd",
+    "frozen_sha256": "0a3e1bfe6b3f992893814a6d26500f7eada21e6a39d7e78170722a2e76db7ccd",
+    "path": "third_party/nats-server/logger/log_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7aa58f73f9a61a98e1bdd7bfe3abb2c20d22a31d234711512b146e0149588bce",
+    "frozen_sha256": "7aa58f73f9a61a98e1bdd7bfe3abb2c20d22a31d234711512b146e0149588bce",
+    "path": "third_party/nats-server/logger/syslog_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "2a37994989f02a09e27aeb5ed6cc619c2f2f511857e1472a2c46e0d4c85b6c2a",
+    "frozen_sha256": "2a37994989f02a09e27aeb5ed6cc619c2f2f511857e1472a2c46e0d4c85b6c2a",
+    "path": "third_party/nats-server/logger/syslog_windows_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "d7fbcde613c6bd867a09b48462b0e31f71c3c6e6064acf53f5e6918b0a128810",
+    "frozen_sha256": "d7fbcde613c6bd867a09b48462b0e31f71c3c6e6064acf53f5e6918b0a128810",
+    "path": "third_party/nats-server/server/accounts_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "3af5ffd5667fec5d86e81a4d5ca84a9c184484bef87ffa44efc1c004f58504f4",
+    "frozen_sha256": "3af5ffd5667fec5d86e81a4d5ca84a9c184484bef87ffa44efc1c004f58504f4",
+    "path": "third_party/nats-server/server/archive/archive_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "960dbff945963b4f1a5504162d93fd4b30694b845f49dc6a3238e1495c965aee",
+    "frozen_sha256": "960dbff945963b4f1a5504162d93fd4b30694b845f49dc6a3238e1495c965aee",
+    "path": "third_party/nats-server/server/ats/ats_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "0a4516f2b983534818df7e25a288fb82eb23d24e10ddd86ef9f4dfa6cc666619",
+    "frozen_sha256": "0a4516f2b983534818df7e25a288fb82eb23d24e10ddd86ef9f4dfa6cc666619",
+    "path": "third_party/nats-server/server/auth_callout_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "177454c484fe40f52a3a09ee2f5e0c92208a7d9a4d993ecf5e83c747fa951137",
+    "frozen_sha256": "177454c484fe40f52a3a09ee2f5e0c92208a7d9a4d993ecf5e83c747fa951137",
+    "path": "third_party/nats-server/server/auth_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8faa6b42c459c1253fbe0496f3d74222e9c1bb2d7deb79990bff3e1adf39be70",
+    "frozen_sha256": "8faa6b42c459c1253fbe0496f3d74222e9c1bb2d7deb79990bff3e1adf39be70",
+    "path": "third_party/nats-server/server/avl/norace_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "808536ca5cde59a9d867decde855a6c9c2cf68bdbc18dd57ef479e702a6d6a92",
+    "frozen_sha256": "808536ca5cde59a9d867decde855a6c9c2cf68bdbc18dd57ef479e702a6d6a92",
+    "path": "third_party/nats-server/server/avl/seqset_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "28cad76ab51793e8c0123e0e5d7eb6002f4d97847f1ede397c91e894a3211db7",
+    "frozen_sha256": "28cad76ab51793e8c0123e0e5d7eb6002f4d97847f1ede397c91e894a3211db7",
+    "path": "third_party/nats-server/server/benchmark_publish_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "b30bf5669fc088386b485723ef00772de1bd6c97f95ae4cf1932caca88463ba2",
+    "frozen_sha256": "b30bf5669fc088386b485723ef00772de1bd6c97f95ae4cf1932caca88463ba2",
+    "path": "third_party/nats-server/server/certidp/certidp_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "610375bf4ecca1e9667c06ca868bc9d897e4af3c23f401eca5def6a2802391f0",
+    "frozen_sha256": "610375bf4ecca1e9667c06ca868bc9d897e4af3c23f401eca5def6a2802391f0",
+    "path": "third_party/nats-server/server/certidp/ocsp_responder_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "22a3f37c0f34b2cd4a0294d9b0d5d8223bd4dd4aa14a28f99da5c07dded9a846",
+    "frozen_sha256": "22a3f37c0f34b2cd4a0294d9b0d5d8223bd4dd4aa14a28f99da5c07dded9a846",
+    "path": "third_party/nats-server/server/certstore_windows_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "bdf687ae61e971645c135e71e0787b068075a06a14d8ff08e32de58710ca7d20",
+    "frozen_sha256": "bdf687ae61e971645c135e71e0787b068075a06a14d8ff08e32de58710ca7d20",
+    "path": "third_party/nats-server/server/client_proxyproto_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6513ace60d6bc3fcd60a3e9795064382664414d65952c50adbbb80d9b5a95dad",
+    "frozen_sha256": "6513ace60d6bc3fcd60a3e9795064382664414d65952c50adbbb80d9b5a95dad",
+    "path": "third_party/nats-server/server/client_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "82048b252515331b0942e1379a3181a7003a63190077be8324471a09e7a0056e",
+    "frozen_sha256": "82048b252515331b0942e1379a3181a7003a63190077be8324471a09e7a0056e",
+    "path": "third_party/nats-server/server/closed_conns_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "980e22b7bc654c137904f58897c3f427fc103fb627ce03b7f9cb1d56b4ec80fb",
+    "frozen_sha256": "980e22b7bc654c137904f58897c3f427fc103fb627ce03b7f9cb1d56b4ec80fb",
+    "path": "third_party/nats-server/server/config_check_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e45204661536c76e57142ce32b4752a8ce796d13a81f88298f3d395af0505d4b",
+    "frozen_sha256": "e45204661536c76e57142ce32b4752a8ce796d13a81f88298f3d395af0505d4b",
+    "path": "third_party/nats-server/server/core_benchmarks_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7bef3f2026732d31191101155aef43edbe073d191169d92d243374b9a50382ee",
+    "frozen_sha256": "7bef3f2026732d31191101155aef43edbe073d191169d92d243374b9a50382ee",
+    "path": "third_party/nats-server/server/dirstore_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "42a52d178fd268811574e014e4c403b87289a821528046c2b08b1c0db932d471",
+    "frozen_sha256": "42a52d178fd268811574e014e4c403b87289a821528046c2b08b1c0db932d471",
+    "path": "third_party/nats-server/server/errors_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "aa2ef383eb7b3be55bb1bbe09bf26cdcfcdf48af87b93216770630c98f50e003",
+    "frozen_sha256": "aa2ef383eb7b3be55bb1bbe09bf26cdcfcdf48af87b93216770630c98f50e003",
+    "path": "third_party/nats-server/server/events_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e9b553450a785c61f33514404451c00f2cb1a623df834333ec03a368feeab932",
+    "frozen_sha256": "e9b553450a785c61f33514404451c00f2cb1a623df834333ec03a368feeab932",
+    "path": "third_party/nats-server/server/feature_flags_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "5b78b73084c4d2067d409d2d46d9c749279fd10b43577d0ed2eb6361bec2920b",
+    "frozen_sha256": "5b78b73084c4d2067d409d2d46d9c749279fd10b43577d0ed2eb6361bec2920b",
+    "path": "third_party/nats-server/server/filestore_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a6552f3cdea40b0b9dc36a2ca5f5abe700897e5289a925ea1946694a6991c309",
+    "frozen_sha256": "a6552f3cdea40b0b9dc36a2ca5f5abe700897e5289a925ea1946694a6991c309",
+    "path": "third_party/nats-server/server/gateway_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "653b6a9d7b1bf4883c9575430fdd7da898ec1822ad643540968988eb8accda73",
+    "frozen_sha256": "653b6a9d7b1bf4883c9575430fdd7da898ec1822ad643540968988eb8accda73",
+    "path": "third_party/nats-server/server/gsl/gsl_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "d7cdb45b4381bef9e60a24b8fef7b1878da499248c76df11ca132db05933eae4",
+    "frozen_sha256": "d7cdb45b4381bef9e60a24b8fef7b1878da499248c76df11ca132db05933eae4",
+    "path": "third_party/nats-server/server/ipqueue_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "015b538de24dbeab06dde9fe8fbccd6ab299b4fdce35ad951c1720fdfbfe1614",
+    "frozen_sha256": "015b538de24dbeab06dde9fe8fbccd6ab299b4fdce35ad951c1720fdfbfe1614",
+    "path": "third_party/nats-server/server/jetstream_batching_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "415fdc32fbb390a810f050f4a34b530b6146f2b6da9dd03bd1d023971213b205",
+    "frozen_sha256": "415fdc32fbb390a810f050f4a34b530b6146f2b6da9dd03bd1d023971213b205",
+    "path": "third_party/nats-server/server/jetstream_benchmark_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "cecd81a2e132d3e5c2e661d5431803b1663b257a9a79b431615f319d72b1080c",
+    "frozen_sha256": "cecd81a2e132d3e5c2e661d5431803b1663b257a9a79b431615f319d72b1080c",
+    "path": "third_party/nats-server/server/jetstream_cluster_1_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "adeb50e7c57e720de09d988d484ced22c52711d208eccb554c356a8f0223207e",
+    "frozen_sha256": "adeb50e7c57e720de09d988d484ced22c52711d208eccb554c356a8f0223207e",
+    "path": "third_party/nats-server/server/jetstream_cluster_2_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "87fe00c3a63844aebe59edd48855898deabe20fcdea8958bfd75d047979f194c",
+    "frozen_sha256": "87fe00c3a63844aebe59edd48855898deabe20fcdea8958bfd75d047979f194c",
+    "path": "third_party/nats-server/server/jetstream_cluster_3_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "76054d6054d162435ec13a3a17d1953b5ace1dbd210e85b0341e6b3459d3652d",
+    "frozen_sha256": "76054d6054d162435ec13a3a17d1953b5ace1dbd210e85b0341e6b3459d3652d",
+    "path": "third_party/nats-server/server/jetstream_cluster_4_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8140b553955d1290f96371634e5447244ec31ba5748affcaeceb6c480e1841ab",
+    "frozen_sha256": "8140b553955d1290f96371634e5447244ec31ba5748affcaeceb6c480e1841ab",
+    "path": "third_party/nats-server/server/jetstream_cluster_long_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7cef5bfc0967c34c76873dcd6c3018cb0bf787144b28ff90200e9907a3ed70b7",
+    "frozen_sha256": "7cef5bfc0967c34c76873dcd6c3018cb0bf787144b28ff90200e9907a3ed70b7",
+    "path": "third_party/nats-server/server/jetstream_consumer_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6fb6c29ffefdba4780e3a21f82601f723e2bc83043d8f0fa1d67d3964c207ead",
+    "frozen_sha256": "6fb6c29ffefdba4780e3a21f82601f723e2bc83043d8f0fa1d67d3964c207ead",
+    "path": "third_party/nats-server/server/jetstream_errors_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7197bf3b86160c8b97c245deabccb7b4a0ac30deb7df6a808b9e2ff6a98b1907",
+    "frozen_sha256": "7197bf3b86160c8b97c245deabccb7b4a0ac30deb7df6a808b9e2ff6a98b1907",
+    "path": "third_party/nats-server/server/jetstream_helpers_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6c42887565d8c5d6838952c018fb4e3e1c49091bf8bd4bcea60a5eeb5ea42f4c",
+    "frozen_sha256": "6c42887565d8c5d6838952c018fb4e3e1c49091bf8bd4bcea60a5eeb5ea42f4c",
+    "path": "third_party/nats-server/server/jetstream_jwt_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "5d15b94b3a2df5b85f383de75e880d206a64f298d65a80fd9f679162fd30532a",
+    "frozen_sha256": "5d15b94b3a2df5b85f383de75e880d206a64f298d65a80fd9f679162fd30532a",
+    "path": "third_party/nats-server/server/jetstream_leafnode_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "160a0a138238a922c916e908e9b1d30b0bdbaed84ec4407210e919032beefc6e",
+    "frozen_sha256": "160a0a138238a922c916e908e9b1d30b0bdbaed84ec4407210e919032beefc6e",
+    "path": "third_party/nats-server/server/jetstream_meta_benchmark_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a4286677a745f471c7f2381841d798d38a7df77a2523848473cc096431c0d84a",
+    "frozen_sha256": "a4286677a745f471c7f2381841d798d38a7df77a2523848473cc096431c0d84a",
+    "path": "third_party/nats-server/server/jetstream_sourcing_scaling_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "94e4a7c36a6a1da8642585c594a77cad8ec885ffea5669fbb8b3cc3c6a0f913f",
+    "frozen_sha256": "94e4a7c36a6a1da8642585c594a77cad8ec885ffea5669fbb8b3cc3c6a0f913f",
+    "path": "third_party/nats-server/server/jetstream_super_cluster_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "715fd9dc784206b471b5fcc439b9e626fac9cbbe1aeb08a670460876c92af4d7",
+    "frozen_sha256": "715fd9dc784206b471b5fcc439b9e626fac9cbbe1aeb08a670460876c92af4d7",
+    "path": "third_party/nats-server/server/jetstream_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "9a8551e11026579d5e659e883ec8c6b69895034353ceba23a9766dd5246ceb22",
+    "frozen_sha256": "9a8551e11026579d5e659e883ec8c6b69895034353ceba23a9766dd5246ceb22",
+    "path": "third_party/nats-server/server/jetstream_tpm_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "23db0400053589b1067aad0109bfd4ff030c2d0d804b1c52b0324d8d1bfdb503",
+    "frozen_sha256": "23db0400053589b1067aad0109bfd4ff030c2d0d804b1c52b0324d8d1bfdb503",
+    "path": "third_party/nats-server/server/jetstream_versioning_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "91a1ef7905a4eed5be709dc3e34e7a7e9b73ac509b9de6a34d01b68d1da1b12a",
+    "frozen_sha256": "91a1ef7905a4eed5be709dc3e34e7a7e9b73ac509b9de6a34d01b68d1da1b12a",
+    "path": "third_party/nats-server/server/jwt_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "acd1ddd85e6949571a89da07e76886eae0951388c868576ca03e86f219f99365",
+    "frozen_sha256": "acd1ddd85e6949571a89da07e76886eae0951388c868576ca03e86f219f99365",
+    "path": "third_party/nats-server/server/leafnode_proxy_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "424dea6e9d3b7314857d930f9c4867b432e623a8fbb68b2ce0d22385f44c45a4",
+    "frozen_sha256": "424dea6e9d3b7314857d930f9c4867b432e623a8fbb68b2ce0d22385f44c45a4",
+    "path": "third_party/nats-server/server/leafnode_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "102d273e3446e169a3a28fc4749a861923b7fd484c0acb2efe795bf93b1e7630",
+    "frozen_sha256": "102d273e3446e169a3a28fc4749a861923b7fd484c0acb2efe795bf93b1e7630",
+    "path": "third_party/nats-server/server/log_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "48758c8fe2f8911535f09c40d317c3ed850ad98af257eca2209b58a231de6851",
+    "frozen_sha256": "48758c8fe2f8911535f09c40d317c3ed850ad98af257eca2209b58a231de6851",
+    "path": "third_party/nats-server/server/memstore_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "406db32804895ec9bc7db956748fc088defbadf7371764a93a6c633eb66276b3",
+    "frozen_sha256": "406db32804895ec9bc7db956748fc088defbadf7371764a93a6c633eb66276b3",
+    "path": "third_party/nats-server/server/monitor_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "c53dabee0a72d80352141c6cc956d44bf45f4a2b181b0079590e4a399a9a10e0",
+    "frozen_sha256": "c53dabee0a72d80352141c6cc956d44bf45f4a2b181b0079590e4a399a9a10e0",
+    "path": "third_party/nats-server/server/mqtt_ex_bench_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "211f2b3123485414db7e3f2830da80a9e24134d013b8cb22bbb5798ac71132ff",
+    "frozen_sha256": "211f2b3123485414db7e3f2830da80a9e24134d013b8cb22bbb5798ac71132ff",
+    "path": "third_party/nats-server/server/mqtt_ex_test_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8be2c36a39ea537cf1b47e94ccd7e93ecb88ba163fe1f39181a3e40ec68df261",
+    "frozen_sha256": "8be2c36a39ea537cf1b47e94ccd7e93ecb88ba163fe1f39181a3e40ec68df261",
+    "path": "third_party/nats-server/server/mqtt_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e2214579640137ecd33ff8e2ba5840aad0cc28a0c36fe32c65abb80873383feb",
+    "frozen_sha256": "e2214579640137ecd33ff8e2ba5840aad0cc28a0c36fe32c65abb80873383feb",
+    "path": "third_party/nats-server/server/msgtrace_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "bb71e716b3e215607e96121f42b5317c0b09a89a38b0ef0ac59c2cc09f0de732",
+    "frozen_sha256": "bb71e716b3e215607e96121f42b5317c0b09a89a38b0ef0ac59c2cc09f0de732",
+    "path": "third_party/nats-server/server/nkey_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "84ee02dde006ce347f3bf2ba11e2e8e49d7ca7beeba485ad5ab4b6a0a5c3e0cb",
+    "frozen_sha256": "84ee02dde006ce347f3bf2ba11e2e8e49d7ca7beeba485ad5ab4b6a0a5c3e0cb",
+    "path": "third_party/nats-server/server/norace_1_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "d6be26d9af430bcf8725da8c4126350be4f92bad1b6a01190c6646993fd33261",
+    "frozen_sha256": "d6be26d9af430bcf8725da8c4126350be4f92bad1b6a01190c6646993fd33261",
+    "path": "third_party/nats-server/server/norace_2_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e70ce4a2f9e5ebf3bd72f4ec4d8d686da46067b6c01733f1f2b5af1527c5c288",
+    "frozen_sha256": "e70ce4a2f9e5ebf3bd72f4ec4d8d686da46067b6c01733f1f2b5af1527c5c288",
+    "path": "third_party/nats-server/server/opts_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6cb54689a36faa3e2b65e769bcd1746d537e9427bf15b803e1f6c587ff8d7ff4",
+    "frozen_sha256": "6cb54689a36faa3e2b65e769bcd1746d537e9427bf15b803e1f6c587ff8d7ff4",
+    "path": "third_party/nats-server/server/parser_fuzz_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "23b19c56cd616b95f9577ce2a20cd2393cda5b513236233437f032f82c17bb03",
+    "frozen_sha256": "23b19c56cd616b95f9577ce2a20cd2393cda5b513236233437f032f82c17bb03",
+    "path": "third_party/nats-server/server/parser_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e8e7d0bc5deffe0ca4dfb1d6f2d990834ee9095dd1af93c9bfb8c83e21f56271",
+    "frozen_sha256": "e8e7d0bc5deffe0ca4dfb1d6f2d990834ee9095dd1af93c9bfb8c83e21f56271",
+    "path": "third_party/nats-server/server/ping_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "974eeff886d3faf7f884d0325e6330b7b14a8a9e09dc713c0eac700aeb44b111",
+    "frozen_sha256": "974eeff886d3faf7f884d0325e6330b7b14a8a9e09dc713c0eac700aeb44b111",
+    "path": "third_party/nats-server/server/pse/pse_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "c6b809dc5f7088b676a250d4a3677873bb86016b8b2c2b2a9492e04436a9039a",
+    "frozen_sha256": "c6b809dc5f7088b676a250d4a3677873bb86016b8b2c2b2a9492e04436a9039a",
+    "path": "third_party/nats-server/server/pse/pse_windows_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "aea68d3e13a1a099859c5b39e0b49cf5fbacfb7c4afedac9dddf6cbe57859661",
+    "frozen_sha256": "aea68d3e13a1a099859c5b39e0b49cf5fbacfb7c4afedac9dddf6cbe57859661",
+    "path": "third_party/nats-server/server/raft_benchmark_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6b547ad365441afaf7bc4ba502a1928bc6a0fdb3fcc4169e8c8e35c32e18968c",
+    "frozen_sha256": "6b547ad365441afaf7bc4ba502a1928bc6a0fdb3fcc4169e8c8e35c32e18968c",
+    "path": "third_party/nats-server/server/raft_chain_of_blocks_helpers_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "da4dfae4bd1106a90398d490d27d654ae14e939eb718aa9d9b06f5c23e25c62d",
+    "frozen_sha256": "da4dfae4bd1106a90398d490d27d654ae14e939eb718aa9d9b06f5c23e25c62d",
+    "path": "third_party/nats-server/server/raft_helpers_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "05251ff80370fd10d837adc9ee708c98b00cde202d58ea47de7221bd4d484508",
+    "frozen_sha256": "05251ff80370fd10d837adc9ee708c98b00cde202d58ea47de7221bd4d484508",
+    "path": "third_party/nats-server/server/raft_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "3afb82f6d73f6397c74b027cf3339b43c4a9c4e19880a35a0e8c00a201a6f50d",
+    "frozen_sha256": "3afb82f6d73f6397c74b027cf3339b43c4a9c4e19880a35a0e8c00a201a6f50d",
+    "path": "third_party/nats-server/server/raft_transport_helpers_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "f00086c26e44672d8573869d005dce99fcf98cf678f785e205766a39549adb8e",
+    "frozen_sha256": "f00086c26e44672d8573869d005dce99fcf98cf678f785e205766a39549adb8e",
+    "path": "third_party/nats-server/server/rate_counter_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "f888787ff10b364560ee60a182a41e4c3da910041d3d1694ab1ab71e1a4669ca",
+    "frozen_sha256": "f888787ff10b364560ee60a182a41e4c3da910041d3d1694ab1ab71e1a4669ca",
+    "path": "third_party/nats-server/server/reload_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "4933fe7d7f52bcf1945e78e46d42d8912fd29682be5717032698b345a3523bf3",
+    "frozen_sha256": "4933fe7d7f52bcf1945e78e46d42d8912fd29682be5717032698b345a3523bf3",
+    "path": "third_party/nats-server/server/ring_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "536ca03fb896b5d2f4f0ba717c09b49d07e14d038be2f753fe23d4f7223cb660",
+    "frozen_sha256": "536ca03fb896b5d2f4f0ba717c09b49d07e14d038be2f753fe23d4f7223cb660",
+    "path": "third_party/nats-server/server/routes_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "69f8c1b45f3042e11cb41619b17c1a22f71b36fd32af08c940fd79b0d4c6265d",
+    "frozen_sha256": "69f8c1b45f3042e11cb41619b17c1a22f71b36fd32af08c940fd79b0d4c6265d",
+    "path": "third_party/nats-server/server/server_fuzz_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a4606d5d38c6d53bad8b1a5cd47941c29dc711e747f59c9ca287d6d249e61bc5",
+    "frozen_sha256": "a4606d5d38c6d53bad8b1a5cd47941c29dc711e747f59c9ca287d6d249e61bc5",
+    "path": "third_party/nats-server/server/server_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "41020d6691dc403483c2ab9a4341bd346a812290e648886b5e9dc95335e845cb",
+    "frozen_sha256": "41020d6691dc403483c2ab9a4341bd346a812290e648886b5e9dc95335e845cb",
+    "path": "third_party/nats-server/server/service_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "359cb03f0cce17eff659d82f9c9edaee61dc9a9ffdea54a526c45c8ec1227edf",
+    "frozen_sha256": "359cb03f0cce17eff659d82f9c9edaee61dc9a9ffdea54a526c45c8ec1227edf",
+    "path": "third_party/nats-server/server/service_windows_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "3f2daa83c17c08ab0803ad13987b5a56e149589aaa98540107748aea9833f5af",
+    "frozen_sha256": "3f2daa83c17c08ab0803ad13987b5a56e149589aaa98540107748aea9833f5af",
+    "path": "third_party/nats-server/server/signal_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7fa5ad9d4d2d0efa8fc8737a0336447cdb6ea8bd4d2ee645b6aae1fe1ecae977",
+    "frozen_sha256": "7fa5ad9d4d2d0efa8fc8737a0336447cdb6ea8bd4d2ee645b6aae1fe1ecae977",
+    "path": "third_party/nats-server/server/split_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e26f55951431bc1d9aa29b2d9f1397747bc9015ef1063659654176e31ad20586",
+    "frozen_sha256": "e26f55951431bc1d9aa29b2d9f1397747bc9015ef1063659654176e31ad20586",
+    "path": "third_party/nats-server/server/store_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a0e5215d77e90f9b8224f84022ee593ccf2df5e3dc1d3d6b90423b29d6a5dcb5",
+    "frozen_sha256": "a0e5215d77e90f9b8224f84022ee593ccf2df5e3dc1d3d6b90423b29d6a5dcb5",
+    "path": "third_party/nats-server/server/stree/helper_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "756451fb3107742f3a4e3da11aa60ea1d6a221dd089868dfcce61afe15ddb7b7",
+    "frozen_sha256": "756451fb3107742f3a4e3da11aa60ea1d6a221dd089868dfcce61afe15ddb7b7",
+    "path": "third_party/nats-server/server/stree/stree_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "4bbc670b7fd216ab37bd8ea8976096d7505be0ea64869549c477f6b42b8b54be",
+    "frozen_sha256": "4bbc670b7fd216ab37bd8ea8976096d7505be0ea64869549c477f6b42b8b54be",
+    "path": "third_party/nats-server/server/subject_fuzz_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "f9dbff410e8d5e59e7a882640a351af68abaa334c133dc61a5723dfd7f063c43",
+    "frozen_sha256": "f9dbff410e8d5e59e7a882640a351af68abaa334c133dc61a5723dfd7f063c43",
+    "path": "third_party/nats-server/server/subject_transform_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a6af4a2fd91a077b078fe09415144195d9696e77c7067d04bf7782edf4c4b184",
+    "frozen_sha256": "a6af4a2fd91a077b078fe09415144195d9696e77c7067d04bf7782edf4c4b184",
+    "path": "third_party/nats-server/server/sublist_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e2831baa6b115d99119d4a20bdae855c26c5c88d7af6d02a29dca11289170f7b",
+    "frozen_sha256": "e2831baa6b115d99119d4a20bdae855c26c5c88d7af6d02a29dca11289170f7b",
+    "path": "third_party/nats-server/server/terrascale_node_identity_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "545bb332bdbbc35f9d8215cc1cc4495d2b4dfad8bb6f7336fbf7858be1515569",
+    "frozen_sha256": "545bb332bdbbc35f9d8215cc1cc4495d2b4dfad8bb6f7336fbf7858be1515569",
+    "path": "third_party/nats-server/server/test_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "55a62f8693c600467f173c936632b24604d80c9b6b1744a8ca68eea233c186df",
+    "frozen_sha256": "55a62f8693c600467f173c936632b24604d80c9b6b1744a8ca68eea233c186df",
+    "path": "third_party/nats-server/server/thw/helper_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "719ce940b2e1f87e8286de46ac248516d206c0d2fbd001591ad4b5a5720d2db3",
+    "frozen_sha256": "719ce940b2e1f87e8286de46ac248516d206c0d2fbd001591ad4b5a5720d2db3",
+    "path": "third_party/nats-server/server/thw/thw_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "aad3410a0b1193aaab06d7cb90f3bd615db23cef178df221a7c484b5948a83fe",
+    "frozen_sha256": "aad3410a0b1193aaab06d7cb90f3bd615db23cef178df221a7c484b5948a83fe",
+    "path": "third_party/nats-server/server/tpm/js_ek_tpm_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "5752da0041e2b48f46b14398f7de27dc3be12785e9ccd729b86f538b32dd9e31",
+    "frozen_sha256": "5752da0041e2b48f46b14398f7de27dc3be12785e9ccd729b86f538b32dd9e31",
+    "path": "third_party/nats-server/server/trust_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "35d826cf587b81656eaad0fdaf2a4a9adf97a5cc6c514f7453e4ca4065fbedb8",
+    "frozen_sha256": "35d826cf587b81656eaad0fdaf2a4a9adf97a5cc6c514f7453e4ca4065fbedb8",
+    "path": "third_party/nats-server/server/util_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "fbddd14018ce6646d3efc9e3bb98eb0a1abeb102a0328b580a364d7d090d64f6",
+    "frozen_sha256": "fbddd14018ce6646d3efc9e3bb98eb0a1abeb102a0328b580a364d7d090d64f6",
+    "path": "third_party/nats-server/server/websocket_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "5697915257cb6fb29369f2c98aeaf8d7a6b2cfe07666f105525e44b8ec176c2f",
+    "frozen_sha256": "5697915257cb6fb29369f2c98aeaf8d7a6b2cfe07666f105525e44b8ec176c2f",
+    "path": "third_party/nats-server/test/accounts_cycles_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "6b7fb64f38e63b773a3b56931a95a4a3141da531cadb4ed6f3af094ae7f88e2b",
+    "frozen_sha256": "6b7fb64f38e63b773a3b56931a95a4a3141da531cadb4ed6f3af094ae7f88e2b",
+    "path": "third_party/nats-server/test/auth_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "aeb9a22ba112973f485834458cf5451c80f5b68dad872092b5903ef3509d3130",
+    "frozen_sha256": "aeb9a22ba112973f485834458cf5451c80f5b68dad872092b5903ef3509d3130",
+    "path": "third_party/nats-server/test/bench_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "40c6951c2ae07d1df69da127c8e6b50c3925143295bbef5ba51ca073e5daaf6f",
+    "frozen_sha256": "40c6951c2ae07d1df69da127c8e6b50c3925143295bbef5ba51ca073e5daaf6f",
+    "path": "third_party/nats-server/test/client_auth_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "aab87025edbba051f115325ba62a69e97ac86578113e695443f8f754801039ec",
+    "frozen_sha256": "aab87025edbba051f115325ba62a69e97ac86578113e695443f8f754801039ec",
+    "path": "third_party/nats-server/test/client_cluster_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "fd3c7c1320f561cc7bd0596201f8129f0c858f9e3141ddf1b15c738cf8485a2f",
+    "frozen_sha256": "fd3c7c1320f561cc7bd0596201f8129f0c858f9e3141ddf1b15c738cf8485a2f",
+    "path": "third_party/nats-server/test/cluster_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7b0013bf3e24081ac2eb5a67d386963dc242231438dd892ad6b4e86542996ea5",
+    "frozen_sha256": "7b0013bf3e24081ac2eb5a67d386963dc242231438dd892ad6b4e86542996ea5",
+    "path": "third_party/nats-server/test/cluster_tls_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "809a5ffc1181a2eadee1cd7f8ac995849af4429234224b68855f0bb276646bcb",
+    "frozen_sha256": "809a5ffc1181a2eadee1cd7f8ac995849af4429234224b68855f0bb276646bcb",
+    "path": "third_party/nats-server/test/fanout_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "05ba961fd76e9ae0c697c9a87f21dc61b9ffc5e16e085bab89f8045aea7f7dd9",
+    "frozen_sha256": "05ba961fd76e9ae0c697c9a87f21dc61b9ffc5e16e085bab89f8045aea7f7dd9",
+    "path": "third_party/nats-server/test/gateway_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8d6e45060d942284900b30b37af260fd919c4cb8865368430a91139d6889ca58",
+    "frozen_sha256": "8d6e45060d942284900b30b37af260fd919c4cb8865368430a91139d6889ca58",
+    "path": "third_party/nats-server/test/gosrv_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "da441f1b22fc13c80d5c3feef652dbe040644ccfaffc0a978bcd382beab028d0",
+    "frozen_sha256": "da441f1b22fc13c80d5c3feef652dbe040644ccfaffc0a978bcd382beab028d0",
+    "path": "third_party/nats-server/test/leafnode_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "f16c2a2c1bf0aa254309979b1596929b9974feca5907303c40783931ece44840",
+    "frozen_sha256": "f16c2a2c1bf0aa254309979b1596929b9974feca5907303c40783931ece44840",
+    "path": "third_party/nats-server/test/log_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "60094df56a151b56f9073cf014e0625b23c740c017431748d82b14e1951ed188",
+    "frozen_sha256": "60094df56a151b56f9073cf014e0625b23c740c017431748d82b14e1951ed188",
+    "path": "third_party/nats-server/test/maxpayload_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7f8eab56b05925ae559606cb5b2f177f8737bc869a07adf5eb78113465fc4bd3",
+    "frozen_sha256": "7f8eab56b05925ae559606cb5b2f177f8737bc869a07adf5eb78113465fc4bd3",
+    "path": "third_party/nats-server/test/monitor_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "88bad51f5a5cade072442462ad06f6199b3e2485c7e9445d83659feba1ba32c0",
+    "frozen_sha256": "88bad51f5a5cade072442462ad06f6199b3e2485c7e9445d83659feba1ba32c0",
+    "path": "third_party/nats-server/test/new_routes_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "1039df2ebfe8a5ed20a172e98daafc01918e067a4b89b5efd35010eeb59952eb",
+    "frozen_sha256": "1039df2ebfe8a5ed20a172e98daafc01918e067a4b89b5efd35010eeb59952eb",
+    "path": "third_party/nats-server/test/norace_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "8999f2b2a96c9048abc2a6665bf75051b0ddd61fa7b2c710f2af5184b36f7066",
+    "frozen_sha256": "8999f2b2a96c9048abc2a6665bf75051b0ddd61fa7b2c710f2af5184b36f7066",
+    "path": "third_party/nats-server/test/ocsp_peer_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "86fe16f5b2755da847c14699b97612aff4172d87c9b3ea944e5c1be81703b338",
+    "frozen_sha256": "86fe16f5b2755da847c14699b97612aff4172d87c9b3ea944e5c1be81703b338",
+    "path": "third_party/nats-server/test/ocsp_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "99cc9bcdcf8cf178afea0ae733ae3574b119317bfe42db84a67e33a0c051576f",
+    "frozen_sha256": "99cc9bcdcf8cf178afea0ae733ae3574b119317bfe42db84a67e33a0c051576f",
+    "path": "third_party/nats-server/test/operator_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "fd8d0a885d6166a4cd524363e6b6b04ee1a9e8908ccd938f17740f681b2a6420",
+    "frozen_sha256": "fd8d0a885d6166a4cd524363e6b6b04ee1a9e8908ccd938f17740f681b2a6420",
+    "path": "third_party/nats-server/test/opts_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "bad54dd90d4375bc6c09b279068a28b678d71584589dc9af2380d824e4f80cc9",
+    "frozen_sha256": "bad54dd90d4375bc6c09b279068a28b678d71584589dc9af2380d824e4f80cc9",
+    "path": "third_party/nats-server/test/pedantic_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "37deff6ff9d9f1c619354a784c5b997132b8bb7e204a3b64a37e383d25178192",
+    "frozen_sha256": "37deff6ff9d9f1c619354a784c5b997132b8bb7e204a3b64a37e383d25178192",
+    "path": "third_party/nats-server/test/pid_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "705b5abe4ff69903b519ccb2bb368564956cb3ccfd5de2ae33857f1f9c6818d9",
+    "frozen_sha256": "705b5abe4ff69903b519ccb2bb368564956cb3ccfd5de2ae33857f1f9c6818d9",
+    "path": "third_party/nats-server/test/ping_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "7bde223ed3c7897aac670bcf0129d65b0b6635b99cbe1378c9a7cfd4e6ff706c",
+    "frozen_sha256": "7bde223ed3c7897aac670bcf0129d65b0b6635b99cbe1378c9a7cfd4e6ff706c",
+    "path": "third_party/nats-server/test/port_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "57bd5f9323b9fa8a8c7ee4c16f43c62382dd0f3d5351ed62c71b16cf9d2bd645",
+    "frozen_sha256": "57bd5f9323b9fa8a8c7ee4c16f43c62382dd0f3d5351ed62c71b16cf9d2bd645",
+    "path": "third_party/nats-server/test/ports_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "811fc8c7e175c2ab05f833f8aa990d946b49862aed41a3213628d73d2b2463b0",
+    "frozen_sha256": "811fc8c7e175c2ab05f833f8aa990d946b49862aed41a3213628d73d2b2463b0",
+    "path": "third_party/nats-server/test/proto_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "89dfd66f345cb8cd08d110753487d892dac8adbf09983de2ecc7c5dbd0eaca05",
+    "frozen_sha256": "89dfd66f345cb8cd08d110753487d892dac8adbf09983de2ecc7c5dbd0eaca05",
+    "path": "third_party/nats-server/test/route_discovery_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "a06896b09fc2c9620af6d26249309f91d6e7f2d026daa84ec30d52812686f228",
+    "frozen_sha256": "a06896b09fc2c9620af6d26249309f91d6e7f2d026daa84ec30d52812686f228",
+    "path": "third_party/nats-server/test/routes_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "86ad2863b82aff4ebc59f320963fd0b8c253e32d6478979091bef2fa669f1477",
+    "frozen_sha256": "86ad2863b82aff4ebc59f320963fd0b8c253e32d6478979091bef2fa669f1477",
+    "path": "third_party/nats-server/test/service_latency_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "0a7a5f24a1409ee992f9c5dd73453ef4c862d380a6fe937515f10bed331792e7",
+    "frozen_sha256": "0a7a5f24a1409ee992f9c5dd73453ef4c862d380a6fe937515f10bed331792e7",
+    "path": "third_party/nats-server/test/services_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "756a0f6ec3bea02adbb7eeb4eccb2374cb80f24937bedd3fbf99002b1293e64e",
+    "frozen_sha256": "756a0f6ec3bea02adbb7eeb4eccb2374cb80f24937bedd3fbf99002b1293e64e",
+    "path": "third_party/nats-server/test/system_services_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "e5a9ddf1bf3f1a96eff80e6ae1bb6e88679fa6983777b49611ff377c57fb1b56",
+    "frozen_sha256": "e5a9ddf1bf3f1a96eff80e6ae1bb6e88679fa6983777b49611ff377c57fb1b56",
+    "path": "third_party/nats-server/test/test_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "5b814e3edcc776ab252e68d773174d6fb1b8db2c6a7fa5c1f4d789bae464dc1b",
+    "frozen_sha256": "5b814e3edcc776ab252e68d773174d6fb1b8db2c6a7fa5c1f4d789bae464dc1b",
+    "path": "third_party/nats-server/test/tls_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "42796954b45416476bc0a1c164245eb27cca1a1545a0db21bb288e83adc304f3",
+    "frozen_sha256": "42796954b45416476bc0a1c164245eb27cca1a1545a0db21bb288e83adc304f3",
+    "path": "third_party/nats-server/test/user_authorization_test.go"
+  },
+  {
+    "byte_exact": true,
+    "current_sha256": "cfe943c52c33895b10eba69f399e5691388dc8cddfdcc2366c2140b08a2c28f1",
+    "frozen_sha256": "cfe943c52c33895b10eba69f399e5691388dc8cddfdcc2366c2140b08a2c28f1",
+    "path": "third_party/nats-server/test/verbose_test.go"
+  }
+]

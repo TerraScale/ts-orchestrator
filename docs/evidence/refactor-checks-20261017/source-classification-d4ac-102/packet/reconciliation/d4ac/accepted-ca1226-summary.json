@@ -1,0 +1,122 @@
+{
+  "all_original_declarations_reconciled": 5986,
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "baseline_files_all1036_hashes_verified": true,
+  "central_counts_mutated": false,
+  "current_commit": "ca1226b9b4011383f39c0753e19be295618accf8",
+  "current_feature_clean_before_after": true,
+  "current_tree": "4439bb44e9dbcc6531a76dcf494a4f87cdb9b647",
+  "draft_SHA256SUMS_sha256": "c3fdebcc6659291865866b545c585730c4cd3f50a90787960df7562447c72473",
+  "draft_packet_preserved": "/tmp/ts-firstparty-vendor-ca1226-reconciled-9se4l0l5",
+  "draft_summary_sha256": "a52604bd211b6f160f54128979f29c63c02dbd9862d59576f22924d75ae94053",
+  "extraction_errors": [],
+  "firstparty_baseline_by_kind": {
+    "helper": 1663,
+    "test": 4319,
+    "testmain": 4
+  },
+  "firstparty_changes_since_accepted9988_by_kind": {
+    "test": 1
+  },
+  "firstparty_current_test_source_files": 1041,
+  "firstparty_globally_unadjudicated_remaining_original_tests": 4310,
+  "firstparty_limit": "4319 original tests =4290 declaration/body exact+19 changed+1 retained expanded owner+9 scoped independently accepted adopted retirements. Remaining4310 are globally unadjudicated, never4310 unit tests. Lexical survival is not global unit/integration classification. Exact reconciliation independently accepted. No new runtime or global qualification.",
+  "firstparty_new_source_declarations_excluding_owner_rename_by_kind": {
+    "helper": 5,
+    "test": 8
+  },
+  "firstparty_original_survival_by_kind": {
+    "helper": {
+      "removed_helper_not_test_retirement": 1,
+      "retained_body_changed": 8,
+      "retained_body_exact": 1654
+    },
+    "test": {
+      "qualified_retired": 9,
+      "renamed_expanded_integration_owner": 1,
+      "retained_body_changed": 19,
+      "retained_body_exact": 4290
+    },
+    "testmain": {
+      "retained_body_exact": 4
+    }
+  },
+  "firstparty_previously_accepted_retirements": 8,
+  "firstparty_qualified_retirements": 9,
+  "independent_review": {
+    "copy": "independent-reconciliation-review.json",
+    "path": "/tmp/ts-qa-ca1226-reconciliation-independent-_r0r8zmj/review.json",
+    "sha256": "57c1c2e3d3e5302e786287bd89a1aac9553de11b43d9b11a983dfa2b2f34a489"
+  },
+  "input_hashes": {
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/SHA256SUMS": {
+      "bytes": 4141,
+      "sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-declarations.tsv": {
+      "bytes": 1712685,
+      "sha256": "aaee505db0b7d4a059b799225856041958afba856ab00c5eb3eea5f9cf5d545e"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-files.tsv": {
+      "bytes": 269232,
+      "sha256": "cb9fafab233df88f2f1a14285643e311c607e36b5aa44dbd776ebcb4fcaa95f9"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/eight-source-retirement-dispositions.json": {
+      "bytes": 7876,
+      "sha256": "38137e41d0ee3f80218f36a3e5037a11027598c642f8eda01749e6faed8e4f07"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/firstparty-survival.tsv": {
+      "bytes": 1641867,
+      "sha256": "5f68f6fced9685863ae7ecdc7d156a10a8bab5e225f69280498feb9434bb5f78"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-cases.tsv": {
+      "bytes": 4848737,
+      "sha256": "9141736e797b71bfe604b0b7526ba56317676707360765ba3f6c25c588a8bc79"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-source-files.tsv": {
+      "bytes": 15178,
+      "sha256": "9916ed35b0584bfa256c0d94134ac778551c0aae284100ec861f999cd0232cd7"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/original-scanner.py.txt": {
+      "bytes": 16864,
+      "sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/summary.json": {
+      "bytes": 11498,
+      "sha256": "33624282107de6aba8367aff2ea82d1935b88a7bf75e5d725137992fa1dab1a4"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/cases.tsv": {
+      "bytes": 570785,
+      "sha256": "d3433286cbe27b087bce9822edb869208f5d064eb37fba6dda25ee6c9024a918"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/progress.json": {
+      "bytes": 14996,
+      "sha256": "96695331b5efec6d151027fd8bf23b69ecf45f48c8ddabb6695e98eb8e9dec1f"
+    },
+    "/tmp/ts-qa-operation-748d-adoption-independent-hu616kh_/review.json": {
+      "bytes": 4761,
+      "sha256": "a502f0836491e76cd42ca102b8b9b3f041d6d2ae49cefcdd08f5207fbc1f98b9"
+    }
+  },
+  "method": "Immutable Git ls-tree/cat-file/show and pure lexical functions AST-extracted from pinned original scanner; no Go AST/typecheck/discovery/build/test/runtime/runner/binary/cloud/source/index/branch mutation. Only exclusive temporary artifacts.",
+  "previous_accepted_commit": "9988b2b8406b4ed808b628ee838d9190d5354a3c",
+  "previous_accepted_packet": "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu",
+  "previous_all40direct_checksums_verified": true,
+  "qualification_limit": "Historical eb217 selected nonrace localTLS runtime stays eb217; exact90f75 default-vet/default-tag truecompile stays90f75; accepted actual748d source adoption is byte-exact at relevant current paths. No current/fullsuite/race/cloud/production/global runtime qualification.",
+  "reconciled_at_utc": "2026-10-17T13:15:43.347727+00:00",
+  "scanner_sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880",
+  "state": "ACCEPTED_EXACT_CA1226_AUTHORITATIVE_RECONCILIATION_NINE_SCOPED_RETIREMENTS",
+  "vendor_absent_on_current_commit": 0,
+  "vendor_central_integrated_closed": 0,
+  "vendor_current_test_source_files": 132,
+  "vendor_frozen_target_source_classifications": {
+    "mixed": 234,
+    "unit": 1215
+  },
+  "vendor_ledger_candidate_source_removal_dispositions": 13,
+  "vendor_limit": "All1449 frozen unit/mixed originals survive in131byte-exact original files.13 ledger approved-removal dispositions concern other candidate sources and confer no current retirement/closure. No ledger/queue/register mutation.",
+  "vendor_original_source_files_byte_exact": 131,
+  "vendor_original_target_count": 1449,
+  "vendor_present_on_current_commit": 1449,
+  "vendor_retired_on_current_commit": 0
+}

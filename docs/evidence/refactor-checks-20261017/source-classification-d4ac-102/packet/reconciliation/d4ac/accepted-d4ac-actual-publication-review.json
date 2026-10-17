@@ -1,0 +1,70 @@
+{
+  "state": "ACCEPT_EXACT_D4AC_ACTUAL_PUBLISHED_7_PLUS_3_PACKET_AND_UNCHANGED_ACCEPTED_SOURCE",
+  "publication": {
+    "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "parent": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+    "parent_tree": "3fcaeb6821869353d396cc0b23c282f2cfe94174",
+    "immutable_commit": "Earlier direct loose-object SHA1 verification established exact d4ac commit/tree/66c74 parent.",
+    "published_prefix": "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/",
+    "publication_files": 58,
+    "published_modes": "all100644",
+    "all58_actual_git_blobs_equal_frozen": true,
+    "all55_original_copy_bindings_exact": true,
+    "all57_direct_hashes_exact": true,
+    "manifest_sha256": "ff9f559aab5e225a7d19594e699ac8feed11bc94b4a3d50bb19b9410a31dafdf",
+    "sums_sha256": "a0f0dfac0fb6589e482b67ad44692be460e03087f6bbee30a514c09e1384d6df",
+    "published_total_bytes": 505102,
+    "source_parent_entries": 5062,
+    "published_total_entries": 5120,
+    "all_parent_paths_modes_blobs_unchanged": true,
+    "source_changes": 0,
+    "other_added_removed_changed_paths": 0,
+    "diagnostics": {
+      "diffcheck_exit": 2,
+      "raw_sha256": "fbb084591b96eb0a59c23bc88acb0dc6173c5c8ef6192bc31ee34fab408492a2",
+      "count": 35,
+      "by_reason": {
+        "space before tab in indent.": 27,
+        "trailing whitespace.": 8
+      },
+      "paths": [
+        "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/factory-removals.patch",
+        "docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74/oci-removals-retirement.patch"
+      ],
+      "all_within_preserved_raw_patch_context": true,
+      "excluded_patch_diffcheck_exit": 0
+    },
+    "verification": "Read-only immutable git ls-tree/cat-file and diff-check; no source/Git/ledger mutations, Go/check runner/binary execution.",
+    "push": "Owner session7797 active at assignment; no independent remote verification."
+  },
+  "readiness_reused": {
+    "path": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+    "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+    "source": "Exact66c74 parent source was independently verified as baseca plus14 accepted test-only donor paths. Publication retains every one of its5062 entries unchanged."
+  },
+  "verdicts": {
+    "actual_immutable_published_packet_accepted": true,
+    "source_preservation_accepted": true,
+    "findings": [],
+    "fresh_inventory_reconciliation_required": true,
+    "canonical_count_or_ledger_changes_performed": false
+  },
+  "whitespace_disposition": "All35 committed diff-check diagnostics are preserved raw .patch context:27 leading context-space before tab,8 context-only blank-line trailing spaces. Every diagnostic was matched to actual published line bytes in the two evidence .patch files. Excluding those .patch files passes with no output. No source-path diff or whitespace change; raw evidence bytes intentionally preserved.",
+  "limits": [
+    "One immutable evidence publication review; no new Go/build/test/runner/binary execution or current-union runtime qualification.",
+    "Historical donor source/compile/runtime qualifications and their SDK signature, HomeRegion composition, native provenance and ELF-execution limits remain those in the accepted readiness report; no broader qualification.",
+    "Packet0400 filesystem permissions normalize to Git100644 for all58 files. No executable bit or ELF added; exact byte/checksum identity preserved.",
+    "This accepts actual published blobs/pathset/modes at d4ac, independently from readiness. Push success and remote availability are not independently checked; fresh inventory reconciliation/count changes remain separate."
+  ],
+  "next_required": "Run the authorized fresh inventory reconciliation against the accepted publication; do not infer count changes from this report alone.",
+  "review_actions": {
+    "go_build_test_runner_or_binary_execution": 0,
+    "source_git_or_ledger_mutations": 0,
+    "published_file_edits": 0,
+    "count_changes": 0,
+    "new_agents": 0,
+    "read_only_git_commands": "ls-tree, cat-file, diff --check",
+    "only_write": "Fresh immutable independent report0444/dir0555"
+  }
+}

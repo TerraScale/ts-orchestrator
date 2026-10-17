@@ -1,0 +1,404 @@
+{
+  "schema": "ts-independent-canonical-promotion-audit-v1",
+  "created_utc": "2026-10-17T14:19:27.709000+00:00",
+  "reviewer": "/root/qa_integrator/capacity_tests",
+  "verdict": "ACCEPT_EXACT_D4AC_CANONICAL_19_PROMOTION_ALL_FIVE_OPEN",
+  "findings": [],
+  "inputs": {
+    "/tmp/ts-qa-refactor-completion-open-20261016.json": {
+      "bytes": 1045061,
+      "sha256": "52117ed5cdf43d4b9445b03015365c86ee924914cfed23f6f34a8a933dcb2dc1",
+      "mode": "0o600"
+    },
+    "/tmp/ts-qa-main-union-progress-20261016.json": {
+      "bytes": 86649,
+      "sha256": "7ba445dd3748da3554ff38d194c07829d584aa3b3b410d49f6e0ffc9ef643934",
+      "mode": "0o644"
+    },
+    "/tmp/ts-qa-refactor-completion-open-20261016-before-d4ac19-20261017T141618Z-d93f0a8f.json": {
+      "bytes": 1000071,
+      "sha256": "3822e68c74760f5ee8b7e3d068bdf973ad3309dbe6774e12b3008f42427ffa0b",
+      "mode": "0o400"
+    },
+    "/tmp/ts-qa-main-union-progress-20261016-before-d4ac19-20261017T141618Z-351f159b.json": {
+      "bytes": 82306,
+      "sha256": "18fdcbb4d46c30622e10e77d57de0922f1d9c7cb425c241c4e28499b0f21c07f",
+      "mode": "0o400"
+    },
+    "/tmp/ts-qa-d4ac-reconciliation-independent-omel6oda/review.json": {
+      "bytes": 13092,
+      "sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8",
+      "mode": "0o444"
+    }
+  },
+  "source": {
+    "commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+    "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+    "immutable_git_tree_independently_verified": true,
+    "accepted_source_adoption": "66c74efab5a30be5c81148f92dfa292c1ccd9f19",
+    "source_scope_limit": "This audit checks accepted packet/canonical ledger promotion; it does not re-execute source scanner or prior independent1251-blob/declaration-slice verification. Exact independently accepted source review bd ed14 is hash-linked, copied byte-exact and scope preserved."
+  },
+  "accepted_packet": {
+    "directory": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+    "files": 19,
+    "sums_entries": 18,
+    "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+    "sums_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+    "all_hashes_and_full_inventory_verified": true,
+    "directory_mode": "0500",
+    "all_file_modes": "0400",
+    "payload_inventory": {
+      "accepted-ca1226-SHA256SUMS.txt": {
+        "bytes": 1560,
+        "sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0"
+      },
+      "accepted-ca1226-summary.json": {
+        "bytes": 6220,
+        "sha256": "22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e"
+      },
+      "accepted-d4ac-actual-publication-review.json": {
+        "bytes": 4315,
+        "sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7"
+      },
+      "accepted66c74-source-adoption-review.json": {
+        "bytes": 12249,
+        "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b"
+      },
+      "changes-since-accepted-ca1226.tsv": {
+        "bytes": 4713,
+        "sha256": "b6aa5daded2781bce62bbceb75d21809c598d49101dcaacecd7175bc65456933"
+      },
+      "command-tools-source-pins.json": {
+        "bytes": 1247,
+        "sha256": "e50dde54b7b7c2ba3703975d0a2a5049ce85d4121238c63a92a2be37fd75d81b"
+      },
+      "current-test-source-files.tsv": {
+        "bytes": 198094,
+        "sha256": "983a93cadfa8df697ed917749927403af13c254c5594606d6c1012ce96519ce0"
+      },
+      "firstparty-survival.tsv": {
+        "bytes": 1640609,
+        "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+      },
+      "independent-reconciliation-review.json": {
+        "bytes": 13092,
+        "sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8"
+      },
+      "new-firstparty-declarations.tsv": {
+        "bytes": 7097,
+        "sha256": "e9ba433246bb00a7e1ee26d1b94de2146043a82658255522acec7aabfe74bff8"
+      },
+      "nineteen-source-retirement-dispositions.json": {
+        "bytes": 22349,
+        "sha256": "788d76c67db45fb6455e7046bf3d8cf6e2fc752a2aa0c8a7c6d7bbd6189f45ae"
+      },
+      "reconcile.py.txt": {
+        "bytes": 22035,
+        "sha256": "645d77f2cc9b485f029840ae85be32568b7740bf249be0ff12a44db3e48a75b1"
+      },
+      "source-adoption-and-publication-proof.json": {
+        "bytes": 32138,
+        "sha256": "eea811064f3af9eb532e4ae006cdcd9ce860a4458317cc3c36f2987a0e8a1320"
+      },
+      "source-scan-SHA256SUMS.txt": {
+        "bytes": 1475,
+        "sha256": "3874ac606f4f59c689325cd7ba8b92e74d30a1a0b8e01109ecf5e9a42d342416"
+      },
+      "source-scan-summary.json": {
+        "bytes": 7406,
+        "sha256": "9fb37ed8cb436eef160189f12899af25c3de1f62d149ffbece7da11946fea6f4"
+      },
+      "summary.json": {
+        "bytes": 8085,
+        "sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656"
+      },
+      "vendor-original-source-file-checks.json": {
+        "bytes": 36128,
+        "sha256": "f3f66abf334c7c912e0f2b79229612346368c12eb7228c8e2c9323d314c79198"
+      },
+      "vendor-original-survival.tsv": {
+        "bytes": 296570,
+        "sha256": "9e3e81ca27b27a02aaaea2cdb21f239027bfd285692929bb619b6c58dab5d05b"
+      }
+    },
+    "original_source_scan_packet": "/tmp/ts-firstparty-vendor-d4ac-reconciled-jfqrc11u",
+    "all_original_16_files_byte_exact": true,
+    "renames": {
+      "summary.json": "source-scan-summary.json",
+      "SHA256SUMS": "source-scan-SHA256SUMS.txt"
+    },
+    "new_files": "Accepted summary, independent reconciliation review copy and new SHA256SUMS; original source scan remains unchanged.",
+    "all_15_input_hashes_and_sizes_verified": true,
+    "accepted_review_copy_byte_exact": true,
+    "scope_note": "Frozen packet canonical_counts_unchanged9/4310 records pre-promotion scanner limits at14:13. It is preserved historical receipt data, not a stale current ledger count."
+  },
+  "counts": {
+    "baseline_original_tests": 4319,
+    "test_body_exact": 4276,
+    "test_body_changed": 23,
+    "retained_expanded_owner": 1,
+    "qualified_retired": 19,
+    "globally_unadjudicated_original_tests": 4300,
+    "prior_retired": 9,
+    "increment": 10,
+    "prior_globally_unadjudicated": 4310,
+    "helper_body_exact": 1653,
+    "helper_body_changed": 9,
+    "removed_helper_not_test_retirement": 1,
+    "baseline_helpers": 1663,
+    "TestMain_exact": 4,
+    "all_original_declarations": 5986,
+    "all_5986_survival_TSV_rows_independently_recounted": true,
+    "all_19_retirements_unique_match_TSV_and_canonical_dispositions": true,
+    "incremental_retirements": "7 OCI +3 factory; exact accepted adoption/publication proofs retained.",
+    "since_ca1226_original_changes": "10 newly retired test roots,4 changed surviving tests,1 changed helper =15 rows.",
+    "new_unmatched_declarations": "18tests+12helpers remain new source declarations and add no original retirement credit.",
+    "classification_limit": "Remaining4300 are globally unadjudicated originals, never4300 unit tests. Lexical survival is not unit/integration or runtime classification."
+  },
+  "vendor": {
+    "frozen_original_targets": 1449,
+    "all_survival_rows_present": true,
+    "absent": 0,
+    "retired": 0,
+    "central_closures": 0,
+    "original_files_byte_exact": 131,
+    "all_131_current_frozen_hash_pairs_equal": true,
+    "current_test_source_files": 132,
+    "frozen_source_classifications": {
+      "unit": 1215,
+      "mixed": 234
+    },
+    "other_snapshot_candidate_removal_dispositions": 13,
+    "limit": "13 other-snapshot candidate dispositions do not retire any current d4ac original or close a central target. Original1449 targets survive;131 original files retained byte-exact."
+  },
+  "ledger_consistency": {
+    "cross_ledger_completion_sha256_matches": true,
+    "completion_authoritative_current_reconciliation_counts_exact": true,
+    "completion_root_and_category3_first_party_inventory_equal": true,
+    "progress_current_reconciliation_matches": true,
+    "all_current_duplicate_reconciliation_values_normalized": true,
+    "main_published_main_actual_ci_union_runtime_and_builds_preserved": true,
+    "other_four_categories_unchanged": true,
+    "categories": [
+      {
+        "category": "Connected application and sole execution engine",
+        "status": "OPEN"
+      },
+      {
+        "category": "Provider authority and genuine worker creation lineage",
+        "status": "OPEN"
+      },
+      {
+        "category": "Native and live regional acceptance",
+        "status": "OPEN"
+      },
+      {
+        "category": "Integration-only test migration closure",
+        "status": "OPEN"
+      },
+      {
+        "category": "Operational parity and measured benefits",
+        "status": "OPEN"
+      }
+    ],
+    "complete": false,
+    "global_runtime_or_main_credit_added": false,
+    "classification_work_pending": {
+      "canonical_frozen_source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+      "groups": {
+        "internal/ociclient": "14baseline originals, source-only classification in progress, no counts promoted",
+        "internal/authority": "93baseline originals, source-only classification in progress, no counts promoted"
+      },
+      "limit": "Classification counts and retirements are separate. Existing genuine integrations may be retained without rewrite. No blanket remaining-unit classification."
+    },
+    "pending_classification_not_counted": true,
+    "stale_count_search": [
+      {
+        "ledger": "/tmp/ts-qa-refactor-completion-open-20261016.json",
+        "stale_current_findings": [],
+        "all_old_value_hits": [
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/authoritative_test_reconciliation/limit",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/current_test_reconciliation_derivation/firstparty_body_exact",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/current_test_reconciliation_derivation/firstparty_retired",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/current_test_reconciliation_derivation/firstparty_globally_unadjudicated",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/firstparty_qualified_retired",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/firstparty_remaining_globally_unadjudicated",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/firstparty_body_exact",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "audit_boundaries/read_only_verification_history/1/limits",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "integration_candidate/publication_history/18/publication_delta",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "ledger_correction_history/2/reason",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "ledger_correction_history/2/provenance/limit",
+            "named_history": true,
+            "prior_field": false
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/provenance/limit",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/firstparty/retained_body_exact",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/firstparty/qualified_retired",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/firstparty/globally_unadjudicated_remaining_original_tests",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/current_feature_linkage/firstparty_body_exact",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/current_feature_linkage/firstparty_retired",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "authoritative_test_reconciliation_history/4/prior_authoritative_reconciliation/current_feature_linkage/firstparty_globally_unadjudicated",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "accepted_d4ac_authoritative_reconciliation/prior_canonical_retirements",
+            "named_history": false,
+            "prior_field": true
+          },
+          {
+            "path": "accepted_d4ac_authoritative_reconciliation/prior_globally_unadjudicated",
+            "named_history": false,
+            "prior_field": true
+          }
+        ]
+      },
+      {
+        "ledger": "/tmp/ts-qa-main-union-progress-20261016.json",
+        "stale_current_findings": [],
+        "all_old_value_hits": [
+          {
+            "path": "ledger_history/31/prior_first_party_current_reconciliation/body_exact",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "ledger_history/31/prior_first_party_current_reconciliation/qualified_retired",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "ledger_history/31/prior_first_party_current_reconciliation/globally_unadjudicated",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "ledger_history/31/prior_first_party_current_reconciliation/note",
+            "named_history": true,
+            "prior_field": true
+          },
+          {
+            "path": "d4ac_promotion/prior_canonical_retirements",
+            "named_history": false,
+            "prior_field": true
+          },
+          {
+            "path": "d4ac_promotion/prior_globally_unadjudicated",
+            "named_history": false,
+            "prior_field": true
+          }
+        ]
+      }
+    ]
+  },
+  "preservation": {
+    "before_snapshots_hashes_exact_readonly": true,
+    "old_authoritative_reconciliation_in_new_history_deep_equal": true,
+    "old_progress_reconciliation_in_new_history_deep_equal": true,
+    "old_latest_verification_preserved_in_history_deep_equal": true,
+    "old_publication_history_prefix_preserved_and_old_source_appended": true,
+    "all_old_top_level_fields_retained": true,
+    "old_authoritative_and_ledger_histories_preserved_as_exact_prefixes": true,
+    "prior_ca1226_packet": {
+      "path": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+      "sums_sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0",
+      "direct_checksums": 16,
+      "all_verified_inventory_complete": true
+    },
+    "prior_9988_packet": {
+      "path": "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu",
+      "sums_sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64",
+      "direct_checksums": 40,
+      "all_verified_inventory_complete": true
+    }
+  },
+  "financial_gap": {
+    "both_ledgers_equal": true,
+    "state": "OPEN_CONCRETE_SOURCE_PREMISE_GAP",
+    "future_installation_contract": "/tmp/ts-foundation-future-installation-contract.md",
+    "future_installation_contract_sha256": "be5dc907fdfcf1f6a08146f398e391c68cc5d50cba50301beb2babe5dbdcedf1",
+    "accounting_source_gap": "/tmp/ts-foundation-accounting-inception-source-gap.json",
+    "accounting_source_gap_sha256": "c1c5f778cb79df02fc4b090efa08bfaf7fa52eb8756a9db48ec5766526fd00f3",
+    "limit": "No accepted signed inception/exclusivity/nonnode completeness premise. Delayed mutable OCI usage reports include preexisting/shared spend; protected genesis snapshot remains Pending. No invented positive premise.",
+    "both_referenced_actual_file_hashes_verified": true,
+    "protected_genesis_remains": "Pending; no accepted inception/exclusivity/nonnode completeness premise and no invented positive source proof."
+  },
+  "promotion_script": {
+    "path": "/tmp/ts-qa-promote-d4ac-reconciliation.py",
+    "sha256": "28203bde292f784e669453193c903bd0442290253bfc7919d515a4dc442f7196",
+    "read_and_AST_parsed_only": true,
+    "not_executed_in_audit": true,
+    "observed_ledger_delta_matches_intended_scope": true
+  },
+  "limits": [
+    "Source-specific historical donor runtime and compile receipts retain exact source/slice scope; no new current union runtime, tests, fullsuite/race, native/cloud, production, main or global qualification.",
+    "No Go, check, scanner, promotion script, runner, binary, live process/listener/lock or cloud execution.",
+    "No source/Git/ledger/count changes made in audit; only this exclusive new mode0444 JSON report written."
+  ]
+}

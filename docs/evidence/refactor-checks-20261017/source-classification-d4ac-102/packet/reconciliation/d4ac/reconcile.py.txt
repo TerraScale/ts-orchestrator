@@ -1,0 +1,265 @@
+import ast
+import collections
+import csv
+import datetime
+import hashlib
+import io
+import json
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unicodedata
+
+HEAD = 'd4ac68882716e7cfb14afca2f88ad596a38041af'
+TREE = '3b73a410a025bd8050ad1d42e54acc7d5eda4b82'
+PREVIOUS_HEAD = 'ca1226b9b4011383f39c0753e19be295618accf8'
+BASE = 'bfca60368f60d2da67f9016d1d489317ae8749c8'
+ADOPTED = '66c74efab5a30be5c81148f92dfa292c1ccd9f19'
+REPO = pathlib.Path('/tmp/ts-refactor-main-union-3d9a933e')
+PREVIOUS = pathlib.Path('/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu')
+BASELINE = pathlib.Path('/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu')
+REVIEW = pathlib.Path('/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json')
+EVIDENCE = 'docs/evidence/refactor-checks-20261017/oci-sdk-factory-retirements-66c74'
+OUT = pathlib.Path(tempfile.mkdtemp(prefix='ts-firstparty-vendor-d4ac-reconciled-'))
+sha = lambda data: hashlib.sha256(data).hexdigest()
+git = lambda *args, data=None: subprocess.check_output(['/run/current-system/sw/bin/git', '-C', str(REPO), *args], input=data)
+blob = lambda commit, path: git('show', commit + ':' + path)
+inputs = {}
+
+def put(name, data):
+    assert '/' not in name and not name.endswith('.go') and not data.startswith(b'\x7fELF')
+    with (OUT / name).open('xb') as target:
+        target.write(data)
+
+def js(name, value):
+    put(name, (json.dumps(value, indent=2, sort_keys=True) + '\n').encode())
+
+def rows(data):
+    return list(csv.DictReader(io.StringIO(data.decode()), delimiter='\t'))
+
+def tsv(name, values, columns=None):
+    stream = io.StringIO()
+    writer = csv.DictWriter(stream, fieldnames=columns or list(values[0]), delimiter='\t', lineterminator='\n')
+    writer.writeheader()
+    writer.writerows(values)
+    put(name, stream.getvalue().encode())
+
+def read_input(path):
+    data = pathlib.Path(path).read_bytes()
+    inputs[str(path)] = {'sha256': sha(data), 'bytes': len(data)}
+    return data
+
+def tree(commit):
+    result = {}
+    for entry in git('ls-tree', '-rz', commit).split(b'\0'):
+        if entry:
+            meta, path = entry.split(b'\t', 1)
+            mode, kind, oid = meta.decode().split()
+            result[path.decode()] = {'mode': mode, 'kind': kind, 'blob': oid}
+    return result
+
+def batch(oids):
+    stream = io.BytesIO(git('cat-file', '--batch', data=''.join(oid + '\n' for oid in oids).encode()))
+    for expected in oids:
+        oid, kind, size = stream.readline().decode().split()
+        assert oid == expected and kind == 'blob'
+        data = stream.read(int(size))
+        assert stream.read(1) == b'\n'
+        yield data
+    assert not stream.read()
+
+assert git('rev-parse', HEAD + '^{tree}').decode().strip() == TREE
+assert git('rev-parse', 'HEAD').decode().strip() == HEAD
+assert git('status', '--porcelain=v1') == b''
+assert git('rev-parse', HEAD + '^').decode().strip() == ADOPTED
+assert sha(read_input(PREVIOUS / 'summary.json')) == '22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e'
+assert sha(read_input(PREVIOUS / 'SHA256SUMS')) == '9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0'
+verified_chain = []
+for folder, expected_count in [(PREVIOUS, 16), (BASELINE, 40)]:
+    names = []
+    for line in (folder / 'SHA256SUMS').read_text().splitlines():
+        digest, name = line.split('  ', 1)
+        assert sha((folder / name).read_bytes()) == digest
+        names.append(name)
+    assert len(names) == expected_count
+    assert set(names) == {path.name for path in folder.iterdir()} - {'SHA256SUMS'}
+    verified_chain.append({'packet': str(folder), 'direct_checksums_verified': len(names), 'SHA256SUMS_sha256': sha(read_input(folder / 'SHA256SUMS'))})
+previous_summary = json.loads((PREVIOUS / 'summary.json').read_text())
+assert previous_summary['current_commit'] == PREVIOUS_HEAD
+assert previous_summary['firstparty_qualified_retirements'] == 9
+assert sha(read_input(BASELINE / 'summary.json')) == '33624282107de6aba8367aff2ea82d1935b88a7bf75e5d725137992fa1dab1a4'
+assert sha(read_input(BASELINE / 'SHA256SUMS')) == '99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64'
+source_review_data = read_input(REVIEW)
+assert sha(source_review_data) == 'c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b'
+source_review = json.loads(source_review_data)
+assert source_review['verdicts']['exact66c74_test_source_adoption_independently_verified']
+assert source_review['verdicts']['findings'] == []
+assert source_review['source_adoption']['head'] == ADOPTED
+publication_review_path = pathlib.Path('/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json')
+publication_review_data = read_input(publication_review_path)
+assert sha(publication_review_data) == '2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7'
+publication_review = json.loads(publication_review_data)
+assert publication_review['publication']['commit'] == HEAD and publication_review['publication']['tree'] == TREE
+assert publication_review['verdicts']['actual_immutable_published_packet_accepted']
+assert publication_review['verdicts']['findings'] == []
+put('accepted-ca1226-summary.json', (PREVIOUS / 'summary.json').read_bytes())
+put('accepted-ca1226-SHA256SUMS.txt', (PREVIOUS / 'SHA256SUMS').read_bytes())
+put('accepted66c74-source-adoption-review.json', source_review_data)
+put('accepted-d4ac-actual-publication-review.json', publication_review_data)
+baseline = rows(read_input(BASELINE / 'baseline-firstparty-declarations.tsv'))
+baseline_files = rows(read_input(BASELINE / 'baseline-firstparty-files.tsv'))
+previous = rows(read_input(PREVIOUS / 'firstparty-survival.tsv'))
+prior_dispositions = json.loads(read_input(PREVIOUS / 'nine-source-retirement-dispositions.json'))
+scanner = read_input(BASELINE / 'original-scanner.py.txt')
+assert sha(scanner) == 'dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880'
+assert sha((BASELINE / 'baseline-firstparty-declarations.tsv').read_bytes()) == 'aaee505db0b7d4a059b799225856041958afba856ab00c5eb3eea5f9cf5d545e'
+
+scope = {'unicodedata': unicodedata, 'MODULE': 'github.com/TerraScale/ts-orchestrator', 'sha': sha}
+functions = [node for node in ast.parse(scanner.decode()).body if isinstance(node, ast.FunctionDef) and node.name in {'letter', 'tokens', 'paired', 'imports', 'entry_kind', 'extract'}]
+assert len(functions) == 6
+exec(compile(ast.Module(body=functions, type_ignores=[]), 'pure-frozen-lexical-scanner', 'exec'), scope)
+extract = scope['extract']
+entries = tree(HEAD)
+baseline_entries = tree(BASE)
+for old, data in zip(baseline_files, batch([baseline_entries[row['path']]['blob'] for row in baseline_files]), strict=True):
+    assert sha(data) == old['file_sha256']
+firstparty = sorted(path for path in entries if path.endswith('_test.go') and not {'third_party', 'vendor', '.git'}.intersection(path.split('/')))
+vendor = sorted(path for path in entries if path.startswith('third_party/nats-server/') and path.endswith('_test.go'))
+paths = firstparty + vendor
+sources, declarations, file_rows = {}, {}, []
+for path, data in zip(paths, batch([entries[path]['blob'] for path in paths]), strict=True):
+    sources[path] = data
+    found = extract(data.decode())
+    for declaration in found:
+        key = path, declaration['name'], declaration['kind']
+        assert key not in declarations
+        declarations[key] = declaration
+    file_rows.append({'path': path, 'scope': 'firstparty' if path in firstparty else 'vendor', 'git_blob': entries[path]['blob'], 'sha256': sha(data), 'bytes': len(data), 'named_free_declarations': len(found)})
+
+oci_removals_data = blob(HEAD, EVIDENCE + '/oci-removals-source-removals.json')
+factory_removals_data = blob(HEAD, EVIDENCE + '/factory-removals-source-proof.json')
+oci_removals = json.loads(oci_removals_data)
+factory_removals = json.loads(factory_removals_data)
+assert len(oci_removals['removed_roots']) == 7 and len(factory_removals['deleted_originals']) == 3
+new_dispositions = []
+for row in oci_removals['removed_roots']:
+    new_dispositions.append({'path': row['file'], 'root': row['root'], 'batch': 'oci7', 'proof': EVIDENCE + '/oci-removals-source-removals.json'})
+for row in factory_removals['deleted_originals']:
+    new_dispositions.append({'path': row['path'], 'root': row['root'], 'batch': 'factory3', 'proof': EVIDENCE + '/factory-removals-source-proof.json'})
+new_keys = {(row['path'], row['root'], 'test') for row in new_dispositions}
+assert len(new_keys) == 10
+assert {row['root'] for row in new_dispositions} == set(source_review['packet']['retirement_roots'])
+previous_by_key = {(row['path'], row['original_name'], row['kind']): row for row in previous}
+retired = {key for key, row in previous_by_key.items() if row['state'] == 'qualified_retired'}
+assert len(retired) == len(prior_dispositions) == 9
+assert not retired.intersection(new_keys)
+for key in new_keys:
+    assert key in previous_by_key and previous_by_key[key]['current_declaration_sha256']
+retired.update(new_keys)
+survival, mapped, changes = [], set(), []
+for old in baseline:
+    key = old['path'], old['name'], old['kind']
+    prior = previous_by_key[key]
+    now = declarations.get(key)
+    current_key = key
+    if now:
+        state = 'retained_body_exact' if old['declaration_sha256'] == now['declaration_sha256'] else 'retained_body_changed'
+    elif prior['state'] == 'renamed_expanded_integration_owner':
+        current_key = old['path'], prior['current_name'], old['kind']
+        now = declarations[current_key]
+        state = prior['state']
+    elif key in retired:
+        state = 'qualified_retired'
+    elif prior['state'] == 'removed_helper_not_test_retirement':
+        state = prior['state']
+    else:
+        raise AssertionError(('unexplained absence', key))
+    if now:
+        mapped.add(current_key)
+    row = {'path': old['path'], 'original_name': old['name'], 'kind': old['kind'], 'original_declaration_sha256': old['declaration_sha256'], 'current_name': current_key[1] if now else '', 'current_declaration_sha256': now['declaration_sha256'] if now else '', 'state': state}
+    survival.append(row)
+    if row['current_declaration_sha256'] != prior['current_declaration_sha256'] or state != prior['state']:
+        changes.append(dict(row, previous_current_declaration_sha256=prior['current_declaration_sha256'], previous_state=prior['state']))
+counts = collections.defaultdict(collections.Counter)
+for row in survival:
+    counts[row['kind']][row['state']] += 1
+newly_absent = {(row['path'], row['original_name'], row['kind']) for row in changes if row['state'] == 'qualified_retired'}
+assert newly_absent == new_keys
+assert len(survival) == 5986 and sum(counts['test'].values()) == 4319
+assert sum(counts['helper'].values()) == 1663 and sum(counts['testmain'].values()) == 4
+assert counts['test']['qualified_retired'] == len(retired)
+added = [{'path': path, **value} for (path, name, kind), value in declarations.items() if path in firstparty and (path, name, kind) not in mapped]
+tsv('firstparty-survival.tsv', survival)
+tsv('changes-since-accepted-ca1226.tsv', changes)
+tsv('current-test-source-files.tsv', file_rows)
+tsv('new-firstparty-declarations.tsv', added, ['path', 'name', 'kind', 'line', 'end_line', 'declaration_sha256', 'signature_status', 'direct_tier_calls', 'classification', 'review_closure', 'execution_closure'])
+vendor_cases = rows(read_input(BASELINE / 'frozen-vendor-cases.tsv'))
+targets = [row for row in vendor_cases if row['classification'] in {'unit', 'mixed'}]
+vendor_files = rows(read_input(BASELINE / 'frozen-vendor-source-files.tsv'))
+vendor_checks = []
+for row in vendor_files:
+    assert sha(sources[row['path']]) == row['sha256']
+    vendor_checks.append({'path': row['path'], 'frozen_sha256': row['sha256'], 'current_sha256': sha(sources[row['path']]), 'byte_exact': True})
+assert len(vendor_checks) == 131
+vendor_survival = []
+for old in targets:
+    now = declarations[(old['path'], old['declaration'], 'test')]
+    vendor_survival.append({'path': old['path'], 'original_name': old['declaration'], 'frozen_source_classification': old['classification'], 'current_declaration_sha256': now['declaration_sha256'], 'state': 'present_original_source_file_byte_exact', 'retired_on_this_commit': False, 'central_closed': False})
+ledger_folder = pathlib.Path('/tmp/ts-nats-vendor-migration-20261016')
+ledger = rows(read_input(ledger_folder / 'cases.tsv'))
+progress = json.loads(read_input(ledger_folder / 'progress.json'))
+assert len(vendor_survival) == len(ledger) == 1449
+assert {(row['path'], row['declaration']) for row in targets} == {(row['path'], row['declaration']) for row in ledger}
+assert progress['integrated_closed'] == 0 and progress['approved_source_removals'] == 13
+tsv('vendor-original-survival.tsv', vendor_survival)
+js('vendor-original-source-file-checks.json', vendor_checks)
+adopted_entries = tree(ADOPTED)
+assert len(adopted_entries) == 5062
+assert all(entries[path] == value for path, value in adopted_entries.items())
+published = sorted(set(entries) - set(adopted_entries))
+assert len(published) == 58 and all(path.startswith(EVIDENCE + '/') and entries[path]['mode'] == '100644' for path in published)
+frozen_packet = pathlib.Path(source_review['packet']['path'])
+assert {path.name for path in frozen_packet.iterdir()} == {path.removeprefix(EVIDENCE + '/') for path in published}
+published_checks = []
+for path in published:
+    data = blob(HEAD, path)
+    assert data == (frozen_packet / pathlib.PurePosixPath(path).name).read_bytes()
+    published_checks.append({'path': path, 'sha256': sha(data), 'bytes': len(data), 'mode': entries[path]['mode'], 'exact_frozen_copy': True})
+assert sum(row['bytes'] for row in published_checks) == 505102
+checksums = blob(HEAD, EVIDENCE + '/SHA256SUMS')
+assert sha(checksums) == 'a0f0dfac0fb6589e482b67ad44692be460e03087f6bbee30a514c09e1384d6df'
+checksum_names = []
+for line in checksums.decode().splitlines():
+    digest, name = line.split('  ', 1)
+    assert sha(blob(HEAD, EVIDENCE + '/' + name)) == digest
+    checksum_names.append(name)
+assert len(checksum_names) == 57
+assert set(checksum_names) == {pathlib.PurePosixPath(path).name for path in published} - {'SHA256SUMS'}
+source_path_checks = []
+for row in source_review['source_adoption']['exact14_test_only_donor_paths']:
+    assert entries[row['path']]['blob'] == row['blob']
+    assert sha(sources[row['path']]) == row['sha256']
+    source_path_checks.append(dict(row, current_blob_sha_and_mode_exact_to_accepted_source=True))
+source_delta = [line.split('\t') for line in git('diff', '--no-renames', '--name-status', PREVIOUS_HEAD, ADOPTED).decode().splitlines()]
+assert {path for status, path in source_delta} == {row['path'] for row in source_path_checks} and len(source_delta) == 14
+dispositions = [dict(row, absence_freshly_verified_on_commit=HEAD, previous_accepted_reconciliation=str(PREVIOUS)) for row in prior_dispositions]
+for item in new_dispositions:
+    row = next(row for row in survival if (row['path'], row['original_name'], row['kind']) == (item['path'], item['root'], 'test'))
+    dispositions.append(dict(row, absence_freshly_verified_on_commit=HEAD, disposition_provenance={'batch': item['batch'], 'proof': item['proof'], 'actual_source_adoption': ADOPTED, 'actual_source_adoption_review': str(REVIEW), 'actual_source_adoption_review_sha256': sha(source_review_data), 'actual_publication': HEAD, 'actual_publication_review': str(publication_review_path), 'actual_publication_review_sha256': sha(publication_review_data), 'fresh_reconciliation_independent_acceptance': 'PENDING; canonical counts not promoted'}))
+js('nineteen-source-retirement-dispositions.json', dispositions)
+js('source-adoption-and-publication-proof.json', {'head': HEAD, 'tree': TREE, 'source_parent': ADOPTED, 'verified_accepted_predecessor_chain': verified_chain, 'all5062_source_parent_entries_current_byte_mode_blob_exact': True, 'accepted_source14_test_paths': source_path_checks, 'accepted_publication58files': published_checks, 'all57_published_direct_checksums_verified': True, 'exact_ten_new_absences': new_dispositions, 'new_absences_match_original_survival_changes': True, 'other_original_changes': [row for row in changes if row['state'] != 'qualified_retired'], 'canonical_counts_not_promoted': True, 'all_five_completion_categories': 'OPEN', 'input_hashes': inputs})
+assert git('rev-parse', 'HEAD').decode().strip() == HEAD and git('status', '--porcelain=v1') == b''
+for path in [ledger_folder / 'cases.tsv', ledger_folder / 'progress.json']:
+    assert sha(path.read_bytes()) == inputs[str(path)]['sha256']
+summary = {'state': 'FRESH_EXACT_D4AC_LEXICAL_RECONCILIATION_PENDING_INDEPENDENT_ACCEPTANCE_CANONICAL_COUNTS_UNCHANGED', 'reconciled_at_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'baseline_commit': BASE, 'current_commit': HEAD, 'current_tree': TREE, 'current_feature_clean_before_after': True, 'previous_accepted_commit': PREVIOUS_HEAD, 'previous_accepted_packet': str(PREVIOUS), 'verified_predecessor_chain': verified_chain, 'scanner_sha256': sha(scanner), 'baseline_all1036_files_hash_verified': True, 'all_original_declarations_reconciled': len(survival), 'firstparty_baseline_by_kind': dict(collections.Counter(row['kind'] for row in baseline)), 'firstparty_original_survival_by_kind': {kind: dict(values) for kind, values in counts.items()}, 'firstparty_current_test_source_files': len(firstparty), 'firstparty_new_source_declarations_excluding_owner_rename_by_kind': dict(collections.Counter(row['kind'] for row in added)), 'derived_scoped_qualified_source_retirements': counts['test']['qualified_retired'], 'exact_new_scoped_source_retirements_since_accepted_ca1226': len(newly_absent), 'derived_globally_unadjudicated_remaining_original_tests_after_scoped_source_retirements': 4319 - counts['test']['qualified_retired'], 'firstparty_original_changes_since_ca1226_by_kind': dict(collections.Counter(row['kind'] for row in changes)), 'canonical_counts_unchanged': {'accepted_retirements': 9, 'globally_unadjudicated_original_tests': 4310, 'promotion': 'Parent-owned only after independent acceptance of fresh reconciliation; not performed here'}, 'firstparty_limit': 'Derived current-source survival and scoped retirement counts are read-only findings, not canonical promotion. Remaining originals are globally unadjudicated; do not label all remaining originals unit tests. All five completion categories remain OPEN. Lexical survival is not unit/integration classification or runtime discovery.', 'vendor_original_target_count': len(targets), 'vendor_present_on_current_commit': len(vendor_survival), 'vendor_absent_on_current_commit': 0, 'vendor_retired_on_current_commit': 0, 'vendor_central_integrated_closed': progress['integrated_closed'], 'vendor_ledger_candidate_source_removal_dispositions': progress['approved_source_removals'], 'vendor_original_source_files_byte_exact': len(vendor_checks), 'vendor_current_test_source_files': len(vendor), 'vendor_frozen_target_source_classifications': dict(collections.Counter(row['classification'] for row in targets)), 'vendor_limit': 'All1449 frozen unit/mixed originals survive in131 byte-exact original files;13 ledger candidate-removal dispositions concern other snapshots and confer no current retirement or central closure.', 'actual_source_adoption_review': {'path': str(REVIEW), 'sha256': sha(source_review_data)}, 'actual_publication_review': {'path': str(publication_review_path), 'sha256': sha(publication_review_data)}, 'method': 'Immutable Git ls-tree/cat-file/show and pinned scanner pure lexical functions extracted with Python AST; no Go AST/typecheck/discovery/build/test/runtime/runner/binary/lock/cloud/source/index/branch/ledger mutation. Only exclusive temporary artifacts.', 'qualification_limit': 'Historical exact donor compiles/runtimes remain historical donor scopes; accepted66c74 source and d4ac publication do not establish a current-union execution. No fullsuite/race/cloud/native/production/main/global qualification.', 'all_five_completion_categories': 'OPEN', 'central_counts_or_ledger_mutated': False, 'input_hashes': inputs, 'extraction_errors': []}
+js('summary.json', summary)
+command = {'argv': ['nice', '-n', '19', '/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15', '-I', '-B', '/tmp/ts-d4ac-reconcile.py'], 'actual_interpreter_argv': sys.orig_argv, 'nice': __import__('os').getpriority(__import__('os').PRIO_PROCESS, 0), 'tools': {path: {'resolved': str(pathlib.Path(path).resolve()), 'sha256': sha(pathlib.Path(path).read_bytes())} for path in ['/home/mariogk/.local/share/mise/installs/python/3.15.0/bin/python3.15', '/run/current-system/sw/bin/git']}, 'source': {'commit': HEAD, 'tree': TREE, 'baseline': BASE, 'scanner_sha256': sha(scanner)}, 'script_sha256': sha(pathlib.Path(__file__).read_bytes()), 'no_go_execution': True}
+js('command-tools-source-pins.json', command)
+put('reconcile.py.txt', pathlib.Path(__file__).read_bytes())
+files = sorted(OUT.iterdir())
+put('SHA256SUMS', ''.join(sha(path.read_bytes()) + '  ' + path.name + '\n' for path in files).encode())
+for path in OUT.iterdir():
+    path.chmod(0o400)
+OUT.chmod(0o500)
+print(json.dumps({'packet': str(OUT), 'files': len(list(OUT.iterdir())), 'summary_sha256': sha((OUT / 'summary.json').read_bytes()), 'SHA256SUMS_sha256': sha((OUT / 'SHA256SUMS').read_bytes()), 'firstparty_survival_sha256': sha((OUT / 'firstparty-survival.tsv').read_bytes()), 'vendor_survival_sha256': sha((OUT / 'vendor-original-survival.tsv').read_bytes()), 'firstparty_counts': summary['firstparty_original_survival_by_kind'], 'new_absences': len(newly_absent), 'all_original_changes': summary['firstparty_original_changes_since_ca1226_by_kind'], 'derived_remaining_globally_unadjudicated': summary['derived_globally_unadjudicated_remaining_original_tests_after_scoped_source_retirements'], 'canonical_counts_unchanged': summary['canonical_counts_unchanged'], 'vendor_present': len(vendor_survival), 'vendor_retired': 0, 'vendor_central_closed': 0, 'all_five_completion_categories': 'OPEN'}, indent=2))

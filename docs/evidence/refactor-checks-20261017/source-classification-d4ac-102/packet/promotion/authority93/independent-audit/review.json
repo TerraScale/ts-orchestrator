@@ -1,0 +1,3370 @@
+{
+  "reviewer": "/root/qa_integrator/test_inventory",
+  "as_of": "2026-10-17T14:38:30.663351+00:00",
+  "decision": "ACCEPT_EXACT_AUTHORITY93_SOURCE_CLASSIFICATION_PROMOTION_NO_RUNTIME_CREDIT",
+  "scope": "Independent actual before/current ledger promotion audit; source classifications established by separately pinned packet/peer. No existing ledger mutation or promotion-script execution.",
+  "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "artifacts": {
+    "/tmp/ts-qa-refactor-completion-open-20261016.json": {
+      "sha256": "2844cc0dd959d7511be7e1b48eebae1569ccdb5f3308e9822dad66637dba4e72",
+      "bytes": 1140071,
+      "mode": "0600"
+    },
+    "/tmp/ts-qa-main-union-progress-20261016.json": {
+      "sha256": "b080e4391e845404b246f857c1eb510c458834d0b15595f5d47c4c247d17c644",
+      "bytes": 102603,
+      "mode": "0644"
+    },
+    "/tmp/ts-qa-refactor-completion-open-20261016-before-authority93-classification-fb8f5c3e93.json": {
+      "sha256": "a59581d3ecec9e292c36f86977ab4b8b94851d70379d9c42f0bea6323fd9ccd9",
+      "bytes": 1070806,
+      "mode": "0400"
+    },
+    "/tmp/ts-qa-main-union-progress-20261016-before-authority93-classification-f225779da8.json": {
+      "sha256": "324c1ab4c63d2605a9863d31614ccf291d3e15c55dbb0b8f476406078d10b1b2",
+      "bytes": 90706,
+      "mode": "0400"
+    },
+    "/tmp/ts-qa-authority93-classification-promotion-6a4a72bb486d.json": {
+      "sha256": "96dcd5de89fe6e5c9453bac2f2b2549f1b9b2ae3b76afbe1ba08c1443b0a702c",
+      "bytes": 40573,
+      "mode": "0444"
+    },
+    "/tmp/ts-qa-promote-authority93-classification.py": {
+      "sha256": "1644e887df09d875730afc290be1fb2bf595db5187956f669efff892d3647e69",
+      "bytes": 17350,
+      "mode": "0400"
+    },
+    "/tmp/ts-authority-d4ac-classification-corrected-8e5nz_tg/review.json": {
+      "sha256": "084e17bc2f2575099b16f730cd5100b277d5693f330a6aa7406154c2da38e2c0",
+      "bytes": 328512,
+      "mode": "0444"
+    },
+    "/tmp/ts-authority-d4ac-classification-peer-1pd2stsh/review.json": {
+      "sha256": "7e021d206217d320c0a06edd87b9fac019a868243857f9381d1c2dfec8106372",
+      "bytes": 260043,
+      "mode": "0400"
+    },
+    "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv/classification.json": {
+      "sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+      "bytes": 48306,
+      "mode": "0400"
+    },
+    "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json": {
+      "sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+      "bytes": 22218,
+      "mode": "0400"
+    },
+    "/tmp/ts-qa-ociclient9-classification-promotion-audit-c599f2cb1212.json": {
+      "sha256": "897c48c1fe901898d5aa6e71b5a71cf2a761e05d52f9056c1b6fa28eae6c31bb",
+      "bytes": 6110,
+      "mode": "0444"
+    },
+    "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/firstparty-survival.tsv": {
+      "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73",
+      "bytes": 1640609,
+      "mode": "0400"
+    }
+  },
+  "counts": {
+    "baseline_originals": 4319,
+    "retired_unchanged": 19,
+    "retained": 4300,
+    "retained_body_exact": 4276,
+    "retained_body_changed": 23,
+    "expanded_retained_owner_rename": 1,
+    "classified_retained": 102,
+    "integration": 78,
+    "unit": 23,
+    "mixed": 1,
+    "globally_unadjudicated": 4198,
+    "new_authority_classified": 93,
+    "runtime_qualification_delta": 0,
+    "retirement_delta": 0,
+    "identities": [
+      "19 + 102 + 4198 = 4319",
+      "102 + 4198 = 4300",
+      "78 + 23 + 1 = 102",
+      "9 ociclient + 93 authority = 102 disjoint retained originals"
+    ]
+  },
+  "verified": {
+    "all_parent_input_pins_match_and_rechecked_at_end": true,
+    "all12_current_mirrors_deep_equal": true,
+    "completion_mirrors": 10,
+    "progress_mirrors": 2,
+    "prior_ociclient9_receipt_deep_exact_in_each_current_mirror": true,
+    "prior_ociclient_promotion_audit_pin_and_before_ledger_chain_verified": true,
+    "authority93_packet_peer_inventory_name_hash_class_matches": true,
+    "ociclient9_authority93_and_retired19_pairwise_disjoint": true,
+    "all4319_inventory_roots_unique": true,
+    "nineteen_retirement_dispositions_deep_unchanged_and_match_inventory": true,
+    "all_five_categories_OPEN": true,
+    "complete": false,
+    "historical_d4ac_receipts_deep_unchanged": true,
+    "historical_reconciliation_and_progress_history_deep_unchanged": true,
+    "all_prior_classification_history_entries_unchanged": true,
+    "all_prior_verification_history_entries_unchanged_and_previous_latest_appended_exactly": true,
+    "all_prior_publication_history_entries_unchanged_and_previous_delta_appended_exactly": true,
+    "frozen_lexical_scan_values_unchanged": true,
+    "frozen_scan_all18_manifest_entries_unchanged": true,
+    "ociclient_packet_manifest_unchanged": true,
+    "no_other_nested_ledger_difference_after_validated_delta_normalization": true,
+    "receipt_changed_paths_match_independently_computed_delta": true,
+    "progress_completion_sha256_matches_current_completion_bytes": true,
+    "source_and_runtime_qualification_records_unchanged_outside_classification_summary": true,
+    "financial_gap_main_published_main_ci_build_native_and_union_runtime_records_unchanged": true,
+    "promotion_script_read_and_ast_parsed_not_executed": true
+  },
+  "current_mirror_locations": {
+    "completion": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication"
+      ]
+    ],
+    "progress": [
+      [
+        "source_classification_adjudication"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ]
+    ]
+  },
+  "independently_computed_changed_paths": {
+    "completion": [
+      [
+        "as_of"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "authoritative_test_reconciliation",
+        "limit"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_remaining_globally_unadjudicated"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_integration"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_mixed"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_unit"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "limits"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "audit_boundaries",
+        "read_only_verification_history"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "classification_limit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "globally_unadjudicated_remaining_original_tests"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classification_adjudicated_retained"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_integration"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_mixed"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_unit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "provenance",
+        "limit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "classification_adjudication_history"
+      ],
+      [
+        "classification_work_pending",
+        "groups",
+        "internal/authority"
+      ],
+      [
+        "first_party_inventory",
+        "current_feature_limit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "integration_candidate",
+        "publication_delta"
+      ],
+      [
+        "integration_candidate",
+        "publication_history"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_feature_limit"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "source_classification_adjudication",
+        "unit"
+      ]
+    ],
+    "progress": [
+      [
+        "as_of"
+      ],
+      [
+        "classification_adjudication_history"
+      ],
+      [
+        "classification_work_pending",
+        "groups",
+        "internal/authority"
+      ],
+      [
+        "completion_ledger_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "classified_retained"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "globally_unadjudicated"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "note"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication",
+        "unit"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_integration"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_mixed"
+      ],
+      [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_unit"
+      ],
+      [
+        "gate"
+      ],
+      [
+        "source_classification_adjudication",
+        "SHA256SUMS_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "accepted_package_classifications"
+      ],
+      [
+        "source_classification_adjudication",
+        "as_of"
+      ],
+      [
+        "source_classification_adjudication",
+        "baseline_rows"
+      ],
+      [
+        "source_classification_adjudication",
+        "classification_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "classification_unadjudicated_remaining"
+      ],
+      [
+        "source_classification_adjudication",
+        "independent_review"
+      ],
+      [
+        "source_classification_adjudication",
+        "independent_review_sha256"
+      ],
+      [
+        "source_classification_adjudication",
+        "integration"
+      ],
+      [
+        "source_classification_adjudication",
+        "limits"
+      ],
+      [
+        "source_classification_adjudication",
+        "mixed"
+      ],
+      [
+        "source_classification_adjudication",
+        "package_groups"
+      ],
+      [
+        "source_classification_adjudication",
+        "packet"
+      ],
+      [
+        "source_classification_adjudication",
+        "prior_ociclient_promotion_audit"
+      ],
+      [
+        "source_classification_adjudication",
+        "retained_originals_classified"
+      ],
+      [
+        "source_classification_adjudication",
+        "unit"
+      ]
+    ]
+  },
+  "validated_delta_normalization": [
+    {
+      "ledger": "completion",
+      "path": [
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classification_adjudication"
+      ],
+      "kind": "validated_current_classification_receipt_replacement"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "as_of"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "2026-10-17T14:23:37.413945+00:00",
+      "after": "2026-10-17T14:34:17.672560+00:00"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "classification_work_pending",
+        "groups",
+        "internal/authority"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "93-root candidate72integration/19unit/2mixed under independent review;no counts promoted",
+      "after": "93 retained original source classifications independently accepted:72integration/20unit/1mixed;corrected packet and peer verified;no runtime credit"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "as_of"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "2026-10-17T14:23:37.413945+00:00",
+      "after": "2026-10-17T14:34:17.672560+00:00"
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "classification_work_pending",
+        "groups",
+        "internal/authority"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "93-root candidate72integration/19unit/2mixed under independent review;no counts promoted",
+      "after": "93 retained original source classifications independently accepted:72integration/20unit/1mixed;corrected packet and peer verified;no runtime credit"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "current_feature_linkage",
+        "firstparty_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "inventory",
+        "canonical_presence_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "current_test_reconciliation_derivation",
+        "firstparty_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "remaining_original_tests_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "globally_unadjudicated_remaining_original_tests"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_remaining_globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_integration"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 6,
+      "after": 78
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_unit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 3,
+      "after": 23
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classified_mixed"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 0,
+      "after": 1
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_integration"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 6,
+      "after": 78
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_unit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 3,
+      "after": 23
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "firstparty_source_classified_mixed"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 0,
+      "after": 1
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "source_classification_adjudicated_retained"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 9,
+      "after": 102
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "firstparty",
+        "classification_limit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "authoritative_current_test_reconciliation",
+        "provenance",
+        "limit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_feature_limit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_feature_limit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "open_categories",
+        3,
+        "first_party_inventory",
+        "current_reconciliation",
+        "limits"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "limits"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "latest_read_only_verification",
+        "authoritative_test_reconciliation",
+        "limit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "integration_candidate",
+        "publication_delta"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "Current d4ac has19 accepted scoped retirements. Accepted source classifications cover9 retained ociclient originals (6integration/3unit);4291 of4300 retained originals remain globally unadjudicated. Historical donor checks remain source-scoped; no current feature/runtime/native/cloud/global qualification.",
+      "after": "Current d4ac has19 accepted scoped retirements. Accepted source classifications cover102 retained originals in ociclient and authority (78integration/23unit/1mixed);4198 of4300 retained originals remain globally unadjudicated. Historical donor checks remain source-scoped; no current feature/runtime/native/cloud/global qualification."
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "classified_retained"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 9,
+      "after": 102
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "globally_unadjudicated"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 4291,
+      "after": 4198
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_integration"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 6,
+      "after": 78
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_unit"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 3,
+      "after": 23
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "source_classified_mixed"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": 0,
+      "after": 1
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "first_party_inventory",
+        "current_reconciliation",
+        "note"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+      "after": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,102 source classifications are independently accepted (78integration/23unit/1mixed);4198 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN."
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "gate"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "All five completion categories OPEN. Accepted d4ac:19 scoped retirements;4300 retained originals include9 independently accepted source classifications(6integration/3unit),4291globallyunadjudicated. Vendor1449present/0retired/0centralclosure. No runtime/main/global credit.",
+      "after": "All five completion categories OPEN. Accepted d4ac:19 scoped retirements;4300 retained originals include102 independently accepted source classifications(78integration/23unit/1mixed),4198globallyunadjudicated. Vendor1449present/0retired/0centralclosure. No runtime/main/global credit."
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "completion_ledger_sha256"
+      ],
+      "kind": "validated_scalar_delta",
+      "before": "a59581d3ecec9e292c36f86977ab4b8b94851d70379d9c42f0bea6323fd9ccd9",
+      "after": "2844cc0dd959d7511be7e1b48eebae1569ccdb5f3308e9822dad66637dba4e72"
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "classification_adjudication_history"
+      ],
+      "kind": "exact_single_append_preserving_all_previous_entries",
+      "appended_value": {
+        "as_of": "2026-10-17T14:34:17.672560+00:00",
+        "before_snapshot": {
+          "path": "/tmp/ts-qa-refactor-completion-open-20261016-before-authority93-classification-fb8f5c3e93.json",
+          "sha256": "a59581d3ecec9e292c36f86977ab4b8b94851d70379d9c42f0bea6323fd9ccd9",
+          "bytes": 1070806,
+          "mode": "0400"
+        },
+        "adjudicated_retained_delta": 93,
+        "integration_delta": 72,
+        "unit_delta": 20,
+        "mixed_delta": 1,
+        "retirement_delta": 0,
+        "runtime_qualification_delta": 0,
+        "accepted_packet": {
+          "path": "/tmp/ts-authority-d4ac-classification-corrected-8e5nz_tg/review.json",
+          "sha256": "084e17bc2f2575099b16f730cd5100b277d5693f330a6aa7406154c2da38e2c0"
+        },
+        "independent_peer": {
+          "path": "/tmp/ts-authority-d4ac-classification-peer-1pd2stsh/review.json",
+          "sha256": "7e021d206217d320c0a06edd87b9fac019a868243857f9381d1c2dfec8106372"
+        }
+      }
+    },
+    {
+      "ledger": "progress",
+      "path": [
+        "classification_adjudication_history"
+      ],
+      "kind": "exact_single_append_preserving_all_previous_entries",
+      "appended_value": {
+        "as_of": "2026-10-17T14:34:17.672560+00:00",
+        "before_snapshot": {
+          "path": "/tmp/ts-qa-main-union-progress-20261016-before-authority93-classification-f225779da8.json",
+          "sha256": "324c1ab4c63d2605a9863d31614ccf291d3e15c55dbb0b8f476406078d10b1b2",
+          "bytes": 90706,
+          "mode": "0400"
+        },
+        "adjudicated_retained_delta": 93,
+        "integration_delta": 72,
+        "unit_delta": 20,
+        "mixed_delta": 1,
+        "retirement_delta": 0,
+        "runtime_qualification_delta": 0,
+        "accepted_packet": {
+          "path": "/tmp/ts-authority-d4ac-classification-corrected-8e5nz_tg/review.json",
+          "sha256": "084e17bc2f2575099b16f730cd5100b277d5693f330a6aa7406154c2da38e2c0"
+        },
+        "independent_peer": {
+          "path": "/tmp/ts-authority-d4ac-classification-peer-1pd2stsh/review.json",
+          "sha256": "7e021d206217d320c0a06edd87b9fac019a868243857f9381d1c2dfec8106372"
+        }
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "audit_boundaries",
+        "read_only_verification_history"
+      ],
+      "kind": "exact_single_append_preserving_all_previous_entries",
+      "appended_value": {
+        "published_feature": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+        "main": "72e903719c7b53dee94305f50b3bdb8b147f0eda",
+        "authoritative_test_reconciliation": {
+          "packet": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+          "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+          "manifest_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+          "manifest_entries_verified": 18,
+          "readonly_files_verified": 19,
+          "mode": "0400",
+          "feature": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "actual_adoption_independent_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+          "actual_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+          "actual_publication_independent_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+          "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+          "independent_reconciliation_review": "/tmp/ts-qa-d4ac-reconciliation-independent-omel6oda/review.json",
+          "independent_reconciliation_review_sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8",
+          "all_exact_hashes_verified_by_ledger_update": true,
+          "fresh_source_scan_by_inventory_agent": true,
+          "new_runtime": false,
+          "new_source_scan_by_completion_audit": false,
+          "limit": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+          "lexical_scan_unadjudicated_before_classification": 4300
+        },
+        "current_test_reconciliation_derivation": {
+          "current_feature": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "current_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "authoritative_predecessor": "ca1226b9b4011383f39c0753e19be295618accf8",
+          "source_reconciliation_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "source_reconciliation_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "fresh_authoritative_summary": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy/summary.json",
+          "summary_sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656",
+          "manifest_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+          "manifest_entries_verified": 18,
+          "readonly_files_verified": 19,
+          "method": "Immutable Git ls-tree/cat-file/show and pinned scanner pure lexical functions extracted with Python AST; no Go AST/typecheck/discovery/build/test/runtime/runner/binary/lock/cloud/source/index/branch/ledger mutation. Only exclusive temporary artifacts.",
+          "new_scoped_retirements": 10,
+          "firstparty_body_exact": 4276,
+          "firstparty_body_changed": 23,
+          "firstparty_expanded_retained_rename": 1,
+          "firstparty_retired": 19,
+          "firstparty_globally_unadjudicated": 4291,
+          "helper_body_exact": 1653,
+          "helper_body_changed": 9,
+          "removed_helper_not_test_retirement": 1,
+          "TestMain_exact": 4,
+          "all_original_declarations_reconciled": 5986,
+          "vendor_present": 1449,
+          "vendor_absent": 0,
+          "vendor_retired": 0,
+          "vendor_central_closures": 0,
+          "vendor_original_files_byte_exact": 131,
+          "runtime_repeated_on_adoption": false,
+          "source_adoption": true,
+          "count_change": 10,
+          "actual_adoption_review": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+          "actual_adoption_review_sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b",
+          "actual_publication_review": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+          "actual_publication_review_sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7",
+          "independent_reconciliation_review": "/tmp/ts-qa-d4ac-reconciliation-independent-omel6oda/review.json",
+          "independent_reconciliation_review_sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8",
+          "firstparty_nonretired_original_tests": 4300,
+          "source_classification_adjudication": {
+            "state": "INDEPENDENTLY_ACCEPTED_SOURCE_CLASSIFICATIONS_NO_RUNTIME_CREDIT",
+            "as_of": "2026-10-17T14:23:37.413945+00:00",
+            "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+            "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+            "packet": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+            "classification_sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+            "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+            "independent_review": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+            "independent_review_sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+            "package_groups": [
+              "internal/ociclient"
+            ],
+            "baseline_rows": 14,
+            "retained_originals_classified": 9,
+            "integration": 6,
+            "unit": 3,
+            "mixed": 0,
+            "unresolved_within_classified_package": 0,
+            "prior_retired_rows_excluded": 5,
+            "retirement_delta": 0,
+            "retirements_total": 19,
+            "retained_originals_total": 4300,
+            "classification_unadjudicated_remaining": 4291,
+            "runtime_qualified_by_this_classification": 0,
+            "limits": [
+              "Source classification verifies the connected setup and assertions; it does not establish runtime qualification.",
+              "Six existing genuine local HTTP/SDK integration originals are retained unchanged. Three unit roots remain safety obligations for later migration.",
+              "Five prior retirement dispositions are not classified or retired again. Other package classifications remain pending."
+            ]
+          }
+        },
+        "firstparty_qualified_retired": 19,
+        "firstparty_remaining_globally_unadjudicated": 4291,
+        "firstparty_body_exact": 4276,
+        "firstparty_body_changed": 23,
+        "firstparty_expanded_retained_rename": 1,
+        "vendor_current_tree_originals_present": 1449,
+        "vendor_current_tree_originals_absent": 0,
+        "vendor_current_tree_retirements": 0,
+        "vendor_central_closures": 0,
+        "full_reconciliation_successor_pending": false,
+        "full_reconciliation_successor_verified": true,
+        "runtime_repeated": false,
+        "remote_refs_independently_match": "Feature push direct receipt exit0; no new independent remote-ref query in this promotion.",
+        "writes": "Completion/progress ledgers and immutable predecessor snapshots only; no source/test/Git/cloud/human mutation.",
+        "limits": "4319 originals reconcile as4276 body exact+23 changed+1 expanded+19 scoped retirements. Of4300 retained originals,9 source classifications are independently accepted (6integration/3unit/0mixed);4291 remain globally unadjudicated. Source classification is not runtime qualification. All five completion categories remain OPEN.",
+        "firstparty_nonretired_original_tests": 4300,
+        "firstparty_source_classified_integration": 6,
+        "firstparty_source_classified_unit": 3,
+        "firstparty_source_classified_mixed": 0,
+        "source_classification_adjudication": {
+          "state": "INDEPENDENTLY_ACCEPTED_SOURCE_CLASSIFICATIONS_NO_RUNTIME_CREDIT",
+          "as_of": "2026-10-17T14:23:37.413945+00:00",
+          "source_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+          "source_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+          "packet": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+          "classification_sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5",
+          "SHA256SUMS_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+          "independent_review": "/tmp/ts-qa-ociclient-d4ac-classification-artifact-tests-vhps3ufo/review.json",
+          "independent_review_sha256": "c22f1cb62fd3a5adc3be0867d51fca1b36b387b23dfc6384265d327a8d5e031f",
+          "package_groups": [
+            "internal/ociclient"
+          ],
+          "baseline_rows": 14,
+          "retained_originals_classified": 9,
+          "integration": 6,
+          "unit": 3,
+          "mixed": 0,
+          "unresolved_within_classified_package": 0,
+          "prior_retired_rows_excluded": 5,
+          "retirement_delta": 0,
+          "retirements_total": 19,
+          "retained_originals_total": 4300,
+          "classification_unadjudicated_remaining": 4291,
+          "runtime_qualified_by_this_classification": 0,
+          "limits": [
+            "Source classification verifies the connected setup and assertions; it does not establish runtime qualification.",
+            "Six existing genuine local HTTP/SDK integration originals are retained unchanged. Three unit roots remain safety obligations for later migration.",
+            "Five prior retirement dispositions are not classified or retired again. Other package classifications remain pending."
+          ]
+        }
+      }
+    },
+    {
+      "ledger": "completion",
+      "path": [
+        "integration_candidate",
+        "publication_history"
+      ],
+      "kind": "exact_single_append_preserving_all_previous_entries",
+      "appended_value": {
+        "source": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+        "publication_delta": "Current d4ac has19 accepted scoped retirements. Accepted source classifications cover9 retained ociclient originals (6integration/3unit);4291 of4300 retained originals remain globally unadjudicated. Historical donor checks remain source-scoped; no current feature/runtime/native/cloud/global qualification."
+      }
+    }
+  ],
+  "frozen_input_manifest_proofs": [
+    {
+      "directory": "/tmp/ts-firstparty-vendor-d4ac-accepted-9h6_8guy",
+      "manifest_sha256": "2a8a34d73a5d4cdc7250d15c0ae441cc5ea34a649d9f00cba0edd668e801413e",
+      "entries": [
+        {
+          "name": "accepted-ca1226-SHA256SUMS.txt",
+          "sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0"
+        },
+        {
+          "name": "accepted-ca1226-summary.json",
+          "sha256": "22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e"
+        },
+        {
+          "name": "accepted-d4ac-actual-publication-review.json",
+          "sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7"
+        },
+        {
+          "name": "accepted66c74-source-adoption-review.json",
+          "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b"
+        },
+        {
+          "name": "changes-since-accepted-ca1226.tsv",
+          "sha256": "b6aa5daded2781bce62bbceb75d21809c598d49101dcaacecd7175bc65456933"
+        },
+        {
+          "name": "command-tools-source-pins.json",
+          "sha256": "e50dde54b7b7c2ba3703975d0a2a5049ce85d4121238c63a92a2be37fd75d81b"
+        },
+        {
+          "name": "current-test-source-files.tsv",
+          "sha256": "983a93cadfa8df697ed917749927403af13c254c5594606d6c1012ce96519ce0"
+        },
+        {
+          "name": "firstparty-survival.tsv",
+          "sha256": "5fdf8adda8903b852d89a3d790dae9bbd46d3233349792988b15ac9806d93e73"
+        },
+        {
+          "name": "independent-reconciliation-review.json",
+          "sha256": "bded14f2d1e1b861172ffa39dc11505ac9e9f368b6df2bce635ba3fbdf19aac8"
+        },
+        {
+          "name": "new-firstparty-declarations.tsv",
+          "sha256": "e9ba433246bb00a7e1ee26d1b94de2146043a82658255522acec7aabfe74bff8"
+        },
+        {
+          "name": "nineteen-source-retirement-dispositions.json",
+          "sha256": "788d76c67db45fb6455e7046bf3d8cf6e2fc752a2aa0c8a7c6d7bbd6189f45ae"
+        },
+        {
+          "name": "reconcile.py.txt",
+          "sha256": "645d77f2cc9b485f029840ae85be32568b7740bf249be0ff12a44db3e48a75b1"
+        },
+        {
+          "name": "source-adoption-and-publication-proof.json",
+          "sha256": "eea811064f3af9eb532e4ae006cdcd9ce860a4458317cc3c36f2987a0e8a1320"
+        },
+        {
+          "name": "source-scan-SHA256SUMS.txt",
+          "sha256": "3874ac606f4f59c689325cd7ba8b92e74d30a1a0b8e01109ecf5e9a42d342416"
+        },
+        {
+          "name": "source-scan-summary.json",
+          "sha256": "9fb37ed8cb436eef160189f12899af25c3de1f62d149ffbece7da11946fea6f4"
+        },
+        {
+          "name": "summary.json",
+          "sha256": "412739d864b576636eede4d653dce4dcfcd523930690491a6c70332b6c0ce656"
+        },
+        {
+          "name": "vendor-original-source-file-checks.json",
+          "sha256": "f3f66abf334c7c912e0f2b79229612346368c12eb7228c8e2c9323d314c79198"
+        },
+        {
+          "name": "vendor-original-survival.tsv",
+          "sha256": "9e3e81ca27b27a02aaaea2cdb21f239027bfd285692929bb619b6c58dab5d05b"
+        }
+      ],
+      "file_mode": "0400",
+      "directory_mode": "0500"
+    },
+    {
+      "directory": "/tmp/ts-ociclient-d4ac-source-classification-1p515gvv",
+      "manifest_sha256": "9a1b860fe918a3ac4cfb305b7ee17c824a4177ae2463068179fa8f08f5fa52f5",
+      "entries": [
+        {
+          "name": "README.md",
+          "sha256": "f48ea7c7ea02715202f59fab55fe2909c8b271b637f9279b994d658955cd240f"
+        },
+        {
+          "name": "classification.json",
+          "sha256": "a86ce342d55f0f52ce3a1a220df68a594349388bebd40a0c08163221f2476ee5"
+        }
+      ],
+      "file_mode": "0400",
+      "directory_mode": "0500"
+    }
+  ],
+  "authority93_classified_roots": [
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupActiveFencesTerminalUntilAllRosterAbort",
+      "original_declaration_sha256": "d39d90e7e849e38b22c27660269e0f87e0e4e3e78044f4b6cc68e3a8c383690d",
+      "current_declaration_sha256": "d39d90e7e849e38b22c27660269e0f87e0e4e3e78044f4b6cc68e3a8c383690d",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupAllocationAndPlacementRaceAtPinnedSequence",
+      "original_declaration_sha256": "09967fb2ec67d8fd99f159623fece6909bf9d5f6fdf8dc598c13345aa1e17c76",
+      "current_declaration_sha256": "09967fb2ec67d8fd99f159623fece6909bf9d5f6fdf8dc598c13345aa1e17c76",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupAndManagedUpdateCommitsFenceEachOtherInBothOrders",
+      "original_declaration_sha256": "164eba8cd48100027f81201fee39092985d066b655dd1320e944aa75e946e95b",
+      "current_declaration_sha256": "164eba8cd48100027f81201fee39092985d066b655dd1320e944aa75e946e95b",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupAttemptNeedsRosterWideAbortBeforeReuseOfOrdinal",
+      "original_declaration_sha256": "0d63ac36128e61e5f9e9cfcfd01363d661df82fb7460dacc8820b9de0e727b22",
+      "current_declaration_sha256": "0d63ac36128e61e5f9e9cfcfd01363d661df82fb7460dacc8820b9de0e727b22",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupCompleteRequiresCommittedProofsAndEveryAcknowledgment",
+      "original_declaration_sha256": "73e2956260c1310c344aea33616d4cbda1e1868763f47627859f843e14eece3b",
+      "current_declaration_sha256": "73e2956260c1310c344aea33616d4cbda1e1868763f47627859f843e14eece3b",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupHeldRequiresEveryCutAndAbortCannotClearNewerHold",
+      "original_declaration_sha256": "818bcdec0495e293b8aa0f68a24adc6e55f6540ef845d08335633db3edf13208",
+      "current_declaration_sha256": "818bcdec0495e293b8aa0f68a24adc6e55f6540ef845d08335633db3edf13208",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupHistoryPagesExactPartitionAndPayloadOperationID",
+      "original_declaration_sha256": "5148a96bd42d13c79a01eb9f1a3a342454c9d22e2734ff6b92f3a63541b38a38",
+      "current_declaration_sha256": "5148a96bd42d13c79a01eb9f1a3a342454c9d22e2734ff6b92f3a63541b38a38",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupRosterRequiresOneHostRelayPerMember",
+      "original_declaration_sha256": "12a35ec039b6b6215af43f4541e320432c6e29aac376e41d0b45ce2eaf07c690",
+      "current_declaration_sha256": "12a35ec039b6b6215af43f4541e320432c6e29aac376e41d0b45ce2eaf07c690",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupStartAllowsDurableHeldManagedUpdate",
+      "original_declaration_sha256": "6e205e854ae57cdca4a467d966a68f16a769842cf8ae714f5e4de0cd82d76e9e",
+      "current_declaration_sha256": "6e205e854ae57cdca4a467d966a68f16a769842cf8ae714f5e4de0cd82d76e9e",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestBackupStartFailsClosedWhenManagedUpdateHistoryIsUnreadable",
+      "original_declaration_sha256": "e00ebf5c4fbdcfbbe2c6dc019a42de3dfb3c5fe227207f229b29403cb7443891",
+      "current_declaration_sha256": "e00ebf5c4fbdcfbbe2c6dc019a42de3dfb3c5fe227207f229b29403cb7443891",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestConcurrentBackupAndManagedUpdateStartsHaveOneWinner",
+      "original_declaration_sha256": "16aaa58b17865731541ce57ad391274dc42dfea486a4b8e390756c9c140e1bdb",
+      "current_declaration_sha256": "16aaa58b17865731541ce57ad391274dc42dfea486a4b8e390756c9c140e1bdb",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/backup_operation_test.go",
+      "original_name": "TestNewBackupOperationRequiresFinalRosterVerifier",
+      "original_declaration_sha256": "19a7ff13bb27083de9664d06c31f1d836aedb96c703cb77c0ac9bcb803f29cfb",
+      "current_declaration_sha256": "19a7ff13bb27083de9664d06c31f1d836aedb96c703cb77c0ac9bcb803f29cfb",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/control_stream_startup_test.go",
+      "original_name": "TestCreatedControlStreamMissingInfoRetryIsBoundedAndCancelable",
+      "original_declaration_sha256": "2cd57805e088f7043983e3a8b83a757786a87970f99c1004a1dcb652187b6f2d",
+      "current_declaration_sha256": "2cd57805e088f7043983e3a8b83a757786a87970f99c1004a1dcb652187b6f2d",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/control_stream_startup_test.go",
+      "original_name": "TestOpenControlStreamDoesNotRetryPermanentOrExistingMissingInfo",
+      "original_declaration_sha256": "db93b234524666e6a3d6cf276069df35bf9572c2c5db6bf6ab683dcaec62cf77",
+      "current_declaration_sha256": "db93b234524666e6a3d6cf276069df35bf9572c2c5db6bf6ab683dcaec62cf77",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/control_stream_startup_test.go",
+      "original_name": "TestOpenControlStreamWaitsForPostCreateMetadataVisibility",
+      "original_declaration_sha256": "4c68dba323239e82f96b0e317be5edd099722a38500425887f9dc0b9e59b2bfd",
+      "current_declaration_sha256": "4c68dba323239e82f96b0e317be5edd099722a38500425887f9dc0b9e59b2bfd",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/deployment_test.go",
+      "original_name": "TestDeploymentIDIsRequiredAndCanonical",
+      "original_declaration_sha256": "514e1fa8f5195d554184cab1abf1497bd3c643039c98e299fa9bd920dd4e20a7",
+      "current_declaration_sha256": "514e1fa8f5195d554184cab1abf1497bd3c643039c98e299fa9bd920dd4e20a7",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/deployment_test.go",
+      "original_name": "TestDeploymentRetainedAcrossRenewReleaseAndRecovery",
+      "original_declaration_sha256": "3d8997a76f308b47707506e3ffaf5fc55156caac530cc615c38f0f2f3b36d252",
+      "current_declaration_sha256": "3d8997a76f308b47707506e3ffaf5fc55156caac530cc615c38f0f2f3b36d252",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/deployment_test.go",
+      "original_name": "TestForeignOrLegacyLeaseCannotAuthorizeOrBeReplaced",
+      "original_declaration_sha256": "0eb7ca74c4c8e359497a1fb9abd77e9899f7c31fc361d4dda90b215658093b4a",
+      "current_declaration_sha256": "0eb7ca74c4c8e359497a1fb9abd77e9899f7c31fc361d4dda90b215658093b4a",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/deployment_test.go",
+      "original_name": "TestVersionOneLeasePermanentlyFencesLegacyDecoder",
+      "original_declaration_sha256": "95677a9368c878ab7c27728344ccbdcbfe46bab064473c53e72535a1ae6171c9",
+      "current_declaration_sha256": "95677a9368c878ab7c27728344ccbdcbfe46bab064473c53e72535a1ae6171c9",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/foreign_lease_test.go",
+      "original_name": "TestVerifyLeaseHolderFencesEveryOtherTermWithoutTakingAuthority",
+      "original_declaration_sha256": "08b6062945f23441611a79f20b04c24e3eac331be3c8a00176ac2108bf8bc9ba",
+      "current_declaration_sha256": "08b6062945f23441611a79f20b04c24e3eac331be3c8a00176ac2108bf8bc9ba",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/function_integration_test.go",
+      "original_name": "TestFunctionGrantCannotRaceNewCurrentIntent",
+      "original_declaration_sha256": "4270916a7afd070d278243dd94577cbb4f3bd58fe9fc1018b1d6687ecbcbf4a4",
+      "current_declaration_sha256": "4270916a7afd070d278243dd94577cbb4f3bd58fe9fc1018b1d6687ecbcbf4a4",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/function_integration_test.go",
+      "original_name": "TestFunctionIntentAndRecipientGrantsUseDurableCurrentFloor",
+      "original_declaration_sha256": "41623d706406845fbf882095c79d7ba691396567db37c02774ed69038522c530",
+      "current_declaration_sha256": "41623d706406845fbf882095c79d7ba691396567db37c02774ed69038522c530",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/function_integration_test.go",
+      "original_name": "TestFunctionProofExpiresInsideFencedCommit",
+      "original_declaration_sha256": "c11dc60ac36074429b079e90d3958c6763fa44f0091b3790c34ee46f06f6258c",
+      "current_declaration_sha256": "c11dc60ac36074429b079e90d3958c6763fa44f0091b3790c34ee46f06f6258c",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/host_history_test.go",
+      "original_name": "TestHostHistoryBoundsReadsByInventoryAndNewChanges",
+      "original_declaration_sha256": "9978f48b8b67ee71c84a4e24266f7aceaf7b5be250f7cf922dc9e138c27a013a",
+      "current_declaration_sha256": "9978f48b8b67ee71c84a4e24266f7aceaf7b5be250f7cf922dc9e138c27a013a",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/host_history_test.go",
+      "original_name": "TestHostHistoryExpiresAndReseedsWithoutLifetimeReplay",
+      "original_declaration_sha256": "35b6514ccf1e7d7dbea63f9145965a76b7086c3695592fa58a46574246c0ebd9",
+      "current_declaration_sha256": "35b6514ccf1e7d7dbea63f9145965a76b7086c3695592fa58a46574246c0ebd9",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/host_history_test.go",
+      "original_name": "TestHostHistoryLockHonorsRequestDeadline",
+      "original_declaration_sha256": "0b85d4fc01b56720485caf4968bd631f21a682affc795a17aed368e9d4279b15",
+      "current_declaration_sha256": "0b85d4fc01b56720485caf4968bd631f21a682affc795a17aed368e9d4279b15",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_integration_test.go",
+      "original_name": "TestHeldIdentityHostRecordsVerifiedStaticGRUSFOAndRetiredHeads",
+      "original_declaration_sha256": "33af2e87180488ed76b8f54bdaaefcd2d98126cbde00f9cd6f7ba46151cd878d",
+      "current_declaration_sha256": "33af2e87180488ed76b8f54bdaaefcd2d98126cbde00f9cd6f7ba46151cd878d",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostCompletionChecksEveryRecord",
+      "original_declaration_sha256": "2dec0d3d240614ce3b8a2b39eff35a8f976b2c9863ce00b420878e1813b3f020",
+      "current_declaration_sha256": "2dec0d3d240614ce3b8a2b39eff35a8f976b2c9863ce00b420878e1813b3f020",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostCompletionFencesHeadChangedAfterItsRead",
+      "original_declaration_sha256": "7605ff1763c4b206e27997b4f478af321a5aa7b7e727b7f41173d3064c9448eb",
+      "current_declaration_sha256": "7605ff1763c4b206e27997b4f478af321a5aa7b7e727b7f41173d3064c9448eb",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordInFlightAppendCannotOverwriteCompletion",
+      "original_declaration_sha256": "065afcfe0ac112c08b54acd52ec652cf6e98abd1ed9e90f52225b47bc6236086",
+      "current_declaration_sha256": "065afcfe0ac112c08b54acd52ec652cf6e98abd1ed9e90f52225b47bc6236086",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsDeletionRequiresPositiveOwnTombstone",
+      "original_declaration_sha256": "3982aee6614d27ce3af7a501b966646c2bafb3cd8da195193e50d7ef235f73fd",
+      "current_declaration_sha256": "3982aee6614d27ce3af7a501b966646c2bafb3cd8da195193e50d7ef235f73fd",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsHoldPartialHeadAndResolveLostReplies",
+      "original_declaration_sha256": "371d6cca132aacc1492408e712e13b8c514d4b4d0a3844c703643938bb3418dd",
+      "current_declaration_sha256": "371d6cca132aacc1492408e712e13b8c514d4b4d0a3844c703643938bb3418dd",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsOwnCopiesOfValidatedValues",
+      "original_declaration_sha256": "16da4274c84fc1232d9d71c9e4364cbcdd3cf1d484f54a23561122ee6b9b23ab",
+      "current_declaration_sha256": "16da4274c84fc1232d9d71c9e4364cbcdd3cf1d484f54a23561122ee6b9b23ab",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsR3HeldResumeAfterLeaderLoss",
+      "original_declaration_sha256": "ff6779b618c1e161174d9cdea61cbb1568e4b120dabe9fef18181adad1680bb4",
+      "current_declaration_sha256": "ff6779b618c1e161174d9cdea61cbb1568e4b120dabe9fef18181adad1680bb4",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsRecheckPolicyAtMutationAndReadback",
+      "original_declaration_sha256": "c91a132857cfddc39b675ae32c66205ab9da9b5bb13b31259bbab1791f4fbce4",
+      "current_declaration_sha256": "c91a132857cfddc39b675ae32c66205ab9da9b5bb13b31259bbab1791f4fbce4",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsRejectInvalidCurrentHeadBeforeAnyEffects",
+      "original_declaration_sha256": "2e0fe4dc84c8f0848b79ba63d2430c012d1a08c2331f62f08b45eb286b52b8bb",
+      "current_declaration_sha256": "2e0fe4dc84c8f0848b79ba63d2430c012d1a08c2331f62f08b45eb286b52b8bb",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsRejectMissingPlanActionAndUnknownDestinations",
+      "original_declaration_sha256": "e7f8aa470c0ee3205a26478b1dfc9444370c5596a343cdf5a485ce1d0e95a85d",
+      "current_declaration_sha256": "e7f8aa470c0ee3205a26478b1dfc9444370c5596a343cdf5a485ce1d0e95a85d",
+      "classification": "mixed",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_host_records_test.go",
+      "original_name": "TestIdentityHostRecordsResumeEveryCommittedBoundary",
+      "original_declaration_sha256": "36f89d315d7f2d1275c4d79a25366e7d4aa83e03149cf7f0056369ca6ce33482",
+      "current_declaration_sha256": "36f89d315d7f2d1275c4d79a25366e7d4aa83e03149cf7f0056369ca6ce33482",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_inventory_test.go",
+      "original_name": "TestIdentityResetInventoryRetainsForeignCellAndRefusesLateTombstone",
+      "original_declaration_sha256": "4671b130a2aceece1d69616523dade5ce114c1ebb459822dad360c1ae27231c0",
+      "current_declaration_sha256": "4671b130a2aceece1d69616523dade5ce114c1ebb459822dad360c1ae27231c0",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_inventory_test.go",
+      "original_name": "TestIdentityResetRejectsAggregateEvictionBeforeBarrier",
+      "original_declaration_sha256": "fa78f7f03b3472f48e76a23bc6f56dccfb9ba53303e2240d4d2596fb38dfacd8",
+      "current_declaration_sha256": "fa78f7f03b3472f48e76a23bc6f56dccfb9ba53303e2240d4d2596fb38dfacd8",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_inventory_test.go",
+      "original_name": "TestIdentityResetRejectsOmittedHostInventoryBeforeBarrier",
+      "original_declaration_sha256": "e055205a84b7869c68d3ae40e4b252f0a0ecd12707a0f894ec538c746e7823e7",
+      "current_declaration_sha256": "e055205a84b7869c68d3ae40e4b252f0a0ecd12707a0f894ec538c746e7823e7",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestCommittedIdentityResetResumesAfterGrantExpiry",
+      "original_declaration_sha256": "5dd9f9ee20366caa8f36f4cd5bfad13ec244da489d1666ccd14aa6202a15d77d",
+      "current_declaration_sha256": "5dd9f9ee20366caa8f36f4cd5bfad13ec244da489d1666ccd14aa6202a15d77d",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestCompleteIdentityResetRefusesMissingOrUnpinnedRecords",
+      "original_declaration_sha256": "41a11860a5f74f8c808371da4616ec69de99fa618c7ca1c3b1b71247c48a7e55",
+      "current_declaration_sha256": "41a11860a5f74f8c808371da4616ec69de99fa618c7ca1c3b1b71247c48a7e55",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestCompleteIdentityResetRejectsBucketExpiryIntroducedAfterReplacement",
+      "original_declaration_sha256": "ec048fb9771367d2fa1b38ff8922503ee426b7c2510a5b51ad68d8a5d7e39d39",
+      "current_declaration_sha256": "ec048fb9771367d2fa1b38ff8922503ee426b7c2510a5b51ad68d8a5d7e39d39",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestCompleteIdentityResetResolvesLostReplyAfterNormalAcquisition",
+      "original_declaration_sha256": "93bf8a9774ffa25a4658c0b1ccfb82449c8ede6821631241fa57a98ad9812720",
+      "current_declaration_sha256": "93bf8a9774ffa25a4658c0b1ccfb82449c8ede6821631241fa57a98ad9812720",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestIdentityResetCommittedRejectsBarrierOutsideGrantLifetime",
+      "original_declaration_sha256": "a11d8d2865c429ea4462d90d7c30edeb09f0164a878a76a39f3f9a5a8336f0f7",
+      "current_declaration_sha256": "a11d8d2865c429ea4462d90d7c30edeb09f0164a878a76a39f3f9a5a8336f0f7",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestIdentityResetCompletionRequiresItsCommittedBarrierAndCompletion",
+      "original_declaration_sha256": "213b992ac59ce084ef38ccbefbc5b07fa97237724703e04723b8ef59edc65522",
+      "current_declaration_sha256": "213b992ac59ce084ef38ccbefbc5b07fa97237724703e04723b8ef59edc65522",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestPublishIdentityRecordHoldsWhenConfirmationIsUnavailable",
+      "original_declaration_sha256": "3947bab8f31af0f772ca84a5b39d71f8d0a2ec3cc180209874be4a09297ef1e2",
+      "current_declaration_sha256": "3947bab8f31af0f772ca84a5b39d71f8d0a2ec3cc180209874be4a09297ef1e2",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsDoesNotPurgePredecessorChangedAfterRead",
+      "original_declaration_sha256": "ead82419d59a812a50104be848c162603634c5fae1e75063be85f93e9f1dff1b",
+      "current_declaration_sha256": "ead82419d59a812a50104be848c162603634c5fae1e75063be85f93e9f1dff1b",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsFencesDelayedOldCASWrites",
+      "original_declaration_sha256": "7a3c1ea16faf8720fd9e65f2efca31c7ae4f425ebcfcb8e4cb3b2d5b88de86a6",
+      "current_declaration_sha256": "7a3c1ea16faf8720fd9e65f2efca31c7ae4f425ebcfcb8e4cb3b2d5b88de86a6",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsInFlightCreateCannotOverwriteCompletedDeployment",
+      "original_declaration_sha256": "aefaf59fd86c19bfc82be558543e2516d21b7fec61e1d0ffdc67563212ca1d7f",
+      "current_declaration_sha256": "aefaf59fd86c19bfc82be558543e2516d21b7fec61e1d0ffdc67563212ca1d7f",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsPurgesCurrentKeysAndPreservesHistory",
+      "original_declaration_sha256": "dce27c8fbcc3f3c70198780c9f92c627d07efe643092a7b1330f41906ee584f3",
+      "current_declaration_sha256": "dce27c8fbcc3f3c70198780c9f92c627d07efe643092a7b1330f41906ee584f3",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsRefusesForeignOrIncompleteProofMarkers",
+      "original_declaration_sha256": "6fc180a1e2167ac3a0bc3d2ad250c54643fdf424b1082b97e89f774af81e95f4",
+      "current_declaration_sha256": "6fc180a1e2167ac3a0bc3d2ad250c54643fdf424b1082b97e89f774af81e95f4",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsRejectsWrongPinsRootAndTarget",
+      "original_declaration_sha256": "6014b72e6fa37431ca805f38b33210deaba6ae3b9f657b326e21ac4ecf439af8",
+      "current_declaration_sha256": "6014b72e6fa37431ca805f38b33210deaba6ae3b9f657b326e21ac4ecf439af8",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsRequiresExactReleasedBarrier",
+      "original_declaration_sha256": "0869b2cddef52f91f3880b7bd9dba9c97ccc044d6d5c8bad0127e9591833770a",
+      "current_declaration_sha256": "0869b2cddef52f91f3880b7bd9dba9c97ccc044d6d5c8bad0127e9591833770a",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsResolvesLostPublishResponses",
+      "original_declaration_sha256": "0f965c522a1d7bdb0be272fe608c56ae54248faf4cac901011e1b8a42076cb96",
+      "current_declaration_sha256": "0f965c522a1d7bdb0be272fe608c56ae54248faf4cac901011e1b8a42076cb96",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsResumesAfterCommittedPurgeOrCreate",
+      "original_declaration_sha256": "536f36ba06aa4312658e7ec9f62e454fe9185747536a1682aa0ea40daf31d727",
+      "current_declaration_sha256": "536f36ba06aa4312658e7ec9f62e454fe9185747536a1682aa0ea40daf31d727",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_test.go",
+      "original_name": "TestReplaceIdentityRecordsUsesLeaderReadsWhenKVDirectReadsEnabled",
+      "original_declaration_sha256": "0cc9754c6905e91f59b4fc324fb362f964061b328847cc6f5d255294892a7dc9",
+      "current_declaration_sha256": "0cc9754c6905e91f59b4fc324fb362f964061b328847cc6f5d255294892a7dc9",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_tombstone_test.go",
+      "original_name": "TestIdentityResetRejectsInvalidTombstonePredecessorPins",
+      "original_declaration_sha256": "6129618b2f9027b4ff94e4462c7e11ceca75b7b38fd8a7a155c5fb5eee43593e",
+      "current_declaration_sha256": "6129618b2f9027b4ff94e4462c7e11ceca75b7b38fd8a7a155c5fb5eee43593e",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_records_tombstone_test.go",
+      "original_name": "TestIdentityResetRekeysExactTombstonesFromCompletedOperation",
+      "original_declaration_sha256": "9d17ea8809525be7d4fb73b8e32099337560a052c851334d3128a758faff46da",
+      "current_declaration_sha256": "9d17ea8809525be7d4fb73b8e32099337560a052c851334d3128a758faff46da",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_global_test.go",
+      "original_name": "TestIdentityResetAtomicBatchDoesNotCommitOneScopeWhenGlobalCASLoses",
+      "original_declaration_sha256": "f5154b3fb9eaf4ff61a2041a237d98cae08138a0f3db21970c5f0e9ea7859ae8",
+      "current_declaration_sha256": "f5154b3fb9eaf4ff61a2041a237d98cae08138a0f3db21970c5f0e9ea7859ae8",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_global_test.go",
+      "original_name": "TestIdentityResetRejectsChangedGlobalPredecessorBeforeRegionalHold",
+      "original_declaration_sha256": "11674c344ca737f4d845e95b254dcc3c754cb9f136ebdbba0322e81bb2e8a576",
+      "current_declaration_sha256": "11674c344ca737f4d845e95b254dcc3c754cb9f136ebdbba0322e81bb2e8a576",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_global_test.go",
+      "original_name": "TestIdentityResetRekeysGlobalHomeAndPreservesOpaqueHistory",
+      "original_declaration_sha256": "3d6b8b52ae4292b5c6190aaf2c32cab25e94fac3b744ac8f8dd78daa88024d77",
+      "current_declaration_sha256": "3d6b8b52ae4292b5c6190aaf2c32cab25e94fac3b744ac8f8dd78daa88024d77",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_recovery_test.go",
+      "original_name": "TestAtomicOutOfWindowHoldRecoversBothScopesWithFreshRootAuthorization",
+      "original_declaration_sha256": "a324ab67ac9a31b480fab77e515e8f91c5a12041038a51f73c741cf38b282ac5",
+      "current_declaration_sha256": "a324ab67ac9a31b480fab77e515e8f91c5a12041038a51f73c741cf38b282ac5",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_recovery_test.go",
+      "original_name": "TestOutOfWindowResetNeedsFreshRootAuthorizationForItsExactHold",
+      "original_declaration_sha256": "aa5ce9a0c7e8e49e123cf0c53d18604e88228cf09d9f35d75858285ff33d3dc1",
+      "current_declaration_sha256": "aa5ce9a0c7e8e49e123cf0c53d18604e88228cf09d9f35d75858285ff33d3dc1",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_recovery_test.go",
+      "original_name": "TestResetRecoveryCannotAuthorizeAnUncommittedProposalOrForeignSigner",
+      "original_declaration_sha256": "6fd58fa6129ee0ce99bbe9473ef6ef7fe14a719bccc0f24e4b3055852c23960a",
+      "current_declaration_sha256": "6fd58fa6129ee0ce99bbe9473ef6ef7fe14a719bccc0f24e4b3055852c23960a",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_test.go",
+      "original_name": "TestIdentityResetFloorAndPermanentFenceProof",
+      "original_declaration_sha256": "9c3c4159fe3b0996135cc691d5676fbb3d87e1f043795d8b6f4fd9f0058a2821",
+      "current_declaration_sha256": "9c3c4159fe3b0996135cc691d5676fbb3d87e1f043795d8b6f4fd9f0058a2821",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_test.go",
+      "original_name": "TestIdentityResetRejectsUntrustedOrChangedInputsBeforePublishing",
+      "original_declaration_sha256": "fd3e19e7cfa3456695afd7720d29a389f5739c026f722c3acc5319430b797960",
+      "current_declaration_sha256": "fd3e19e7cfa3456695afd7720d29a389f5739c026f722c3acc5319430b797960",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_test.go",
+      "original_name": "TestIdentityResetRequiresV1AndMonotonicFloor",
+      "original_declaration_sha256": "2bcb292724b58571b3e5320e1423e0cf4c1bf9fa26cce4e1d855f1a2e04b539d",
+      "current_declaration_sha256": "2bcb292724b58571b3e5320e1423e0cf4c1bf9fa26cce4e1d855f1a2e04b539d",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/identity_reset_test.go",
+      "original_name": "TestRootSignedIdentityResetPreservesHistoryAndFencesOldDeployment",
+      "original_declaration_sha256": "d497771c0eb153bbac67e056d28c5227435517b0838e43a0f129756780c13805",
+      "current_declaration_sha256": "d497771c0eb153bbac67e056d28c5227435517b0838e43a0f129756780c13805",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestAuthorityDiagnosticsAreSafeAndRateLimited",
+      "original_declaration_sha256": "365d4b9aed87f5907fbc0438acd24e4597c61d7086b22e45956c9886990d07fd",
+      "current_declaration_sha256": "365d4b9aed87f5907fbc0438acd24e4597c61d7086b22e45956c9886990d07fd",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestEnrollmentEffectIsDurableTerminalAdmissionHold",
+      "original_declaration_sha256": "1239ad6a9fd1de15c6c7b797597c15d04c254bc77018d02381f74289b1b24562",
+      "current_declaration_sha256": "1239ad6a9fd1de15c6c7b797597c15d04c254bc77018d02381f74289b1b24562",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestManagedUpdateHistoryRetainsExactPrepareAcrossLeaderEpochs",
+      "original_declaration_sha256": "732cd6998676341b89afa47d13631f6dcf520115725b3d5aa7b7cc754d1da1a2",
+      "current_declaration_sha256": "732cd6998676341b89afa47d13631f6dcf520115725b3d5aa7b7cc754d1da1a2",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestManagedUpdateSuccessorFollowsOnlyATerminalOutcome",
+      "original_declaration_sha256": "d608009e7339d690b1034f4cd455a546d5cd3b710202da9847f69b1901af3097",
+      "current_declaration_sha256": "d608009e7339d690b1034f4cd455a546d5cd3b710202da9847f69b1901af3097",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestNestedWorkloadEffectUnderAnotherEpochIsFenced",
+      "original_declaration_sha256": "e921f2efa401d39010fb25a5b08e69bd3dc9356a64f4b5121de7f0e7f78e8694",
+      "current_declaration_sha256": "e921f2efa401d39010fb25a5b08e69bd3dc9356a64f4b5121de7f0e7f78e8694",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestPendingEnrollmentEffectsSurviveLargeSettledHistory",
+      "original_declaration_sha256": "fda1118f1f06e4b1e033d7ff8abf06dfd52a89127e2a151deda35c7ebdc7ec2a",
+      "current_declaration_sha256": "fda1118f1f06e4b1e033d7ff8abf06dfd52a89127e2a151deda35c7ebdc7ec2a",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestPlacementIntentIdentityIncludesPartitionAndIgnoresLeaseHistory",
+      "original_declaration_sha256": "86583de6ae00808b7fea8fa2620026f2ba28f84b25a62bd17005146867ec3bbb",
+      "current_declaration_sha256": "86583de6ae00808b7fea8fa2620026f2ba28f84b25a62bd17005146867ec3bbb",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestPriorEpochEnrollmentEffectRequiresExactFenceProof",
+      "original_declaration_sha256": "8e55b4fd362c8576f1f59b0f6bf935606924b0553acef0d3eefdaf53c15d1d58",
+      "current_declaration_sha256": "8e55b4fd362c8576f1f59b0f6bf935606924b0553acef0d3eefdaf53c15d1d58",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestTerminalAdmissionRerunsSettlementProofAfterGlobalCASConflict",
+      "original_declaration_sha256": "5be4c88daff4cb5ce0d4a87defccb8c4ed2d52c6a1cde2ad34df570c9dd77466",
+      "current_declaration_sha256": "5be4c88daff4cb5ce0d4a87defccb8c4ed2d52c6a1cde2ad34df570c9dd77466",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestTerminalMarkerWaitsForNestedWorkloadEffectAndFencesPlacement",
+      "original_declaration_sha256": "f473f5b633294c4ab37fb7061669ba4f8ef50679329b6bdc610562fb5aea792d",
+      "current_declaration_sha256": "f473f5b633294c4ab37fb7061669ba4f8ef50679329b6bdc610562fb5aea792d",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestVerifyControlStreamConfigAcceptsDurableControlStream",
+      "original_declaration_sha256": "c64aaadd3aa4c981413fc9c877921bb59a4991372f701f6dbfd5075f30813bc7",
+      "current_declaration_sha256": "c64aaadd3aa4c981413fc9c877921bb59a4991372f701f6dbfd5075f30813bc7",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/log_test.go",
+      "original_name": "TestVerifyControlStreamConfigRejectsMessageEviction",
+      "original_declaration_sha256": "36805566516891e26bd0b16ac16b2a696e617f3e2eb9e98e833f0a265152e863",
+      "current_declaration_sha256": "36805566516891e26bd0b16ac16b2a696e617f3e2eb9e98e833f0a265152e863",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/netbird_state_test.go",
+      "original_name": "TestNetBirdStateHandoffBetweenLeaseCheckAndPublishCannotReplaceSuccessor",
+      "original_declaration_sha256": "9da76bc081fb1a1e4e73a761e43a2e56d9f1a60d5acf5548ea2c40f2fc9e37d4",
+      "current_declaration_sha256": "9da76bc081fb1a1e4e73a761e43a2e56d9f1a60d5acf5548ea2c40f2fc9e37d4",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/netbird_state_test.go",
+      "original_name": "TestNetBirdStateLeaseExpiryDuringStateReadPreventsPublication",
+      "original_declaration_sha256": "3dfa514ea124df1984fc63eee00c7cee66565da97aac24e9c097484bc815b38e",
+      "current_declaration_sha256": "3dfa514ea124df1984fc63eee00c7cee66565da97aac24e9c097484bc815b38e",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/netbird_state_test.go",
+      "original_name": "TestNetBirdStateRejectsStaleTransitionAndReadsThroughFollower",
+      "original_declaration_sha256": "6e8c0ebecacbcc9d344664684254117d37eab488d78f93c98748efd5ca6e2994",
+      "current_declaration_sha256": "6e8c0ebecacbcc9d344664684254117d37eab488d78f93c98748efd5ca6e2994",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/retirement_test.go",
+      "original_name": "TestHostRetirementIsTimestampedAndFencedInControlLog",
+      "original_declaration_sha256": "127bf6402f812d3d6c6dcf042b710281062243752a67458f64e69c313912c10d",
+      "current_declaration_sha256": "127bf6402f812d3d6c6dcf042b710281062243752a67458f64e69c313912c10d",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_effect_integration_test.go",
+      "original_name": "TestRuntimeEffectR3Integration",
+      "original_declaration_sha256": "54b202a56d3e7841347d6d425ede78d1e8cae8667902253861e42e166e159842",
+      "current_declaration_sha256": "54b202a56d3e7841347d6d425ede78d1e8cae8667902253861e42e166e159842",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestClockHealthFencesGuardAndDurableMutations",
+      "original_declaration_sha256": "cd6cd76671f7702bc5cfb3603f590c40f699c278426144e4775df35b3b1cdf80",
+      "current_declaration_sha256": "cd6cd76671f7702bc5cfb3603f590c40f699c278426144e4775df35b3b1cdf80",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestStartDoesNotRetryPermanentOrCanceledLeasePublish",
+      "original_declaration_sha256": "f11104bfd90fe74009ee58b476c52f9926bd1ceebd9378bfb0cba09945093759",
+      "current_declaration_sha256": "f11104bfd90fe74009ee58b476c52f9926bd1ceebd9378bfb0cba09945093759",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestStartRejectsExistingControlStreamWithExtraSubject",
+      "original_declaration_sha256": "d85ff9819adaebf1ae3a2c166cbc78ceb4cc4c837963d4e91d8ddcef1d4f1061",
+      "current_declaration_sha256": "d85ff9819adaebf1ae3a2c166cbc78ceb4cc4c837963d4e91d8ddcef1d4f1061",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestStartReobservesCommittedLeaseAfterAmbiguousPublish",
+      "original_declaration_sha256": "6cd33757b4263744093a9829ee70827960eb27cd5ff3baac4702531061b51509",
+      "current_declaration_sha256": "6cd33757b4263744093a9829ee70827960eb27cd5ff3baac4702531061b51509",
+      "classification": "integration",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestStartupLeasePublishBoundsUnknownOutcomeWithLongParent",
+      "original_declaration_sha256": "1cd801b3c9a75bdd87bdf96b98df4da72ca22bc6324d311bae42c75347ab9dfa",
+      "current_declaration_sha256": "1cd801b3c9a75bdd87bdf96b98df4da72ca22bc6324d311bae42c75347ab9dfa",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    },
+    {
+      "path": "internal/authority/runtime_test.go",
+      "original_name": "TestStartupReconcileBoundsStreamInfoWithLongParent",
+      "original_declaration_sha256": "18b97fe1102679fa81a632c301e1d59026da4d887c308253561697c09cddbc5b",
+      "current_declaration_sha256": "18b97fe1102679fa81a632c301e1d59026da4d887c308253561697c09cddbc5b",
+      "classification": "unit",
+      "runtime_qualification": "UNKNOWN_NO_RECEIPTS_REVIEWED_NO_EXECUTION"
+    }
+  ],
+  "ociclient9_classified_roots": [
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "original_name": "TestFactoryObjectStorageRecordsHTTPAttempts",
+      "classification": "integration",
+      "original_declaration_sha256": "13064a19e592f7ef6451579a9c6c054de443c52511bbfe628eecae4d8be5e6be"
+    },
+    {
+      "path": "internal/ociclient/identity_integration_test.go",
+      "original_name": "TestAuthorityFencesSDKMutationRetries",
+      "classification": "integration",
+      "original_declaration_sha256": "0ac27533f435d7512692a25a585477e0772148303d0856dac6e35e35cf59ee2e"
+    },
+    {
+      "path": "internal/ociclient/instance_principal_test.go",
+      "original_name": "TestInstancePrincipalSerializesFetchesButNotCachedRegions",
+      "classification": "unit",
+      "original_declaration_sha256": "694a4863fd59bee4cb395adc8a7b65b31aba4353139a542013a0c7eadaccf1d9"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestBackoffIsExponentialJitteredAndHonorsRetryAfter",
+      "classification": "unit",
+      "original_declaration_sha256": "ad89d19d7e9ab05a80b587a44fd8734cefcf10764ee1f4e66ca4831576452158"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestConfiguredClientSharesLimiterAndRetriesThrottling",
+      "classification": "integration",
+      "original_declaration_sha256": "d31945736abe6aec38683a5eada0e603384bd8a56d000c8a9f354c0b0be4a102"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestShouldRetryNeverReplaysUnsafeMutations",
+      "classification": "unit",
+      "original_declaration_sha256": "2239ed5d381c9bbd171e3b5df1046bc389e3463846bc4906dc4169e3bebc5c9a"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestTransportFailuresRetryReadsOnly",
+      "classification": "integration",
+      "original_declaration_sha256": "1ce50692c500b0b6c66899746c683f178f63848a2d2a3d8324308724f4b422f8"
+    },
+    {
+      "path": "internal/ociclient/retry_integration_test.go",
+      "original_name": "TestConditionalMutationCancellationJoinsSDKAndRetainsAmbiguousWrite",
+      "classification": "integration",
+      "original_declaration_sha256": "31b9c4a1127f5aaa7ad4a3e025b487007b41049b82235b47f5bb7f748011e4d1"
+    },
+    {
+      "path": "internal/ociclient/retry_integration_test.go",
+      "original_name": "TestReadCancellationJoinsSDKRetryAndPreservesHTTPDeadline",
+      "classification": "integration",
+      "original_declaration_sha256": "414f9e41fb081d39ed286634c24be2e80287c439b2a9251d7ce60d07e400b9c6"
+    }
+  ],
+  "retired19_unchanged_roots": [
+    {
+      "path": "internal/attempt/cloud_test.go",
+      "original_name": "TestAttemptRejectsRetiredContinuityPhase",
+      "original_declaration_sha256": "fc3bf5936665894c1b0471343b3375eac7c21bba5b73549b828913f796dd26e0"
+    },
+    {
+      "path": "internal/bootstrapstart/oci_observer_test.go",
+      "original_name": "TestOCIObserverRejectsMissingPrimaryAndCandidateMismatch",
+      "original_declaration_sha256": "fd52cda698a5c234ab72af18ffc57c230a74390d25e2c200795be33e2d51179f"
+    },
+    {
+      "path": "internal/bootstrapstart/oci_observer_test.go",
+      "original_name": "TestOCIObserverRejectsNetworkOwnershipAndRegionMismatch",
+      "original_declaration_sha256": "5a2b5466f220db0f05246e749d2c6c24e23c5ed7466a5089f88f4cdcc92800a9"
+    },
+    {
+      "path": "internal/bootstrapstart/oci_observer_test.go",
+      "original_name": "TestOCIObserverRequiresExactAttachedPrimaryVNIC",
+      "original_declaration_sha256": "3af760a5d6264cba52323a194c07467c607a0a1f9ee6a2a724244aae57b814c6"
+    },
+    {
+      "path": "internal/managedmaterial/customer_open_test.go",
+      "original_name": "TestOpenCustomerEnvelopeUsesProducerWireAndRecipient",
+      "original_declaration_sha256": "00d2e6f89706cd8e09ebed56d4e361f7af590b4f0511052708385a3a4e15b78c"
+    },
+    {
+      "path": "internal/netbird/manager/manager_test.go",
+      "original_name": "TestAPIRefusesRedirectsAndHidesBodies",
+      "original_declaration_sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e"
+    },
+    {
+      "path": "internal/oci/sdk_test.go",
+      "original_name": "TestLaunchInstanceMapsSignedProfileIntoOCIRequest",
+      "original_declaration_sha256": "9a8cba00d59aedb6b6db6cc77eab6908c5331ffb9ec3d5d1da134c3cc42dcba4"
+    },
+    {
+      "path": "internal/oci/sdk_test.go",
+      "original_name": "TestLaunchInstanceRejectsSizingThatCannotRoundTripThroughSDK",
+      "original_declaration_sha256": "f206ec25523984c1d77a00a85957fdd1d8a6be02216dd206bdedc5556a38846c"
+    },
+    {
+      "path": "internal/oci/sdk_test.go",
+      "original_name": "TestManagedInstanceReadbackRequiresExactBootAndPrivateVNIC",
+      "original_declaration_sha256": "3ef766618c7dddaeb8653b3ff2e832311b358302717d23503f559f36949a406f"
+    },
+    {
+      "path": "internal/oci/sdk_test.go",
+      "original_name": "TestNamedHostObservationRequiresTheNamedRunningPrivateInstance",
+      "original_declaration_sha256": "4998b2a12435f09f5963158310c84364b9f0662aefa2278a1b52bbb0553ebf4b"
+    },
+    {
+      "path": "internal/oci/sdk_test.go",
+      "original_name": "TestTerminalSDKDeletesUseExactIfMatchAndPreserveBoot",
+      "original_declaration_sha256": "1ad51c32306ae9af9c403236ecabd951ed6ae8e2ad4591e3a3e8b07c5041576c"
+    },
+    {
+      "path": "internal/oci/volume_backup_history_review_test.go",
+      "original_name": "TestVolumeBackupListingKeepsTheNewestBackupsOfALongHistory",
+      "original_declaration_sha256": "e8174121f22736cbd86571234a3be817f95b245a637ef3784d52654a29d28c31"
+    },
+    {
+      "path": "internal/oci/volume_resize_test.go",
+      "original_name": "TestVolumeAttachmentLookupUsesVolumeFilter",
+      "original_declaration_sha256": "a444f773815caab42e1fc08c1ba68abacceaef15e879524a0dc3941c5f636b5d"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "original_name": "TestInstrumentedDispatcherRecordsCallsErrorsAndThrottling",
+      "original_declaration_sha256": "4183f3b342ec174ad79ccef2ed45c117d3eec5ea90185904afb3980c2a902eb0"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "original_name": "TestOperationCardinalityIsBounded",
+      "original_declaration_sha256": "467cc1b629bdb3997c1a565e747fd04304d4f7a8c07082df07e1dd65c6a22c26"
+    },
+    {
+      "path": "internal/ociclient/factory_test.go",
+      "original_name": "TestOperationTemplateRemovesIdentifiers",
+      "original_declaration_sha256": "dada7d611e6d4130dc8114ea897b2109cec8679360c995f73ab8474a5a7d206d"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestFactoryRejectsUncataloguedRegionsAndBadLimits",
+      "original_declaration_sha256": "825570b80de40bebc0de8796e830e63328c3f8bf5dfb70a5e24bae3c39007744"
+    },
+    {
+      "path": "internal/ociclient/ociclient_test.go",
+      "original_name": "TestTenancyHomeRegionComesFromTheCatalog",
+      "original_declaration_sha256": "593e599c2add12966eb316af56f8754bf0d76524b37792afb1a9adad0a261716"
+    },
+    {
+      "path": "internal/terrabase/oci_live_test.go",
+      "original_name": "TestPeerPortOpen",
+      "original_declaration_sha256": "e5dc01e1134670cbe99d7b5719a2e7b8a776c9f4b8fd6b69b8ac39ccc65c37d4"
+    }
+  ],
+  "findings": [],
+  "limits": [
+    "Acceptance binds only exact pinned completion2844cc0d/progressb080e439 and immutable receipt96dcd5de; later ledger/source changes require their own audit.",
+    "Source classification adds no runtime/main/global/native/cloud/production/financial qualification. All five completion categories remain OPEN.",
+    "No Go, source, Git, runtime, process/listener/lock or cloud operation; promotion script was read/parsed only. Only this exclusive temporary report directory was created.",
+    "All original safety assertions and suite obligations remain. No retirement or ledger changes were made by this audit.",
+    "Runtime claims were not requalified; all93 authority roots remain UNKNOWN under their accepted source packet."
+  ]
+}

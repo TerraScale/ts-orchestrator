@@ -1,0 +1,152 @@
+{
+  "actual_publication_review": {
+    "path": "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json",
+    "sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7"
+  },
+  "actual_source_adoption_review": {
+    "path": "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json",
+    "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b"
+  },
+  "all_five_completion_categories": "OPEN",
+  "all_original_declarations_reconciled": 5986,
+  "baseline_all1036_files_hash_verified": true,
+  "baseline_commit": "bfca60368f60d2da67f9016d1d489317ae8749c8",
+  "canonical_counts_unchanged": {
+    "accepted_retirements": 9,
+    "globally_unadjudicated_original_tests": 4310,
+    "promotion": "Parent-owned only after independent acceptance of fresh reconciliation; not performed here"
+  },
+  "central_counts_or_ledger_mutated": false,
+  "current_commit": "d4ac68882716e7cfb14afca2f88ad596a38041af",
+  "current_feature_clean_before_after": true,
+  "current_tree": "3b73a410a025bd8050ad1d42e54acc7d5eda4b82",
+  "derived_globally_unadjudicated_remaining_original_tests_after_scoped_source_retirements": 4300,
+  "derived_scoped_qualified_source_retirements": 19,
+  "exact_new_scoped_source_retirements_since_accepted_ca1226": 10,
+  "extraction_errors": [],
+  "firstparty_baseline_by_kind": {
+    "helper": 1663,
+    "test": 4319,
+    "testmain": 4
+  },
+  "firstparty_current_test_source_files": 1045,
+  "firstparty_limit": "Derived current-source survival and scoped retirement counts are read-only findings, not canonical promotion. Remaining originals are globally unadjudicated; do not label all remaining originals unit tests. All five completion categories remain OPEN. Lexical survival is not unit/integration classification or runtime discovery.",
+  "firstparty_new_source_declarations_excluding_owner_rename_by_kind": {
+    "helper": 12,
+    "test": 18
+  },
+  "firstparty_original_changes_since_ca1226_by_kind": {
+    "helper": 1,
+    "test": 14
+  },
+  "firstparty_original_survival_by_kind": {
+    "helper": {
+      "removed_helper_not_test_retirement": 1,
+      "retained_body_changed": 9,
+      "retained_body_exact": 1653
+    },
+    "test": {
+      "qualified_retired": 19,
+      "renamed_expanded_integration_owner": 1,
+      "retained_body_changed": 23,
+      "retained_body_exact": 4276
+    },
+    "testmain": {
+      "retained_body_exact": 4
+    }
+  },
+  "input_hashes": {
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/SHA256SUMS": {
+      "bytes": 4141,
+      "sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-declarations.tsv": {
+      "bytes": 1712685,
+      "sha256": "aaee505db0b7d4a059b799225856041958afba856ab00c5eb3eea5f9cf5d545e"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/baseline-firstparty-files.tsv": {
+      "bytes": 269232,
+      "sha256": "cb9fafab233df88f2f1a14285643e311c607e36b5aa44dbd776ebcb4fcaa95f9"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-cases.tsv": {
+      "bytes": 4848737,
+      "sha256": "9141736e797b71bfe604b0b7526ba56317676707360765ba3f6c25c588a8bc79"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/frozen-vendor-source-files.tsv": {
+      "bytes": 15178,
+      "sha256": "9916ed35b0584bfa256c0d94134ac778551c0aae284100ec861f999cd0232cd7"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/original-scanner.py.txt": {
+      "bytes": 16864,
+      "sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880"
+    },
+    "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu/summary.json": {
+      "bytes": 11498,
+      "sha256": "33624282107de6aba8367aff2ea82d1935b88a7bf75e5d725137992fa1dab1a4"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/SHA256SUMS": {
+      "bytes": 1560,
+      "sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/firstparty-survival.tsv": {
+      "bytes": 1641762,
+      "sha256": "2ae73c1f2b7dbff5c0708873fc42f2a3010cd43eb561fbf73158d2db3e5fb0de"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/nine-source-retirement-dispositions.json": {
+      "bytes": 9062,
+      "sha256": "54cbbf3f801af79f7590db339ecae8d14b7f6bcf477133964661d85a0cb5b78d"
+    },
+    "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu/summary.json": {
+      "bytes": 6220,
+      "sha256": "22c9272caa978055ea3048dca43419208194e942d4451ed883df2c495333337e"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/cases.tsv": {
+      "bytes": 570785,
+      "sha256": "d3433286cbe27b087bce9822edb869208f5d064eb37fba6dda25ee6c9024a918"
+    },
+    "/tmp/ts-nats-vendor-migration-20261016/progress.json": {
+      "bytes": 14996,
+      "sha256": "96695331b5efec6d151027fd8bf23b69ecf45f48c8ddabb6695e98eb8e9dec1f"
+    },
+    "/tmp/ts-oci-factory-66c74-publication-independent-njazfic0/review.json": {
+      "bytes": 12249,
+      "sha256": "c61eb4b9bda268dbae11bcaec7a70b83c26566fcdf2736ed60be41a64566bb3b"
+    },
+    "/tmp/ts-oci-factory-d4ac-actual-publication-independent-syuiefor/review.json": {
+      "bytes": 4315,
+      "sha256": "2632582ec4d9c67a63e9abf72d36dfa147c7ed52ab9b5901756579c48c70eff7"
+    }
+  },
+  "method": "Immutable Git ls-tree/cat-file/show and pinned scanner pure lexical functions extracted with Python AST; no Go AST/typecheck/discovery/build/test/runtime/runner/binary/lock/cloud/source/index/branch/ledger mutation. Only exclusive temporary artifacts.",
+  "previous_accepted_commit": "ca1226b9b4011383f39c0753e19be295618accf8",
+  "previous_accepted_packet": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu",
+  "qualification_limit": "Historical exact donor compiles/runtimes remain historical donor scopes; accepted66c74 source and d4ac publication do not establish a current-union execution. No fullsuite/race/cloud/native/production/main/global qualification.",
+  "reconciled_at_utc": "2026-10-17T14:03:25.122044+00:00",
+  "scanner_sha256": "dbf6337c37f840891f7f6545c60417bfee3b358eaa35b13004716c2367c06880",
+  "state": "FRESH_EXACT_D4AC_LEXICAL_RECONCILIATION_PENDING_INDEPENDENT_ACCEPTANCE_CANONICAL_COUNTS_UNCHANGED",
+  "vendor_absent_on_current_commit": 0,
+  "vendor_central_integrated_closed": 0,
+  "vendor_current_test_source_files": 132,
+  "vendor_frozen_target_source_classifications": {
+    "mixed": 234,
+    "unit": 1215
+  },
+  "vendor_ledger_candidate_source_removal_dispositions": 13,
+  "vendor_limit": "All1449 frozen unit/mixed originals survive in131 byte-exact original files;13 ledger candidate-removal dispositions concern other snapshots and confer no current retirement or central closure.",
+  "vendor_original_source_files_byte_exact": 131,
+  "vendor_original_target_count": 1449,
+  "vendor_present_on_current_commit": 1449,
+  "vendor_retired_on_current_commit": 0,
+  "verified_predecessor_chain": [
+    {
+      "SHA256SUMS_sha256": "9a7b87f7d7491730b19f9a570ab4f4bf6c6383336e5b2825d5f4d390d174e4d0",
+      "direct_checksums_verified": 16,
+      "packet": "/tmp/ts-firstparty-vendor-ca1226-accepted-e_vwtrgu"
+    },
+    {
+      "SHA256SUMS_sha256": "99dbd0acc00e77d2c3bb33cbf9461d6f04bb410aedbb8206a00762030c62cc64",
+      "direct_checksums_verified": 40,
+      "packet": "/tmp/ts-firstparty-vendor-9988-accepted-_jcki5pu"
+    }
+  ]
+}
