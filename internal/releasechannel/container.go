@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/delivery"
+	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/TerraScale/ts-orchestrator/internal/release"
@@ -130,6 +131,7 @@ func PublishContainer(ctx context.Context, location Location, bundle release.Con
 const ContainerStatusSchema = "terrascale.release.container-status.v1"
 
 type ContainerStatus struct {
+	OperationID     string    `json:"operation_id,omitempty"`
 	Schema          string    `json:"schema"`
 	Cell            string    `json:"cell"`
 	Environment     string    `json:"environment"`
@@ -155,7 +157,10 @@ func ReadContainerStatus(ctx context.Context, location Location, role, architect
 	return status, found, err
 }
 func WriteContainerStatus(ctx context.Context, location Location, status ContainerStatus) error {
-	if !containerRole.MatchString(status.Role) || status.Architecture != "amd64" && status.Architecture != "arm64" {
+	if !entityid.Valid(status.OperationID) || !containerRole.MatchString(status.Role) || status.Architecture != "amd64" && status.Architecture != "arm64" ||
+		!release.ValidRegion(status.Cell) || !release.ValidEnvironment(status.Environment) || status.Image == "" ||
+		status.ReleaseSequence == 0 || !containerStatusDigest(status.Fingerprint) || status.UpdatedAt.IsZero() ||
+		status.State != StateRolling && status.State != StateComplete && status.State != StateFailed {
 		return ErrInvalid
 	}
 	status.Schema = ContainerStatusSchema
@@ -164,16 +169,60 @@ func WriteContainerStatus(ctx context.Context, location Location, status Contain
 	if err != nil {
 		return err
 	}
-	// Telemetry may be overwritten; the authenticated release is the admission record.
+	// Telemetry cannot erase a newer sequence or equivocate about one operation.
 	name := ContainerStatusObject(status.Role, status.Architecture)
 	for range 3 {
-		_, etag, _, err := location.get(ctx, name, maxStatusBytes)
+		current, etag, found, err := location.get(ctx, name, maxStatusBytes)
 		if err != nil {
 			return err
+		}
+		if found {
+			var retained ContainerStatus
+			if err := protocol.DecodeStrict(current, &retained, maxStatusBytes); err != nil {
+				return err
+			}
+			if err := containerStatusAdvance(retained, status); err != nil {
+				return err
+			}
 		}
 		if err := location.put(ctx, name, wire, etag); !errors.Is(err, ErrConflict) {
 			return err
 		}
 	}
 	return ErrConflict
+}
+
+func containerStatusDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, c := range value {
+		if c < '0' || c > '9' && c < 'a' || c > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
+func containerStatusAdvance(previous, next ContainerStatus) error {
+	if previous.Schema != ContainerStatusSchema || previous.Cell != next.Cell || previous.Environment != next.Environment ||
+		previous.Role != next.Role || previous.Architecture != next.Architecture || previous.ReleaseSequence == 0 {
+		return ErrInvalid
+	}
+	if previous.ReleaseSequence > next.ReleaseSequence {
+		return ErrStale
+	}
+	if previous.ReleaseSequence < next.ReleaseSequence {
+		return nil
+	}
+	if previous.OperationID != next.OperationID || previous.Image != next.Image || previous.Fingerprint != next.Fingerprint {
+		return ErrConflict
+	}
+	if previous.State != StateRolling && (previous.State != next.State || previous.Reason != next.Reason) {
+		return ErrConflict
+	}
+	if next.UpdatedAt.Before(previous.UpdatedAt) {
+		return ErrStale
+	}
+	return nil
 }
