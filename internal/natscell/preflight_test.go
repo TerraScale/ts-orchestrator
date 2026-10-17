@@ -70,6 +70,7 @@ func productionPreflightFixture(t *testing.T) (Config, nkeys.KeyPair, nkeys.KeyP
 	controller := jwt.NewUserClaims(controllerID)
 	controller.IssuerAccount = cellID
 	controller.Pub.Allow = jwt.StringList{"ts.broker.gru.ticket.>", "ts.broker.gru.fence.>"}
+	controller.Pub.Deny = ControllerPublishDenials()
 	controller.Sub.Allow = jwt.StringList{
 		inboxPrefix("gru", controllerID) + ".>", "ts.broker.gru.ticket.>",
 		"ts.broker.gru.fence.broker-a", "ts.orch.v1.gru.broker.claim.apply",

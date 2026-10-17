@@ -91,6 +91,7 @@ func authenticatedJournalConfig(t *testing.T, instance string) natscell.Config {
 	controllerClaim := jwt.NewUserClaims(controllerID)
 	controllerClaim.IssuerAccount = accountID
 	controllerClaim.Pub.Allow = natscell.ControllerPublishes(cell)
+	controllerClaim.Pub.Deny = natscell.ControllerPublishDenials()
 	controllerClaim.Pub.Allow.Add("$JS.ACK.>")
 	controllerClaim.Sub.Allow = jwt.StringList{protocol.InboxPrefix(cell, controllerID) + ".>"}
 	controllerClaim.Sub.Allow.Add(natscell.ControllerSubscriptions(cell)...)

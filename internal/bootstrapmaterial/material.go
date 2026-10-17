@@ -525,6 +525,7 @@ func build(cfg Config, now time.Time) (map[string][]byte, Public, error) {
 		claim.IssuerAccount = cellID
 		claim.IssuedAt, claim.Expires = now.Unix(), expires.Unix()
 		claim.Pub.Allow = natscell.ControllerPublishes(cfg.Cell)
+		claim.Pub.Deny = natscell.ControllerPublishDenials()
 		// Fresh material has no link topology: the standalone cell is its own home.
 		claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
 		claim.Pub.Allow.Add(natscell.GlobalControllerRequests()...)

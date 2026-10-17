@@ -411,6 +411,7 @@ func startupControllerCredentials(t *testing.T, dir string, account nkeys.KeyPai
 	claim.IssuerAccount = accountID
 	claim.AllowedConnectionTypes = jwt.StringList{connectionType}
 	claim.Pub.Allow = ControllerPublishes("gru")
+	claim.Pub.Deny = ControllerPublishDenials()
 	claim.Sub.Allow = append(ControllerSubscriptions("gru"), inboxPrefix("gru", public)+".>")
 	raw, err := claim.Encode(account)
 	if err != nil {

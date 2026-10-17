@@ -97,6 +97,7 @@ func linkControllerCredentials(t *testing.T, root, name string, region *testRegi
 	userID, _ := user.PublicKey()
 	claim := jwt.NewUserClaims(userID)
 	claim.IssuerAccount = region.cellID
+	claim.Pub.Deny = ControllerPublishDenials()
 	claim.Pub.Allow = append(ControllerPublishes(cell),
 		protocol.SubjectRoot+".*.obs."+protocol.ObservabilityRegionLeaf, protocol.SubjectRoot+".*.obs."+protocol.ObservabilityDecisionsLeaf,
 		protocol.SubjectRoot+".*.query.>")

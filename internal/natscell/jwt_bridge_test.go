@@ -21,11 +21,15 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/protocol"
 	"github.com/nats-io/jwt/v2"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/nats-io/nkeys"
 )
 
@@ -66,7 +70,7 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 		}
 		return path
 	}
-	controllerCredentials := testJWTUserCredentials(t, root, "controller.creds", cellKey, cellID, nil, nil)
+	controllerCredentials := testProtectedControllerCredentials(t, root, cellKey, cellID)
 	hostCredentials := testJWTUserCredentials(t, root, "host.creds", cellKey, cellID, nil, nil)
 	hostClaim, hostUserID, err := credentialUser(hostCredentials)
 	if err != nil || hostClaim == nil {
@@ -98,6 +102,9 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	cfg.Embedded.BrokerIDs = []string{"broker-a"}
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
+	if err := ValidateProductionCredentials(cfg); err != nil {
+		t.Fatal(err)
+	}
 	r, err := Start(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +143,7 @@ func TestProductionJWTBridgeClosedApplyOpenAndFence(t *testing.T) {
 	if err := r.Bridge().OpenUntil(1, cellRaw, time.Now().Add(5*time.Second)); err != nil {
 		t.Fatal(err)
 	}
+	testProtectedControlLogACL(t, ctx, r, cfg, cellKey, cellID, root)
 	controllerWire, err := os.ReadFile(controllerCredentials)
 	if err != nil {
 		t.Fatal(err)
@@ -458,4 +466,197 @@ func testTLSFor(t *testing.T, root string, ips ...net.IP) TLSFiles {
 	return TLSFiles{CAFile: write("ca.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})),
 		CertFile: write("peer.pem", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})),
 		KeyFile:  write("peer-key.pem", pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}))}
+}
+
+func testProtectedControllerCredentials(t *testing.T, root string, account nkeys.KeyPair, accountID string) string {
+	t.Helper()
+	user, err := nkeys.CreateUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer user.Wipe()
+	public, err := user.PublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := jwt.NewUserClaims(public)
+	claim.IssuerAccount = accountID
+	claim.Expires = time.Now().Add(time.Minute).Unix()
+	claim.Pub.Allow = ControllerPublishes("gru")
+	claim.Pub.Allow.Add(GlobalControllerPublishes()...)
+	claim.Pub.Allow.Add(GlobalControllerRequests()...)
+	claim.Pub.Deny = ControllerPublishDenials()
+	claim.Sub.Allow = jwt.StringList{protocol.InboxGrant("gru", public), protocol.Broker("gru", "ticket", ">"),
+		protocol.Broker("gru", "fence", "broker-a"), protocol.ObservabilityGrant("gru")}
+	claim.Sub.Allow.Add(ControllerSubscriptions("gru")...)
+	claim.Sub.Allow.Add(GlobalControllerRequests()...)
+	claim.Resp = &jwt.ResponsePermission{MaxMsgs: 1, Expires: 5 * time.Second}
+	raw, err := claim.Encode(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seed, err := user.Seed()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(seed)
+	wire, err := jwt.FormatUserConfig(raw, seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(wire)
+	if err := ValidateBrokerControllerCredentialBytes(wire, "gru", "broker-a"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "controller.creds")
+	if err := os.WriteFile(path, wire, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func testProtectedControlLogACL(t *testing.T, ctx context.Context, runtime *Runtime, cfg Config,
+	account nkeys.KeyPair, accountID, root string,
+) {
+	t.Helper()
+	rootCredentials := testJWTUserCredentials(t, root, "root-control-log.creds", account, accountID, nil, nil)
+	rootClient, err := nats.Connect("", nats.InProcessServer(runtime.server), nats.UserCredentials(rootCredentials))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootClient.Close()
+	rootJS, err := jetstream.New(rootClient)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := rootJS.CreateStream(ctx, jetstream.StreamConfig{Name: "TS_CONTROL_LOG",
+		Subjects: []string{protocol.ControlStreamSubject()}, Storage: jetstream.FileStorage, Replicas: 1,
+		Retention: jetstream.LimitsPolicy, MaxConsumers: -1, MaxMsgs: -1, MaxBytes: -1, MaxMsgsPerSubject: -1,
+		DenyDelete: true, DenyPurge: true, Metadata: map[string]string{"terrascale-contract": "authority-log-v1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := stream.Info(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ordinaryConfig := cfg
+	ordinaryConfig.Embedded = nil
+	ordinaryConfig.URL = runtime.URL()
+	ordinary, err := Start(ctx, ordinaryConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ordinary.Close()
+	subject := protocol.Control("gru", "acl", "retained")
+	if ack, err := ordinary.JetStream().Publish(ctx, subject, []byte("original")); err != nil || ack.Sequence != 1 {
+		t.Fatalf("ordinary control-log append: %+v %v", ack, err)
+	}
+	secured, reader, nonce := testBridgeProtocolConnection(t, ctx, cfg.TLS, runtime.ClientAddress().String())
+	defer secured.Close()
+	writeBridgeConnect(t, secured, cfg.CredentialsFile, nonce)
+	readLine := func() string {
+		t.Helper()
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				t.Fatalf("ordinary control-log protocol: %q %v", line, err)
+			}
+			if line != "PING\r\n" {
+				return line
+			}
+			if _, err := io.WriteString(secured, "PONG\r\n"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	pong := func() {
+		t.Helper()
+		if line := readLine(); line != "PONG\r\n" {
+			t.Fatalf("ordinary control-log protocol: %q", line)
+		}
+	}
+	pong()
+	rpc := protocol.ManagedUpdatePrepareSubject("gru")
+	if _, err := fmt.Fprintf(secured, "SUB %s 1\r\nPING\r\n", rpc); err != nil {
+		t.Fatal(err)
+	}
+	pong()
+	request := func(reply string) {
+		t.Helper()
+		if err := rootClient.PublishRequest(rpc, reply, nil); err != nil {
+			t.Fatal(err)
+		}
+		line := readLine()
+		fields := strings.Fields(line)
+		if len(fields) != 5 || fields[0] != "MSG" || fields[1] != rpc || fields[3] != reply || fields[4] != "0" {
+			t.Fatalf("live native response grant for %q: %q", reply, line)
+		}
+		var ending [2]byte
+		if _, err := io.ReadFull(reader, ending[:]); err != nil || string(ending[:]) != "\r\n" {
+			t.Fatalf("response grant payload: %q %v", ending, err)
+		}
+	}
+	denied := func(target string) {
+		t.Helper()
+		if _, err := fmt.Fprintf(secured, "PUB %s 0\r\n\r\nPING\r\n", target); err != nil {
+			t.Fatal(err)
+		}
+		line := readLine()
+		if !strings.HasPrefix(line, "-ERR ") ||
+			!strings.Contains(line, "Permissions Violation for Publish to "+fmt.Sprintf("%q", target)) {
+			t.Fatalf("protected API %q was not rejected by native publish permissions: %q", target, line)
+		}
+		pong()
+	}
+	// Inject the reply before any publish to that subject, so the real native
+	// delivery path installs its response grant without a prior denial cache hit.
+	for _, pattern := range ControllerPublishDenials() {
+		target := strings.ReplaceAll(pattern, "$JS.*.API", "$JS.gru.API")
+		target = strings.ReplaceAll(target, ".ACCOUNT.>", ".ACCOUNT.PURGE."+accountID)
+		target = strings.ReplaceAll(target, ".META.>", ".META.LEADER.STEPDOWN")
+		target = strings.ReplaceAll(target, ".SERVER.>", ".SERVER.REMOVE")
+		target = strings.ReplaceAll(target, ".>", ".restore-probe")
+		request(target)
+		denied(target)
+		denied(target)
+	}
+	legitimate := nats.NewInbox()
+	replies, err := rootClient.SubscribeSync(legitimate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replies.Unsubscribe()
+	if err := rootClient.FlushWithContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	request(legitimate)
+	if _, err := fmt.Fprintf(secured, "PUB %s 2\r\nok\r\nPING\r\n", legitimate); err != nil {
+		t.Fatal(err)
+	}
+	pong()
+	if message, err := replies.NextMsgWithContext(ctx); err != nil || string(message.Data) != "ok" {
+		t.Fatalf("legitimate bounded reply failed: %+v %v", message, err)
+	}
+	if ack, err := ordinary.JetStream().Publish(ctx, subject, []byte("after-denials")); err != nil || ack.Sequence != 2 {
+		t.Fatalf("ordinary append after native denials: %+v %v", ack, err)
+	}
+	rollup := nats.NewMsg(subject)
+	rollup.Header.Set("Nats-Rollup", "all")
+	rollup.Data = []byte("erase")
+	if _, err := ordinary.JetStream().PublishMsg(ctx, rollup); err == nil {
+		t.Fatal("ordinary controller rolled up protected history")
+	}
+	retained, err := ordinary.JetStream().Stream(ctx, "TS_CONTROL_LOG")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := retained.GetMsg(ctx, 1)
+	if err != nil || string(first.Data) != "original" {
+		t.Fatalf("ordinary authenticated retained-history read: %+v %v", first, err)
+	}
+	after, err := retained.Info(ctx)
+	if err != nil || after.State.Msgs != 2 || !after.Created.Equal(before.Created) || !reflect.DeepEqual(after.Config, before.Config) {
+		t.Fatalf("native ACL attempts changed the protected stream incarnation/config/history: %+v %v", after, err)
+	}
 }

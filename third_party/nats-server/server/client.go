@@ -4213,6 +4213,12 @@ func (c *client) pubAllowedFullCheck(subject string, fullCheck, hasLock bool) bo
 	if c.perms == nil || (c.perms.pub.allow == nil && c.perms.pub.deny == nil) {
 		return true
 	}
+	// Explicit denials override cached allows and tracked replies after a deny merge.
+	if c.perms.pub.deny != nil {
+		if matches, _ := c.perms.pub.deny.NumInterest(subject); matches != 0 {
+			return false
+		}
+	}
 	// Check if published subject is allowed if we have permissions in place.
 	v, ok := c.perms.pcache.Load(subject)
 	if ok {
@@ -4230,12 +4236,6 @@ func (c *client) pubAllowedFullCheck(subject string, fullCheck, hasLock bool) bo
 		np, _ := c.perms.pub.allow.NumInterest(subject)
 		allowed = np != 0
 	}
-	// If we have a deny list and are currently allowed, check that as well.
-	if allowed && c.perms.pub.deny != nil {
-		np, _ := c.perms.pub.deny.NumInterest(subject)
-		allowed = np == 0
-	}
-
 	// If we are tracking reply subjects
 	// dynamically, check to see if we are allowed here but avoid pcache.
 	// We need to acquire the lock though.
@@ -4262,6 +4262,13 @@ func (c *client) pubAllowedFullCheck(subject string, fullCheck, hasLock bool) bo
 func (c *client) responseAllowed(subject string) bool {
 	if c.perms == nil || c.perms.resp == nil {
 		return false
+	}
+	// Leaf fallback keeps its original response-map key, including a gateway prefix.
+	if c.perms.pub.deny != nil {
+		literal, _ := getGWRoutedSubjectOrSelf([]byte(subject))
+		if matches, _ := c.perms.pub.deny.NumInterest(string(literal)); matches != 0 {
+			return false
+		}
 	}
 	if resp := c.replies[subject]; resp != nil {
 		resp.n++

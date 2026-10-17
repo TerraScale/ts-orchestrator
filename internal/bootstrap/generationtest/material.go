@@ -245,6 +245,7 @@ func (material Material) WithControllerCredentials(t testing.TB, slots []string)
 		claim := jwt.NewUserClaims(public)
 		claim.Expires = material.CA.Certificate.NotAfter.Unix()
 		claim.Pub.Allow = natscell.ControllerPublishes("gru")
+		claim.Pub.Deny = natscell.ControllerPublishDenials()
 		if globalHome {
 			claim.Pub.Allow.Add(natscell.GlobalControllerPublishes()...)
 		}

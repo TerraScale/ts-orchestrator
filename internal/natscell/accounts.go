@@ -237,6 +237,22 @@ func ControllerPublishes(cell string) jwt.StringList {
 	return publishes
 }
 
+// ControllerPublishDenials keeps the authority log's birth and destructive
+// maintenance in root, including every native JetStream domain mapping.
+func ControllerPublishDenials() jwt.StringList {
+	denials := jwt.StringList{"$JS.SNAPSHOT.RESTORE.TS_CONTROL_LOG.>"}
+	for _, prefix := range []string{"$JS.API", "$JS.*.API"} {
+		for _, operation := range []string{
+			"CREATE", "UPDATE", "DELETE", "PURGE", "RESTORE", "MSG.DELETE",
+			"PEER.REMOVE", "PEER.EVACUATE", "CANCEL_MOVE", "LEADER.STEPDOWN",
+		} {
+			denials.Add(prefix + ".STREAM." + operation + ".TS_CONTROL_LOG")
+		}
+		denials.Add(prefix+".ACCOUNT.>", prefix+".META.>", prefix+".SERVER.>")
+	}
+	return denials
+}
+
 // ControllerSubscriptions is the exact regional request surface a controller
 // serves, in issuer order. Private inbox and broker grants are added by callers.
 func ControllerSubscriptions(cell string) []string {
@@ -292,6 +308,15 @@ func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) e
 	if err != nil {
 		return fmt.Errorf("broker controller credentials: %w", err)
 	}
+	denials := ControllerPublishDenials()
+	if len(claim.Pub.Deny) != len(denials) {
+		return errors.New("broker controller credentials need the exact protected authority-log denials")
+	}
+	for _, denial := range denials {
+		if !slices.Contains(claim.Pub.Deny, denial) {
+			return errors.New("broker controller credentials lack a protected authority-log denial")
+		}
+	}
 	ticket := protocol.Broker(cell, "ticket", ">")
 	fencePublish := protocol.Broker(cell, "fence", ">")
 	fenceReceive := protocol.Broker(cell, "fence", broker)
@@ -322,7 +347,7 @@ func ValidateBrokerControllerCredentialBytes(data []byte, cell, broker string) e
 		!slices.Contains(claim.Sub.Allow, protocol.ManagedUpdatePrepareSubject(cell)) ||
 		!slices.Contains(claim.Sub.Allow, protocol.BackupOperationSubject(cell)) ||
 		!slices.Contains(claim.Sub.Allow, protocol.TerminalSubject(cell, ">")) ||
-		len(claim.Pub.Deny) != 0 || len(claim.Sub.Deny) != 0 ||
+		len(claim.Sub.Deny) != 0 ||
 		claim.Resp == nil || claim.Resp.MaxMsgs != 1 ||
 		claim.Resp.Expires <= 0 || claim.Resp.Expires > 5*time.Second {
 		return errors.New("broker controller credentials need a private inbox and one bounded response grant")
