@@ -1,0 +1,372 @@
+{
+  "qualified_source": {
+    "head": "e2e1c4f4df20733b28ebf10b407e82a1dd1202d6",
+    "tree": "010c735d27aad5636271f5d08c7272beb1267ab7",
+    "sole_parent": "6d4feea434d74e0f344fc7f9ab9bba9ed1e15080",
+    "tracked_entries": 3737,
+    "tracked_binding_sha256": "58a4d804d6e7ab6423e2e60caf6ff19431879436df20d8205d66aa522db3faad",
+    "index_entries_sha256": "c407a7b5f6a0a338e878f5c64edd89ded42cf37c07882e1c950a44ae339d2059",
+    "clean": true
+  },
+  "scope": "Standalone docs-only packaging outside every source worktree; no source/index/adoption/commit/push/cloud/Go/new agents.",
+  "original_input_count": 31,
+  "inputs": [
+    {
+      "archive_relative_path": "source/HANDOFF.md",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/HANDOFF.md",
+        "sha256": "a5b14eb3d4dd38c91abecb6b894a81e09a8e5c545b0b4d86e9230a11395f4d05",
+        "bytes": 1097,
+        "mode": 33188,
+        "mtime_ns": 1792198550601917892
+      }
+    },
+    {
+      "archive_relative_path": "source/artifact-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/artifact-manifest.json",
+        "sha256": "5f8e2af4c29080ec7e77869660b7683847cd3fcb0044e510a0698733b4692c0c",
+        "bytes": 1783,
+        "mode": 33188,
+        "mtime_ns": 1792198550603056417
+      }
+    },
+    {
+      "archive_relative_path": "source/body-preservation.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/body-preservation.json",
+        "sha256": "76a7cf6ca356409847e131b5c67ce72a2c18bb097032a5ed16f515cbfd604734",
+        "bytes": 10168,
+        "mode": 33188,
+        "mtime_ns": 1792198550536086614
+      }
+    },
+    {
+      "archive_relative_path": "source/candidate.full-index.patch",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/candidate.full-index.patch",
+        "sha256": "a62cad68bae5820cb3f9ea6eeb414bb8732efa4932581403b21e6cb1e45e4ae6",
+        "bytes": 5185,
+        "mode": 33188,
+        "mtime_ns": 1792198550536008292
+      }
+    },
+    {
+      "archive_relative_path": "source/simulator.go.after.txt",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/simulator.go.after.txt",
+        "sha256": "52f814184133f5e95cdae562424e5024dbcd2bf5b4090fb45ba551f02deb6886",
+        "bytes": 22205,
+        "mode": 33188,
+        "mtime_ns": 1792198550506039340
+      }
+    },
+    {
+      "archive_relative_path": "source/simulator.go.before.txt",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/simulator.go.before.txt",
+        "sha256": "cbfcce45fcde0c65a4e0af29856148e1f745211ce3d70b36569ae32379aff599",
+        "bytes": 21999,
+        "mode": 33188,
+        "mtime_ns": 1792198550505906913
+      }
+    },
+    {
+      "archive_relative_path": "source/simulator_test.go.after.txt",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/simulator_test.go.after.txt",
+        "sha256": "0e77f0546e27f5b9da3744e311ce68bf07ace70009824c86f261459ff43ac318",
+        "bytes": 25366,
+        "mode": 33188,
+        "mtime_ns": 1792198550522632377
+      }
+    },
+    {
+      "archive_relative_path": "source/simulator_test.go.before.txt",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/simulator_test.go.before.txt",
+        "sha256": "7673b5e6b3c9b34642acb68831a6a8b994046216c24ee2be3a000b8f71e32274",
+        "bytes": 22416,
+        "mode": 33188,
+        "mtime_ns": 1792198550522086294
+      }
+    },
+    {
+      "archive_relative_path": "source/source-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-claims-source-e2e1c4f4-20261017-5x23i85j/source-manifest.json",
+        "sha256": "0060552d6aef6f7c50f3dd8201057c5597a71eee6c1e45e883bea22ea8ccf554",
+        "bytes": 5898,
+        "mode": 33188,
+        "mtime_ns": 1792198550601088099
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v1/REQUEST.md",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-20261017-n8uphayt/REQUEST.md",
+        "sha256": "8596b14f499508cf26f2c4c6fbd17a477c367678d240a1eecf10bd37ea7392f6",
+        "bytes": 933,
+        "mode": 33188,
+        "mtime_ns": 1792198751781376589
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v1/request-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-20261017-n8uphayt/request-manifest.json",
+        "sha256": "23695fb62266c4587c1c3968d63f0caf91ab3d6cfca2fa92339e94c1aa4b740b",
+        "bytes": 1071,
+        "mode": 33188,
+        "mtime_ns": 1792198751782029817
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v1/request.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-20261017-n8uphayt/request.json",
+        "sha256": "72eaed07fd118d2d7d3ba8698685f494e28e4b7a22d4781095d78db1a9e9e276",
+        "bytes": 9432,
+        "mode": 33188,
+        "mtime_ns": 1792198751781203935
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v1/runtime-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-20261017-n8uphayt/runtime-wrapper.py",
+        "sha256": "18bae42fb316e140e849be289c2170579a7aab37a1e3b671bfe316f31de9eef9",
+        "bytes": 6448,
+        "mode": 33188,
+        "mtime_ns": 1792198751496626201
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v2/REQUEST.md",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v2-20261017-8p6a09j2/REQUEST.md",
+        "sha256": "ebf935de577a26f6f9fa5eec37dc1a0d302f90deb2fbd74e5b2f061bcca70d0a",
+        "bytes": 1080,
+        "mode": 33188,
+        "mtime_ns": 1792198776898434666
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v2/request-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v2-20261017-8p6a09j2/request-manifest.json",
+        "sha256": "2b1183e7b66ce138a43d31a56086711f304ea2a6cfa04bb682b5f9e00ee771d4",
+        "bytes": 1091,
+        "mode": 33188,
+        "mtime_ns": 1792198776899031884
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v2/request.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v2-20261017-8p6a09j2/request.json",
+        "sha256": "483a71dd7660eb17baeef77363b57fca968a1ab8ce041efd7ff9f1a8b815240b",
+        "bytes": 11095,
+        "mode": 33188,
+        "mtime_ns": 1792198776898215980
+      }
+    },
+    {
+      "archive_relative_path": "metadata/draft-v2/runtime-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v2-20261017-8p6a09j2/runtime-wrapper.py",
+        "sha256": "18bae42fb316e140e849be289c2170579a7aab37a1e3b671bfe316f31de9eef9",
+        "bytes": 6448,
+        "mode": 33188,
+        "mtime_ns": 1792198776896619728
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/REQUEST.md",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/REQUEST.md",
+        "sha256": "07818607e94b7607f8f47feb9134aa71b0d5e877ac31a3f9c81a554206342621",
+        "bytes": 1653,
+        "mode": 33188,
+        "mtime_ns": 1792198800275530914
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/invocation.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/invocation.json",
+        "sha256": "282eb1ffd00d7a1aecc11410239a55e951a39ae3df2d191aa72c420af016eeb6",
+        "bytes": 4920,
+        "mode": 33188,
+        "mtime_ns": 1792199053286416630
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/post-state.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/post-state.json",
+        "sha256": "7090daf3fe850ed8cb72e45cf8c2cc2f3b6f94feb0766b6dac5c199dc6322c8f",
+        "bytes": 9084,
+        "mode": 33188,
+        "mtime_ns": 1792199056737481965
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/pre-state.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/pre-state.json",
+        "sha256": "7090daf3fe850ed8cb72e45cf8c2cc2f3b6f94feb0766b6dac5c199dc6322c8f",
+        "bytes": 9084,
+        "mode": 33188,
+        "mtime_ns": 1792199053285404592
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/raw.jsonl",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/raw.jsonl",
+        "sha256": "bfb0adc772c4f51bac75edb2b55d1e4d11af7434d3aafb925a9a5b7e8cc5fcb0",
+        "bytes": 2788,
+        "mode": 33188,
+        "mtime_ns": 1792199055905463315
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/receipt.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/receipt.json",
+        "sha256": "fb6621021b75823abcf638fb2616865d1006bf7f9e723876876a0cdfabac96ae",
+        "bytes": 22814,
+        "mode": 33188,
+        "mtime_ns": 1792199056739482010
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/request-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/request-manifest.json",
+        "sha256": "ea07fb5f8f1061326db63dc5027ed3c651e3b2669400f4cb15696328afb48a0b",
+        "bytes": 1091,
+        "mode": 33188,
+        "mtime_ns": 1792198800276127264
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/request.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/request.json",
+        "sha256": "b3f79aec8e2ff97d2573bc016d0b514eb2205ce7659a78bda00ccdc407bae167",
+        "bytes": 12705,
+        "mode": 33188,
+        "mtime_ns": 1792198800275346238
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/runtime-manifest.json",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-manifest.json",
+        "sha256": "3a1247ff60b81c1294afb9a8cf4e517a0273c7955d248f0b386788454deaa6aa",
+        "bytes": 3505,
+        "mode": 33188,
+        "mtime_ns": 1792199056742147020
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/runtime-wrapper.py",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/runtime-wrapper.py",
+        "sha256": "18bae42fb316e140e849be289c2170579a7aab37a1e3b671bfe316f31de9eef9",
+        "bytes": 6448,
+        "mode": 33188,
+        "mtime_ns": 1792198800263594557
+      }
+    },
+    {
+      "archive_relative_path": "runtime/accepted-v3/stderr.log",
+      "original": {
+        "path": "/tmp/ts-simulator-iam-two-root-runtime-request-e2e1c4f4-v3-20261017-q5db4l0d/stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0,
+        "mode": 33188,
+        "mtime_ns": 1792199053286416630
+      }
+    },
+    {
+      "archive_relative_path": "qa/source-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-simulator-iam-source-review-e2e1c4f4-d1919ae3.json",
+        "sha256": "4256d33cea1b9013d20861b7ee95be28d8f1f26f66703af25b15851179de8642",
+        "bytes": 948,
+        "mode": 33188,
+        "mtime_ns": 1792198658342211120
+      }
+    },
+    {
+      "archive_relative_path": "qa/request-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-simulator-iam-runtime-request-review-e2e1c4f4-6fdb0f0f.json",
+        "sha256": "358d0317eb8fada1d3aefd40f15c67b084ac4c3f64c682690a74b816ac6092ca",
+        "bytes": 1339,
+        "mode": 33188,
+        "mtime_ns": 1792198921853009025
+      }
+    },
+    {
+      "archive_relative_path": "qa/runtime-review.json",
+      "original": {
+        "path": "/tmp/ts-qa-simulator-iam-runtime-review-e2e1c4f4-dec4dea7.json",
+        "sha256": "14c120877d8facaa4164cae07b36095c47e412fc4b1526295cef843bce68a919",
+        "bytes": 1766,
+        "mode": 33188,
+        "mtime_ns": 1792199082646906931
+      }
+    }
+  ],
+  "QA_reviews": {
+    "source-review": {
+      "path": "/tmp/ts-qa-simulator-iam-source-review-e2e1c4f4-d1919ae3.json",
+      "sha256": "4256d33cea1b9013d20861b7ee95be28d8f1f26f66703af25b15851179de8642"
+    },
+    "request-review": {
+      "path": "/tmp/ts-qa-simulator-iam-runtime-request-review-e2e1c4f4-6fdb0f0f.json",
+      "sha256": "358d0317eb8fada1d3aefd40f15c67b084ac4c3f64c682690a74b816ac6092ca"
+    },
+    "runtime-review": {
+      "path": "/tmp/ts-qa-simulator-iam-runtime-review-e2e1c4f4-dec4dea7.json",
+      "sha256": "14c120877d8facaa4164cae07b36095c47e412fc4b1526295cef843bce68a919"
+    }
+  },
+  "source_patch_sha256": "a62cad68bae5820cb3f9ea6eeb414bb8732efa4932581403b21e6cb1e45e4ae6",
+  "raw_runtime_sha256": "bfb0adc772c4f51bac75edb2b55d1e4d11af7434d3aafb925a9a5b7e8cc5fcb0",
+  "accepted_exact_roots": [
+    "TestSimulatorAcceptsSDKSignatureAcrossNetHTTPServer",
+    "TestSimulatorAcceptsRealInstancePrincipalSDKRequests"
+  ],
+  "claim_limit": "Simulator signer/session provenance, actual SDK custom dispatcher and separate loopback socket only. Claims/tokens/full structs not printed; no separate broker/session trace.",
+  "no_retained_binary": {
+    "separate_compile_only_invocations": 0,
+    "retained_standalone_test_binary_exists": false,
+    "archive_contains_compiled_binary": false,
+    "note": "One granted go test generated/executed its own temporary binary; no retained binary existed to include and no omitted-binary hash is invented."
+  },
+  "draft_history": "v1/v2 unexecuted, v3 one granted invocation; initial escaping concern false, same correct wrapper preserved.",
+  "tar_policy": {
+    "format": "USTAR",
+    "sorted_names": true,
+    "regular_files_only": true,
+    "mode": "0644",
+    "uid": 0,
+    "gid": 0,
+    "uname": "",
+    "gname": "",
+    "mtime": 0
+  },
+  "gzip_policy": {
+    "filename": "",
+    "mtime": 0,
+    "compresslevel": 9
+  },
+  "manifest_policy": "MEMBERS.json excludes itself/SHA256SUMS. SHA256SUMS covers every other member including MEMBERS.json. External package.json covers every member.",
+  "intended_docs_path": "docs/evidence/refactor-checks-20261016/simulator-iam-claims-e2e1c4f4",
+  "publication_state": "Review only; exact later parent required for future source adoption/publication."
+}

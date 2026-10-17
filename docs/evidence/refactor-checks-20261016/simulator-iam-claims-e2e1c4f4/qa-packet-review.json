@@ -1,0 +1,16 @@
+{
+  "state": "QA accepts immutable IAM simulator source/runtime evidence packet; adoption not yet reviewed",
+  "created_utc": "2026-10-17T01:09:38.858889+00:00",
+  "qualified_source": "e2e1c4f4df20733b28ebf10b407e82a1dd1202d6",
+  "archive_sha256": "407fb030c9d0df008e590301bf9decaec8fa79d14e81203207101d6eb574ced8",
+  "archive_bytes": 41364,
+  "archive_members_verified": 37,
+  "original_inputs_verified": 31,
+  "all_original_bytes_modes_mtimes_unchanged": true,
+  "USTAR_gzip_independent_rebuild_exact": true,
+  "safe_sorted_regular_members_internal_external_hashes_verified": true,
+  "raw_runtime_sha256": "bfb0adc772c4f51bac75edb2b55d1e4d11af7434d3aafb925a9a5b7e8cc5fcb0",
+  "scope": "Exactly two existing synthetic simulator IAM roots PASS with pinned assertions; source/runtime scope preserved",
+  "broker_provenance_limit": "Child terminal exit0/prepost/raw independently verified. Toolsession21017 terminalexit0 is owner-reported; original literal tool response/chunk records unavailable, to be recorded separately without new execution.",
+  "limits": "No default production SDKconstructor/privateIAM/Oracletrust/livecredentials/enrollmentproducer/nativeownhost/F3/global closure"
+}

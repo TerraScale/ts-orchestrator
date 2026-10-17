@@ -1,0 +1,35 @@
+{
+  "state": "QA accepts exact IAM two-file adoption on publisheda1f; no runtime repetition",
+  "created_utc": "2026-10-17T01:11:36.894902+00:00",
+  "qualified_source": "e2e1c4f4df20733b28ebf10b407e82a1dd1202d6",
+  "source_donor": "3c8384e8e794fee86808b769f7693fa3021938c7",
+  "tree": "758bbcb62f8b15c585d8e273582b834ace377585",
+  "parent": "a1f9244f23d90fd35faa6d0abb9480b8d47f5068",
+  "changed_files": [
+    "tests/firecracker/production/simulator.go",
+    "tests/firecracker/production/simulator_test.go"
+  ],
+  "full_index_patch_sha256": "a62cad68bae5820cb3f9ea6eeb414bb8732efa4932581403b21e6cb1e45e4ae6",
+  "all_qualified_Go_module_entries_equal": 2424,
+  "only_differences_from_qualified_source": [
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/README.md",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/SHA256SUMS",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/adoption-proof.json",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/archive-verification.json",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/evidence.tar.gz",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/package-evidence.py",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/package.json",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/provenance.json",
+    "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/qa-packet-review.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/README.md",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/SHA256SUMS",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/archive-verification.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/evidence.tar.gz",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package-evidence.py",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/provenance.json",
+    "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/qa-packet-review.json"
+  ],
+  "scoped_evidence_retains_original_identity": true,
+  "scope": "Exacte2two-root source/runtime accepted; docs-only ancestry delta. No fullunion/defaultconstructor/privateIAM/Oracletrust/live/nativeownhost/globalclosure credit."
+}

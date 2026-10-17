@@ -1,0 +1,202 @@
+{
+  "Go_and_module_files": {
+    "all_qualified_modes_blobs_and_actual_worktree_bytes_equal": true,
+    "bindings_file": "go-module-byte-bindings.json",
+    "bindings_sha256": "486d2a040588961d10871732a388caaa8ad5f50114128f0569ce4af09f277abe",
+    "count": 2424
+  },
+  "all_other_tracked_source_entries_equal_qualified": true,
+  "branch": "source/qa-simulator-iam-adopt-a1f9244f-d_qc3jud",
+  "claim_limit": "The runtime grant qualified source e2 only; this mechanical donor has not been executed. No broader runtime or enrollment producer qualification.",
+  "created_utc": "2026-10-17T01:11:11.775075+00:00",
+  "difference_limit": "17 added controller-c/vendor diagnostic evidence documentation files from authorized parent ancestry only; no source/module difference remains versus qualified e2.",
+  "donor_commit": "3c8384e8e794fee86808b769f7693fa3021938c7",
+  "donor_tree": "758bbcb62f8b15c585d8e273582b834ace377585",
+  "exact_two_files": [
+    {
+      "blob": "740f9abce7bad02ec43c8bf55d6a6c15826a5fa7",
+      "bytes": 22205,
+      "mode": "100644",
+      "path": "tests/firecracker/production/simulator.go",
+      "qualified_source_equal": true,
+      "sha256": "52f814184133f5e95cdae562424e5024dbcd2bf5b4090fb45ba551f02deb6886"
+    },
+    {
+      "blob": "2c68d3a28dcec1f5e97760e694bede3dfd2158ad",
+      "bytes": 25366,
+      "mode": "100644",
+      "path": "tests/firecracker/production/simulator_test.go",
+      "qualified_source_equal": true,
+      "sha256": "0e77f0546e27f5b9da3744e311ce68bf07ace70009824c86f261459ff43ac318"
+    }
+  ],
+  "kind": "SOURCE_ONLY_EXACT_TWO_FILE_MECHANICAL_ADOPTION_HOLD",
+  "no_Go_runtime_repeat_other_source_edits_shared_feature_change_push": true,
+  "parent_tree": "d4a362d5660d2216ef649c09d5dbd5d3a07fc0b5",
+  "patch": {
+    "bytes": 5185,
+    "exact_original_full_index_bytes": true,
+    "sha256": "a62cad68bae5820cb3f9ea6eeb414bb8732efa4932581403b21e6cb1e45e4ae6"
+  },
+  "qualified_parent": "6d4feea434d74e0f344fc7f9ab9bba9ed1e15080",
+  "qualified_source": "e2e1c4f4df20733b28ebf10b407e82a1dd1202d6",
+  "qualified_to_donor_differences": [
+    {
+      "donor": {
+        "blob": "3049607215c2b468d69d42e44574de198b55febe",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/README.md",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "11d97c5ade2c3619007d2301473db61f9e95ac11",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/SHA256SUMS",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "f0264d627c0aa297aa104118f36c3d2de9de0a0e",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/adoption-proof.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "6031605756900ed02e6b1e0f08327926b157ab35",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/archive-verification.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "5f9c3b210d5b218e28b7da6104c80df0a537ab8c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/evidence.tar.gz",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "09aa1848a2eb0d45897487b620db631dd78ad983",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/package-evidence.py",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "4cf4d6f9f1db30100bcd448be6ba2c6d147d8f85",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/package.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "69537011aabe7a084a59fb4e25505e3e364af8a1",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/provenance.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "d30dc7b5cec37c3aaea551b32ebaab5eabc1054c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/controller-c-identity-6d4feea4/qa-packet-review.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "e57f4b558b0bcfcd165443759284b521ae8b5619",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/README.md",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "5f1083d96f37f127584d3aa2c2cecc8cc642bcd6",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/SHA256SUMS",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "6b20cca342da1d135f946b992bbd6e786d2df000",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/archive-verification.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "5a0841fa789e9350cd9526f17fa041a1e33033e3",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/evidence.tar.gz",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "b1471765768879e9350fcae51d6951a2603a036c",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package-evidence.py",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "4ee8542e94e036b2b192db81eb051fb7ad53c451",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/package.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "da3aac1521fa4e64f8d937969b67d583cc6cb834",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/provenance.json",
+      "qualified": null
+    },
+    {
+      "donor": {
+        "blob": "391017979ed2a81cc6250f73e866e3d79a0378f4",
+        "mode": "100644",
+        "type": "blob"
+      },
+      "path": "docs/evidence/refactor-checks-20261016/vendor-fifo06-diagnostic-13185dcc/qa-packet-review.json",
+      "qualified": null
+    }
+  ],
+  "qualified_tree": "010c735d27aad5636271f5d08c7272beb1267ab7",
+  "sole_parent": "a1f9244f23d90fd35faa6d0abb9480b8d47f5068",
+  "worktree": "/tmp/ts-simulator-iam-adoption-a1f9244f-20261017-d_qc3jud/worktree",
+  "worktree_clean": true
+}

@@ -1,0 +1,15 @@
+{
+  "state": "QA accepts subsequent transcript-derived IAM tool broker supplement",
+  "created_utc": "2026-10-17T01:12:20.339851+00:00",
+  "observations_sha256": "69ac17d44f258fc8020b3ac41617348b1da933ed30cb436781e1efe60ad9f77b",
+  "excerpt_sha256": "164515960b40610f7540a555f98f970cb4added903ae9d130e17fd500824eed6",
+  "exact_saved_original_selected_line_bytes": 4,
+  "source_line_hashes_and_excerpt_independently_verified": true,
+  "session": 21017,
+  "launch_chunk": "9629da",
+  "terminal_chunk": "2135a9",
+  "terminal_tool_exit": 0,
+  "child_receipt_and_runtime_manifest_hashes_match": true,
+  "historical_packetQA_trace_limit": "Unavailable at original packet review time, now supplemented; old archive/review/README unchanged",
+  "scope": "Toolsession observations only. No new execution or NATS/live/Oracletrust/ownhost qualification."
+}
