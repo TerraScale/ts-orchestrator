@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +25,7 @@ func TestRootInventoryIncludesProtectedOriginalLiabilities(t *testing.T) {
 			defer cancel()
 			f := newReadScenario(t)
 			receipt := f.financialInventory()
+			var invalidated atomic.Bool
 			if outcome == "missing history" {
 				var record map[string]any
 				if err := json.Unmarshal(f.objects["orchestrator/regions/v1/GRU.json"], &record); err != nil {
@@ -39,6 +41,7 @@ func TestRootInventoryIncludesProtectedOriginalLiabilities(t *testing.T) {
 					if request.Method != http.MethodPost {
 						return
 					}
+					invalidated.Store(true)
 					if outcome == "grant changes" {
 						f.publish(2)
 					} else {
@@ -51,8 +54,14 @@ func TestRootInventoryIncludesProtectedOriginalLiabilities(t *testing.T) {
 				t.Fatal(err)
 			}
 			observed, err := f.backend.Inventory(ctx, call)
+			f.mu.Lock()
+			requests := f.requests
+			f.mu.Unlock()
+			if requests == 0 || requests > 256 {
+				t.Fatalf("root inventory exceeded its finite signed SDK boundary: %d requests", requests)
+			}
 			if outcome == "grant changes" || outcome == "canceled" {
-				if err == nil || len(observed.KnownLiabilities.Commitments) != 0 {
+				if !invalidated.Load() || err == nil || len(observed.KnownLiabilities.Commitments) != 0 {
 					t.Fatalf("invalidated inventory escaped its root read: %+v, %v", observed, err)
 				}
 				return

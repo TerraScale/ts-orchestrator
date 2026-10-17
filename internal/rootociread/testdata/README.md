@@ -12,8 +12,17 @@ the test never constructs a sealed foundation or spending proof.
 The three cases cover a current channel observation, a signed grant successor
 arriving during the channel read, and cancellation after the channel request.
 The latter two must return no observation. Channel data remains unsealed and
-does not admit a binary release. Inventory, fleet, image, costs and ordinary
+does not admit a binary release. Fleet, image, costs and ordinary
 Unix peer authorization require their own scenarios.
+
+`TestRootInventoryIncludesProtectedOriginalLiabilities` adds four serial cases:
+an original protected financial commitment, missing protected history, a grant
+successor during the read, and cancellation. It uses the same cryptographic
+fixture and exact regional Identity, Compute and Search host allowlist. Search
+requests have their body digest and signature checked; each query and family
+list must name one of the five signed compartments. Missing history stays
+pending; the result retains unbounded compartments and never gains a purchase
+snapshot seal. The fixture does not qualify actual pool birth or retirement.
 
 The test binary needs the public test genesis embedded in place of production's
 public genesis. Go's overlay changes only the test build input; it does not edit
@@ -48,7 +57,14 @@ nice -n 19 env GOMAXPROCS=2 GOFLAGS=-p=2 go test \
   -count=1 -parallel=1 -timeout=90s -v
 ```
 
-Run only this scenario in the overlay binary. It creates one loopback TLS server
+Run only the selected root-reader scenarios in the overlay binary. The channel
+scenario creates one loopback TLS server
 per serial case, at most 32 signed requests per case and one temporary trust
 floor. Each operation has a 20-second context. Runtime and memory envelopes
 remain unmeasured until QA executes it.
+
+For the inventory scenario, use selector
+`^TestRootInventoryIncludesProtectedOriginalLiabilities$` and package timeout
+`150s`. Its four serial cases each use one loopback TLS server, one temporary
+trust floor, a 30-second operation context and at most 256 signed requests.
+No broker, subprocess worker, production credentials or cloud endpoint is used.
