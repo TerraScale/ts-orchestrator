@@ -122,6 +122,7 @@ func sourceFounderFixtureWithAuthority(t *testing.T, grant region.VerifiedBootst
 	}
 	protocol.mu.Unlock()
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		protocol.recordRequest(r)
 		w.Header().Set("Content-Type", "application/json")
 		if protocol.interceptIAM != nil && protocol.interceptIAM(w, r) {
 			return
