@@ -22,6 +22,13 @@ func runManagedRuntimeRootSources(ctx context.Context, cfg Config, factory *ocic
 			if err := authority.bindSources(sources); err != nil {
 				return fmt.Errorf("bind original root runtime sources: %w", err)
 			}
+			observations, stopObservations := context.WithCancel(attempt)
+			observationsDone := make(chan struct{})
+			go func() {
+				defer close(observationsDone)
+				authority.runManagerRuntimeBindings(observations)
+			}()
+			defer func() { stopObservations(); <-observationsDone }()
 			return sources.wait(attempt)
 		}
 		cancel()

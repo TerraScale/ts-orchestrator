@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
+	"encoding/json/v2"
 	"encoding/pem"
+	"log/slog"
 	"reflect"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/entityid"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
+	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/rootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/swarmruntime"
 	"github.com/moby/swarmkit/v2/api"
@@ -22,12 +25,20 @@ import (
 type rootManagerRuntimeBinding struct {
 	signed  host.SignedManagerRuntimeBinding
 	session context.Context
+	digest  string
 }
 
-// The ordinary response key cannot certify a process candidate. Only the actual
-// root-owned Node signs the process and enrolled host observed together here.
-func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Context, process *rootOCIProcess,
+type rootManagerRuntimeObservation struct {
+	ctx      context.Context
+	payload  host.ManagerRuntimeBinding
+	existing *host.SignedManagerRuntimeBinding
+	guard    func(context.Context) error
+	readback func(context.Context, host.SignedManagerRuntimeBinding) error
+}
+
+func (authority *rootOCIAuthority) withManagerRuntimeObservation(ctx context.Context, process *rootOCIProcess,
 	binding *swarmruntime.ControllerHostBinding, identity host.HostRuntimeIdentity, current bootstrapstart.RuntimeAuthority,
+	consume func(rootManagerRuntimeObservation) error,
 ) error {
 	source, sources := authority.ownhost, authority.sources
 	if process == nil || process == authority.child || sources == nil || source.node == nil || source.agent == nil ||
@@ -145,46 +156,149 @@ func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Cont
 	if err := guard(ctx); err != nil {
 		return err
 	}
-	var signed host.SignedManagerRuntimeBinding
-	if retained := process.managerBinding; retained != nil && retained.session == source.session {
-		old := retained.signed.Binding
-		expected := payload
-		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
-		if old != expected || old.SourceRevision > payload.SourceRevision || old.ExpiresAt.After(deadline) || !time.Now().Before(old.ExpiresAt) {
-			return rootoci.ErrUnauthorized
-		}
-		deadline = old.ExpiresAt
-		var cancelRetained context.CancelFunc
-		ctx, cancelRetained = context.WithDeadline(ctx, deadline)
-		defer cancelRetained()
-		signed = retained.signed
-	} else {
-		signed, err = source.node.SignManagerRuntimeBinding(ctx, payload, guard)
+	readback := func(ctx context.Context, signed host.SignedManagerRuntimeBinding) error {
+		published, err := sources.hosts.ReadManagerRuntimeSession(ctx, worker.HostNode)
 		if err != nil {
 			return err
 		}
+		actual, found := published.SignedBinding()
+		if !found || !reflect.DeepEqual(actual, signed) || !reflect.DeepEqual(published.Registration(), registration) ||
+			published.SessionID() != worker.HostSessionID || published.SessionEpoch() != identity.SessionEpoch() ||
+			published.RegistrationRevision() != signed.Binding.RegistrationRevision || published.SourceRevision() <= signed.Binding.SourceRevision ||
+			published.ExpiresAt().Before(signed.Binding.ExpiresAt) {
+			return rootoci.ErrUnauthorized
+		}
+		snapshot = published
+		return guard(ctx)
 	}
-	if err := guard(ctx); err != nil {
+	var existing *host.SignedManagerRuntimeBinding
+	if signed, found := snapshot.SignedBinding(); found {
+		existing = &signed
+	}
+	return consume(rootManagerRuntimeObservation{ctx: ctx, payload: payload, existing: existing, guard: guard, readback: readback})
+}
+
+// Only the dedicated root producer calls this method. Request authorization and
+// held Call guards only validate an already published immutable observation.
+func (authority *rootOCIAuthority) publishManagerRuntimeBinding(ctx context.Context, process *rootOCIProcess,
+	binding *swarmruntime.ControllerHostBinding, identity host.HostRuntimeIdentity, current bootstrapstart.RuntimeAuthority,
+) error {
+	return authority.withManagerRuntimeObservation(ctx, process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
+		if retained := process.managerBinding; retained != nil && retained.session == authority.ownhost.session {
+			old, expected := retained.signed.Binding, observation.payload
+			expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
+			if old == expected && old.SourceRevision <= observation.payload.SourceRevision &&
+				!old.ExpiresAt.After(observation.payload.ExpiresAt) && time.Now().Before(old.ExpiresAt) {
+				ctx, cancel := context.WithDeadline(observation.ctx, old.ExpiresAt)
+				defer cancel()
+				return observation.readback(ctx, retained.signed)
+			}
+			if observation.payload.SourceRevision <= old.SourceRevision {
+				return rootoci.ErrUnauthorized
+			}
+		} else if old := observation.existing; old != nil && old.Binding.RuntimeCandidateID == observation.payload.RuntimeCandidateID &&
+			old.Binding.HostSessionID == observation.payload.HostSessionID && old.Binding.HostSessionEpoch == observation.payload.HostSessionEpoch {
+			// Lost local publication state cannot grant this observation a new lifetime.
+			return rootoci.ErrUnauthorized
+		}
+		signed, err := authority.ownhost.node.SignManagerRuntimeBinding(observation.ctx, observation.payload, observation.guard)
+		if err != nil {
+			return err
+		}
+		if err := observation.guard(observation.ctx); err != nil {
+			return err
+		}
+		wire, err := json.Marshal(signed, json.Deterministic(true))
+		if err != nil {
+			return err
+		}
+		digest := sha256.Sum256(wire)
+		// Retain the original before dispatch: an ambiguous setter is read back, never retransmitted.
+		process.managerBinding = &rootManagerRuntimeBinding{signed: signed, session: authority.ownhost.session, digest: hex.EncodeToString(digest[:])}
+		if err := authority.ownhost.agent.SetManagerRuntimeBinding(observation.ctx, signed); err != nil {
+			return err
+		}
+		return observation.readback(observation.ctx, signed)
+	})
+}
+
+// This source supervisor deliberately observes independently of request guards.
+func (authority *rootOCIAuthority) runManagerRuntimeBindings(ctx context.Context) {
+	for ctx.Err() == nil {
+		if err := authority.observeManagerRuntimeBinding(ctx); err != nil && ctx.Err() == nil {
+			slog.WarnContext(ctx, "root manager runtime observation pending", "error", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (authority *rootOCIAuthority) observeManagerRuntimeBinding(ctx context.Context) error {
+	authority.mu.Lock()
+	defer authority.mu.Unlock()
+	if ctx == nil || ctx.Err() != nil || authority.ctx.Err() != nil || authority.sources == nil {
+		return rootoci.ErrUnauthorized
+	}
+	ctx, cancel := context.WithDeadline(ctx, earlier(time.Now().Add(30*time.Second), authority.sources.deadline))
+	stopAuthority := context.AfterFunc(authority.ctx, cancel)
+	stopSources := context.AfterFunc(authority.sources.lease, cancel)
+	defer func() { stopAuthority(); stopSources(); cancel() }()
+	if err := authority.sources.guard(ctx); err != nil {
 		return err
 	}
-	if err := source.agent.SetManagerRuntimeBinding(ctx, signed); err != nil {
-		return err
-	}
-	published, err := sources.hosts.ReadManagerRuntimeSession(ctx, worker.HostNode)
+	service, err := observeRootOCIController(ctx)
 	if err != nil {
 		return err
 	}
-	actual, found := published.SignedBinding()
-	if !found || !reflect.DeepEqual(actual, signed) || !reflect.DeepEqual(published.Registration(), registration) ||
-		published.SessionID() != worker.HostSessionID || published.SessionEpoch() != identity.SessionEpoch() ||
-		published.RegistrationRevision() != payload.RegistrationRevision || published.SourceRevision() <= signed.Binding.SourceRevision ||
-		published.ExpiresAt().Before(deadline) {
+	process, err := authority.currentProcess(ctx, nativerootoci.Peer{PID: service.pid, UID: authority.uid, GID: authority.gid})
+	if err != nil || process == authority.child || authority.verifyMarker() != nil || authority.verifyBinary(process.witness) != nil || authority.verifyProcess(ctx, process) != nil {
 		return rootoci.ErrUnauthorized
 	}
-	snapshot = published
-	if err := guard(ctx); err != nil {
+	// currentProcess may read ownhost generation, so resolve it before this lock.
+	source := authority.ownhost
+	source.mu.RLock()
+	defer source.mu.RUnlock()
+	if source.agent == nil || source.node == nil || source.session == nil || source.session.Err() != nil {
+		return rootoci.ErrUnauthorized
+	}
+	stopSession := context.AfterFunc(source.session, cancel)
+	defer stopSession()
+	current, err := source.reader.ReadRuntimeAuthority(ctx, authority.accepted, time.Now().UTC())
+	if err != nil {
 		return err
 	}
-	process.managerBinding = &rootManagerRuntimeBinding{signed: signed, session: source.session}
-	return nil
+	ctx, cancelCurrent := context.WithDeadline(ctx, current.ExpiresAt())
+	defer cancelCurrent()
+	binding, err := swarmruntime.ReadControllerHostBinding(ctx, source.reader, authority.accepted, source.agent, source.transport.Request, source.transport.Response)
+	if err != nil || binding.ControllerSlot() != authority.accepted.Slot || binding.Identity() != current.Identity() {
+		return rootoci.ErrUnauthorized
+	}
+	identity, err := source.agent.RuntimeWorkerIdentity(binding.Identity().InstanceID, source.nodeID)
+	if err != nil {
+		return err
+	}
+	process.runtime = true
+	return authority.publishManagerRuntimeBinding(ctx, process, binding, identity, current)
+}
+
+func (authority *rootOCIAuthority) verifyManagerRuntimeBinding(ctx context.Context, process *rootOCIProcess,
+	binding *swarmruntime.ControllerHostBinding, identity host.HostRuntimeIdentity, current bootstrapstart.RuntimeAuthority,
+) error {
+	retained := process.managerBinding
+	if retained == nil || retained.session != authority.ownhost.session || retained.digest == "" {
+		return rootoci.ErrUnauthorized
+	}
+	ctx, cancel := context.WithDeadline(ctx, retained.signed.Binding.ExpiresAt)
+	defer cancel()
+	return authority.withManagerRuntimeObservation(ctx, process, binding, identity, current, func(observation rootManagerRuntimeObservation) error {
+		old, expected := retained.signed.Binding, observation.payload
+		expected.SourceRevision, expected.IssuedAt, expected.ExpiresAt = old.SourceRevision, old.IssuedAt, old.ExpiresAt
+		if old != expected || old.SourceRevision > observation.payload.SourceRevision || old.ExpiresAt.After(observation.payload.ExpiresAt) || !time.Now().Before(old.ExpiresAt) {
+			return rootoci.ErrUnauthorized
+		}
+		return observation.readback(observation.ctx, retained.signed)
+	})
 }
