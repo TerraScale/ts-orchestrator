@@ -160,12 +160,8 @@ func checkNetBirdWriterCapability(ctx context.Context, resolver FoundationResolv
 		latest.ResourceIDs["control_compartment"] != intent.PolicyCompartmentID || !intent.matches(latest.FoundationWriter) {
 		return FoundationRecord{}, errors.Join(ErrFoundationFenced, err)
 	}
-	before, after := *original.FoundationWriter, *latest.FoundationWriter
-	before.BrokerPolicyAuthority, after.BrokerPolicyAuthority = nil, nil
-	a, err := json.Marshal(before, json.Deterministic(true))
-	b, nextErr := json.Marshal(after, json.Deterministic(true))
-	if err != nil || nextErr != nil || string(a) != string(b) || ctx.Err() != nil || !time.Now().Before(expires) {
-		return FoundationRecord{}, errors.Join(ErrFoundationFenced, ctx.Err(), err, nextErr)
+	if !sameFoundationWriterOriginal(original.FoundationWriter, latest.FoundationWriter) || ctx.Err() != nil || !time.Now().Before(expires) {
+		return FoundationRecord{}, errors.Join(ErrFoundationFenced, ctx.Err())
 	}
 	return latest, nil
 }
@@ -393,11 +389,7 @@ func (record FoundationRecord) retainNetBirdWriterAuthority(next FoundationRecor
 	if record.FoundationWriter == nil || next.FoundationWriter == nil || next.FoundationWriter.BrokerPolicyAuthority == nil {
 		return ErrFoundationFenced
 	}
-	oldWriter, nextWriter := *record.FoundationWriter, *next.FoundationWriter
-	oldWriter.BrokerPolicyAuthority, nextWriter.BrokerPolicyAuthority = nil, nil
-	writer, err := json.Marshal(oldWriter, json.Deterministic(true))
-	nextBytes, nextErr := json.Marshal(nextWriter, json.Deterministic(true))
-	if err != nil || nextErr != nil || string(writer) != string(nextBytes) {
+	if !sameFoundationWriterOriginal(record.FoundationWriter, next.FoundationWriter) {
 		return ErrFoundationFenced
 	}
 	original := record.FoundationWriter.BrokerPolicyAuthority
