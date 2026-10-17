@@ -86,6 +86,18 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 	if err := record.validate(); err != nil {
 		return "", err
 	}
+	if etag != "" {
+		previous, held, err := s.Load(ctx, record.Cell)
+		if err != nil {
+			return "", err
+		}
+		if held != etag {
+			return "", ErrFoundationConflict
+		}
+		if err := retainRuntimeLineage(previous.RuntimeLineage, record.RuntimeLineage); err != nil {
+			return "", err
+		}
+	}
 	wire, err := json.Marshal(record, json.Deterministic(true))
 	if err != nil {
 		return "", err
@@ -121,6 +133,9 @@ func (s *ObjectFoundationStore) CompareAndSwap(ctx context.Context, record Found
 }
 
 func (r FoundationRecord) validate() error {
+	if err := r.validateRuntimeLineage(); err != nil {
+		return err
+	}
 	if r.OCIResources != nil {
 		if err := r.OCIResources.Validate(r.Cell); err != nil {
 			return fmt.Errorf("protected OCI amendment journal: %w", err)
