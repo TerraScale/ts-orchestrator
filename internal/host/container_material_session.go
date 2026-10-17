@@ -155,6 +155,10 @@ func (r *Reader) currentContainerMaterialSession(ctx context.Context, req reques
 	deadline := containerMaterialDeadline(current.ExpiresAt, (ContainerMaterialEvidence{Request: req.Envelope}).Deadline())
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
+	ctx, err = withCredentialFloorSession(ctx, c, registration, current)
+	if err != nil {
+		return Registration{}, session{}, err
+	}
 	if err := c.verifyCredentialProtocol(ctx, req, registration); err != nil {
 		return Registration{}, session{}, err
 	}

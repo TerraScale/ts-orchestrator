@@ -58,6 +58,9 @@ func TestRootCredentialFloorPinsCurrentSessionDuringRead(t *testing.T) {
 			reads := 0
 			controller.credentialFloor = func(ctx context.Context, _ Registration) (uint64, error) {
 				reads++
+				if GuardCredentialFloorSession(ctx) != nil {
+					t.Fatal("actual original floor session was not retained")
+				}
 				deadline, ok := ctx.Deadline()
 				if !ok || deadline.After(current.ExpiresAt) {
 					t.Fatal("credential read exceeded the original current session expiry")
@@ -70,6 +73,9 @@ func TestRootCredentialFloorPinsCurrentSessionDuringRead(t *testing.T) {
 				successor.SessionID, successor.Epoch = entityid.New(), current.Epoch+1
 				if _, err := controller.cas(ctx, sessionKey(controller.cell, registration.Node), successor, revision); err != nil {
 					t.Fatal(err)
+				}
+				if GuardCredentialFloorSession(ctx) == nil {
+					t.Fatal("per-wire floor guard accepted a replacement session")
 				}
 				return 1, nil
 			}
@@ -84,5 +90,11 @@ func TestRootCredentialFloorPinsCurrentSessionDuringRead(t *testing.T) {
 				t.Fatal("credential floor accepted a replacement session during its read", err, reads)
 			}
 		})
+	}
+}
+
+func TestCredentialFloorGuardRejectsMissingOriginalSession(t *testing.T) {
+	if GuardCredentialFloorSession(t.Context()) == nil || GuardCredentialFloorSession(nil) == nil {
+		t.Fatal("floor guard accepted a caller context without the actual original session")
 	}
 }
