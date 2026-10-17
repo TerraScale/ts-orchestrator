@@ -15,7 +15,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/nativerootoci"
 	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ocicost"
-	"golang.org/x/sys/unix"
+	"github.com/TerraScale/ts-orchestrator/internal/rootociwire"
 )
 
 type Client struct {
@@ -24,6 +24,7 @@ type Client struct {
 	serverBinding string
 	root          *rootClient
 	closed        bool
+	pin           rootociwire.Pin
 }
 
 type rootClient struct {
@@ -67,6 +68,7 @@ func (client *Client) Close() error {
 	client.mu.Lock()
 	defer client.mu.Unlock()
 	client.closed = true
+	_ = client.pin.Close()
 	if client.root != nil {
 		client.root.cancel()
 	}
@@ -156,12 +158,7 @@ func (client *Client) invoke(parent context.Context, operation Operation, reques
 	if !ok {
 		return ErrUnauthorized
 	}
-	peer, err := nativerootoci.PeerCredential(socket)
-	if err != nil || peer.UID != 0 || peer.GID != 0 || peer.PID < 2 {
-		return ErrUnauthorized
-	}
-	binding, err := rootServerBinding(peer)
-	if err != nil || !client.pinServer(binding) {
+	if client.pin.Verify(socket) != nil {
 		return ErrUnauthorized
 	}
 	deadline, _ := ctx.Deadline()
@@ -182,14 +179,16 @@ func (client *Client) invoke(parent context.Context, operation Operation, reques
 		response.Operation != operation {
 		return outcomeError(operation)
 	}
-	currentBinding, err := rootServerBinding(peer)
-	if err != nil || currentBinding != binding {
+	if client.pin.Verify(socket) != nil {
 		return outcomeError(operation)
 	}
 	if err := statusError(response.Status); err != nil {
 		return err
 	}
 	if len(response.Payload) == 0 || json.Unmarshal(response.Payload, destination, json.RejectUnknownMembers(true)) != nil {
+		return outcomeError(operation)
+	}
+	if ctx.Err() != nil || client.isClosed() {
 		return outcomeError(operation)
 	}
 	return nil
@@ -213,6 +212,9 @@ func (client *Client) transportBinding() string {
 	if client.closed {
 		return ""
 	}
+	if client.root == nil {
+		return client.pin.Binding()
+	}
 	return client.serverBinding
 }
 
@@ -234,11 +236,20 @@ func (client *Client) invokeRoot(ctx context.Context, request wireRequest, desti
 	state := *root.call.state
 	state.operation, state.expected = request.Operation, request.Expected
 	call := Call{state: &state}
+	if !root.service.validRequest(request) {
+		return ErrInvalid
+	}
 	result, err := root.service.dispatch(bounded, call, request)
 	if err != nil {
+		if !request.Operation.observationOnly() {
+			err = errors.Join(err, ErrOutcomeUnknown)
+		}
 		return statusError(errorStatus(err))
 	}
 	if call.Guard(bounded) != nil {
+		if !request.Operation.observationOnly() {
+			return errors.Join(ErrUnauthorized, ErrOutcomeUnknown)
+		}
 		return ErrUnauthorized
 	}
 	wire, err := json.Marshal(result)
@@ -246,31 +257,16 @@ func (client *Client) invokeRoot(ctx context.Context, request wireRequest, desti
 		return outcomeError(request.Operation)
 	}
 	if call.Guard(bounded) != nil {
+		if !request.Operation.observationOnly() {
+			return errors.Join(ErrUnauthorized, ErrOutcomeUnknown)
+		}
 		return ErrUnauthorized
 	}
 	return nil
 }
 
-func rootServerBinding(peer nativerootoci.Peer) (string, error) {
-	for _, path := range []string{"/run", "/run/terrascale-orchestrator"} {
-		var stat unix.Stat_t
-		if unix.Lstat(path, &stat) != nil || stat.Uid != 0 || stat.Mode&unix.S_IFMT != unix.S_IFDIR || stat.Mode&0o022 != 0 {
-			return "", ErrUnauthorized
-		}
-	}
-	var socket unix.Stat_t
-	if unix.Lstat(SocketPath, &socket) != nil || socket.Uid != 0 || socket.Mode&unix.S_IFMT != unix.S_IFSOCK || socket.Mode&0o7777 != 0o660 {
-		return "", ErrUnauthorized
-	}
-	start, parent, cgroup, err := processKernelIdentity(peer.PID)
-	if err != nil {
-		return "", ErrUnauthorized
-	}
-	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%s:%d:%d:%d", peer.PID, start, cgroup, parent, socket.Dev, socket.Ino)))), nil
-}
-
 func outcomeError(operation Operation) error {
-	if operation.ReadOnly() || operation == OperationObservePoolChild {
+	if operation.observationOnly() {
 		return ErrUnavailable
 	}
 	return errors.Join(ErrUnavailable, ErrOutcomeUnknown)

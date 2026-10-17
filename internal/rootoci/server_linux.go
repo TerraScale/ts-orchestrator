@@ -223,14 +223,23 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service d
 		return
 	}
 	result, err := service.dispatch(bounded, call, request)
+	if err != nil && !request.Operation.observationOnly() {
+		err = errors.Join(err, ErrOutcomeUnknown)
+	}
 	response := wireResponse{Version: 1, Operation: request.Operation, Status: errorStatus(err)}
 	if err == nil {
 		if call.Guard(bounded) != nil {
 			response.Status = "unauthorized"
+			if !request.Operation.observationOnly() {
+				response.Status = "outcome_unknown"
+			}
 		} else {
 			response.Payload, err = json.Marshal(result)
 			if err != nil {
 				response.Status = "unavailable"
+				if !request.Operation.observationOnly() {
+					response.Status = "outcome_unknown"
+				}
 				response.Payload = nil
 			}
 		}
@@ -241,7 +250,11 @@ func serveConnection(parent context.Context, connection *net.UnixConn, service d
 func writeResponse(connection *net.UnixConn, response wireResponse) {
 	wire, err := json.Marshal(response)
 	if err != nil || len(wire) > maxFrameBytes {
-		wire, _ = json.Marshal(wireResponse{Version: 1, Operation: response.Operation, Status: "unavailable"})
+		status := "unavailable"
+		if !response.Operation.observationOnly() && response.Status == "ok" {
+			status = "outcome_unknown"
+		}
+		wire, _ = json.Marshal(wireResponse{Version: 1, Operation: response.Operation, Status: status})
 	}
 	_ = nativerootoci.WriteBoundedFrame(connection, wire, maxFrameBytes)
 }
