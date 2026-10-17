@@ -40,6 +40,11 @@ func (s *Sources) current(ctx context.Context, bucket, key string) (sourceEntry,
 	}
 	subject := "$KV." + bucket + "." + key
 	msg, err := reader.GetLastMsg("KV_"+bucket, subject, nats.Context(ctx))
+	if errors.Is(err, nats.ErrMsgNotFound) && bucket == "TS_TRUST_ROOTS" {
+		// A deployment with no rotations has no chain record. currentRoots still
+		// enforces the independently installed lineage floor before using genesis.
+		return sourceEntry{wire: []byte(`{"version":1}`)}, ctx.Err()
+	}
 	if err != nil {
 		return sourceEntry{}, err
 	}
