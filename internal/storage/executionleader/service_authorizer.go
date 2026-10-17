@@ -58,6 +58,19 @@ func NewServiceAuthorizer(config ServiceAuthorizerConfig) (*ServiceAuthorizer, e
 // per-task volume, writer and execution-effect admission. Labels only locate
 // durable records; the complete spec must equal the root-derived canonical one.
 func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, requested *api.ServiceSpec) error {
+	return a.withStatefulService(ctx, requested, nil)
+}
+
+// WithStatefulService retains one canonical admission and its original deadline
+// through exactly one synchronous scheduling effect; rechecking cannot renew it.
+func (a *ServiceAuthorizer) WithStatefulService(ctx context.Context, requested *api.ServiceSpec, effect func(context.Context) error) error {
+	if effect == nil {
+		return execution.ErrUnsafe
+	}
+	return a.withStatefulService(ctx, requested, effect)
+}
+
+func (a *ServiceAuthorizer) withStatefulService(ctx context.Context, requested *api.ServiceSpec, effect func(context.Context) error) error {
 	if a == nil || ctx == nil || ctx.Err() != nil || requested == nil {
 		return execution.ErrUnsafe
 	}
@@ -167,6 +180,8 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	if err != nil {
 		return err
 	}
+	ctx, cancel := context.WithDeadline(ctx, qualified.ValidUntil())
+	defer cancel()
 	manifest := state.EffectiveRuntimeManifest()
 	data := qualified.Data()
 	if data.DatabaseID != db || data.PartitionID != partition || data.VolumeID != state.VolumeID || data.FileSystemUUID != manifest.FileSystemUUID ||
@@ -207,43 +222,61 @@ func (a *ServiceAuthorizer) AuthorizeStatefulService(ctx context.Context, reques
 	if err != nil || !proto.Equal(expected, requested) {
 		return errors.Join(execution.ErrUnsafe, err)
 	}
-	latestPlacement, err := c.Authority.ReadPlacementIntent(ctx, db, partition)
-	if err != nil || latestPlacement.Sequence != admitted.Sequence {
-		return errors.Join(execution.ErrUnsafe, err)
+	guard := func(check context.Context) error {
+		latestPlacement, err := c.Authority.ReadPlacementIntent(check, db, partition)
+		if err != nil || latestPlacement.Sequence != admitted.Sequence {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		latestMember, err := c.Members.ReadMember(check, db, partition, seat)
+		if err != nil || latestMember.Revision != member.Revision {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		latestRegistration, err := c.Authority.ReadHostMutation(check, authority.MutationRegistration, c.Cell+"."+state.HostNode)
+		if err != nil || latestRegistration.Sequence != registered.Sequence {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		confirmed, err := c.Delivery.ContainerIntent(check, intent.OperationID)
+		if err != nil {
+			return err
+		}
+		before, err := json.Marshal(intent, json.Deterministic(true))
+		if err != nil {
+			return err
+		}
+		after, err := json.Marshal(confirmed, json.Deterministic(true))
+		if err != nil || !slices.Equal(before, after) {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		if _, err := c.Authority.ReadTerminalIntent(check, db, partition); !errors.Is(err, authority.ErrNotFound) {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		if _, err := c.Authority.ReadHostMutation(check, authority.MutationRetirement, c.Cell+"."+state.HostNode); !errors.Is(err, authority.ErrNotFound) {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		currentNode, err := c.Client.GetNode(check, &api.GetNodeRequest{NodeID: node.ID})
+		if err != nil || currentNode == nil || currentNode.Node == nil || !proto.Equal(&currentNode.Node.Spec, &node.Spec) ||
+			!proto.Equal(currentNode.Node.Description, node.Description) || !time.Now().Before(qualified.ValidUntil()) {
+			return errors.Join(execution.ErrUnsafe, err)
+		}
+		if err := c.Profile(check, intent); err != nil {
+			return err
+		}
+		if err := c.Guard(check, intent.AuthorityEpoch); err != nil {
+			return err
+		}
+		if check.Err() != nil || !time.Now().Before(qualified.ValidUntil()) {
+			return execution.ErrUnsafe
+		}
+		return nil
 	}
-	latestMember, err := c.Members.ReadMember(ctx, db, partition, seat)
-	if err != nil || latestMember.Revision != member.Revision {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	latestRegistration, err := c.Authority.ReadHostMutation(ctx, authority.MutationRegistration, c.Cell+"."+state.HostNode)
-	if err != nil || latestRegistration.Sequence != registered.Sequence {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	confirmed, err := c.Delivery.ContainerIntent(ctx, intent.OperationID)
-	if err != nil {
+	if err := guard(ctx); err != nil {
 		return err
 	}
-	before, err := json.Marshal(intent, json.Deterministic(true))
-	if err != nil {
+	if effect == nil {
+		return nil
+	}
+	if err := effect(ctx); err != nil {
 		return err
 	}
-	after, err := json.Marshal(confirmed, json.Deterministic(true))
-	if err != nil || !slices.Equal(before, after) {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	if _, err := c.Authority.ReadTerminalIntent(ctx, db, partition); !errors.Is(err, authority.ErrNotFound) {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	if _, err := c.Authority.ReadHostMutation(ctx, authority.MutationRetirement, c.Cell+"."+state.HostNode); !errors.Is(err, authority.ErrNotFound) {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	currentNode, err := c.Client.GetNode(ctx, &api.GetNodeRequest{NodeID: node.ID})
-	if err != nil || currentNode == nil || currentNode.Node == nil || !proto.Equal(&currentNode.Node.Spec, &node.Spec) ||
-		!proto.Equal(currentNode.Node.Description, node.Description) || !time.Now().Before(qualified.ValidUntil()) {
-		return errors.Join(execution.ErrUnsafe, err)
-	}
-	if err := c.Profile(ctx, intent); err != nil {
-		return err
-	}
-	return c.Guard(ctx, intent.AuthorityEpoch)
+	return guard(ctx)
 }
