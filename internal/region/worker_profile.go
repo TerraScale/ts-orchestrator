@@ -7,6 +7,9 @@ const WorkerBootstrapDerivationV1 = "terrascale.worker.bootstrap.v1"
 const (
 	PoolMembershipQuarantineV1 = "unknown-member-nonterminating-decrement-detach-v1"
 	PoolMembershipProvenanceV1 = "protected-original-pool-create-v1"
+	CapacityJournalPurposeV1   = "original-home-capacity-journal-cas-v1"
+	CapacityJournalPrincipalV1 = "original-home-foundation-writer-v1"
+	CapacityJournalDeltaV1     = "capacity-only-field-preserving-v1"
 )
 
 // WorkerPoolMembership permits only removing unknown membership from a pool
@@ -14,6 +17,16 @@ const (
 type WorkerPoolMembership struct {
 	Purpose    string `json:"purpose"`
 	Provenance string `json:"provenance"`
+}
+
+// WorkerCapacityJournal authorizes only the original HOME foundation writer to
+// conditionally update capacity history in the three fixed regional records.
+// The signed clause conveys no general foundation, source or IAM write access.
+// Actual identity, storage scope and current operation must be proven separately.
+type WorkerCapacityJournal struct {
+	Purpose   string `json:"purpose"`
+	Principal string `json:"principal"`
+	Delta     string `json:"delta"`
 }
 
 // WorkerProfile is explicit worker authority in the existing root-signed grant.
@@ -48,6 +61,7 @@ type WorkerProfile struct {
 	RuntimeSHA256       string                  `json:"runtimeSha256,omitempty"`
 	Bootstrap           WorkerBootstrapTemplate `json:"bootstrap"`
 	PoolMembership      WorkerPoolMembership    `json:"poolMembership"`
+	CapacityJournal     WorkerCapacityJournal   `json:"capacityJournal"`
 }
 
 type WorkerBootstrapTemplate struct {
