@@ -28,6 +28,7 @@ import (
 	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/TerraScale/ts-orchestrator/tests/imagequalification/confinement"
+	qualificationhost "github.com/TerraScale/ts-orchestrator/tests/imagequalification/host"
 )
 
 const (
@@ -292,7 +293,7 @@ func (p Preparation) validateRole() ([]string, error) {
 	c := p.Candidate
 	switch {
 	case c.Role == "orchestrator" && c.Runtime == release.ProductionRuntime:
-		if !entityid.Valid(p.ProfileIdentity.DeploymentID) || p.ProfileIdentity.Cell != c.Cell || p.ProfileIdentity.Environment != c.Environment {
+		if qualificationhost.ValidateProfileIdentity(c, p.ProfileIdentity) != nil {
 			return nil, errors.New("signed production profile identity differs from candidate")
 		}
 		scenarios := []string{"ready", "after-loss", "after-partition", "unready", "failed-update"}
