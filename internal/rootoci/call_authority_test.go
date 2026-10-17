@@ -19,7 +19,7 @@ func TestAuthorityBootIDRequiresCanonicalKernelUUID(t *testing.T) {
 	if !validAuthorityBootID("b7043f01-b0ab-44c1-8ec6-6335bb312078") {
 		t.Fatal("rejected canonical kernel boot identity")
 	}
-	for _, value := range []string{"", "root-call-nonce", "b7043f01-b0ab-44c1-8ec6-6335bb312078\n", "b7043f01_b0ab-44c1-8ec6-6335bb312078", "g7043f01-b0ab-44c1-8ec6-6335bb312078"} {
+	for _, value := range []string{"", "root-call-nonce", "00000000-0000-0000-0000-000000000000", "b7043f01-b0ab-44c1-8ec6-6335bb312078\n", "b7043f01_b0ab-44c1-8ec6-6335bb312078", "g7043f01-b0ab-44c1-8ec6-6335bb312078"} {
 		if validAuthorityBootID(value) {
 			t.Fatal("accepted malformed kernel boot identity")
 		}
