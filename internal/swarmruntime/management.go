@@ -44,7 +44,21 @@ const controllerCgroup = "/system.slice/terrascale-orchestrator-controller.servi
 // StatefulServiceAuthorizer derives the exact current signed service in root.
 // The unprivileged socket caller cannot supply its readers or a cached seal.
 type StatefulServiceAuthorizer interface {
-	AuthorizeStatefulService(context.Context, *api.ServiceSpec) error
+	WithStatefulService(context.Context, *api.ServiceSpec, func(context.Context) error) error
+}
+
+// ManagementPeerPID returns the kernel-authenticated Unix peer for root's exact
+// process witness. RPC payloads cannot construct this private credential type.
+func ManagementPeerPID(ctx context.Context) (int32, error) {
+	remote, ok := peer.FromContext(ctx)
+	if !ok {
+		return 0, denied()
+	}
+	identity, ok := remote.AuthInfo.(unixPeer)
+	if !ok || identity.pid <= 0 {
+		return 0, denied()
+	}
+	return identity.pid, nil
 }
 
 // StartManagementServer exposes only controller operations beside the root-owned
@@ -426,10 +440,19 @@ func (s *managementServer) managedService(spec *api.ServiceSpec) bool {
 }
 
 func (s *managementServer) CreateService(ctx context.Context, req *api.CreateServiceRequest) (*api.CreateServiceResponse, error) {
-	if !s.managedService(req.Spec) && !s.authorizedStatefulService(ctx, req.Spec) {
+	if s.managedService(req.Spec) {
+		return s.client.CreateService(ctx, req)
+	}
+	var result *api.CreateServiceResponse
+	err := s.withStatefulService(ctx, req.Spec, func(effectCtx context.Context) error {
+		var err error
+		result, err = s.client.CreateService(effectCtx, req)
+		return err
+	})
+	if err == nil && result == nil {
 		return nil, denied()
 	}
-	return s.client.CreateService(ctx, req)
+	return result, err
 }
 func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateServiceRequest) (*api.UpdateServiceResponse, error) {
 	stateful := statefulService(req.Spec)
@@ -472,8 +495,17 @@ func (s *managementServer) UpdateService(ctx context.Context, req *api.UpdateSer
 			return nil, denied()
 		}
 	}
-	if stateful && !s.authorizedStatefulService(ctx, effective) {
-		return nil, denied()
+	if stateful {
+		var result *api.UpdateServiceResponse
+		err := s.withStatefulService(ctx, effective, func(effectCtx context.Context) error {
+			var err error
+			result, err = s.client.UpdateService(effectCtx, req)
+			return err
+		})
+		if err == nil && result == nil {
+			return nil, denied()
+		}
+		return result, err
 	}
 	return s.client.UpdateService(ctx, req)
 }
@@ -482,8 +514,18 @@ func statefulService(spec *api.ServiceSpec) bool {
 	return spec != nil && spec.Annotations.Labels[LabelRole] == "terrabase" && spec.Annotations.Labels["terrascale.stateful"] == "true"
 }
 
-func (s *managementServer) authorizedStatefulService(ctx context.Context, spec *api.ServiceSpec) bool {
-	return statefulService(spec) && s.scoped(spec.Annotations) && validIntentLabels(spec.Annotations.Labels) && s.stateful != nil && s.stateful.AuthorizeStatefulService(ctx, spec) == nil
+func (s *managementServer) withStatefulService(ctx context.Context, spec *api.ServiceSpec, effect func(context.Context) error) error {
+	if !statefulService(spec) || !s.scoped(spec.Annotations) || !validIntentLabels(spec.Annotations.Labels) || s.stateful == nil {
+		return denied()
+	}
+	called := false
+	return s.stateful.WithStatefulService(ctx, spec, func(effectCtx context.Context) error {
+		if called || effectCtx == nil || effectCtx.Err() != nil {
+			return denied()
+		}
+		called = true
+		return effect(effectCtx)
+	})
 }
 func (s *managementServer) RemoveService(ctx context.Context, req *api.RemoveServiceRequest) (*api.RemoveServiceResponse, error) {
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
