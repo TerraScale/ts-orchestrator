@@ -63,10 +63,34 @@ SWITCH_PATTERNS = [
     re.compile(r"\b(?:is[_-])?disabled\b\s*[:=]", re.I),
     re.compile(r"\benabled\s+bool\b", re.I),  # go config struct fields
     re.compile(r"\bdisabled\s+bool\b", re.I),
+    re.compile(r"\bhost[_-]?telemetry(?:\s+bool\b|\s*[:=])", re.I),
     re.compile(r'type:\s*boolean\b', re.I),  # workflow_dispatch inputs
 ]
 
 EXEMPT = re.compile(r"#\s*zero-config:\s*\S")
+
+
+def split_app_config_lines(path: str, head: str) -> set[int]:
+    """Find operator config declarations without scanning unrelated app state."""
+    if not path.startswith("internal/app/") or not path.endswith(".go"):
+        return set()
+    source = subprocess.run(
+        ["git", "show", f"{head}:{path}"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    lines = set()
+    in_config = False
+    for lineno, line in enumerate(source.splitlines(), 1):
+        declaration = re.match(r"^type (?:Config|[A-Z]\w*Config) struct\s*\{", line)
+        if declaration:
+            in_config = True
+        if in_config:
+            lines.add(lineno)
+        if line.startswith("}") or declaration and "}" in line:
+            in_config = False
+    return lines
 
 
 def added_lines(base: str, head: str):
@@ -101,6 +125,7 @@ def main() -> int:
     base, head = sys.argv[1], sys.argv[2]
     violations = []
     scanned = 0
+    split_configs = {}
     for path, lineno, text in added_lines(base, head):
         # Go env binding outside the config packages is still operator
         # configuration; catch it by content instead of path. Other Go
@@ -112,7 +137,10 @@ def main() -> int:
             continue
         if path.endswith(".go"):
             if not go_env_binding and not is_config_surface(path):
-                continue
+                if path not in split_configs:
+                    split_configs[path] = split_app_config_lines(path, head)
+                if lineno not in split_configs[path]:
+                    continue
         elif not is_config_surface(path):
             continue
         if EXEMPT.search(text):
