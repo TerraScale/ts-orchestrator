@@ -171,6 +171,11 @@ func (r FoundationRecord) validate() error {
 			return err
 		}
 	}
+	if r.FoundationWriter != nil {
+		if r.FoundationWriter.Cell != r.Cell || r.FoundationWriter.Generation > r.Generation || r.FoundationWriter.validate() != nil {
+			return errors.New("original home writer checkpoint is invalid")
+		}
+	}
 	if r.NetBirdManager != nil {
 		if r.Cell != "GRU" || r.NetBirdManager.validate() != nil {
 			return errors.New("dedicated NetBird manager checkpoint is invalid")
