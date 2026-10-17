@@ -93,7 +93,7 @@ func (broker *rootBrokerRuntime) readNetBirdProof() (_ *rootBrokerNetBirdProof, 
 		return nil, err
 	}
 	proof.address, err = proof.daemonAddress(status)
-	if err != nil || sources.guard(probe) != nil || probe.Err() != nil {
+	if err != nil || sources.guard(probe) != nil || probe.Err() != nil || proof.ctx.Err() != nil || proof.session.Err() != nil {
 		return nil, rootoci.ErrUnauthorized
 	}
 	return proof, nil
@@ -184,7 +184,13 @@ func (proof *rootBrokerNetBirdProof) guard(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return proof.broker.guard(ctx)
+	if err := proof.broker.guard(ctx); err != nil {
+		return err
+	}
+	if ctx.Err() != nil || proof.ctx.Err() != nil || proof.session.Err() != nil || !time.Now().Before(deadline) {
+		return rootoci.ErrUnauthorized
+	}
+	return nil
 }
 
 func (broker *rootBrokerRuntime) runNetBirdListener() {
