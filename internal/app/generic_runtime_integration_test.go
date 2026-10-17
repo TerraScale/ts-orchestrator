@@ -373,7 +373,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	}
 	first := ready(1)
 	initialUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(first), 3, 0)
-	if initialUsage.Observation.CoveredSequence == 0 || initialUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: profile.Resources.CPU, MemoryBytes: profile.Resources.MemoryBytes}) {
+	if initialUsage.Observation.CoveredSequence == 0 || initialUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: float64(profile.Resources.CPU), MemoryBytes: profile.Resources.MemoryBytes}) {
 		t.Fatal("three stable signed load requests lost their prior manager interval or original signed resources")
 	}
 	usageFixture.assertExpiredAndThrottled(t, ctx, initialUsage)
@@ -424,7 +424,7 @@ func TestGenericRuntimeSignedManagerIntegration(t *testing.T) {
 	}
 	scaled := ready(2)
 	scaledUsage := usageFixture.wait(t, ctx, genericRuntimeReadyTaskIDs(scaled), 1, 0)
-	if scaledUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: 2 * profile.Resources.CPU, MemoryBytes: 2 * profile.Resources.MemoryBytes}) {
+	if scaledUsage.Observation.Requests[policy.Role] != (hostload.Request{CPUCores: 2 * float64(profile.Resources.CPU), MemoryBytes: 2 * profile.Resources.MemoryBytes}) {
 		t.Fatal("actual replica CAS did not change the journal's aggregate signed requests")
 	}
 	view, err := newManagerWorkloadView(client, manager.ID(), fencer, controller.scaler, specs, probe)
