@@ -209,8 +209,8 @@ func (controller *containerMaterialController) managerSession(ctx context.Contex
 	return controller.config.Authority.Guard(ctx, controller.config.Authority.Current().Epoch)
 }
 
-func (controller *containerMaterialController) taskLoadRoles(ctx context.Context, registration host.Registration) ([]string, error) {
-	tasks, err := telemetryTasks(ctx, controller.config.Specs, controller.config.Client, registration)
+func (controller *containerMaterialController) taskLoadRoles(ctx context.Context, registration host.Registration, owns func(string) bool) ([]string, error) {
+	tasks, err := telemetryTasks(ctx, controller.config.Specs, controller.config.Client, registration, owns)
 	if err != nil {
 		return nil, err
 	}
