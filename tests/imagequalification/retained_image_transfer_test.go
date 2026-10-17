@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,7 @@ import (
 
 func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	f := fixture(t)
+	f.now = f.now.Add(-2 * time.Second)
 	a := f.prepared.Approval()
 	a.Candidate.Role, a.Purpose = release.FoundationWriterRole, qualification.RootCredentialBoundaryPurpose
 	a.ArtifactDisposition, a.ReaderIAMAuthority = qualification.RetainTestedImage, qualification.ExactHostReaders
@@ -166,6 +168,45 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(r.URL.Path, "/20160918/instances/") && r.Method == http.MethodGet {
+			reads++
+			if mode == "remaining-host" {
+				id := strings.TrimPrefix(r.URL.Path, "/20160918/instances/")
+				_ = json.MarshalWrite(w, core.Instance{Id: new(id), CompartmentId: new(a.Compartment), ImageId: new(imageID), LifecycleState: core.InstanceLifecycleStateRunning})
+				return
+			}
+			w.WriteHeader(404)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/20160918/instanceConsoleHistories/") && r.Method == http.MethodGet {
+			reads++
+			if mode == "remaining-console" {
+				id := strings.TrimPrefix(r.URL.Path, "/20160918/instanceConsoleHistories/")
+				_ = json.MarshalWrite(w, core.ConsoleHistory{Id: new(id), CompartmentId: new(a.Compartment), InstanceId: new(j.Hosts[a.Hosts[0].Name]), LifecycleState: core.ConsoleHistoryLifecycleStateSucceeded})
+				return
+			}
+			w.WriteHeader(404)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/20160918/computeImageCapabilitySchemas/") && r.Method == http.MethodGet {
+			reads++
+			if mode == "remaining-capability" {
+				id := strings.TrimPrefix(r.URL.Path, "/20160918/computeImageCapabilitySchemas/")
+				_ = json.MarshalWrite(w, core.ComputeImageCapabilitySchema{Id: new(id), ImageId: new(imageID), CompartmentId: new(a.Compartment), LifecycleState: core.ComputeImageCapabilitySchemaLifecycleStateActive})
+				return
+			}
+			w.WriteHeader(404)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/n/"+a.Namespace+"/b/"+a.Bucket+"/o/") && r.Method == http.MethodHead {
+			reads++
+			if mode == "remaining-source" {
+				w.WriteHeader(200)
+				return
+			}
+			w.WriteHeader(404)
+			return
+		}
 		prefix := "/n/" + a.Namespace + "/b/" + a.ImagePublicationBucket + "/o/"
 		if strings.HasPrefix(r.URL.Path, prefix) {
 			name := strings.TrimPrefix(r.URL.Path, prefix)
@@ -225,7 +266,7 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 		}
 		if r.Method == http.MethodGet && r.URL.Path == "/20160918/images/"+imageID {
 			reads++
-			if mode == "deleted-image" {
+			if mode == "deleted-image" || mode == "remaining-capability" {
 				w.WriteHeader(404)
 				_, _ = w.Write([]byte(`{"code":"NotAuthorizedOrNotFound","message":"local fixture"}`))
 				return
@@ -348,6 +389,83 @@ func TestImageOwnershipRequiresExactAuthenticatedPublication(t *testing.T) {
 	if recoveredTransfer, err := c.observeImageTransfer(t.Context(), observer, recovered); err != nil || recoveredTransfer.manifestSHA256 != transfer.manifestSHA256 {
 		t.Fatalf("restart lost exact earlier publication after locator/proof expiry: %+v %v", recoveredTransfer, err)
 	}
+	t.Run("supervisor-persists-and-reopens-exact-transfer", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "resources.json")
+		saved, err := c.load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		saved.ImageID, saved.Hosts = j.ImageID, j.Hosts
+		saved.RetainedAt, saved.RetainedReaderProof, saved.RootGateSHA256 = j.RetainedAt, j.RetainedReaderProof, j.RootGateSHA256
+		saved.CapabilityID, saved.CapabilityVersion = "ocid1.computeimagecapabilityschema.oc1.sa-saopaulo-1.original", "original"
+		saved.ObjectDeleted = true
+		for name := range saved.Hosts {
+			saved.Terminated[name] = true
+		}
+		if err := checkpoint(path, saved); err != nil {
+			t.Fatal(err)
+		}
+		for _, stage := range []string{"initial-publication", "recorded-restart"} {
+			mu.Lock()
+			mode = ""
+			if stage == "recorded-restart" {
+				mode = "missing-publication"
+			}
+			mu.Unlock()
+			supervisor := *c
+			if err := supervisor.superviseRetainedImage(t.Context(), path, observer); err != nil {
+				t.Fatalf("%s rejected historical transfer: %v", stage, err)
+			}
+			checkpointed, err := supervisor.load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if checkpointed.ImageManifestSHA256 != transfer.manifestSHA256 || checkpointed.ImageDeleted || checkpointed.CapabilityDeleted || supervisor.imageTransfer != transfer {
+				t.Fatalf("%s lost exact authenticated image ownership: %+v", stage, checkpointed)
+			}
+		}
+		settled, err := c.load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		consoleOperation := "console/" + a.Hosts[0].Name + "/root"
+		settled.ConsoleHistories[consoleOperation] = "ocid1.consolehistory.oc1.sa-saopaulo-1.original"
+		settled.ConsoleDeleted[consoleOperation] = true
+		for _, scenario := range []string{"recorded-transfer", "remaining-host", "remaining-console", "remaining-source", "missing-recorded-manifest", "missing-recorded-reference", "deleted-image", "remaining-capability", "unresolved-create", "cleanup-expired"} {
+			t.Run("completed-cleanup-"+scenario, func(t *testing.T) {
+				mu.Lock()
+				mode = scenario
+				beforeReads := reads
+				mu.Unlock()
+				original, copyJournal := c.prepared, settled
+				switch scenario {
+				case "missing-recorded-reference":
+					copyJournal.ImageManifestSHA256 = ""
+				case "unresolved-create":
+					copyJournal.Intents = map[string]time.Time{"unknown-create": f.now}
+				case "cleanup-expired":
+					original.approval.CleanupUntil = time.Now().UTC()
+				}
+				if err := checkpoint(path, copyJournal); err != nil {
+					t.Fatal(err)
+				}
+				err := verifyCompletedCleanup(t.Context(), original, observer, path)
+				wantSuccess := scenario == "recorded-transfer" || scenario == "deleted-image"
+				if (err == nil) != wantSuccess {
+					t.Fatalf("settled cleanup=%v, expected success=%v", err, wantSuccess)
+				}
+				mu.Lock()
+				afterReads, afterWrites := reads, writes
+				mu.Unlock()
+				if afterWrites != publicationWrites {
+					t.Fatal("completed cleanup observer dispatched a write")
+				}
+				if (scenario == "unresolved-create" || scenario == "cleanup-expired") && afterReads != beforeReads {
+					t.Fatal("invalid settled cleanup authority reached SDK")
+				}
+			})
+		}
+	})
 	mu.Lock()
 	mode = ""
 	mu.Unlock()
