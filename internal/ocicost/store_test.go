@@ -56,6 +56,27 @@ func TestStorePutRejectsInvalidReport(t *testing.T) {
 	if _, err := store.Report(ctx); !errors.Is(err, ErrNoReport) {
 		t.Fatalf("Report after rejected Put = %v, want ErrNoReport", err)
 	}
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Report)
+	}{
+		{name: "wrong version", mutate: func(r *Report) { r.Version = Version + 1 }},
+		{name: "empty cell", mutate: func(r *Report) { r.Cell = "" }},
+		{name: "upper-case cell", mutate: func(r *Report) { r.Cell = "GRU" }},
+		{name: "empty OCI region", mutate: func(r *Report) { r.OCIRegion = "" }},
+		{name: "lower-case currency", mutate: func(r *Report) { r.Currency = "usd" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := validReport()
+			tc.mutate(&report)
+			if err := store.Put(t.Context(), report); !errors.Is(err, ErrInvalidReport) {
+				t.Fatalf("Put invalid report = %v, want ErrInvalidReport", err)
+			}
+			if _, err := store.Report(t.Context()); !errors.Is(err, ErrNoReport) {
+				t.Fatalf("Report after rejected Put = %v, want ErrNoReport", err)
+			}
+		})
+	}
 }
 
 func TestStoreReportRejectsCorruptValue(t *testing.T) {
