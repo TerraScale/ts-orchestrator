@@ -280,7 +280,10 @@ func runController(ctx context.Context, cfg Config, output io.Writer) (err error
 	if err := restoreControllerKV(ctx, cfg, runtime.JetStream(), fullClusterReady); err != nil {
 		return err
 	}
-	candidateID := entityid.New()
+	candidateID, err := controllerRuntimeID()
+	if err != nil {
+		return fmt.Errorf("identify supervised regional authority candidate: %w", err)
+	}
 	control, stopAuthority, err := retryControllerOpen(ctx, "start regional authority", fullClusterReady, true,
 		func(attempt context.Context) (*authority.Runtime, error) {
 			return authority.Start(attempt, runtime.JetStream(), authority.Config{
