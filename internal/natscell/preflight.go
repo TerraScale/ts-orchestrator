@@ -20,9 +20,8 @@ func ValidateProductionCredentials(cfg Config) error {
 	return ValidateProductionControllerCredentials(cfg)
 }
 
-// ValidateProductionBrokerCredentials checks the privileged SYSTEM and optional
-// membership credentials as their owner. In production this caller is root;
-// the controller preflight must never read either private credential.
+// ValidateProductionBrokerCredentials checks privileged broker users, every TLS
+// role and the route password as their owner. The production caller is root.
 func ValidateProductionBrokerCredentials(cfg Config) error {
 	systemID, cellID, err := productionCredentialAccounts(cfg)
 	if err != nil {
@@ -46,12 +45,48 @@ func ValidateProductionBrokerCredentials(cfg Config) error {
 			return err
 		}
 	}
+	for label, files := range map[string]TLSFiles{"client": cfg.TLS, "listener": e.TLS, "route": e.RouteTLS} {
+		if err := validateCurrentTLSFiles(files, label); err != nil {
+			return fmt.Errorf("%s TLS material: %w", label, err)
+		}
+	}
+	if e.InterRegion != nil {
+		if e.InterRegion.Listen != nil {
+			if err := validateCurrentTLSFiles(e.InterRegion.Listen.TLS, "listener"); err != nil {
+				return fmt.Errorf("interregion listener TLS material: %w", err)
+			}
+		}
+		for _, remote := range e.InterRegion.Remotes {
+			if err := validateCurrentTLSFiles(remote.TLS, "client"); err != nil {
+				return fmt.Errorf("interregion remote %q TLS material: %w", remote.Peer, err)
+			}
+		}
+	}
+	if e.Link != nil {
+		role := "client"
+		if cfg.Cell == LinkHome {
+			role = "listener"
+		}
+		if err := validateCurrentTLSFiles(e.Link.TLS, role); err != nil {
+			return fmt.Errorf("link TLS material: %w", err)
+		}
+	}
+	if cfg.Replicas > 1 {
+		password, err := readPrivateFile(e.RoutePasswordFile, 4096)
+		if err != nil {
+			return fmt.Errorf("NATS route secret: %w", err)
+		}
+		defer clear(password)
+		if len(strings.TrimSpace(string(password))) < 16 {
+			return errors.New("NATS route secret is too short")
+		}
+	}
 	return nil
 }
 
-// ValidateProductionControllerCredentials retains the production configuration,
-// account, controller JWT, TLS and route checks without opening SYSTEM or
-// membership credentials. It runs under the actual controller service UID.
+// ValidateProductionControllerCredentials checks public account trust and the
+// controller user key, JWT and grants under the actual service UID. Broker TLS,
+// SYSTEM, membership and route secrets remain exclusively in the root preflight.
 func ValidateProductionControllerCredentials(cfg Config) error {
 	_, cellID, err := productionCredentialAccounts(cfg)
 	if err != nil {
@@ -68,22 +103,6 @@ func ValidateProductionControllerCredentials(cfg Config) error {
 	}
 	if err := ValidateBrokerControllerCredentials(cfg.CredentialsFile, cfg.Cell, cfg.Instance); err != nil {
 		return err
-	}
-	e := cfg.Embedded
-	for label, files := range map[string]TLSFiles{"client": cfg.TLS, "listener": e.TLS, "route": e.RouteTLS} {
-		if err := validateCurrentTLSFiles(files, label); err != nil {
-			return fmt.Errorf("%s TLS material: %w", label, err)
-		}
-	}
-	if cfg.Replicas > 1 {
-		password, err := readPrivateFile(e.RoutePasswordFile, 4096)
-		if err != nil {
-			return fmt.Errorf("NATS route secret: %w", err)
-		}
-		defer clear(password)
-		if len(strings.TrimSpace(string(password))) < 16 {
-			return errors.New("NATS route secret is too short")
-		}
 	}
 	return nil
 }
