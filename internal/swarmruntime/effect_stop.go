@@ -23,6 +23,15 @@ import (
 )
 
 func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, effect authority.RuntimeEffect, challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) error {
+	deadline, err := runtimeStopDeadline(challenge, proof)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	if err := checkRuntimeStopContext(ctx); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	payload := proof.Payload
 	retained, err := json.Marshal(challenge.effect, json.Deterministic(true))
@@ -61,6 +70,9 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	if err != nil {
 		return err
 	}
+	if err := checkRuntimeStopContext(ctx); err != nil {
+		return err
+	}
 	block, _ := pem.Decode(node.Certificate.Certificate)
 	if block == nil || block.Type != "CERTIFICATE" || !bytes.Equal(block.Bytes, proof.CertificateChain[0]) {
 		return errors.New("runtime stopped proof did not use the manager's current worker certificate")
@@ -74,6 +86,9 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	}
 	clusters, err := s.control.ListClusters(ctx, &api.ListClustersRequest{})
 	if err != nil {
+		return err
+	}
+	if err := checkRuntimeStopContext(ctx); err != nil {
 		return err
 	}
 	if clusters == nil || len(clusters.Clusters) != 1 || clusters.Clusters[0] == nil || leaf.Subject.Organization[0] != clusters.Clusters[0].ID {
@@ -111,7 +126,37 @@ func (s *EffectSessions) verifyRuntimeStop(ctx context.Context, epoch uint64, ef
 	if !ecdsa.VerifyASN1(key, digest[:], proof.Signature) {
 		return errors.New("runtime stopped proof worker signature is invalid")
 	}
-	return s.authority.Guard(ctx, epoch)
+	if err := s.authority.Guard(ctx, epoch); err != nil {
+		return err
+	}
+	return checkRuntimeStopContext(ctx)
+}
+
+func runtimeStopDeadline(challenge runtimeStopChallenge, proof executionwire.SignedRuntimeStop) (time.Time, error) {
+	if len(proof.CertificateChain) == 0 {
+		return time.Time{}, errors.New("runtime stopped proof worker certificate unavailable")
+	}
+	leaf, err := x509.ParseCertificate(proof.CertificateChain[0])
+	if err != nil {
+		return time.Time{}, err
+	}
+	deadline := challenge.issued.Add(10 * time.Second)
+	for _, limit := range []time.Time{proof.ClosingGrant.ExpiresAt, leaf.NotAfter} {
+		if limit.Before(deadline) {
+			deadline = limit
+		}
+	}
+	return deadline, nil
+}
+
+func checkRuntimeStopContext(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if deadline, ok := ctx.Deadline(); !ok || !time.Now().Before(deadline) {
+		return context.DeadlineExceeded
+	}
+	return nil
 }
 
 // The worker verified this original envelope before observing the stop. Its
