@@ -3,14 +3,17 @@ package region
 import (
 	"bytes"
 	"context"
+	"encoding/json/v2"
 	"errors"
 	"strings"
 	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/bootstrapmaterial"
+	"github.com/TerraScale/ts-orchestrator/internal/oci"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/sdkcli"
+	"github.com/TerraScale/ts-orchestrator/internal/release"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
 	"github.com/oracle/oci-go-sdk/v65/common"
 	"github.com/oracle/oci-go-sdk/v65/keymanagement"
@@ -28,6 +31,93 @@ type foundationOperator struct {
 	id       string
 	deadline time.Time
 	buckets  map[string]string
+}
+
+func (authority *HomeIAMAuthority) reserveFoundationWorkloadOrigin(ctx context.Context) error {
+	if authority == nil || authority.operator == nil {
+		return errors.New("founding workload origin requires the authenticated initial operator")
+	}
+	ctx, releaseLease, err := authority.HomeWrite(ctx, 0)
+	if err != nil {
+		return err
+	}
+	defer releaseLease()
+	// shortcut: this advisory lease cannot fence paused SDK dispatch; native genesis admission stays closed until consumer fencing exists.
+	if err := authority.Guard(ctx, 0); err != nil {
+		return err
+	}
+	reader, ok := authority.resolver.Footprint.(*SignedFootprint)
+	if !ok {
+		return errors.New("founding workload origin lacks its verified foundation reader")
+	}
+	envelope, err := trust.DecodeEnvelope(authority.operator.bundle.GrantWire)
+	if err != nil {
+		return err
+	}
+	var grant FoundationGrant
+	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	if grant.SchemaVersion != 3 {
+		return nil
+	}
+	wire, err := json.Marshal(authority.operator.bundle, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	for _, origin := range grant.WorkloadGenesis {
+		name, err := release.WorkloadGenesisObject(origin.TenancyID, origin.Cell, origin.Environment, origin.Role)
+		if err != nil {
+			return err
+		}
+		if err := publishFoundationObject(ctx, authority.objects, authority.domain.Namespace, name, wire); err != nil {
+			return err
+		}
+		published, err := readDiscoveryObject(ctx, authority.objects, authority.domain.Namespace, name, int64(len(wire)))
+		if err != nil || !bytes.Equal(published, wire) {
+			return errors.Join(errors.New("founding workload origin lacks exact immutable readback"), err)
+		}
+	}
+	if err := authority.Guard(ctx, 0); err != nil {
+		return err
+	}
+	// Existing consumers must understand the signed lineage before paid work.
+	_, err = bootstrap.VerifyBoundRegionalStartupTemplate(ctx, authority.factory, authority.operator.bundle.GrantWire, reader.roots, reader.bootstrapAnchor, oci.RegionGRU, time.Now())
+	return err
+}
+
+func (operator *foundationOperator) guardWorkloadOrigin(ctx context.Context, reader *SignedFootprint) error {
+	expected, err := json.Marshal(operator.bundle, json.Deterministic(true))
+	if err != nil {
+		return err
+	}
+	envelope, err := trust.DecodeEnvelope(operator.bundle.GrantWire)
+	if err != nil {
+		return err
+	}
+	var grant FoundationGrant
+	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	for _, cell := range []string{"GRU", "SFO", "FRA"} {
+		for _, role := range []string{"terrabase", "ts-auth", "function-worker"} {
+			name, err := release.WorkloadGenesisObject(operator.bundle.TenancyID, cell, reader.scope.Environment, role)
+			if err != nil {
+				return err
+			}
+			wire, err := readDiscoveryObject(ctx, operator.objects, operator.domain.Namespace, name, int64(len(expected)))
+			if service, ok := common.IsServiceError(err); ok && service.GetHTTPStatusCode() == 404 {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if grant.SchemaVersion != 3 || !bytes.Equal(wire, expected) {
+				return errors.New("permanent founding workload origin refuses a different or historical lineage")
+			}
+		}
+	}
+	return nil
 }
 
 func (authority *HomeIAMAuthority) publishFoundationPrerequisites(ctx context.Context) error {
@@ -68,7 +158,15 @@ func (operator *foundationOperator) guard(ctx context.Context) error {
 	if err != nil || tenancy != operator.bundle.TenancyID {
 		return errors.New("initial foundation operator tenancy changed")
 	}
-	if _, err := verifyRetainedFoundation(ctx, operator.bundle, operator.genesis); err != nil {
+	resolver, err := verifyRetainedFoundation(ctx, operator.bundle, operator.genesis)
+	if err != nil {
+		return err
+	}
+	reader, ok := resolver.Footprint.(*SignedFootprint)
+	if !ok {
+		return errors.New("initial foundation operator lacks its independent signed scope")
+	}
+	if err := operator.guardWorkloadOrigin(ctx, reader); err != nil {
 		return err
 	}
 	// Missing discovery permits the initial provisioning sequence. An existing
@@ -125,7 +223,7 @@ func newOperatorHomeIAMAuthority(ctx context.Context, factory *ociclient.Factory
 	if !ok {
 		return nil, FoundationResolver{}, errors.New("initial provisioning requires its verified signed foundation")
 	}
-	footprint, deadline, err := reader.authorizedRegions(ctx)
+	footprint, deadline, err := reader.verifyOriginalGrant(bundle.GrantWire)
 	if err != nil {
 		return nil, FoundationResolver{}, err
 	}

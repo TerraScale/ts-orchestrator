@@ -5,6 +5,7 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/trust"
@@ -22,6 +23,9 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 	}
 	ctx, cancel := context.WithDeadline(ctx, authority.operator.deadline)
 	defer cancel()
+	if err := authority.reserveFoundationWorkloadOrigin(ctx); err != nil {
+		return fmt.Errorf("reserve original workload lineage before foundation effects: %w", err)
+	}
 	reader := resolver.Footprint.(*SignedFootprint)
 	footprint, err := reader.AuthorizedRegions(ctx)
 	if err != nil {
@@ -80,7 +84,8 @@ func VerifyFoundationProvisionBundle(ctx context.Context, genesis trust.Keyring,
 	if ctx == nil || len(genesis) == 0 {
 		return errors.New("foundation provisioning requires context and independent roots")
 	}
-	if _, err := verifyRetainedFoundation(ctx, bundle, genesis); err != nil {
+	resolver, err := verifyRetainedFoundation(ctx, bundle, genesis)
+	if err != nil {
 		return err
 	}
 	envelope, err := trust.DecodeEnvelope(bundle.GrantWire)
@@ -89,6 +94,13 @@ func VerifyFoundationProvisionBundle(ctx context.Context, genesis trust.Keyring,
 	}
 	var grant FoundationGrant
 	if err := json.Unmarshal(envelope.Payload, &grant, json.RejectUnknownMembers(true)); err != nil {
+		return err
+	}
+	reader, ok := resolver.Footprint.(*SignedFootprint)
+	if !ok {
+		return errors.New("foundation provisioning lacks its independently verified grant reader")
+	}
+	if err := ValidateContainerReleaseAuthorities(grant, reader.roots, reader.storage, time.Now()); err != nil {
 		return err
 	}
 	return ValidatePreparedFoundation(grant)

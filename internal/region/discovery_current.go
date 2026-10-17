@@ -151,7 +151,7 @@ func resolveCurrentFoundation(ctx context.Context, client foundationDiscoveryObj
 	} else {
 		reader.retainedGrant = grantWire
 	}
-	if _, _, err := reader.verifyGrant(grantWire); err != nil {
+	if _, _, err := reader.verifyOriginalGrant(grantWire); err != nil {
 		return FoundationResolver{}, RetainedFoundation{}, err
 	}
 	home := reader.home
