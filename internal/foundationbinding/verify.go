@@ -59,6 +59,7 @@ type VerifiedBindings struct {
 	capacityLedger       *capacityledger.Ledger
 	capacityCompartments []string
 	capacityCurrency     string
+	capacityChildren     jsontext.Value
 	observedAt           time.Time
 }
 
@@ -154,6 +155,8 @@ type record struct {
 	CapacityLedger      *capacityledger.Ledger   `json:"capacityLedger,omitempty"`
 	PoolChildren        jsontext.Value           `json:"poolChildren,omitempty"`
 	CapacityPools       jsontext.Value           `json:"capacityPools,omitempty"`
+	CapacityCreates     jsontext.Value           `json:"capacityCreates,omitempty"`
+	PoolQuarantines     jsontext.Value           `json:"poolQuarantines,omitempty"`
 	WorkerPolicyIDs     jsontext.Value           `json:"workerPolicyIds,omitempty"`
 	SourcePolicyIDs     jsontext.Value           `json:"sourcePolicyIds,omitempty"`
 	NetBirdManager      jsontext.Value           `json:"netbirdManager,omitempty"`
@@ -333,7 +336,8 @@ func Verify(ctx context.Context, factory *ociclient.Factory, authority Authority
 		expires = current.ExpiresAt
 	}
 	return VerifiedBindings{factory: factory, authority: authority, wire: bytes.Clone(grantWire), expires: expires, ids: current.ResourceIDs,
-		capacityLedger: financial, capacityCompartments: compartments, capacityCurrency: approved.Currency, observedAt: observedAt}, nil
+		capacityLedger: financial, capacityCompartments: compartments, capacityCurrency: approved.Currency,
+		capacityChildren: bytes.Clone(current.PoolChildren), observedAt: observedAt}, nil
 }
 
 func verifyCurrentGrant(ctx context.Context, factory *ociclient.Factory, authority Authority, expected []byte) error {

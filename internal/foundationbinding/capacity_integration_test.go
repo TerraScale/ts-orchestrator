@@ -2,6 +2,7 @@ package foundationbinding
 
 import (
 	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"strings"
 	"testing"
 	"time"
@@ -53,6 +54,28 @@ func TestCapacityLedgerRequiresCurrentSignedGrantAndProtectedSDKRecord(t *testin
 	}
 	if err := proof.Revalidate(t.Context()); err == nil {
 		t.Fatal("a new protected root effect was invisible to accounting revalidation")
+	}
+	if err := s.record.CapacityLedger.BindBirth(receipt.OperationID, strings.Repeat("d", 64), "ocid1.instance.oc1.us-sanjose-1.child", "ocid1.bootvolume.oc1.us-sanjose-1.child", at.Add(3*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	child := capacityChild{OperationID: receipt.OperationID, RecipeSHA256: receipt.RecipeSHA256,
+		InstanceID: s.record.CapacityLedger.Hosts[0].InstanceID, BootVolumeID: s.record.CapacityLedger.Hosts[0].BootVolumeID, BornAt: at.Add(3 * time.Second)}
+	child.Launch.RequestSHA256, child.Launch.FirstAttemptAt = strings.Repeat("d", 64), at.Add(2*time.Second)
+	s.record.PoolChildren, err = json.Marshal(map[string]capacityChild{receipt.OperationID: child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	born, err := bindings.CapacityLedger(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.BootVolumeID = "ocid1.bootvolume.oc1.us-sanjose-1.foreign"
+	s.record.PoolChildren, err = json.Marshal(map[string]capacityChild{receipt.OperationID: child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := born.Revalidate(t.Context()); err == nil {
+		t.Fatal("financial liability accepted a different protected child boot result")
 	}
 	s.record.CapacityLedger = nil
 	if _, err := bindings.CapacityLedger(t.Context()); err == nil {
