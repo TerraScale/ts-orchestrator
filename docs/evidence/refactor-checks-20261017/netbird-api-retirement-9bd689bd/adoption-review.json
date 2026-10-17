@@ -18,7 +18,7 @@
     },
     {
       "source": "/tmp/ts-netbird-api-boundary-44fccacf-source-c5y_75hp/api_integration_test.go",
-      "member": "runtime-request/api_integration_test.go",
+      "member": "runtime-request/api_integration_test.go.txt",
       "bytes": 3384,
       "sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275"
     },
@@ -144,7 +144,7 @@
     },
     {
       "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/deleted-declaration.go",
-      "member": "compile/deleted-declaration.go",
+      "member": "compile/deleted-declaration.go.txt",
       "bytes": 1181,
       "sha256": "f7fc9d0a68f0299df78d4c97f407cd4b64d1737c9958195e9cd5f73669ba7a4e"
     },
@@ -156,7 +156,7 @@
     },
     {
       "source": "/tmp/ts-netbird-api-retirement-9bd689bd-6d9jtowd/manager_test.go",
-      "member": "compile/manager_test.go",
+      "member": "compile/manager_test.go.txt",
       "bytes": 20338,
       "sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc"
     },
@@ -222,13 +222,13 @@
     },
     {
       "source": "/tmp/ts-refactor-main-union-3d9a933e/internal/netbird/manager/api_integration_test.go",
-      "member": "source/api_integration_test.go",
+      "member": "source/api_integration_test.go.txt",
       "bytes": 3384,
       "sha256": "1e1d203df1cd634667b6e9bc471aad568ea27349dc773d6d3b35b4bd5ddd5275"
     },
     {
       "source": "/tmp/ts-refactor-main-union-3d9a933e/internal/netbird/manager/manager_test.go",
-      "member": "source/manager_test.go",
+      "member": "source/manager_test.go.txt",
       "bytes": 20338,
       "sha256": "c826a35b376ef70c27f1a0da6c76e5fd355749ea732181ba1893ac37b2d400fc"
     }
@@ -241,5 +241,13 @@
     "reason": "Binary bytes excluded; original manifests and receipt preserve identity."
   },
   "inventory": "One additional frozen original retired upon this adoption:5firstparty retirements/4314globally unadjudicated;0vendor central closures. No unit-only claim.",
-  "limits": "Public HTTP-client behavior only; no real NetBird management service/IPv6 connectivity/global NET/whole-union runtime qualification."
+  "limits": "Public HTTP-client behavior only; no real NetBird management service/IPv6 connectivity/global NET/whole-union runtime qualification.",
+  "evidence_filename_mapping": {
+    "compile/deleted-declaration.go": "compile/deleted-declaration.go.txt",
+    "compile/manager_test.go": "compile/manager_test.go.txt",
+    "runtime-request/api_integration_test.go": "runtime-request/api_integration_test.go.txt",
+    "source/api_integration_test.go": "source/api_integration_test.go.txt",
+    "source/manager_test.go": "source/manager_test.go.txt"
+  },
+  "evidence_filename_note": "Copied Go artifacts use .go.txt so ordinary go test ./... cannot discover evidence packages. All copied source/artifact bytes and original nested checksum manifests are exact; nested checksum pathnames refer to original names and are translated using this mapping."
 }
