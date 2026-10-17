@@ -49,6 +49,11 @@ func ProvisionFoundationBundle(ctx context.Context, factory *ociclient.Factory, 
 			return fmt.Errorf("provision signed %s foundation: %w", cell, err)
 		}
 	}
+	// Original allocation verifies the protected current grant before launch;
+	// the discovery anchor remains unpublished until every writer is ready.
+	if err := authority.publishFoundationPrerequisites(ctx); err != nil {
+		return fmt.Errorf("publish signed foundation prerequisites: %w", err)
+	}
 	for _, cell := range []string{"GRU", "SFO", "FRA"} {
 		original, err := launchFoundationWriter(ctx, authority, resolver, bundle, cell)
 		if err != nil {

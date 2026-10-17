@@ -180,18 +180,25 @@ func publishFoundationDiscovery(ctx context.Context, client foundationDiscoveryO
 		name string
 		wire []byte
 	}{{foundationRootChainObject, chainWire}, {grantName, grantWire}, {foundationDiscoveryObject, anchorWire}} {
-		policy := common.NoRetryPolicy()
-		request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(object.name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(object.wire))), PutObjectBody: io.NopCloser(bytes.NewReader(object.wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
-		writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
-		cancel()
-		if writeErr == nil {
-			continue
+		if err := publishFoundationObject(ctx, client, namespace, object.name, object.wire); err != nil {
+			return err
 		}
-		observed, readErr := readDiscoveryObject(ctx, client, namespace, object.name, foundationRecordLimit)
-		if readErr != nil || !bytes.Equal(observed, object.wire) {
-			return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
-		}
+	}
+	return nil
+}
+
+func publishFoundationObject(ctx context.Context, client FoundationObjects, namespace, name string, wire []byte) error {
+	policy := common.NoRetryPolicy()
+	request := objectstorage.PutObjectRequest{NamespaceName: new(namespace), BucketName: new(foundationDiscoveryBucket), ObjectName: new(name), IfNoneMatch: new("*"), ContentType: new("application/json"), ContentLength: new(int64(len(wire))), PutObjectBody: io.NopCloser(bytes.NewReader(wire)), RequestMetadata: common.RequestMetadata{RetryPolicy: &policy}}
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, writeErr := client.PutObject(ociclient.RequestContext(writeCtx), request)
+	cancel()
+	if writeErr == nil {
+		return nil
+	}
+	observed, readErr := readDiscoveryObject(ctx, client, namespace, name, foundationRecordLimit)
+	if readErr != nil || !bytes.Equal(observed, wire) {
+		return fmt.Errorf("initial foundation publication did not establish the exact immutable object: %w", writeErr)
 	}
 	return nil
 }
