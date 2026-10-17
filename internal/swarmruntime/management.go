@@ -43,6 +43,7 @@ const controllerCgroup = "/system.slice/terrascale-orchestrator-controller.servi
 
 // StatefulServiceAuthorizer derives the exact current signed service in root.
 // The unprivileged socket caller cannot supply its readers or a cached seal.
+// The callback runs synchronously once and must not be retained.
 type StatefulServiceAuthorizer interface {
 	WithStatefulService(context.Context, *api.ServiceSpec, func(context.Context) error) error
 }
@@ -50,6 +51,9 @@ type StatefulServiceAuthorizer interface {
 // ManagementPeerPID returns the kernel-authenticated Unix peer for root's exact
 // process witness. RPC payloads cannot construct this private credential type.
 func ManagementPeerPID(ctx context.Context) (int32, error) {
+	if admitted, _ := ctx.Value(managementAdmission{}).(bool); !admitted {
+		return 0, denied()
+	}
 	remote, ok := peer.FromContext(ctx)
 	if !ok {
 		return 0, denied()
@@ -60,6 +64,8 @@ func ManagementPeerPID(ctx context.Context) (int32, error) {
 	}
 	return identity.pid, nil
 }
+
+type managementAdmission struct{}
 
 // StartManagementServer exposes only controller operations beside the root-owned
 // manager. The private upstream control and containerd sockets remain root-only.
@@ -263,7 +269,7 @@ func startManagementAt(ctx context.Context, path string, uid, gid uint32, cgroup
 		default:
 			return nil, denied()
 		}
-		result, err := handler(ctx, req)
+		result, err := handler(context.WithValue(ctx, managementAdmission{}, true), req)
 		if err != nil {
 			return nil, status.Error(status.Code(err), "management operation failed")
 		}
@@ -519,13 +525,28 @@ func (s *managementServer) withStatefulService(ctx context.Context, spec *api.Se
 		return denied()
 	}
 	called := false
-	return s.stateful.WithStatefulService(ctx, spec, func(effectCtx context.Context) error {
-		if called || effectCtx == nil || effectCtx.Err() != nil {
+	invalid := false
+	var effectErr error
+	err := s.stateful.WithStatefulService(ctx, spec, func(effectCtx context.Context) error {
+		if called {
+			invalid = true
 			return denied()
 		}
 		called = true
-		return effect(effectCtx)
+		if effectCtx == nil || effectCtx.Err() != nil {
+			invalid = true
+			return denied()
+		}
+		effectErr = effect(effectCtx)
+		return effectErr
 	})
+	if !called || invalid {
+		return denied()
+	}
+	if effectErr != nil {
+		return effectErr
+	}
+	return err
 }
 func (s *managementServer) RemoveService(ctx context.Context, req *api.RemoveServiceRequest) (*api.RemoveServiceResponse, error) {
 	current, err := s.GetService(ctx, &api.GetServiceRequest{ServiceID: req.ServiceID})
