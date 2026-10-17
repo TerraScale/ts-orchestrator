@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrapstart"
 	"github.com/TerraScale/ts-orchestrator/internal/host"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion/catalog"
 	"github.com/TerraScale/ts-orchestrator/internal/seatrollout"
@@ -22,17 +24,28 @@ type managerEdgeState struct {
 	tasks      []*api.Task
 }
 
-type managerEdgeSnapshot map[string]map[string]managerEdgeState
+type managerEdgeNode struct {
+	ready bool
+	roles map[string]managerEdgeState
+}
+
+type managerEdgeSnapshot map[string]managerEdgeNode
 
 // managerEdgeSource binds readiness to an original local source and guard.
 // The root traffic boundary constructs its own source; a controller snapshot
 // never authorizes an OCI mutation.
+type managerEdgeRecipient struct {
+	deadline time.Time
+	current  func(context.Context) error
+}
+
 type managerEdgeSource struct {
-	client api.ControlReader
-	specs  *specRegistry
-	hosts  seatrollout.Hosts
-	probe  func(context.Context, *api.Task) error
-	guard  func(context.Context) error
+	client    api.ControlReader
+	specs     *specRegistry
+	hosts     seatrollout.Hosts
+	probe     func(context.Context, *api.Task) error
+	guard     func(context.Context) error
+	recipient func(context.Context, *api.Node, host.Registration) (managerEdgeRecipient, error)
 }
 
 func (f *releaseFence) managerSnapshot(ctx context.Context) (managerEdgeSnapshot, error) {
@@ -42,9 +55,11 @@ func (f *releaseFence) managerSnapshot(ctx context.Context) (managerEdgeSnapshot
 	if view == nil || view.authority == nil {
 		return nil, errors.New("manager task readiness source is unavailable")
 	}
-	epoch := view.authority.Current().Epoch
-	source := managerEdgeSource{client: view.client, specs: view.specs, hosts: f.hosts, probe: view.probe, guard: func(ctx context.Context) error {
-		if !view.leader(ctx, epoch) {
+	original := view.authority.Current()
+	epoch := original.Epoch
+	source := managerEdgeSource{client: view.client, specs: view.specs, hosts: f.hosts, probe: view.probe, recipient: f.recipient, guard: func(ctx context.Context) error {
+		current := view.authority.Current()
+		if !time.Now().Before(original.ExpiresAt) || current.Scope != original.Scope || current.DeploymentID != original.DeploymentID || current.CandidateID != original.CandidateID || current.OwnerID != original.OwnerID || current.Epoch != original.Epoch || current.Revision < original.Revision || !view.leader(ctx, epoch) {
 			return errors.New("manager readiness authority is unavailable")
 		}
 		return nil
@@ -57,10 +72,24 @@ func (f *releaseFence) managerSnapshot(ctx context.Context) (managerEdgeSnapshot
 // enrolled recipients. It returns a guard for the exact observed assignments.
 func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapshot, func(context.Context) error, error) {
 	fail := func(err error) (managerEdgeSnapshot, func(context.Context) error, error) { return nil, nil, err }
-	if source.client == nil || source.specs == nil || source.probe == nil || source.guard == nil {
+	if ctx == nil {
+		return fail(errors.New("manager readiness requires a context"))
+	}
+	if source.client == nil || source.specs == nil || source.probe == nil || source.recipient == nil || source.guard == nil {
 		return fail(errors.New("manager task readiness source is unavailable"))
 	}
-	if err := source.guard(ctx); err != nil {
+	originalContext := ctx
+	originalDeadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline || ctx.Done() == nil || ctx.Err() != nil {
+		return fail(errors.New("manager readiness requires an original bounded source context"))
+	}
+	guard := func(ctx context.Context) error {
+		if originalContext.Err() != nil || ctx.Err() != nil || !time.Now().Before(originalDeadline) {
+			return errors.New("manager readiness original source expired")
+		}
+		return source.guard(ctx)
+	}
+	if err := guard(ctx); err != nil {
 		return fail(err)
 	}
 	source.specs.mu.Lock()
@@ -85,10 +114,12 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 	if nodes == nil || services == nil || tasks == nil || len(hosts) > 4096 || len(nodes.Nodes) > 4096 || len(services.Services) > 4096 || len(tasks.Tasks) > 4096 {
 		return fail(errors.New("manager readiness inventory is unavailable or exceeds bounds"))
 	}
-	region := catalog.OCIRegion(source.specs.cell)
+	region := catalog.OCIRegion(strings.ToUpper(source.specs.cell))
 	nodeNames := map[string]string{}
 	nodeReady := map[string]bool{}
 	nodeEnvironment := map[string]string{}
+	nodeSessionDeadline := map[string]time.Time{}
+	recipients := map[string]managerEdgeRecipient{}
 	snapshot := managerEdgeSnapshot{}
 	for _, node := range nodes.Nodes {
 		if node == nil || node.ID == "" || node.Spec.Annotations.Labels[swarmruntime.LabelRegion] != region {
@@ -96,7 +127,7 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 		}
 		for _, status := range hosts {
 			registration := status.Registration
-			if catalog.OCIRegion(registration.Cell) != region {
+			if catalog.OCIRegion(strings.ToUpper(registration.Cell)) != region {
 				continue
 			}
 			matches := node.Spec.Annotations.Name == registration.ID
@@ -106,7 +137,7 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 			if !matches {
 				continue
 			}
-			if nodeNames[node.ID] != "" || snapshot[registration.Node] != nil {
+			if nodeNames[node.ID] != "" || snapshot[registration.Node].roles != nil {
 				return fail(errors.New("manager readiness recipient is ambiguous"))
 			}
 			if registration.ManagedOCI != nil && registration.ManagedOCI.InstanceID != node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] {
@@ -114,8 +145,23 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 			}
 			nodeNames[node.ID] = registration.Node
 			nodeEnvironment[node.ID] = registration.Environment
+			nodeSessionDeadline[node.ID] = status.SessionExpiresAt
 			nodeReady[node.ID] = !status.Retired && status.Verified && time.Now().Before(status.SessionExpiresAt) && node.Status.State == api.NodeStatus_READY && node.Spec.Membership == api.NodeMembershipAccepted && (node.Spec.Availability == api.NodeAvailabilityActive || node.Spec.Availability == api.NodeAvailabilityPause)
-			snapshot[registration.Node] = map[string]managerEdgeState{}
+			if nodeReady[node.ID] {
+				recipientCtx, cancel := context.WithDeadline(ctx, status.SessionExpiresAt)
+				recipient, err := source.recipient(recipientCtx, node, registration)
+				cancel()
+				nodeReady[node.ID] = err == nil && recipient.current != nil && time.Now().Before(recipient.deadline)
+				if nodeReady[node.ID] {
+					recipients[node.ID] = recipient
+					if recipient.deadline.Before(nodeSessionDeadline[node.ID]) {
+						nodeSessionDeadline[node.ID] = recipient.deadline
+					}
+				}
+			} else {
+				nodeReady[node.ID] = false
+			}
+			snapshot[registration.Node] = managerEdgeNode{ready: nodeReady[node.ID], roles: map[string]managerEdgeState{}}
 		}
 	}
 	owned := map[string]*api.Service{}
@@ -141,20 +187,22 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 		if role == "" || service.Spec.Annotations.Labels[swarmruntime.LabelEnvironment] != nodeEnvironment[task.NodeID] || task.ServiceAnnotations.Labels[swarmruntime.LabelRole] != role || task.ServiceAnnotations.Labels[swarmruntime.LabelEnvironment] != service.Spec.Annotations.Labels[swarmruntime.LabelEnvironment] || task.ServiceAnnotations.Labels[swarmruntime.LabelRegion] != region {
 			return fail(errors.New("manager task readiness scope differs from its service"))
 		}
-		state, exists := snapshot[name][role]
+		state, exists := snapshot[name].roles[role]
 		ready := nodeReady[task.NodeID] && task.Status.State == api.TaskStateRunning
 		if ready {
-			ready = source.probe(ctx, task) == nil
+			probeCtx, cancel := context.WithDeadline(ctx, nodeSessionDeadline[task.NodeID])
+			ready = source.probe(probeCtx, task) == nil
+			cancel()
 		}
 		if exists {
 			ready = ready && state.ready
 		}
-		snapshot[name][role] = managerEdgeState{ready: ready, observedAt: time.Now(), tasks: append(state.tasks, task.Copy())}
+		snapshot[name].roles[role] = managerEdgeState{ready: ready, observedAt: time.Now(), tasks: append(state.tasks, task.Copy())}
 	}
 	// Probe success belongs to these exact assignments and sessions, not an
 	// earlier service generation or a replaced manager source.
 	check := func(ctx context.Context) error {
-		if err := source.guard(ctx); err != nil {
+		if err := guard(ctx); err != nil {
 			return err
 		}
 		source.specs.mu.Lock()
@@ -162,6 +210,18 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 		source.specs.mu.Unlock()
 		if !sameSpec {
 			return errors.New("signed readiness spec changed during observation")
+		}
+		for nodeID, recipient := range recipients {
+			deadline := nodeSessionDeadline[nodeID]
+			if !time.Now().Before(deadline) {
+				return errors.New("manager readiness original recipient expired")
+			}
+			checkCtx, cancel := context.WithDeadline(ctx, deadline)
+			err := recipient.current(checkCtx)
+			cancel()
+			if err != nil {
+				return err
+			}
 		}
 		confirmedNodes, err := source.client.ListNodes(ctx, &api.ListNodesRequest{})
 		if err != nil {
@@ -180,17 +240,25 @@ func (source managerEdgeSource) snapshot(ctx context.Context) (managerEdgeSnapsh
 			return err
 		}
 		for _, status := range confirmedHosts {
-			roles := snapshot[status.Registration.Node]
-			for _, state := range roles {
-				if state.ready && !time.Now().Before(status.SessionExpiresAt) {
-					return errors.New("manager readiness host session expired")
-				}
+			if snapshot[status.Registration.Node].ready && !time.Now().Before(status.SessionExpiresAt) {
+				return errors.New("manager readiness host session expired")
 			}
 		}
 		if !proto.Equal(nodes, confirmedNodes) || !proto.Equal(services, confirmedServices) || !proto.Equal(tasks, confirmedTasks) || !reflect.DeepEqual(hosts, confirmedHosts) {
 			return errors.New("manager readiness assignments or sessions changed during observation")
 		}
-		return source.guard(ctx)
+		source.specs.mu.Lock()
+		sameSpec = source.specs.revision == specRevision
+		source.specs.mu.Unlock()
+		if !sameSpec {
+			return errors.New("signed readiness spec changed during observation")
+		}
+		for nodeID := range recipients {
+			if !time.Now().Before(nodeSessionDeadline[nodeID]) {
+				return errors.New("manager readiness original recipient expired")
+			}
+		}
+		return guard(ctx)
 	}
 	if err := check(ctx); err != nil {
 		return fail(err)
@@ -218,14 +286,94 @@ func (f *releaseFence) nodeRolesServing(ctx context.Context, node string, since 
 	if err != nil {
 		return "", err
 	}
-	roles, found := snapshot[node]
-	if !found || len(roles) == 0 {
-		return "its manager recipient has no current assigned tasks", nil
+	nodeState, found := snapshot[node]
+	if !found || !nodeState.ready {
+		return "its manager recipient is not currently ready", nil
 	}
-	for role, state := range roles {
+	for role, state := range nodeState.roles {
 		if !state.ready || !state.observedAt.After(since) {
 			return fmt.Sprintf("%s has no current ready manager task", role), nil
 		}
 	}
 	return "", nil
+}
+
+// edgeRecipient verifies idle nodes too: an empty task list is not an enrolled
+// identity, and a task's advertised host address never supplies membership.
+func (controller *containerMaterialController) edgeRecipient(ctx context.Context, node *api.Node, registration host.Registration) (managerEdgeRecipient, error) {
+	fail := func(err error) (managerEdgeRecipient, error) { return managerEdgeRecipient{}, err }
+	if controller == nil || controller.config.Specs == nil || controller.config.Specs.kv == nil || controller.config.Client == nil || controller.config.Hosts == nil || node == nil || node.ID == "" {
+		return fail(errors.New("manager readiness node is unavailable"))
+	}
+	if node.Role == api.NodeRoleManager {
+		if err := controller.managerSession(ctx, node.ID); err != nil {
+			return fail(err)
+		}
+		enrollment, err := completedControllerEnrollment(ctx, controller.config, registration, node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID])
+		if err != nil {
+			return fail(err)
+		}
+		entry, err := controller.config.Specs.kv.Get(ctx, cellSpecKey)
+		if err != nil {
+			return fail(err)
+		}
+		proof, err := bootstrapstart.ReadControllerHostRecipient(ctx, controller.config.Founders, controller.config.Accepted, entry.Value(), registration.Node, node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID], node.Status.Addr)
+		if err != nil {
+			return fail(err)
+		}
+		deadline := enrollment.ExpiresAt
+		if proof.Deadline().Before(deadline) {
+			deadline = proof.Deadline()
+		}
+		current := func(ctx context.Context) error {
+			if !time.Now().Before(deadline) {
+				return errors.New("original controller readiness enrollment expired")
+			}
+			if err := proof.VerifyRegistration(ctx, registration); err != nil {
+				return err
+			}
+			confirmed, err := completedControllerEnrollment(ctx, controller.config, registration, proof.InstanceID())
+			if err != nil {
+				return err
+			}
+			if !reflect.DeepEqual(enrollment, confirmed) {
+				return errors.New("controller readiness enrollment changed")
+			}
+			return nil
+		}
+		return managerEdgeRecipient{deadline: deadline, current: current}, current(ctx)
+	}
+	if controller.config.WorkerMembership == nil {
+		return fail(errors.New("worker readiness membership is unavailable"))
+	}
+	membership, err := controller.config.WorkerMembership(ctx, node.ID)
+	if err != nil {
+		return fail(err)
+	}
+	if err := membership.Validate(); err != nil {
+		return fail(err)
+	}
+	if registration.ManagedOCI == nil || membership.NodeID() != node.ID || membership.RegistrationID() != registration.ID || membership.InstanceID() != registration.ManagedOCI.InstanceID || membership.InstanceID() != node.Spec.Annotations.Labels[swarmruntime.LabelInstanceID] || membership.OCIRegion() != node.Spec.Annotations.Labels[swarmruntime.LabelRegion] {
+		return fail(errors.New("worker readiness recipient differs from its current membership"))
+	}
+	original := membership.Info()
+	current := func(ctx context.Context) error {
+		if err := membership.Validate(); err != nil {
+			return err
+		}
+		confirmed, err := controller.config.WorkerMembership(ctx, node.ID)
+		if err != nil {
+			return err
+		}
+		if err := confirmed.Validate(); err != nil {
+			return err
+		}
+		info := confirmed.Info()
+		info.ObservedAt, info.ExpiresAt = original.ObservedAt, original.ExpiresAt
+		if info != original {
+			return errors.New("worker readiness membership changed")
+		}
+		return membership.Validate()
+	}
+	return managerEdgeRecipient{deadline: original.ExpiresAt, current: current}, current(ctx)
 }

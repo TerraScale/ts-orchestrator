@@ -562,9 +562,9 @@ func (h *renameHosts) ListHosts(context.Context) ([]host.HostStatus, error) {
 	defer h.mu.Unlock()
 	var statuses []host.HostStatus
 	for _, node := range h.nodes {
-		status := host.HostStatus{Registration: host.Registration{Node: node, Roles: []string{"terrabase", "ts-auth"}}}
+		status := host.HostStatus{Registration: host.Registration{ID: node, Cell: "gru", Node: node, Environment: "production", Roles: []string{"terrabase", "ts-auth"}}, Verified: !h.down[node]}
 		if h.sessions[node] != "" && !h.down[node] {
-			status.SessionExpiresAt = time.Now().Add(30 * time.Second)
+			status.SessionExpiresAt = edgeTestSessionExpiry
 		}
 		for _, role := range status.Registration.Roles {
 			if d, ok := h.desired[node+"/"+role]; ok && !d.Withdrawn && !h.down[node] {
@@ -639,6 +639,7 @@ func TestNodeRenameReenrollsTheHostAndMovesItsRoles(t *testing.T) {
 	ops.controllers = func(node string) bool { return node == "ctl-1" }
 	renamed := map[string]string{"ts-gru-1": "10.0.0.11", "ctl-2": "10.0.0.12", "ctl-3": "10.0.0.13"}
 	ops.fence.spec = func() (*cellspec.ReleaseFence, map[string]string) { return spec, renamed }
+	ops.fence.manager.specs.current.HostGrants[0].Node = "ts-gru-1"
 	if _, err := ops.submit(ctx, 3, "mariogk", entityid.Derive("test-node-operation", "0"), request); err == nil || !strings.Contains(err.Error(), "controller slot") {
 		t.Fatalf("renamed a controller node without its slot: %v", err)
 	}

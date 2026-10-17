@@ -119,8 +119,8 @@ func (e *edgeReconciler) pass(ctx context.Context) error {
 			continue
 		}
 		members := map[string]bool{}
-		for node, roles := range statuses {
-			if _, assigned := roles[set.Role]; assigned && addresses[node] != "" {
+		for node, state := range statuses {
+			if _, assigned := state.roles[set.Role]; assigned && addresses[node] != "" {
 				members[node] = true
 			}
 		}
@@ -332,7 +332,7 @@ func (e *edgeReconciler) member(ctx context.Context, api lb.API, epoch uint64, s
 // notServing requires a complete current manager observation. Unknown sources
 // abort the pass before any backend changes.
 func (e *edgeReconciler) notServing(node, role string, statuses managerEdgeSnapshot) bool {
-	state, assigned := statuses[node][role]
+	state, assigned := statuses[node].roles[role]
 	key := node + "/" + role
 	e.mu.Lock()
 	defer e.mu.Unlock()
