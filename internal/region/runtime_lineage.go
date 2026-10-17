@@ -14,13 +14,21 @@ import (
 // RuntimeLineageRecord is prepared with a new protected foundation, before any
 // runtime exists. Missing historical records can never be upgraded to genesis.
 type RuntimeLineageRecord struct {
-	Version               int              `json:"version"`
-	FoundationOperationID string           `json:"foundationOperationId"`
-	Generation            uint64           `json:"generation"`
-	GrantSHA256           string           `json:"grantSha256"`
-	IntentSHA256          string           `json:"intentSha256"`
-	PreparedAt            time.Time        `json:"preparedAt"`
-	Creation              *RuntimeCreation `json:"creation,omitempty"`
+	Version               int                    `json:"version"`
+	FoundationOperationID string                 `json:"foundationOperationId"`
+	Generation            uint64                 `json:"generation"`
+	GrantSHA256           string                 `json:"grantSha256"`
+	IntentSHA256          string                 `json:"intentSha256"`
+	PreparedAt            time.Time              `json:"preparedAt"`
+	Creation              *RuntimeCreation       `json:"creation,omitempty"`
+	Broker                *RuntimeBrokerCreation `json:"broker,omitempty"`
+	TrustFloor            *RuntimeTrustFloor     `json:"trustFloor,omitempty"`
+}
+
+// Original excludes the finite operations which progress under this origin.
+func (lineage RuntimeLineageRecord) Original() RuntimeLineageRecord {
+	lineage.Creation, lineage.Broker, lineage.TrustFloor = nil, nil, nil
+	return lineage
 }
 
 // RuntimeCreation reserves the original accepted root source before node
@@ -64,6 +72,9 @@ func (r FoundationRecord) validateRuntimeLineage() error {
 	if lineage.Generation == r.Generation && (lineage.FoundationOperationID != r.OperationID || lineage.GrantSHA256 != r.GrantSHA256 || lineage.IntentSHA256 != r.IntentDigest || !lineage.PreparedAt.Equal(r.StartedAt)) {
 		return errors.New("runtime lineage differs from its current foundation generation")
 	}
+	if err := r.validateBrokerLineage(); err != nil {
+		return err
+	}
 	creation := lineage.Creation
 	if creation == nil {
 		return nil
@@ -97,10 +108,11 @@ func retainRuntimeLineage(previous, current *RuntimeLineageRecord) error {
 	if current == nil {
 		return errors.New("protected runtime lineage cannot be removed")
 	}
-	original, next := *previous, *current
-	original.Creation, next.Creation = nil, nil
-	if original != next {
+	if previous.Original() != current.Original() {
 		return errors.New("protected runtime foundation origin cannot change")
+	}
+	if err := retainBrokerLineage(previous, current); err != nil {
+		return err
 	}
 	if previous.Creation == nil {
 		return nil

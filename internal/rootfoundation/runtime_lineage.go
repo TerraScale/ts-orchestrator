@@ -99,8 +99,7 @@ func (permit *RuntimeCreationPermit) Commit(ctx context.Context, proof swarmrunt
 	}
 	lineage := *record.RuntimeLineage
 	creation := *lineage.Creation
-	lineage.Creation = nil
-	if lineage != permit.permit.Origin() {
+	if lineage.Original() != permit.permit.Origin() {
 		return errors.New("protected original runtime foundation changed")
 	}
 	creation.Genesis = &region.RuntimeSwarmGenesis{ClusterID: info.ClusterID, NodeID: info.NodeID, RootCASHA256: info.RootCASHA256,
