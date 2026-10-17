@@ -224,14 +224,19 @@ func (p *rootNativeMaintenanceSource) localCurrent(ctx context.Context) error {
 		p.recipient == nil || !p.binary.IsVerified() || !time.Now().Before(p.deadline) || !time.Now().Before(p.workflowDeadline) {
 		return rootoci.ErrUnauthorized
 	}
+	if err := p.call.Guard(ctx); err != nil {
+		return err
+	}
 	p.ownhost.mu.RLock()
 	current, err := bootstrapstart.EncodeAcceptedIdentity(p.ownhost.accepted)
-	changed := err != nil || !p.matchesOwnhostLocked() || !bytes.Equal(current, p.accepted)
+	changed := err != nil || !p.matchesOwnhostLocked() || !bytes.Equal(current, p.accepted) ||
+		ctx.Err() != nil || p.ctx.Err() != nil || p.session.Err() != nil ||
+		!time.Now().Before(p.deadline) || !time.Now().Before(p.workflowDeadline)
 	p.ownhost.mu.RUnlock()
 	if changed {
 		return rootoci.ErrUnauthorized
 	}
-	return p.call.Guard(ctx)
+	return nil
 }
 
 // The generation alone does not change when bind refreshes an existing session.
