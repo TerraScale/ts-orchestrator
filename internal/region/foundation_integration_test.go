@@ -570,6 +570,23 @@ func TestSignedFoundationScopeRequiresExplicitBootstrapAuthority(t *testing.T) {
 	if _, err := verified.Startup(); err == nil {
 		t.Fatal("generation-only scope admitted controller startup")
 	}
+	originalDeadline := time.Now().Add(time.Minute)
+	original, cancelOriginal := context.WithDeadline(t.Context(), originalDeadline)
+	defer cancelOriginal()
+	operation, cancelOperation := context.WithTimeout(original, 30*time.Second)
+	defer cancelOperation()
+	bounded, err := reader.AuthorizedBootstrapMaterialForOperation(operation, original, "GRU")
+	if err != nil || !bounded.ExpiresAt().Equal(originalDeadline) {
+		t.Fatalf("generation-only material lost original deadline: expiry=%s err=%v", bounded.ExpiresAt(), err)
+	}
+	cancelOperation()
+	if !bounded.IsVerified() || bounded.Revalidate(t.Context()) != nil {
+		t.Fatal("generation-only material retained the canceled operation budget")
+	}
+	cancelOriginal()
+	if bounded.IsVerified() || bounded.Revalidate(t.Context()) == nil {
+		t.Fatal("generation-only material survived original cancellation")
+	}
 	intentWire, err := trust.EncodePayload(oci.RegionIntent{SchemaVersion: 1, Generation: 1, BootstrapRegion: oci.RegionGRU, Regions: []oci.RegionMapping{{Cell: oci.RegionGRU, OCIRegion: "sa-saopaulo-1"}}})
 	if err != nil {
 		t.Fatal(err)

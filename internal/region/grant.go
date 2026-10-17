@@ -185,6 +185,9 @@ func (s *SignedFootprint) AuthorizedBootstrapMaterialForOperation(ctx, original 
 	if err != nil {
 		return VerifiedBootstrapMaterial{}, err
 	}
+	if deadline, ok := original.Deadline(); ok && deadline.Before(expires) {
+		expires = deadline
+	}
 	for _, intent := range footprint.Regions {
 		if intent.Plan["cell"] != cell {
 			continue
