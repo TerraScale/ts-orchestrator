@@ -167,11 +167,12 @@ type underlayOriginalRecord struct {
 	TenancyID           string                   `json:"tenancyId"`
 	ParentCompartmentID string                   `json:"parentCompartmentId"`
 	SharedCompartmentID string                   `json:"sharedCompartmentId"`
+	Generation          uint64                   `json:"generation"`
 	OperationID         string                   `json:"operationId"`
 	Epoch               uint64                   `json:"epoch"`
 	ResourceIDs         map[string]string        `json:"resourceIds"`
 	AuxiliaryIDs        map[string]string        `json:"auxiliaryIds"`
-	NetBirdUnderlay     *NetBirdUnderlayRecord   `json:"netbirdUnderlay"`
+	NetBirdUnderlay     jsontext.Value           `json:"netbirdUnderlay"`
 	NetBirdManager      *underlayOriginalManager `json:"netbirdManager"`
 	FoundationWriter    *underlayOriginalWriter  `json:"foundationWriter"`
 }
@@ -212,10 +213,13 @@ func (v VerifiedNetBirdUnderlayObservation) observe(ctx context.Context) (NetBir
 	defer response.Content.Close()
 	wire, err := io.ReadAll(io.LimitReader(response.Content, 128<<10+1))
 	var record underlayOriginalRecord
-	if err != nil || len(wire) == 0 || len(wire) > 128<<10 || json.Unmarshal(wire, &record) != nil || record.NetBirdUnderlay == nil || record.NetBirdManager == nil || record.FoundationWriter == nil {
+	if err != nil || len(wire) == 0 || len(wire) > 128<<10 || json.Unmarshal(wire, &record) != nil || len(record.NetBirdUnderlay) == 0 || record.NetBirdManager == nil || record.FoundationWriter == nil {
 		return zero, "", "", errors.Join(errors.New("original NetBird protected record lacks its retained native births and underlay"), err)
 	}
-	journal := *record.NetBirdUnderlay
+	var journal NetBirdUnderlayRecord
+	if err := json.Unmarshal(record.NetBirdUnderlay, &journal, json.RejectUnknownMembers(true)); err != nil {
+		return zero, "", "", err
+	}
 	if err := journal.Validate(); err != nil {
 		return zero, "", "", err
 	}
@@ -228,7 +232,7 @@ func (v VerifiedNetBirdUnderlayObservation) observe(ctx context.Context) (NetBir
 	if err != nil {
 		return zero, "", "", err
 	}
-	manager, writer, tenancy, err := v.originalLaunches(documents.GrantWire, record, underlayValue(bucket.CompartmentId))
+	manager, writer, tenancy, err := v.originalLaunches(documents.GrantWire, record, journal, underlayValue(bucket.CompartmentId))
 	if err != nil {
 		return zero, "", "", err
 	}
@@ -266,7 +270,7 @@ func (v VerifiedNetBirdUnderlayObservation) observe(ctx context.Context) (NetBir
 	return journal, digestBytes(birthWire), tenancy, nil
 }
 
-func (v VerifiedNetBirdUnderlayObservation) originalLaunches(grantWire []byte, record underlayOriginalRecord, bucketCompartment string) (core.LaunchInstanceDetails, core.LaunchInstanceDetails, string, error) {
+func (v VerifiedNetBirdUnderlayObservation) originalLaunches(grantWire []byte, record underlayOriginalRecord, j NetBirdUnderlayRecord, bucketCompartment string) (core.LaunchInstanceDetails, core.LaunchInstanceDetails, string, error) {
 	var empty core.LaunchInstanceDetails
 	fail := func() (core.LaunchInstanceDetails, core.LaunchInstanceDetails, string, error) {
 		return empty, empty, "", errors.New("original NetBird archive, purpose, source, allocations or protected native launches differ")
@@ -294,8 +298,9 @@ func (v VerifiedNetBirdUnderlayObservation) originalLaunches(grantWire []byte, r
 		record.ParentCompartmentID != grant.ParentCompartmentID || record.SharedCompartmentID != grant.SharedCompartmentID {
 		return fail()
 	}
-	j, m, w := *record.NetBirdUnderlay, *record.NetBirdManager, *record.FoundationWriter
-	if j.OperationID != entityid.Derive("regional-foundation", grant.TenancyID, "GRU", fmt.Sprint(grant.Generation)) || record.OperationID != j.OperationID || record.Epoch < j.Epoch ||
+	m, w := *record.NetBirdManager, *record.FoundationWriter
+	if j.OperationID != entityid.Derive("regional-foundation", grant.TenancyID, "GRU", fmt.Sprint(grant.Generation)) || record.Generation < grant.Generation ||
+		record.OperationID != entityid.Derive("regional-foundation", grant.TenancyID, "GRU", fmt.Sprint(record.Generation)) || record.Epoch < j.Epoch ||
 		j.Origin.Namespace != v.storage.Namespace || j.Origin.GrantObject != strings.TrimSuffix(v.storage.Prefix, "/")+"/"+netBirdOriginGrantObject {
 		return fail()
 	}
