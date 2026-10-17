@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/TerraScale/ts-orchestrator/internal/bootstrap"
 	"github.com/TerraScale/ts-orchestrator/internal/naming"
 	"github.com/TerraScale/ts-orchestrator/internal/ociclient"
 	"github.com/TerraScale/ts-orchestrator/internal/ociregion"
@@ -45,6 +46,8 @@ type Object = map[string]any
 
 // Foundation finds or creates one plan's foundation.
 type Foundation struct {
+	// HomeStorageDomain is the independently verified root-pinned GRU storage.
+	HomeStorageDomain bootstrap.StorageDomain
 	// Region serves the plan's OCI region and Home the tenancy's home
 	// region, the only one that accepts IAM writes.
 	Region, Home command.Client
@@ -69,7 +72,7 @@ type Foundation struct {
 	resourceKeys  map[string]string
 	tenancy       string
 	region        string
-	inspect       func(context.Context, Object) error
+	inspect       func(context.Context, Object, bootstrap.StorageDomain) error
 	// Check runs inspect-foundation's live checks on the bound plan.
 	Check        func(plan Object) error
 	Pause        func(context.Context, time.Duration) error
@@ -97,8 +100,8 @@ func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foun
 	if err != nil {
 		return nil, err
 	}
-	inspect := func(ctx context.Context, plan Object) error {
-		engine := &ociregion.Engine{Context: ctx, Dependency: func(name string, args []any, kwargs Object) (any, error) {
+	inspect := func(ctx context.Context, plan Object, homeStorage bootstrap.StorageDomain) error {
+		engine := &ociregion.Engine{Context: ctx, HomeStorageDomain: homeStorage, Dependency: func(name string, args []any, kwargs Object) (any, error) {
 			if name != "oci" {
 				return nil, fmt.Errorf("foundation inspection dependency %s is unsupported", name)
 			}
@@ -127,7 +130,7 @@ func New(ctx context.Context, factory *ociclient.Factory, tenancy string) (*Foun
 		return engine.CheckFoundation(plan)
 	}
 	return &Foundation{Region: publicapi.NewClientWithFactory(factory), Home: publicapi.NewClientWithFactory(home), Out: io.Discard,
-		Check: func(plan Object) error { return inspect(ctx, plan) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
+		Check: func(plan Object) error { return inspect(ctx, plan, bootstrap.StorageDomain{}) }, inspect: inspect, tenancy: tenancy, region: factory.Region()}, nil
 }
 
 // Run is `ts-orch oci-region foundation`.
@@ -211,9 +214,12 @@ func (f *Foundation) Reconcile(ctx context.Context, plan Object) (Object, error)
 	if f.tenancy != "" && bound["tenancy_id"] != f.tenancy || f.region != "" && bound["region"] != f.region {
 		return nil, errors.New("foundation plan differs from authenticated tenancy or regional client")
 	}
+	if _, err := ociregion.FoundationBucketKey(bound, obj(bound["resource_ids"]), "ledger", working.HomeStorageDomain); err != nil {
+		return nil, err
+	}
 	ctx = ociclient.WithAuthority(ociresource.WithOperation(ctx, f.OperationID), f.Guard)
 	if working.inspect != nil {
-		working.Check = func(plan Object) error { return working.inspect(ctx, plan) }
+		working.Check = func(plan Object) error { return working.inspect(ctx, plan, working.HomeStorageDomain) }
 	}
 	ids, err := working.bind(ctx, bound)
 	if err != nil {
@@ -713,7 +719,11 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 			return err
 		}
 	}
-	controller, err := ociregion.RequiredControllerStatements(plan, ids, text(plan["bootstrap_object_prefix"]))
+	controller, err := ociregion.RequiredStorageControllerStatements(plan, ids, text(plan["bootstrap_object_prefix"]), f.HomeStorageDomain)
+	if err != nil {
+		return err
+	}
+	storageKeys, err := ociregion.ObjectStorageKeyStatements(plan, ids, f.HomeStorageDomain)
 	if err != nil {
 		return err
 	}
@@ -722,7 +732,7 @@ func (f *Foundation) iam(ctx context.Context, plan, ids Object, cell, descriptio
 		statements             []string
 	}
 	control := text(ids["control_compartment"])
-	policies := []policy{{"objectstorage_key_policy", text(identity["objectstorage_key_policy_name"]), control, []string{ociregion.ObjectStorageKeyStatement(plan, ids)}},
+	policies := []policy{{"objectstorage_key_policy", text(identity["objectstorage_key_policy_name"]), control, storageKeys},
 		{"controller_policy", text(identity["controller_policy_name"]), parent, controller},
 		// Usage API statements must name the tenancy, so this one sits in
 		// the root compartment; the controller policy's parent is not it.
@@ -770,9 +780,16 @@ func (f *Foundation) buckets(ctx context.Context, plan Object, control, key stri
 			return fmt.Errorf("read the Object Storage namespace: %w", err)
 		}
 		namespace = text(v)
+		if f.HomeStorageDomain != (bootstrap.StorageDomain{}) && namespace != f.HomeStorageDomain.Namespace {
+			return errors.New("live namespace differs from signed home storage")
+		}
 	}
 	names := obj(plan["foundation_buckets"])
 	for _, role := range []string{"ledger", "head", "backup", "material"} {
+		bucketKey, err := ociregion.FoundationBucketKey(plan, Object{"key": key}, role, f.HomeStorageDomain)
+		if err != nil {
+			return err
+		}
 		name := text(names[role])
 		versioning := "Disabled"
 		if role == "head" || role == "material" {
@@ -805,10 +822,10 @@ func (f *Foundation) buckets(ctx context.Context, plan Object, control, key stri
 				}
 			}
 			return f.verifyFound(name, found)
-		}, f.create(f.Region, "os", "bucket", "create", "--namespace-name", namespace, "--compartment-id", control, "--name", name, "--kms-key-id", key,
+		}, f.create(f.Region, "os", "bucket", "create", "--namespace-name", namespace, "--compartment-id", control, "--name", name, "--kms-key-id", bucketKey,
 			"--versioning", versioning, "--public-access-type", "NoPublicAccess", "--storage-tier", "Standard"),
 			func(r Object) bool {
-				return r["compartment-id"] == control && r["public-access-type"] == "NoPublicAccess" && r["kms-key-id"] == key && r["versioning"] == versioning
+				return r["compartment-id"] == control && r["public-access-type"] == "NoPublicAccess" && r["kms-key-id"] == bucketKey && r["versioning"] == versioning
 			})
 		if err != nil {
 			return err
